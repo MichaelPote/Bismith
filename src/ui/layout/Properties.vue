@@ -1,0 +1,494 @@
+<script setup lang="ts">
+// Properties of the current selection, generated from ParamDefs and grouped into collapsible cards.
+import { computed } from 'vue'
+import { useProjectStore } from '@/stores/project'
+import { useEditorStore } from '@/stores/editor'
+import { getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry'
+import { getPostDef } from '@/render/post/registry'
+import { LIGHT_DEFS } from '@/core/lights'
+import { P, type ParamDef, type ParamValue, type ParamValues } from '@/core/params'
+import { SIZE_PRESETS } from '@/core/project'
+import { layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta'
+import { useActions } from '@/ui/actions'
+import PanelCard from '@/ui/components/PanelCard.vue'
+import ParamList from '@/ui/components/ParamList.vue'
+import Icon from '@/ui/components/Icon.vue'
+import PostExtras from '@/ui/panels/PostExtras.vue'
+import { getRecipe } from '@/recipes'
+import { linkedCopies } from '@/core/links'
+import LightingPresets from '@/ui/panels/LightingPresets.vue'
+
+const store = useProjectStore()
+const editor = useEditorStore()
+const act = useActions()
+
+const sel = computed(() => editor.selection)
+const layer = computed(() => (sel.value.kind === 'layer' && sel.value.id ? store.getLayer(sel.value.id) : undefined))
+const layerDef = computed(() => (layer.value ? getLayerDef(layer.value.type) : undefined))
+const light = computed(() => (sel.value.kind === 'light' && sel.value.id ? store.getLight(sel.value.id) : undefined))
+const post = computed(() => (sel.value.kind === 'post' && sel.value.id ? store.getPost(sel.value.id) : undefined))
+const postDef = computed(() => (post.value ? getPostDef(post.value.type) : undefined))
+
+// Smart materials (recipes as a few controls over ordinary layers).
+const material = computed(() => (sel.value.kind === 'material' && sel.value.id ? store.getMaterial(sel.value.id) : undefined))
+const recipe = computed(() => (material.value ? getRecipe(material.value.recipe) : undefined))
+const materialCards = computed(() => {
+  const r = recipe.value
+  if (!r) return []
+  return r.groups.map((g) => ({ group: g, defs: r.params.filter((d) => (d.group ?? r.groups[0].id) === g.id) })).filter((c) => c.defs.length > 0)
+})
+const memberRows = computed(() =>
+  material.value
+    ? Object.entries(material.value.members)
+        .map(([role, id]) => ({ role, layer: store.getLayer(id), stack: store.locateLayer(id)?.stack }))
+        .filter((r) => r.layer)
+    : [],
+)
+const layerMaterial = computed(() => (layer.value ? (store.project.materials ?? []).find((m) => Object.values(m.members).includes(layer.value!.id)) : undefined))
+const layerLinks = computed(() => (layer.value ? linkedCopies(store.project, layer.value) : []))
+
+// A material's named mask (FR8.13): the same controls as a layer's, applied to every member.
+const MATERIAL_MASK_DEFS: ParamDef[] = [
+  P.enum('use', 'Masked by', 'none', [['none', 'None'], ['1', 'Mask 1'], ['2', 'Mask 2'], ['3', 'Mask 3'], ['4', 'Mask 4']], { hint: 'Clip every layer of this material to a named mask ("Write to mask" on any layer)' }),
+  P.bool('invert', 'Outside the mask', false, { showIf: (p) => p.use !== 'none', hint: 'Cut a hole: the material is kept only where the mask is not set' }),
+]
+const materialMask = computed<ParamValues>(() => ({ use: material.value?.mask?.use ?? 'none', invert: material.value?.mask?.invert ?? false }))
+function setMaterialMask(key: string, value: ParamValue): void {
+  const m = material.value
+  if (!m) return
+  const next = { ...materialMask.value, [key]: value }
+  store.setMaterialMask(m.id, String(next.use), next.invert === true)
+}
+
+function unpackMaterial(): void {
+  const m = material.value
+  if (!m) return
+  const first = Object.values(m.members)[0]
+  store.unpackMaterial(m.id)
+  editor.select(first ? 'layer' : 'project', first)
+}
+
+const layerCards = computed(() => {
+  const l = layer.value
+  const def = layerDef.value
+  if (!l || !def) return []
+  const defs = layerParamDefs(l.type)
+  // Relief layers never colour the surface: their colour outputs are hidden (the pipeline resets them anyway).
+  const relief = store.locateLayer(l.id)?.stack === 'relief'
+  const hidden = new Set(relief ? ['diffuse', 'alpha', 'emissive'] : [])
+  return layerGroups(def)
+    .filter((g) => !hidden.has(g.id))
+    .map((g) => ({
+      group: g,
+      defs: defs.filter((d) => (d.group ?? 'params') === g.id && d.key !== g.toggleKey),
+    }))
+    .filter((c) => c.defs.length > 0)
+})
+
+function layerIndexLabel(): string {
+  const l = layer.value
+  const at = l ? store.locateLayer(l.id) : undefined
+  if (!at) return ''
+  const n = at.stack === 'relief' ? store.project.relief.length : store.project.layers.length
+  return `${at.stack === 'relief' ? 'Relief' : 'Paint'} #${at.index + 1} of ${n}`
+}
+
+function moveSelectedLayer(dir: number): void {
+  const l = layer.value
+  const at = l ? store.locateLayer(l.id) : undefined
+  if (l && at) store.moveLayer(l.id, at.index + dir)
+}
+
+// ---------------------------------------------------------------- project / world param tables
+const PROJECT_DEFS: ParamDef[] = [
+  P.int('width', 'Width', 128, 1, 2048, { softMin: 16, softMax: 1024, unit: 'px' }),
+  P.int('height', 'Height', 128, 1, 2048, { softMin: 16, softMax: 1024, unit: 'px' }),
+  P.bool('tileable', 'Tileable (seamless wrap)', true),
+  P.float('heightDepth', 'Height depth', 2, 0, 4096, { softMax: 8, unit: 'px', step: 0.01, hint: 'World height in px of a height value of 1.0. Keep it small (1–3 px) for fine relief' }),
+  P.seed('seed', 'Global seed'),
+]
+const BASE_DEFS: ParamDef[] = [
+  P.color('color', 'Colour', '#7a7570'),
+  P.float('roughness', 'Roughness', 0.75, 0, 1, { step: 0.001 }),
+  P.float('specular', 'Specular', 0.5, 0, 1, { step: 0.001, hint: 'Specular level before layers (0.5 ≈ 4 % reflectance at scale 1); Specular outputs vary it per pixel' }),
+  P.float('height', 'Height', 0, -64, 64, { softMin: -1, softMax: 1, step: 0.001 }),
+  P.float('opacity', 'Opacity', 1, 0, 1, { step: 0.001 }),
+]
+const SKY_DEFS: ParamDef[] = [
+  P.bool('enabled', 'Sky light', true),
+  P.color('zenith', 'Zenith', '#9fb4c8'),
+  P.color('horizon', 'Horizon', '#c8c2b8'),
+  P.float('intensity', 'Intensity', 0.35, 0, 1000, { softMax: 4, step: 0.001 }),
+]
+const AMBIENT_DEFS: ParamDef[] = [
+  P.color('color', 'Colour', '#ffffff'),
+  P.float('intensity', 'Strength', 0.02, 0, 1000, { softMax: 1, step: 0.001, hint: 'Un-shadowed fill light' }),
+]
+const RENDER_DEFS: ParamDef[] = [
+  P.int('maxSamples', 'Max samples', 256, 1, 65536, { softMin: 1, softMax: 2048 }),
+  P.int('samplesPerFrame', 'Per frame', 4, 1, 64, { softMax: 32 }),
+  P.int('bounces', 'Bounces', 2, 0, 4),
+  P.float('specular', 'Specular scale', 1, 0, 4, { step: 0.001, hint: 'Multiplies every pixel’s specular level: F0 = 0.08 × level × scale. 0 turns highlights off' }),
+  P.float('specularTint', 'Specular tint', 0, 0, 1, { step: 0.001, hint: '0 = white highlights; 1 = highlights in the surface’s own hue, enriching the colour' }),
+  P.float('ao', 'Ambient occlusion', 0, 0, 8, { softMax: 3, step: 0.01, hint: 'Darkens creases and touching edges: lighting × AO^strength (0 = off). Works with cast shadows off' }),
+  P.float('aoRadius', 'AO radius', 4, 0.5, 128, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => Number(p.ao) > 0 }),
+  P.float('clamp', 'Firefly clamp', 8, 0, 1000, { softMax: 32, step: 0.1, hint: 'Max luminance of indirect samples (0 = off)' }),
+  P.bool('jitter', 'Sub-pixel jitter (soft shadow edges)', true),
+  P.bool('shadows', 'Cast shadows', true, { hint: 'Off: lights shade by surface angle only (painted / hand-lit look)' }),
+  P.int('supersample', 'Supersample', 1, 1, 4, { hint: 'Render the surface and lighting at 2–4× and average down: finer 1 px highlights, thin joints and small holes (costs k² time)' }),
+]
+
+function assign(obj: object, key: string, v: ParamValue): void {
+  ;(obj as Record<string, ParamValue>)[key] = v
+}
+const asValues = (o: object) => o as unknown as ParamValues
+</script>
+
+<template>
+  <aside class="props cf-panel">
+    <!-- Layer -->
+    <template v-if="layer && layerDef">
+      <div class="title">
+        <Icon :name="layerIcon(layer.type)" :size="15" :stroke="layerHue(layer.type)" />
+        <input class="name" :value="layer.name" aria-label="Layer name" @change="store.updateLayer(layer.id, { name: ($event.target as HTMLInputElement).value })" />
+        <label class="en" title="Enabled">
+          <input type="checkbox" :checked="layer.enabled" aria-label="Layer enabled" @change="store.updateLayer(layer.id, { enabled: ($event.target as HTMLInputElement).checked })" />
+        </label>
+      </div>
+      <div class="sub">
+        <span class="type">{{ layerDef.label }}</span>
+        <span class="cf-mono lo">{{ layerIndexLabel() }}</span>
+        <span class="grow" />
+        <button type="button" class="cf-ico-btn" title="Move up" aria-label="Move layer up" @click="moveSelectedLayer(1)"><Icon name="up" :size="13" /></button>
+        <button type="button" class="cf-ico-btn" title="Move down" aria-label="Move layer down" @click="moveSelectedLayer(-1)"><Icon name="down" :size="13" /></button>
+        <button type="button" class="cf-ico-btn" title="Duplicate (Ctrl+D)" aria-label="Duplicate layer" @click="act.duplicateSelection"><Icon name="copy" :size="13" /></button>
+        <button type="button" class="cf-ico-btn" title="Delete (Del)" aria-label="Delete layer" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+      </div>
+      <p v-if="layerDef.description" class="desc">{{ layerDef.description }}</p>
+      <div v-if="layerMaterial || layerLinks.length" class="links">
+        <button v-if="layerMaterial" type="button" class="chip" :title="`Part of the smart material ${layerMaterial.name}`" @click="editor.select('material', layerMaterial.id)">
+          <Icon name="diamond" :size="11" />{{ layerMaterial.name }}
+        </button>
+        <span v-if="layerLinks.length" class="chip lo" :title="`Same pattern as ${layerLinks.map((l) => l.name).join(', ')}: pattern settings change together`">
+          <Icon name="link" :size="11" />linked ×{{ layerLinks.length }}
+        </span>
+        <button v-if="layerLinks.length" type="button" class="cf-btn small" title="Give this layer its own seed: its pattern no longer follows the copies" @click="store.unlinkLayer(layer.id)">Unlink</button>
+      </div>
+      <div class="scroll">
+        <PanelCard
+          v-for="c in layerCards"
+          :key="`${layer.id}:${c.group.id}`"
+          :title="c.group.label === 'Pattern' ? layerDef.label : c.group.label"
+          :collapsed="c.group.collapsed"
+          :storage-key="`${layer.type}:${c.group.id}`"
+          :toggle="c.group.toggleKey ? Boolean(layer.params[c.group.toggleKey]) : null"
+          @update:toggle="store.setLayerParam(layer.id, c.group.toggleKey!, $event)"
+        >
+          <ParamList :defs="c.defs" :values="layer.params" @change="(k, v) => store.setLayerParam(layer!.id, k, v)" />
+        </PanelCard>
+      </div>
+    </template>
+
+    <!-- Smart material -->
+    <template v-else-if="material && recipe">
+      <div class="title">
+        <Icon name="diamond" :size="15" stroke="var(--accent-hi)" />
+        <input class="name" :value="material.name" aria-label="Material name" @change="store.renameMaterial(material.id, ($event.target as HTMLInputElement).value)" />
+      </div>
+      <div class="sub">
+        <span class="type">{{ recipe.label }}</span>
+        <span class="grow" />
+        <button type="button" class="cf-ico-btn" title="Unpack: keep the layers, drop the controls" aria-label="Unpack material" @click="unpackMaterial"><Icon name="layers" :size="13" /></button>
+        <button type="button" class="cf-ico-btn" title="Delete the material and its layers (Del)" aria-label="Delete material" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+      </div>
+      <p class="desc">{{ recipe.description }}</p>
+      <div class="scroll">
+        <PanelCard v-for="c in materialCards" :key="`${material.id}:${c.group.id}`" :title="c.group.label" :storage-key="`material:${recipe.id}:${c.group.id}`">
+          <ParamList :defs="c.defs" :values="material.params" @change="(k, v) => store.setMaterialParam(material!.id, k, v)" />
+        </PanelCard>
+        <PanelCard title="Mask" storage-key="material:mask">
+          <p class="hint">Clip this material to a mask written by any layer (e.g. a Cut-out). Cutting a hole: the material in front outside the mask, the one behind inside it — otherwise the hidden one's glow and relief show through.</p>
+          <ParamList :defs="MATERIAL_MASK_DEFS" :values="materialMask" @change="setMaterialMask" />
+        </PanelCard>
+        <PanelCard title="Layers" storage-key="material:layers">
+          <p class="hint">Ordinary layers — select one to edit it directly. A control above rewrites only the settings it governs.</p>
+          <button v-for="r in memberRows" :key="r.role" type="button" class="member" @click="editor.select('layer', r.layer!.id)">
+            <Icon :name="layerIcon(r.layer!.type)" :size="12" :stroke="layerHue(r.layer!.type)" />
+            <span class="mname" :class="{ off: !r.layer!.enabled }">{{ r.layer!.name }}</span>
+            <span class="cf-mono lo">{{ r.stack }}</span>
+          </button>
+        </PanelCard>
+      </div>
+    </template>
+
+    <!-- Light -->
+    <template v-else-if="light">
+      <div class="title">
+        <Icon :name="light.type === 'point' ? 'point' : 'sun'" :size="15" :stroke="LIGHT_HUE" />
+        <input class="name" :value="light.name" aria-label="Light name" @change="store.updateLight(light.id, { name: ($event.target as HTMLInputElement).value })" />
+        <label class="en" title="Enabled">
+          <input type="checkbox" :checked="light.enabled" aria-label="Light enabled" @change="store.updateLight(light.id, { enabled: ($event.target as HTMLInputElement).checked })" />
+        </label>
+      </div>
+      <div class="sub">
+        <span class="type">{{ LIGHT_DEFS[light.type].label }} light</span>
+        <span class="grow" />
+        <button type="button" class="cf-ico-btn" title="Duplicate" aria-label="Duplicate light" @click="act.duplicateSelection"><Icon name="copy" :size="13" /></button>
+        <button type="button" class="cf-ico-btn" title="Delete" aria-label="Delete light" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+      </div>
+      <p class="desc">{{ light.type === 'point' ? 'Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at 64 px.' : 'Drag the sun gizmo around the texture to set the azimuth.' }}</p>
+      <div class="scroll">
+        <PanelCard title="Light">
+          <ParamList :defs="LIGHT_DEFS[light.type].params" :values="light.params" @change="(k, v) => store.setLightParam(light!.id, k, v)" />
+        </PanelCard>
+      </div>
+    </template>
+
+    <!-- Post filter -->
+    <template v-else-if="post && postDef">
+      <div class="title">
+        <Icon name="post" :size="15" :stroke="POST_HUE" />
+        <span class="name static">{{ postDef.label }}</span>
+        <label class="en" title="Enabled">
+          <input type="checkbox" :checked="post.enabled" aria-label="Filter enabled" @change="store.updatePost(post.id, { enabled: ($event.target as HTMLInputElement).checked })" />
+        </label>
+      </div>
+      <div class="sub">
+        <span class="type">Post filter · {{ store.project.post.findIndex((f) => f.id === post!.id) + 1 }} of {{ store.project.post.length }}</span>
+        <span class="grow" />
+        <button type="button" class="cf-ico-btn" title="Move up" aria-label="Move filter earlier" @click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) - 1)"><Icon name="up" :size="13" /></button>
+        <button type="button" class="cf-ico-btn" title="Move down" aria-label="Move filter later" @click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) + 1)"><Icon name="down" :size="13" /></button>
+        <button type="button" class="cf-ico-btn" title="Delete" aria-label="Delete filter" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+      </div>
+      <p v-if="postDef.description" class="desc">{{ postDef.description }}</p>
+      <div class="scroll">
+        <PanelCard :title="postDef.label">
+          <ParamList :defs="postDef.params" :values="post.params" @change="(k, v) => store.setPostParam(post!.id, k, v)" />
+          <PostExtras :filter="post" />
+        </PanelCard>
+      </div>
+    </template>
+
+    <!-- World & render -->
+    <template v-else-if="sel.kind === 'render'">
+      <div class="title">
+        <Icon name="sky" :size="15" :stroke="LIGHT_HUE" />
+        <span class="name static">World &amp; render</span>
+      </div>
+      <p class="desc">Global lighting and path-tracer settings.</p>
+      <div class="scroll">
+        <PanelCard title="Lighting presets" storage-key="world:presets">
+          <LightingPresets />
+        </PanelCard>
+        <PanelCard title="Sky light">
+          <ParamList :defs="SKY_DEFS" :values="asValues(store.project.lighting.sky)" @change="(k, v) => assign(store.project.lighting.sky, k, v)" />
+        </PanelCard>
+        <PanelCard title="Ambient">
+          <ParamList :defs="AMBIENT_DEFS" :values="asValues(store.project.lighting.ambient)" @change="(k, v) => assign(store.project.lighting.ambient, k, v)" />
+        </PanelCard>
+        <PanelCard title="Path tracer">
+          <ParamList :defs="RENDER_DEFS" :values="asValues(store.project.render)" @change="(k, v) => assign(store.project.render, k, v)" />
+        </PanelCard>
+      </div>
+    </template>
+
+    <!-- Project -->
+    <template v-else>
+      <div class="title">
+        <Icon name="project" :size="15" stroke="var(--text-lo)" />
+        <input class="name" :value="store.project.name" aria-label="Project name" @change="store.project.name = ($event.target as HTMLInputElement).value" />
+      </div>
+      <p class="desc">Texture size, tiling and the base material every layer builds on.</p>
+      <div class="scroll">
+        <PanelCard title="Texture">
+          <div class="sizes">
+            <button
+              v-for="s in SIZE_PRESETS"
+              :key="s"
+              type="button"
+              class="size"
+              :class="{ on: store.project.width === s && store.project.height === s }"
+              @click="(store.project.width = s), (store.project.height = s)"
+            >
+              {{ s }}
+            </button>
+          </div>
+          <ParamList :defs="PROJECT_DEFS" :values="asValues(store.project)" @change="(k, v) => assign(store.project, k, v)" />
+        </PanelCard>
+        <PanelCard title="Base material">
+          <ParamList :defs="BASE_DEFS" :values="asValues(store.project.base)" @change="(k, v) => assign(store.project.base, k, v)" />
+        </PanelCard>
+      </div>
+    </template>
+  </aside>
+</template>
+
+<style scoped>
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--sunken);
+  color: var(--accent-hi);
+  cursor: pointer;
+}
+.chip.lo {
+  color: var(--text-lo);
+  cursor: default;
+}
+.cf-btn.small {
+  font-size: 11px;
+  padding: 1px 8px;
+  height: auto;
+}
+.member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 4px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.member:hover {
+  background: var(--sunken);
+}
+.member .mname {
+  flex: 1;
+}
+.member .mname.off {
+  opacity: 0.45;
+}
+.hint {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--text-lo);
+}
+.props {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 8px 0 10px;
+  border-bottom: 1px solid var(--hairline);
+  flex: none;
+}
+.name {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-field);
+  background: var(--sunken);
+  color: var(--text-hi);
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.name:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--halo);
+}
+.name.static {
+  border-color: transparent;
+  background: transparent;
+  display: flex;
+  align-items: center;
+}
+.en input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  flex: none;
+}
+.type {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+.lo {
+  font-size: 11px;
+  color: var(--line-strong);
+  white-space: nowrap;
+}
+.grow {
+  flex: 1;
+}
+.desc {
+  margin: 0;
+  padding: 0 10px 8px;
+  font-size: 12px;
+  color: var(--text-lo);
+  line-height: 1.4;
+  flex: none;
+}
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 6px 12px;
+}
+.sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 0 4px 96px;
+}
+.size {
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--hairline);
+  background: var(--sunken);
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.size:hover {
+  border-color: var(--line);
+  color: var(--text-hi);
+}
+.size.on {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+  box-shadow: var(--halo);
+}
+</style>

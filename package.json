@@ -1,0 +1,42 @@
+{
+  "name": "bismith",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "start": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc -b",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "harness": "tsx tools/harness.ts",
+    "smoke": "tsx tools/smoke.ts",
+    "presets": "tsx tools/presets.ts",
+    "shot": "tsx tools/shot.ts"
+  },
+  "dependencies": {
+    "@fontsource/cormorant-garamond": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "pinia": "^4.0.3",
+    "three": "^0.186.1",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@types/pngjs": "^6.0.5",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "oxlint": "^1.87.0",
+    "playwright": "^1.64.0",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3",
+    "vue-tsc": "^3.3.13"
+  }
+}

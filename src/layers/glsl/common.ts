@@ -1,0 +1,190 @@
+// Shared GLSL used by every pass: hashing, wrap-aware texel access, coordinate helpers, colour maths,
+// gradient ramps, blend modes, bevel profiles and SDF combine operators.
+//
+// Conventions (docs/architecture.md §4): shaders work in GL pixel space (origin bottom-left, y up,
+// pixel centres at .5). `uRes` is the texture size in px and `uTile` says whether to wrap.
+
+export const GLSL_HEADER = /* glsl */ `
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+`
+
+export const GLSL_COMMON = /* glsl */ `
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+
+uniform vec2 uRes;
+uniform bool uTile;
+
+// ---------------------------------------------------------------- hashing (PCG)
+uint pcg(uint v) {
+  uint state = v * 747796405u + 2891336453u;
+  uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+uint pcg2(uvec2 v) { return pcg(v.x ^ pcg(v.y)); }
+uint pcg3(uvec3 v) { return pcg(v.x ^ pcg(v.y ^ pcg(v.z))); }
+float u2f(uint h) { return float(h) * (1.0 / 4294967296.0); }
+
+float hashI(ivec2 c, float seed) { return u2f(pcg3(uvec3(uint(c.x), uint(c.y), uint(seed)))); }
+vec2 hash2I(ivec2 c, float seed) {
+  uint h = pcg3(uvec3(uint(c.x), uint(c.y), uint(seed)));
+  return vec2(u2f(h), u2f(pcg(h)));
+}
+vec3 hash3I(ivec2 c, float seed) {
+  uint h = pcg3(uvec3(uint(c.x), uint(c.y), uint(seed)));
+  uint h2 = pcg(h);
+  return vec3(u2f(h), u2f(h2), u2f(pcg(h2)));
+}
+float hash1(float x, float seed) { return u2f(pcg2(uvec2(floatBitsToUint(x), uint(seed)))); }
+
+// ---------------------------------------------------------------- wrapping & texel access
+ivec2 imod(ivec2 a, ivec2 m) { return ((a % m) + m) % m; }
+int imod(int a, int m) { return ((a % m) + m) % m; }
+vec2 fmod2(vec2 a, vec2 m) { return a - m * floor(a / m); }
+
+ivec2 texelCoord(ivec2 c) {
+  ivec2 r = ivec2(uRes);
+  return uTile ? imod(c, r) : clamp(c, ivec2(0), r - 1);
+}
+vec4 fetchT(sampler2D t, ivec2 c) { return texelFetch(t, texelCoord(c), 0); }
+
+// Bilinear sample at a pixel-space position (centres at .5), wrap- or clamp-aware.
+vec4 sampleT(sampler2D t, vec2 px) {
+  vec2 q = px - 0.5;
+  vec2 f = fract(q);
+  ivec2 i = ivec2(floor(q));
+  vec4 a = fetchT(t, i);
+  vec4 b = fetchT(t, i + ivec2(1, 0));
+  vec4 c = fetchT(t, i + ivec2(0, 1));
+  vec4 d = fetchT(t, i + ivec2(1, 1));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// Shortest offset between two pixel positions (toroidal when tiling).
+vec2 wrapDelta(vec2 d) { return uTile ? d - uRes * floor(d / uRes + 0.5) : d; }
+
+// ---------------------------------------------------------------- coordinates
+// User positions are fractions 0..1 with y DOWN; convert to GL pixel space.
+vec2 userPx(vec2 u) { return vec2(u.x * uRes.x, (1.0 - u.y) * uRes.y); }
+mat2 rot2(float a) { float c = cos(a), s = sin(a); return mat2(c, s, -s, c); }
+// Rotate a vector clockwise on screen by deg (GL y is up, so clockwise is a negative angle).
+vec2 rotCW(vec2 v, float deg) { return rot2(-radians(deg)) * v; }
+// Undo a clockwise screen rotation (map world offset into a shape's local frame).
+vec2 unrotCW(vec2 v, float deg) { return rot2(radians(deg)) * v; }
+
+// Cells across the texture for a pattern: scale = cells across the width, y follows the aspect ratio;
+// stretch > 1 elongates features horizontally. Integer per axis when tiling.
+vec2 cellsFor(float scale, float stretch) {
+  vec2 c = vec2(scale / max(stretch, 1e-3), scale * uRes.y / uRes.x);
+  return uTile ? max(vec2(1.0), floor(c + 0.5)) : max(c, vec2(1e-3));
+}
+
+// ---------------------------------------------------------------- colour
+vec3 srgbToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
+vec3 linearToSrgb(vec3 c) {
+  c = max(c, vec3(0.0));
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+vec3 rgb2hsv(vec3 c) {
+  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y);
+  float e = 1.0e-10;
+  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+vec3 hsv2rgb(vec3 c) {
+  vec3 p = abs(fract(c.xxx + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+  return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
+}
+
+vec3 linearToOklab(vec3 c) {
+  float l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
+  float m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
+  float s = 0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b;
+  l = pow(max(l, 0.0), 1.0 / 3.0); m = pow(max(m, 0.0), 1.0 / 3.0); s = pow(max(s, 0.0), 1.0 / 3.0);
+  return vec3(
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);
+}
+
+// Gradient ramp: stops are (sRGB rgb, position), sorted by position. Returns sRGB.
+vec3 gradientLookup(vec4 stops[8], int count, float t) {
+  if (count <= 1) return stops[0].rgb;
+  t = clamp(t, 0.0, 1.0);
+  if (t <= stops[0].a) return stops[0].rgb;
+  for (int i = 1; i < 8; i++) {
+    if (i >= count) break;
+    if (t <= stops[i].a) {
+      float span = max(stops[i].a - stops[i - 1].a, 1e-6);
+      return mix(stops[i - 1].rgb, stops[i].rgb, (t - stops[i - 1].a) / span);
+    }
+  }
+  return stops[count - 1].rgb;
+}
+
+// ---------------------------------------------------------------- blend modes (sRGB space, 0..1)
+// 0 normal, 1 multiply, 2 screen, 3 overlay, 4 add, 5 subtract, 6 darken, 7 lighten, 8 soft light
+vec3 blendMode(int mode, vec3 b, vec3 t) {
+  if (mode == 1) return b * t;
+  if (mode == 2) return 1.0 - (1.0 - b) * (1.0 - t);
+  if (mode == 3) return mix(2.0 * b * t, 1.0 - 2.0 * (1.0 - b) * (1.0 - t), step(0.5, b));
+  if (mode == 4) return min(b + t, vec3(1.0));
+  if (mode == 5) return max(b - t, vec3(0.0));
+  if (mode == 6) return min(b, t);
+  if (mode == 7) return max(b, t);
+  if (mode == 8) return mix(b - (1.0 - 2.0 * t) * b * (1.0 - b),
+                            b + (2.0 * t - 1.0) * (sqrt(b) - b), step(0.5, t));
+  return t;
+}
+
+// ---------------------------------------------------------------- bevel profiles
+// x = 0 at the shape edge → 1 at the bevel's inner limit.
+// 0 flat, 1 linear, 2 smooth, 3 round (quarter circle, convex), 4 cove (concave), 5 ridge, 6 steps
+#ifdef BEVEL_CURVE
+float bevelCurve(float x);  // defined after the layer's uniforms (custom profile curve)
+#endif
+float profileCurve(int type, float x) {
+  x = clamp(x, 0.0, 1.0);
+#ifdef BEVEL_CURVE
+  if (type == 7) return bevelCurve(x);
+#endif
+  if (type == 0) return x > 0.0 ? 1.0 : 0.0;
+  if (type == 1) return x;
+  if (type == 2) return x * x * (3.0 - 2.0 * x);
+  if (type == 3) return sqrt(max(0.0, 1.0 - (1.0 - x) * (1.0 - x)));
+  if (type == 4) return 1.0 - sqrt(max(0.0, 1.0 - x * x));
+  if (type == 5) return 1.0 - abs(2.0 * x - 1.0);
+  if (type == 6) return floor(x * 3.999) / 3.0;
+  return x;
+}
+
+// ---------------------------------------------------------------- SDF operators
+// a = existing (register) distance, b = this layer's distance. Negative inside.
+// 0 none (ignore register), 1 replace, 2 union, 3 subtract (cut b out of a), 4 intersect,
+// 5 smooth union, 6 smooth subtract, 7 smooth intersect
+float sdfCombine(int op, float a, float b, float k) {
+  k = max(k, 1e-4);
+  if (op == 2) return min(a, b);
+  if (op == 3) return max(a, -b);
+  if (op == 4) return max(a, b);
+  if (op == 5) { float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); return mix(b, a, h) - k * h * (1.0 - h); }
+  if (op == 6) { float h = clamp(0.5 - 0.5 * (a + b) / k, 0.0, 1.0); return mix(a, -b, h) + k * h * (1.0 - h); }
+  if (op == 7) { float h = clamp(0.5 - 0.5 * (b - a) / k, 0.0, 1.0); return mix(b, a, h) + k * h * (1.0 - h); }
+  return b;
+}
+
+// Anti-aliased coverage from a signed distance in px.
+float coverage(float d, bool aa) { return aa ? clamp(0.5 - d, 0.0, 1.0) : (d <= 0.0 ? 1.0 : 0.0); }
+`
+
+/** Fixed vertex shader for every full-screen pass: one oversized triangle. */
+export const FULLSCREEN_VERT = /* glsl */ `
+in vec3 position;
+void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
+`

@@ -1,0 +1,209 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--void);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: var(--e400);
+}
+a:hover {
+  color: var(--e100);
+}
+
+:focus-visible {
+  outline: 1px solid var(--e400);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: rgba(246, 110, 16, 0.35);
+}
+
+/* Scrollbars: thin, cool */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Shared editor primitives */
+.cf-panel {
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-field);
+  min-height: 0;
+  min-width: 0;
+}
+
+.cf-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+
+.cf-mono {
+  font-family: var(--font-mono);
+}
+
+.cf-ico-btn {
+  width: 26px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-mid);
+}
+.cf-ico-btn:hover {
+  background: var(--raised);
+  color: var(--text-hi);
+}
+.cf-ico-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Toggled-on square (accent ring with dark core) */
+.cf-ico-btn.on {
+  padding: 1px;
+  background: var(--accent);
+}
+.cf-ico-btn.on > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--raised);
+  color: var(--accent-hi);
+}
+
+.cf-field {
+  height: 22px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-field);
+  background: var(--sunken);
+  color: var(--text-hi);
+  padding: 0 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+.cf-field:hover {
+  border-color: var(--line);
+}
+.cf-field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--halo);
+}
+
+.cf-btn {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--raised);
+  color: var(--text);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cf-btn:hover {
+  border-color: var(--line-strong);
+  color: var(--text-hi);
+  background: #333940;
+}
+.cf-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* The heat button: grey ring, Underlight bars top and bottom, low pool inside. One per screen. */
+.cf-heat {
+  position: relative;
+  height: 26px;
+  padding: 1px;
+  border: 0;
+  background: var(--line);
+}
+.cf-heat > span.core {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 12px;
+  background: var(--heat-core);
+  box-shadow: inset 0 0 8px rgba(246, 110, 16, 0.12);
+  color: var(--text-hi);
+  font-weight: 500;
+}
+.cf-heat::before,
+.cf-heat::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--under-bar);
+  pointer-events: none;
+}
+.cf-heat::before {
+  top: 0;
+}
+.cf-heat::after {
+  bottom: 0;
+}
+.cf-heat:hover > span.core {
+  box-shadow: inset 0 0 12px rgba(246, 110, 16, 0.22);
+}
+
+.cf-faded-rule {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(126, 169, 176, 0) 0%, var(--sigil) 18%, var(--sigil) 82%, rgba(126, 169, 176, 0) 100%);
+  opacity: 0.6;
+}
