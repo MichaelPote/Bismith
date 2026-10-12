@@ -18,6 +18,7 @@ const jointsOn = (p: Record<string, unknown>) => p.planks !== false && Number(p.
 
 export const woodLayer: LayerDef = {
   type: 'wood',
+  noise: true,
   label: 'Wood planks',
   category: 'pattern',
   kind: 'generator',

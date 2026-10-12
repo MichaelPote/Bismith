@@ -15,6 +15,12 @@ so diagonals can be any slope. **Grouping** gives each block of cells a dominant
 parallel bus runs instead of a tangle. Pads on dead ends (round / square), vias (rings). With diagonals 0 and grouping
 low it is a right-angle maze. The Circuit board lump is built on it. For pixel-exact line art keep supersampling at 1.
 
+All three modes compute their links per node on the CPU (route and maze in `traceLinks.ts`, a bit-exact port of the
+GLSL hashes; fill in `router.ts`, FR8.10) and hand them to the shader as a per-node texture (link mask + flags), so the
+shader only draws segments, pads and vias. Route and maze used to run per pixel in GLSL, re-deriving every
+neighbour's links; D3D11's compiler (Windows) took over 4 minutes on that shader and hung the browser. It now compiles
+in about a second, and the move left every layout pixel-identical.
+
 ## Vents: pointed / angled slot ends
 `ends`: pointed (45° chamfers meeting at a point — bow-tie bridges between staggered slots) and angled
 (both ends cut on one diagonal).

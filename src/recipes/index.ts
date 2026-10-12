@@ -31,6 +31,12 @@ function findLayer(p: Project, id: string): Layer | undefined {
   return p.layers.find((l) => l.id === id)
 }
 
+/** The layer types a recipe adds (built with its default macros), e.g. to compile their shaders before adding it. */
+export function recipeLayerTypes(recipeId: string, p: Project): string[] {
+  const def = getRecipe(recipeId)
+  return def ? [...new Set(def.build(defaultParams(def.params), ctxOf(p)).map((b) => b.layer.type))] : []
+}
+
 /**
  * Add a smart material to `p` (in place): its layers go in as one block — the relief ones (shape only) first, then
  * the paint — at `at` (default: last, on top of everything); render settings the look relies on are raised. Returns

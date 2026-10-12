@@ -1,23 +1,49 @@
 // Tileable noise library. Every lattice noise takes an integer `period` (in cells); lattice coordinates are
 // wrapped by it before hashing, so a texture whose cell count is an integer repeats seamlessly.
 // Non-tiling projects pass a huge period. Values are returned in 0..1 unless noted.
+//
+// Animation: `gPhase` (set from a layer's Phase param) moves every noise through one seamless loop as it goes 0 → 1;
+// phase 0 is the still noise exactly. Gradients turn a whole revolution (Perlin, simplex); lattice values and cellular
+// feature points travel up or down and bounce off the ends of their range, which keeps them uniformly distributed at
+// every phase (value, white, Worley and the cell points of other generators, see cellPoint).
 
 export const GLSL_NOISE = /* glsl */ `
 const ivec2 NO_PERIOD = ivec2(1 << 20);
+
+/** Animation phase: 0 → 1 is one seamless loop. Generators set it from u_phase before sampling. */
+float gPhase = 0.0;
+
+/** A lattice value h (0..1) at the current phase: it travels 2 per loop, up or down by a second hash, reflected at
+ * 0 and 1 — h at phase 0 and 1, and uniformly distributed over the lattice at every phase. */
+float animValue(float h, ivec2 c, float seed) {
+  if (gPhase == 0.0) return h;
+  float dir = hashI(c, seed + 7.31) < 0.5 ? -1.0 : 1.0;
+  return 1.0 - abs(1.0 - mod(h + 2.0 * dir * gPhase, 2.0));
+}
+
+/** A cell's feature point (0..1 within the cell) at the current phase; hash2I(c, seed) when still. */
+vec2 cellPoint(ivec2 c, float seed) {
+  vec2 h = hash2I(c, seed);
+  if (gPhase == 0.0) return h;
+  return vec2(animValue(h.x, c, seed + 41.0), animValue(h.y, c, seed + 43.0));
+}
 
 float valueNoise(vec2 x, ivec2 period, float seed) {
   ivec2 i = ivec2(floor(x));
   vec2 f = fract(x);
   vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  float a = hashI(imod(i, period), seed);
-  float b = hashI(imod(i + ivec2(1, 0), period), seed);
-  float c = hashI(imod(i + ivec2(0, 1), period), seed);
-  float d = hashI(imod(i + ivec2(1, 1), period), seed);
+  ivec2 i00 = imod(i, period), i10 = imod(i + ivec2(1, 0), period), i01 = imod(i + ivec2(0, 1), period), i11 = imod(i + ivec2(1, 1), period);
+  float a = animValue(hashI(i00, seed), i00, seed);
+  float b = animValue(hashI(i10, seed), i10, seed);
+  float c = animValue(hashI(i01, seed), i01, seed);
+  float d = animValue(hashI(i11, seed), i11, seed);
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
 vec2 gradDir(ivec2 c, float seed) {
   float a = hashI(c, seed) * TAU;
+  // Animated: each gradient turns one whole revolution per loop, clockwise or not by a second hash.
+  if (gPhase != 0.0) a += (hashI(c, seed + 3.7) < 0.5 ? -TAU : TAU) * gPhase;
   return vec2(cos(a), sin(a));
 }
 
@@ -62,7 +88,7 @@ vec4 worleyNoise(vec2 x, ivec2 period, float jitter, int metric, float seed) {
   for (int j = -1; j <= 1; j++)
   for (int i = -1; i <= 1; i++) {
     ivec2 g = ivec2(i, j);
-    vec2 o = 0.5 + (hash2I(imod(ip + g, period), seed) - 0.5) * jitter;
+    vec2 o = 0.5 + (cellPoint(imod(ip + g, period), seed) - 0.5) * jitter;
     vec2 r = vec2(g) + o - fp;
     float d = metric == 1 ? abs(r.x) + abs(r.y) : metric == 2 ? max(abs(r.x), abs(r.y)) : dot(r, r);
     if (d < F1) { F2 = F1; F1 = d; mr = r; mc = ip + g; }
@@ -73,7 +99,7 @@ vec4 worleyNoise(vec2 x, ivec2 period, float jitter, int metric, float seed) {
   for (int j = -2; j <= 2; j++)
   for (int i = -2; i <= 2; i++) {
     ivec2 g = ivec2(i, j);
-    vec2 o = 0.5 + (hash2I(imod(ip + g, period), seed) - 0.5) * jitter;
+    vec2 o = 0.5 + (cellPoint(imod(ip + g, period), seed) - 0.5) * jitter;
     vec2 r = vec2(g) + o - fp;
     vec2 dr = r - mr;
     if (dot(dr, dr) > 1e-6) md = min(md, dot(0.5 * (mr + r), normalize(dr)));

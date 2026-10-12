@@ -22,6 +22,8 @@ export class Gpu {
   private readonly mesh: THREE.Mesh
   private readonly copyMat: THREE.RawShaderMaterial
   private readTarget: THREE.WebGLRenderTarget | null = null
+  /** The browser compiles shaders off the main thread (KHR_parallel_shader_compile): compile() doesn't stall. */
+  readonly parallelCompile: boolean
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
@@ -45,6 +47,7 @@ export class Gpu {
     renderer.autoClear = false
     renderer.outputColorSpace = THREE.LinearSRGBColorSpace
     this.renderer = renderer
+    this.parallelCompile = renderer.extensions.has('KHR_parallel_shader_compile')
 
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3))
@@ -80,6 +83,17 @@ export class Gpu {
       depthWrite: false,
       blending: THREE.NoBlending,
     })
+  }
+
+  /**
+   * Compile pass materials' programs ahead of their first run. Where the browser has KHR_parallel_shader_compile the
+   * compile happens off the main thread and this resolves when it is done; elsewhere it resolves at once and the first
+   * run pays for the compile.
+   */
+  async compile(materials: THREE.Material[]): Promise<void> {
+    const group = new THREE.Group()
+    for (const m of materials) group.add(new THREE.Mesh(this.mesh.geometry, m))
+    await this.renderer.compileAsync(group, this.camera, this.scene)
   }
 
   target(width: number, height: number, opts: TargetOptions = {}): THREE.WebGLRenderTarget {

@@ -25,6 +25,7 @@ void main() {
   float wear = clamp((c - u_threshold) * u_sensitivity, 0.0, 1.0);
   float dirt = clamp((-c - u_threshold) * u_sensitivity, 0.0, 1.0);
   if (u_wear_noise > 0.0 || u_dirt_noise > 0.0) {
+    gPhase = u_phase;
     vec2 cells = cellsFor(u_noise_scale, 1.0);
     ivec2 per = uTile ? ivec2(cells) : NO_PERIOD;
     vec2 x = gl_FragCoord.xy / uRes * cells;
@@ -63,6 +64,7 @@ export const cavityLayer: LayerDef = {
     P.float('dirt_noise', 'Breakup', 0.25, 0, 1, { step: 0.001, group: 'dirt' }),
     P.float('noise_scale', 'Scale', 12, 0.25, 256, { softMax: 64, step: 0.01, group: 'breakup', hint: 'Cells across the texture (rounded when tiling)' }),
     P.int('noise_octaves', 'Octaves', 4, 1, 8, { group: 'breakup' }),
+    P.float('phase', 'Phase', 0, -10000, 10000, { softMin: 0, softMax: 1, step: 0.001, optimize: false, group: 'breakup', hint: 'Animates the breakup noise: 0 → 1 is one seamless loop; it repeats beyond 1' }),
     P.seed('seed', 'Seed', 1, { group: 'breakup' }),
   ],
   groups: [

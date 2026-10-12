@@ -88,6 +88,8 @@ export class MaterialPipeline {
   private width = 0
   private height = 0
   private materials = new Map<string, THREE.RawShaderMaterial>()
+  /** Generator types whose shader has been compiled (run, or precompiled). */
+  private compiled = new Set<string>()
   private scratchTargets = new Map<string, THREE.WebGLRenderTarget>()
   private clearMat: THREE.RawShaderMaterial
   private normalMat: THREE.RawShaderMaterial
@@ -249,6 +251,18 @@ export class MaterialPipeline {
     return tex
   }
 
+  /** Generator types among `types` whose shader isn't compiled yet: their first run would compile it, stalling the page. */
+  uncompiled(types: string[]): string[] {
+    return [...new Set(types)].filter((t) => getLayerDef(t)?.kind === 'generator' && !this.compiled.has(t))
+  }
+
+  /** Compile generators' shaders ahead of their first run (see GpuContext.compile). */
+  async precompile(types: string[]): Promise<void> {
+    const defs = this.uncompiled(types).map((t) => getLayerDef(t)!)
+    await this.gpu.compile(defs.map((d) => this.generatorMaterial(d)))
+    for (const d of defs) this.compiled.add(d.type)
+  }
+
   private generatorMaterial(def: LayerDef): THREE.RawShaderMaterial {
     const key = `gen:${def.type}`
     let mat = this.materials.get(key)
@@ -397,6 +411,7 @@ export class MaterialPipeline {
           if (def.cpuData) for (const [name, t] of Object.entries(this.cpuTextures(def, layer, project, seed))) mat.uniforms[`t_${name}`].value = t
           this.setCommon(mat, project, seed)
           this.gpu.run(mat, state.write)
+          this.compiled.add(def.type)
           state.swap()
         } else if (def.run) {
           // Multi-pass filters: masked, they run on the whole state and are blended back by the mask after.

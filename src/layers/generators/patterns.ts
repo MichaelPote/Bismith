@@ -275,6 +275,7 @@ GenOut gen(vec2 p) {
 
 export const voronoiLayer: LayerDef = {
   type: 'voronoi',
+  noise: true,
   label: 'Voronoi',
   category: 'pattern',
   kind: 'generator',
@@ -337,7 +338,7 @@ GenOut gen(vec2 p) {
   for (int j = -2; j <= 2; j++)
   for (int i = -2; i <= 2; i++) {
     ivec2 c = ip + ivec2(i, j);
-    vec2 o = 0.5 + (hash2I(imod(c, per), uSeed) - 0.5) * u_jitter;
+    vec2 o = 0.5 + (cellPoint(imod(c, per), uSeed) - 0.5) * u_jitter;
     vec2 r = (vec2(c) + o) * cs - p;
     float d = pat_metric(r);
     if (d < F1) { F2 = F1; F1 = d; mr = r; mc = c; }
@@ -367,7 +368,7 @@ GenOut gen(vec2 p) {
     for (int i = -2; i <= 2; i++) {
       if (i == 0 && j == 0) continue;
       ivec2 c = mc + ivec2(i, j);
-      vec2 o = 0.5 + (hash2I(imod(c, per), uSeed) - 0.5) * u_jitter;
+      vec2 o = 0.5 + (cellPoint(imod(c, per), uSeed) - 0.5) * u_jitter;
       vec2 r = (vec2(c) + o) * cs - p;
       vec2 dr = r - mr;
       if (dot(dr, dr) < 1e-6) continue;
@@ -382,7 +383,7 @@ GenOut gen(vec2 p) {
     for (int i = -2; i <= 2; i++) {
       if (i == 0 && j == 0) continue;
       ivec2 c = mc + ivec2(i, j);
-      vec2 o = 0.5 + (hash2I(imod(c, per), uSeed) - 0.5) * u_jitter;
+      vec2 o = 0.5 + (cellPoint(imod(c, per), uSeed) - 0.5) * u_jitter;
       vec2 r = (vec2(c) + o) * cs - p;
       float gv = max(pat_metric(r) - F1, 0.0);
       float gl = length(pat_metricGrad(-r) - pat_metricGrad(-mr));

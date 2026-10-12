@@ -215,6 +215,17 @@ draws tubes wound on a helix (coils, twisted rope mouldings). **Drips** (FR7.7) 
 sources (or outputs the sources as blisters); **Hammered** lays dish dents on concentric rings around a few centres
 whose regions interlock along arcs.
 
+**Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
+whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
+over neighbouring cells that calls helpers which search their own neighbours multiplies into thousands of inlined
+copies, and the compile takes minutes and hangs the browser (OpenGL and SwiftShader compile the same shader
+instantly, so it only shows on Windows). Keep the per-pixel work flat: precompute anything per node or per cell on
+the CPU (`cpuData` → a data texture, as Traces & mazes and Cable do), and give unavoidable loops a uniform-derived
+count. Check a new heavy generator on D3D11 with the GPU harness (`--backend windows`, FR7.1). Even a reasonable
+generator takes a moment to compile on first use, so the add-layer / add-material actions precompile any generator
+shader not used yet this session behind a busy modal (`withShaders` in `ui/actions.ts`, `Engine.precompile`): off the
+main thread where the browser has `KHR_parallel_shader_compile`, otherwise with the modal up before the page stalls.
+
 ### 5.3 Filters
 
 Filters read the current channels and rewrite them. They own a `run()` that may issue several passes:

@@ -102,6 +102,8 @@ export class Engine {
   onStats: ((s: EngineStats) => void) | null = null
   /** Called after each material evaluation (e.g. to refresh thumbnails). */
   onMaterial: (() => void) | null = null
+  /** settled() callers waiting for the pending material evaluation. */
+  private materialWaiters: (() => void)[] = []
   paused = false
 
   constructor(canvas: HTMLCanvasElement) {
@@ -173,6 +175,31 @@ export class Engine {
     this.kick()
   }
 
+  /** Generator types among `types` whose shader isn't compiled yet (their first use would stall the page). */
+  uncompiled(types: string[]): string[] {
+    return this.material.uncompiled(types)
+  }
+
+  /** Shader compiles run off the main thread here, so precompile() leaves the page responsive. */
+  get parallelCompile(): boolean {
+    return this.gpu.parallelCompile
+  }
+
+  /** Compile generator shaders ahead of their first use (see MaterialPipeline.precompile). */
+  precompile(types: string[]): Promise<void> {
+    return this.material.precompile(types)
+  }
+
+  /** Resolves once the pending material evaluation has run (at once if none is pending or the loop is stopped). */
+  settled(): Promise<void> {
+    if (!this.materialDirty || !this.running || this.suspended) return Promise.resolve()
+    return new Promise((resolve) => this.materialWaiters.push(resolve))
+  }
+
+  private releaseWaiters(): void {
+    for (const resolve of this.materialWaiters.splice(0)) resolve()
+  }
+
   /** Force a restart of accumulation (e.g. after the user asks to re-render). */
   restart(): void {
     this.traceDirty = true
@@ -188,6 +215,7 @@ export class Engine {
     this.running = false
     cancelAnimationFrame(this.raf)
     this.raf = 0
+    this.releaseWaiters()
   }
 
   /**
@@ -198,6 +226,7 @@ export class Engine {
     this.suspended = true
     cancelAnimationFrame(this.raf)
     this.raf = 0
+    this.releaseWaiters()
   }
 
   resume(project?: Project): void {
@@ -233,6 +262,7 @@ export class Engine {
       this.materialDirty = false
       this.traceDirty = true
       this.onMaterial?.()
+      this.releaseWaiters()
     }
     if (this.traceDirty) {
       this.tracer.configure(project, this.material, this.draft ? { bounces: Math.min(1, project.render.bounces) } : undefined)

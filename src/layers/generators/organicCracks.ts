@@ -8,6 +8,7 @@ import { ORG_GLSL, ORG_GLSL_SDF, ORG_NO_SDF } from './organicShared'
 
 export const cracksLayer: LayerDef = {
   type: 'cracks',
+  noise: true,
   label: 'Cracks',
   category: 'pattern',
   kind: 'generator',
@@ -61,7 +62,7 @@ vec2 org_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float seed) {
   for (int j = -1; j <= 1; j++)
   for (int i = -1; i <= 1; i++) {
     ivec2 c = ip + ivec2(i, j);
-    vec2 s = (vec2(c) + 0.5 + (hash2I(imod(c, per), seed) - 0.5) * jitter) * cs;
+    vec2 s = (vec2(c) + 0.5 + (cellPoint(imod(c, per), seed) - 0.5) * jitter) * cs;
     float d = org_dot2(s - p);
     if (d < best) { best = d; bs = s; bc = c; }
   }
@@ -72,7 +73,7 @@ vec2 org_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float seed) {
     if (i == 0 && j == 0) continue;
     ivec2 c = bc + ivec2(i, j);
     ivec2 cw = imod(c, per);
-    vec2 s = (vec2(c) + 0.5 + (hash2I(cw, seed) - 0.5) * jitter) * cs;
+    vec2 s = (vec2(c) + 0.5 + (cellPoint(cw, seed) - 0.5) * jitter) * cs;
     // Order-independent pair hash so both sides agree on the segment.
     ivec2 lo = (bw.x < cw.x || (bw.x == cw.x && bw.y < cw.y)) ? bw : cw;
     ivec2 hi = (lo == bw) ? cw : bw;

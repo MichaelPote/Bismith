@@ -107,6 +107,22 @@ export const SHAPING_PARAMS: ParamDef[] = [
   P.float('sh_cut_soft', 'Cutoff softness', 0, 0, 0.5, { step: 0.001, group: 'shaping', showIf: (p) => Number(p.sh_cut) > 0 }),
 ]
 
+const PHASE_HINT = 'Animates the noise: 0 → 1 is one seamless loop (render frames at even steps); it repeats beyond 1'
+
+/** Phase of a noise-driven pattern (LayerDef.noise), in its Pattern card. Every generator has a `phase`. */
+export const PHASE_PARAM: ParamDef = P.float('phase', 'Phase', 0, -10000, 10000, { softMin: 0, softMax: 1, step: 0.001, optimize: false, hint: PHASE_HINT })
+
+/** The same for other generators, in Shaping: it moves their domain warp (and a type's own warp or wobble). */
+export const WARP_PHASE_PARAM: ParamDef = P.float('phase', 'Warp phase', 0, -10000, 10000, {
+  softMin: 0,
+  softMax: 1,
+  step: 0.001,
+  optimize: false,
+  group: 'shaping',
+  showIf: (p) => Number(p.dw_amount) > 0 || Number(p.warp ?? 0) > 0 || Number(p.wobble ?? 0) > 0,
+  hint: 'Animates the domain warp: 0 → 1 is one seamless loop; it repeats beyond 1',
+})
+
 const MASK_CHANNELS: [string, string][] = [['none', 'None'], ['1', 'Mask 1'], ['2', 'Mask 2'], ['3', 'Mask 3'], ['4', 'Mask 4']]
 
 /** Named masks (FR8.13), read side: clip a layer (or filter) to one of the four mask channels. */
@@ -212,6 +228,7 @@ void main() {
   vec4 E = texelFetch(tEmissive, ip, 0);
   vec4 M = texelFetch(tMasks, ip, 0);
   float prevReg = S.a;
+  gPhase = u_phase;
 
   vec2 pp = gl_FragCoord.xy - vec2(u_ofs_x, -u_ofs_y);
   if (u_dw_amount > 0.0) {

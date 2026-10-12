@@ -24,6 +24,7 @@ const isFractal = (p: Record<string, unknown>) => p.noise !== 'white' && p.fract
 
 export const noiseLayer: LayerDef = {
   type: 'noise',
+  noise: true,
   label: 'Noise',
   category: 'noise',
   kind: 'generator',
@@ -48,7 +49,7 @@ GenOut gen(vec2 p) {
     float b = float(u_block);
     ivec2 c = ivec2(floor(p / b));
     if (uTile) c = imod(c, ivec2(max(floor(uRes / b + 0.5), vec2(1.0))));
-    float v = hashI(c, uSeed);
+    float v = animValue(hashI(c, uSeed), c, uSeed);
     return genOut(v, 1.0, v, 0.0);
   }
   vec2 cells = cellsFor(u_scale, u_stretch);

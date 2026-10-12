@@ -34,6 +34,11 @@ export const useEditorStore = defineStore('editor', () => {
   const engine = shallowRef<Engine | null>(null)
   const engineError = ref<string | null>(null)
   const toast = ref<{ text: string; kind: 'info' | 'error'; at: number } | null>(null)
+  /**
+   * Blocking work in progress (e.g. a first shader compile): shown as a modal over the app, fading in after a moment
+   * unless `instant` (when the work will freeze the page, the modal has to be on screen before it starts).
+   */
+  const busy = ref<{ title: string; detail?: string; instant?: boolean } | null>(null)
 
   function select(kind: SelectionKind, id?: string): void {
     selection.value = { kind, id }
@@ -67,6 +72,7 @@ export const useEditorStore = defineStore('editor', () => {
     engine,
     engineError,
     toast,
+    busy,
     select,
     setEngine,
     requestFit,

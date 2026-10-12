@@ -15,11 +15,13 @@ export const warpLayer: LayerDef = {
     P.float('scale', 'Scale', 6, 0.25, 256, { softMax: 64, step: 0.01, hint: 'Noise cells across the texture (rounded when tiling)' }),
     P.int('octaves', 'Octaves', 3, 1, 8),
     P.bool('nearest', 'Nearest pixel', false, { hint: 'No interpolation: keeps hard pixel-art edges' }),
+    P.float('phase', 'Phase', 0, -10000, 10000, { softMin: 0, softMax: 1, step: 0.001, optimize: false, hint: 'Animates the warp: 0 → 1 is one seamless loop; it repeats beyond 1' }),
     P.seed(),
   ],
   filterGlsl: /* glsl */ `
 void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   if (u_strength <= 0.0) return;
+  gPhase = u_phase;
   vec2 p = vec2(ip) + 0.5;
   vec2 cells = cellsFor(u_scale, 1.0);
   ivec2 per = uTile ? ivec2(cells) : NO_PERIOD;

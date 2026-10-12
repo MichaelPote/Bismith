@@ -8,8 +8,10 @@ import {
   MASK_PARAMS,
   MASK_USE_PARAMS,
   OUTPUT_PARAMS,
+  PHASE_PARAM,
   SDF_PARAMS,
   SHAPING_PARAMS,
+  WARP_PHASE_PARAM,
 } from './commonParams'
 
 const defs = new Map<string, LayerDef>()
@@ -28,7 +30,13 @@ export function registerLayer(def: LayerDef): void {
   const own = def.params.map((p) => ({ ...p, group: p.group ?? 'params' }))
   let all: ParamDef[]
   if (def.kind === 'generator') {
-    all = [...own, ...(def.sdf ? SDF_PARAMS : []), ...SHAPING_PARAMS, ...MASK_PARAMS, ...OUTPUT_PARAMS]
+    // Every generator has a `phase` (the wrapper sets the noise library's gPhase from it): its own, the noise one in
+    // the Pattern card (before the seed), or the domain-warp one in Shaping.
+    const hasPhase = own.some((p) => p.key === 'phase')
+    const seedAt = own.findIndex((p) => p.key === 'seed')
+    const pattern = hasPhase || !def.noise ? own : seedAt < 0 ? [...own, PHASE_PARAM] : [...own.slice(0, seedAt), PHASE_PARAM, ...own.slice(seedAt)]
+    const shaping = hasPhase || def.noise ? SHAPING_PARAMS : [...SHAPING_PARAMS, WARP_PHASE_PARAM]
+    all = [...pattern, ...(def.sdf ? SDF_PARAMS : []), ...shaping, ...MASK_PARAMS, ...OUTPUT_PARAMS]
   } else {
     // Filters: their own params, then the named-mask clip (FR8.13).
     all = [...own, ...MASK_USE_PARAMS]

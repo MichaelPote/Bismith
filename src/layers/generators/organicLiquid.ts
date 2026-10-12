@@ -11,6 +11,7 @@ const notStreaks = (p: Record<string, unknown>) => p.style !== 'streaks'
 
 export const marbleLayer: LayerDef = {
   type: 'marble',
+  noise: true,
   label: 'Marble',
   category: 'pattern',
   kind: 'generator',
@@ -145,6 +146,7 @@ GenOut gen(vec2 p) {
 
 export const causticsLayer: LayerDef = {
   type: 'caustics',
+  noise: true,
   label: 'Caustics / liquid',
   category: 'pattern',
   kind: 'generator',

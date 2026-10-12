@@ -1,11 +1,19 @@
 // Editor commands shared by menus, toolbar buttons and keyboard shortcuts.
 
+import { nextTick } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
 import { projectFromJSON, projectToJSON } from '@/core/serialize'
 import { zipStore } from '@/core/zip'
 import { downloadBlob, mapPixels, pixelsToBlob, upscale, type MapKind } from '@/render/export'
 import type { Project } from '@/core/project'
+import { getLayerDef } from '@/layers/registry'
+import { getRecipe, recipeLayerTypes } from '@/recipes'
+
+/** Resolves once the browser has painted the current DOM (so a modal is on screen before blocking work starts). */
+function afterPaint(): Promise<void> {
+  return nextTick().then(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+}
 
 function slug(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'texture'
@@ -148,16 +156,46 @@ export function useActions() {
     return store.layerIndex(last.id) + 1
   }
 
+  /**
+   * Run `apply`, which adds layers of `types`, first compiling the shaders of any generator types not used yet this
+   * session behind the busy modal: a first compile can take seconds (D3D on Windows) and would otherwise freeze the
+   * page with no explanation.
+   */
+  async function withShaders(types: string[], label: string, apply: () => void): Promise<void> {
+    const engine = editor.engine
+    if (!engine?.uncompiled(types).length) return apply()
+    editor.busy = {
+      title: 'Compiling shaders…',
+      detail: `Setting up ${label} for its first use. This can take a few seconds.`,
+      // Without background compiling the page freezes during the compile, so the modal can't wait to fade in.
+      instant: !engine.parallelCompile,
+    }
+    try {
+      await afterPaint()
+      await engine.precompile(types)
+      apply()
+      // Where the browser can't compile in the background, the first run does it: keep the modal up until then.
+      await nextTick()
+      await engine.settled()
+    } finally {
+      editor.busy = null
+    }
+  }
+
   /** Add a layer just after the selection (see insertionIndex). */
-  function addLayer(type: string): void {
-    const l = store.addLayer(type, insertionIndex())
-    editor.select('layer', l.id)
+  async function addLayer(type: string): Promise<void> {
+    await withShaders([type], getLayerDef(type)?.label ?? type, () => {
+      const l = store.addLayer(type, insertionIndex())
+      editor.select('layer', l.id)
+    })
   }
 
   /** Add a smart material (one block of layers) just after the selection. */
-  function addMaterial(recipeId: string): void {
-    const m = store.addMaterial(recipeId, insertionIndex())
-    editor.select('material', m.id)
+  async function addMaterial(recipeId: string): Promise<void> {
+    await withShaders(recipeLayerTypes(recipeId, store.project), getRecipe(recipeId)?.label ?? recipeId, () => {
+      const m = store.addMaterial(recipeId, insertionIndex())
+      editor.select('material', m.id)
+    })
   }
 
   return {

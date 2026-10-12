@@ -17,22 +17,25 @@ export const liquid: RecipeDef = {
   ],
   params: [
     P.enum('style', 'Style', 'refraction', [['refraction', 'Refracted light'], ['net', 'Caustic net'], ['blobs', 'Blobs']], { group: 'flow' }),
-    P.float('scale', 'Cells across', 4, 0.5, 32, { group: 'flow', step: 0.01 }),
-    P.float('strength', 'Refraction', 7, 0, 24, { group: 'flow', step: 0.05, unit: 'px', hint: 'Refracted light: sharper filaments and darker cells as it rises', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
-    P.float('softness', 'Filament width', 0.45, 0.3, 6, { group: 'flow', step: 0.05, unit: 'px', hint: 'Width (blur) of the bright filaments; the halo glows around them', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
-    P.float('exposure', 'Exposure', 0.4, 0.1, 6, { group: 'flow', step: 0.01, showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
+    P.float('scale', 'Cells across', 4, 0.5, 64, { group: 'flow', step: 0.01, softMax: 32 }),
+    P.enum('model', 'Wave model', 'sines', [['sines', 'Sines', 'rolling sines'], ['gerstner', 'Gerstner', 'trochoidal waves: sharp crests over broad, flat troughs']], { group: 'flow', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
+    P.float('steepness', 'Steepness', 0.7, 0, 1, { group: 'flow', step: 0.01, hint: 'How far the surface gathers towards the crests: 0 = plain sines, 1 = cusped crests', showIf: (p) => (p.style ?? 'refraction') === 'refraction' && p.model === 'gerstner' }),
+    P.float('strength', 'Refraction', 7, 0, 256, { group: 'flow', step: 0.05, softMax: 24, unit: 'px', hint: 'Refracted light: sharper filaments and darker cells as it rises', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
+    P.float('softness', 'Filament width', 0.45, 0.3, 8, { group: 'flow', step: 0.05, softMax: 6, unit: 'px', hint: 'Width (blur) of the bright filaments; the halo glows around them', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
+    P.float('exposure', 'Exposure', 0.4, 0.1, 8, { group: 'flow', step: 0.01, softMax: 6, showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
     P.float('contrast', 'Contrast', 2.2, 0.5, 4, { group: 'flow', step: 0.01, hint: 'Darker cells, filaments as bright', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
     P.int('waves', 'Waves', 11, 2, 16, { group: 'flow', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
-    P.float('meander', 'Meander', 0.7, 0, 1, { group: 'flow', step: 0.01, hint: 'Curved walls and cells of varied size; high values streak', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
+    P.float('meander', 'Meander', 0.7, 0, 4, { group: 'flow', step: 0.01, softMax: 2, hint: 'Curved walls and cells of varied size; high values streak', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
     P.float('halo', 'Halo', 0.5, 0, 1, { group: 'flow', step: 0.01, hint: 'Soft glow around the filaments, fading into the cells', showIf: (p) => (p.style ?? 'refraction') === 'refraction' }),
-    P.float('rim', 'Rim width', 1.8, 0, 6, { group: 'flow', step: 0.01, showIf: (p) => p.style === 'net' || p.style === 'blobs' }),
+    P.float('rim', 'Rim width', 1.8, 0, 32, { group: 'flow', step: 0.01, softMax: 6, showIf: (p) => p.style === 'net' || p.style === 'blobs' }),
     P.float('warp', 'Swirl', 0.3, 0, 2, { group: 'flow', step: 0.01, showIf: (p) => p.style === 'net' || p.style === 'blobs' }),
     P.float('variety', 'Size variety', 0.9, 0, 1, { group: 'flow', step: 0.01 }),
+    P.float('phase', 'Phase', 0, -10000, 10000, { group: 'flow', step: 0.001, softMin: 0, softMax: 1, optimize: false, hint: 'Animates the flow: 0 → 1 is one seamless loop (render frames at even steps); it repeats beyond 1' }),
     P.float('relief', 'Surface relief', 0, 0, 1, { group: 'flow', step: 0.01, hint: 'Lit waves on the surface — off by default: shading from the key light streaks the caustics along its direction' }),
     P.gradient('colours', 'Colours', { stops: [{ pos: 0, color: '#3a0400' }, { pos: 0.3, color: '#901800' }, { pos: 0.55, color: '#e05010' }, { pos: 0.85, color: '#ff9020' }, { pos: 1, color: '#ffd040' }] }, {
       group: 'colour', hint: 'Dark (little light) → bright (gathered light). Seed it from the reference palette',
     }),
-    P.float('glow', 'Glow', 0.12, 0, 4, { group: 'colour', step: 0.01, hint: 'Emission on top of the colour — a hint of glow; high values clip to flat colour' }),
+    P.float('glow', 'Glow', 0.12, 0, 64, { group: 'colour', step: 0.01, softMax: 4, hint: 'Emission on top of the colour — a hint of glow; high values clip to flat colour' }),
     P.float('highlight', 'Highlights', 0.6, 0, 1, { group: 'colour', step: 0.01, hint: 'Brightest cores of the filaments' }),
     P.color('highlight_colour', 'Highlight colour', '#f0f060', { group: 'colour' }),
     P.seed('seed', 'Seed', 81, { group: 'flow' }),
@@ -44,9 +47,9 @@ export const liquid: RecipeDef = {
     const c: ParamValues = refr
       ? {
           output: 'light', scale: num(m.scale, 4), waves: Math.round(num(m.waves, 11)), spread: num(m.variety, 0.9), strength: num(m.strength, 7), softness: num(m.softness, 0.45),
-          exposure: num(m.exposure, 0.4), contrast: num(m.contrast, 2.2), octave2: 0.4, harmonic: 1, meander: num(m.meander, 0.7), halo: num(m.halo, 0.5), halo_size: 3, seed: num(m.seed, 81),
+          exposure: num(m.exposure, 0.4), contrast: num(m.contrast, 2.2), octave2: 0.4, harmonic: 1, meander: num(m.meander, 0.7), halo: num(m.halo, 0.5), halo_size: 3, phase: num(m.phase, 0), model: String(m.model ?? 'sines'), steepness: num(m.steepness, 0.7), seed: num(m.seed, 81),
         }
-      : { mode: style, scale: num(m.scale, 4), jitter: 0.85, size_var: num(m.variety, 0.9), round: 0.8, warp: num(m.warp, 0.3), warp_scale: 1, rim: num(m.rim, 1.8), rim_soft: 1.1, glow: 1, glow_amount: 0.65, falloff: 0.7, octave2: 0, seed: num(m.seed, 81) }
+      : { mode: style, scale: num(m.scale, 4), jitter: 0.85, size_var: num(m.variety, 0.9), round: 0.8, warp: num(m.warp, 0.3), warp_scale: 1, rim: num(m.rim, 1.8), rim_soft: 1.1, glow: 1, glow_amount: 0.65, falloff: 0.7, octave2: 0, phase: num(m.phase, 0), seed: num(m.seed, 81) }
     const colours = m.colours ?? gradient('#3a0000', '#ffd040')
     const top = (colours as { stops: { color: string }[] }).stops.at(-1)?.color ?? '#ffd040'
     const hl = String(m.highlight_colour ?? '#f0f060')

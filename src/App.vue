@@ -10,6 +10,7 @@ import Viewport from '@/ui/layout/Viewport.vue'
 import Properties from '@/ui/layout/Properties.vue'
 import StatusBar from '@/ui/layout/StatusBar.vue'
 import MatchWorkspace from '@/ui/panels/MatchWorkspace.vue'
+import BusyModal from '@/ui/components/BusyModal.vue'
 
 const store = useProjectStore()
 const editor = useEditorStore()
@@ -167,6 +168,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     </main>
     <StatusBar />
     <div v-if="toastVisible && editor.toast" class="toast" :class="editor.toast.kind" role="status">{{ editor.toast.text }}</div>
+    <BusyModal />
   </div>
 </template>
 

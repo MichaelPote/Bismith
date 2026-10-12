@@ -8,6 +8,7 @@ import type { LayerDef } from '../types'
 
 export const cloudsLayer: LayerDef = {
   type: 'clouds',
+  noise: true,
   label: 'Clouds',
   category: 'noise',
   kind: 'generator',

@@ -39,6 +39,11 @@ export interface LayerDef {
    */
   cpuData?: (params: ParamValues, ctx: { width: number; height: number; tileable: boolean; seed: number }) => Record<string, CpuTexture>
   textures?: string[]
+  /**
+   * Generators: the pattern comes from the noise library (glsl/noise.ts) or its cell points, so a Phase param in the
+   * Pattern card animates it. Other generators get the Phase in Shaping, shown while a domain warp is on.
+   */
+  noise?: boolean
   /** Overrides for common param defaults (e.g. which channel outputs start enabled). */
   defaults?: Record<string, ParamValue>
   /** Extra groups for this type's params, in display order (the default 'params' group is implicit). */

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Blender-style number field: drag to scrub (Shift = fine, Ctrl = whole numbers), click to type, arrows to step
-// (Ctrl = to the next whole number). Double-click goes back to the value before the last change — again to return —
+// (Ctrl = to the next whole number). Dragging stays within the soft range (softMin / softMax); typing and the arrows
+// go past it, up to the hard min / max. Double-click goes back to the value before the last change — again to return —
 // or, if the field hasn't been changed, to its default. The fill bar shows the value within its soft range.
 import { computed, nextTick, ref } from 'vue'
 import Icon from './Icon.vue'
@@ -152,6 +153,8 @@ function onMove(e: PointerEvent): void {
   let v = startValue + dx * perPx
   if (e.ctrlKey || e.metaKey) v = Math.round(v)
   else if (!props.int) v = round(v, stepSize.value / 10)
+  // The soft range bounds a drag (widened to the start value when that is already outside it).
+  if (hasRange.value) v = Math.min(Math.max(v, Math.min(lo.value, startValue)), Math.max(hi.value, startValue))
   set(v)
 }
 
@@ -177,6 +180,19 @@ async function startEdit(): Promise<void> {
   await nextTick()
   input.value?.focus()
   input.value?.select()
+}
+
+/** Keys in the text box stay there: Enter / Esc finish, arrows move the caret (the track's keys would reopen the
+ * editor or nudge the value). */
+function onEditKey(e: KeyboardEvent): void {
+  e.stopPropagation()
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    finishEdit(true)
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    finishEdit(false)
+  }
 }
 
 function finishEdit(apply: boolean): void {
@@ -230,8 +246,7 @@ function finishEdit(apply: boolean): void {
         ref="input"
         v-model="draft"
         class="edit"
-        @keydown.enter.prevent="finishEdit(true)"
-        @keydown.esc.prevent="finishEdit(false)"
+        @keydown="onEditKey"
         @blur="finishEdit(true)"
       />
       <span v-else class="val">{{ display }}</span>
