@@ -9,7 +9,7 @@ export const tiles: RecipeDef = {
   id: 'tiles',
   label: 'Tiles',
   description: 'Square, hex, diamond, diagonal-bond, herringbone or basketweave tiles, bone or plus pavers, fan or ring setts: crisp bevels, per-tile colour and height, grout and grime.',
-  icon: 'pattern',
+  icon: 'tiles',
   groups: [
     { id: 'layout', label: 'Layout' },
     { id: 'relief', label: 'Relief' },

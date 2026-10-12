@@ -7,6 +7,7 @@ import { CHANNEL_VIEWS } from '@/render/display'
 import { PRESETS } from '@/presets'
 import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue'
 import Icon from '@/ui/components/Icon.vue'
+import { vTip } from '@/ui/tooltip'
 
 const store = useProjectStore()
 const editor = useEditorStore()
@@ -65,14 +66,21 @@ const viewItems = computed<MenuItem[]>(() => [
   { label: 'Restart render', shortcut: 'R', action: () => editor.engine?.restart() },
 ])
 
+const WORKSPACES = [
+  { id: 'create', label: 'Create', icon: 'layers', hint: 'Build the texture: layers, lights, post' },
+  { id: 'match', label: 'Match', icon: 'target', hint: 'Match a reference image: templates, variations, the optimiser' },
+] as const
+
 const helpItems: MenuItem[] = [
   { section: 'Viewport' },
   { label: 'Wheel — zoom about cursor', disabled: true },
   { label: 'Middle / Space-drag — pan', disabled: true },
   { label: 'Drag a light gizmo — move light', disabled: true },
   { section: 'Fields' },
-  { label: 'Drag — scrub · Shift fine · Ctrl snap', disabled: true },
+  { label: 'Drag — scrub · Shift fine · Ctrl whole numbers', disabled: true },
   { label: 'Click — type a value or expression', disabled: true },
+  { label: 'Double-click — back to the previous value', disabled: true },
+  { label: 'Wheel / arrows over a dropdown — step through it', disabled: true },
 ]
 </script>
 
@@ -90,19 +98,23 @@ const helpItems: MenuItem[] = [
     <DropMenu label="View" :items="viewItems" />
     <DropMenu label="Help" :items="helpItems" />
 
-    <div class="tabs" role="tablist" aria-label="Workspaces">
-      <button
-        v-for="w in [{ id: 'forge', label: 'Forge' }, { id: 'match', label: 'Match' }] as const"
-        :key="w.id"
-        type="button"
-        role="tab"
-        class="tab"
-        :class="{ on: editor.workspace === w.id }"
-        :aria-selected="editor.workspace === w.id"
-        @click="editor.workspace = w.id"
-      >
-        {{ w.label }}
-      </button>
+    <div class="ws">
+      <span class="cf-label">Workspace</span>
+      <div class="fk-rail" role="tablist" aria-label="Workspaces">
+        <button
+          v-for="w in WORKSPACES"
+          :key="w.id"
+          v-tip:bottom="w.hint"
+          type="button"
+          role="tab"
+          class="fk"
+          :class="{ lit: editor.workspace === w.id }"
+          :aria-selected="editor.workspace === w.id"
+          @click="editor.workspace = w.id"
+        >
+          <span class="fk-face"><Icon :name="w.icon" :size="14" />{{ w.label }}</span>
+        </button>
+      </div>
     </div>
 
     <div class="right">
@@ -110,10 +122,10 @@ const helpItems: MenuItem[] = [
         {{ store.project.name }}
         <span class="dim">· {{ store.project.width }}×{{ store.project.height }}{{ store.project.tileable ? ' · tiling' : '' }}</span>
       </span>
-      <button type="button" class="cf-btn" title="Undo (Ctrl+Z)" aria-label="Undo" :disabled="!store.canUndo" @click="store.undo"><Icon name="undo" :size="13" /></button>
-      <button type="button" class="cf-btn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" :disabled="!store.canRedo" @click="store.redo"><Icon name="redo" :size="13" /></button>
-      <button type="button" class="cf-heat" title="Export the final PNG (Ctrl+E)" @click="act.exportFinal(1)">
-        <span class="core"><Icon name="download" :size="13" />Export PNG</span>
+      <button v-tip:bottom="'Undo (Ctrl+Z)'" type="button" class="cf-ico-btn" aria-label="Undo" :disabled="!store.canUndo" @click="store.undo"><Icon name="undo" :size="14" /></button>
+      <button v-tip:bottom="'Redo (Ctrl+Shift+Z)'" type="button" class="cf-ico-btn" aria-label="Redo" :disabled="!store.canRedo" @click="store.redo"><Icon name="redo" :size="14" /></button>
+      <button v-tip:bottom="'Export the final PNG'" type="button" class="fk primary" @click="act.exportFinal(1)">
+        <span class="fk-face"><Icon name="download" :size="13" />Export PNG<span class="kc">Ctrl E</span></span>
       </button>
     </div>
   </header>
@@ -144,48 +156,32 @@ const helpItems: MenuItem[] = [
   text-transform: uppercase;
   color: var(--text-hi);
 }
-.tabs {
+.ws {
   display: flex;
-  align-items: flex-end;
-  align-self: stretch;
+  align-items: center;
+  gap: 10px;
   margin-left: 20px;
-  gap: 2px;
 }
-.tab {
-  position: relative;
-  height: 34px;
-  padding: 0 14px;
-  border: 0;
-  background: transparent;
-  color: var(--text-lo);
+.ws .fk {
+  height: 26px;
 }
-.tab:hover {
-  color: var(--text-hi);
-}
-.tab.on {
-  color: var(--text-hi);
+.ws .fk-face {
+  gap: 7px;
+  padding: 0 12px;
+  font-size: 13px;
   font-weight: 500;
-  background: var(--under-body);
+  letter-spacing: 0.04em;
+  color: var(--text);
 }
-.tab.on::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: var(--under-bar);
+.ws .fk.lit .fk-face {
+  font-weight: 700;
+  color: var(--text-hi);
 }
-.tab.on::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: 10px;
-  background: var(--under-spill);
-  pointer-events: none;
-  z-index: 2;
+.ws .fk-face :deep(svg) {
+  color: var(--text-mid);
+}
+.ws .fk.lit .fk-face :deep(svg) {
+  color: var(--e100);
 }
 .right {
   margin-left: auto;
@@ -202,10 +198,15 @@ const helpItems: MenuItem[] = [
 .dim {
   color: var(--text-lo);
 }
-.right .cf-btn {
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  justify-content: center;
+.right .fk.primary {
+  height: 28px;
+  margin-left: 6px;
+}
+.right .fk.primary .kc {
+  margin-left: 4px;
+  background: var(--e600);
+  box-shadow: inset 0 0 0 1px var(--e700), 0 1px 0 var(--e800);
+  color: var(--e50);
+  text-transform: none;
 }
 </style>

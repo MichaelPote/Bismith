@@ -7,6 +7,7 @@ import { blurTexture } from './shared'
 
 export const levelsLayer: LayerDef = {
   type: 'levels',
+  channels: { height: true },
   label: 'Height levels',
   category: 'adjust',
   kind: 'filter',
@@ -35,6 +36,7 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
 
 export const hsvLayer: LayerDef = {
   type: 'hsv',
+  channels: { diffuse: true },
   label: 'Diffuse adjust',
   category: 'adjust',
   kind: 'filter',
@@ -92,6 +94,7 @@ void main() {
 
 export const heightFromDiffuseLayer: LayerDef = {
   type: 'heightFromDiffuse',
+  channels: { height: true },
   label: 'Height from diffuse',
   category: 'adjust',
   kind: 'filter',

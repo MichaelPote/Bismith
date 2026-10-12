@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { createProject } from '@/core/serialize'
-import { stackOrder } from '@/core/project'
 import { addMaterial } from '@/recipes'
 import { variations } from './variations'
 
@@ -16,7 +15,7 @@ describe('variations', () => {
       expect(v.changed.length).toBeGreaterThan(0)
       expect(JSON.stringify(v.project)).not.toBe(before)
       // The bricks copies (relief + paint) still share their layout.
-      const bricks = stackOrder(v.project).filter((l) => l.type === 'bricks')
+      const bricks = v.project.layers.filter((l) => l.type === 'bricks')
       for (const k of ['columns', 'rows', 'stagger', 'mortar', 'seed']) expect(new Set(bricks.map((l) => JSON.stringify(l.params[k]))).size).toBe(1)
     }
   })

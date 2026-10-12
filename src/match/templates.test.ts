@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ensureBuiltins } from '@/render/builtins'
 import { layerParamDefs } from '@/layers/registry'
-import { stackOrder } from '@/core/project'
 import { TEMPLATES, availableTemplates } from './templates'
 import { conformProject } from './heuristics'
 import { extractParams } from './optimizer'
@@ -23,7 +22,7 @@ describe('emulation templates', () => {
     it(`${t.id} builds with known params only`, () => {
       const p = t.build(analysis, { palette: 'quake' })
       expect(p.width).toBe(64)
-      for (const l of stackOrder(p)) {
+      for (const l of p.layers) {
         const keys = new Set(layerParamDefs(l.type).map((d) => d.key))
         for (const k of Object.keys(l.params)) expect(keys.has(k), `${t.id}/${l.name}: unknown param ${k}`).toBe(true)
       }
@@ -34,14 +33,6 @@ describe('emulation templates', () => {
       }
     })
   }
-
-  it('keeps colour in the paint stack and relief in its own', () => {
-    for (const t of TEMPLATES) {
-      for (const l of t.build(analysis, { palette: 'quake' }).relief) {
-        expect(l.params.dif_on === true, `${t.id}/${l.name}: relief layer paints`).toBe(false)
-      }
-    }
-  })
 
   it('ties the copies of one pattern across the stacks', () => {
     const p = TEMPLATES.find((t) => t.id === 'bricks')!.build(analysis, { palette: 'quake' })

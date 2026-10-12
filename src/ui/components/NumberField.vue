@@ -1,7 +1,12 @@
 <script setup lang="ts">
-// Blender-style number field: drag to scrub (Shift = fine, Ctrl = coarse snap), click to type, arrows to step.
-// The fill bar shows the value within its soft range.
+// Blender-style number field: drag to scrub (Shift = fine, Ctrl = whole numbers), click to type, arrows to step
+// (Ctrl = to the next whole number). Double-click goes back to the value before the last change — again to return —
+// or, if the field hasn't been changed, to its default. The fill bar shows the value within its soft range.
 import { computed, nextTick, ref } from 'vue'
+import Icon from './Icon.vue'
+
+/** Previous values by memory key, so they outlive the field (the inspector rebuilds its fields on reselect). */
+const previousByKey = new Map<string, number>()
 
 const props = withDefaults(
   defineProps<{
@@ -15,6 +20,10 @@ const props = withDefaults(
     int?: boolean
     disabled?: boolean
     label?: string
+    /** Double-click target when the field has no previous value yet. */
+    defaultValue?: number
+    /** Where to remember the previous value (e.g. owner + param key); without one it lives in the component. */
+    memoryKey?: string
   }>(),
   { unit: '', int: false, disabled: false },
 )
@@ -66,15 +75,54 @@ function round(v: number, snap: number): number {
   return Math.round(v / snap) * snap
 }
 
+/** The latest value set (the prop catches up a render later). */
+let current = props.modelValue
+
 function set(v: number, commit = false): void {
   const c = clamp(Number(v.toFixed(6)))
+  current = c
   if (c !== props.modelValue) emit('update:modelValue', c)
   if (commit) emit('commit', c)
 }
 
-function nudge(dir: number): void {
+// ---------------------------------------------------------------- previous value (double-click)
+const localPrevious = ref<number | undefined>()
+const getPrevious = () => (props.memoryKey ? previousByKey.get(props.memoryKey) : localPrevious.value)
+function setPrevious(v: number): void {
+  if (props.memoryKey) previousByKey.set(props.memoryKey, v)
+  else localPrevious.value = v
+}
+/** Value when the current change began (drag, typing, step), null outside a change. */
+let before: number | null = null
+function begin(): void {
+  if (before === null) before = props.modelValue
+  current = props.modelValue
+}
+function end(): void {
+  if (before !== null && Number.isFinite(before) && current !== before) setPrevious(before)
+  before = null
+}
+
+function restorePrevious(): void {
   if (props.disabled) return
-  set(props.modelValue + dir * stepSize.value, true)
+  if (editing.value) {
+    editing.value = false
+    before = null
+  }
+  const target = getPrevious() ?? props.defaultValue
+  if (target === undefined || !Number.isFinite(target) || target === props.modelValue) return
+  setPrevious(props.modelValue)
+  set(target, true)
+}
+
+function nudge(dir: number, e?: MouseEvent | KeyboardEvent): void {
+  if (props.disabled) return
+  begin()
+  const v = props.modelValue
+  // Ctrl: to the next whole number in that direction.
+  const next = e && (e.ctrlKey || e.metaKey) ? (dir > 0 ? Math.floor(v + 1e-9) + 1 : Math.ceil(v - 1e-9) - 1) : v + dir * stepSize.value
+  set(next, true)
+  end()
 }
 
 let startX = 0
@@ -86,6 +134,7 @@ function onDown(e: PointerEvent): void {
   startX = e.clientX
   startValue = props.modelValue
   moved = false
+  begin()
   ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
 }
 
@@ -101,7 +150,7 @@ function onMove(e: PointerEvent): void {
   else perPx = stepSize.value / 2
   if (e.shiftKey) perPx *= 0.1
   let v = startValue + dx * perPx
-  if (e.ctrlKey || e.metaKey) v = round(v, stepSize.value * 10)
+  if (e.ctrlKey || e.metaKey) v = Math.round(v)
   else if (!props.int) v = round(v, stepSize.value / 10)
   set(v)
 }
@@ -112,14 +161,17 @@ function onUp(e: PointerEvent): void {
   el.releasePointerCapture(e.pointerId)
   if (moved) {
     dragging.value = false
-    emit('commit', props.modelValue)
+    emit('commit', current)
+    end()
   } else {
+    before = null
     startEdit()
   }
 }
 
 async function startEdit(): Promise<void> {
   if (props.disabled) return
+  begin()
   editing.value = true
   draft.value = props.int ? String(Math.round(props.modelValue)) : String(Number(props.modelValue.toFixed(decimals.value + 2)))
   await nextTick()
@@ -130,7 +182,10 @@ async function startEdit(): Promise<void> {
 function finishEdit(apply: boolean): void {
   if (!editing.value) return
   editing.value = false
-  if (!apply) return
+  if (!apply) {
+    before = null
+    return
+  }
   const txt = draft.value.trim().replace(/[a-z°%×]+$/i, '').trim()
   // Allow simple arithmetic like "64/3" or "8*2".
   let v = Number(txt)
@@ -142,13 +197,14 @@ function finishEdit(apply: boolean): void {
     }
   }
   if (Number.isFinite(v)) set(v, true)
+  end()
 }
 </script>
 
 <template>
   <div class="nf" :class="{ dragging, editing, disabled }">
-    <button type="button" class="arrow" tabindex="-1" :aria-label="`Decrease ${label ?? ''}`" @click="nudge(-1)">
-      <svg width="8" height="8" viewBox="0 0 18 18" aria-hidden="true"><path d="M12 2 L5 9 L12 16" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+    <button type="button" class="arrow" tabindex="-1" :aria-label="`Decrease ${label ?? ''}`" @click="nudge(-1, $event)">
+      <Icon name="chev-left" :size="11" :weight="2" />
     </button>
     <div
       ref="track"
@@ -163,9 +219,10 @@ function finishEdit(apply: boolean): void {
       @pointermove="onMove"
       @pointerup="onUp"
       @pointercancel="onUp"
+      @dblclick.prevent="restorePrevious"
       @keydown.enter.prevent="startEdit"
-      @keydown.left.prevent="nudge(-1)"
-      @keydown.right.prevent="nudge(1)"
+      @keydown.left.prevent="nudge(-1, $event)"
+      @keydown.right.prevent="nudge(1, $event)"
     >
       <div v-if="hasRange" class="fill" :style="{ width: `${frac * 100}%` }" />
       <input
@@ -179,8 +236,8 @@ function finishEdit(apply: boolean): void {
       />
       <span v-else class="val">{{ display }}</span>
     </div>
-    <button type="button" class="arrow" tabindex="-1" :aria-label="`Increase ${label ?? ''}`" @click="nudge(1)">
-      <svg width="8" height="8" viewBox="0 0 18 18" aria-hidden="true"><path d="M6 2 L13 9 L6 16" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+    <button type="button" class="arrow" tabindex="-1" :aria-label="`Increase ${label ?? ''}`" @click="nudge(1, $event)">
+      <Icon name="chev-right" :size="11" :weight="2" />
     </button>
   </div>
 </template>
@@ -191,6 +248,8 @@ function finishEdit(apply: boolean): void {
   align-items: stretch;
   height: 22px;
   min-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
   border: 1px solid var(--hairline);
   border-radius: var(--r-field);
   background: var(--sunken);
@@ -276,5 +335,7 @@ function finishEdit(apply: boolean): void {
   padding: 0 4px;
   outline: none;
   cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
 }
 </style>

@@ -29,6 +29,8 @@ export type ParamType = 'float' | 'int' | 'bool' | 'color' | 'enum' | 'seed' | '
 export interface EnumOption {
   value: string
   label: string
+  /** What the option does (listed in the field's tooltip). */
+  hint?: string
 }
 
 export type ParamValues = Record<string, ParamValue>
@@ -62,6 +64,12 @@ export interface ParamDef {
    */
   bitmap?: 'pixels' | 'font' | 'points'
   hint?: string
+  /**
+   * UI only: draw this param in one row with the param `with`, which then isn't drawn on its own. 'pair' puts the two
+   * controls side by side (Source · Mode); 'ramp' draws a scalar ramp from this value (where the source is 0) to the
+   * partner's (where it is 1). `label` names the row.
+   */
+  join?: { with: string; as: 'pair' | 'ramp'; label: string }
 }
 
 export interface GroupDef {
@@ -176,8 +184,8 @@ export const P = {
   color: (key: string, label: string, def: string, extra: Extra = {}): ParamDef => ({
     key, label, type: 'color', default: def, ...extra,
   }),
-  enum: (key: string, label: string, def: string, options: [string, string][], extra: Extra = {}): ParamDef => ({
-    key, label, type: 'enum', default: def, options: options.map(([value, l]) => ({ value, label: l })), ...extra,
+  enum: (key: string, label: string, def: string, options: ([string, string] | [string, string, string])[], extra: Extra = {}): ParamDef => ({
+    key, label, type: 'enum', default: def, options: options.map(([value, l, hint]) => ({ value, label: l, ...(hint ? { hint } : {}) })), ...extra,
   }),
   seed: (key = 'seed', label = 'Seed', def = 1, extra: Extra = {}): ParamDef => ({
     key, label, type: 'seed', default: def, min: 0, max: 99999, step: 1, ...extra,

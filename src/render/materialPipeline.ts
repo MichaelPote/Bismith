@@ -2,7 +2,7 @@
 // (albedo · surface · emissive, ping-ponged MRT) and derive normals from height.
 
 import * as THREE from 'three'
-import { stackOrder, type Layer, type Project } from '@/core/project'
+import { hiddenByMaterial, type Layer, type Project } from '@/core/project'
 import { hexToLinear } from '@/core/color'
 import { Gpu, PingPong, type Uniforms } from '@/gpu/context'
 import { createUniforms, declareUniforms, mixSeed, updateUniforms } from '@/gpu/uniforms'
@@ -92,7 +92,6 @@ export class MaterialPipeline {
   private clearMat: THREE.RawShaderMaterial
   private normalMat: THREE.RawShaderMaterial
   private reduceMat: THREE.RawShaderMaterial
-  private reliefResetMat: THREE.RawShaderMaterial
   heightStats: HeightStats = { min: 0, max: 0 }
   /** Last compile/runtime error per layer id (shown in the UI). */
   errors = new Map<string, string>()
@@ -124,32 +123,6 @@ export class MaterialPipeline {
         uBaseSpecular: { value: 0.5 },
         tInitMasks: { value: null },
         uInitMasks: { value: false },
-      },
-    )
-    // After the relief stack: colour channels back to the base (relief never paints), surface + specular kept.
-    this.reliefResetMat = gpu.material(
-      STATE_DECLS +
-        GLSL_COMMON +
-        MRT_OUTS +
-        /* glsl */ `
-      uniform vec4 uBaseAlbedo;
-      void main() {
-        ivec2 c = ivec2(gl_FragCoord.xy);
-        oAlbedo = uBaseAlbedo;
-        oSurface = texelFetch(tSurface, c, 0);
-        oEmissive = vec4(0.0, 0.0, 0.0, texelFetch(tEmissive, c, 0).a);
-        oMasks = texelFetch(tMasks, c, 0);
-      }`,
-      {
-        uRes: { value: new THREE.Vector2() },
-        uTile: { value: true },
-        uSeed: { value: 0 },
-        uDepth: { value: 1 },
-        tAlbedo: { value: null },
-        tSurface: { value: null },
-        tEmissive: { value: null },
-        tMasks: { value: null },
-        uBaseAlbedo: { value: new THREE.Vector4() },
       },
     )
     this.normalMat = gpu.material(
@@ -383,8 +356,10 @@ export class MaterialPipeline {
 
     // Named masks (FR8.13) first: every layer that writes one runs, in stack order, on a scratch evaluation; the
     // masks it leaves are where the real evaluation starts — so a mask applies wherever its writer sits.
-    const order = stackOrder(project)
-    const writers = order.filter((l, i) => i <= upTo && l.enabled && String(l.params.mk_write ?? 'none') !== 'none' && getLayerDef(l.type)?.kind === 'generator')
+    const order = project.layers
+    const hidden = hiddenByMaterial(project)
+    const on = (l: Layer) => l.enabled && !hidden.has(l.id)
+    const writers = order.filter((l, i) => i <= upTo && on(l) && String(l.params.mk_write ?? 'none') !== 'none' && getLayerDef(l.type)?.kind === 'generator')
     clear(false)
     if (writers.length) {
       for (const layer of writers) {
@@ -406,10 +381,8 @@ export class MaterialPipeline {
       clear(true)
     }
 
-    const relief = project.relief ?? []
     order.forEach((layer, index) => {
-      if (index === relief.length && relief.length > 0) this.resetAfterRelief(project)
-      if (index > upTo || !layer.enabled) return
+      if (index > upTo || !on(layer)) return
       const def = getLayerDef(layer.type)
       if (!def) {
         this.errors.set(layer.id, `Unknown layer type "${layer.type}"`)
@@ -456,8 +429,6 @@ export class MaterialPipeline {
         this.errors.set(layer.id, e instanceof Error ? e.message : String(e))
       }
     })
-
-    if (relief.length > 0 && project.layers.length === 0) this.resetAfterRelief(project)
 
     // Normals (xyz) + world height in px (w).
     this.onBeforeLayer?.('normals')
@@ -517,15 +488,6 @@ export class MaterialPipeline {
     mat.uniforms.tPrevE.value = t[2]
     mat.uniforms.tPrevM.value = t[3]
     ctx.runMRT(mat)
-  }
-
-  private resetAfterRelief(project: Project): void {
-    const lin = hexToLinear(project.base.color)
-    const mat = this.reliefResetMat
-    this.setCommon(mat, project, 0)
-    ;(mat.uniforms.uBaseAlbedo.value as THREE.Vector4).set(lin[0], lin[1], lin[2], project.base.opacity)
-    this.gpu.run(mat, this.state!.write)
-    this.state!.swap()
   }
 
   /** Min/max world height via an 8×8-block GPU reduction, then a tiny readback. */
@@ -596,7 +558,6 @@ export class MaterialPipeline {
     this.clearMat.dispose()
     this.normalMat.dispose()
     this.reduceMat.dispose()
-    this.reliefResetMat.dispose()
     this.copyMat?.dispose()
     this.snapshotTarget?.dispose()
   }

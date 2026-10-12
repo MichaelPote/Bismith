@@ -8,7 +8,6 @@
 // downsample, at the real size, and are left alone.
 
 import type { Project } from './project'
-import { stackOrder } from './project'
 import { layerParamDefs } from '@/layers/registry'
 import { LIGHT_DEFS } from './lights'
 
@@ -33,7 +32,7 @@ export function scaleProject(p: Project, k: number): Project {
   q.heightDepth *= k
   q.render.aoRadius *= k
   q.render.supersample = 1
-  for (const l of stackOrder(q)) {
+  for (const l of q.layers) {
     for (const d of layerParamDefs(l.type)) {
       const v = l.params[d.key]
       if (typeof v === 'number' && d.unit === 'px') l.params[d.key] = v * k

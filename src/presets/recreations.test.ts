@@ -30,8 +30,7 @@ describe.skipIf(entries.length === 0)('recreations', () => {
       expect(Object.keys(l.params ?? {}).filter((k) => !keys.has(k)), `${file} · ${l.name} (${l.type})`).toEqual([])
     }
     const p = normalizeProject(raw)
-    expect(p.layers.length).toBe(raw.layers.length)
-    expect(p.relief.length).toBe(raw.relief?.length ?? 0)
+    expect(p.layers.length).toBe(raw.layers.length + (raw.relief?.length ?? 0))
     expect(p.render.shadows).toBe(false)
   })
 })

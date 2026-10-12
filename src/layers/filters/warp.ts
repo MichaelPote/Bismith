@@ -5,6 +5,7 @@ import type { LayerDef } from '../types'
 
 export const warpLayer: LayerDef = {
   type: 'warp',
+  channels: { diffuse: true, height: true },
   label: 'Warp',
   category: 'filter',
   kind: 'filter',

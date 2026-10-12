@@ -28,23 +28,24 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const copy = <T>(v: T): T => (v !== null && typeof v === 'object' ? (JSON.parse(JSON.stringify(v)) as T) : v)
 
 function findLayer(p: Project, id: string): Layer | undefined {
-  return (p.relief ?? []).find((l) => l.id === id) ?? p.layers.find((l) => l.id === id)
+  return p.layers.find((l) => l.id === id)
 }
 
 /**
- * Add a smart material to `p` (in place): its layers go on top of their stacks, render settings the look relies on
- * are raised. Returns the new material.
+ * Add a smart material to `p` (in place): its layers go in as one block — the relief ones (shape only) first, then
+ * the paint — at `at` (default: last, on top of everything); render settings the look relies on are raised. Returns
+ * the new material.
  */
-export function addMaterial(p: Project, recipeId: string, overrides: ParamValues = {}, name?: string): SmartMaterial {
+export function addMaterial(p: Project, recipeId: string, overrides: ParamValues = {}, name?: string, at?: number): SmartMaterial {
   const def = getRecipe(recipeId)
   if (!def) throw new Error(`Unknown recipe: ${recipeId}`)
   const params = sanitizeParams(def.params, { ...defaultParams(def.params), ...overrides })
   const members: Record<string, string> = {}
-  p.relief ??= []
-  for (const { role, stack, layer } of def.build(params, ctxOf(p))) {
-    ;(stack === 'relief' ? p.relief : p.layers).push(layer)
-    members[role] = layer.id
-  }
+  const built = def.build(params, ctxOf(p))
+  const block = [...built.filter((b) => b.stack === 'relief'), ...built.filter((b) => b.stack !== 'relief')]
+  for (const { role, layer } of block) members[role] = layer.id
+  const i = at === undefined ? p.layers.length : Math.max(0, Math.min(p.layers.length, at))
+  p.layers.splice(i, 0, ...block.map((b) => b.layer))
   if (def.render) {
     const r = def.render
     if (r.ao !== undefined) p.render.ao = Math.max(p.render.ao, r.ao)
@@ -124,9 +125,14 @@ export function materialOf(p: Project, layerId: string): SmartMaterial | undefin
   return (p.materials ?? []).find((m) => Object.values(m.members).includes(layerId))
 }
 
-/** Drop the material record; its layers stay as ordinary layers. */
+/** Drop the material record; its layers stay as ordinary layers (switched off if the material was hidden). */
 export function unpackMaterial(p: Project, id: string): void {
-  p.materials = (p.materials ?? []).filter((m) => m.id !== id)
+  const m = (p.materials ?? []).find((x) => x.id === id)
+  if (m?.enabled === false) for (const lid of Object.values(m.members)) {
+    const l = findLayer(p, lid)
+    if (l) l.enabled = false
+  }
+  p.materials = (p.materials ?? []).filter((x) => x.id !== id)
 }
 
 /** Remove the material and its member layers. */
@@ -134,7 +140,6 @@ export function deleteMaterial(p: Project, id: string): void {
   const m = (p.materials ?? []).find((x) => x.id === id)
   if (!m) return
   const ids = new Set(Object.values(m.members))
-  p.relief = (p.relief ?? []).filter((l) => !ids.has(l.id))
   p.layers = p.layers.filter((l) => !ids.has(l.id))
   unpackMaterial(p, id)
 }
@@ -142,7 +147,7 @@ export function deleteMaterial(p: Project, id: string): void {
 /** Forget members that no longer exist (after a layer is deleted); drop a material left without members. */
 export function pruneMaterials(p: Project): void {
   if (!p.materials?.length) return
-  const ids = new Set([...(p.relief ?? []), ...p.layers].map((l) => l.id))
+  const ids = new Set(p.layers.map((l) => l.id))
   for (const m of p.materials) for (const [role, id] of Object.entries(m.members)) if (!ids.has(id)) delete m.members[role]
   p.materials = p.materials.filter((m) => Object.keys(m.members).length > 0)
 }

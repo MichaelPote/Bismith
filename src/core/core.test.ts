@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { hexToRgb, linearToOklab, linearToSrgb1, oklabToLinear, rgbToHex, srgbToLinear1 } from './color'
 import { P, evalCurve, sanitizeParams, sanitizeValue } from './params'
 import { createProject, normalizeProject, projectFromJSON, projectToJSON } from './serialize'
-import { stackOrder } from './project'
+import { groupMaterials, layerUnits } from './project'
 import { crc32, zipStore } from './zip'
 
 describe('color', () => {
@@ -99,11 +99,31 @@ describe('serialize', () => {
     expect(p.post[0].params.operator).toBe('aces')
     expect(p.lighting.sky.enabled).toBe(true)
   })
-  it('keeps the relief stack separate and evaluates it first', () => {
-    const p = normalizeProject({ relief: [{ type: 'bricks' }], layers: [{ type: 'noise' }] })
-    expect(p.relief.map((l) => l.type)).toEqual(['bricks'])
-    expect(stackOrder(p).map((l) => l.type)).toEqual(['bricks', 'noise'])
-    expect(normalizeProject({ layers: [] }).relief).toEqual([])
+  it('puts a legacy relief stack first in the one list, with its colour outputs off', () => {
+    const p = normalizeProject({
+      relief: [{ type: 'bricks', params: { dif_on: true, h_on: true, e_on: true } }, { type: 'blur', params: { diffuse: true, height: true } }],
+      layers: [{ type: 'noise', params: { dif_on: true } }],
+    })
+    expect(p.layers.map((l) => l.type)).toEqual(['bricks', 'blur', 'noise'])
+    expect([p.layers[0].params.dif_on, p.layers[0].params.e_on, p.layers[0].params.h_on]).toEqual([false, false, true])
+    expect([p.layers[1].params.diffuse, p.layers[1].params.height]).toEqual([false, true])
+    expect(p.layers[2].params.dif_on).toBe(true)
+    expect('relief' in p).toBe(false)
+  })
+  it('gathers each smart material\'s members into one block where its last member is', () => {
+    const p = normalizeProject({
+      relief: [{ id: 'a1', type: 'bricks' }, { id: 'b1', type: 'bricks' }, { id: 'x', type: 'noise' }],
+      layers: [{ id: 'y', type: 'noise' }, { id: 'a2', type: 'noise' }, { id: 'b2', type: 'noise' }],
+      materials: [
+        { id: 'ma', recipe: 'tiles', members: { r: 'a1', p: 'a2' } },
+        { id: 'mb', recipe: 'tiles', members: { r: 'b1', p: 'b2' } },
+      ],
+    })
+    // Colour layers keep their order (y, a2, b2); the relief members join their material.
+    expect(p.layers.map((l) => l.id)).toEqual(['x', 'y', 'a1', 'a2', 'b1', 'b2'])
+    const units = layerUnits(p.layers, p.materials)
+    expect(units.map((u) => (u.material ? u.material.id : u.layer.id))).toEqual(['x', 'y', 'ma', 'mb'])
+    expect(groupMaterials(p.layers, p.materials)).toEqual(p.layers)
   })
   it('migrates the old single specular setting to base level × render scale with the same F0', () => {
     const old = normalizeProject({ base: { color: '#806040' }, render: { specular: 0.8 } })
@@ -136,19 +156,22 @@ describe('supersampling', () => {
       width: 64,
       height: 32,
       heightDepth: 2.5,
-      relief: [createLayer('bricks', { columns: 4, mortar: 1.5, bevel: 2 })],
-      layers: [createLayer('path', { points: '8,16 24,8 56,8' }), createLayer('noise', { noise: 'white', block: 1, scale: 6 })],
+      layers: [
+        createLayer('bricks', { columns: 4, mortar: 1.5, bevel: 2 }),
+        createLayer('path', { points: '8,16 24,8 56,8' }),
+        createLayer('noise', { noise: 'white', block: 1, scale: 6 }),
+      ],
     })
     p.render.supersample = 3
     expect(supersampleFactor(p)).toBe(3)
     const q = scaleProject(p, 3)
     expect([q.width, q.height, q.heightDepth]).toEqual([192, 96, 7.5])
-    expect(q.relief[0].params.columns).toBe(4)
-    expect(q.relief[0].params.mortar).toBe(4.5)
-    expect(q.relief[0].params.bevel).toBe(6)
-    expect(q.layers[0].params.points).toBe('24,48 72,24 168,24')
-    expect(q.layers[1].params.block).toBe(3)
-    expect(q.layers[1].params.scale).toBe(6)
+    expect(q.layers[0].params.columns).toBe(4)
+    expect(q.layers[0].params.mortar).toBe(4.5)
+    expect(q.layers[0].params.bevel).toBe(6)
+    expect(q.layers[1].params.points).toBe('24,48 72,24 168,24')
+    expect(q.layers[2].params.block).toBe(3)
+    expect(q.layers[2].params.scale).toBe(6)
     expect(q.render.aoRadius).toBe(p.render.aoRadius * 3)
     expect(p.width).toBe(64) // input untouched
   })

@@ -8,7 +8,7 @@ export const concrete: RecipeDef = {
   id: 'concrete',
   label: 'Concrete',
   description: 'Soft mottled concrete or plaster: smudges, rain streaks, pits and speckle; optional cast panels with seams and bolt holes.',
-  icon: 'pattern',
+  icon: 'concrete',
   groups: [
     { id: 'surface', label: 'Surface' },
     { id: 'panels', label: 'Panels' },

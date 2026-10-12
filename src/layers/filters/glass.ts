@@ -8,6 +8,7 @@ import type { LayerDef } from '../types'
 
 export const glassLayer: LayerDef = {
   type: 'glass',
+  channels: { diffuse: true },
   label: 'Glass',
   category: 'filter',
   kind: 'filter',

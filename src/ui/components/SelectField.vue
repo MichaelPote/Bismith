@@ -1,22 +1,62 @@
 <script setup lang="ts">
-defineProps<{ modelValue: string; options: { value: string; label: string }[]; label?: string }>()
+// Dropdown. The wheel or the arrow keys over the field step through the options (stopping at the ends), so the
+// choices can be previewed in turn. A wheel that is scrolling the panel past the field keeps scrolling it.
+import { recentlyScrolled } from '@/ui/scrolling'
+import Icon from './Icon.vue'
+
+const props = defineProps<{ modelValue: string; options: { value: string; label: string; hint?: string }[]; label?: string }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: string): void
   (e: 'commit', v: string): void
 }>()
-function onChange(e: Event): void {
-  const v = (e.target as HTMLSelectElement).value
+
+function choose(v: string): void {
   emit('update:modelValue', v)
   emit('commit', v)
+}
+
+function onChange(e: Event): void {
+  choose((e.target as HTMLSelectElement).value)
+}
+
+function step(dir: number): void {
+  const i = props.options.findIndex((o) => o.value === props.modelValue)
+  const j = Math.max(0, Math.min(props.options.length - 1, (i < 0 ? 0 : i) + dir))
+  if (j !== i) choose(props.options[j].value)
+}
+
+let wheelAcc = 0
+function onWheel(e: WheelEvent): void {
+  if (recentlyScrolled() || e.deltaY === 0) return
+  e.preventDefault()
+  // A mouse notch steps once; a trackpad's small deltas add up to a step.
+  if (e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50) {
+    wheelAcc = 0
+    step(Math.sign(e.deltaY))
+    return
+  }
+  wheelAcc += e.deltaY
+  if (Math.abs(wheelAcc) >= 100) {
+    step(Math.sign(wheelAcc))
+    wheelAcc = 0
+  }
+}
+
+function onKey(e: KeyboardEvent): void {
+  if (e.altKey) return
+  const dir = e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : 0
+  if (!dir) return
+  e.preventDefault()
+  step(dir)
 }
 </script>
 
 <template>
   <div class="cf-select">
-    <select :value="modelValue" :aria-label="label" @change="onChange">
-      <option v-for="o in options" :key="o.value" :value="o.value">{{ o.label }}</option>
+    <select :value="modelValue" :aria-label="label" @change="onChange" @wheel="onWheel" @keydown="onKey">
+      <option v-for="o in options" :key="o.value" :value="o.value" :title="o.hint">{{ o.label }}</option>
     </select>
-    <svg class="caret" width="10" height="8" viewBox="0 0 12 10" aria-hidden="true"><path d="M1 2 L6 8 L11 2" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+    <Icon class="caret" name="chev-down" :size="12" />
   </div>
 </template>
 
@@ -37,6 +77,7 @@ select {
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
+  text-overflow: ellipsis;
 }
 select:hover {
   border-color: var(--line);
@@ -52,8 +93,8 @@ option {
 }
 .caret {
   position: absolute;
-  right: 7px;
-  top: 7px;
+  right: 6px;
+  top: 5px;
   pointer-events: none;
   color: var(--text-lo);
 }

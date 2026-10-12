@@ -3,11 +3,14 @@
 
 import { P, gradient, type GroupDef, type ParamDef } from '@/core/params'
 
-const SRC: [string, string][] = [
-  ['value', 'Pattern value'],
-  ['flat', 'Flat (1.0)'],
-  ['random', 'Per-feature random'],
+/** What drives a channel output (the uniform keeps the option order: 0 value, 1 flat, 2 random). */
+const SRC: [string, string, string][] = [
+  ['value', 'Pattern', 'the layer’s own value: noise brightness, the bevel’s rise on a shape — varies across it'],
+  ['flat', 'Solid', 'full strength everywhere the layer covers: the ramp’s end colour, the whole amount'],
+  ['random', 'Random', 'one random value per feature: each brick, cell or shape instance its own'],
 ]
+
+const SRC_HINT = 'What drives this output'
 
 export const SDF_OPS: [string, string][] = [
   ['none', 'Ignore register'],
@@ -64,6 +67,23 @@ export const BLEND_MODES: [string, string][] = [
 
 const isSmooth = (p: Record<string, unknown>) => String(p.sdf_op).startsWith('smooth')
 
+/** The Source dropdown of a channel output, drawn in one row with its blend mode. */
+const source = (key: string, group: string, mode: string, modeLabel = 'Mode'): ParamDef =>
+  P.enum(key, 'Source', 'value', SRC, { group, hint: SRC_HINT, join: { with: mode, as: 'pair', label: `Source · ${modeLabel}` } })
+
+/** "At 0" / "At 1" of a scalar output, drawn as one ramp. */
+const ramp = (key: string, group: string) => ({ join: { with: key, as: 'ramp' as const, label: 'Ramp' }, group })
+
+const HEIGHT_MODES: [string, string, string][] = [
+  ['add', 'Add', 'raise by the amount'],
+  ['subtract', 'Subtract', 'sink by the amount'],
+  ['max', 'Max', 'raise to the amount where lower (caps, plateaus)'],
+  ['min', 'Min', 'lower to the amount where higher (chips, cut-offs)'],
+  ['replace', 'Replace', 'set the height to the amount'],
+  ['multiply', 'Multiply', 'scale the height below (masks relief in and out)'],
+]
+const LEVEL_MODES: [string, string][] = [['replace', 'Replace'], ['multiply', 'Multiply'], ['add', 'Add'], ['min', 'Min'], ['max', 'Max']]
+
 export const SDF_PARAMS: ParamDef[] = [
   P.enum('sdf_op', 'Operator', 'replace', SDF_OPS, { group: 'shape', hint: 'How this shape combines with the shape register written by earlier layers' }),
   P.float('sdf_k', 'Smoothness', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'shape', showIf: isSmooth }),
@@ -108,40 +128,40 @@ export const MASK_PARAMS: ParamDef[] = [
 
 export const OUTPUT_PARAMS: ParamDef[] = [
   P.bool('dif_on', 'Diffuse', false, { group: 'diffuse' }),
-  P.enum('dif_src', 'Source', 'value', SRC, { group: 'diffuse' }),
-  P.enum('dif_blend', 'Blend', 'normal', BLEND_MODES, { group: 'diffuse' }),
+  source('dif_src', 'diffuse', 'dif_blend', 'Blend'),
+  P.enum('dif_blend', 'Blend', 'normal', BLEND_MODES, { group: 'diffuse', hint: 'How the colour mixes with the layers below' }),
   P.float('dif_opacity', 'Opacity', 1, 0, 1, { step: 0.001, group: 'diffuse' }),
-  P.gradient('dif_grad', 'Colour ramp', gradient('#2a2622', '#b8ab98'), { group: 'diffuse' }),
+  P.gradient('dif_grad', 'Colour ramp', gradient('#2a2622', '#b8ab98'), { group: 'diffuse', hint: 'The source picks a colour along the ramp: 0 at the left, 1 at the right' }),
   P.float('dif_jitter', 'Random jitter', 0, 0, 1, { step: 0.001, group: 'diffuse', hint: 'Shifts the ramp lookup per feature (brick, cell, instance)' }),
 
   P.bool('op_on', 'Opacity', false, { group: 'alpha' }),
   P.enum('op_mode', 'Mode', 'replace', [['replace', 'Replace'], ['multiply', 'Multiply'], ['union', 'Union (max)'], ['subtract', 'Subtract']], { group: 'alpha' }),
 
   P.bool('h_on', 'Height', false, { group: 'height' }),
-  P.enum('h_src', 'Source', 'value', SRC, { group: 'height' }),
-  P.enum('h_mode', 'Mode', 'add', [['add', 'Add'], ['subtract', 'Subtract'], ['max', 'Max'], ['min', 'Min'], ['replace', 'Replace'], ['multiply', 'Multiply']], { group: 'height' }),
-  P.float('h_amount', 'Amount', 0.5, -64, 64, { softMin: 0, softMax: 2, step: 0.001, group: 'height' }),
+  source('h_src', 'height', 'h_mode'),
+  P.enum('h_mode', 'Mode', 'add', HEIGHT_MODES, { group: 'height', hint: 'How the height combines with the surface below' }),
+  P.float('h_amount', 'Amount', 0.5, -64, 64, { softMin: 0, softMax: 2, step: 0.001, group: 'height', hint: 'Height at a source of 1 (1.0 = the project’s height depth in px)' }),
   P.float('h_var', 'Per-feature variation', 0, 0, 1, { step: 0.001, group: 'height', hint: 'Each brick / cell / instance gets its own share of the amount (1 = anywhere from 0 to full): some barely raised, others bold' }),
 
   P.bool('r_on', 'Roughness', false, { group: 'roughness' }),
-  P.enum('r_src', 'Source', 'value', SRC, { group: 'roughness' }),
-  P.enum('r_mode', 'Mode', 'replace', [['replace', 'Replace'], ['multiply', 'Multiply'], ['add', 'Add'], ['min', 'Min'], ['max', 'Max']], { group: 'roughness' }),
-  P.float('r_a', 'At 0', 0.35, 0, 1, { step: 0.001, group: 'roughness' }),
+  source('r_src', 'roughness', 'r_mode'),
+  P.enum('r_mode', 'Mode', 'replace', LEVEL_MODES, { group: 'roughness' }),
+  P.float('r_a', 'At 0', 0.35, 0, 1, { step: 0.001, ...ramp('r_b', 'roughness'), hint: 'Roughness where the source is 0 (left) and 1 (right): 0 glossy … 1 matte' }),
   P.float('r_b', 'At 1', 0.85, 0, 1, { step: 0.001, group: 'roughness' }),
   P.float('r_opacity', 'Opacity', 1, 0, 1, { step: 0.001, group: 'roughness' }),
 
   P.bool('s_on', 'Specular', false, { group: 'specular' }),
-  P.enum('s_src', 'Source', 'value', SRC, { group: 'specular' }),
-  P.enum('s_mode', 'Mode', 'replace', [['replace', 'Replace'], ['multiply', 'Multiply'], ['add', 'Add'], ['min', 'Min'], ['max', 'Max']], { group: 'specular' }),
-  P.float('s_a', 'At 0', 0, 0, 1, { step: 0.001, group: 'specular', hint: 'Specular level where the source is 0 (0.5 ≈ 4 % reflectance at scale 1)' }),
+  source('s_src', 'specular', 's_mode'),
+  P.enum('s_mode', 'Mode', 'replace', LEVEL_MODES, { group: 'specular' }),
+  P.float('s_a', 'At 0', 0, 0, 1, { step: 0.001, ...ramp('s_b', 'specular'), hint: 'Specular level where the source is 0 (left) and 1 (right); 0.5 ≈ 4 % reflectance at scale 1' }),
   P.float('s_b', 'At 1', 0.6, 0, 1, { step: 0.001, group: 'specular' }),
   P.float('s_opacity', 'Opacity', 1, 0, 1, { step: 0.001, group: 'specular' }),
 
   P.bool('e_on', 'Emissive', false, { group: 'emissive' }),
-  P.enum('e_src', 'Source', 'value', SRC, { group: 'emissive' }),
+  source('e_src', 'emissive', 'e_mode'),
   P.enum('e_mode', 'Mode', 'add', [['add', 'Add'], ['replace', 'Replace'], ['max', 'Max']], { group: 'emissive' }),
   P.color('e_color', 'Colour', '#ff9019', { group: 'emissive' }),
-  P.float('e_intensity', 'Intensity', 2, 0, 1000, { softMax: 20, step: 0.01, group: 'emissive' }),
+  P.float('e_intensity', 'Intensity', 2, 0, 1000, { softMax: 20, step: 0.01, group: 'emissive', hint: 'Emitted light at a source of 1 (HDR: above 1 glows past white)' }),
 ]
 
 export const GENERATOR_GROUPS: GroupDef[] = [

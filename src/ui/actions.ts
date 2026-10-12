@@ -5,7 +5,7 @@ import { useEditorStore } from '@/stores/editor'
 import { projectFromJSON, projectToJSON } from '@/core/serialize'
 import { zipStore } from '@/core/zip'
 import { downloadBlob, mapPixels, pixelsToBlob, upscale, type MapKind } from '@/render/export'
-import type { LayerStack, Project } from '@/core/project'
+import type { Project } from '@/core/project'
 
 function slug(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'texture'
@@ -109,10 +109,10 @@ export function useActions() {
     const s = editor.selection
     if (!s.id) return
     if (s.kind === 'layer') {
-      const at = store.locateLayer(s.id)
+      const at = store.layerIndex(s.id)
       store.removeLayer(s.id)
-      const list = at?.stack === 'relief' ? store.project.relief : store.project.layers
-      const next = at ? list[Math.min(at.index, list.length - 1)] : undefined
+      const list = store.project.layers
+      const next = at >= 0 ? list[Math.min(at, list.length - 1)] : undefined
       editor.select(next ? 'layer' : 'project', next?.id)
     } else if (s.kind === 'material') {
       store.deleteMaterial(s.id)
@@ -138,14 +138,26 @@ export function useActions() {
     }
   }
 
-  /** Add to a stack: above the selected layer when it is in that stack, else on top of the stack. */
-  function addLayer(type: string, stack?: LayerStack): void {
+  /** Where a new layer or material goes: just after the selected layer or material (after its block), else last. */
+  function insertionIndex(): number | undefined {
     const s = editor.selection
-    const sel = s.kind === 'layer' && s.id ? store.locateLayer(s.id) : undefined
-    const target = stack ?? sel?.stack ?? 'paint'
-    const at = sel && sel.stack === target ? sel.index + 1 : undefined
-    const l = store.addLayer(type, at, {}, target)
+    if ((s.kind !== 'layer' && s.kind !== 'material') || !s.id) return undefined
+    const at = store.unitOf(s.id)
+    if (!at) return undefined
+    const last = at.unit.material ? at.unit.layers[at.unit.layers.length - 1] : at.unit.layer
+    return store.layerIndex(last.id) + 1
+  }
+
+  /** Add a layer just after the selection (see insertionIndex). */
+  function addLayer(type: string): void {
+    const l = store.addLayer(type, insertionIndex())
     editor.select('layer', l.id)
+  }
+
+  /** Add a smart material (one block of layers) just after the selection. */
+  function addMaterial(recipeId: string): void {
+    const m = store.addMaterial(recipeId, insertionIndex())
+    editor.select('material', m.id)
   }
 
   return {
@@ -160,5 +172,6 @@ export function useActions() {
     deleteSelection,
     duplicateSelection,
     addLayer,
+    addMaterial,
   }
 }

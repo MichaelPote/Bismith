@@ -1,6 +1,6 @@
 # FR8.7 — Supersampling
 
-**Status:** done — World & render › *Supersample* (1–4)
+**Status:** done — Project › Path tracer › *Supersample* (1–4, default 1; shown as @Nx in the outliner)
 
 The material stack and the path tracer run at k× the texture size; the traced (linear HDR) image is box-filtered
 down to the texture size before the post stack (tonemap, palette snap) — fine features such as 1 px highlights, thin

@@ -3,7 +3,7 @@
 // the stages that a change invalidates.
 
 import * as THREE from 'three'
-import type { Project } from '@/core/project'
+import { hiddenByMaterial, type Project } from '@/core/project'
 import { Gpu } from '@/gpu/context'
 import { GLSL_COMMON } from '@/layers/glsl/common'
 import { MaterialPipeline } from './materialPipeline'
@@ -130,7 +130,7 @@ export class Engine {
     this.inner = inner
     const upTo = this.view.previewUpTo
     const mKey = JSON.stringify([
-      inner.width, inner.height, inner.tileable, inner.heightDepth, inner.seed, inner.base, inner.relief, inner.layers, upTo,
+      inner.width, inner.height, inner.tileable, inner.heightDepth, inner.seed, inner.base, inner.layers, upTo, [...hiddenByMaterial(inner)],
     ])
     const tKey = JSON.stringify([inner.lighting, inner.render, this.ss])
     const pKey = JSON.stringify(project.post)

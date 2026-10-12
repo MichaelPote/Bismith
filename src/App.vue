@@ -159,7 +159,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <Outliner />
       <div class="gutter" role="separator" aria-orientation="vertical" aria-label="Resize outliner" @pointerdown="startResize($event, 'left')" />
       <div class="centre">
-        <Viewport v-show="editor.workspace === 'forge'" />
+        <Viewport v-show="editor.workspace === 'create'" />
         <MatchWorkspace v-if="editor.workspace === 'match'" />
       </div>
       <div class="gutter" role="separator" aria-orientation="vertical" aria-label="Resize properties" @pointerdown="startResize($event, 'right')" />

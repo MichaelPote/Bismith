@@ -10,7 +10,7 @@ export const liquid: RecipeDef = {
   label: 'Liquid',
   fit: 'tones',
   description: 'Lava, water, slime or nukage: light refracted through the wavy surface gathers into bright filaments around dark cells (or a stylised caustic net / blobs).',
-  icon: 'pattern',
+  icon: 'liquid',
   groups: [
     { id: 'flow', label: 'Flow' },
     { id: 'colour', label: 'Colour' },
@@ -73,7 +73,7 @@ export const wood: RecipeDef = {
   id: 'wood',
   label: 'Wood',
   description: 'Boards or a single slab: grain, growth rings, figure and knots, with board gaps and staggered joints.',
-  icon: 'pattern',
+  icon: 'wood',
   groups: [
     { id: 'boards', label: 'Boards' },
     { id: 'grain', label: 'Grain' },
@@ -119,7 +119,7 @@ export const marble: RecipeDef = {
   id: 'marble',
   label: 'Marble',
   description: 'Veined stone: streaks, a vein network or cells over clouded colour; optionally cut into tiles.',
-  icon: 'pattern',
+  icon: 'marble',
   groups: [
     { id: 'veins', label: 'Veins' },
     { id: 'colour', label: 'Colour' },

@@ -1,7 +1,7 @@
 // Project (de)serialisation with defaults-filling so hand-written, optimiser-generated and older files load.
 
 import { ensureBuiltins } from '@/render/builtins'
-import { getLayerDef, sanitizeLayer, createLayer as registryCreateLayer } from '@/layers/registry'
+import { getLayerDef, layerParamDefs, sanitizeLayer, createLayer as registryCreateLayer } from '@/layers/registry'
 import { createPostFilter as registryCreatePost, getPostDef, sanitizePostFilter } from '@/render/post/registry'
 import { LIGHT_DEFS, createLight } from './lights'
 import { sanitizeParams } from './params'
@@ -13,6 +13,7 @@ import {
   defaultBase,
   defaultLighting,
   defaultRender,
+  groupMaterials,
   type Layer,
   type Light,
   type PostFilter,
@@ -31,7 +32,6 @@ export function createProject(overrides: Partial<Project> = {}): Project {
     heightDepth: 2,
     seed: 1,
     base: defaultBase(),
-    relief: [],
     layers: [
       createLayer('noise', {
         noise: 'perlin',
@@ -67,6 +67,19 @@ function hex(v: unknown, def: string): string {
   return typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : def
 }
 
+/** The on/off params of the colour outputs (diffuse, opacity, emission) across layer types. */
+const COLOUR_TOGGLES = new Set(['dif_on', 'op_on', 'e_on', 'diffuse', 'opacity', 'emissive'])
+
+/**
+ * Untick a layer's colour outputs so it shapes the surface only (in place). Used for layers from a legacy relief stack
+ * — projects once kept relief and paint apart and reset the relief's colour to the base after it — and for templates'
+ * relief layers.
+ */
+export function reliefOnly(layer: Layer): Layer {
+  for (const d of layerParamDefs(layer.type)) if (d.type === 'bool' && COLOUR_TOGGLES.has(d.key)) layer.params[d.key] = false
+  return layer
+}
+
 /** Validate and default-fill any project-like object. Unknown layer / post types are dropped. */
 export function normalizeProject(input: unknown): Project {
   ensureBuiltins()
@@ -91,9 +104,9 @@ export function normalizeProject(input: unknown): Project {
           params: l.params ?? {},
         }),
       )
-  const relief = stack(raw.relief)
-  const layers = stack(raw.layers)
-  const layerIds = new Set([...relief, ...layers].map((l) => l.id))
+  // Older projects had a separate relief stack, evaluated before the paint stack: it now leads the one list.
+  const flat = [...stack(raw.relief).map(reliefOnly), ...stack(raw.layers)]
+  const layerIds = new Set(flat.map((l) => l.id))
   // Smart materials keep only members that still exist; one with none left is dropped.
   const materials: SmartMaterial[] = (Array.isArray(raw.materials) ? raw.materials : [])
     .filter((m: any) => m && typeof m.recipe === 'string')
@@ -104,6 +117,7 @@ export function normalizeProject(input: unknown): Project {
       params: m.params && typeof m.params === 'object' ? JSON.parse(JSON.stringify(m.params)) : {},
       members: Object.fromEntries(Object.entries(m.members ?? {}).filter(([, id]) => typeof id === 'string' && layerIds.has(id as string))) as Record<string, string>,
       ...(m.mask && ['1', '2', '3', '4'].includes(String(m.mask.use)) ? { mask: { use: String(m.mask.use), invert: m.mask.invert === true } } : {}),
+      ...(m.enabled === false ? { enabled: false } : {}),
     }))
     .filter((m: SmartMaterial) => Object.keys(m.members).length > 0)
 
@@ -145,8 +159,7 @@ export function normalizeProject(input: unknown): Project {
       height: num(rb.height, base.height, -64, 64),
       opacity: num(rb.opacity, base.opacity, 0, 1),
     },
-    relief,
-    layers,
+    layers: groupMaterials(flat, materials),
     ...(materials.length ? { materials } : {}),
     lighting: {
       sky: {
@@ -172,7 +185,7 @@ export function normalizeProject(input: unknown): Project {
       jitter: rr.jitter !== false,
       clamp: num(rr.clamp, render.clamp, 0, 1000),
       shadows: rr.shadows !== false,
-      ...(rr.supersample !== undefined && Number(rr.supersample) > 1 ? { supersample: num(rr.supersample, 1, 1, 4, true) } : {}),
+      supersample: num(rr.supersample, 1, 1, 4, true),
     },
     post,
   }

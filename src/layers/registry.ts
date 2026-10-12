@@ -1,7 +1,7 @@
 import { defaultParams, sanitizeParams, type GroupDef, type ParamDef, type ParamValues } from '@/core/params'
 import type { Layer } from '@/core/project'
 import { newId } from '@/core/ids'
-import type { LayerCategory, LayerDef } from './types'
+import type { LayerCategory, LayerChannels, LayerDef } from './types'
 import {
   FILTER_GROUPS,
   GENERATOR_GROUPS,
@@ -58,6 +58,15 @@ export function layerGroups(def: LayerDef): GroupDef[] {
   const extra = def.groups ?? []
   // Type-specific groups go right after the main params group.
   return [groups[0], ...extra, ...groups.slice(1)]
+}
+
+const GENERATOR_CHANNELS: LayerChannels = { diffuse: 'dif_on', height: 'h_on' }
+
+/** Which of the Diffuse / Height columns a layer type affects, and the tick that switches each (see LayerDef.channels). */
+export function layerChannels(type: string): LayerChannels {
+  const def = defs.get(type)
+  if (!def) return {}
+  return def.kind === 'generator' ? GENERATOR_CHANNELS : (def.channels ?? {})
 }
 
 export function createLayer(type: string, overrides: ParamValues = {}, name?: string): Layer {

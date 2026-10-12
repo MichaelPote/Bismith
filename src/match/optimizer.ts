@@ -16,7 +16,7 @@
 
 import { linearToOklab, oklabToLinear, linearToSrgb1, srgbToLinear1, rgbToHex, hexToRgb, type RGB } from '@/core/color'
 import { isOptimizable, gradient, type Gradient, type ParamDef, type ParamValues } from '@/core/params'
-import { stackOrder, type Layer, type Project } from '@/core/project'
+import type { Layer, Project } from '@/core/project'
 import { LIGHT_DEFS } from '@/core/lights'
 import { ensureBuiltins } from '@/render/builtins'
 import { createLayer, getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry'
@@ -199,7 +199,7 @@ interface Owner {
 
 /**
  * Tied pattern params. Layers of one type that share a seed are copies of one pattern, used for different jobs:
- * the relief stack's Pillow / Edges / Block heights, a paint layer colouring each stone, water stains plus rust
+ * height-only Pillow / Edges / Block heights, a layer colouring each stone, water stains plus rust
  * trails from the same sources. A pattern param they hold equal becomes one entry (on the first copy, `tied` to
  * the others) so tuning moves the copies together instead of pulling them apart. Params they already differ in
  * (a bevel, a trail width) stay independent.
@@ -230,7 +230,7 @@ function patternTies(os: Owner[]): { lead: Map<string, string[]>; follow: Set<st
 function owners(project: Project, opts: SpaceOptions): Owner[] {
   const out: Owner[] = []
   if (opts.layers !== false) {
-    for (const layer of stackOrder(project)) {
+    for (const layer of project.layers) {
       if (!layer.enabled || layer.locked) continue
       const def = getLayerDef(layer.type)
       if (!def) continue
@@ -342,7 +342,7 @@ export function extractParams(project: Project, opts: SpaceOptions = {}): ParamS
 }
 
 function findParams(p: Project, e: ParamEntry): ParamValues | null {
-  if (e.scope === 'layer') return stackOrder(p).find((l) => l.id === e.owner)?.params ?? null
+  if (e.scope === 'layer') return p.layers.find((l) => l.id === e.owner)?.params ?? null
   if (e.scope === 'light') return p.lighting.lights.find((l) => l.id === e.owner)?.params ?? null
   if (e.scope === 'post') return p.post.find((f) => f.id === e.owner)?.params ?? null
   return null
@@ -410,7 +410,7 @@ export function isEntryActive(project: Project, e: ParamEntry): boolean {
   if (!def) return true
   if (def.showIf && !def.showIf(params)) return false
   if (e.scope === 'layer') {
-    const layer = stackOrder(project).find((l) => l.id === e.owner)!
+    const layer = project.layers.find((l) => l.id === e.owner)!
     if (!layer.enabled) return false
     const ldef = getLayerDef(layer.type)
     const group = ldef ? layerGroups(ldef).find((g) => g.id === def.group) : undefined
@@ -425,7 +425,7 @@ export interface LayerTemplate {
   type: string
   name: string
   params: ParamValues
-  /** Stack to insert into (default paint). */
+  /** 'relief' snippets (shape only) go under the first colour layer; paint ones (the default) above it. */
   stack?: 'relief' | 'paint'
 }
 
@@ -728,7 +728,7 @@ export class Optimizer {
       heuristics: opts.heuristics ?? true,
       space: opts.heuristics === false ? (opts.space ?? {}) : { prior: craftPrior, ...(opts.space ?? {}) },
       library: opts.library ?? (opts.heuristics === false ? DEFAULT_LIBRARY : CRAFT_LIBRARY),
-      maxLayers: opts.maxLayers ?? project.layers.length + (project.relief?.length ?? 0) + 3,
+      maxLayers: opts.maxLayers ?? project.layers.length + 3,
     }
     this.rng = new Rng(this.opts.seed)
     const base: Project = this.opts.heuristics ? conformProject(project).project : JSON.parse(JSON.stringify(project))
@@ -1061,8 +1061,7 @@ export class Optimizer {
 
   private structuralCandidate(parent: Candidate): Candidate | null {
     const proj: Project = JSON.parse(JSON.stringify(parent.project))
-    proj.relief ??= []
-    const all = [...proj.relief, ...proj.layers]
+    const all = proj.layers
     const unlocked = all.filter((l) => !l.locked)
     const kinds: string[] = []
     if (unlocked.length) kinds.push('toggle')
@@ -1090,15 +1089,16 @@ export class Optimizer {
     } else if (kind === 'insert') {
       const t = this.rng.pick(library)
       const layer: Layer = createLayer(t.type, { ...JSON.parse(JSON.stringify(t.params)), seed: 1 + this.rng.int(99998) }, t.name)
-      // Relief snippets go into the relief stack (evaluated first, never colours); the rest into paint.
-      const list = t.stack === 'relief' ? proj.relief : proj.layers
-      const at = list === proj.layers ? 1 + this.rng.int(Math.max(1, list.length)) : this.rng.int(list.length + 1)
+      // Relief snippets (shape only) go under the first layer that paints; the rest above it.
+      const list = proj.layers
+      const first = list.findIndex((l) => l.params.dif_on === true)
+      const split = first < 0 ? list.length : first
+      const at = t.stack === 'relief' ? this.rng.int(split + 1) : split + 1 + this.rng.int(Math.max(1, list.length - split))
       list.splice(Math.min(at, list.length), 0, layer)
-      desc = `insert "${t.name}" (${t.type}) into ${t.stack ?? 'paint'} at ${at}`
+      desc = `insert "${t.name}" (${t.type}) as ${t.stack ?? 'paint'} at ${at}`
       this.inserted.add(layer.id)
     } else {
       const l = this.rng.pick(all.filter((x) => this.inserted.has(x.id)))
-      proj.relief = proj.relief.filter((x) => x !== l)
       proj.layers = proj.layers.filter((x) => x !== l)
       desc = `remove "${l.name}"`
     }

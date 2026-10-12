@@ -7,7 +7,7 @@ import { getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry'
 import { getPostDef } from '@/render/post/registry'
 import { LIGHT_DEFS } from '@/core/lights'
 import { P, type ParamDef, type ParamValue, type ParamValues } from '@/core/params'
-import { SIZE_PRESETS } from '@/core/project'
+import { layerUnits, SIZE_PRESETS } from '@/core/project'
 import { layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta'
 import { useActions } from '@/ui/actions'
 import PanelCard from '@/ui/components/PanelCard.vue'
@@ -15,8 +15,8 @@ import ParamList from '@/ui/components/ParamList.vue'
 import Icon from '@/ui/components/Icon.vue'
 import PostExtras from '@/ui/panels/PostExtras.vue'
 import { getRecipe } from '@/recipes'
-import { linkedCopies } from '@/core/links'
 import LightingPresets from '@/ui/panels/LightingPresets.vue'
+import { vTip } from '@/ui/tooltip'
 
 const store = useProjectStore()
 const editor = useEditorStore()
@@ -37,15 +37,7 @@ const materialCards = computed(() => {
   if (!r) return []
   return r.groups.map((g) => ({ group: g, defs: r.params.filter((d) => (d.group ?? r.groups[0].id) === g.id) })).filter((c) => c.defs.length > 0)
 })
-const memberRows = computed(() =>
-  material.value
-    ? Object.entries(material.value.members)
-        .map(([role, id]) => ({ role, layer: store.getLayer(id), stack: store.locateLayer(id)?.stack }))
-        .filter((r) => r.layer)
-    : [],
-)
 const layerMaterial = computed(() => (layer.value ? (store.project.materials ?? []).find((m) => Object.values(m.members).includes(layer.value!.id)) : undefined))
-const layerLinks = computed(() => (layer.value ? linkedCopies(store.project, layer.value) : []))
 
 // A material's named mask (FR8.13): the same controls as a layer's, applied to every member.
 const MATERIAL_MASK_DEFS: ParamDef[] = [
@@ -73,11 +65,7 @@ const layerCards = computed(() => {
   const def = layerDef.value
   if (!l || !def) return []
   const defs = layerParamDefs(l.type)
-  // Relief layers never colour the surface: their colour outputs are hidden (the pipeline resets them anyway).
-  const relief = store.locateLayer(l.id)?.stack === 'relief'
-  const hidden = new Set(relief ? ['diffuse', 'alpha', 'emissive'] : [])
   return layerGroups(def)
-    .filter((g) => !hidden.has(g.id))
     .map((g) => ({
       group: g,
       defs: defs.filter((d) => (d.group ?? 'params') === g.id && d.key !== g.toggleKey),
@@ -85,18 +73,25 @@ const layerCards = computed(() => {
     .filter((c) => c.defs.length > 0)
 })
 
+/** Position in the layer list (top = applied first), or within its material. */
 function layerIndexLabel(): string {
   const l = layer.value
-  const at = l ? store.locateLayer(l.id) : undefined
-  if (!at) return ''
-  const n = at.stack === 'relief' ? store.project.relief.length : store.project.layers.length
-  return `${at.stack === 'relief' ? 'Relief' : 'Paint'} #${at.index + 1} of ${n}`
+  const at = l ? store.unitOf(l.id) : undefined
+  if (!l || !at) return ''
+  if (at.unit.material) return `${at.unit.layers.findIndex((x) => x.id === l.id) + 1} of ${at.unit.layers.length}`
+  return `${store.layerIndex(l.id) + 1} of ${store.project.layers.length}`
 }
 
-function moveSelectedLayer(dir: number): void {
-  const l = layer.value
-  const at = l ? store.locateLayer(l.id) : undefined
-  if (l && at) store.moveLayer(l.id, at.index + dir)
+/** Can the selected layer / material move one step earlier (−1) or later (+1)? */
+function canStep(id: string, dir: number): boolean {
+  const at = store.unitOf(id)
+  if (!at) return false
+  if (at.unit.material && at.unit.material.id !== id) {
+    const i = at.unit.layers.findIndex((x) => x.id === id) + dir
+    return i >= 0 && i < at.unit.layers.length
+  }
+  const j = at.index + dir
+  return j >= 0 && j < layerUnits(store.project.layers, store.project.materials).length
 }
 
 // ---------------------------------------------------------------- project / world param tables
@@ -135,7 +130,7 @@ const RENDER_DEFS: ParamDef[] = [
   P.float('clamp', 'Firefly clamp', 8, 0, 1000, { softMax: 32, step: 0.1, hint: 'Max luminance of indirect samples (0 = off)' }),
   P.bool('jitter', 'Sub-pixel jitter (soft shadow edges)', true),
   P.bool('shadows', 'Cast shadows', true, { hint: 'Off: lights shade by surface angle only (painted / hand-lit look)' }),
-  P.int('supersample', 'Supersample', 1, 1, 4, { hint: 'Render the surface and lighting at 2–4× and average down: finer 1 px highlights, thin joints and small holes (costs k² time)' }),
+  P.int('supersample', 'Supersample', 1, 1, 4, { hint: 'Render the surface and lighting at 2–4× and average down: finer 1 px highlights, thin joints and small holes (costs k² time). Shown as @Nx beside the project in the outliner' }),
 ]
 
 function assign(obj: object, key: string, v: ParamValue): void {
@@ -157,22 +152,34 @@ const asValues = (o: object) => o as unknown as ParamValues
       </div>
       <div class="sub">
         <span class="type">{{ layerDef.label }}</span>
-        <span class="cf-mono lo">{{ layerIndexLabel() }}</span>
+        <span v-tip="layerMaterial ? `Position within ${layerMaterial.name} (top = applied first)` : 'Position in the layer list (top = applied first)'" class="cf-mono lo">{{ layerIndexLabel() }}</span>
         <span class="grow" />
-        <button type="button" class="cf-ico-btn" title="Move up" aria-label="Move layer up" @click="moveSelectedLayer(1)"><Icon name="up" :size="13" /></button>
-        <button type="button" class="cf-ico-btn" title="Move down" aria-label="Move layer down" @click="moveSelectedLayer(-1)"><Icon name="down" :size="13" /></button>
-        <button type="button" class="cf-ico-btn" title="Duplicate (Ctrl+D)" aria-label="Duplicate layer" @click="act.duplicateSelection"><Icon name="copy" :size="13" /></button>
-        <button type="button" class="cf-ico-btn" title="Delete (Del)" aria-label="Delete layer" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+        <button
+          v-tip="layer.locked ? 'Locked: the optimiser leaves this layer alone. Click to unlock' : 'Lock from the optimiser: it will not change this layer'"
+          type="button"
+          class="cf-ico-btn"
+          :class="{ latched: layer.locked }"
+          :aria-pressed="!!layer.locked"
+          aria-label="Lock from the optimiser"
+          @click="store.updateLayer(layer.id, { locked: !layer.locked })"
+        >
+          <Icon :name="layer.locked ? 'lock' : 'unlock'" :size="13" />
+        </button>
+        <span class="vsep" />
+        <button v-tip="'Move up: applied earlier'" type="button" class="cf-ico-btn" aria-label="Move layer up" :disabled="!canStep(layer.id, -1)" @click="store.stepLayer(layer.id, -1)">
+          <Icon name="up" :size="13" />
+        </button>
+        <button v-tip="'Move down: applied later, over more'" type="button" class="cf-ico-btn" aria-label="Move layer down" :disabled="!canStep(layer.id, 1)" @click="store.stepLayer(layer.id, 1)">
+          <Icon name="down" :size="13" />
+        </button>
+        <button v-tip="'Duplicate (Ctrl+D)'" type="button" class="cf-ico-btn" aria-label="Duplicate layer" @click="act.duplicateSelection"><Icon name="copy" :size="13" /></button>
+        <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete layer" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
       </div>
       <p v-if="layerDef.description" class="desc">{{ layerDef.description }}</p>
-      <div v-if="layerMaterial || layerLinks.length" class="links">
-        <button v-if="layerMaterial" type="button" class="chip" :title="`Part of the smart material ${layerMaterial.name}`" @click="editor.select('material', layerMaterial.id)">
+      <div v-if="layerMaterial" class="links">
+        <button v-tip="`Part of the smart material ${layerMaterial.name} — select it`" type="button" class="chip" @click="editor.select('material', layerMaterial.id)">
           <Icon name="diamond" :size="11" />{{ layerMaterial.name }}
         </button>
-        <span v-if="layerLinks.length" class="chip lo" :title="`Same pattern as ${layerLinks.map((l) => l.name).join(', ')}: pattern settings change together`">
-          <Icon name="link" :size="11" />linked ×{{ layerLinks.length }}
-        </span>
-        <button v-if="layerLinks.length" type="button" class="cf-btn small" title="Give this layer its own seed: its pattern no longer follows the copies" @click="store.unlinkLayer(layer.id)">Unlink</button>
       </div>
       <div class="scroll">
         <PanelCard
@@ -194,14 +201,24 @@ const asValues = (o: object) => o as unknown as ParamValues
       <div class="title">
         <Icon name="diamond" :size="15" stroke="var(--accent-hi)" />
         <input class="name" :value="material.name" aria-label="Material name" @change="store.renameMaterial(material.id, ($event.target as HTMLInputElement).value)" />
+        <label v-tip="'Shown'" class="en">
+          <input type="checkbox" :checked="material.enabled !== false" aria-label="Material shown" @change="store.setMaterialEnabled(material.id, ($event.target as HTMLInputElement).checked)" />
+        </label>
       </div>
       <div class="sub">
         <span class="type">{{ recipe.label }}</span>
+        <span class="cf-mono lo">{{ Object.keys(material.members).length }} layers</span>
         <span class="grow" />
-        <button type="button" class="cf-ico-btn" title="Unpack: keep the layers, drop the controls" aria-label="Unpack material" @click="unpackMaterial"><Icon name="layers" :size="13" /></button>
-        <button type="button" class="cf-ico-btn" title="Delete the material and its layers (Del)" aria-label="Delete material" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+        <button v-tip="'Move up: applied earlier'" type="button" class="cf-ico-btn" aria-label="Move material up" :disabled="!canStep(material.id, -1)" @click="store.stepLayer(material.id, -1)">
+          <Icon name="up" :size="13" />
+        </button>
+        <button v-tip="'Move down: applied later, over more'" type="button" class="cf-ico-btn" aria-label="Move material down" :disabled="!canStep(material.id, 1)" @click="store.stepLayer(material.id, 1)">
+          <Icon name="down" :size="13" />
+        </button>
+        <button v-tip="'Unpack: keep the layers, drop the controls'" type="button" class="cf-ico-btn" aria-label="Unpack material" @click="unpackMaterial"><Icon name="layers" :size="13" /></button>
+        <button v-tip="'Delete the material and its layers (Del)'" type="button" class="cf-ico-btn" aria-label="Delete material" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
       </div>
-      <p class="desc">{{ recipe.description }}</p>
+      <p class="desc">{{ recipe.description }} Its layers are ordinary layers — open it in the outliner to edit one; a control here rewrites only the settings it governs.</p>
       <div class="scroll">
         <PanelCard v-for="c in materialCards" :key="`${material.id}:${c.group.id}`" :title="c.group.label" :storage-key="`material:${recipe.id}:${c.group.id}`">
           <ParamList :defs="c.defs" :values="material.params" @change="(k, v) => store.setMaterialParam(material!.id, k, v)" />
@@ -209,14 +226,6 @@ const asValues = (o: object) => o as unknown as ParamValues
         <PanelCard title="Mask" storage-key="material:mask">
           <p class="hint">Clip this material to a mask written by any layer (e.g. a Cut-out). Cutting a hole: the material in front outside the mask, the one behind inside it — otherwise the hidden one's glow and relief show through.</p>
           <ParamList :defs="MATERIAL_MASK_DEFS" :values="materialMask" @change="setMaterialMask" />
-        </PanelCard>
-        <PanelCard title="Layers" storage-key="material:layers">
-          <p class="hint">Ordinary layers — select one to edit it directly. A control above rewrites only the settings it governs.</p>
-          <button v-for="r in memberRows" :key="r.role" type="button" class="member" @click="editor.select('layer', r.layer!.id)">
-            <Icon :name="layerIcon(r.layer!.type)" :size="12" :stroke="layerHue(r.layer!.type)" />
-            <span class="mname" :class="{ off: !r.layer!.enabled }">{{ r.layer!.name }}</span>
-            <span class="cf-mono lo">{{ r.stack }}</span>
-          </button>
         </PanelCard>
       </div>
     </template>
@@ -233,8 +242,8 @@ const asValues = (o: object) => o as unknown as ParamValues
       <div class="sub">
         <span class="type">{{ LIGHT_DEFS[light.type].label }} light</span>
         <span class="grow" />
-        <button type="button" class="cf-ico-btn" title="Duplicate" aria-label="Duplicate light" @click="act.duplicateSelection"><Icon name="copy" :size="13" /></button>
-        <button type="button" class="cf-ico-btn" title="Delete" aria-label="Delete light" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+        <button v-tip="'Duplicate (Ctrl+D)'" type="button" class="cf-ico-btn" aria-label="Duplicate light" @click="act.duplicateSelection"><Icon name="copy" :size="13" /></button>
+        <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete light" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
       </div>
       <p class="desc">{{ light.type === 'point' ? 'Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at 64 px.' : 'Drag the sun gizmo around the texture to set the azimuth.' }}</p>
       <div class="scroll">
@@ -256,9 +265,13 @@ const asValues = (o: object) => o as unknown as ParamValues
       <div class="sub">
         <span class="type">Post filter · {{ store.project.post.findIndex((f) => f.id === post!.id) + 1 }} of {{ store.project.post.length }}</span>
         <span class="grow" />
-        <button type="button" class="cf-ico-btn" title="Move up" aria-label="Move filter earlier" @click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) - 1)"><Icon name="up" :size="13" /></button>
-        <button type="button" class="cf-ico-btn" title="Move down" aria-label="Move filter later" @click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) + 1)"><Icon name="down" :size="13" /></button>
-        <button type="button" class="cf-ico-btn" title="Delete" aria-label="Delete filter" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+        <button v-tip="'Move up: applied earlier'" type="button" class="cf-ico-btn" aria-label="Move filter earlier" @click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) - 1)">
+          <Icon name="up" :size="13" />
+        </button>
+        <button v-tip="'Move down: applied later'" type="button" class="cf-ico-btn" aria-label="Move filter later" @click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) + 1)">
+          <Icon name="down" :size="13" />
+        </button>
+        <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete filter" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
       </div>
       <p v-if="postDef.description" class="desc">{{ postDef.description }}</p>
       <div class="scroll">
@@ -269,36 +282,13 @@ const asValues = (o: object) => o as unknown as ParamValues
       </div>
     </template>
 
-    <!-- World & render -->
-    <template v-else-if="sel.kind === 'render'">
-      <div class="title">
-        <Icon name="sky" :size="15" :stroke="LIGHT_HUE" />
-        <span class="name static">World &amp; render</span>
-      </div>
-      <p class="desc">Global lighting and path-tracer settings.</p>
-      <div class="scroll">
-        <PanelCard title="Lighting presets" storage-key="world:presets">
-          <LightingPresets />
-        </PanelCard>
-        <PanelCard title="Sky light">
-          <ParamList :defs="SKY_DEFS" :values="asValues(store.project.lighting.sky)" @change="(k, v) => assign(store.project.lighting.sky, k, v)" />
-        </PanelCard>
-        <PanelCard title="Ambient">
-          <ParamList :defs="AMBIENT_DEFS" :values="asValues(store.project.lighting.ambient)" @change="(k, v) => assign(store.project.lighting.ambient, k, v)" />
-        </PanelCard>
-        <PanelCard title="Path tracer">
-          <ParamList :defs="RENDER_DEFS" :values="asValues(store.project.render)" @change="(k, v) => assign(store.project.render, k, v)" />
-        </PanelCard>
-      </div>
-    </template>
-
     <!-- Project -->
     <template v-else>
       <div class="title">
         <Icon name="project" :size="15" stroke="var(--text-lo)" />
         <input class="name" :value="store.project.name" aria-label="Project name" @change="store.project.name = ($event.target as HTMLInputElement).value" />
       </div>
-      <p class="desc">Texture size, tiling and the base material every layer builds on.</p>
+      <p class="desc">Texture size and tiling, the base material every layer builds on, world lighting and the path tracer.</p>
       <div class="scroll">
         <PanelCard title="Texture">
           <div class="sizes">
@@ -317,6 +307,18 @@ const asValues = (o: object) => o as unknown as ParamValues
         </PanelCard>
         <PanelCard title="Base material">
           <ParamList :defs="BASE_DEFS" :values="asValues(store.project.base)" @change="(k, v) => assign(store.project.base, k, v)" />
+        </PanelCard>
+        <PanelCard title="Lighting presets" storage-key="world:presets">
+          <LightingPresets />
+        </PanelCard>
+        <PanelCard title="Sky light" storage-key="world:sky">
+          <ParamList :defs="SKY_DEFS" :values="asValues(store.project.lighting.sky)" @change="(k, v) => assign(store.project.lighting.sky, k, v)" />
+        </PanelCard>
+        <PanelCard title="Ambient" storage-key="world:ambient">
+          <ParamList :defs="AMBIENT_DEFS" :values="asValues(store.project.lighting.ambient)" @change="(k, v) => assign(store.project.lighting.ambient, k, v)" />
+        </PanelCard>
+        <PanelCard title="Path tracer" storage-key="world:tracer">
+          <ParamList :defs="RENDER_DEFS" :values="asValues(store.project.render)" @change="(k, v) => assign(store.project.render, k, v)" />
         </PanelCard>
       </div>
     </template>
@@ -351,29 +353,6 @@ const asValues = (o: object) => o as unknown as ParamValues
   font-size: 11px;
   padding: 1px 8px;
   height: auto;
-}
-.member {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 3px 4px;
-  background: none;
-  border: 0;
-  color: var(--text);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.member:hover {
-  background: var(--sunken);
-}
-.member .mname {
-  flex: 1;
-}
-.member .mname.off {
-  opacity: 0.45;
 }
 .hint {
   margin: 0 0 6px;
@@ -450,6 +429,12 @@ const asValues = (o: object) => o as unknown as ParamValues
 }
 .grow {
   flex: 1;
+}
+.vsep {
+  width: 1px;
+  height: 14px;
+  margin: 0 3px;
+  background: var(--hairline);
 }
 .desc {
   margin: 0;

@@ -354,8 +354,8 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
       <button type="button" class="cf-btn" :disabled="!editor.engine || running || !!busy" title="Eight variations around the current project — pick by eye, repeat" @click="vary">
         <Icon name="grid" :size="13" />Variations
       </button>
-      <button v-if="!running" type="button" class="cf-heat" :disabled="!reference || !editor.engine" @click="run">
-        <span class="core"><Icon name="play" :size="12" />{{ optimizer ? 'Resume' : 'Optimise' }}</span>
+      <button v-if="!running" type="button" class="fk primary" :disabled="!reference || !editor.engine" @click="run">
+        <span class="fk-face"><Icon name="play" :size="12" />{{ optimizer ? 'Resume' : 'Optimise' }}</span>
       </button>
       <button v-else type="button" class="cf-btn" @click="pause"><Icon name="pause" :size="12" />Pause</button>
       <button type="button" class="cf-btn" :disabled="!optimizer || running" @click="applyBest">Apply best</button>
@@ -552,10 +552,6 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
 }
 .grow {
   flex: 1;
-}
-.cf-heat:disabled {
-  opacity: 0.4;
-  pointer-events: none;
 }
 .panes {
   display: grid;

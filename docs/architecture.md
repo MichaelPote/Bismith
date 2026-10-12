@@ -122,9 +122,8 @@ Project {
   heightDepth,              // px of world height per 1.0 of height (default 2 — keep relief fine)
   seed,                     // global seed mixed into every layer seed
   base: { color, roughness, specular, height, opacity },
-  relief: Layer[],          // relief stack, bottom → top, evaluated first: shapes the surface, never colours it
-  layers: Layer[],          // paint stack, bottom → top, evaluated after the relief
-  materials?: SmartMaterial[], // recipes' macro controls over member layers (FR8.3); the renderer ignores them
+  layers: Layer[],          // the stack in evaluation order (first = earliest); relief = a layer with Diffuse off
+  materials?: SmartMaterial[], // recipes' macro controls over member layers, each a contiguous block (FR8.3, FR8.14)
   lighting: Lighting,
   render: RenderSettings,
   post: PostFilter[],       // applied in order
@@ -341,9 +340,14 @@ The editor uses the *Blender-tempered* Cinderforge editor language:
 - Category hues (stroke only): Stone = shapes, Gold = lights/emissive, Teal = filters, Sky = patterns,
   Rose = textures/noise, Violet = post.
 
-Layout: top bar (menus, workspace tabs, primary action) · left **Outliner** (Project, Materials, Paint and Relief
-stacks, Lights, Post) · centre **Viewport** (channel views, zoom/pan, tile preview, light gizmos, shape editor) ·
-right **Properties** of the selection · bottom status bar.
+- Buttons are *Forged keys v2* (`.fk`): a flat face on a 2px lip; one **lit** key per rail (workspace, channel view),
+  **latched** toggles with a pilot lamp, one ember **primary** key (Export / Optimise), studs for row and panel icons.
+- Field names carry tooltips (Tippy.js, theme `cinder`): the hint, what each option does, the key and default.
+
+Layout: top bar (menus, workspace rail, primary action) · left **Outliner** (Project, one Layers list with Diffuse /
+Height columns headed by the Base row, and collapsible smart materials, Lights, Post) · centre **Viewport** (channel rail, zoom/pan, tile
+preview, light gizmos, shape editor) · right **Properties** of the selection (the project node also holds world
+lighting and render settings) · bottom status bar.
 
 ---
 
@@ -421,3 +425,4 @@ docs/
 | 8.11  | [Setts and pavers (fans, rings, bone, plus)](features/fr8.11-setts-pavers.md) |
 | 8.12  | [Pipework and peeling paint](features/fr8.12-pipework-paint.md) |
 | 8.13  | [Named masks and cut-outs](features/fr8.13-named-masks.md) |
+| 8.14  | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md) |

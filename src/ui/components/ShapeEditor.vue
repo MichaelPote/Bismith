@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Shape editor (docs/features/fr8.5-shape-editor.md): edit a Path layer's polygons on the viewport.
-//   Edit      drag vertices · click an edge to insert a vertex · double-click a vertex to delete it · click a shape
-//             to select it
+//   Edit      drag vertices (a press within GRAB px of one grabs it, wherever it lands) · click an edge away from the
+//             vertices to insert one · right-click or double-click a vertex to delete it · click a shape to select it
 //   Polygon   click to place vertices; Enter, double-click or a click on the first vertex closes the shape
 //   Freehand  press and draw; the stroke is simplified to fit the vertex budget
 // Vertices snap to half pixels (hold Alt for free placement). The layer's `points` text stays the source of truth.
@@ -20,9 +20,10 @@ const props = defineProps<{
   texW: number
   texH: number
   size: { w: number; h: number }
-  /** Start in this mode (e.g. 'polygon' right after "Draw shape"). */
-  startMode?: Mode
 }>()
+
+/** Screen px around a vertex that grab it (drag, delete) rather than add a vertex on the edge or select the shape. */
+const GRAB = 10
 
 const store = useProjectStore()
 const layer = computed(() => store.getLayer(props.layerId))
@@ -30,7 +31,9 @@ const fraction = computed(() => layer.value?.params.units === 'fraction')
 const polys = computed<Pt[][]>(() => parsePolygons(String(layer.value?.params.points ?? '')) as Pt[][])
 const total = computed(() => polys.value.reduce((n, p) => n + p.length, 0))
 
-const mode = ref<Mode>(props.startMode ?? 'edit')
+/** A Path layer without shapes yet opens ready to place vertices. */
+const startMode = (): Mode => (total.value === 0 ? 'polygon' : 'edit')
+const mode = ref<Mode>(startMode())
 const selected = ref<number | null>(null)
 const draft = ref<Pt[]>([])
 const hover = ref<Pt | null>(null)
@@ -52,7 +55,7 @@ watch(
   () => {
     draft.value = []
     selected.value = null
-    mode.value = props.startMode ?? 'edit'
+    mode.value = startMode()
   },
 )
 
@@ -93,8 +96,28 @@ const copy = (): Pt[][] => polys.value.map((p) => p.map(([x, y]) => [x, y] as Pt
 const pathD = (p: Pt[], closed = true) => p.map((q, i) => `${i ? 'L' : 'M'}${toScreen(q).join(' ')}`).join('') + (closed ? 'Z' : '')
 
 // ---------------------------------------------------------------- edit mode
-function onVertexDown(e: PointerEvent, poly: number, vert: number): void {
-  if (mode.value !== 'edit') return
+/** The vertex nearest the pointer within GRAB screen px (the selected shape's first), if any. */
+function nearestVertex(e: MouseEvent): { poly: number; vert: number } | null {
+  const b = svg.value!.getBoundingClientRect()
+  const x = e.clientX - b.left
+  const y = e.clientY - b.top
+  let best: { poly: number; vert: number } | null = null
+  let bestD = GRAB
+  polys.value.forEach((p, i) =>
+    p.forEach((q, j) => {
+      const [sx, sy] = toScreen(q)
+      // The selected shape wins ties with a shape underneath.
+      const d = Math.hypot(sx - x, sy - y) - (i === selected.value ? 0.5 : 0)
+      if (d < bestD) {
+        bestD = d
+        best = { poly: i, vert: j }
+      }
+    }),
+  )
+  return best
+}
+
+function startDrag(e: PointerEvent, poly: number, vert: number): void {
   e.stopPropagation()
   e.preventDefault()
   selected.value = poly
@@ -102,16 +125,35 @@ function onVertexDown(e: PointerEvent, poly: number, vert: number): void {
   capture(e, true)
 }
 
-function onVertexDbl(e: MouseEvent, poly: number, vert: number): void {
-  e.stopPropagation()
+function onVertexDown(e: PointerEvent): void {
+  if (mode.value !== 'edit' || e.button !== 0) return
+  const v = nearestVertex(e)
+  if (v) startDrag(e, v.poly, v.vert)
+}
+
+function deleteVertex(poly: number, vert: number): void {
   const next = copy()
   next[poly].splice(vert, 1)
   if (next[poly].length < 3) next.splice(poly, 1)
   write(next)
 }
 
+/** Right-click or double-click near a vertex deletes it. */
+function onVertexDelete(e: MouseEvent): void {
+  if (mode.value !== 'edit') return
+  const v = nearestVertex(e)
+  if (!v) return
+  e.preventDefault()
+  e.stopPropagation()
+  deleteVertex(v.poly, v.vert)
+}
+
 function onEdgeDown(e: PointerEvent, poly: number, after: number): void {
-  if (mode.value !== 'edit' || total.value >= MAX_PATH_POINTS) return
+  if (mode.value !== 'edit' || e.button !== 0) return
+  // Near a vertex, grab it instead of inserting one beside it.
+  const v = nearestVertex(e)
+  if (v) return startDrag(e, v.poly, v.vert)
+  if (total.value >= MAX_PATH_POINTS) return
   e.stopPropagation()
   e.preventDefault()
   const next = copy()
@@ -123,7 +165,9 @@ function onEdgeDown(e: PointerEvent, poly: number, after: number): void {
 }
 
 function onShapeDown(e: PointerEvent, poly: number): void {
-  if (mode.value !== 'edit') return
+  if (mode.value !== 'edit' || e.button !== 0) return
+  const v = nearestVertex(e)
+  if (v) return startDrag(e, v.poly, v.vert)
   e.stopPropagation()
   selected.value = poly
 }
@@ -264,7 +308,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
 </script>
 
 <template>
-  <svg ref="svg" class="shape-editor" :width="size.w" :height="size.h" @pointermove="onMove" @pointerup="onUp" @pointercancel="onUp">
+  <svg ref="svg" class="shape-editor" :width="size.w" :height="size.h" @pointermove="onMove" @pointerup="onUp" @pointercancel="onUp" @contextmenu="onVertexDelete">
     <!-- Drawing modes capture the whole stage. -->
     <rect v-if="mode !== 'edit'" class="capture" x="0" y="0" :width="size.w" :height="size.h" @pointerdown="onCaptureDown" @dblclick="onCaptureDbl" />
     <g v-for="(p, i) in polys" :key="`p${i}`" :class="{ sel: selected === i }">
@@ -280,16 +324,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
           :y2="toScreen(p[(j + 1) % p.length])[1]"
           @pointerdown="onEdgeDown($event, i, j)"
         />
-        <circle
-          v-for="(q, j) in p"
-          :key="`v${j}`"
-          class="vertex"
-          :cx="toScreen(q)[0]"
-          :cy="toScreen(q)[1]"
-          r="4.5"
-          @pointerdown="onVertexDown($event, i, j)"
-          @dblclick="onVertexDbl($event, i, j)"
-        />
+        <g v-for="(q, j) in p" :key="`v${j}`" class="vgrab" @pointerdown="onVertexDown" @dblclick="onVertexDelete">
+          <circle class="hit" :cx="toScreen(q)[0]" :cy="toScreen(q)[1]" :r="GRAB" />
+          <circle class="vertex" :cx="toScreen(q)[0]" :cy="toScreen(q)[1]" r="4.5" />
+        </g>
       </template>
       <path v-else :d="pathD(p)" class="outline" />
     </g>
@@ -299,7 +337,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
     </template>
   </svg>
   <div class="shape-tools" @pointerdown.stop>
-    <button type="button" :class="{ on: mode === 'edit' }" title="Edit: drag vertices, click an edge to add one, double-click a vertex to remove it" @click="setMode('edit')">
+    <button type="button" :class="{ on: mode === 'edit' }" title="Edit: drag vertices, click an edge to add one, right-click a vertex to remove it" @click="setMode('edit')">
       <Icon name="polygon" :size="13" />Edit
     </button>
     <button type="button" :class="{ on: mode === 'polygon' }" title="Polygon: click to place vertices; Enter, double-click or the first vertex closes it" @click="setMode('polygon')">
@@ -354,17 +392,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
 .sel .edge {
   stroke: var(--accent-hi);
 }
+.vgrab {
+  cursor: move;
+}
+.hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
 .vertex {
   fill: rgba(23, 25, 28, 0.8);
   stroke: var(--text-hi);
   stroke-width: 1.5;
-  pointer-events: all;
-  cursor: move;
+  pointer-events: none;
 }
 .sel .vertex {
   stroke: var(--accent-hi);
 }
-.vertex:hover {
+.vgrab:hover .vertex {
   fill: var(--accent-hi);
 }
 .draft {

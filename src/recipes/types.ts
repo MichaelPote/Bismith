@@ -1,6 +1,6 @@
 // Smart-material recipes (docs/features/fr8.3-smart-materials.md): a good preset distilled into a handful of macro
-// controls. `build(macros, ctx)` returns the recipe's layers, each tagged with a role and a stack; the editor keeps
-// the layers as ordinary members and, when a macro moves, rewrites only the member params whose built value changed
+// controls. `build(macros, ctx)` returns the recipe's layers, each tagged with a role and a stack ('relief' layers shape
+// the surface only and go first in the material's block of layers); the editor keeps the layers as ordinary members and, when a macro moves, rewrites only the member params whose built value changed
 // (see applyMacro in ./index.ts) — so recipes never need separate "apply" code.
 
 import type { GroupDef, ParamDef, ParamValues } from '@/core/params'

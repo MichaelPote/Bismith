@@ -13,7 +13,7 @@
 
 import type { ParamValues } from '@/core/params'
 import type { Layer, MaterialBase, Project, RenderSettings } from '@/core/project'
-import { createLayer, createLight, createPostFilter, createProject } from '@/core/serialize'
+import { createLayer, createLight, createPostFilter, createProject, reliefOnly } from '@/core/serialize'
 import { getLayerDef } from '@/layers/registry'
 import { DEFAULT_BEVEL_CURVE } from '@/layers/commonParams'
 import { hexToRgb, linearToOklab, rgbToHex, srgbToLinear1, type RGB } from '@/core/color'
@@ -123,9 +123,9 @@ function warmest(a: Analysis): string | null {
 const GAME_PALETTES = new Set(['quake', 'doom'])
 
 interface Stacks {
-  /** Relief stack: shapes the surface (height, roughness, specular); its colour is discarded. */
+  /** Relief: shapes the surface (height, roughness, specular) with its colour outputs off; goes first. */
   relief?: Layer[]
-  /** Paint stack: colour, plus deliberate colour-coupled height (plates, rivets, slots). */
+  /** Paint: colour, plus deliberate colour-coupled height (plates, rivets, slots). */
   paint: Layer[]
 }
 
@@ -147,8 +147,7 @@ function base(a: Analysis, ctx: TemplateContext, name: string, stacks: Stacks, l
     heightDepth: 2.5,
     seed: 1,
     base: { color: pick(a, 0.5), roughness: 0.9, specular: 0, height: 0, opacity: 1, ...look.base },
-    relief: stacks.relief ?? [],
-    layers: stacks.paint,
+    layers: [...(stacks.relief ?? []).map(reliefOnly), ...stacks.paint],
     lighting: {
       // Calibrated so a flat surface renders close to its albedo: sun·sin(45°) + sky ≈ 1.
       sky: { enabled: true, zenith: '#d8dde2', horizon: '#c9c6c0', intensity: painted ? 0.15 : 0.32 },

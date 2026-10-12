@@ -32,6 +32,7 @@ void main() {
 
 export const bevelLayer: LayerDef = {
   type: 'bevel',
+  channels: { height: true },
   label: 'Bevel',
   category: 'filter',
   kind: 'filter',
@@ -90,6 +91,7 @@ void main() {
 
 export const etchLayer: LayerDef = {
   type: 'etch',
+  channels: { diffuse: 'dif_on', height: true },
   label: 'Etch',
   category: 'filter',
   kind: 'filter',

@@ -9,7 +9,7 @@ export const stripes: RecipeDef = {
   id: 'stripes',
   label: 'Stripes',
   description: 'Warning stripes and alternating bands — diagonal, straight, chevrons, zig-zags or checks — in two colours with crisp edges, wear and grime.',
-  icon: 'pattern',
+  icon: 'stripes',
   groups: [
     { id: 'layout', label: 'Layout' },
     { id: 'colour', label: 'Colour' },

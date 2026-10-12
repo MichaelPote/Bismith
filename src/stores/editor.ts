@@ -5,18 +5,19 @@ import { markRaw, ref, shallowRef } from 'vue'
 import type { Engine, EngineStats } from '@/render/engine'
 import type { ChannelView } from '@/render/display'
 
-export type SelectionKind = 'project' | 'layer' | 'light' | 'post' | 'render' | 'material'
+/** 'base' is the Base row of the layer list: the project panel, highlighted on that row. */
+export type SelectionKind = 'project' | 'base' | 'layer' | 'light' | 'post' | 'material'
 
 export interface Selection {
   kind: SelectionKind
   id?: string
 }
 
-export type Workspace = 'forge' | 'match'
+export type Workspace = 'create' | 'match'
 
 export const useEditorStore = defineStore('editor', () => {
   const selection = ref<Selection>({ kind: 'project' })
-  const workspace = ref<Workspace>('forge')
+  const workspace = ref<Workspace>('create')
   const channel = ref<ChannelView>('final')
   const tile = ref(false)
   const grid = ref(true)

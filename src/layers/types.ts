@@ -43,6 +43,16 @@ export interface LayerDef {
   defaults?: Record<string, ParamValue>
   /** Extra groups for this type's params, in display order (the default 'params' group is implicit). */
   groups?: GroupDef[]
+  /**
+   * Filters: which of the outliner's Diffuse and Height columns the filter affects — a bool param key when a tick turns
+   * it on and off, `true` when it always does. Generators use their Diffuse / Height outputs (dif_on / h_on).
+   */
+  channels?: LayerChannels
+}
+
+export interface LayerChannels {
+  diffuse?: string | true
+  height?: string | true
 }
 
 /** An RGBA8 texture computed on the CPU (LayerDef.cpuData). */

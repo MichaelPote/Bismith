@@ -112,7 +112,7 @@ export const dressedStone: RecipeDef = {
   id: 'dressed-stone',
   label: 'Stone wall',
   description: 'Dressed blocks to hand-placed rubble: domed faces, crisp chipped edges, per-stone height and colour, moss and grime.',
-  icon: 'pattern',
+  icon: 'wall',
   groups: GROUPS,
   params: [
     P.int('columns', 'Stones across', 4, 1, 64, { group: 'layout', softMax: 16 }),
@@ -141,7 +141,7 @@ export const cobblestones: RecipeDef = {
   id: 'cobblestones',
   label: 'Cobblestones',
   description: 'Rounded irregular stones (Voronoi cells) with the stone-wall relief and paint.',
-  icon: 'pattern',
+  icon: 'cobbles',
   groups: GROUPS,
   params: [
     P.float('size', 'Stone size', 13, 4, 128, { group: 'layout', softMax: 48, unit: 'px' }),

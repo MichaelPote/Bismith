@@ -8,9 +8,10 @@ import { GpuError } from '@/gpu/context'
 import { CHANNEL_VIEWS } from '@/render/display'
 import Icon from '@/ui/components/Icon.vue'
 import ShapeEditor from '@/ui/components/ShapeEditor.vue'
+import SelectField from '@/ui/components/SelectField.vue'
+import { vTip } from '@/ui/tooltip'
 import { layerParamDefs } from '@/layers/registry'
 import { linearToSrgb1, rgbToHex } from '@/core/color'
-import { stackOrder } from '@/core/project'
 
 const store = useProjectStore()
 const editor = useEditorStore()
@@ -29,8 +30,7 @@ const project = computed(() => store.project)
 
 const previewUpTo = computed(() => {
   if (!editor.solo || editor.selection.kind !== 'layer') return null
-  // Index in evaluation order (relief stack, then paint stack).
-  const i = stackOrder(store.project).findIndex((l) => l.id === editor.selection.id)
+  const i = store.project.layers.findIndex((l) => l.id === editor.selection.id)
   return i >= 0 ? i : null
 })
 
@@ -47,7 +47,7 @@ function fit(): void {
   const p = store.project
   const span = editor.tile ? 3 : 1
   const availW = cssSize.value.w * dpr.value * 0.88
-  const availH = (cssSize.value.h - 60) * dpr.value * 0.88
+  const availH = (cssSize.value.h - 72) * dpr.value * 0.88
   const ideal = Math.min(availW / (p.width * span), availH / (p.height * span))
   const z = [...ZOOMS].reverse().find((s) => s <= ideal) ?? ZOOMS[0]
   editor.zoom = z
@@ -57,7 +57,7 @@ function fit(): void {
 function centre(): void {
   const p = store.project
   editor.offsetX = Math.round((cssSize.value.w * dpr.value - p.width * editor.zoom) / 2)
-  editor.offsetY = Math.round((cssSize.value.h * dpr.value - p.height * editor.zoom) / 2 + 14 * dpr.value)
+  editor.offsetY = Math.round((cssSize.value.h * dpr.value - p.height * editor.zoom) / 2 + 18 * dpr.value)
 }
 
 function zoomAt(newZoom: number, cx: number, cy: number): void {
@@ -165,23 +165,21 @@ const shapeLayer = computed(() => {
   const l = store.getLayer(s.id)
   return l && layerParamDefs(l.type).some((d) => d.bitmap === 'points') ? l : null
 })
-const shapeStart = ref<'edit' | 'polygon'>('edit')
 
-/** Add an empty Path layer (in the selected layer's stack) and start drawing it. */
-function drawShape(): void {
-  const s = editor.selection
-  const at = s.kind === 'layer' && s.id ? store.locateLayer(s.id) : undefined
-  const l = store.addLayer('path', at ? at.index + 1 : undefined, { points: '' }, at?.stack ?? 'paint')
-  l.name = 'Shape'
-  shapeStart.value = 'polygon'
-  editor.select('layer', l.id)
+const CHANNEL_OPTIONS = CHANNEL_VIEWS.map((c) => ({ value: c.id, label: `${c.label} · ${c.key.toUpperCase()}` }))
+
+/** Channel key labels for a narrow viewport (the tooltip keeps the full name). */
+const SHORT: Record<string, string> = {
+  final: 'Fin', diffuse: 'Dif', height: 'Hgt', roughness: 'Rgh', specular: 'Spc', normal: 'Nrm', ao: 'AO', emissive: 'Emi', opacity: 'Opa', register: 'SDF', masks: 'Msk',
 }
-watch(
-  () => editor.selection.id,
-  (id, old) => {
-    if (old !== undefined && id !== old && shapeStart.value === 'polygon' && shapeLayer.value?.id !== id) shapeStart.value = 'edit'
-  },
-)
+
+/** Viewport overlays: toggle keys that latch, with a pilot lamp. */
+const toggles = computed(() => [
+  { label: 'Preview up to selected layer', tip: 'Preview up to the selected layer (S)', icon: 'layers', on: editor.solo, flip: () => (editor.solo = !editor.solo) },
+  { label: 'Tile preview', tip: 'Tile preview, 3×3 (T)', icon: 'tile', on: editor.tile, flip: () => (editor.tile = !editor.tile) },
+  { label: 'Pixel grid', tip: 'Pixel grid (G)', icon: 'grid', on: editor.grid, flip: () => (editor.grid = !editor.grid) },
+  { label: 'Alpha checkerboard', tip: 'Alpha checkerboard', icon: 'checker', on: editor.checker, flip: () => (editor.checker = !editor.checker) },
+])
 
 let gizmoDrag: { id: string; type: 'point' | 'directional' } | null = null
 function onGizmoDown(e: PointerEvent, g: { id: string; type: 'point' | 'directional' }): void {
@@ -310,43 +308,42 @@ watch(
           </g>
         </template>
       </svg>
-      <ShapeEditor v-if="shapeLayer" :key="shapeLayer.id" :layer-id="shapeLayer.id" :rect="texRect" :tex-w="project.width" :tex-h="project.height" :size="cssSize" :start-mode="shapeStart" />
+      <ShapeEditor v-if="shapeLayer" :key="shapeLayer.id" :layer-id="shapeLayer.id" :rect="texRect" :tex-w="project.width" :tex-h="project.height" :size="cssSize" />
     </div>
 
     <div class="header">
-      <div class="channels" role="tablist" aria-label="Channel">
+      <div class="channels fk-rail" role="tablist" aria-label="Channel">
         <button
           v-for="c in CHANNEL_VIEWS"
           :key="c.id"
+          v-tip:bottom="`${c.label} · key ${c.key.toUpperCase()}`"
           type="button"
           role="tab"
+          class="fk"
+          :class="{ lit: editor.channel === c.id }"
           :aria-selected="editor.channel === c.id"
-          :class="{ on: editor.channel === c.id }"
-          :title="`${c.label} (${c.key})`"
           @click="editor.channel = c.id"
         >
-          {{ c.label }}
+          <span class="fk-face"><span class="lbl full">{{ c.label }}</span><span class="lbl short">{{ SHORT[c.id] ?? c.label }}</span></span>
         </button>
       </div>
+      <SelectField class="ch-select" :model-value="editor.channel" :options="CHANNEL_OPTIONS" label="Channel" @update:model-value="editor.channel = $event as typeof editor.channel" />
       <div class="tools">
-        <button type="button" class="cf-ico-btn" title="Draw a shape: adds a Path layer and starts placing vertices (also usable as a mask for the layers above)" aria-label="Draw shape" @click="drawShape">
-          <span><Icon name="polygon" :size="14" /></span>
+        <button
+          v-for="t in toggles"
+          :key="t.label"
+          v-tip:bottom="t.tip"
+          type="button"
+          class="fk toggle"
+          :class="{ latched: t.on }"
+          :aria-label="t.label"
+          :aria-pressed="t.on"
+          @click="t.flip()"
+        >
+          <span class="fk-face"><Icon :name="t.icon" :size="14" /><span class="fk-lamp" /></span>
         </button>
         <div class="vsep" />
-        <button type="button" class="cf-ico-btn" :class="{ on: editor.solo }" title="Preview up to selected layer (S)" aria-label="Preview up to selected layer" :aria-pressed="editor.solo" @click="editor.solo = !editor.solo">
-          <span><Icon name="layers" :size="14" /></span>
-        </button>
-        <button type="button" class="cf-ico-btn" :class="{ on: editor.tile }" title="Tile preview (T)" aria-label="Tile preview" :aria-pressed="editor.tile" @click="editor.tile = !editor.tile">
-          <span><Icon name="tile" :size="14" /></span>
-        </button>
-        <button type="button" class="cf-ico-btn" :class="{ on: editor.grid }" title="Pixel grid (G)" aria-label="Pixel grid" :aria-pressed="editor.grid" @click="editor.grid = !editor.grid">
-          <span><Icon name="grid" :size="14" /></span>
-        </button>
-        <button type="button" class="cf-ico-btn" :class="{ on: editor.checker }" title="Alpha checkerboard" aria-label="Alpha checkerboard" :aria-pressed="editor.checker" @click="editor.checker = !editor.checker">
-          <span><Icon name="checker" :size="14" /></span>
-        </button>
-        <div class="vsep" />
-        <button type="button" class="cf-ico-btn" title="Fit (F)" aria-label="Fit to view" @click="fit"><Icon name="fit" :size="14" /></button>
+        <button v-tip:bottom="'Fit to view (F)'" type="button" class="cf-ico-btn" aria-label="Fit to view" @click="fit"><Icon name="fit" :size="14" /></button>
         <span class="chip cf-mono">{{ zoomLabel }}</span>
       </div>
     </div>
@@ -365,7 +362,7 @@ watch(
     </div>
 
     <div v-if="stats" class="status" :class="{ done: progress >= 1 }">
-      <svg width="14" height="14" viewBox="0 0 18 18" fill="none" :stroke="progress >= 1 ? 'var(--pill)' : 'var(--accent-hi)'" stroke-width="1.5" aria-hidden="true"><path d="M10 2 4 10h5l-1 6 6-8h-5z" /></svg>
+      <Icon name="bolt" :size="14" :stroke="progress >= 1 ? 'var(--pill)' : 'var(--accent-hi)'" />
       <span class="txt">{{ stats.draft ? 'Draft' : progress >= 1 ? 'Converged' : 'Tracing' }} · <span class="cf-mono">{{ stats.samples }}/{{ stats.maxSamples }} spp</span></span>
       <span v-if="progress < 1" class="cf-mono lo">{{ stats.samplesPerSec }}/s</span>
       <div class="bar"><div :style="{ width: `${progress * 100}%` }" /></div>
@@ -445,51 +442,81 @@ watch(
   left: 0;
   right: 0;
   top: 0;
-  height: 30px;
+  height: 36px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 6px;
   background: rgba(36, 40, 44, 0.92);
   border-bottom: 1px solid var(--hairline);
+  user-select: none;
+  -webkit-user-select: none;
+  container-type: inline-size;
 }
+/* Channel keys shrink (labels ellipsised) rather than scroll when the viewport is narrow. */
 .channels {
-  display: flex;
-  align-items: stretch;
-  height: 100%;
-  gap: 0;
-  overflow-x: auto;
+  flex: 0 1 auto;
+  min-width: 0;
 }
-.channels button {
-  position: relative;
-  border: 0;
-  background: transparent;
-  color: var(--text-lo);
-  padding: 0 9px;
-  font-size: 12px;
-  white-space: nowrap;
+.channels .fk {
+  height: 24px;
+  flex: 0 1 auto;
+  min-width: 26px;
 }
-.channels button:hover {
-  color: var(--text-hi);
+.channels .fk-face {
+  padding: 0 8px;
+  min-width: 0;
 }
-.channels button.on {
-  color: var(--text-hi);
-  background: var(--under-body);
+.channels .lbl {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.channels button.on::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--under-bar);
+.channels .fk.lit .fk-face {
+  font-weight: 500;
+}
+.channels .lbl.short {
+  display: none;
+}
+/* Too narrow for the full names: three-letter keys (then ellipsis as a last resort). */
+@container (max-width: 960px) {
+  .channels .lbl.full {
+    display: none;
+  }
+  .channels .lbl.short {
+    display: inline;
+  }
+  .channels .fk-face {
+    padding: 0 6px;
+  }
+}
+/* Narrower still: a dropdown (the wheel steps through the views). */
+.ch-select {
+  display: none;
+  width: 150px;
+  flex: none;
+}
+@container (max-width: 720px) {
+  .channels {
+    display: none;
+  }
+  .ch-select {
+    display: block;
+  }
 }
 .tools {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+  flex: none;
+}
+.fk.toggle {
+  width: 28px;
+  height: 24px;
+}
+.fk.toggle .fk-face {
+  padding: 0;
 }
 .vsep {
   width: 1px;

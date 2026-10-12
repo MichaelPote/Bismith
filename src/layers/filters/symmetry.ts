@@ -23,6 +23,7 @@ const polar = (p: Record<string, unknown>) => p.mode === 'rotate' || p.mode === 
 
 export const symmetryLayer: LayerDef = {
   type: 'symmetry',
+  channels: { diffuse: true, height: true },
   label: 'Symmetry',
   category: 'filter',
   kind: 'filter',

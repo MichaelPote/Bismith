@@ -87,39 +87,43 @@ a:hover {
   font-family: var(--font-mono);
 }
 
+/* Stud (Forged keys v2): row and panel-header icon buttons — invisible until touched, a flat Hairline plate on hover,
+   latched = Sunken plate with Ember 300 ink. */
 .cf-ico-btn {
-  width: 26px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   padding: 0;
   border: 0;
+  border-radius: 3px;
   background: transparent;
-  color: var(--text-mid);
+  color: var(--text-lo);
 }
 .cf-ico-btn:hover {
-  background: var(--raised);
+  background: var(--hairline);
+  box-shadow: inset 0 0 0 1px var(--line);
   color: var(--text-hi);
+}
+.cf-ico-btn:active,
+.cf-ico-btn.latched {
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--text);
+}
+.cf-ico-btn.latched {
+  color: var(--e300);
 }
 .cf-ico-btn:disabled {
   opacity: 0.35;
   pointer-events: none;
 }
-
-/* Toggled-on square (accent ring with dark core) */
-.cf-ico-btn.on {
-  padding: 1px;
-  background: var(--accent);
-}
-.cf-ico-btn.on > span {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  background: var(--raised);
-  color: var(--accent-hi);
+.cf-ico-btn:focus-visible,
+.fk:focus-visible {
+  outline: 1px solid var(--e100);
+  outline-offset: 3px;
 }
 
 .cf-field {
@@ -163,43 +167,234 @@ a:hover {
   pointer-events: none;
 }
 
-/* The heat button: grey ring, Underlight bars top and bottom, low pool inside. One per screen. */
-.cf-heat {
+/* Forged keys (Cinderforge buttons v2): two flat layers — a 2px lip and a face above it. States swap the fill,
+   outline and lip and drop the face onto the lip; nothing is a gradient and nothing casts a shadow, except the one
+   lit key's small glow.
+   <button class="fk [lit|latched]"><span class="fk-face">…<span class="kc">1</span></span></button> */
+.fk {
   position: relative;
-  height: 26px;
-  padding: 1px;
+  flex: none;
+  height: 28px;
+  padding: 0;
   border: 0;
-  background: var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-mid);
+  cursor: pointer;
 }
-.cf-heat > span.core {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 12px;
-  background: var(--heat-core);
-  box-shadow: inset 0 0 8px rgba(246, 110, 16, 0.12);
-  color: var(--text-hi);
-  font-weight: 500;
-}
-.cf-heat::before,
-.cf-heat::after {
+.fk::before {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
-  height: 2px;
-  background: var(--under-bar);
-  pointer-events: none;
-}
-.cf-heat::before {
-  top: 0;
-}
-.cf-heat::after {
+  top: 2px;
   bottom: 0;
+  border-radius: 4px;
+  background: var(--deep);
 }
-.cf-heat:hover > span.core {
-  box-shadow: inset 0 0 12px rgba(246, 110, 16, 0.22);
+.fk-face {
+  position: relative;
+  top: 0;
+  height: calc(100% - 2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-radius: 4px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--text-mid);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.fk:hover > .fk-face {
+  background: var(--hairline);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-hi);
+}
+.fk:active > .fk-face {
+  top: 2px;
+  background: var(--base);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--text);
+}
+/* Lit: the one active tool / workspace / view of a rail. */
+.fk.lit {
+  box-shadow: 0 0 8px rgba(246, 110, 16, 0.35);
+}
+.fk.lit::before {
+  background: var(--e500);
+}
+.fk.lit > .fk-face {
+  background: linear-gradient(rgba(246, 110, 16, 0.16), rgba(246, 110, 16, 0.16)), var(--raised);
+  box-shadow: inset 0 0 0 1px var(--e400);
+  color: var(--e100);
+}
+.fk.lit:hover {
+  box-shadow: 0 0 10px rgba(246, 110, 16, 0.5);
+}
+.fk.lit:hover > .fk-face {
+  background: linear-gradient(rgba(246, 110, 16, 0.24), rgba(246, 110, 16, 0.24)), var(--hairline);
+  box-shadow: inset 0 0 0 1px var(--e300);
+  color: var(--e50);
+}
+.fk.lit:active > .fk-face {
+  top: 2px;
+}
+/* Latched: an on/off toggle that is on — dropped onto its lip, Sunken, Ember 300 ink, pilot lamp lit. No glow. */
+.fk.latched > .fk-face {
+  top: 2px;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--e300);
+}
+.fk.latched:hover > .fk-face {
+  color: var(--e200);
+}
+.fk-lamp {
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 10px;
+  height: 2px;
+  margin-left: -5px;
+  border-radius: 1px;
+  background: var(--raised);
+}
+.fk:hover .fk-lamp {
+  background: var(--hairline);
+}
+.fk.latched .fk-lamp {
+  background: var(--e400);
+}
+.fk:disabled {
+  cursor: default;
+}
+.fk:disabled::before {
+  background: var(--base);
+}
+.fk:disabled > .fk-face {
+  top: 2px;
+  background: var(--base);
+  box-shadow: inset 0 0 0 1px var(--raised);
+  color: var(--line);
+}
+
+/* Primary (forge): the one ember-faced key per screen. */
+.fk.primary {
+  height: 30px;
+}
+.fk.primary::before {
+  background: var(--e700);
+}
+.fk.primary > .fk-face {
+  padding: 0 14px;
+  background: var(--e500);
+  box-shadow: inset 0 0 0 1px var(--e600);
+  color: var(--text-hi);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.fk.primary:hover {
+  box-shadow: 0 0 8px rgba(246, 110, 16, 0.35);
+}
+.fk.primary:hover > .fk-face {
+  background: var(--e400);
+  box-shadow: inset 0 0 0 1px var(--e500);
+  color: var(--text-hi);
+}
+.fk.primary:active > .fk-face {
+  top: 2px;
+  background: var(--e500);
+}
+.fk.primary:disabled {
+  box-shadow: none;
+}
+.fk.primary:disabled::before {
+  background: var(--base);
+}
+.fk.primary:disabled > .fk-face {
+  top: 2px;
+  background: var(--base);
+  box-shadow: inset 0 0 0 1px var(--raised);
+  color: var(--line);
+}
+
+/* A rail of keys: keys side by side, no tray. */
+.fk-rail {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Keycap chip: shortcut hints inside keys, menus and the status bar; lights with its key. */
+.kc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 0 var(--deep);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text);
+}
+.fk.lit .kc {
+  background: linear-gradient(rgba(246, 110, 16, 0.16), rgba(246, 110, 16, 0.16)), var(--raised);
+  box-shadow: inset 0 0 0 1px var(--e400), 0 1px 0 var(--e500);
+  color: var(--e100);
+}
+
+/* Tooltips (Tippy.js, theme "cinder"): a Raised plate, Line edge, no arrow. */
+.tippy-box[data-theme~='cinder'] {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-field);
+  box-shadow: 0 6px 18px rgba(8, 9, 10, 0.55);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.tippy-box[data-theme~='cinder'] > .tippy-content {
+  padding: 6px 9px 7px;
+}
+.tip-title {
+  font-weight: 500;
+  color: var(--text-hi);
+}
+.tip-body {
+  margin-top: 2px;
+  color: var(--text);
+}
+.tip-text {
+  color: var(--text);
+}
+.tip-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.tip-list li {
+  margin-top: 2px;
+}
+.tip-list b {
+  font-weight: 500;
+  color: var(--text-hi);
+}
+.tip-meta {
+  margin-top: 5px;
+  white-space: pre-line;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-lo);
 }
 
 .cf-faded-rule {

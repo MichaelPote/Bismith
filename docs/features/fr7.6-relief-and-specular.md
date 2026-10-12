@@ -1,6 +1,7 @@
 # FR7.6 — Relief stack, specular channel, richer relief
 
-**Status:** done (features); three walls rebuilt with them — the other recreations next
+**Status:** done (features); three walls rebuilt with them — the other recreations next. The separate relief stack
+was later folded into the one layer list (FR8.14): a relief layer is now one with its colour outputs off.
 
 ## Goal
 Feedback on the FR7.4 recreations: the height maps were "a few height changes", while the originals have rounded,

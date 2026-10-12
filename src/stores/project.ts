@@ -3,9 +3,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef, watch } from 'vue'
 import type { ParamValue } from '@/core/params'
-import type { Layer, LayerStack, Light, LightType, PostFilter, Project, SmartMaterial } from '@/core/project'
-import { stackOrder } from '@/core/project'
-import { setLinkedParam } from '@/core/links'
+import type { Layer, LayerUnit, Light, LightType, PostFilter, Project, SmartMaterial } from '@/core/project'
+import { flattenUnits, layerUnits } from '@/core/project'
 import { addMaterial as recipeAdd, deleteMaterial as recipeDelete, pruneMaterials, setMacro, setMaterialMask as recipeMask, unpackMaterial as recipeUnpack } from '@/recipes'
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize'
 import { newId } from '@/core/ids'
@@ -115,86 +114,110 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   // ---------------------------------------------------------------- layers
-  // Two stacks: 'relief' (evaluated first; shapes the surface only) and 'paint' (project.layers).
-  const stackList = (stack: LayerStack): Layer[] => {
-    if (stack === 'paint') return project.value.layers
-    if (!project.value.relief) project.value.relief = []
-    return project.value.relief
-  }
+  // One list in evaluation order (index 0 = earliest). A smart material's members sit together as one block (a unit);
+  // moves keep them so: a member moves within its block, anything else moves past whole blocks.
+  const layers = () => project.value.layers
 
-  /** Which stack holds a layer, and where. */
-  function locateLayer(id: string): { stack: LayerStack; index: number } | undefined {
-    for (const stack of ['relief', 'paint'] as const) {
-      const index = stackList(stack).findIndex((l) => l.id === id)
-      if (index >= 0) return { stack, index }
-    }
-    return undefined
+  function layerIndex(id: string): number {
+    return layers().findIndex((l) => l.id === id)
   }
 
   function getLayer(id: string): Layer | undefined {
-    const at = locateLayer(id)
-    return at ? stackList(at.stack)[at.index] : undefined
+    return layers().find((l) => l.id === id)
   }
 
-  function addLayer(type: string, atIndex?: number, overrides: Record<string, ParamValue> = {}, stack: LayerStack = 'paint'): Layer {
-    // Relief layers shape the surface only: height on, colour outputs off.
-    const layer = createLayer(type, stack === 'relief' ? { h_on: true, dif_on: false, op_on: false, e_on: false, ...overrides } : overrides)
-    const layers = stackList(stack)
-    const i = atIndex === undefined ? layers.length : Math.max(0, Math.min(layers.length, atIndex))
-    layers.splice(i, 0, layer)
-    return layers[i]
+  const units = () => layerUnits(layers(), project.value.materials)
+
+  /** The unit holding a layer (or a material's block, by the material's id) and its position. */
+  function unitOf(id: string): { index: number; unit: LayerUnit } | undefined {
+    const us = units()
+    const index = us.findIndex((u) => (u.material ? u.material.id === id || u.layers.some((l) => l.id === id) : u.layer.id === id))
+    return index < 0 ? undefined : { index, unit: us[index] }
+  }
+
+  /** The first index at or after `i` that is not inside a material's block. */
+  function outsideBlocks(i: number): number {
+    let at = 0
+    for (const u of units()) {
+      const n = u.material ? u.layers.length : 1
+      if (i > at && i < at + n) return at + n
+      at += n
+    }
+    return i
+  }
+
+  /** A seed no layer uses yet, so a new layer's pattern is its own. */
+  function freshSeed(): number {
+    const used = new Set(layers().map((x) => x.params.seed))
+    let seed = 1
+    while (used.has(seed)) seed = 1 + Math.floor(Math.random() * 99998)
+    return seed
+  }
+
+  /** Insert a new layer at `atIndex` (default last, on top); never inside a material's block. A seeded layer gets a
+   * seed no other layer has. */
+  function addLayer(type: string, atIndex?: number, overrides: Record<string, ParamValue> = {}): Layer {
+    const layer = createLayer(type, overrides)
+    if (layer.params.seed !== undefined && overrides.seed === undefined) layer.params.seed = freshSeed()
+    const list = layers()
+    const i = outsideBlocks(atIndex === undefined ? list.length : Math.max(0, Math.min(list.length, atIndex)))
+    list.splice(i, 0, layer)
+    return list[i]
   }
 
   function removeLayer(id: string): void {
-    const at = locateLayer(id)
-    if (at) stackList(at.stack).splice(at.index, 1)
+    const i = layerIndex(id)
+    if (i >= 0) layers().splice(i, 1)
     pruneMaterials(project.value)
   }
 
+  /** Copy a layer just after it — after its material's block when it is a member (the copy is a free layer). */
   function duplicateLayer(id: string): Layer | undefined {
-    const at = locateLayer(id)
-    if (!at) return undefined
-    const layers = stackList(at.stack)
-    const copy = { ...clone(layers[at.index]), id: newId('ly') }
+    const i = layerIndex(id)
+    if (i < 0) return undefined
+    const copy = { ...clone(layers()[i]), id: newId('ly') }
     copy.name = `${copy.name.replace(/ copy$/, '')} copy`
-    layers.splice(at.index + 1, 0, copy)
-    return layers[at.index + 1]
+    const at = outsideBlocks(i + 1)
+    layers().splice(at, 0, copy)
+    return layers()[at]
   }
 
-  /** Move within its stack, or into the other stack when `toStack` differs. */
-  function moveLayer(id: string, toIndex: number, toStack?: LayerStack): void {
-    const at = locateLayer(id)
+  /** Move a free layer or a whole material (by its id) to unit position `to`. */
+  function moveUnit(id: string, to: number): void {
+    const us = units()
+    const at = unitOf(id)
     if (!at) return
-    const dest = toStack ?? at.stack
-    const from = stackList(at.stack)
-    const to = stackList(dest)
-    if (dest === at.stack) {
-      const j = Math.max(0, Math.min(to.length - 1, toIndex))
-      if (at.index === j) return
-      const [l] = from.splice(at.index, 1)
-      to.splice(j, 0, l)
-      return
-    }
-    const [l] = from.splice(at.index, 1)
-    if (dest === 'relief') Object.assign(l.params, { dif_on: false, op_on: false, e_on: false })
-    to.splice(Math.max(0, Math.min(to.length, toIndex)), 0, l)
+    const j = Math.max(0, Math.min(us.length - 1, to))
+    if (j === at.index) return
+    us.splice(at.index, 1)
+    us.splice(j, 0, at.unit)
+    project.value.layers = flattenUnits(us)
   }
 
-  /** Set a layer param; a pattern param also moves the layer's linked copies (same type and seed, see core/links). */
+  /** Move a material member to position `to` within its block. */
+  function moveMember(id: string, to: number): void {
+    const at = unitOf(id)
+    if (!at?.unit.material) return
+    const block = at.unit.layers
+    const from = block.findIndex((l) => l.id === id)
+    const j = Math.max(0, Math.min(block.length - 1, to))
+    if (from === j) return
+    const start = layerIndex(block[0].id)
+    const [l] = layers().splice(start + from, 1)
+    layers().splice(start + j, 0, l)
+  }
+
+  /** One step earlier (−1) or later (+1): a member within its block, a free layer or material past the next unit. */
+  function stepLayer(id: string, dir: number): void {
+    const at = unitOf(id)
+    if (!at) return
+    if (at.unit.material && at.unit.material.id !== id) moveMember(id, at.unit.layers.findIndex((l) => l.id === id) + dir)
+    else moveUnit(id, at.index + dir)
+  }
+
   function setLayerParam(id: string, key: string, value: ParamValue): void {
     const l = getLayer(id)
-    if (l) setLinkedParam(project.value, l, key, value)
-  }
-
-  /** Give a layer a seed of its own so it stops following its linked copies. */
-  function unlinkLayer(id: string): void {
-    const l = getLayer(id)
-    if (!l || l.params.seed === undefined) return
-    const used = new Set(stackOrder(project.value).map((x) => x.params.seed))
-    let seed = Number(l.params.seed)
-    do seed = 1 + Math.floor(Math.random() * 99998)
-    while (used.has(seed))
-    l.params.seed = seed
+    if (l) l.params[key] = value
   }
 
   // ---------------------------------------------------------------- smart materials
@@ -202,8 +225,9 @@ export const useProjectStore = defineStore('project', () => {
     return project.value.materials?.find((m) => m.id === id)
   }
 
-  function addMaterial(recipeId: string): SmartMaterial {
-    return recipeAdd(project.value, recipeId)
+  /** Add a smart material as one block at `atIndex` (default last; never inside another material's block). */
+  function addMaterial(recipeId: string, atIndex?: number): SmartMaterial {
+    return recipeAdd(project.value, recipeId, {}, undefined, atIndex === undefined ? undefined : outsideBlocks(atIndex))
   }
 
   function setMaterialParam(id: string, key: string, value: ParamValue): void {
@@ -214,6 +238,14 @@ export const useProjectStore = defineStore('project', () => {
   function setMaterialMask(id: string, use: string, invert: boolean): void {
     const m = getMaterial(id)
     if (m) recipeMask(project.value, m, use, invert)
+  }
+
+  /** Show or hide a whole smart material (its members keep their own on/off states). */
+  function setMaterialEnabled(id: string, enabled: boolean): void {
+    const m = getMaterial(id)
+    if (!m) return
+    if (enabled) delete m.enabled
+    else m.enabled = false
   }
 
   function renameMaterial(id: string, name: string): void {
@@ -320,18 +352,21 @@ export const useProjectStore = defineStore('project', () => {
     load,
     newProject,
     getLayer,
-    locateLayer,
+    layerIndex,
+    unitOf,
     addLayer,
     removeLayer,
     duplicateLayer,
-    moveLayer,
+    moveUnit,
+    moveMember,
+    stepLayer,
     setLayerParam,
-    unlinkLayer,
     updateLayer,
     getMaterial,
     addMaterial,
     setMaterialParam,
     setMaterialMask,
+    setMaterialEnabled,
     renameMaterial,
     unpackMaterial,
     deleteMaterial,

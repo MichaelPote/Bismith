@@ -4,7 +4,10 @@ import type { ParamValues } from './params'
 
 export const PROJECT_VERSION = 1
 
-/** The two layer stacks: relief (surface shape, evaluated first) and paint (colour; `project.layers`). */
+/**
+ * Where a recipe's or template's layer belongs (the project itself keeps one list): 'relief' layers shape the surface
+ * only — their colour outputs are off — and go before the 'paint' layers that colour it.
+ */
 export type LayerStack = 'relief' | 'paint'
 
 export interface Layer {
@@ -20,8 +23,8 @@ export interface Layer {
 
 /**
  * A smart material (docs/features/fr8.3-smart-materials.md): a recipe's handful of macro controls over ordinary
- * member layers in either stack. Moving a macro rewrites only the member params it affects; the layers stay normal,
- * editable layers, and unpacking drops this record and keeps them.
+ * member layers, which sit together as one block of `project.layers` (see groupMaterials). Moving a macro rewrites only
+ * the member params it affects; the layers stay normal, editable layers, and unpacking drops this record and keeps them.
  */
 export interface SmartMaterial {
   id: string
@@ -34,6 +37,15 @@ export interface SmartMaterial {
   members: Record<string, string>
   /** Named mask (FR8.13) every member is clipped to: channel '1'..'4', inside or outside (cut a hole). */
   mask?: { use: string; invert: boolean }
+  /** false hides the whole material (its members keep their own on/off states). Absent = shown. */
+  enabled?: boolean
+}
+
+/** Ids of the layers hidden because their smart material is. */
+export function hiddenByMaterial(p: Pick<Project, 'materials'>): Set<string> {
+  const ids = new Set<string>()
+  for (const m of p.materials ?? []) if (m.enabled === false) for (const id of Object.values(m.members)) ids.add(id)
+  return ids
 }
 
 export type LightType = 'directional' | 'point'
@@ -116,17 +128,12 @@ export interface Project {
   seed: number
   base: MaterialBase
   /**
-   * Relief stack, bottom → top, evaluated first. Its layers shape the surface — height, roughness, specular and the
-   * shape register — and never colour it: albedo, opacity and emission colour are reset to the base afterwards, so
-   * height modes compose freely (bricks × noise) and the paint stack sees the finished relief.
-   */
-  relief: Layer[]
-  /**
-   * Paint stack, bottom → top, evaluated after the relief. Paint layers may still add fine relief tied to their colour
-   * (lit bumps that coincide with colour patches, as in hand-painted textures); the relief stack carries the structure.
+   * The layers in evaluation order: first = earliest (bottom of the stack), last = latest. Each layer's outputs say
+   * which channels it touches — a relief layer is one with its colour outputs off (Diffuse unticked), and a paint layer
+   * may still add fine relief tied to its colour (lit bumps on colour patches, as in hand-painted textures).
    */
   layers: Layer[]
-  /** Smart materials over the stacks' layers (optional: absent = none). */
+  /** Smart materials over the layers (optional: absent = none). */
   materials?: SmartMaterial[]
   lighting: Lighting
   render: RenderSettings
@@ -146,14 +153,53 @@ export function defaultLighting(): Lighting {
 }
 
 export function defaultRender(): RenderSettings {
-  return { samplesPerFrame: 4, maxSamples: 256, bounces: 2, specular: 1, specularTint: 0, ao: 0, aoRadius: 4, jitter: true, clamp: 8, shadows: true }
+  return { samplesPerFrame: 4, maxSamples: 256, bounces: 2, specular: 1, specularTint: 0, ao: 0, aoRadius: 4, jitter: true, clamp: 8, shadows: true, supersample: 1 }
 }
 
 export function defaultBase(): MaterialBase {
   return { color: '#7a7570', roughness: 0.75, specular: 0.5, height: 0, opacity: 1 }
 }
 
-/** Every layer in evaluation order: the relief stack, then the paint stack. */
-export function stackOrder(project: Pick<Project, 'relief' | 'layers'>): Layer[] {
-  return [...(project.relief ?? []), ...project.layers]
+/** One top-level entry of the layer list: a free layer, or a smart material's block of member layers. */
+export type LayerUnit = { layer: Layer; material?: undefined } | { material: SmartMaterial; layers: Layer[]; layer?: undefined }
+
+/** Split `layers` into units (a material's members must already sit together, see groupMaterials). */
+export function layerUnits(layers: Layer[], materials: SmartMaterial[] | undefined): LayerUnit[] {
+  const owner = new Map<string, SmartMaterial>()
+  for (const m of materials ?? []) for (const id of Object.values(m.members)) owner.set(id, m)
+  const units: LayerUnit[] = []
+  for (const l of layers) {
+    const m = owner.get(l.id)
+    const last = units[units.length - 1]
+    if (!m) units.push({ layer: l })
+    else if (last?.material === m) last.layers.push(l)
+    else units.push({ material: m, layers: [l] })
+  }
+  return units
+}
+
+export const flattenUnits = (units: LayerUnit[]): Layer[] => units.flatMap((u) => (u.material ? u.layers : [u.layer]))
+
+/**
+ * Reorder `layers` so each smart material's members sit together, gathered where the material's last member is
+ * (members keep their relative order, other layers theirs). The outliner shows a material as one collapsible block.
+ * Gathering at the last member keeps every colour layer in order when a legacy project's relief stack is merged in:
+ * the material's relief members move up to join its paint members.
+ */
+export function groupMaterials(layers: Layer[], materials: SmartMaterial[] | undefined): Layer[] {
+  if (!materials?.length) return layers
+  const owner = new Map<string, SmartMaterial>()
+  for (const m of materials) for (const id of Object.values(m.members)) owner.set(id, m)
+  const last = new Map<SmartMaterial, string>()
+  for (const l of layers) {
+    const m = owner.get(l.id)
+    if (m) last.set(m, l.id)
+  }
+  const out: Layer[] = []
+  for (const l of layers) {
+    const m = owner.get(l.id)
+    if (!m) out.push(l)
+    else if (last.get(m) === l.id) out.push(...layers.filter((x) => owner.get(x.id) === m))
+  }
+  return out
 }

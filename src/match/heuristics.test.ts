@@ -25,26 +25,25 @@ describe('craft rules', () => {
   })
 
   it('turns per-brick wobble into a whole-pattern domain warp', () => {
-    const p = proj({ relief: [createLayer('bricks', { wobble: 2 })] })
-    const b = conformProject(p).project.relief[0].params
+    const p = proj({ layers: [createLayer('bricks', { wobble: 2 })] })
+    const b = conformProject(p).project.layers[0].params
     expect(b.wobble).toBe(0)
     expect(b.dw_amount).toBe(1.5)
   })
 
   it('replaces a tenting bevel with the crisp-edge custom curve', () => {
     // 2 rows on 64 px → blocks 32 tall, half 16; a 10 px round bevel tents.
-    const p = proj({ relief: [createLayer('bricks', { columns: 2, rows: 2, bevel: 10, profile: 'round' })] })
-    const b = conformProject(p).project.relief[0].params
+    const p = proj({ layers: [createLayer('bricks', { columns: 2, rows: 2, bevel: 10, profile: 'round' })] })
+    const b = conformProject(p).project.layers[0].params
     expect(b.profile).toBe('custom')
     expect((b.bevel_curve as { points: unknown[] }).points.length).toBeGreaterThan(2)
-    const narrow = proj({ relief: [createLayer('bricks', { columns: 2, rows: 2, bevel: 3, profile: 'round' })] })
-    expect(conformProject(narrow).project.relief[0].params.profile).toBe('round')
+    const narrow = proj({ layers: [createLayer('bricks', { columns: 2, rows: 2, bevel: 3, profile: 'round' })] })
+    expect(conformProject(narrow).project.layers[0].params.profile).toBe('round')
   })
 
   it('adds occlusion for tight joints, tints glints, fine ledge grids and painted light', () => {
     const p = proj({
-      relief: [createLayer('bricks', { mortar: 0.5 })],
-      layers: [createLayer('drips', { relief: 1, cols: 8, rows: 4 })],
+      layers: [createLayer('bricks', { mortar: 0.5 }), createLayer('drips', { relief: 1, cols: 8, rows: 4 })],
       post: [createPostFilter('palette', { palette: 'quake' })],
     })
     p.render.specular = 1
@@ -52,7 +51,7 @@ describe('craft rules', () => {
     const q = conformProject(p).project
     expect(q.render.ao).toBe(0.8)
     expect(q.render.specularTint).toBe(0.6)
-    expect(q.layers[0].params.cols).toBeGreaterThanOrEqual(22)
+    expect(q.layers[1].params.cols).toBeGreaterThanOrEqual(22)
     expect(q.render.shadows).toBe(false)
   })
 
@@ -64,8 +63,7 @@ describe('craft rules', () => {
   it('is idempotent', () => {
     const p = proj({
       heightDepth: 6,
-      relief: [createLayer('bricks', { wobble: 1, mortar: 0, bevel: 20, profile: 'smooth', columns: 2, rows: 2 })],
-      layers: [createLayer('noise', { noise: 'white', h_on: true })],
+      layers: [createLayer('bricks', { wobble: 1, mortar: 0, bevel: 20, profile: 'smooth', columns: 2, rows: 2 }), createLayer('noise', { noise: 'white', h_on: true })],
     })
     const once = conformProject(p).project
     expect(conformProject(once).changes).toEqual([])
@@ -93,19 +91,22 @@ describe('craft priors', () => {
 })
 
 describe('optimiser with heuristics', () => {
-  it('conforms the start project and inserts craft snippets into their own stack', async () => {
-    const p = proj({ relief: [createLayer('bricks', { wobble: 2, mortar: 2 })], layers: [createLayer('noise', { noise: 'perlin' })] })
+  it('conforms the start project and inserts relief snippets under the colour layers', async () => {
+    const p = proj({ layers: [createLayer('bricks', { wobble: 2, mortar: 2, dif_on: false, h_on: true }), createLayer('noise', { noise: 'perlin', dif_on: true })] })
     const opt = new Optimizer(p, () => 1, { seed: 3, structural: true, structuralRate: 1, lambda: 6 })
-    expect(opt.best.project.relief[0].params.wobble).toBe(0)
+    expect(opt.best.project.layers[0].params.wobble).toBe(0)
     for (let i = 0; i < 6; i++) await opt.step()
     const reliefTypes = new Set(CRAFT_LIBRARY.filter((t) => t.stack === 'relief').map((t) => t.name))
     const c = opt.current.project
-    for (const l of c.layers) expect(reliefTypes.has(l.name)).toBe(false)
+    const firstPaint = c.layers.findIndex((l) => l.params.dif_on === true)
+    c.layers.forEach((l, i) => {
+      if (reliefTypes.has(l.name)) expect(i).toBeLessThan(firstPaint)
+    })
   })
 
   it('can be switched off', () => {
-    const p = proj({ relief: [createLayer('bricks', { wobble: 2 })] })
+    const p = proj({ layers: [createLayer('bricks', { wobble: 2 })] })
     const opt = new Optimizer(p, () => 1, { heuristics: false })
-    expect(opt.best.project.relief[0].params.wobble).toBe(2)
+    expect(opt.best.project.layers[0].params.wobble).toBe(2)
   })
 })

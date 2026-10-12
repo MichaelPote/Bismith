@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Collapsible panel card with a disclosure chevron; optional enable checkbox in the header.
 import { ref, watch } from 'vue'
+import Icon from './Icon.vue'
 
 const props = withDefaults(
   defineProps<{ title: string; collapsed?: boolean; toggle?: boolean | null; storageKey?: string }>(),
@@ -35,10 +36,7 @@ watch(open, (v) => {
   <section class="card" :class="{ off: toggle === false }">
     <div class="head">
       <button type="button" class="disclose" :aria-expanded="open" @click="open = !open">
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <path v-if="open" d="M2 3 L5 7 L8 3" fill="none" stroke="currentColor" stroke-width="1.2" />
-          <path v-else d="M3 2 L7 5 L3 8" fill="none" stroke="currentColor" stroke-width="1.2" />
-        </svg>
+        <Icon :name="open ? 'chev-down' : 'chev-right'" :size="12" />
         <span v-if="toggle === null" class="title">{{ title }}</span>
       </button>
       <label v-if="toggle !== null" class="toggle">

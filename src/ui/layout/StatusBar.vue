@@ -11,11 +11,11 @@ const s = computed(() => editor.stats)
 <template>
   <footer class="status cf-panel cf-mono">
     <span><span class="k">Drag</span> pan · <span class="k">Wheel</span> zoom · <span class="k">F</span> fit · <span class="k">T</span> tile · <span class="k">0–9</span> channels</span>
-    <span><span class="k">Field</span> drag scrub · <span class="k">Shift</span> fine · <span class="k">Ctrl</span> snap</span>
+    <span><span class="k">Field</span> drag scrub · <span class="k">Shift</span> fine · <span class="k">Ctrl</span> whole · <span class="k">Dbl-click</span> previous</span>
     <span class="grow" />
     <span v-if="s">eval {{ s.evalMs.toFixed(1) }} ms</span>
     <span class="sep">|</span>
-    <span>{{ store.project.relief.length }} relief · {{ store.project.layers.length }} paint · {{ store.project.lighting.lights.length }} lights · {{ store.project.post.length }} post</span>
+    <span>{{ store.project.layers.length }} layers · {{ store.project.lighting.lights.length }} lights · {{ store.project.post.length }} post</span>
     <span class="sep">|</span>
     <span class="hi">Bismith v0.1</span>
   </footer>

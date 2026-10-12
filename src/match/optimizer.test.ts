@@ -123,13 +123,14 @@ describe('parameter space', () => {
     const p = createProject({
       width: 64,
       height: 64,
-      relief: [createLayer('bricks', { ...shape, bevel: 0, h_amount: 0.6 }, 'Pillow'), createLayer('bricks', { ...shape, bevel: 4, h_amount: 0.5 }, 'Edges')],
       layers: [
+        createLayer('bricks', { ...shape, bevel: 0, h_amount: 0.6 }, 'Pillow'),
+        createLayer('bricks', { ...shape, bevel: 4, h_amount: 0.5 }, 'Edges'),
         createLayer('bricks', { ...shape, h_on: false, dif_on: true }, 'Stone colour'),
         createLayer('bricks', { ...shape, seed: 7, h_on: false }, 'Other pattern'),
       ],
     })
-    const [pillow, edges, colour, other] = [...p.relief, ...p.layers]
+    const [pillow, edges, colour, other] = p.layers
     const space = extractParams(p)
     const cols = space.entries.filter((e) => e.key === 'columns')
     // One tied entry for the three seed-6 copies, one for the seed-7 pattern.
@@ -142,7 +143,7 @@ describe('parameter space', () => {
     const v = Float64Array.from(space.initial)
     v[tied.offset] = 1
     const q = applyParams(p, space, v)
-    const after = [...q.relief, ...q.layers].map((l) => l.params.columns)
+    const after = q.layers.map((l) => l.params.columns)
     expect(after[0]).toBe(after[1])
     expect(after[0]).toBe(after[2])
     expect(after[0]).not.toBe(4)

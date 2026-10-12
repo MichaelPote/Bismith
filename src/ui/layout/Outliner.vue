@@ -1,66 +1,47 @@
 <script setup lang="ts">
-// Blender-style outliner: Project · Paint and Relief stacks (top of list = top of stack; relief is evaluated first) ·
-// Lighting · Post.
-import { computed, nextTick, ref } from 'vue'
+// Blender-style outliner: Project · Layers (one list in evaluation order: the Base material first, then the top row
+// is applied first and the bottom row last, over everything) · Lights · Post. A smart material is one collapsible row
+// holding its member layers. The Diffuse and Height columns (headed on the Base row) show which channels each layer
+// affects; clicking one flips the same tick as the inspector.
+import { computed, nextTick, ref, watch } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore, type SelectionKind } from '@/stores/editor'
 import { useActions } from '@/ui/actions'
-import { allLayerDefs, CATEGORY_LABELS } from '@/layers/registry'
+import { allLayerDefs, CATEGORY_LABELS, getLayerDef, layerChannels } from '@/layers/registry'
 import { allPostDefs } from '@/render/post/registry'
 import type { LayerCategory } from '@/layers/types'
 import { CATEGORY_HUE, layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta'
-import { MAX_LIGHTS, type Layer, type LayerStack } from '@/core/project'
+import { layerUnits, MAX_LIGHTS, type Layer, type LayerUnit, type SmartMaterial } from '@/core/project'
 import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue'
 import Icon from '@/ui/components/Icon.vue'
 import { RECIPES } from '@/recipes'
-import { linkedCopies } from '@/core/links'
+import { supersampleFactor } from '@/core/supersample'
+import { vTip, type Tip } from '@/ui/tooltip'
 
 const store = useProjectStore()
 const editor = useEditorStore()
 const act = useActions()
 
-const STACKS: { key: LayerStack; label: string; hint: string; empty: string }[] = [
-  { key: 'paint', label: 'Paint', hint: 'Colour layers, applied over the finished relief', empty: 'No paint layers. Use + to add one.' },
-  { key: 'relief', label: 'Relief', hint: 'Surface shape — height, roughness, specular — evaluated first; never colours', empty: 'No relief layers. Use + to add one.' },
-]
-const stackList = (key: LayerStack): Layer[] => (key === 'relief' ? (store.project.relief ?? []) : store.project.layers)
-const topDown = (key: LayerStack) => [...stackList(key)].reverse()
 const errors = computed(() => editor.stats?.errors ?? {})
+const MATERIAL_HUE = 'var(--accent-hi)'
 
-function addLayerItems(stack: LayerStack): MenuItem[] {
+// ---------------------------------------------------------------- add menus
+const addLayerItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = []
   const order: LayerCategory[] = ['noise', 'shape', 'pattern', 'filter', 'adjust']
   for (const cat of order) {
     const defs = allLayerDefs().filter((d) => d.category === cat)
     if (!defs.length) continue
     items.push({ section: CATEGORY_LABELS[cat] })
-    for (const d of defs) items.push({ label: d.label, hint: d.description, hue: CATEGORY_HUE[cat], action: () => act.addLayer(d.type, stack) })
+    for (const d of defs) items.push({ label: d.label, hint: d.description, hue: CATEGORY_HUE[cat], icon: layerIcon(d.type), action: () => act.addLayer(d.type) })
   }
   return items
-}
-
-// ---------------------------------------------------------------- smart materials
-const MATERIAL_HUE = 'var(--accent-hi)'
-const materials = computed(() => store.project.materials ?? [])
-/** layer id → its smart material (for the member tag). */
-const memberOf = computed(() => {
-  const m = new Map<string, { id: string; name: string }>()
-  for (const mat of materials.value) for (const id of Object.values(mat.members)) m.set(id, mat)
-  return m
 })
-const linkCount = (layer: Layer) => linkedCopies(store.project, layer).length
 
-const addMaterialItems = computed<MenuItem[]>(() =>
-  RECIPES.map((r) => ({
-    label: r.label,
-    hint: r.description,
-    hue: MATERIAL_HUE,
-    action: () => {
-      const m = store.addMaterial(r.id)
-      editor.select('material', m.id)
-    },
-  })),
-)
+const addMaterialItems = computed<MenuItem[]>(() => [
+  { section: 'Smart materials' },
+  ...RECIPES.map((r) => ({ label: r.label, hint: r.description, hue: MATERIAL_HUE, icon: r.icon, action: () => act.addMaterial(r.id) })),
+])
 
 const addLightItems = computed<MenuItem[]>(() => [
   {
@@ -99,6 +80,76 @@ function isSel(kind: SelectionKind, id?: string): boolean {
   return editor.selection.kind === kind && editor.selection.id === id
 }
 
+// ---------------------------------------------------------------- layer units (free layers and materials)
+const units = computed(() => layerUnits(store.project.layers, store.project.materials))
+const unitKey = (u: LayerUnit) => (u.material ? u.material.id : u.layer.id)
+
+/** Materials shown open (a new material starts collapsed). */
+const expanded = ref(new Set<string>())
+function toggleExpanded(id: string): void {
+  if (expanded.value.has(id)) expanded.value.delete(id)
+  else expanded.value.add(id)
+}
+/** Rows under a unit: a free layer's own row, or an open material's members. */
+const rowsOf = (u: LayerUnit): Layer[] => (u.material ? (expanded.value.has(u.material.id) ? u.layers : []) : [u.layer])
+
+// Selecting a member (from the viewport, after a delete …) opens its material.
+watch(
+  () => editor.selection,
+  (s) => {
+    if (s.kind !== 'layer' || !s.id) return
+    const m = (store.project.materials ?? []).find((x) => Object.values(x.members).includes(s.id!))
+    if (m) expanded.value.add(m.id)
+  },
+  { immediate: true },
+)
+
+// Keep the selected row in view (selected from the viewport, after an add or delete …).
+const scroller = ref<HTMLElement | null>(null)
+watch(
+  () => [editor.selection.kind, editor.selection.id],
+  async () => {
+    await nextTick()
+    scroller.value?.querySelector('.row.sel')?.scrollIntoView({ block: 'nearest' })
+  },
+)
+
+const materialShown = (m: SmartMaterial) => m.enabled !== false
+const containsSel = (u: LayerUnit) => !!u.material && editor.selection.kind === 'layer' && u.layers.some((l) => l.id === editor.selection.id)
+
+// ---------------------------------------------------------------- Diffuse / Height columns
+type Channel = 'diffuse' | 'height'
+const CHANNELS: Channel[] = ['diffuse', 'height']
+const CHANNEL_LABEL: Record<Channel, string> = { diffuse: 'Diffuse', height: 'Height' }
+/** 'on' / 'off' = a tick switches it; 'always' = the filter always affects it; null = never. */
+type ChannelState = 'on' | 'off' | 'always' | null
+
+function channelState(l: Layer, ch: Channel): ChannelState {
+  const c = layerChannels(l.type)[ch]
+  if (c === undefined) return null
+  if (c === true) return 'always'
+  return l.params[c] === true ? 'on' : 'off'
+}
+
+function toggleChannel(l: Layer, ch: Channel): void {
+  const key = layerChannels(l.type)[ch]
+  if (typeof key === 'string') store.setLayerParam(l.id, key, l.params[key] !== true)
+}
+
+function channelTip(l: Layer, ch: Channel): Tip {
+  const s = channelState(l, ch)
+  if (s === 'always') {
+    const label = getLayerDef(l.type)?.label ?? l.type
+    return { title: `${CHANNEL_LABEL[ch]}: always`, body: `A ${label} filter always changes the ${ch === 'diffuse' ? 'colour' : 'height'}.` }
+  }
+  return { title: `${CHANNEL_LABEL[ch]}: ${s}`, body: `Click to turn the ${CHANNEL_LABEL[ch]} output ${s === 'on' ? 'off' : 'on'} — the tick on the layer’s ${CHANNEL_LABEL[ch]} card.` }
+}
+
+/** A material affects a channel when any of its shown members does. */
+function materialChannel(u: LayerUnit, ch: Channel): boolean {
+  return !!u.material && u.layers.some((l) => l.enabled && (channelState(l, ch) === 'on' || channelState(l, ch) === 'always'))
+}
+
 // ---------------------------------------------------------------- rename
 const renaming = ref<string | null>(null)
 const renameText = ref('')
@@ -112,54 +163,69 @@ async function startRename(id: string, name: string): Promise<void> {
   renameInput.value?.[0]?.select()
 }
 
-function finishRename(kind: 'layer' | 'light', apply: boolean): void {
+function finishRename(kind: 'layer' | 'light' | 'material', apply: boolean): void {
   const id = renaming.value
   renaming.value = null
-  if (!apply || !id || !renameText.value.trim()) return
-  if (kind === 'layer') store.updateLayer(id, { name: renameText.value.trim() })
-  else store.updateLight(id, { name: renameText.value.trim() })
+  const name = renameText.value.trim()
+  if (!apply || !id || !name) return
+  if (kind === 'layer') store.updateLayer(id, { name })
+  else if (kind === 'material') store.renameMaterial(id, name)
+  else store.updateLight(id, { name })
 }
 
-// ---------------------------------------------------------------- drag reorder (layer stacks + post)
-type DragList = LayerStack | 'post'
-const isStack = (l: DragList): l is LayerStack => l !== 'post'
-const drag = ref<{ list: DragList; id: string } | null>(null)
-const dropAt = ref<{ list: DragList; index: number } | null>(null)
+// ---------------------------------------------------------------- drag reorder
+// Free layers and whole materials move between units; a member moves within its material; post filters in theirs.
+type Drag = { kind: 'unit'; id: string } | { kind: 'member'; id: string; material: string } | { kind: 'post'; id: string }
+const drag = ref<Drag | null>(null)
+/** Drop slot: `list` is 'units', 'post' or a material id; `index` is the gap before that row. */
+const dropAt = ref<{ list: string; index: number } | null>(null)
 
-function onDragStart(e: DragEvent, list: DragList, id: string): void {
-  drag.value = { list, id }
-  e.dataTransfer?.setData('text/plain', id)
+function onDragStart(e: DragEvent, d: Drag): void {
+  drag.value = d
+  e.dataTransfer?.setData('text/plain', d.id)
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
 }
 
-function onDragOver(e: DragEvent, list: DragList, rowIndex: number): void {
-  // Layers may move between the two stacks; post filters stay in their list.
-  if (!drag.value || isStack(drag.value.list) !== isStack(list) || (!isStack(list) && drag.value.list !== list)) return
-  e.preventDefault()
-  const el = e.currentTarget as HTMLElement
-  const r = el.getBoundingClientRect()
-  const after = e.clientY > r.top + r.height / 2
-  dropAt.value = { list, index: rowIndex + (after ? 1 : 0) }
+const lowerHalf = (e: DragEvent) => {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  return e.clientY > r.top + r.height / 2
 }
 
-function onDrop(list: DragList): void {
+function onUnitOver(e: DragEvent, index: number): void {
+  if (drag.value?.kind !== 'unit') return
+  e.preventDefault()
+  dropAt.value = { list: 'units', index: index + (lowerHalf(e) ? 1 : 0) }
+}
+
+function onMemberOver(e: DragEvent, material: string, index: number): void {
+  if (drag.value?.kind !== 'member' || drag.value.material !== material) return
+  e.preventDefault()
+  e.stopPropagation()
+  dropAt.value = { list: material, index: index + (lowerHalf(e) ? 1 : 0) }
+}
+
+function onPostOver(e: DragEvent, index: number): void {
+  if (drag.value?.kind !== 'post') return
+  e.preventDefault()
+  dropAt.value = { list: 'post', index: index + (lowerHalf(e) ? 1 : 0) }
+}
+
+/** The target index once the dragged row is taken out of its list. */
+const target = (from: number, gap: number) => (from >= 0 && from < gap ? gap - 1 : gap)
+
+function onDrop(): void {
   const d = drag.value
   const at = dropAt.value
   drag.value = null
   dropAt.value = null
-  if (!d || !at || at.list !== list) return
-  if (isStack(list)) {
-    // Rows are top-down; the stack is bottom-up.
-    const dest = stackList(list)
-    const from = d.list === list ? dest.findIndex((l) => l.id === d.id) : -1
-    let target = dest.length - at.index
-    if (from >= 0 && from < target) target -= 1
-    store.moveLayer(d.id, target, list)
-  } else {
-    const from = store.project.post.findIndex((f) => f.id === d.id)
-    let target = at.index
-    if (from < target) target -= 1
-    store.movePost(d.id, target)
+  if (!d || !at) return
+  if (d.kind === 'unit' && at.list === 'units') {
+    store.moveUnit(d.id, target(units.value.findIndex((u) => unitKey(u) === d.id), at.index))
+  } else if (d.kind === 'member' && at.list === d.material) {
+    const u = units.value.find((x) => x.material?.id === d.material)
+    store.moveMember(d.id, target(u?.material ? u.layers.findIndex((l) => l.id === d.id) : -1, at.index))
+  } else if (d.kind === 'post' && at.list === 'post') {
+    store.movePost(d.id, target(store.project.post.findIndex((f) => f.id === d.id), at.index))
   }
 }
 
@@ -167,6 +233,8 @@ function onDragEnd(): void {
   drag.value = null
   dropAt.value = null
 }
+
+const isDrop = (list: string, index: number) => dropAt.value?.list === list && dropAt.value.index === index
 </script>
 
 <template>
@@ -174,45 +242,115 @@ function onDragEnd(): void {
     <div class="head">
       <span class="cf-label">Outliner</span>
     </div>
-    <div class="scroll">
+    <div ref="scroller" class="scroll">
       <button type="button" class="row root" :class="{ sel: isSel('project') }" @click="editor.select('project')">
         <Icon name="project" :size="13" :stroke="isSel('project') ? 'var(--accent-hi)' : 'var(--text-lo)'" />
         <span class="name strong">{{ store.project.name }}</span>
-        <span class="meta cf-mono">{{ store.project.width }}×{{ store.project.height }}</span>
+        <span v-tip:right="'Texture size @ supersampling. Select the project for the texture, base material, world lighting and render settings'" class="meta cf-mono"
+          >{{ store.project.width }}×{{ store.project.height }} @{{ supersampleFactor(store.project) }}x</span
+        >
       </button>
 
-      <!-- Smart materials -->
-      <div class="section" title="Recipes as a handful of controls over ordinary layers (the layers stay below, editable)">
-        <span class="cf-label">Materials</span>
-        <span class="count cf-mono">{{ materials.length }}</span>
-        <DropMenu :items="addMaterialItems" align="right" trigger-class="add" aria-label="Add smart material"><Icon name="plus" :size="12" /></DropMenu>
+      <!-- Layers -->
+      <div class="section">
+        <span v-tip:right="{ title: 'Layers', body: 'In evaluation order: the top layer is applied first, each one below goes over it, the bottom layer last.' }" class="cf-label">Layers</span>
+        <span class="count cf-mono">{{ store.project.layers.length }}</span>
+        <span class="grow" />
+        <DropMenu
+          v-tip:right="'Add a smart material: a few controls over a block of ordinary layers'"
+          :items="addMaterialItems"
+          placement="right"
+          layout="tiles"
+          trigger-class="add"
+          aria-label="Add smart material"
+        >
+          <Icon name="material-add" :size="13" />
+        </DropMenu>
+        <DropMenu v-tip:right="'Add a layer'" :items="addLayerItems" placement="right" layout="tiles" trigger-class="add" aria-label="Add layer"><Icon name="plus" :size="12" /></DropMenu>
       </div>
-      <div class="list">
-        <button v-for="m in materials" :key="m.id" type="button" class="row" :class="{ sel: isSel('material', m.id) }" @click="editor.select('material', m.id)">
-          <Icon name="diamond" :size="13" :stroke="isSel('material', m.id) ? 'var(--accent-hi)' : MATERIAL_HUE" />
-          <span class="name">{{ m.name }}</span>
-          <span class="meta cf-mono">{{ Object.keys(m.members).length }} layers</span>
-        </button>
-        <div v-if="!materials.length" class="empty">Add a stone wall, metal or stains as a few sliders.</div>
-      </div>
-
-      <!-- Layer stacks -->
-      <template v-for="st in STACKS" :key="st.key">
-        <div class="section" :title="st.hint">
-          <span class="cf-label">{{ st.label }}</span>
-          <span class="count cf-mono">{{ stackList(st.key).length }}</span>
-          <DropMenu :items="addLayerItems(st.key)" align="right" trigger-class="add" :aria-label="`Add ${st.label.toLowerCase()} layer`"><Icon name="plus" :size="12" /></DropMenu>
+      <div class="list" @dragleave.self="dropAt = null">
+        <!-- Base material: under every layer; heads the Diffuse / Height columns -->
+        <div class="row base" :class="{ sel: isSel('base') }" @click="editor.select('base')">
+          <span class="swatch" :style="{ background: store.project.base.color }" />
+          <span v-tip:right="{ title: 'Base', body: 'The material under every layer: colour, roughness, specular, height, opacity. Opens the project settings.' }" class="name">Base</span>
+          <span class="cells">
+            <span v-tip:right="{ title: 'Diffuse', body: 'The layer colours the surface. Click a layer’s mark to switch its Diffuse output.' }" class="ch head"><Icon name="diffuse" :size="13" /></span>
+            <span v-tip:right="{ title: 'Height', body: 'The layer shapes the surface. Click a layer’s mark to switch its Height output.' }" class="ch head"><Icon name="height" :size="13" /></span>
+            <span class="ch" />
+          </span>
         </div>
-        <div class="list" @dragleave.self="dropAt = null" @dragover="!stackList(st.key).length && onDragOver($event, st.key, 0)" @drop.prevent="!stackList(st.key).length && onDrop(st.key)">
+        <div
+          v-for="(u, ui) in units"
+          :key="unitKey(u)"
+          class="unit"
+          :class="{ group: !!u.material, open: !!u.material && expanded.has(u.material.id), dropBefore: isDrop('units', ui), dropAfter: isDrop('units', ui + 1) && ui === units.length - 1 }"
+          @dragover="onUnitOver($event, ui)"
+          @drop.prevent="onDrop"
+        >
+          <!-- Smart material: one collapsible row -->
           <div
-            v-for="(layer, i) in topDown(st.key)"
+            v-if="u.material"
+            class="row mat"
+            :class="{ sel: isSel('material', u.material.id), contains: containsSel(u), off: !materialShown(u.material) }"
+            draggable="true"
+            @dragstart="onDragStart($event, { kind: 'unit', id: u.material.id })"
+            @dragend="onDragEnd"
+            @click="editor.select('material', u.material.id)"
+          >
+            <button
+              type="button"
+              class="disclose"
+              :aria-expanded="expanded.has(u.material.id)"
+              :aria-label="expanded.has(u.material.id) ? 'Collapse material' : 'Expand material'"
+              @click.stop="toggleExpanded(u.material.id)"
+            >
+              <Icon :name="expanded.has(u.material.id) ? 'chev-down' : 'chev-right'" :size="11" />
+            </button>
+            <Icon name="diamond" :size="13" :stroke="isSel('material', u.material.id) ? 'var(--accent-hi)' : MATERIAL_HUE" />
+            <input
+              v-if="renaming === u.material.id"
+              ref="renameInput"
+              v-model="renameText"
+              class="rename"
+              aria-label="Material name"
+              @click.stop
+              @keydown.enter.prevent="finishRename('material', true)"
+              @keydown.esc.prevent="finishRename('material', false)"
+              @blur="finishRename('material', true)"
+            />
+            <span v-else class="name" @dblclick.stop="startRename(u.material.id, u.material.name)">{{ u.material.name }}</span>
+            <span v-tip:right="`${u.layers.length} layers`" class="meta cf-mono">{{ u.layers.length }}</span>
+            <span class="cells">
+              <span v-for="ch in CHANNELS" :key="ch" v-tip:right="materialChannel(u, ch) ? `Some of its layers ${ch === 'diffuse' ? 'colour' : 'shape'} the surface` : undefined" class="ch fixed">
+                <Icon v-if="materialChannel(u, ch)" :name="ch" :size="12" />
+              </span>
+              <button
+                v-tip:right="materialShown(u.material) ? 'Hide the material' : 'Show the material'"
+                type="button"
+                class="mini"
+                :aria-label="materialShown(u.material) ? 'Hide material' : 'Show material'"
+                @click.stop="store.setMaterialEnabled(u.material.id, !materialShown(u.material))"
+              >
+                <Icon :name="materialShown(u.material) ? 'eye' : 'eye-off'" :size="12" />
+              </button>
+            </span>
+          </div>
+
+          <!-- Layers: a free layer's row, or an open material's members -->
+          <div
+            v-for="(layer, li) in rowsOf(u)"
             :key="layer.id"
             class="row"
-            :class="{ sel: isSel('layer', layer.id), off: !layer.enabled, dropBefore: dropAt?.list === st.key && dropAt.index === i, dropAfter: dropAt?.list === st.key && dropAt.index === i + 1 && i === stackList(st.key).length - 1 }"
+            :class="{
+              member: !!u.material,
+              sel: isSel('layer', layer.id),
+              off: !layer.enabled || (!!u.material && !materialShown(u.material)),
+              dropBefore: !!u.material && isDrop(u.material.id, li),
+              dropAfter: !!u.material && isDrop(u.material.id, li + 1) && li === u.layers.length - 1,
+            }"
             draggable="true"
-            @dragstart="onDragStart($event, st.key, layer.id)"
-            @dragover="onDragOver($event, st.key, i)"
-            @drop.prevent="onDrop(st.key)"
+            @dragstart="onDragStart($event, u.material ? { kind: 'member', id: layer.id, material: u.material.id } : { kind: 'unit', id: layer.id })"
+            @dragover="u.material && onMemberOver($event, u.material.id, li)"
             @dragend="onDragEnd"
             @click="editor.select('layer', layer.id)"
           >
@@ -229,58 +367,47 @@ function onDragEnd(): void {
               @blur="finishRename('layer', true)"
             />
             <span v-else class="name" @dblclick.stop="startRename(layer.id, layer.name)">{{ layer.name }}</span>
-            <span v-if="errors[layer.id]" class="err" :title="errors[layer.id]">!</span>
-            <span v-if="linkCount(layer)" class="tag" :title="`Linked with ${linkCount(layer)} other layer(s): same pattern, edited together`"><Icon name="link" :size="11" /></span>
-            <button
-              v-if="memberOf.get(layer.id)"
-              type="button"
-              class="tag mat"
-              :title="`Part of ${memberOf.get(layer.id)!.name}`"
-              :aria-label="`Select material ${memberOf.get(layer.id)!.name}`"
-              @click.stop="editor.select('material', memberOf.get(layer.id)!.id)"
-            >
-              <Icon name="diamond" :size="11" />
-            </button>
-            <button
-              type="button"
-              class="mini"
-              :class="{ dim: !layer.locked }"
-              :title="layer.locked ? 'Locked from the optimiser' : 'Lock (optimiser will not change it)'"
-              :aria-label="layer.locked ? 'Unlock layer' : 'Lock layer'"
-              @click.stop="store.updateLayer(layer.id, { locked: !layer.locked })"
-            >
-              <Icon :name="layer.locked ? 'lock' : 'unlock'" :size="12" />
-            </button>
-            <button
-              type="button"
-              class="mini"
-              :title="layer.enabled ? 'Hide' : 'Show'"
-              :aria-label="layer.enabled ? 'Hide layer' : 'Show layer'"
-              @click.stop="store.updateLayer(layer.id, { enabled: !layer.enabled })"
-            >
-              <Icon :name="layer.enabled ? 'eye' : 'eye-off'" :size="12" />
-            </button>
-          </div>
-          <div v-if="!stackList(st.key).length" class="empty" :class="{ dropBefore: dropAt?.list === st.key }">{{ st.empty }}</div>
-          <div v-if="st.key === 'relief'" class="base row" title="Base material (project settings)" @click="editor.select('project')">
-            <span class="swatch" :style="{ background: store.project.base.color }" />
-            <span class="name lo">Base material</span>
+            <span v-if="errors[layer.id]" v-tip:right="errors[layer.id]" class="err">!</span>
+            <span class="cells">
+              <template v-for="ch in CHANNELS" :key="ch">
+                <button
+                  v-if="channelState(layer, ch) === 'on' || channelState(layer, ch) === 'off'"
+                  v-tip:right="channelTip(layer, ch)"
+                  type="button"
+                  class="ch"
+                  :class="channelState(layer, ch)"
+                  :aria-pressed="channelState(layer, ch) === 'on'"
+                  :aria-label="`${CHANNEL_LABEL[ch]} output`"
+                  @click.stop="toggleChannel(layer, ch)"
+                >
+                  <Icon :name="ch" :size="12" />
+                </button>
+                <span v-else-if="channelState(layer, ch) === 'always'" v-tip:right="channelTip(layer, ch)" class="ch fixed"><Icon :name="ch" :size="12" /></span>
+                <span v-else class="ch" />
+              </template>
+              <button
+                v-tip:right="layer.enabled ? 'Hide' : 'Show'"
+                type="button"
+                class="mini"
+                :aria-label="layer.enabled ? 'Hide layer' : 'Show layer'"
+                @click.stop="store.updateLayer(layer.id, { enabled: !layer.enabled })"
+              >
+                <Icon :name="layer.enabled ? 'eye' : 'eye-off'" :size="12" />
+              </button>
+            </span>
           </div>
         </div>
-      </template>
+        <div v-if="!units.length" class="empty">No layers yet. Add a layer with + or a smart material with ◆.</div>
+      </div>
 
       <!-- Lighting -->
       <div class="section">
-        <span class="cf-label">Lighting</span>
+        <span class="cf-label">Lights</span>
         <span class="count cf-mono">{{ store.project.lighting.lights.length }}</span>
-        <DropMenu :items="addLightItems" align="right" trigger-class="add" aria-label="Add light"><Icon name="plus" :size="12" /></DropMenu>
+        <span class="grow" />
+        <DropMenu v-tip:right="'Add a light'" :items="addLightItems" align="right" trigger-class="add" aria-label="Add light"><Icon name="plus" :size="12" /></DropMenu>
       </div>
       <div class="list">
-        <button type="button" class="row" :class="{ sel: isSel('render') }" @click="editor.select('render')">
-          <Icon name="sky" :size="13" :stroke="isSel('render') ? 'var(--accent-hi)' : LIGHT_HUE" />
-          <span class="name">World &amp; render</span>
-          <span class="meta cf-mono">{{ store.project.render.bounces }}b</span>
-        </button>
         <div
           v-for="light in store.project.lighting.lights"
           :key="light.id"
@@ -303,6 +430,7 @@ function onDragEnd(): void {
           <span v-else class="name" @dblclick.stop="startRename(light.id, light.name)">{{ light.name }}</span>
           <span class="chip" :style="{ background: String(light.params.color) }" />
           <button
+            v-tip:right="light.enabled ? 'Turn off' : 'Turn on'"
             type="button"
             class="mini"
             :aria-label="light.enabled ? 'Disable light' : 'Enable light'"
@@ -311,31 +439,39 @@ function onDragEnd(): void {
             <Icon :name="light.enabled ? 'eye' : 'eye-off'" :size="12" />
           </button>
         </div>
+        <div v-if="!store.project.lighting.lights.length" class="empty">No lights: sky and ambient only (project settings).</div>
       </div>
 
       <!-- Post -->
       <div class="section">
         <span class="cf-label">Post</span>
         <span class="count cf-mono">{{ store.project.post.length }}</span>
-        <DropMenu :items="addPostItems" align="right" trigger-class="add" aria-label="Add post filter"><Icon name="plus" :size="12" /></DropMenu>
+        <span class="grow" />
+        <DropMenu v-tip:right="'Add a post filter'" :items="addPostItems" align="right" trigger-class="add" aria-label="Add post filter"><Icon name="plus" :size="12" /></DropMenu>
       </div>
       <div class="list" @dragleave.self="dropAt = null">
         <div
           v-for="(f, i) in store.project.post"
           :key="f.id"
           class="row"
-          :class="{ sel: isSel('post', f.id), off: !f.enabled, dropBefore: dropAt?.list === 'post' && dropAt.index === i, dropAfter: dropAt?.list === 'post' && dropAt.index === i + 1 && i === store.project.post.length - 1 }"
+          :class="{ sel: isSel('post', f.id), off: !f.enabled, dropBefore: isDrop('post', i), dropAfter: isDrop('post', i + 1) && i === store.project.post.length - 1 }"
           draggable="true"
-          @dragstart="onDragStart($event, 'post', f.id)"
-          @dragover="onDragOver($event, 'post', i)"
-          @drop.prevent="onDrop('post')"
+          @dragstart="onDragStart($event, { kind: 'post', id: f.id })"
+          @dragover="onPostOver($event, i)"
+          @drop.prevent="onDrop"
           @dragend="onDragEnd"
           @click="editor.select('post', f.id)"
         >
           <Icon name="post" :size="13" :stroke="isSel('post', f.id) ? 'var(--accent-hi)' : POST_HUE" />
           <span class="name">{{ allPostDefs().find((d) => d.type === f.type)?.label ?? f.type }}</span>
-          <span v-if="errors[f.id]" class="err" :title="errors[f.id]">!</span>
-          <button type="button" class="mini" :aria-label="f.enabled ? 'Disable filter' : 'Enable filter'" @click.stop="store.updatePost(f.id, { enabled: !f.enabled })">
+          <span v-if="errors[f.id]" v-tip:right="errors[f.id]" class="err">!</span>
+          <button
+            v-tip:right="f.enabled ? 'Turn off' : 'Turn on'"
+            type="button"
+            class="mini"
+            :aria-label="f.enabled ? 'Disable filter' : 'Enable filter'"
+            @click.stop="store.updatePost(f.id, { enabled: !f.enabled })"
+          >
             <Icon :name="f.enabled ? 'eye' : 'eye-off'" :size="12" />
           </button>
         </div>
@@ -346,23 +482,12 @@ function onDragEnd(): void {
 </template>
 
 <style scoped>
-.tag {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-lo);
-  background: none;
-  border: 0;
-  padding: 0;
-  flex: none;
-}
-.tag.mat {
-  color: var(--accent-hi);
-  cursor: pointer;
-}
 .outliner {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .head {
   height: 28px;
@@ -385,34 +510,63 @@ function onDragEnd(): void {
   padding: 0 4px 0 10px;
   margin-top: 6px;
 }
+.section .cf-label {
+  cursor: default;
+}
 .count {
   font-size: 11px;
   color: var(--line-strong);
 }
-.section :deep(.dm) {
-  margin-left: auto;
+.grow {
+  flex: 1;
 }
+.section :deep(.dm + .dm) {
+  margin-left: -6px;
+}
+/* Add buttons: studs (Forged keys) — invisible plate until touched, latched while their menu is open. */
 .section :deep(.add) {
   width: 22px;
   height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-field);
-  background: var(--sunken);
-  color: var(--text-mid);
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-lo);
   padding: 0;
 }
-.section :deep(.add:hover),
+.section :deep(.add:hover) {
+  background: var(--hairline);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-hi);
+}
 .section :deep(.add.open) {
-  border-color: var(--accent);
-  color: var(--accent-hi);
-  box-shadow: var(--halo);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--e300);
+}
+/* Base: the first row, heading the Diffuse / Height columns. */
+.row.base {
+  border-bottom: 1px solid var(--hairline);
+}
+.swatch {
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  flex: none;
+}
+.ch.head {
+  color: var(--text-lo);
+  cursor: default;
 }
 .list {
   display: flex;
   flex-direction: column;
+}
+.unit {
+  position: relative;
 }
 .row {
   position: relative;
@@ -432,33 +586,87 @@ function onDragEnd(): void {
 .row:hover {
   background: var(--raised);
 }
-.row.sel {
-  background: var(--raised);
-  box-shadow: inset 2px 0 0 var(--accent);
+/* The selection: an ember-tinted row with an Ember 500 bar, unmistakable against hover. */
+.row.sel,
+.row.sel:hover {
+  background: linear-gradient(rgba(246, 110, 16, 0.15), rgba(246, 110, 16, 0.15)), var(--raised);
+  box-shadow: inset 2px 0 0 var(--e500), inset 0 1px 0 rgba(255, 144, 25, 0.12), inset 0 -1px 0 rgba(255, 144, 25, 0.12);
   color: var(--text-hi);
+}
+.row.sel .name {
+  color: var(--text-hi);
+}
+.row.contains {
+  box-shadow: inset 2px 0 0 var(--line-strong);
 }
 .row.off .name {
   color: var(--line-strong);
   text-decoration: line-through;
   text-decoration-color: var(--line);
 }
+.row.off .ch {
+  opacity: 0.45;
+}
 .row.root {
   padding-left: 10px;
 }
+.row.mat {
+  padding-left: 1px;
+}
+.row.mat .name {
+  font-weight: 500;
+}
+/* Members sit under their material, on a guide line. */
+.row.member {
+  padding-left: 28px;
+}
+.row.member::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hairline);
+}
+.unit.dropBefore::before,
+.unit.dropAfter::after,
 .row.dropBefore::before,
+.row.member.dropAfter::after,
 .row.dropAfter::after {
   content: '';
   position: absolute;
   left: 8px;
   right: 8px;
+  width: auto;
   height: 2px;
-  background: var(--under-bar);
+  background: var(--e400);
+  z-index: 1;
 }
+.unit.dropBefore::before,
 .row.dropBefore::before {
   top: -1px;
 }
+.unit.dropAfter::after,
 .row.dropAfter::after {
+  top: auto;
   bottom: -1px;
+}
+.disclose {
+  width: 13px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-lo);
+  flex: none;
+}
+.disclose:hover {
+  color: var(--text-hi);
 }
 .name {
   flex: 1;
@@ -471,12 +679,10 @@ function onDragEnd(): void {
   font-weight: 500;
   color: var(--text-hi);
 }
-.name.lo {
-  color: var(--text-lo);
-}
 .meta {
   font-size: 11px;
   color: var(--text-lo);
+  flex: none;
 }
 .rename {
   flex: 1;
@@ -489,6 +695,41 @@ function onDragEnd(): void {
   font-size: 12px;
   padding: 0 4px;
   outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* Diffuse / Height cells: studs — a bright mark when on, a faint one when off (click to switch), a quiet fixed mark
+   when the filter always affects the channel. */
+.ch {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-hi);
+}
+/* Diffuse, Height and eye sit flush, under the column heads. */
+.cells {
+  display: flex;
+  flex: none;
+}
+button.ch:hover {
+  background: var(--hairline);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.ch.off {
+  color: var(--line);
+}
+button.ch.off:hover {
+  color: var(--text-lo);
+}
+.ch.fixed {
+  color: var(--text-lo);
 }
 .mini {
   width: 20px;
@@ -498,6 +739,7 @@ function onDragEnd(): void {
   justify-content: center;
   padding: 0;
   border: 0;
+  border-radius: 3px;
   background: transparent;
   color: var(--text-lo);
   flex: none;
@@ -505,12 +747,7 @@ function onDragEnd(): void {
 .mini:hover {
   color: var(--text-hi);
   background: var(--hairline);
-}
-.mini.dim {
-  opacity: 0;
-}
-.row:hover .mini.dim {
-  opacity: 0.6;
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 .err {
   width: 14px;
@@ -523,21 +760,13 @@ function onDragEnd(): void {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: none;
 }
 .chip {
   width: 10px;
   height: 10px;
   border: 1px solid var(--line);
-}
-.swatch {
-  width: 13px;
-  height: 13px;
-  border: 1px solid var(--line);
   flex: none;
-}
-.base {
-  border-top: 1px dashed var(--hairline);
-  margin-top: 2px;
 }
 .empty {
   padding: 4px 14px;

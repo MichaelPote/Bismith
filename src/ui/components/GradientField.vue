@@ -139,7 +139,7 @@ function reverse(): void {
         @update:model-value="setPos($event, false)"
         @commit="setPos($event, true)"
       />
-      <button type="button" class="cf-ico-btn" title="Reverse" aria-label="Reverse ramp" @click="reverse"><Icon name="refresh" :size="13" /></button>
+      <button type="button" class="cf-ico-btn" title="Reverse" aria-label="Reverse ramp" @click="reverse"><Icon name="swap" :size="13" /></button>
       <button type="button" class="cf-ico-btn" title="Remove stop" aria-label="Remove stop" :disabled="stops.length <= 1" @click="removeStop"><Icon name="trash" :size="13" /></button>
     </div>
   </div>

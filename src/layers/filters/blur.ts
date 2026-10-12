@@ -51,6 +51,7 @@ void main() {
 
 export const blurLayer: LayerDef = {
   type: 'blur',
+  channels: { diffuse: 'diffuse', height: 'height' },
   label: 'Blur',
   category: 'filter',
   kind: 'filter',

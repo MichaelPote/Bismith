@@ -18,13 +18,12 @@ editable.
   user's own edits to other params survive. Controls at 0 switch their layers off (chips, moss, pits …).
 - Adding raises the render settings a look relies on (AO, specular tint); never lowers them.
 - **Unpack** drops the record and keeps the layers; **Delete** removes both. Deleting a member prunes it.
-- **Linked copies** (`src/core/links.ts`): layers of one type and seed are copies of one pattern; editing a pattern
-  param on one edits the copies that held the same value (the optimiser ties them the same way). Properties shows
-  "linked ×N" with **Unlink** (gives the layer a seed of its own); the outliner shows a link mark.
+- ~~Linked copies~~ (retired in FR8.14): the editor no longer edits same-type, same-seed layers together — each layer
+  is edited on its own. Only the optimiser still ties their pattern params into one search entry (`src/core/links.ts`).
 
 ## Checklist
 - [x] Model + normaliser, recipes, setMacro / unpack / delete / prune (`recipes.test.ts`)
-- [x] Linked copies in the store, Unlink, outliner and properties marks
+- [x] Linked copies in the store, Unlink, outliner and properties marks (removed again in FR8.14)
 - [x] Outliner Materials section + add menu; Properties macro cards + member list
 - [ ] Build the emulation templates from the recipes (so emulated results come with macro controls)
 - [ ] More recipes (rock, planks, panels with rivets)

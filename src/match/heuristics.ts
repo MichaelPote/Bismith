@@ -4,10 +4,11 @@
 //   • conformProject(): deterministic repairs — the start project and every candidate are conformed, so the search
 //     never wanders back into looks that were judged wrong (deep cliffs, pixel sparkle, tented blocks …);
 //   • craftPrior(): search-space priors — params that mislead are excluded, others get sensible ranges;
-//   • CRAFT_LIBRARY: layer snippets for structural "insert" mutations, each in the stack it belongs to.
+//   • CRAFT_LIBRARY: layer snippets for structural "insert" mutations, each tagged relief (shape only, goes under the
+//     colour layers) or paint.
 
 import { gradient, type ParamDef, type ParamValues } from '@/core/params'
-import { stackOrder, type Layer, type LayerStack, type Project } from '@/core/project'
+import type { Layer, LayerStack, Project } from '@/core/project'
 import { DEFAULT_BEVEL_CURVE } from '@/layers/commonParams'
 import type { ParamScope } from './optimizer'
 
@@ -60,7 +61,7 @@ export const CRAFT_RULES: CraftRule[] = [
         out.push(`height depth ${p.heightDepth} → ${d}`)
         p.heightDepth = d
       }
-      for (const l of stackOrder(p)) {
+      for (const l of p.layers) {
         const h = l.params.h_amount
         if (typeof h === 'number' && Math.abs(h) > 2.5 && !TRUE_SCALE.has(l.type)) {
           l.params.h_amount = Math.sign(h) * 2.5
@@ -76,7 +77,7 @@ export const CRAFT_RULES: CraftRule[] = [
     why: 'Pixel-scale noise in the height map, lit by a low key light, becomes hard single bright pixels; keep pixel texture in colour.',
     apply(p) {
       const out: string[] = []
-      for (const l of stackOrder(p)) {
+      for (const l of p.layers) {
         if (!isPixelNoise(l, p)) continue
         if (l.params.h_on === true && num(l.params.h_amount, 0.25) > 0.05) {
           l.params.h_amount = 0.05
@@ -96,7 +97,7 @@ export const CRAFT_RULES: CraftRule[] = [
     why: "Per-brick wobble makes joints wide in places and narrow in others; warping the whole pattern keeps joint width while edges wander.",
     apply(p) {
       const out: string[] = []
-      for (const l of stackOrder(p)) {
+      for (const l of p.layers) {
         if (l.type !== 'bricks' || num(l.params.wobble) <= 0) continue
         const w = num(l.params.wobble)
         l.params.dw_amount = Math.max(num(l.params.dw_amount), w * 0.75)
@@ -113,7 +114,7 @@ export const CRAFT_RULES: CraftRule[] = [
     why: 'A wide steady bevel peaks along the middle of each block (a tent); stone reads as a steep edge then a slow rise — a custom curve.',
     apply(p) {
       const out: string[] = []
-      for (const l of stackOrder(p)) {
+      for (const l of p.layers) {
         const half = featureHalfPx(l, p)
         if (half === null || !STEADY_PROFILES.has(String(l.params.profile))) continue
         if (num(l.params.bevel) < 0.5 * half) continue
@@ -142,7 +143,7 @@ export const CRAFT_RULES: CraftRule[] = [
     label: 'Occlusion where blocks touch',
     why: 'Stones that touch read as separate through ambient occlusion in the creases, not through wide mortar.',
     apply(p) {
-      const tight = stackOrder(p).some(
+      const tight = p.layers.some(
         (l) =>
           l.enabled &&
           l.params.h_on !== false &&
@@ -160,7 +161,7 @@ export const CRAFT_RULES: CraftRule[] = [
     why: 'Relief-driven drips only find every ledge (each rivet bottom) when source cells are a few px across.',
     apply(p) {
       const out: string[] = []
-      for (const l of stackOrder(p)) {
+      for (const l of p.layers) {
         if (l.type !== 'drips' || num(l.params.relief) <= 0) continue
         const cols = Math.ceil(p.width / 3)
         const rows = Math.ceil(p.height / 3)
@@ -190,7 +191,6 @@ export const CRAFT_RULES: CraftRule[] = [
 /** Apply the craft rules to a copy of the project. */
 export function conformProject(project: Project, rules: string[] | 'all' = 'all'): { project: Project; changes: string[] } {
   const p: Project = JSON.parse(JSON.stringify(project))
-  p.relief ??= []
   const changes: string[] = []
   for (const r of CRAFT_RULES) if (rules === 'all' || rules.includes(r.id)) changes.push(...r.apply(p).map((c) => `${r.id}: ${c}`))
   return { project: p, changes }

@@ -44,6 +44,7 @@ void main() {
 
 export const cavityLayer: LayerDef = {
   type: 'cavity',
+  channels: { diffuse: true },
   label: 'Cavity / edge wear',
   category: 'filter',
   kind: 'filter',
