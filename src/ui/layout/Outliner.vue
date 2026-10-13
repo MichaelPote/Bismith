@@ -269,7 +269,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
         <span v-tip:right="{ title: 'Layers', body: 'In evaluation order: the top layer is applied first, each one below goes over it, the bottom layer last.' }" class="cf-label">Layers</span>
         <span class="count cf-mono">{{ store.project.layers.length }}</span>
         <span class="grow" />
-        <DropMenu v-tip:right="'Add a layer or smart material'" :items="addLayerItems" placement="right" layout="tiles" trigger-class="add" aria-label="Add layer"><IconPlus :size="12" /></DropMenu>
+        <DropMenu v-tip:right="'Add a layer or smart material'" :items="addLayerItems" placement="right" layout="tiles" trigger-class="fk add" aria-label="Add layer"><span class="fk-face"><IconPlus :size="13" /></span></DropMenu>
       </div>
       <div class="list" @dragleave.self="dropAt = null">
         <!-- Base material: under every layer; heads the Diffuse / Height columns -->
@@ -408,7 +408,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
         <span class="cf-label">Lights</span>
         <span class="count cf-mono">{{ store.project.lighting.lights.length }}</span>
         <span class="grow" />
-        <DropMenu v-tip:right="'Add a light'" :items="addLightItems" align="right" trigger-class="add" aria-label="Add light"><IconPlus :size="12" /></DropMenu>
+        <DropMenu v-tip:right="'Add a light'" :items="addLightItems" align="right" trigger-class="fk add" aria-label="Add light"><span class="fk-face"><IconPlus :size="13" /></span></DropMenu>
       </div>
       <div class="list">
         <div
@@ -450,7 +450,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
         <span class="cf-label">Post</span>
         <span class="count cf-mono">{{ store.project.post.length }}</span>
         <span class="grow" />
-        <DropMenu v-tip:right="'Add a post filter'" :items="addPostItems" align="right" trigger-class="add" aria-label="Add post filter"><IconPlus :size="12" /></DropMenu>
+        <DropMenu v-tip:right="'Add a post filter'" :items="addPostItems" align="right" trigger-class="fk add" aria-label="Add post filter"><span class="fk-face"><IconPlus :size="13" /></span></DropMenu>
       </div>
       <div class="list" @dragleave.self="dropAt = null">
         <div
@@ -526,25 +526,17 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
 .section :deep(.dm + .dm) {
   margin-left: -6px;
 }
-/* Add buttons: studs (Forged keys) — invisible plate until touched, latched while their menu is open. */
-.section :deep(.add) {
-  width: 22px;
+/* Add buttons: small Forged keys (a face on a 2px lip), latched — dropped onto the lip, Ember 300 ink — while their
+   menu is open. */
+.section :deep(.fk.add) {
+  width: 24px;
   height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-lo);
+}
+.section :deep(.fk.add > .fk-face) {
   padding: 0;
 }
-.section :deep(.add:hover) {
-  background: var(--hairline);
-  box-shadow: inset 0 0 0 1px var(--line);
-  color: var(--text-hi);
-}
-.section :deep(.add.open) {
+.section :deep(.fk.add.open > .fk-face) {
+  top: 2px;
   background: var(--sunken);
   box-shadow: inset 0 0 0 1px var(--hairline);
   color: var(--e300);
