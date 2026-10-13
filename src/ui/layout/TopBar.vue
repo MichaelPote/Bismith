@@ -113,8 +113,12 @@ const helpItems: MenuItem[] = [
         {{ store.project.name }}
         <span class="dim">· {{ store.project.width }}×{{ store.project.height }}{{ store.project.tileable ? ' · tiling' : '' }}</span>
       </span>
-      <button v-tip:bottom="'Undo (Ctrl+Z)'" type="button" class="cf-ico-btn" aria-label="Undo" :disabled="!store.canUndo" @click="store.undo"><IconArrowBackUp :size="14" /></button>
-      <button v-tip:bottom="'Redo (Ctrl+Shift+Z)'" type="button" class="cf-ico-btn" aria-label="Redo" :disabled="!store.canRedo" @click="store.redo"><IconArrowForwardUp :size="14" /></button>
+      <button v-tip:bottom="'Undo (Ctrl+Z)'" type="button" class="fk hist" aria-label="Undo" :disabled="!store.canUndo" @click="store.undo">
+        <span class="fk-face"><IconArrowBackUp :size="15" /></span>
+      </button>
+      <button v-tip:bottom="'Redo (Ctrl+Shift+Z)'" type="button" class="fk hist" aria-label="Redo" :disabled="!store.canRedo" @click="store.redo">
+        <span class="fk-face"><IconArrowForwardUp :size="15" /></span>
+      </button>
       <button v-tip:bottom="'Export the final PNG'" type="button" class="fk primary" @click="act.exportFinal(1)">
         <span class="fk-face"><IconDownload :size="13" />Export PNG<span class="kc">Ctrl E</span></span>
       </button>
@@ -188,6 +192,14 @@ const helpItems: MenuItem[] = [
 }
 .dim {
   color: var(--text-lo);
+}
+/* Undo / Redo: icon keys at the workspace keys' height. */
+.right .fk.hist {
+  width: 30px;
+  height: 26px;
+}
+.right .fk.hist .fk-face {
+  padding: 0;
 }
 .right .fk.primary {
   height: 28px;

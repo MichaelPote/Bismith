@@ -175,6 +175,38 @@ a:hover {
   pointer-events: none;
 }
 
+/* Toggle: a Sunken plate with a Hairline outline that lights up when on (`.on`: Accent outline, Ember 100 ink, halo) —
+   the texture-size presets, the viewport view toggles. Text by default; set width / height / padding for an icon square. */
+.cf-toggle {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 0;
+  background: var(--sunken);
+  color: var(--text-mid);
+}
+.cf-toggle:hover {
+  border-color: var(--line);
+  color: var(--text-hi);
+}
+.cf-toggle.on {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+  box-shadow: var(--halo);
+}
+.cf-toggle:focus-visible {
+  outline: 1px solid var(--e100);
+  outline-offset: 3px;
+}
+.cf-toggle:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 /* Forged keys (Cinderforge buttons v2): two flat layers — a 2px lip and a face above it. States swap the fill,
    outline and lip and drop the face onto the lip; nothing is a gradient and nothing casts a shadow, except the one
    lit key's small glow.

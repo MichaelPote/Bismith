@@ -343,16 +343,16 @@ watch(
           :key="t.label"
           v-tip:bottom="t.tip"
           type="button"
-          class="fk toggle"
-          :class="{ latched: t.on }"
+          class="cf-toggle toggle"
+          :class="{ on: t.on }"
           :aria-label="t.label"
           :aria-pressed="t.on"
           @click="t.flip()"
         >
-          <span class="fk-face"><component :is="t.icon" :size="14" /><span class="fk-lamp" /></span>
+          <component :is="t.icon" :size="18" />
         </button>
         <div class="vsep" />
-        <button v-tip:bottom="'Fit to view (F)'" type="button" class="cf-ico-btn" aria-label="Fit to view" @click="fit"><IconMaximize :size="14" /></button>
+        <button v-tip:bottom="'Fit to view (F)'" type="button" class="cf-ico-btn fit" aria-label="Fit to view" @click="fit"><IconMaximize :size="18" /></button>
         <span class="chip cf-mono">{{ zoomLabel }}</span>
       </div>
     </div>
@@ -517,19 +517,19 @@ watch(
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   flex: none;
 }
-.fk.toggle {
-  width: 28px;
-  height: 24px;
-}
-.fk.toggle .fk-face {
+/* View toggles (cf-toggle) and the Fit stud: 30 px icon squares. */
+.toggle,
+.fit {
+  width: 30px;
+  height: 30px;
   padding: 0;
 }
 .vsep {
   width: 1px;
-  height: 16px;
+  height: 20px;
   margin: 0 6px;
   background: var(--hairline);
 }
@@ -540,7 +540,6 @@ watch(
   padding: 0 8px;
   margin-left: 4px;
   border: 1px solid var(--hairline);
-  border-radius: var(--r-field);
   background: var(--sunken);
   font-size: 12px;
   color: var(--pill);

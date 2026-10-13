@@ -309,7 +309,7 @@ const asValues = (o: object) => o as unknown as ParamValues
               v-for="s in SIZE_PRESETS"
               :key="s"
               type="button"
-              class="size"
+              class="cf-toggle size"
               :class="{ on: store.project.width === s && store.project.height === s }"
               @click="(store.project.width = s), (store.project.height = s)"
             >
@@ -472,21 +472,7 @@ const asValues = (o: object) => o as unknown as ParamValues
   padding: 0 0 4px 96px;
 }
 .size {
-  height: 22px;
-  padding: 0 7px;
-  border: 1px solid var(--hairline);
-  background: var(--sunken);
-  color: var(--text-mid);
   font-family: var(--font-mono);
   font-size: 11px;
-}
-.size:hover {
-  border-color: var(--line);
-  color: var(--text-hi);
-}
-.size.on {
-  border-color: var(--accent);
-  color: var(--accent-hi);
-  box-shadow: var(--halo);
 }
 </style>
