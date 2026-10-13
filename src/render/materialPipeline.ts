@@ -385,7 +385,11 @@ export class MaterialPipeline {
     const order = project.layers
     const hidden = hiddenByMaterial(project)
     const on = (l: Layer) => l.enabled && !hidden.has(l.id)
-    const writers = order.filter((l, i) => i <= upTo && on(l) && String(l.params.mk_write ?? 'none') !== 'none' && getLayerDef(l.type)?.kind === 'generator')
+    // (Layers that read earlier state — readsState — write their masks in place instead.)
+    const writers = order.filter((l, i) => {
+      const def = getLayerDef(l.type)
+      return i <= upTo && on(l) && String(l.params.mk_write ?? 'none') !== 'none' && def?.kind === 'generator' && !def.readsState
+    })
     clear(false)
     if (writers.length) {
       for (const layer of writers) {
@@ -422,7 +426,10 @@ export class MaterialPipeline {
           updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params)
           if (def.cpuData) for (const [name, t] of Object.entries(this.cpuTextures(def, layer, project, seed))) mat.uniforms[`t_${name}`].value = t
           this.setCommon(mat, project, seed)
+          // Masks are written in the pre-pass, except by layers that read earlier state: those write in place.
+          mat.uniforms.uWriteMasks.value = def.readsState === true
           this.gpu.run(mat, state.write)
+          mat.uniforms.uWriteMasks.value = false
           this.compiled.add(def.type)
           state.swap()
         } else if (def.run) {

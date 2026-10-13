@@ -34,3 +34,12 @@ register (one signed distance, rewritten by every shape layer) can't hold a hole
   (lowered inside — add the cut-out after the materials it cuts) and an optional raised frame ring with its own
   colour. Switches cast shadows on.
 - **Masks view** (`M`): mask 1 red, 2 green, 3 blue, 4 amber.
+- **Feather** (*Write to mask › Feather*, px): a shape layer writes a soft ramp that wide across its outline
+  (`clamp(0.5 − d / feather)` on its signed distance) instead of its crisp coverage; noise-type layers soften with
+  *Shaping › Cutoff softness*. Only the mask is soft: the layer's own drawing stays crisp.
+- **Crevices & high spots** (`surfacemask`): a mask read from the surface the layers before it built — the height
+  against a centre-weighted average of three rings of samples within *Radius*: crevices (lower than around them),
+  high spots (higher), both, or slopes; *Depth* (or *Full at slope*) sets a full mask, *Level* / *Softness* shape it.
+  Writes Mask 1 by default with its other outputs off — or paint with it directly (grime in joints, wear on edges).
+- **Layers that read earlier state** (`LayerDef.readsState`: Crevices & high spots, Drips) write their masks where
+  they sit, not in the pre-pass (which only sees the base): only the layers after them see those masks.

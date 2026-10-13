@@ -15,6 +15,7 @@ import { tracesLayer } from './traces'
 import { causticLightLayer } from './causticLight'
 import { settsLayer } from './setts'
 import { pipeworkLayer } from './pipes'
+import { surfaceMaskLayer } from './surfaceMask'
 
 /** Every generator layer type, in add-menu order within each category. */
 export const GENERATORS: LayerDef[] = [
@@ -35,4 +36,5 @@ export const GENERATORS: LayerDef[] = [
   causticLightLayer,
   settsLayer,
   pipeworkLayer,
+  surfaceMaskLayer,
 ]

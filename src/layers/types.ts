@@ -50,6 +50,12 @@ export interface LayerDef {
    * changing old ones.
    */
   fresh?: (texture: { width: number; height: number }) => ParamValues
+  /**
+   * Generators that read the state earlier layers left (heights, colours — e.g. crevice masks, ledge drips): their
+   * named-mask writes happen where they sit in the stack, not in the masks-first pre-pass (which only sees the base),
+   * so only the layers after them can use those masks.
+   */
+  readsState?: boolean
   /** Overrides for common param defaults (e.g. which channel outputs start enabled). */
   defaults?: Record<string, ParamValue>
   /** Extra groups for this type's params, in display order (the default 'params' group is implicit). */

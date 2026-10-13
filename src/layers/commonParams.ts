@@ -142,6 +142,14 @@ export const MASK_PARAMS: ParamDef[] = [
   ...MASK_USE_PARAMS,
   P.enum('mk_write', 'Write to mask', 'none', MASK_CHANNELS, { group: 'mask', hint: 'Record this layer\'s coverage in a named mask. Masks are worked out before everything else (their writers in stack order, over the base only), so any layer or material can clip to them wherever it sits' }),
   P.enum('mk_mode', 'Mask mode', 'replace', [['replace', 'Replace'], ['add', 'Add (union)'], ['subtract', 'Subtract'], ['intersect', 'Intersect']], { group: 'mask', showIf: (p) => (p.mk_write ?? 'none') !== 'none' }),
+  P.float('mk_feather', 'Feather', 0, 0, 1024, {
+    softMax: 32,
+    unit: 'px',
+    step: 0.1,
+    group: 'mask',
+    showIf: (p) => (p.mk_write ?? 'none') !== 'none',
+    hint: 'Soft edge of the written mask: a ramp this wide across a shape\'s outline (shape layers). Noise-type layers soften with Shaping › Cutoff softness',
+  }),
   P.enum('m_clip', 'Clip to shape mask', 'none', [['none', 'None'], ['inside', 'Inside the shape mask'], ['outside', 'Outside the shape mask']], {
     group: 'mask',
     hint: 'Only where the shape mask left by earlier layers is (or isn\'t) — e.g. grout outside the tiles, grime on them',
@@ -249,12 +257,15 @@ void main() {
   GenOut g = gen(pp);
   float value = g.value;
   float cov = g.mask;
+  // What a named-mask write records: the coverage, or for a shape with Feather a soft ramp across its outline.
+  float covW = -1.0;
 ${sdf ? /* glsl */ `
   if (g.sdf > NO_SDF) {
     // Shape Mask (the register): written when ticked; the mode's index + 1 is the sdfCombine op.
     int op = u_sm_on ? u_sdf_op + 1 : 0;
     float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_sdf_k);
     if (op != 0) S.a = d;
+    covW = cov * (u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : coverage(d, u_aa));
     cov *= coverage(d, u_aa);
     // Flat (or zero-width) bevels output 1 and let coverage do the anti-aliasing, so edges ramp
     // symmetrically across the boundary; profiled bevels rise from 0 at the edge.
@@ -263,17 +274,23 @@ ${sdf ? /* glsl */ `
   }
 ` : ''}
   value = shapeValue(value);
-  if (u_sh_cut > 0.0) cov *= u_sh_cut_soft > 0.0 ? smoothstep(u_sh_cut - u_sh_cut_soft, u_sh_cut + u_sh_cut_soft, value) : step(u_sh_cut, value);
+  float cutK = 1.0;
+  if (u_sh_cut > 0.0) cutK = u_sh_cut_soft > 0.0 ? smoothstep(u_sh_cut - u_sh_cut_soft, u_sh_cut + u_sh_cut_soft, value) : step(u_sh_cut, value);
+  cov *= cutK;
+  covW = covW < 0.0 ? cov : covW * cutK;
 
-  float m = cov * u_opacity;
-  if (u_m_clip == 1) m *= clamp(0.5 - prevReg, 0.0, 1.0);
-  if (u_m_clip == 2) m *= 1.0 - clamp(0.5 - prevReg, 0.0, 1.0);
+  // Everything else that limits the layer: opacity, the shape-mask clip, the height mask, a named mask.
+  float k = u_opacity;
+  if (u_m_clip == 1) k *= clamp(0.5 - prevReg, 0.0, 1.0);
+  if (u_m_clip == 2) k *= 1.0 - clamp(0.5 - prevReg, 0.0, 1.0);
   if (u_m_hmode != 0) {
     float s = max(u_m_hsoft, 1e-4);
     float hm = smoothstep(u_m_hlevel - s, u_m_hlevel + s, S.r);
-    m *= u_m_hmode == 1 ? hm : 1.0 - hm;
+    k *= u_m_hmode == 1 ? hm : 1.0 - hm;
   }
-  m *= namedMask(M);
+  k *= namedMask(M);
+  float m = cov * k;
+  float mw = covW * k;
 
   if (u_dif_on) {
     float v = srcValue(u_dif_src, value, g.rnd);
@@ -322,7 +339,7 @@ ${sdf ? /* glsl */ `
     // The layer's final coverage (after its own clips) into the named mask (in the masks pre-pass only).
     int c = u_mk_write - 1;
     float o = M[c];
-    M[c] = u_mk_mode == 0 ? m : u_mk_mode == 1 ? max(o, m) : u_mk_mode == 2 ? o * (1.0 - m) : min(o, m);
+    M[c] = u_mk_mode == 0 ? mw : u_mk_mode == 1 ? max(o, mw) : u_mk_mode == 2 ? o * (1.0 - mw) : min(o, mw);
   }
 
   oAlbedo = A;
