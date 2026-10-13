@@ -74,6 +74,10 @@ export const truchetLayer: LayerDef = {
     /* glsl */ `
 ivec2 mot_wrap(ivec2 c, ivec2 n) { return uTile ? imod(c, n) : c; }
 
+// Loop bounds read from a uniform (always 1 at run time): D3D's compiler can't unroll such loops, so each body is
+// compiled once instead of once per iteration — the style loops below took seconds to compile unrolled.
+int MOT_1;
+
 // Cells per axis (whole counts); rounded to a multiple of 'mult' (the meander period) when tiling.
 ivec2 mot_cellCount(int mult) {
   float nx = float(max(u_cells, 1));
@@ -104,22 +108,26 @@ int mot_link(ivec2 cw) {
 bool mot_linked(ivec2 a, int axis, ivec2 n) {
   return mot_link(mot_wrap(a, n)) == axis || mot_link(mot_wrap(a + MOT_D4[axis], n)) == axis + 2;
 }
-// The edge leaving lattice node x in direction dir (0 +x, 1 +y, 2 −x, 3 −y) is open (its cells are linked).
+// The edge leaving lattice node x in direction dir (0 +x, 1 +y, 2 −x, 3 −y) is open (its cells are linked): the
+// pair of cells either side of that edge, by table — one link test instead of four branches of them (D3D inlines
+// every call, so the branches multiplied the shader's size).
+const ivec2 MOT_NODE_CELL[4] = ivec2[4](ivec2(0, -1), ivec2(-1, 0), ivec2(-1, -1), ivec2(-1, -1));
+const int MOT_NODE_AXIS[4] = int[4](1, 0, 1, 0);
 bool mot_nodeOpen(ivec2 x, int dir, ivec2 n) {
-  if (dir == 0) return mot_linked(x + ivec2(0, -1), 1, n);
-  if (dir == 1) return mot_linked(x + ivec2(-1, 0), 0, n);
-  if (dir == 2) return mot_linked(x + ivec2(-1, -1), 1, n);
-  return mot_linked(x + ivec2(-1, -1), 0, n);
+  return mot_linked(x + MOT_NODE_CELL[dir], MOT_NODE_AXIS[dir], n);
 }
 bool mot_lonely(ivec2 x, int dir, ivec2 n) {
-  for (int k = 1; k < 4; k++) if (!mot_nodeOpen(x, (dir + k) % 4, n)) return false;
+  for (int k = 1; k < 3 * MOT_1 + 1; k++) if (!mot_nodeOpen(x, (dir + k) % 4, n)) return false;
   return true;
 }
 // The +x (axis 0) or +y (axis 1) wall of cell c (which spans lattice [c, c + 1]).
 bool mot_wall(ivec2 c, int axis, ivec2 n) {
   if (mot_linked(c, axis, n)) return false;
   int da = axis == 0 ? 1 : 0;
-  return !mot_lonely(c + (axis == 0 ? ivec2(1, 0) : ivec2(0, 1)), da, n) && !mot_lonely(c + 1, da + 2, n);
+  // Neither end node may be left with this wall alone (one copy of the check, looped over the two ends).
+  for (int e = 0; e < 2 * MOT_1; e++)
+    if (mot_lonely(e == 0 ? c + (axis == 0 ? ivec2(1, 0) : ivec2(0, 1)) : c + 1, da + 2 * e, n)) return false;
+  return true;
 }
 
 // ---- circuit. Tiles are centred on lattice nodes; traces cross tile edges at their midpoints. Each tile has a
@@ -140,8 +148,8 @@ int mot_regionDir(ivec2 cw, ivec2 n, out float rr) {
   vec2 x = (vec2(cw) + 0.5) / vec2(n) * cnt;
   ivec2 ip = ivec2(floor(x));
   float best = 1e9, rnd = 0.0;
-  for (int j = -1; j <= 1; j++)
-  for (int i = -1; i <= 1; i++) {
+  for (int j = -MOT_1; j <= MOT_1; j++)
+  for (int i = -MOT_1; i <= MOT_1; i++) {
     ivec2 g = imod(ip + ivec2(i, j), per);
     vec2 r = vec2(ip + ivec2(i, j)) + 0.5 + (hash2I(g, MOT_SEED + 31.0) - 0.5) * 0.9 - x;
     float d = dot(r, r);
@@ -196,8 +204,10 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n) {
   ivec2 cw = mot_wrap(c, n);
   vec2 h = 0.5 * cs;
   vec2 eR = vec2(h.x, 0.0), eL = vec2(-h.x, 0.0), eU = vec2(0.0, h.y), eD = vec2(0.0, -h.y);
-  bool R = mot_edge(c, 0, n), L = mot_edge(c - ivec2(1, 0), 0, n);
-  bool U = mot_edge(c, 1, n), D = mot_edge(c - ivec2(0, 1), 1, n);
+  // The four edges (R, U, L, D) through one copy of the edge test.
+  bool E[4];
+  for (int s = 0; s < 4 * MOT_1; s++) E[s] = mot_edge(s < 2 ? c : c - MOT_D4[s - 2], s & 1, n);
+  bool R = E[0], U = E[1], L = E[2], D = E[3];
   float dl = 1e9, ds = 1e9;
   int ci = mot_idx(c);
   if (mot_chp[ci]) {
@@ -225,8 +235,9 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n) {
   }
   if (dir >= 2) {
     // Diagonal bus: one chamfer per tile (see mot_wants); chained, they form 45° lines.
-    vec2 p1 = dir == 2 ? mot_pair(l, L, U, eL, eU) : mot_pair(l, L, D, eL, eD);
-    vec2 p2 = dir == 2 ? mot_pair(l, R, D, eR, eD) : mot_pair(l, R, U, eR, eU);
+    // Arguments chosen first, so each pair is one copy of mot_pair.
+    vec2 p1 = mot_pair(l, L, dir == 2 ? U : D, eL, dir == 2 ? eU : eD);
+    vec2 p2 = mot_pair(l, R, dir == 2 ? D : U, eR, dir == 2 ? eD : eU);
     return min(p1, p2);
   }
   // Random traces (and any tile whose edges do not fit its bus).
@@ -265,6 +276,7 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n) {
 }
 
 GenOut gen(vec2 p) {
+  MOT_1 = uRes.x > 0.0 ? 1 : 0;
   int style = u_style;
   int key = clamp(u_key, 1, 6);
   int P = key + 1;
@@ -283,8 +295,8 @@ GenOut gen(vec2 p) {
     // Truchet arcs / diagonals: one random orientation bit per tile.
     ivec2 c0 = ivec2(floor(u / cs));
     float m = min(cs.x, cs.y);
-    for (int j = -1; j <= 1; j++)
-    for (int i = -1; i <= 1; i++) {
+    for (int j = -MOT_1; j <= MOT_1; j++)
+    for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       ivec2 cw = mot_wrap(c, n);
       vec3 h = hash3I(cw, MOT_SEED);
@@ -305,8 +317,8 @@ GenOut gen(vec2 p) {
   } else if (style == 2) {
     // Maze: walls on lattice lines; each node grows one wall towards a random neighbour.
     ivec2 c0 = ivec2(floor(u / cs));
-    for (int j = -1; j <= 2; j++)
-    for (int i = -1; i <= 2; i++) {
+    for (int j = -MOT_1; j <= 2 * MOT_1; j++)
+    for (int i = -MOT_1; i <= 2 * MOT_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       vec3 h = hash3I(mot_wrap(c, n), MOT_SEED + 3.0);
       if (h.x >= u_density) continue;
@@ -316,12 +328,13 @@ GenOut gen(vec2 p) {
   } else if (style == 3) {
     // Rooms: the +x and +y walls of the 3×3 cells around the pixel (cell c spans lattice [c, c + 1]).
     ivec2 c0 = ivec2(floor(u / cs));
-    for (int j = -1; j <= 1; j++)
-    for (int i = -1; i <= 1; i++) {
+    for (int j = -MOT_1; j <= MOT_1; j++)
+    for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       vec2 o = vec2(c + 1) * cs;
-      if (mot_wall(c, 0, n)) best = min(best, sdSegment(u, o, vec2(o.x, o.y - cs.y)));
-      if (mot_wall(c, 1, n)) best = min(best, sdSegment(u, o, vec2(o.x - cs.x, o.y)));
+      // Both walls through one copy of the wall test.
+      for (int ax = 0; ax < 2 * MOT_1; ax++)
+        if (mot_wall(c, ax, n)) best = min(best, sdSegment(u, o, ax == 0 ? vec2(o.x, o.y - cs.y) : vec2(o.x - cs.x, o.y)));
     }
     rnd = hashI(mot_wrap(c0, n), MOT_SEED);
   } else if (style == 4) {
@@ -329,16 +342,15 @@ GenOut gen(vec2 p) {
     // P = key + 1 cells; bands repeat every P cells down, so each rail is also the next band's top.
     vec2 g = u / cs;
     ivec2 k0 = ivec2(floor(g / float(P)));
-    for (int j = -1; j <= 1; j++)
-    for (int i = -1; i <= 1; i++) {
+    for (int j = -MOT_1; j <= MOT_1; j++)
+    for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 k = k0 + ivec2(i, j);
       vec2 lq = g - vec2(k * P);
       lq.y = float(P) - lq.y;   // the key grows up from its rail (bottom of the band)
       vec2 lp = lq * cs;
       float d = u_borders ? sdSegment(lp, vec2(0.0), vec2(float(P), 0.0) * cs) : 1e9;
       vec2 pt = vec2(0.0);
-      for (int s = 0; s < 12; s++) {
-        if (s >= 2 * key) break;
+      for (int s = 0; s < 2 * key * MOT_1; s++) {
         vec2 nx = pt + vec2(MOT_D4[(5 - s % 4) % 4]) * float(key - s / 2);   // up, right, down, left, …
         d = min(d, sdSegment(lp, pt * cs, nx * cs));
         pt = nx;
@@ -349,15 +361,15 @@ GenOut gen(vec2 p) {
     // Circuit: tiles centred on lattice nodes (traces run along lattice lines).
     ivec2 c0 = ivec2(floor(u / cs + 0.5));
     mot_c0 = c0;
-    for (int j = -2; j <= 2; j++)
-    for (int i = -2; i <= 2; i++) {
+    for (int j = -2 * MOT_1; j <= 2 * MOT_1; j++)
+    for (int i = -2 * MOT_1; i <= 2 * MOT_1; i++) {
       ivec2 cw = mot_wrap(c0 + ivec2(i, j), n);
       int idx = (j + 2) * 5 + i + 2;
       mot_dir[idx] = mot_regionDir(cw, n, mot_rr[idx]);
       mot_chp[idx] = mot_chip(cw, n);
     }
-    for (int j = -1; j <= 1; j++)
-    for (int i = -1; i <= 1; i++) {
+    for (int j = -MOT_1; j <= MOT_1; j++)
+    for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       vec2 t = mot_circuitTile(c, u - vec2(c) * cs, cs, n);
       if (min(t.x - hw, t.y) < min(best - hw, solid)) rnd = mot_rr[mot_idx(c)];

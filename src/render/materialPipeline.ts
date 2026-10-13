@@ -90,6 +90,8 @@ export class MaterialPipeline {
   private materials = new Map<string, THREE.RawShaderMaterial>()
   /** Generator types whose shader has been compiled (run, or precompiled). */
   private compiled = new Set<string>()
+  /** A comment in generator shaders (measuring cold compiles: a new salt defeats the browser's and driver's caches). */
+  private salt = ''
   private scratchTargets = new Map<string, THREE.WebGLRenderTarget>()
   private clearMat: THREE.RawShaderMaterial
   private normalMat: THREE.RawShaderMaterial
@@ -256,6 +258,12 @@ export class MaterialPipeline {
     return [...new Set(types)].filter((t) => getLayerDef(t)?.kind === 'generator' && !this.compiled.has(t))
   }
 
+  /** Generator shaders compile afresh after this (cold-compile timing; the old programs stay cached under the old salt). */
+  setShaderSalt(salt: string): void {
+    this.salt = salt
+    this.compiled.clear()
+  }
+
   /** Compile generators' shaders ahead of their first run (see GpuContext.compile). */
   async precompile(types: string[]): Promise<void> {
     const defs = this.uncompiled(types).map((t) => getLayerDef(t)!)
@@ -264,11 +272,12 @@ export class MaterialPipeline {
   }
 
   private generatorMaterial(def: LayerDef): THREE.RawShaderMaterial {
-    const key = `gen:${def.type}`
+    const key = `gen:${def.type}${this.salt}`
     let mat = this.materials.get(key)
     if (!mat) {
       const defs = layerParamDefs(def.type)
       const frag =
+        (this.salt ? `// salt ${this.salt}\n` : '') +
         bevelCurveDefine(defs) +
         MATERIAL_PRELUDE +
         MRT_OUTS +

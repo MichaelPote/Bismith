@@ -98,6 +98,11 @@ export interface BismithHeadless {
   optimizeFinish(): Promise<HeadlessOptimizeResult>
   /** WebGL renderer string (to confirm GPU vs SwiftShader). */
   rendererInfo(): string
+  /**
+   * Compile generator shaders ahead of use, all at once (parallel where the browser can); returns the wall time.
+   * `cold`: salt the shaders first, so neither the browser's nor the driver's shader cache can answer.
+   */
+  precompile(types: string[], opts?: { cold?: boolean }): Promise<{ ms: number; parallel: boolean }>
   /** Automatic emulation of a reference (templates → race → optimise); the best becomes the current project. */
   emulate(target: TargetInput, opts?: EmulateOptions): Promise<HeadlessEmulateResult>
   /**
@@ -262,6 +267,12 @@ export function installHeadless(engine: Engine): BismithHeadless {
     },
 
     rendererInfo: () => rendererString(engine),
+    async precompile(types, opts = {}) {
+      if (opts.cold) engine.setShaderSalt(`${Date.now()}-${Math.random()}`)
+      const t = performance.now()
+      await engine.precompile(types)
+      return { ms: performance.now() - t, parallel: engine.parallelCompile }
+    },
 
     async fitColours(target, opts = {}) {
       const p = need()

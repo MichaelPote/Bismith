@@ -17,3 +17,14 @@ time before.
   `sdfCombine` op, so keep their order), `sdf_k`, and `m_clip` (*Clip to shape mask*). Old projects with
   `sdf_op: 'none'` migrate to `sm_on: false` (`migrateParams` in `src/layers/registry.ts`). The four numbered
   *named masks* (`mk_*` params, `tMasks`) are a separate feature (docs/features/fr8.13-named-masks.md).
+- **Shader compile time (D3D11, Chrome's default on Windows) is the cost users feel** — a card renders in ~50 ms,
+  but a generator's first compile can take seconds. D3D's compiler inlines every function call, so a helper called
+  in several branches (or a branch per case that each calls the same thing) multiplies the shader: pick arguments
+  first and call once, use small lookup tables instead of a branch per case, loop over cases (axes, edges) so the
+  body exists once. Nested loops of calls (a loop around a function that loops around noise) are much slower than
+  one flat loop over all the evaluations, with the arguments chosen per iteration. Loop bounds read from a uniform
+  (`ORG_1`, `MOT_1`) stop D3D from unrolling. Measure cold compiles with `npx tsx tools/compile-time.ts <types…>`:
+  Tessellation went ~20 s → 1.9 s, Truchet 5.4 → 2.1 s, Marble 2.2 → 0.8 s and Cracks 1.5 → 0.8 s, output
+  unchanged. For a generator with many modes, describe each mode as data (shapes, anchors) and run them all through
+  one loop (`geometricTessellation.ts`). Don't time while
+  another GPU job (e.g. the studio starting) runs. Batch compiles run in parallel (`engine.precompile([...])`).

@@ -44,12 +44,6 @@ export const cracksLayer: LayerDef = {
     ORG_GLSL +
     ORG_GLSL_SDF +
     /* glsl */ `
-vec2 org_softWarp(vec2 p, vec2 wc, float seed) {
-  vec2 u = p / uRes * wc;
-  return vec2(org_noiseFbm(1, false, u, org_per(wc), 2, 0.4, seed + 101.0),
-              org_noiseFbm(1, false, u + 17.3, org_per(wc), 2, 0.4, seed + 211.0)) - 0.5;
-}
-
 // Fine cracks: Voronoi borders where each border segment (cell pair) is present with probability
 // \`keep\` — partial cracks end cleanly at junctions instead of dotting out. Returns (distance px, cell rnd).
 vec2 org_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float seed) {
@@ -58,22 +52,21 @@ vec2 org_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float seed) {
   ivec2 ip = ivec2(floor(p / cs));
   float best = 1e20;
   vec2 bs = p;
-  ivec2 bc = ip;
-  for (int j = -1; j <= 1; j++)
-  for (int i = -1; i <= 1; i++) {
-    ivec2 c = ip + ivec2(i, j);
-    vec2 s = (vec2(c) + 0.5 + (cellPoint(imod(c, per), seed) - 0.5) * jitter) * cs;
-    float d = org_dot2(s - p);
-    if (d < best) { best = d; bs = s; bc = c; }
-  }
-  ivec2 bw = imod(bc, per);
+  ivec2 bc = ip, bw = ip;
   float m = 1e9;
-  for (int j = -2; j <= 2; j++)
-  for (int i = -2; i <= 2; i++) {
-    if (i == 0 && j == 0) continue;
-    ivec2 c = bc + ivec2(i, j);
+  // One flat loop (see ORG_1): the 3×3 cells for the nearest site, then the 5×5 around it for the borders.
+  for (int e = 0; e < 34 * ORG_1; e++) {
+    bool near = e < 9;
+    ivec2 g = near ? ivec2(e % 3 - 1, e / 3 - 1) : ivec2((e - 9) % 5 - 2, (e - 9) / 5 - 2);
+    if (!near && g == ivec2(0)) continue;
+    ivec2 c = (near ? ip : bc) + g;
     ivec2 cw = imod(c, per);
     vec2 s = (vec2(c) + 0.5 + (cellPoint(cw, seed) - 0.5) * jitter) * cs;
+    if (near) {
+      float d = org_dot2(s - p);
+      if (d < best) { best = d; bs = s; bc = c; bw = cw; }
+      continue;
+    }
     // Order-independent pair hash so both sides agree on the segment.
     ivec2 lo = (bw.x < cw.x || (bw.x == cw.x && bw.y < cw.y)) ? bw : cw;
     ivec2 hi = (lo == bw) ? cw : bw;
@@ -90,21 +83,34 @@ GenOut gen(vec2 p) {
   vec2 cells = cellsFor(u_scale, 1.0);
   vec2 cs = uRes / cells;
   float L = sqrt(cs.x * cs.y);
-  vec2 q = p;
-  if (u_warp > 0.0) q += org_softWarp(p, cellsFor(u_scale * 1.5, 1.0), uSeed + 7.0) * 2.0 * u_warp * L;
-  // Pixel-scale jaggies: a ~2 px value noise nudges the crack distance.
+  // The noise, in one flat loop (one copy of its code; see ORG_1): the warp of the main cracks (x, y), of the fine
+  // cracks (x, y), then the pixel-scale jaggies (a ~2 px value noise that nudges the crack distance).
+  vec2 jc = cellsFor(uRes.x / 2.0, 1.0);
+  vec4 w = vec4(0.0);
   float jn = 0.0;
-  if (u_jag > 0.0) {
-    vec2 jc = cellsFor(uRes.x / 2.0, 1.0);
-    jn = (org_noiseFbm(0, false, p / uRes * jc, org_per(jc), 2, 0.5, uSeed + 29.0) - 0.5) * 2.0 * u_jag;
+  for (int e = 0; e < 5 * ORG_1; e++) {
+    bool jag = e == 4;
+    int gen = e / 2, c = e % 2;
+    if (jag ? u_jag <= 0.0 : u_warp <= 0.0 || (gen == 1 && u_sub <= 0.0)) continue;
+    vec2 nc = jag ? jc : cellsFor(u_scale * (gen == 0 ? 1.0 : u_sub_scale) * 1.5, 1.0);
+    vec2 x = p / uRes * nc;
+    float seed = jag ? uSeed + 29.0 : uSeed + (gen == 0 ? 7.0 : 37.0) + (c == 0 ? 101.0 : 211.0);
+    float n = org_noiseFbm(jag ? 0 : 1, false, c == 1 ? x + 17.3 : x, org_per(nc), 2, jag ? 0.5 : 0.4, seed);
+    if (jag) jn = (n - 0.5) * 2.0 * u_jag;
+    else if (e == 0) w.x = n;
+    else if (e == 1) w.y = n;
+    else if (e == 2) w.z = n;
+    else w.w = n;
   }
+  vec2 q = p;
+  if (u_warp > 0.0) q += (w.xy - 0.5) * 2.0 * u_warp * L;
   vec4 c1 = org_cellDist(q, cells, u_jitter, u_size_var, 0.0, uSeed);
   // Distance (px) from the pixel to the edge of the crack bands: > 0 on a plate.
   float d = c1.y + jn - 0.5 * u_width;
   float rnd = c1.z;
   if (u_sub > 0.0) {
     vec2 c2s = cellsFor(u_scale * u_sub_scale, 1.0);
-    vec2 q2 = q + org_softWarp(p, cellsFor(u_scale * u_sub_scale * 1.5, 1.0), uSeed + 37.0) * 0.6 * u_warp * L / u_sub_scale;
+    vec2 q2 = q + (w.zw - 0.5) * 0.6 * u_warp * L / u_sub_scale;
     vec2 c2 = org_fineCracks(q2, c2s, u_jitter, u_sub, uSeed + 3.0);
     d = min(d, c2.x + jn - 0.5 * u_sub_width);
     rnd = fract(rnd + c2.y * 0.37);

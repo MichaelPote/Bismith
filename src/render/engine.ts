@@ -190,6 +190,11 @@ export class Engine {
     return this.material.precompile(types)
   }
 
+  /** Make the next compiles cold (a fresh salt in the shaders): for measuring compile times only. */
+  setShaderSalt(salt: string): void {
+    this.material.setShaderSalt(salt)
+  }
+
   /** Resolves once the pending material evaluation has run (at once if none is pending or the loop is stopped). */
   settled(): Promise<void> {
     if (!this.materialDirty || !this.running || this.suspended) return Promise.resolve()

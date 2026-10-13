@@ -148,9 +148,14 @@ Invert on, diffuse off, emissive on (value = 1 in the cracks).
 - **Derivatives.** Wood fades growth rings that crowd closer than ~2 px with `dFdx/dFdy` of the ring field
   (anti-moiré); called in uniform control flow.
 - **Shader size.** The helpers use a lean `org_noiseFbm` (value / Perlin, optional billow) instead of
-  `fractalNoise`, whose generic dispatch inlines Worley at every call site; marble evaluates its finite
-  differences and its two vein systems in loops. SwiftShader compile times: marble ~0.45 s, the others
-  0.1–0.25 s.
+  `fractalNoise`, whose generic dispatch inlines Worley at every call site. On D3D11 (Chrome's default on
+  Windows) nested loops of noise calls compile slowly, so each shader runs its noise in **one flat loop** with a
+  single call site, its arguments chosen per iteration. Marble's loop covers the warp components and the field at
+  p and one px right / up; the background noise is a third pass of the vein-system loop; and its Worley border is a
+  flat-loop copy (`org_worleyBorder`). Cracks' loop covers both warps and the jaggies. The Voronoi searches
+  (`org_cellDist`, the fine cracks) are single flat loops. Loop bounds use `ORG_1` (1, read from a uniform), so
+  D3D can't unroll them. Cold D3D11 compiles: marble 2.2 → 0.8 s, cracks 1.5 → 0.8 s (output unchanged, apart
+  from float rounding in a few pixels). The fixed overhead is ~0.2 s. Measure with `tools/compile-time.ts`.
 - **Small textures.** At 16×16 the defaults read as noise (cells / veins of 3 px); lower the scale counts.
 - **Limitations.** No diagonal wood (rotated plank frames are not tileable in general); at most one knot per
   board; marble network / cells styles have no rotation (use `stretch`); per-tile marble shares the vein

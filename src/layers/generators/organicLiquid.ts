@@ -50,52 +50,76 @@ export const marbleLayer: LayerDef = {
   glsl:
     ORG_GLSL +
     /* glsl */ `
-// Domain warp with the Detail octave count (cells of displacement, about ±0.5).
-vec2 org_warp(vec2 x, ivec2 per, float seed) {
-  return vec2(
-    org_noiseFbm(1, false, x, per, u_detail, 0.5, seed + 101.0),
-    org_noiseFbm(1, false, x + 17.3, per, u_detail, 0.5, seed + 211.0)) - 0.5;
-}
-
-// Vein field F: veins lie on its integer level sets. k = band wave vector (streaks), nc = noise cells,
-// wc = turbulence cells, wm = warp multiplier.
-float org_mField(vec2 p, vec2 k, vec2 nc, vec2 wc, float wm, float seed) {
-  vec2 u = p / uRes;
-  if (u_style == 0) {
-    float t = org_noiseFbm(1, true, u * wc, org_per(wc), u_detail, 0.5, seed);   // billow turbulence
-    return dot(p, k) + u_warp * wm * 2.0 * t;
+// worleyNoise(x, per, 1.0, 0, seed).wz — distance to the cell border (cells) and the cell's random — in one flat loop:
+// the 3×3 cells for the nearest point, then the 5×5 for the border (the library's nested loops compile slower).
+vec2 org_worleyBorder(vec2 x, ivec2 per, float seed) {
+  ivec2 ip = ivec2(floor(x));
+  vec2 fp = fract(x);
+  float F1 = 1e9, md = 1e9;
+  vec2 mr = vec2(0.0);
+  ivec2 mc = ip;
+  for (int e = 0; e < 34 * ORG_1; e++) {
+    bool near = e < 9;
+    ivec2 g = near ? ivec2(e % 3 - 1, e / 3 - 1) : ivec2((e - 9) % 5 - 2, (e - 9) / 5 - 2);
+    vec2 r = vec2(g) + (0.5 + (cellPoint(imod(ip + g, per), seed) - 0.5)) - fp;
+    if (near) {
+      float d = dot(r, r);
+      if (d < F1) { F1 = d; mr = r; mc = ip + g; }
+    } else {
+      vec2 dr = r - mr;
+      if (dot(dr, dr) > 1e-6) md = min(md, dot(0.5 * (mr + r), normalize(dr)));
+    }
   }
-  vec2 x = u * nc + org_warp(u * wc, org_per(wc), seed + 7.0) * u_warp * 2.0;
-  // Few octaves for the contoured field itself (more makes scribbly loops); detail goes into the warp.
-  float n = org_noiseFbm(1, false, x, org_per(nc), min(u_detail, 3), 0.45, seed);
-  return (n - 0.5) * 2.0 * u_levels;
+  return vec2(md, hashI(imod(mc, per), seed + 17.0));
 }
 
-// Distance (px) from p to the nearest vein of one vein system, and a per-vein random.
+// Distance (px) from p to the nearest vein of one vein system, and a per-vein random. Streaks and network: veins
+// lie on the integer level sets of a field F — streaks: bands along the wave vector k bent by billow turbulence;
+// network: contours of noise under a domain warp (Detail octaves; the contoured noise itself has few, or its
+// contours scribble). Cells: borders of warped Worley cells.
+//
+// All the noise runs in one flat loop of evaluations — for p and one px right / up (for the gradient of F): the two
+// warp components (not for streaks), then F (not for cells, which only need the warped p). D3D (Chrome's default on
+// Windows) inlines every call, and nested loops of noise calls compiled several times slower than this one site.
 vec2 org_veinDist(vec2 p, float count, float wm, float ang, float seed) {
   vec2 wc = cellsFor(u_warp_scale, 1.0);
-  if (u_style == 2) {
-    vec2 nc = cellsFor(count, u_stretch);
-    vec2 u = p / uRes;
-    vec2 x = u * nc + org_warp(u * wc, org_per(wc), seed + 7.0) * u_warp * 2.0;
-    vec4 w = worleyNoise(x, org_per(nc), 1.0, 0, seed);
-    vec2 cs = uRes / nc;
-    return vec2(w.w * sqrt(cs.x * cs.y), w.z);
-  }
   int g = 1;
   vec2 k = org_waveK(count, ang, g);
   vec2 nc = cellsFor(count, u_stretch);
-  // Field at p and one px right / up (a loop, so the noise code is emitted once: faster compiles).
-  vec3 f;
-  for (int i = 0; i < 3; i++) {
+  bool streaks = u_style == 0, cells = u_style == 2;
+  vec3 f = vec3(0.0);
+  vec2 w = vec2(0.0), x = vec2(0.0);
+  for (int e = 0; e < 9 * ORG_1; e++) {
+    int i = e / 3, c = e - 3 * i;   // sample i (p, right, up); c = warp x, warp y, field
+    if (streaks && c < 2) continue;
     vec2 o = i == 0 ? vec2(0.0) : i == 1 ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-    f[i] = org_mField(p + o, k, nc, wc, wm, seed);
+    vec2 u = (p + o) / uRes;
+    vec2 uw = u * wc;
+    if (c == 2) {
+      x = streaks ? uw : u * nc + (w - 0.5) * u_warp * 2.0;
+      if (cells) break;
+    }
+    bool warp = c < 2;
+    float n = org_noiseFbm(1, streaks, c == 2 ? x : c == 0 ? uw : uw + 17.3, org_per(warp || streaks ? wc : nc),
+                           warp || streaks ? u_detail : min(u_detail, 3), warp || streaks ? 0.5 : 0.45,
+                           c == 0 ? seed + 7.0 + 101.0 : c == 1 ? seed + 7.0 + 211.0 : seed);
+    if (c == 0) w.x = n;
+    else if (c == 1) w.y = n;
+    else {
+      float F = streaks ? dot(p + o, k) + u_warp * wm * 2.0 * n : (n - 0.5) * 2.0 * u_levels;
+      if (i == 0) f.x = F; else if (i == 1) f.y = F; else f.z = F;
+    }
+  }
+  if (cells) {
+    vec2 wb = org_worleyBorder(x, org_per(nc), seed);
+    vec2 cs = uRes / nc;
+    return vec2(wb.x * sqrt(cs.x * cs.y), wb.y);
   }
   float f0 = f.x;
   float grad = max(length(f.yz - f0), 1e-4);
   float d = abs(fract(f0 + 0.5) - 0.5) / grad;
   int band = int(floor(f0 + 0.5));
-  if (u_style == 0 && uTile) band = imod(band, g);
+  if (streaks && uTile) band = imod(band, g);
   return vec2(d, hashI(ivec2(band, 3), seed));
 }
 
@@ -115,26 +139,29 @@ GenOut gen(vec2 p) {
   }
   u = q / uRes;
   vec2 bc = cellsFor(max(u_warp_scale, 1.0) * 2.0, 1.0);
+  vec2 cc = cellsFor(max(u_warp_scale, 1.0) * 1.5, 1.0);
   float vein = 0.0;
   float rnd = 0.0;
-  // System 0: main veins; system 1: finer, fainter veins (a loop keeps the shader small).
-  for (int sys = 0; sys < 2; sys++) {
-    if (sys == 1 && u_fine <= 0.0) break;
+  float base = 0.0;
+  // System 0: main veins; 1: finer, fainter veins; 2: the mottled background between them. One loop, so one copy
+  // of each noise (see org_veinDist).
+  for (int sys = 0; sys < 3 * ORG_1; sys++) {
+    bool cloud = sys == 2;
+    if ((sys == 1 && u_fine <= 0.0) || (cloud && u_cloud <= 0.0)) continue;
+    // The veins' width / breakup noise, or the background.
+    float nb = org_fbm(u, cloud ? cc : bc * float(sys + 1), cloud ? 5 : 3, cloud ? uSeed + 77.0 : uSeed + 91.0 + 2.0 * float(sys));
+    if (cloud) {
+      base = u_cloud * clamp((nb - 0.2) / 0.6, 0.0, 1.0);
+      break;
+    }
     float fs = sys == 0 ? 1.0 : u_fine_scale;
     vec2 vd = org_veinDist(q, u_veins * fs, fs, ang, uSeed + 50.0 * float(sys));
-    float nb = org_fbm(u, bc * float(sys + 1), 3, uSeed + 91.0 + 2.0 * float(sys));
     float wv = mix(1.0, clamp(0.25 + 1.5 * nb, 0.25, 2.0), u_width_var);
     float w = sys == 0 ? u_width * wv : max(u_width * 0.6, min(u_width, 1.0));
     float l = org_line(vd.x, w, u_soft * (sys == 0 ? wv : 0.5));
     if (u_breakup > 0.0) l *= org_breakup(nb, u_breakup);
     if (sys == 0) rnd = vd.y;
     vein = max(vein, sys == 0 ? l : l * u_fine);
-  }
-  float base = 0.0;
-  if (u_cloud > 0.0) {
-    vec2 cc = cellsFor(max(u_warp_scale, 1.0) * 1.5, 1.0);
-    float n = org_fbm(u, cc, 5, uSeed + 77.0);
-    base = u_cloud * clamp((n - 0.2) / 0.6, 0.0, 1.0);
   }
   float v = base + (1.0 - base) * vein;
   return genOut(clamp(v, 0.0, 1.0), 1.0, tileRnd >= 0.0 ? tileRnd : rnd, ${ORG_NO_SDF});

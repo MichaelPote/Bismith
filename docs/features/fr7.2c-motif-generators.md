@@ -46,6 +46,16 @@ discs), sigils, a light fitting, a winged emblem with runes, and other ornamente
   copies when tiling, plus row stagger, rotation jitter and dropout. It adds a bounding-circle early-out, so a far
   instance costs one `length()`.
 
+## Compile time
+Truchet holds six styles in one shader, so every compile builds all of them; on D3D11 it took 5.4 s cold (the
+slowest of the new-project wizard's shaders). Rooms (≈3 s) and Circuit (≈2.4 s) dominated: D3D inlines every call,
+and the node test branched four ways into the same link test, the wall test ran its lonely-node check twice, the
+circuit tile tested its four edges with four copies of the edge test, and the diagonal pairs were called in both
+arms of a choice. Table lookups (`MOT_NODE_CELL` / `MOT_NODE_AXIS`), loops over the axes / edges / ends (one copy of
+each body) and arguments chosen before a single call brought it to 2.1 s, pixel-identical in every style. Loop bounds
+read from a uniform (`MOT_1`) keep D3D from unrolling them (a small gain on its own). Measure with
+`tools/compile-time.ts`.
+
 ## Checklist
 - [x] `truchet`: arcs, diagonal, maze, rooms (closed polyomino net), meander (key size, rail, vertical), circuit
   (bus regions, trace density, 45° share, pads, vias, chips; random mode)

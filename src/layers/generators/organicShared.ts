@@ -5,6 +5,11 @@
 export const ORG_NO_SDF = '-1e5'
 
 export const ORG_GLSL = /* glsl */ `
+// 1, read from a uniform: loop bounds written with it can't be unrolled. D3D (Chrome's default backend on Windows)
+// unrolls constant loops and inlines every call, so each unrolled pass copies the whole body: compiles take
+// seconds. A runtime bound keeps one copy.
+#define ORG_1 (uRes.x > 0.0 ? 1 : 0)
+
 float org_dot2(vec2 v) { return dot(v, v); }
 
 // Lattice period for a cellsFor() cell count: whole cells when tiling, effectively infinite otherwise.
@@ -15,7 +20,7 @@ ivec2 org_per(vec2 cells) { return uTile ? ivec2(cells + 0.5) : NO_PERIOD; }
 // at every call site), so the organic shaders stay small and compile fast.
 float org_noiseFbm(int kind, bool billow, vec2 x, ivec2 per, int oct, float gain, float seed) {
   float sum = 0.0, amp = 1.0, norm = 0.0;
-  for (int o = 0; o < 8; o++) {
+  for (int o = 0; o < 8 * ORG_1; o++) {
     if (o >= oct) break;
     float s = seed + float(o) * 31.0;
     float n = kind == 0 ? valueNoise(x, per, s) : perlinNoise(x, per, s);
@@ -83,26 +88,25 @@ vec4 org_cellDist(vec2 p, vec2 cells, float jitter, float sizeVar, float k, floa
   vec2 bs = p;
   float bw = 0.0;
   ivec2 bc = ip;
-  for (int j = -2; j <= 2; j++)
-  for (int i = -2; i <= 2; i++) {
-    ivec2 c = ip + ivec2(i, j);
-    vec3 h = hash3I(imod(c, per), seed);
-    vec2 s = (vec2(c) + 0.5 + (h.xy - 0.5) * jitter) * cs;
-    float w = (h.z - 0.5) * wScale;
-    float pd = org_dot2(s - p) - w;
-    if (pd < best) { best = pd; bs = s; bw = w; bc = c; }
-  }
   float m = 1e9;
   float acc = 0.0;
   float f2 = 1e9;
   float kk = max(k, 0.05);
-  for (int j = -2; j <= 2; j++)
-  for (int i = -2; i <= 2; i++) {
-    if (i == 0 && j == 0) continue;
-    ivec2 c = bc + ivec2(i, j);
+  // One flat loop (see ORG_1): the 5×5 cells around p for the nearest site, then the 5×5 around that site.
+  for (int e = 0; e < 50 * ORG_1; e++) {
+    bool near = e < 25;
+    int f = near ? e : e - 25;
+    ivec2 g = ivec2(f % 5 - 2, f / 5 - 2);
+    if (!near && g == ivec2(0)) continue;
+    ivec2 c = (near ? ip : bc) + g;
     vec3 h = hash3I(imod(c, per), seed);
     vec2 s = (vec2(c) + 0.5 + (h.xy - 0.5) * jitter) * cs;
     float w = (h.z - 0.5) * wScale;
+    if (near) {
+      float pd = org_dot2(s - p) - w;
+      if (pd < best) { best = pd; bs = s; bw = w; bc = c; }
+      continue;
+    }
     float L = length(s - bs);
     if (L < 1e-4) continue;
     f2 = min(f2, length(p - s));

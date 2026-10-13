@@ -158,8 +158,15 @@ Checked on a contact sheet (ref | render, palette Quake, ACES).
 - **Weave height.** Floats are separate SDF shapes; the over/under read comes from the bevel stretched along the
   float (`dip`), not from a separate height field, so `profile`/`bevel` still drive the cross-section.
 - **Loops are bounded** (fixed candidate sets per mode — at most 45 bounding-box-pruned rect tries for pinwheel,
-  ≤ 42 for herringbone, a handful of polygons elsewhere; float search ±8 crossings; Z pieces ≤ 12; chevrons ±2
+  ≤ 48 for herringbone, a handful of polygons elsewhere; float search ±8 crossings; Z pieces ≤ 12; chevrons ±2
   lanes). Polygons hold ≤ 16 vertices (bands ≤ 40).
+- **Compile time.** Tessellation's modes are data: `tess_shape(k)` builds a mode's shape k and gives its anchor
+  count, and `tess_anchor(k, a)` gives each anchor's position, kind and key parts (key = `geo_wrapCell(cell) ×
+  mul + add`; `geo_keyI` lattices are split into those parts). The tile under the pixel, for the modes that find
+  it directly, comes from `tess_pick`. `gen()` runs every shape and anchor through **one** flat loop with a single
+  `geo_finish` and `geo_try`, bounded by `TESS_1` (1, read from a uniform) so D3D can't unroll it. Each mode used
+  to have its own function with nested loops of tries, and D3D inlines every call: a cold D3D11 compile took ~20 s.
+  It now takes 1.9 s, with output pixel-identical (36 variants: every mode, kinds, ratios, rotations, non-tiling).
 
 ## Recommended shared changes (not made — outside this family's files)
 - Move `geo_sdPoly` + mitred inset into `glsl/sdf.ts` (`sdPolygon(n)`), and `geo_frame` / `geo_wrapCell`
