@@ -37,7 +37,6 @@ export const pipes: RecipeDef = {
   id: 'pipes',
   label: 'Pipes',
   description: 'Pipe runs on a wall — rusty, painted, copper, steel, chrome, plastic or glass — with elbows, tees, crossings, collars and bolted flanges: round, glossy where they should be, shadow-casting, weathered.',
-  icon: 'pipes',
   groups: [
     { id: 'layout', label: 'Layout' },
     { id: 'fittings', label: 'Fittings' },
@@ -163,7 +162,6 @@ export const paint: RecipeDef = {
   id: 'paint',
   label: 'Peeling paint',
   description: 'Paint over whatever is beneath — tiles, plates, concrete — flaking off in ragged chips to rust or bare substrate, with a raised paint edge, mottling, rust streaks and grime.',
-  icon: 'paint',
   groups: [
     { id: 'peel', label: 'Peeling' },
     { id: 'colour', label: 'Colour' },
@@ -225,7 +223,6 @@ export const cutout: RecipeDef = {
   id: 'cutout',
   label: 'Cut-out',
   description: 'An opening that writes a named mask: set the material in front to "outside" the mask and the one behind to "inside" (each material’s Mask card). A recessed step at its edge and an optional raised frame around it.',
-  icon: 'cutout',
   groups: [
     { id: 'shape', label: 'Opening' },
     { id: 'edge', label: 'Edge' },

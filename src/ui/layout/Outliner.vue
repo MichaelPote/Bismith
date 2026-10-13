@@ -3,17 +3,30 @@
 // is applied first and the bottom row last, over everything) · Lights · Post. A smart material is one collapsible row
 // holding its member layers. The Diffuse and Height columns (headed on the Base row) show which channels each layer
 // affects; clicking one flips the same tick as the inspector.
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch, type Component } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore, type SelectionKind } from '@/stores/editor'
 import { useActions } from '@/ui/actions'
 import { allLayerDefs, CATEGORY_LABELS, getLayerDef, layerChannels } from '@/layers/registry'
 import { allPostDefs } from '@/render/post/registry'
 import type { LayerCategory } from '@/layers/types'
-import { CATEGORY_HUE, layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta'
+import { CATEGORY_HUE, layerHue, layerIcon, LIGHT_HUE, POST_HUE, recipeIcon } from '@/ui/meta'
 import { layerUnits, MAX_LIGHTS, type Layer, type LayerUnit, type SmartMaterial } from '@/core/project'
 import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue'
-import Icon from '@/ui/components/Icon.vue'
+import {
+  IconBox,
+  IconBulb,
+  IconChevronDown,
+  IconChevronRight,
+  IconDroplet,
+  IconEye,
+  IconEyeOff,
+  IconMountain,
+  IconPlus,
+  IconSparkles,
+  IconSquareRotated,
+  IconSun,
+} from '@tabler/icons-vue'
 import { RECIPES } from '@/recipes'
 import { supersampleFactor } from '@/core/supersample'
 import { vTip, type Tip } from '@/ui/tooltip'
@@ -37,7 +50,7 @@ const addLayerItems = computed<MenuItem[]>(() => {
   }
   for (const cat of ['noise', 'shape', 'pattern'] as const) section(cat)
   items.push({ section: 'Smart materials' })
-  for (const r of RECIPES) items.push({ label: r.label, hint: r.description, hue: MATERIAL_HUE, icon: r.icon, action: () => act.addMaterial(r.id) })
+  for (const r of RECIPES) items.push({ label: r.label, hint: r.description, hue: MATERIAL_HUE, icon: recipeIcon(r.id), action: () => act.addMaterial(r.id) })
   for (const cat of ['filter', 'adjust'] as const) section(cat)
   return items
 })
@@ -119,6 +132,7 @@ const containsSel = (u: LayerUnit) => !!u.material && editor.selection.kind === 
 // ---------------------------------------------------------------- Diffuse / Height columns
 type Channel = 'diffuse' | 'height'
 const CHANNELS: Channel[] = ['diffuse', 'height']
+const CHANNEL_ICON: Record<Channel, Component> = { diffuse: IconDroplet, height: IconMountain }
 const CHANNEL_LABEL: Record<Channel, string> = { diffuse: 'Diffuse', height: 'Height' }
 /** 'on' / 'off' = a tick switches it; 'always' = the filter always affects it; null = never. */
 type ChannelState = 'on' | 'off' | 'always' | null
@@ -243,7 +257,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
     </div>
     <div ref="scroller" class="scroll">
       <button type="button" class="row root" :class="{ sel: isSel('project') }" @click="editor.select('project')">
-        <Icon name="project" :size="13" :stroke="isSel('project') ? 'var(--accent-hi)' : 'var(--text-lo)'" />
+        <IconBox :size="13" :color="isSel('project') ? 'var(--accent-hi)' : 'var(--text-lo)'" />
         <span class="name strong">{{ store.project.name }}</span>
         <span v-tip:right="'Texture size @ supersampling. Select the project for the texture, base material, world lighting and render settings'" class="meta cf-mono"
           >{{ store.project.width }}×{{ store.project.height }} @{{ supersampleFactor(store.project) }}x</span
@@ -255,7 +269,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
         <span v-tip:right="{ title: 'Layers', body: 'In evaluation order: the top layer is applied first, each one below goes over it, the bottom layer last.' }" class="cf-label">Layers</span>
         <span class="count cf-mono">{{ store.project.layers.length }}</span>
         <span class="grow" />
-        <DropMenu v-tip:right="'Add a layer or smart material'" :items="addLayerItems" placement="right" layout="tiles" trigger-class="add" aria-label="Add layer"><Icon name="plus" :size="12" /></DropMenu>
+        <DropMenu v-tip:right="'Add a layer or smart material'" :items="addLayerItems" placement="right" layout="tiles" trigger-class="add" aria-label="Add layer"><IconPlus :size="12" /></DropMenu>
       </div>
       <div class="list" @dragleave.self="dropAt = null">
         <!-- Base material: under every layer; heads the Diffuse / Height columns -->
@@ -263,8 +277,8 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
           <span class="swatch" :style="{ background: store.project.base.color }" />
           <span v-tip:right="{ title: 'Base', body: 'The material under every layer: colour, roughness, specular, height, opacity. Opens the project settings.' }" class="name">Base</span>
           <span class="cells">
-            <span v-tip:right="{ title: 'Diffuse', body: 'The layer colours the surface. Click a layer’s mark to switch its Diffuse output.' }" class="ch head"><Icon name="diffuse" :size="13" /></span>
-            <span v-tip:right="{ title: 'Height', body: 'The layer shapes the surface. Click a layer’s mark to switch its Height output.' }" class="ch head"><Icon name="height" :size="13" /></span>
+            <span v-tip:right="{ title: 'Diffuse', body: 'The layer colours the surface. Click a layer’s mark to switch its Diffuse output.' }" class="ch head"><IconDroplet :size="13" /></span>
+            <span v-tip:right="{ title: 'Height', body: 'The layer shapes the surface. Click a layer’s mark to switch its Height output.' }" class="ch head"><IconMountain :size="13" /></span>
             <span class="ch" />
           </span>
         </div>
@@ -293,9 +307,9 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
               :aria-label="expanded.has(u.material.id) ? 'Collapse material' : 'Expand material'"
               @click.stop="toggleExpanded(u.material.id)"
             >
-              <Icon :name="expanded.has(u.material.id) ? 'chev-down' : 'chev-right'" :size="11" />
+              <component :is="expanded.has(u.material.id) ? IconChevronDown : IconChevronRight" :size="11" />
             </button>
-            <Icon name="diamond" :size="13" :stroke="isSel('material', u.material.id) ? 'var(--accent-hi)' : MATERIAL_HUE" />
+            <IconSquareRotated :size="13" :color="isSel('material', u.material.id) ? 'var(--accent-hi)' : MATERIAL_HUE" />
             <input
               v-if="renaming === u.material.id"
               ref="renameInput"
@@ -311,7 +325,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             <span v-tip:right="`${u.layers.length} layers`" class="meta cf-mono">{{ u.layers.length }}</span>
             <span class="cells">
               <span v-for="ch in CHANNELS" :key="ch" v-tip:right="materialChannel(u, ch) ? `Some of its layers ${ch === 'diffuse' ? 'colour' : 'shape'} the surface` : undefined" class="ch fixed">
-                <Icon v-if="materialChannel(u, ch)" :name="ch" :size="12" />
+                <component :is="CHANNEL_ICON[ch]" v-if="materialChannel(u, ch)" :size="12" />
               </span>
               <button
                 v-tip:right="materialShown(u.material) ? 'Hide the material' : 'Show the material'"
@@ -320,7 +334,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
                 :aria-label="materialShown(u.material) ? 'Hide material' : 'Show material'"
                 @click.stop="store.setMaterialEnabled(u.material.id, !materialShown(u.material))"
               >
-                <Icon :name="materialShown(u.material) ? 'eye' : 'eye-off'" :size="12" />
+                <component :is="materialShown(u.material) ? IconEye : IconEyeOff" :size="12" />
               </button>
             </span>
           </div>
@@ -343,7 +357,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             @dragend="onDragEnd"
             @click="editor.select('layer', layer.id)"
           >
-            <Icon :name="layerIcon(layer.type)" :size="13" :stroke="isSel('layer', layer.id) ? 'var(--accent-hi)' : layerHue(layer.type)" />
+            <component :is="layerIcon(layer.type)" :size="13" :color="isSel('layer', layer.id) ? 'var(--accent-hi)' : layerHue(layer.type)" />
             <input
               v-if="renaming === layer.id"
               ref="renameInput"
@@ -369,9 +383,9 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
                   :aria-label="`${CHANNEL_LABEL[ch]} output`"
                   @click.stop="toggleChannel(layer, ch)"
                 >
-                  <Icon :name="ch" :size="12" />
+                  <component :is="CHANNEL_ICON[ch]" :size="12" />
                 </button>
-                <span v-else-if="channelState(layer, ch) === 'always'" v-tip:right="channelTip(layer, ch)" class="ch fixed"><Icon :name="ch" :size="12" /></span>
+                <span v-else-if="channelState(layer, ch) === 'always'" v-tip:right="channelTip(layer, ch)" class="ch fixed"><component :is="CHANNEL_ICON[ch]" :size="12" /></span>
                 <span v-else class="ch" />
               </template>
               <button
@@ -381,7 +395,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
                 :aria-label="layer.enabled ? 'Hide layer' : 'Show layer'"
                 @click.stop="store.updateLayer(layer.id, { enabled: !layer.enabled })"
               >
-                <Icon :name="layer.enabled ? 'eye' : 'eye-off'" :size="12" />
+                <component :is="layer.enabled ? IconEye : IconEyeOff" :size="12" />
               </button>
             </span>
           </div>
@@ -394,7 +408,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
         <span class="cf-label">Lights</span>
         <span class="count cf-mono">{{ store.project.lighting.lights.length }}</span>
         <span class="grow" />
-        <DropMenu v-tip:right="'Add a light'" :items="addLightItems" align="right" trigger-class="add" aria-label="Add light"><Icon name="plus" :size="12" /></DropMenu>
+        <DropMenu v-tip:right="'Add a light'" :items="addLightItems" align="right" trigger-class="add" aria-label="Add light"><IconPlus :size="12" /></DropMenu>
       </div>
       <div class="list">
         <div
@@ -404,7 +418,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
           :class="{ sel: isSel('light', light.id), off: !light.enabled }"
           @click="editor.select('light', light.id)"
         >
-          <Icon :name="light.type === 'point' ? 'point' : 'sun'" :size="13" :stroke="isSel('light', light.id) ? 'var(--accent-hi)' : LIGHT_HUE" />
+          <component :is="light.type === 'point' ? IconBulb : IconSun" :size="13" :color="isSel('light', light.id) ? 'var(--accent-hi)' : LIGHT_HUE" />
           <input
             v-if="renaming === light.id"
             ref="renameInput"
@@ -425,7 +439,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             :aria-label="light.enabled ? 'Disable light' : 'Enable light'"
             @click.stop="store.updateLight(light.id, { enabled: !light.enabled })"
           >
-            <Icon :name="light.enabled ? 'eye' : 'eye-off'" :size="12" />
+            <component :is="light.enabled ? IconEye : IconEyeOff" :size="12" />
           </button>
         </div>
         <div v-if="!store.project.lighting.lights.length" class="empty">No lights: sky and ambient only (project settings).</div>
@@ -436,7 +450,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
         <span class="cf-label">Post</span>
         <span class="count cf-mono">{{ store.project.post.length }}</span>
         <span class="grow" />
-        <DropMenu v-tip:right="'Add a post filter'" :items="addPostItems" align="right" trigger-class="add" aria-label="Add post filter"><Icon name="plus" :size="12" /></DropMenu>
+        <DropMenu v-tip:right="'Add a post filter'" :items="addPostItems" align="right" trigger-class="add" aria-label="Add post filter"><IconPlus :size="12" /></DropMenu>
       </div>
       <div class="list" @dragleave.self="dropAt = null">
         <div
@@ -451,7 +465,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
           @dragend="onDragEnd"
           @click="editor.select('post', f.id)"
         >
-          <Icon name="post" :size="13" :stroke="isSel('post', f.id) ? 'var(--accent-hi)' : POST_HUE" />
+          <IconSparkles :size="13" :color="isSel('post', f.id) ? 'var(--accent-hi)' : POST_HUE" />
           <span class="name">{{ allPostDefs().find((d) => d.type === f.type)?.label ?? f.type }}</span>
           <span v-if="errors[f.id]" v-tip:right="errors[f.id]" class="err">!</span>
           <button
@@ -461,7 +475,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             :aria-label="f.enabled ? 'Disable filter' : 'Enable filter'"
             @click.stop="store.updatePost(f.id, { enabled: !f.enabled })"
           >
-            <Icon :name="f.enabled ? 'eye' : 'eye-off'" :size="12" />
+            <component :is="f.enabled ? IconEye : IconEyeOff" :size="12" />
           </button>
         </div>
         <div v-if="!store.project.post.length" class="empty">No post filters. The render is clamped to 0–1.</div>

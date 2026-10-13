@@ -24,8 +24,6 @@ export interface RecipeDef {
   id: string
   label: string
   description: string
-  /** Icon name (ui/components/Icon). */
-  icon: string
   /** Macro controls; `group` refers to `groups`. */
   params: ParamDef[]
   groups: GroupDef[]

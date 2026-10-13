@@ -6,7 +6,7 @@ import { useEditorStore } from '@/stores/editor'
 import { Engine } from '@/render/engine'
 import { GpuError } from '@/gpu/context'
 import { CHANNEL_VIEWS } from '@/render/display'
-import Icon from '@/ui/components/Icon.vue'
+import { IconBackground, IconBolt, IconGrid4x4, IconMaximize, IconRepeat, IconStack2 } from '@tabler/icons-vue'
 import ShapeEditor from '@/ui/components/ShapeEditor.vue'
 import { getRecipe } from '@/recipes'
 import SelectField from '@/ui/components/SelectField.vue'
@@ -184,10 +184,10 @@ const SHORT: Record<string, string> = {
 
 /** Viewport overlays: toggle keys that latch, with a pilot lamp. */
 const toggles = computed(() => [
-  { label: 'Preview up to selected layer', tip: 'Preview up to the selected layer (S)', icon: 'layers', on: editor.solo, flip: () => (editor.solo = !editor.solo) },
-  { label: 'Tile preview', tip: 'Tile preview, 3×3 (T)', icon: 'tile', on: editor.tile, flip: () => (editor.tile = !editor.tile) },
-  { label: 'Pixel grid', tip: 'Pixel grid (G)', icon: 'grid', on: editor.grid, flip: () => (editor.grid = !editor.grid) },
-  { label: 'Alpha checkerboard', tip: 'Alpha checkerboard', icon: 'checker', on: editor.checker, flip: () => (editor.checker = !editor.checker) },
+  { label: 'Preview up to selected layer', tip: 'Preview up to the selected layer (S)', icon: IconStack2, on: editor.solo, flip: () => (editor.solo = !editor.solo) },
+  { label: 'Tile preview', tip: 'Tile preview, 3×3 (T)', icon: IconRepeat, on: editor.tile, flip: () => (editor.tile = !editor.tile) },
+  { label: 'Pixel grid', tip: 'Pixel grid (G)', icon: IconGrid4x4, on: editor.grid, flip: () => (editor.grid = !editor.grid) },
+  { label: 'Alpha checkerboard', tip: 'Alpha checkerboard', icon: IconBackground, on: editor.checker, flip: () => (editor.checker = !editor.checker) },
 ])
 
 let gizmoDrag: { id: string; type: 'point' | 'directional' } | null = null
@@ -349,10 +349,10 @@ watch(
           :aria-pressed="t.on"
           @click="t.flip()"
         >
-          <span class="fk-face"><Icon :name="t.icon" :size="14" /><span class="fk-lamp" /></span>
+          <span class="fk-face"><component :is="t.icon" :size="14" /><span class="fk-lamp" /></span>
         </button>
         <div class="vsep" />
-        <button v-tip:bottom="'Fit to view (F)'" type="button" class="cf-ico-btn" aria-label="Fit to view" @click="fit"><Icon name="fit" :size="14" /></button>
+        <button v-tip:bottom="'Fit to view (F)'" type="button" class="cf-ico-btn" aria-label="Fit to view" @click="fit"><IconMaximize :size="14" /></button>
         <span class="chip cf-mono">{{ zoomLabel }}</span>
       </div>
     </div>
@@ -371,7 +371,7 @@ watch(
     </div>
 
     <div v-if="stats" class="status" :class="{ done: progress >= 1 }">
-      <Icon name="bolt" :size="14" :stroke="progress >= 1 ? 'var(--pill)' : 'var(--accent-hi)'" />
+      <IconBolt :size="14" :color="progress >= 1 ? 'var(--pill)' : 'var(--accent-hi)'" />
       <span class="txt">{{ stats.draft ? 'Draft' : progress >= 1 ? 'Converged' : 'Tracing' }} · <span class="cf-mono">{{ stats.samples }}/{{ stats.maxSamples }} spp</span></span>
       <span v-if="progress < 1" class="cf-mono lo">{{ stats.samplesPerSec }}/s</span>
       <div class="bar"><div :style="{ width: `${progress * 100}%` }" /></div>

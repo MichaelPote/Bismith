@@ -17,7 +17,7 @@ import { getRecipe, materialOf } from '@/recipes'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore, type ShapeTool } from '@/stores/editor'
 import { useActions } from '@/ui/actions'
-import Icon from '@/ui/components/Icon.vue'
+import { IconLine, IconPolygon, IconTrash, IconVectorSpline } from '@tabler/icons-vue'
 
 type Pt = [number, number]
 
@@ -445,13 +445,13 @@ const draftPath = computed(() => {
   </svg>
   <div class="shape-tools" @pointerdown.stop>
     <button type="button" :class="{ on: tool === 'edit' }" title="Edit the selected layer's shapes: drag vertices, click an edge to add one, right-click a vertex to remove it" @click="tool = 'edit'">
-      <Icon name="polygon" :size="13" />Edit
+      <IconPolygon :size="13" />Edit
     </button>
     <button type="button" :class="{ on: tool === 'polygon' }" title="Polygon: click to place vertices; Enter, double-click or the first vertex closes it — a new Path layer" @click="tool = 'polygon'">
-      <Icon name="line" :size="13" />Polygon
+      <IconLine :size="13" />Polygon
     </button>
     <button type="button" :class="{ on: tool === 'freehand' }" title="Freehand: press and draw a shape — a new Path layer" @click="tool = 'freehand'">
-      <Icon name="curve" :size="13" />Freehand
+      <IconVectorSpline :size="13" />Freehand
     </button>
     <button
       type="button"
@@ -459,9 +459,9 @@ const draftPath = computed(() => {
       :title="source?.pipes ? 'Line: click to place points; Enter, double-click or the last point ends it — a new run of the selected pipes' : 'Line: click to place points; Enter, double-click or the last point ends it — a new Polyline layer'"
       @click="tool = 'line'"
     >
-      <Icon name="line" :size="13" />{{ source?.pipes ? 'Pipe run' : 'Line' }}
+      <IconLine :size="13" />{{ source?.pipes ? 'Pipe run' : 'Line' }}
     </button>
-    <button v-if="shapes.length > 1" type="button" :disabled="selected === null" title="Delete the selected shape" @click="deleteSelected"><Icon name="trash" :size="13" /></button>
+    <button v-if="shapes.length > 1" type="button" :disabled="selected === null" title="Delete the selected shape" @click="deleteSelected"><IconTrash :size="13" /></button>
     <span v-if="source" class="count cf-mono" :class="{ full: total >= source.budget }" title="Vertices used">{{ total }}/{{ source.budget }}</span>
   </div>
 </template>

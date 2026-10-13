@@ -5,7 +5,7 @@ import { useEditorStore } from '@/stores/editor'
 import { useActions } from '@/ui/actions'
 import { CHANNEL_VIEWS } from '@/render/display'
 import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue'
-import Icon from '@/ui/components/Icon.vue'
+import { IconArrowBackUp, IconArrowForwardUp, IconDownload, IconStack2, IconTarget } from '@tabler/icons-vue'
 import { vTip } from '@/ui/tooltip'
 
 const store = useProjectStore()
@@ -58,8 +58,8 @@ const viewItems = computed<MenuItem[]>(() => [
 ])
 
 const WORKSPACES = [
-  { id: 'create', label: 'Create', icon: 'layers', hint: 'Build the texture: layers, lights, post' },
-  { id: 'match', label: 'Match', icon: 'target', hint: 'Match a reference image: templates, variations, the optimiser' },
+  { id: 'create', label: 'Create', icon: IconStack2, hint: 'Build the texture: layers, lights, post' },
+  { id: 'match', label: 'Match', icon: IconTarget, hint: 'Match a reference image: templates, variations, the optimiser' },
 ] as const
 
 const helpItems: MenuItem[] = [
@@ -103,7 +103,7 @@ const helpItems: MenuItem[] = [
           :aria-selected="editor.workspace === w.id"
           @click="editor.workspace = w.id"
         >
-          <span class="fk-face"><Icon :name="w.icon" :size="14" />{{ w.label }}</span>
+          <span class="fk-face"><component :is="w.icon" :size="14" />{{ w.label }}</span>
         </button>
       </div>
     </div>
@@ -113,10 +113,10 @@ const helpItems: MenuItem[] = [
         {{ store.project.name }}
         <span class="dim">· {{ store.project.width }}×{{ store.project.height }}{{ store.project.tileable ? ' · tiling' : '' }}</span>
       </span>
-      <button v-tip:bottom="'Undo (Ctrl+Z)'" type="button" class="cf-ico-btn" aria-label="Undo" :disabled="!store.canUndo" @click="store.undo"><Icon name="undo" :size="14" /></button>
-      <button v-tip:bottom="'Redo (Ctrl+Shift+Z)'" type="button" class="cf-ico-btn" aria-label="Redo" :disabled="!store.canRedo" @click="store.redo"><Icon name="redo" :size="14" /></button>
+      <button v-tip:bottom="'Undo (Ctrl+Z)'" type="button" class="cf-ico-btn" aria-label="Undo" :disabled="!store.canUndo" @click="store.undo"><IconArrowBackUp :size="14" /></button>
+      <button v-tip:bottom="'Redo (Ctrl+Shift+Z)'" type="button" class="cf-ico-btn" aria-label="Redo" :disabled="!store.canRedo" @click="store.redo"><IconArrowForwardUp :size="14" /></button>
       <button v-tip:bottom="'Export the final PNG'" type="button" class="fk primary" @click="act.exportFinal(1)">
-        <span class="fk-face"><Icon name="download" :size="13" />Export PNG<span class="kc">Ctrl E</span></span>
+        <span class="fk-face"><IconDownload :size="13" />Export PNG<span class="kc">Ctrl E</span></span>
       </button>
     </div>
   </header>

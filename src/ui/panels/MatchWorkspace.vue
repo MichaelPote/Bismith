@@ -17,7 +17,16 @@ import LossChart from '@/ui/components/LossChart.vue'
 import NumberField from '@/ui/components/NumberField.vue'
 import SelectField from '@/ui/components/SelectField.vue'
 import CheckField from '@/ui/components/CheckField.vue'
-import Icon from '@/ui/components/Icon.vue'
+import {
+  IconGrid4x4,
+  IconPalette,
+  IconPhoto,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconRefresh,
+  IconWand,
+  IconX,
+} from '@tabler/icons-vue'
 
 const store = useProjectStore()
 const editor = useEditorStore()
@@ -400,15 +409,15 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
 <template>
   <section class="match cf-panel">
     <div class="bar">
-      <button type="button" class="cf-btn" @click="pickFile"><Icon name="image" :size="13" />Load reference…</button>
+      <button type="button" class="cf-btn" @click="pickFile"><IconPhoto :size="13" />Load reference…</button>
       <span v-if="reference" class="cf-mono ref">{{ refName }} · {{ reference.width }}×{{ reference.height }}</span>
       <button v-if="reference" type="button" class="cf-btn" title="Resize the project to the reference (long side ≤ 512)" @click="matchSize">Match size</button>
       <span class="grow" />
       <button type="button" class="cf-btn" :disabled="!reference || !editor.engine || running || !!busy" title="Build every template in the reference's colours, ranked — pick the family to start from" @click="suggest">
-        <Icon name="wand" :size="13" />Suggest
+        <IconWand :size="13" />Suggest
       </button>
       <button type="button" class="cf-btn" :disabled="!editor.engine || running || !!busy" title="Eight variations around the current project — pick by eye, repeat" @click="vary">
-        <Icon name="grid" :size="13" />Variations
+        <IconGrid4x4 :size="13" />Variations
       </button>
       <button
         type="button"
@@ -417,12 +426,12 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
         title="Fit the current project's colours to the reference — materials through their colour controls, liquids by their tones (undo with Ctrl+Z)"
         @click="fitColoursNow"
       >
-        <Icon name="palette" :size="13" />{{ fitting ? 'Fitting…' : 'Fit colours' }}
+        <IconPalette :size="13" />{{ fitting ? 'Fitting…' : 'Fit colours' }}
       </button>
       <button v-if="!running" type="button" class="fk primary" :disabled="!reference || !editor.engine" @click="run">
-        <span class="fk-face"><Icon name="play" :size="12" />{{ optimizer ? (stopped && stopped !== 'aborted' ? 'Continue' : 'Resume') : 'Optimise' }}</span>
+        <span class="fk-face"><IconPlayerPlay :size="12" />{{ optimizer ? (stopped && stopped !== 'aborted' ? 'Continue' : 'Resume') : 'Optimise' }}</span>
       </button>
-      <button v-else type="button" class="cf-btn" @click="pause"><Icon name="pause" :size="12" />Pause</button>
+      <button v-else type="button" class="cf-btn" @click="pause"><IconPlayerPause :size="12" />Pause</button>
       <button type="button" class="cf-btn" :disabled="!optimizer || running" @click="applyBest">Apply best</button>
       <button type="button" class="cf-btn" :disabled="running" title="Forget the optimiser state" @click="reset">Reset</button>
     </div>
@@ -441,9 +450,9 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
         <template v-else>
           <span class="lo">Spread</span>
           <div class="spread"><NumberField v-model="spread" :min="0.02" :max="0.6" :step="0.01" label="Variation spread" /></div>
-          <button type="button" class="cf-btn" :disabled="!!busy" @click="vary"><Icon name="refresh" :size="12" />Again</button>
+          <button type="button" class="cf-btn" :disabled="!!busy" @click="vary"><IconRefresh :size="12" />Again</button>
         </template>
-        <button type="button" class="cf-ico-btn" aria-label="Close" @click="closeOverlay"><Icon name="close" :size="13" /></button>
+        <button type="button" class="cf-ico-btn" aria-label="Close" @click="closeOverlay"><IconX :size="13" /></button>
       </div>
       <div class="cards" :class="{ nine: overlay === 'vary' }">
         <button v-for="c in cards" :key="c.id" type="button" class="card" :class="{ current: c.current }" :title="c.label" @click="pickCard(c)">

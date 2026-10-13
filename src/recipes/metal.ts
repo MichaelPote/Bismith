@@ -9,7 +9,6 @@ export const hammeredMetal: RecipeDef = {
   id: 'hammered-metal',
   label: 'Hammered metal',
   description: 'Interlocking radial arcs of hammer dents, toned in the dents, with an optional patina.',
-  icon: 'hammered',
   groups: [
     { id: 'dents', label: 'Dents' },
     { id: 'colour', label: 'Colour' },
@@ -62,7 +61,6 @@ export const brushedMetal: RecipeDef = {
   id: 'brushed-metal',
   label: 'Brushed metal',
   description: 'Long fine streaks in the metal (colour only, never pixel height) over a soft mottle, with shallow dents that catch the light.',
-  icon: 'brushed',
   groups: [
     { id: 'streaks', label: 'Streaks' },
     { id: 'colour', label: 'Colour' },
@@ -103,7 +101,6 @@ export const stains: RecipeDef = {
   id: 'stains',
   label: 'Water & rust stains',
   description: 'Water stains darkening what is beneath, rust trails where they are strongest (same sources), optional paint blisters; sources scattered or on the ledges of the relief.',
-  icon: 'stains',
   groups: [
     { id: 'sources', label: 'Sources' },
     { id: 'colour', label: 'Colour' },

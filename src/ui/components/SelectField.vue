@@ -2,7 +2,7 @@
 // Dropdown. The wheel or the arrow keys over the field step through the options (stopping at the ends), so the
 // choices can be previewed in turn. A wheel that is scrolling the panel past the field keeps scrolling it.
 import { recentlyScrolled } from '@/ui/scrolling'
-import Icon from './Icon.vue'
+import { IconChevronDown } from '@tabler/icons-vue'
 
 const props = defineProps<{ modelValue: string; options: { value: string; label: string; hint?: string }[]; label?: string }>()
 const emit = defineEmits<{
@@ -56,7 +56,7 @@ function onKey(e: KeyboardEvent): void {
     <select :value="modelValue" :aria-label="label" @change="onChange" @wheel="onWheel" @keydown="onKey">
       <option v-for="o in options" :key="o.value" :value="o.value" :title="o.hint">{{ o.label }}</option>
     </select>
-    <Icon class="caret" name="chev-down" :size="12" />
+    <IconChevronDown class="caret" :size="12" />
   </div>
 </template>
 

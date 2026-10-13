@@ -11,7 +11,7 @@ import CheckField from './CheckField.vue'
 import GradientField from './GradientField.vue'
 import CurveField from './CurveField.vue'
 import RampField from './RampField.vue'
-import Icon from './Icon.vue'
+import { IconDice5 } from '@tabler/icons-vue'
 import { vTip, type Tip } from '@/ui/tooltip'
 
 const props = defineProps<{ defs: ParamDef[]; values: ParamValues }>()
@@ -175,7 +175,7 @@ function tip(r: Row): Tip {
             @commit="emit('commit')"
           />
           <button v-tip:top="'Random seed'" type="button" class="cf-ico-btn" aria-label="Random seed" @click="randomSeed(r.def.key)">
-            <Icon name="dice" :size="15" />
+            <IconDice5 :size="15" />
           </button>
         </div>
         <NumberField

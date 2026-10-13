@@ -87,6 +87,14 @@ a:hover {
   font-family: var(--font-mono);
 }
 
+/* Icons: @tabler/icons-vue components, used directly (`<IconEye :size="12" />`, `:color` for a hue). The UI's line
+   weight is 1.75 in Tabler's 24-unit grid; CSS beats the SVG attribute, so the `stroke` prop has no effect — set
+   another weight in CSS, as NumberField's chevrons do. */
+.tabler-icon {
+  flex: none;
+  stroke-width: 1.75;
+}
+
 /* Stud (Forged keys v2): row and panel-header icon buttons — invisible until touched, a flat Hairline plate on hover,
    latched = Sunken plate with Ember 300 ink. */
 .cf-ico-btn {

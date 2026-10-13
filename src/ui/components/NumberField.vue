@@ -4,7 +4,7 @@
 // go past it, up to the hard min / max. Double-click goes back to the value before the last change — again to return —
 // or, if the field hasn't been changed, to its default. The fill bar shows the value within its soft range.
 import { computed, nextTick, ref } from 'vue'
-import Icon from './Icon.vue'
+import { IconChevronLeft, IconChevronRight } from '@tabler/icons-vue'
 
 /** Previous values by memory key, so they outlive the field (the inspector rebuilds its fields on reselect). */
 const previousByKey = new Map<string, number>()
@@ -220,7 +220,7 @@ function finishEdit(apply: boolean): void {
 <template>
   <div class="nf" :class="{ dragging, editing, disabled }">
     <button type="button" class="arrow" tabindex="-1" :aria-label="`Decrease ${label ?? ''}`" @click="nudge(-1, $event)">
-      <Icon name="chev-left" :size="11" :weight="2" />
+      <IconChevronLeft :size="11" />
     </button>
     <div
       ref="track"
@@ -252,7 +252,7 @@ function finishEdit(apply: boolean): void {
       <span v-else class="val">{{ display }}</span>
     </div>
     <button type="button" class="arrow" tabindex="-1" :aria-label="`Increase ${label ?? ''}`" @click="nudge(1, $event)">
-      <Icon name="chev-right" :size="11" :weight="2" />
+      <IconChevronRight :size="11" />
     </button>
   </div>
 </template>
@@ -301,6 +301,9 @@ function finishEdit(apply: boolean): void {
 .arrow:hover {
   color: var(--text-hi);
   background: var(--hairline);
+}
+.arrow .tabler-icon {
+  stroke-width: 2;
 }
 .track {
   position: relative;

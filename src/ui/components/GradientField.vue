@@ -5,7 +5,7 @@ import { MAX_GRADIENT_STOPS, type Gradient } from '@/core/params'
 import { hexToRgb, rgbToHex } from '@/core/color'
 import ColorField from './ColorField.vue'
 import NumberField from './NumberField.vue'
-import Icon from './Icon.vue'
+import { IconArrowsLeftRight, IconTrash } from '@tabler/icons-vue'
 
 const props = defineProps<{ modelValue: Gradient; label?: string }>()
 const emit = defineEmits<{
@@ -139,8 +139,8 @@ function reverse(): void {
         @update:model-value="setPos($event, false)"
         @commit="setPos($event, true)"
       />
-      <button type="button" class="cf-ico-btn" title="Reverse" aria-label="Reverse ramp" @click="reverse"><Icon name="swap" :size="13" /></button>
-      <button type="button" class="cf-ico-btn" title="Remove stop" aria-label="Remove stop" :disabled="stops.length <= 1" @click="removeStop"><Icon name="trash" :size="13" /></button>
+      <button type="button" class="cf-ico-btn" title="Reverse" aria-label="Reverse ramp" @click="reverse"><IconArrowsLeftRight :size="13" /></button>
+      <button type="button" class="cf-ico-btn" title="Remove stop" aria-label="Remove stop" :disabled="stops.length <= 1" @click="removeStop"><IconTrash :size="13" /></button>
     </div>
   </div>
 </template>

@@ -36,3 +36,7 @@ time before.
   unchanged. For a generator with many modes, describe each mode as data (shapes, anchors) and run them all through
   one loop (`geometricTessellation.ts`). Don't time while
   another GPU job (e.g. the studio starting) runs. Batch compiles run in parallel (`engine.precompile([...])`).
+- **Icons are `@tabler/icons-vue` components, used directly** (`<IconTrash :size="13" />`; `:color`, not `:stroke`, for
+  a hue; `<component :is>` for data-driven ones — layer types and recipes via `layerIcon` / `recipeIcon` in
+  `src/ui/meta.ts`). `.tabler-icon { stroke-width: 1.75 }` in `src/styles/base.css` sets the UI's line weight and
+  overrides Tabler's `stroke` prop, so a different weight needs CSS (see NumberField's chevrons).

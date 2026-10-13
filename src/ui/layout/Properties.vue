@@ -12,7 +12,20 @@ import { layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta'
 import { useActions } from '@/ui/actions'
 import PanelCard from '@/ui/components/PanelCard.vue'
 import ParamList from '@/ui/components/ParamList.vue'
-import Icon from '@/ui/components/Icon.vue'
+import {
+  IconArrowDown,
+  IconArrowUp,
+  IconBox,
+  IconBulb,
+  IconCopy,
+  IconLock,
+  IconLockOpen,
+  IconSparkles,
+  IconSquareRotated,
+  IconStack2,
+  IconSun,
+  IconTrash,
+} from '@tabler/icons-vue'
 import PostExtras from '@/ui/panels/PostExtras.vue'
 import { getRecipe } from '@/recipes'
 import LightingPresets from '@/ui/panels/LightingPresets.vue'
@@ -144,7 +157,7 @@ const asValues = (o: object) => o as unknown as ParamValues
     <!-- Layer -->
     <template v-if="layer && layerDef">
       <div class="title">
-        <Icon :name="layerIcon(layer.type)" :size="15" :stroke="layerHue(layer.type)" />
+        <component :is="layerIcon(layer.type)" :size="15" :color="layerHue(layer.type)" />
         <input class="name" :value="layer.name" aria-label="Layer name" @change="store.updateLayer(layer.id, { name: ($event.target as HTMLInputElement).value })" />
         <label class="en" title="Enabled">
           <input type="checkbox" :checked="layer.enabled" aria-label="Layer enabled" @change="store.updateLayer(layer.id, { enabled: ($event.target as HTMLInputElement).checked })" />
@@ -163,22 +176,22 @@ const asValues = (o: object) => o as unknown as ParamValues
           aria-label="Lock from the optimiser"
           @click="store.updateLayer(layer.id, { locked: !layer.locked })"
         >
-          <Icon :name="layer.locked ? 'lock' : 'unlock'" :size="13" />
+          <component :is="layer.locked ? IconLock : IconLockOpen" :size="13" />
         </button>
         <span class="vsep" />
         <button v-tip="'Move up: applied earlier'" type="button" class="cf-ico-btn" aria-label="Move layer up" :disabled="!canStep(layer.id, -1)" @click="store.stepLayer(layer.id, -1)">
-          <Icon name="up" :size="13" />
+          <IconArrowUp :size="13" />
         </button>
         <button v-tip="'Move down: applied later, over more'" type="button" class="cf-ico-btn" aria-label="Move layer down" :disabled="!canStep(layer.id, 1)" @click="store.stepLayer(layer.id, 1)">
-          <Icon name="down" :size="13" />
+          <IconArrowDown :size="13" />
         </button>
-        <button v-tip="'Duplicate (Ctrl+D)'" type="button" class="cf-ico-btn" aria-label="Duplicate layer" @click="act.duplicateSelection"><Icon name="copy" :size="13" /></button>
-        <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete layer" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+        <button v-tip="'Duplicate (Ctrl+D)'" type="button" class="cf-ico-btn" aria-label="Duplicate layer" @click="act.duplicateSelection"><IconCopy :size="13" /></button>
+        <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete layer" @click="act.deleteSelection"><IconTrash :size="13" /></button>
       </div>
       <p v-if="layerDef.description" class="desc">{{ layerDef.description }}</p>
       <div v-if="layerMaterial" class="links">
         <button v-tip="`Part of the smart material ${layerMaterial.name} — select it`" type="button" class="chip" @click="editor.select('material', layerMaterial.id)">
-          <Icon name="diamond" :size="11" />{{ layerMaterial.name }}
+          <IconSquareRotated :size="11" />{{ layerMaterial.name }}
         </button>
       </div>
       <div class="scroll">
@@ -199,7 +212,7 @@ const asValues = (o: object) => o as unknown as ParamValues
     <!-- Smart material -->
     <template v-else-if="material && recipe">
       <div class="title">
-        <Icon name="diamond" :size="15" stroke="var(--accent-hi)" />
+        <IconSquareRotated :size="15" color="var(--accent-hi)" />
         <input class="name" :value="material.name" aria-label="Material name" @change="store.renameMaterial(material.id, ($event.target as HTMLInputElement).value)" />
         <label v-tip="'Shown'" class="en">
           <input type="checkbox" :checked="material.enabled !== false" aria-label="Material shown" @change="store.setMaterialEnabled(material.id, ($event.target as HTMLInputElement).checked)" />
@@ -210,13 +223,13 @@ const asValues = (o: object) => o as unknown as ParamValues
         <span class="cf-mono lo">{{ Object.keys(material.members).length }} layers</span>
         <span class="grow" />
         <button v-tip="'Move up: applied earlier'" type="button" class="cf-ico-btn" aria-label="Move material up" :disabled="!canStep(material.id, -1)" @click="store.stepLayer(material.id, -1)">
-          <Icon name="up" :size="13" />
+          <IconArrowUp :size="13" />
         </button>
         <button v-tip="'Move down: applied later, over more'" type="button" class="cf-ico-btn" aria-label="Move material down" :disabled="!canStep(material.id, 1)" @click="store.stepLayer(material.id, 1)">
-          <Icon name="down" :size="13" />
+          <IconArrowDown :size="13" />
         </button>
-        <button v-tip="'Unpack: keep the layers, drop the controls'" type="button" class="cf-ico-btn" aria-label="Unpack material" @click="unpackMaterial"><Icon name="layers" :size="13" /></button>
-        <button v-tip="'Delete the material and its layers (Del)'" type="button" class="cf-ico-btn" aria-label="Delete material" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+        <button v-tip="'Unpack: keep the layers, drop the controls'" type="button" class="cf-ico-btn" aria-label="Unpack material" @click="unpackMaterial"><IconStack2 :size="13" /></button>
+        <button v-tip="'Delete the material and its layers (Del)'" type="button" class="cf-ico-btn" aria-label="Delete material" @click="act.deleteSelection"><IconTrash :size="13" /></button>
       </div>
       <p class="desc">{{ recipe.description }} Its layers are ordinary layers — open it in the outliner to edit one; a control here rewrites only the settings it governs.</p>
       <div class="scroll">
@@ -233,7 +246,7 @@ const asValues = (o: object) => o as unknown as ParamValues
     <!-- Light -->
     <template v-else-if="light">
       <div class="title">
-        <Icon :name="light.type === 'point' ? 'point' : 'sun'" :size="15" :stroke="LIGHT_HUE" />
+        <component :is="light.type === 'point' ? IconBulb : IconSun" :size="15" :color="LIGHT_HUE" />
         <input class="name" :value="light.name" aria-label="Light name" @change="store.updateLight(light.id, { name: ($event.target as HTMLInputElement).value })" />
         <label class="en" title="Enabled">
           <input type="checkbox" :checked="light.enabled" aria-label="Light enabled" @change="store.updateLight(light.id, { enabled: ($event.target as HTMLInputElement).checked })" />
@@ -242,8 +255,8 @@ const asValues = (o: object) => o as unknown as ParamValues
       <div class="sub">
         <span class="type">{{ LIGHT_DEFS[light.type].label }} light</span>
         <span class="grow" />
-        <button v-tip="'Duplicate (Ctrl+D)'" type="button" class="cf-ico-btn" aria-label="Duplicate light" @click="act.duplicateSelection"><Icon name="copy" :size="13" /></button>
-        <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete light" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+        <button v-tip="'Duplicate (Ctrl+D)'" type="button" class="cf-ico-btn" aria-label="Duplicate light" @click="act.duplicateSelection"><IconCopy :size="13" /></button>
+        <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete light" @click="act.deleteSelection"><IconTrash :size="13" /></button>
       </div>
       <p class="desc">{{ light.type === 'point' ? 'Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at 64 px.' : 'Drag the sun gizmo around the texture to set the azimuth.' }}</p>
       <div class="scroll">
@@ -256,7 +269,7 @@ const asValues = (o: object) => o as unknown as ParamValues
     <!-- Post filter -->
     <template v-else-if="post && postDef">
       <div class="title">
-        <Icon name="post" :size="15" :stroke="POST_HUE" />
+        <IconSparkles :size="15" :color="POST_HUE" />
         <span class="name static">{{ postDef.label }}</span>
         <label class="en" title="Enabled">
           <input type="checkbox" :checked="post.enabled" aria-label="Filter enabled" @change="store.updatePost(post.id, { enabled: ($event.target as HTMLInputElement).checked })" />
@@ -266,12 +279,12 @@ const asValues = (o: object) => o as unknown as ParamValues
         <span class="type">Post filter · {{ store.project.post.findIndex((f) => f.id === post!.id) + 1 }} of {{ store.project.post.length }}</span>
         <span class="grow" />
         <button v-tip="'Move up: applied earlier'" type="button" class="cf-ico-btn" aria-label="Move filter earlier" @click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) - 1)">
-          <Icon name="up" :size="13" />
+          <IconArrowUp :size="13" />
         </button>
         <button v-tip="'Move down: applied later'" type="button" class="cf-ico-btn" aria-label="Move filter later" @click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) + 1)">
-          <Icon name="down" :size="13" />
+          <IconArrowDown :size="13" />
         </button>
-        <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete filter" @click="act.deleteSelection"><Icon name="trash" :size="13" /></button>
+        <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete filter" @click="act.deleteSelection"><IconTrash :size="13" /></button>
       </div>
       <p v-if="postDef.description" class="desc">{{ postDef.description }}</p>
       <div class="scroll">
@@ -285,7 +298,7 @@ const asValues = (o: object) => o as unknown as ParamValues
     <!-- Project -->
     <template v-else>
       <div class="title">
-        <Icon name="project" :size="15" stroke="var(--text-lo)" />
+        <IconBox :size="15" color="var(--text-lo)" />
         <input class="name" :value="store.project.name" aria-label="Project name" @change="store.project.name = ($event.target as HTMLInputElement).value" />
       </div>
       <p class="desc">Texture size and tiling, the base material every layer builds on, world lighting and the path tracer.</p>

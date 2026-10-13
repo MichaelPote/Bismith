@@ -2,8 +2,8 @@
 // Dropdown menu: a trigger button and a popover list of actions, section headers and separators.
 // layout="tiles" lays each section out as a wrapping row of square tiles; placement="right" pops the menu out
 // beside the trigger (teleported to <body> so the panel it sits in can't clip it).
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
-import Icon from './Icon.vue'
+import { computed, nextTick, onBeforeUnmount, ref, type Component } from 'vue'
+import { IconSquareRotated } from '@tabler/icons-vue'
 
 export interface MenuItem {
   label?: string
@@ -16,8 +16,8 @@ export interface MenuItem {
   hint?: string
   /** CSS colour for the leading category tick. */
   hue?: string
-  /** Tile layout: icon for the tile thumbnail (placeholder until `image` is set). */
-  icon?: string
+  /** Tile layout: icon (a Tabler component) for the tile thumbnail (placeholder until `image` is set). */
+  icon?: Component
   /** Tile layout: thumbnail image URL; replaces the icon. */
   image?: string
   action?: () => void
@@ -150,7 +150,7 @@ defineExpose({ toggle, close })
               >
                 <span class="thumb">
                   <img v-if="item.image" :src="item.image" alt="" />
-                  <Icon v-else :name="item.icon ?? 'diamond'" :size="22" />
+                  <component :is="item.icon ?? IconSquareRotated" v-else :size="22" />
                 </span>
                 <span class="tlbl">{{ item.label }}</span>
               </button>

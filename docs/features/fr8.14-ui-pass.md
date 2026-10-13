@@ -36,8 +36,9 @@ the old ember-underline styling instead of Cinderforge's Forged keys v2.
 - **Channel outputs**: Source · Mode share one row; Source reads *Pattern / Solid / Random* (was *Pattern value /
   Flat (1.0) / Per-feature random*); roughness and specular *At 0 / At 1* are one grey **Ramp** (`RampField`: drag
   the gems or type; ⇄ swaps). Joins are declared on the ParamDef (`join: { with, as: 'pair' | 'ramp', label }`).
-- **Icons**: Tabler (`@tabler/icons-vue`, MIT) behind `Icon.vue`'s own names, so call sites keep `name="eye"`; layer
-  types and recipes have their own icons (`ui/meta.ts`, `RecipeDef.icon`).
+- **Icons**: Tabler (`@tabler/icons-vue`, MIT) components used directly (`<IconEye :size="12" />`, `:color` for a
+  category hue; the 1.75 line weight is `.tabler-icon` in base.css). Layer types and recipes map to their icons in
+  `ui/meta.ts` (`layerIcon`, `recipeIcon`).
 - **Base row**: the first row of the Layers list (the material under every layer) carries the Diffuse / Height column
   heads; selecting it opens the project panel (selection kind `base`).
 - **No automatic linking**: editing a layer never changes another; new layers get a seed no other layer has.

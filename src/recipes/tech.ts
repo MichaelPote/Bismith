@@ -11,7 +11,6 @@ export const grate: RecipeDef = {
   id: 'grate',
   label: 'Grate & vents',
   description: 'A grid of slots, holes or louvres in a plate, optionally framed and bolted: floor grates, wall vents, grilles.',
-  icon: 'grate',
   groups: [
     { id: 'holes', label: 'Holes' },
     { id: 'frame', label: 'Frame' },
@@ -84,7 +83,6 @@ export const metalPlate: RecipeDef = {
   id: 'metal-plate',
   label: 'Metal plate',
   description: 'Iron or steel plate: fine mottle, rust patches and scratches; optional tread pattern, seams and rivets.',
-  icon: 'plate',
   groups: [
     { id: 'surface', label: 'Surface' },
     { id: 'pattern', label: 'Pattern' },
@@ -147,7 +145,6 @@ export const lightPanel: RecipeDef = {
   label: 'Light panel',
   fit: 'lightness',
   description: 'Glowing tubes in dark recessed housings on a metal panel (fluorescent strips, tech lights).',
-  icon: 'light',
   groups: [
     { id: 'tubes', label: 'Tubes' },
     { id: 'colour', label: 'Colour' },
@@ -208,7 +205,6 @@ export const circuit: RecipeDef = {
   label: 'Circuit board',
   fit: 'lightness',
   description: 'Circuit traces routed straight and diagonally (any angle), pads on the dead ends and vias, on a board; optionally glowing.',
-  icon: 'circuit',
   groups: [
     { id: 'traces', label: 'Traces' },
     { id: 'colour', label: 'Colour' },

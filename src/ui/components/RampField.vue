@@ -4,7 +4,7 @@
 // in the fields below; ⇄ swaps the ends.
 import { computed, ref } from 'vue'
 import NumberField from './NumberField.vue'
-import Icon from './Icon.vue'
+import { IconArrowsLeftRight } from '@tabler/icons-vue'
 import { vTip } from '@/ui/tooltip'
 
 const props = withDefaults(
@@ -108,7 +108,7 @@ function swap(): void {
         @update:model-value="emit('update:a', $event)"
         @commit="emit('commit')"
       />
-      <button v-tip:top="'Swap the ends'" type="button" class="cf-ico-btn" aria-label="Swap the ends" @click="swap"><Icon name="swap" :size="13" /></button>
+      <button v-tip:top="'Swap the ends'" type="button" class="cf-ico-btn" aria-label="Swap the ends" @click="swap"><IconArrowsLeftRight :size="13" /></button>
       <NumberField
         :model-value="b"
         :min="min"

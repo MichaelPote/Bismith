@@ -24,7 +24,7 @@ import { PRESETS } from '@/presets'
 import { rng, schemeAnalysis, templateScheme, type Scheme } from '@/match/schemes'
 import { fromLinear, toRgba8 } from '@/match/metrics'
 import ImageCanvas from '@/ui/components/ImageCanvas.vue'
-import Icon from '@/ui/components/Icon.vue'
+import { IconDice5, IconPlus, IconX } from '@tabler/icons-vue'
 import { vTip } from '@/ui/tooltip'
 
 const editor = useEditorStore()
@@ -233,7 +233,7 @@ onBeforeUnmount(() => {
             <h2 id="wizard-title">New project</h2>
             <p>Start blank, from an example, or from a suggestion — each in a random colour for its material: one or two hues in many values and saturations.</p>
           </div>
-          <button v-tip:left="'Close (Esc)'" type="button" class="cf-ico-btn" aria-label="Close" @click="close"><Icon name="close" :size="16" /></button>
+          <button v-tip:left="'Close (Esc)'" type="button" class="cf-ico-btn" aria-label="Close" @click="close"><IconX :size="16" /></button>
         </header>
 
         <div class="bar">
@@ -255,14 +255,14 @@ onBeforeUnmount(() => {
           <span class="grow" />
           <span v-if="rendering" class="status cf-mono">rendering previews · {{ done }} / {{ all.length }}</span>
           <button v-tip:bottom="'New random colour schemes for the suggestions'" type="button" class="fk" @click="shuffle">
-            <span class="fk-face"><Icon name="dice" :size="14" />Shuffle colours</span>
+            <span class="fk-face"><IconDice5 :size="14" />Shuffle colours</span>
           </button>
         </div>
 
         <div class="grid">
           <h3 class="section">Starters</h3>
           <button type="button" class="card blank" @click="pick(blankProject())">
-            <div class="thumb"><Icon name="plus" :size="32" stroke="var(--text-lo)" /></div>
+            <div class="thumb"><IconPlus :size="32" color="var(--text-lo)" /></div>
             <div class="meta">
               <span class="name">Blank</span>
               <span class="sub">No layers — the base material only</span>
