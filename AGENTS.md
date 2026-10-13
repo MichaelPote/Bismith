@@ -3,6 +3,12 @@
 Architecture and feature docs live in `docs/` (start with `docs/architecture.md`). Below: gotchas that have cost
 time before.
 
+## This repo is public
+
+Keep anything tied to third-party reference textures — recreations, exemplars, reference names, notes — in
+`private/`, which is gitignored and is its own repo. In public files (code, comments, docs, commit messages),
+describe a motif generically ("riveted panel", "staggered slots"), never by a reference texture's name or file path.
+
 ## Gotchas
 
 - **`<< out` breaks esbuild / `tsx`.** esbuild (used by `npx tsx`, so by every script in `tools/` and any ad-hoc
