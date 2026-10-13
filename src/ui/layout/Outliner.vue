@@ -26,22 +26,21 @@ const errors = computed(() => editor.stats?.errors ?? {})
 const MATERIAL_HUE = 'var(--accent-hi)'
 
 // ---------------------------------------------------------------- add menus
+/** One tile grid: the generators, then the smart materials (composites of them), then filters and adjustments. */
 const addLayerItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = []
-  const order: LayerCategory[] = ['noise', 'shape', 'pattern', 'filter', 'adjust']
-  for (const cat of order) {
+  const section = (cat: LayerCategory) => {
     const defs = allLayerDefs().filter((d) => d.category === cat)
-    if (!defs.length) continue
+    if (!defs.length) return
     items.push({ section: CATEGORY_LABELS[cat] })
     for (const d of defs) items.push({ label: d.label, hint: d.description, hue: CATEGORY_HUE[cat], icon: layerIcon(d.type), action: () => act.addLayer(d.type) })
   }
+  for (const cat of ['noise', 'shape', 'pattern'] as const) section(cat)
+  items.push({ section: 'Smart materials' })
+  for (const r of RECIPES) items.push({ label: r.label, hint: r.description, hue: MATERIAL_HUE, icon: r.icon, action: () => act.addMaterial(r.id) })
+  for (const cat of ['filter', 'adjust'] as const) section(cat)
   return items
 })
-
-const addMaterialItems = computed<MenuItem[]>(() => [
-  { section: 'Smart materials' },
-  ...RECIPES.map((r) => ({ label: r.label, hint: r.description, hue: MATERIAL_HUE, icon: r.icon, action: () => act.addMaterial(r.id) })),
-])
 
 const addLightItems = computed<MenuItem[]>(() => [
   {
@@ -256,17 +255,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
         <span v-tip:right="{ title: 'Layers', body: 'In evaluation order: the top layer is applied first, each one below goes over it, the bottom layer last.' }" class="cf-label">Layers</span>
         <span class="count cf-mono">{{ store.project.layers.length }}</span>
         <span class="grow" />
-        <DropMenu
-          v-tip:right="'Add a smart material: a few controls over a block of ordinary layers'"
-          :items="addMaterialItems"
-          placement="right"
-          layout="tiles"
-          trigger-class="add"
-          aria-label="Add smart material"
-        >
-          <Icon name="material-add" :size="13" />
-        </DropMenu>
-        <DropMenu v-tip:right="'Add a layer'" :items="addLayerItems" placement="right" layout="tiles" trigger-class="add" aria-label="Add layer"><Icon name="plus" :size="12" /></DropMenu>
+        <DropMenu v-tip:right="'Add a layer or smart material'" :items="addLayerItems" placement="right" layout="tiles" trigger-class="add" aria-label="Add layer"><Icon name="plus" :size="12" /></DropMenu>
       </div>
       <div class="list" @dragleave.self="dropAt = null">
         <!-- Base material: under every layer; heads the Diffuse / Height columns -->
@@ -397,7 +386,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             </span>
           </div>
         </div>
-        <div v-if="!units.length" class="empty">No layers yet. Add a layer with + or a smart material with ◆.</div>
+        <div v-if="!units.length" class="empty">No layers yet. Add a layer or smart material with +.</div>
       </div>
 
       <!-- Lighting -->

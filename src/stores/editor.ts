@@ -39,6 +39,8 @@ export const useEditorStore = defineStore('editor', () => {
    * unless `instant` (when the work will freeze the page, the modal has to be on screen before it starts).
    */
   const busy = ref<{ title: string; detail?: string; instant?: boolean } | null>(null)
+  /** The new-project wizard is open. */
+  const wizard = ref(false)
 
   function select(kind: SelectionKind, id?: string): void {
     selection.value = { kind, id }
@@ -57,6 +59,7 @@ export const useEditorStore = defineStore('editor', () => {
   }
 
   return {
+    wizard,
     selection,
     workspace,
     channel,

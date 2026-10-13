@@ -4,7 +4,6 @@ import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
 import { useActions } from '@/ui/actions'
 import { CHANNEL_VIEWS } from '@/render/display'
-import { PRESETS } from '@/presets'
 import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue'
 import Icon from '@/ui/components/Icon.vue'
 import { vTip } from '@/ui/tooltip'
@@ -15,7 +14,7 @@ const act = useActions()
 
 const fileItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [
-    { label: 'New project', shortcut: 'Ctrl+Alt+N', action: () => act.newProject() },
+    { label: 'New project…', shortcut: 'Ctrl+Alt+N', action: () => (editor.wizard = true) },
     { label: 'Open project…', shortcut: 'Ctrl+O', action: act.openProject },
     { label: 'Save project', shortcut: 'Ctrl+S', action: act.saveProject },
     { separator: true },
@@ -34,14 +33,6 @@ const fileItems = computed<MenuItem[]>(() => {
     { label: 'Emissive', action: () => act.exportMap('emissive') },
     { label: 'Opacity', action: () => act.exportMap('opacity') },
   ]
-  let group = ''
-  for (const p of PRESETS) {
-    if (p.group !== group) {
-      group = p.group
-      items.push({ section: `New from preset · ${group}` })
-    }
-    items.push({ label: p.name, action: () => act.newProject(p.build()) })
-  }
   return items
 })
 

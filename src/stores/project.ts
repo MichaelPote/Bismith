@@ -7,6 +7,7 @@ import type { Layer, LayerUnit, Light, LightType, PostFilter, Project, SmartMate
 import { flattenUnits, layerUnits } from '@/core/project'
 import { addMaterial as recipeAdd, deleteMaterial as recipeDelete, pruneMaterials, setMacro, setMaterialMask as recipeMask, unpackMaterial as recipeUnpack } from '@/recipes'
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize'
+import { getLayerDef } from '@/layers/registry'
 import { newId } from '@/core/ids'
 import { MAX_LIGHTS } from '@/core/project'
 import { PRESETS } from '@/presets'
@@ -154,10 +155,11 @@ export const useProjectStore = defineStore('project', () => {
     return seed
   }
 
-  /** Insert a new layer at `atIndex` (default last, on top); never inside a material's block. A seeded layer gets a
-   * seed no other layer has. */
+  /** Insert a new layer at `atIndex` (default last, on top); never inside a material's block. It starts from its type's
+   * editor defaults (LayerDef.fresh); a seeded layer gets a seed no other layer has. */
   function addLayer(type: string, atIndex?: number, overrides: Record<string, ParamValue> = {}): Layer {
-    const layer = createLayer(type, overrides)
+    const fresh = getLayerDef(type)?.fresh?.({ width: project.value.width, height: project.value.height }) ?? {}
+    const layer = createLayer(type, { ...fresh, ...overrides })
     if (layer.params.seed !== undefined && overrides.seed === undefined) layer.params.seed = freshSeed()
     const list = layers()
     const i = outsideBlocks(atIndex === undefined ? list.length : Math.max(0, Math.min(list.length, atIndex)))

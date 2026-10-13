@@ -62,7 +62,7 @@ export function layerParamDefs(type: string): ParamDef[] {
 
 export function layerGroups(def: LayerDef): GroupDef[] {
   const base = def.kind === 'generator' ? GENERATOR_GROUPS : FILTER_GROUPS
-  const groups = base.filter((g) => g.id !== 'shape' || def.sdf)
+  const groups = base.filter((g) => (g.id !== 'shape' && g.id !== 'shapemask') || def.sdf)
   const extra = def.groups ?? []
   // Type-specific groups go right after the main params group.
   return [groups[0], ...extra, ...groups.slice(1)]
@@ -77,15 +77,24 @@ export function layerChannels(type: string): LayerChannels {
   return def.kind === 'generator' ? GENERATOR_CHANNELS : (def.channels ?? {})
 }
 
+/**
+ * Params from before the Shape Mask toggle: "Ignore register" was an operator (sdf_op 'none'); it is now the
+ * unticked Shape Mask (sm_on false) with the mode left at Normal.
+ */
+export function migrateParams(params: ParamValues): ParamValues {
+  if (params.sdf_op !== 'none') return params
+  return { ...params, sdf_op: 'replace', sm_on: false }
+}
+
 export function createLayer(type: string, overrides: ParamValues = {}, name?: string): Layer {
   const def = defs.get(type)
   if (!def) throw new Error(`Unknown layer type: ${type}`)
-  const params = { ...defaultParams(layerParamDefs(type)), ...overrides }
+  const params = { ...defaultParams(layerParamDefs(type)), ...migrateParams(overrides) }
   return { id: newId('ly'), type, name: name ?? def.label, enabled: true, params }
 }
 
 /** Fill missing params with defaults, drop unknown ones, clamp values. */
 export function sanitizeLayer(layer: Layer): Layer {
   const defsForType = layerParamDefs(layer.type)
-  return { ...layer, params: sanitizeParams(defsForType, layer.params) }
+  return { ...layer, params: sanitizeParams(defsForType, migrateParams(layer.params)) }
 }

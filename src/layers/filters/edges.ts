@@ -36,7 +36,7 @@ export const bevelLayer: LayerDef = {
   label: 'Bevel',
   category: 'filter',
   kind: 'filter',
-  description: 'Raises (or sinks) a thresholded area or the shape register with a profiled bevel along its edge.',
+  description: 'Raises (or sinks) a thresholded area or the shape mask with a profiled bevel along its edge.',
   params: [
     ...SOURCE_PARAMS,
     SMOOTH_PARAM,

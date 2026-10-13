@@ -18,7 +18,7 @@ export const cracksLayer: LayerDef = {
     P.enum('output', 'Output', 'plates', [
       ['plates', 'Plates (bevel × coverage)'],
       ['shape', 'Plate shapes (SDF)'],
-    ], { hint: 'Plates: value 1 on the plates with the Shape bevel at their edges, 0 in the cracks. Shape: plate SDF for the shape register' }),
+    ], { hint: 'Plates: value 1 on the plates with the Shape bevel at their edges, 0 in the cracks. Shape: the outline of the plates for the shape mask' }),
     P.float('scale', 'Scale', 4, 0.5, 64, { softMax: 16, step: 0.01, hint: 'Main plates across the texture width (rounded when tiling)' }),
     P.float('jitter', 'Jitter', 0.9, 0, 1, { step: 0.001 }),
     P.float('size_var', 'Size variation', 0.3, 0, 1, { step: 0.001, hint: 'Main plates only' }),

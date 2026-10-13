@@ -5,11 +5,12 @@ import type { ParamValues } from '@/core/params'
 import type { Layer, Light, PostFilter, Project } from '@/core/project'
 import { createLayer, createLight, createPostFilter, createProject } from '@/core/serialize'
 import { defaultRender } from '@/core/project'
+import { addMaterial } from '@/recipes'
 
 export interface Preset {
   id: string
   name: string
-  group: 'Quake-style' | 'UI surfaces' | 'Basics'
+  group: 'Quake-style' | 'UI surfaces' | 'Nature' | 'Basics'
   build: () => Project
 }
 
@@ -199,7 +200,7 @@ function forgedButton(): Project {
         h_on: true, h_amount: 0.02, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.15, dif_grad: ramp('#000000', '#ffffff'),
       }),
       L('rect', 'Underlight', {
-        size_mode: 'size', width: 110, height: 3, y: 0.78, radius: 1.5, bevel: 1, profile: 'round', sdf_op: 'none',
+        size_mode: 'size', width: 110, height: 3, y: 0.78, radius: 1.5, bevel: 1, profile: 'round', sm_on: false,
         h_on: true, h_amount: 0.12, dif_on: true, dif_src: 'flat', dif_grad: ramp('#ff9019'),
         e_on: true, e_src: 'flat', e_color: '#f66e10', e_intensity: 7,
       }),
@@ -229,7 +230,7 @@ function sunkenWell(): Project {
         sh_invert: true, h_on: true, h_mode: 'subtract', h_src: 'flat', h_amount: 0.6, dif_on: true, dif_src: 'flat', dif_grad: ramp('#1a1d20'),
       }),
       L('rect', 'Well rim', {
-        size_mode: 'inset', inset_x: 12, inset_y: 12, radius: 12, corners: 'tl', corner_style: 'chamfer', outline: 1.5, bevel: 0.75, profile: 'round', sdf_op: 'none',
+        size_mode: 'inset', inset_x: 12, inset_y: 12, radius: 12, corners: 'tl', corner_style: 'chamfer', outline: 1.5, bevel: 0.75, profile: 'round', sm_on: false,
         h_on: true, h_amount: 0.15, dif_on: true, dif_src: 'flat', dif_grad: ramp('#4a5259'),
       }),
     ],
@@ -262,11 +263,11 @@ function bevelledPanel(): Project {
       }),
       L('noise', 'Brushing', { noise: 'value', fractal: 'fbm', scale: 16, stretch: 10, octaves: 4, h_on: true, h_amount: 0.01, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.18, dif_grad: ramp('#000000', '#ffffff'), r_on: true, r_a: 0.4, r_b: 0.65 }),
       L('cross', 'Screws', {
-        size: 3, arm: 1.2, x: 0.07, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, rotation: 20, rep_rot: 40, sdf_op: 'none',
+        size: 3, arm: 1.2, x: 0.07, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, rotation: 20, rep_rot: 40, sm_on: false,
         bevel: 0.5, h_on: true, h_mode: 'subtract', h_amount: 0.3, dif_on: true, dif_src: 'flat', dif_grad: ramp('#101214'),
       }),
       L('ellipse', 'Screw heads', {
-        radius: 5, x: 0.07, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, sdf_op: 'none', outline: 1.5, bevel: 1, profile: 'round',
+        radius: 5, x: 0.07, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, sm_on: false, outline: 1.5, bevel: 1, profile: 'round',
         h_on: true, h_amount: 0.25, dif_on: true, dif_src: 'flat', dif_grad: ramp('#6b757d'), r_on: true, r_src: 'flat', r_b: 0.3,
       }),
     ],
@@ -309,6 +310,52 @@ function emberGem(): Project {
   })
 }
 
+// ------------------------------------------------------------------------------------------- Nature
+
+/** Sunlight through a rolling sea onto a sandless floor: the Liquid material, refracted light, Gerstner waves. */
+function waterCaustics(): Project {
+  const p = createProject({
+    name: 'Water caustics',
+    width: 128,
+    height: 128,
+    tileable: true,
+    heightDepth: 2,
+    base: { color: '#04283a', roughness: 0.25, specular: 0.5, height: 0, opacity: 1 },
+    layers: [],
+    lighting: {
+      sky: { enabled: true, zenith: '#cdeef4', horizon: '#a6d6de', intensity: 0.7 },
+      ambient: { color: '#e6fbff', intensity: 0.06 },
+      lights: [sun({ azimuth: 315, elevation: 62, angle: 3, intensity: 0.6, color: '#f2fcff' })],
+    },
+    render: { ...defaultRender(), maxSamples: 128, bounces: 1, shadows: false },
+    post: [post('glow', { threshold: 0.85, intensity: 0.5, radius: 0.5 }), post('tonemap', { operator: 'aces', exposure: 0.15 })],
+  })
+  addMaterial(
+    p,
+    'liquid',
+    {
+      style: 'refraction',
+      model: 'gerstner',
+      steepness: 0.75,
+      scale: 3,
+      strength: 8,
+      softness: 0.5,
+      exposure: 0.45,
+      contrast: 2,
+      waves: 11,
+      meander: 0.8,
+      halo: 0.55,
+      variety: 0.9,
+      colours: ramp('#021a2b', '#06384d', '#0b5a6e', '#138388', '#2aa9a3', '#7fdcd0', '#d4fbf3'),
+      glow: 0.06,
+      highlight: 0.55,
+      highlight_colour: '#e6fffb',
+    },
+    'Water caustics',
+  )
+  return p
+}
+
 export const PRESETS: Preset[] = [
   { id: 'riveted', name: 'Riveted plate', group: 'Quake-style', build: riveted },
   { id: 'bricks', name: 'Stone bricks', group: 'Quake-style', build: stoneBricks },
@@ -318,5 +365,6 @@ export const PRESETS: Preset[] = [
   { id: 'well', name: 'Sunken well', group: 'UI surfaces', build: sunkenWell },
   { id: 'panel', name: 'Bevelled panel', group: 'UI surfaces', build: bevelledPanel },
   { id: 'gem', name: 'Ember gem', group: 'UI surfaces', build: emberGem },
+  { id: 'water', name: 'Water caustics', group: 'Nature', build: waterCaustics },
   { id: 'blank', name: 'Blank noise', group: 'Basics', build: () => createProject({ name: 'Untitled' }) },
 ]

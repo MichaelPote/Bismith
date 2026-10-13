@@ -2,6 +2,14 @@
 
 **Status:** done — four mask channels; per-layer, per-filter and per-material clipping; Cut-out lump; Masks view
 
+## Naming
+In the UI the shape register is the **Shape Mask** (code keeps `register`, `sdf_op`, `m_clip`): a toggle group like
+Diffuse — ticked (`sm_on`) the layer writes its shape, unticked it leaves the shape mask alone (formerly the
+"Ignore register" operator; old projects migrate on load and on `createLayer`, `migrateParams`). *Mode*: Normal
+(was New shape), Union, Subtract, Intersection and their smooth variants; *Mask › Clip to shape mask*:
+inside / outside. Named masks are the four numbered masks below; the viewport has *Shape Mask* (`0`) and *Named
+masks* (`M`) views.
+
 ## Goal
 Mask layers individually — e.g. cut a hole in a metal wall with a circuit board showing through behind it. The shape
 register (one signed distance, rewritten by every shape layer) can't hold a hole across whole materials.

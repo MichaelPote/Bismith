@@ -13,6 +13,15 @@ Pipe runs as true cylinders — the value is the surface height, so the lights s
   height in front of them, or teeing between two horizontal runs next to each other at that x (at the run's actual
   height there, clear of its jogs' elbows); every run spans exactly one period, so the layout tiles. Drawn runs
   tile too on a tileable project when they cross the edges where their continuation should appear.
+- **Crowded and dense layouts**: Horizontal / Vertical runs go to 64. A run that finds no clear band (after 40 tries)
+  is no longer dropped: it lies over the runs it overlaps, its axis at their top, and the verticals stand in front of
+  the highest horizontal. **Density** (0..1) then stacks layers of straight runs in front — horizontal, vertical,
+  horizontal … each resting on everything behind it, its runs apart from one another, each where it covers the most
+  bare wall (`Coverage`, a ≤ 256-cell grid; one candidate always on a bare cell) — until that share of the bare wall
+  is covered (1 = none left; at most 96 runs). A stack taller than 4 × the radius is scaled to fit the value range
+  (the header carries its height) instead of having its front pipes clipped flat; one that fits keeps the default,
+  so ordinary layouts render as before. Projects whose run counts did not fit their texture now show the runs that
+  used to be dropped.
 - **CPU → GPU**: runs become primitives — straight lengths, filleted elbows (arcs; bend radius in pipe radii,
   limited to half the adjoining lengths), collars (couplings at an even spacing, elbow ends, tees) and bolted
   flanges (two plates, a ridge of bolt heads) — copied across the edges when tiling, and packed into an RGBA8 texture

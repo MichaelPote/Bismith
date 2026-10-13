@@ -16,8 +16,8 @@ export const CHANNEL_VIEWS: { id: ChannelView; label: string; key: string }[] = 
   { id: 'ao', label: 'AO', key: '7' },
   { id: 'emissive', label: 'Emissive', key: '8' },
   { id: 'opacity', label: 'Opacity', key: '9' },
-  { id: 'register', label: 'Shape SDF', key: '0' },
-  { id: 'masks', label: 'Masks', key: 'm' },
+  { id: 'register', label: 'Shape Mask', key: '0' },
+  { id: 'masks', label: 'Named masks', key: 'm' },
 ]
 
 const MODE: Record<ChannelView, number> = {

@@ -29,7 +29,7 @@ export const woodLayer: LayerDef = {
       ['wood', 'Wood (grain × plank edges)'],
       ['shape', 'Plank shapes (SDF)'],
       ['grain', 'Grain only'],
-    ], { hint: 'Wood: grain value with gaps = 0 and the Shape bevel darkening plank edges. Shape: plank SDF for the shape register (bevel / clip). Grain: per-board grain without gaps' }),
+    ], { hint: 'Wood: grain value with gaps = 0 and the Shape bevel darkening plank edges. Shape: the outline of the planks for the shape mask (bevel / clip). Grain: per-board grain without gaps' }),
     P.bool('planks', 'Planks', true, { hint: 'Off: one continuous piece of wood (no gaps, joints or boards)' }),
     P.enum('direction', 'Direction', 'vertical', [['vertical', 'Vertical'], ['horizontal', 'Horizontal']], { hint: 'Which way the planks (and grain) run' }),
     P.int('count', 'Planks', 4, 1, 128, { softMax: 16, showIf: planksOn, hint: 'Planks across the texture' }),
@@ -215,7 +215,7 @@ export const scalesLayer: LayerDef = {
     P.enum('output', 'Output', 'scales', [
       ['scales', 'Scales (shading × edges)'],
       ['shape', 'Scale shapes (SDF)'],
-    ], { hint: 'Scales: domed value with the Shape bevel at the visible edge and outlines = 0. Shape: SDF of each visible scale for the shape register' }),
+    ], { hint: 'Scales: domed value with the Shape bevel at the visible edge and outlines = 0. Shape: the outline of each visible scale for the shape mask' }),
     P.int('columns', 'Columns', 4, 1, 128, { softMax: 16, hint: 'Scales per row' }),
     P.int('rows', 'Rows', 0, 0, 256, { softMax: 32, hint: '0 = auto (row spacing = radius: classic fish scales). Rounded up to even when tiling' }),
     P.float('radius', 'Radius', 0.5, 0.25, 1, { step: 0.001, hint: 'Scale radius as a fraction of the column width (0.5 = neighbours touch)' }),

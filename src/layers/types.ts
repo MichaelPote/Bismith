@@ -44,6 +44,12 @@ export interface LayerDef {
    * Pattern card animates it. Other generators get the Phase in Shaping, shown while a domain warp is on.
    */
   noise?: boolean
+  /**
+   * What a layer added in the editor starts with, over the defaults (sized to the texture). Code that builds layers —
+   * recipes, templates, presets — and stored projects keep the plain defaults, so new looks can be offered without
+   * changing old ones.
+   */
+  fresh?: (texture: { width: number; height: number }) => ParamValues
   /** Overrides for common param defaults (e.g. which channel outputs start enabled). */
   defaults?: Record<string, ParamValue>
   /** Extra groups for this type's params, in display order (the default 'params' group is implicit). */

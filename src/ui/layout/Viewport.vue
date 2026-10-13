@@ -170,7 +170,7 @@ const CHANNEL_OPTIONS = CHANNEL_VIEWS.map((c) => ({ value: c.id, label: `${c.lab
 
 /** Channel key labels for a narrow viewport (the tooltip keeps the full name). */
 const SHORT: Record<string, string> = {
-  final: 'Fin', diffuse: 'Dif', height: 'Hgt', roughness: 'Rgh', specular: 'Spc', normal: 'Nrm', ao: 'AO', emissive: 'Emi', opacity: 'Opa', register: 'SDF', masks: 'Msk',
+  final: 'Fin', diffuse: 'Dif', height: 'Hgt', roughness: 'Rgh', specular: 'Spc', normal: 'Nrm', ao: 'AO', emissive: 'Emi', opacity: 'Opa', register: 'Shp', masks: 'Msk',
 }
 
 /** Viewport overlays: toggle keys that latch, with a pilot lamp. */

@@ -8,7 +8,7 @@
 import { P } from '@/core/params'
 import type { ParamValues } from '@/core/params'
 import type { LayerDef } from '../types'
-import { buildPrims, encodePrims, parseRuns, randomRuns, type PipeOptions, type PipeRun } from './pipesGeometry'
+import { buildPrims, encodePrims, parseRuns, randomRuns, stackHeight, type PipeOptions, type PipeRun } from './pipesGeometry'
 
 const isRandom = (p: Record<string, unknown>) => (p.layout ?? 'random') === 'random'
 const isDrawn = (p: Record<string, unknown>) => p.layout === 'drawn'
@@ -64,6 +64,7 @@ export function pipeRuns(q: ParamValues, o: PipeOptions): PipeRun[] {
     variety,
     jogs: Number(q.jogs ?? 0.5),
     tees: Number(q.tees ?? 0.5),
+    density: Number(q.density ?? 0),
   })
 }
 
@@ -76,7 +77,7 @@ export const pipeworkLayer: LayerDef = {
   description: 'Pipe runs on a wall: straight lengths, rounded elbows, tees and crossings, collars and bolted flanges — round, lit, shadow-casting. Drawn runs or a random tileable layout.',
   params: [
     P.enum('output', 'Output', 'height', [['height', 'Surface height'], ['cover', 'Coverage'], ['fittings', 'Fittings'], ['underside', 'Underside'], ['tubes', 'Tubes only'], ['facing', 'Facing the light'], ['liquid', 'Liquid']], {
-      hint: 'Surface height: the round pipes (for relief; 1 = 4 × the pipe radius). Coverage: the pipes\' outline (writes the shape register, so later layers can clip to the pipes). Fittings: 1 on collars and flanges. Underside: 0 on top of a pipe → 1 underneath (rust, grime). Tubes only: the outline of the tubes without their fittings (writes the register — e.g. glass tubes with metal collars). Facing the light: across each pipe, 1 on the side towards the top-left → 0 away (reflection bands on chrome). Liquid: 1 below each run\'s liquid surface (Liquid level)',
+      hint: 'Surface height: the round pipes (for relief; 1 = 4 × the pipe radius). Coverage: the pipes\' outline (writes the shape mask, so later layers can clip to the pipes). Fittings: 1 on collars and flanges. Underside: 0 on top of a pipe → 1 underneath (rust, grime). Tubes only: the outline of the tubes without their fittings (writes the shape mask — e.g. glass tubes with metal collars). Facing the light: across each pipe, 1 on the side towards the top-left → 0 away (reflection bands on chrome). Liquid: 1 below each run\'s liquid surface (Liquid level)',
     }),
     P.enum('layout', 'Layout', 'random', [['random', 'Random (tileable)'], ['drawn', 'Drawn runs']]),
     P.bitmap('points', 'Runs', '0,24 40,24 40,48 64,48 | 20,0 20,24', 'points', {
@@ -85,10 +86,15 @@ export const pipeworkLayer: LayerDef = {
       uniform: false,
     }),
     P.enum('units', 'Units', 'px', [['px', 'Pixels'], ['fraction', 'Fraction of the texture']], { showIf: isDrawn }),
-    P.int('runs', 'Horizontal runs', 3, 0, 24, { softMax: 8, showIf: isRandom }),
-    P.int('drops', 'Vertical runs', 2, 0, 24, { softMax: 8, showIf: isRandom }),
+    P.int('runs', 'Horizontal runs', 3, 0, 64, { softMax: 16, showIf: isRandom, hint: 'Runs keep clear of each other while there is room; beyond that they lie over the ones they overlap' }),
+    P.int('drops', 'Vertical runs', 2, 0, 64, { softMax: 16, showIf: isRandom, hint: 'In front of the horizontal runs; beyond the room for them they lie over the ones they overlap' }),
     P.float('jogs', 'Jogs', 0.5, 0, 1, { step: 0.01, showIf: isRandom, hint: 'Chance a horizontal run steps up or down and back (two pairs of elbows)' }),
     P.float('tees', 'Tees', 0.5, 0, 1, { step: 0.01, showIf: isRandom, hint: 'Chance a vertical run tees between two horizontal runs instead of passing in front of them' }),
+    P.float('density', 'Density', 0, 0, 1, {
+      step: 0.01,
+      showIf: isRandom,
+      hint: 'Stack more pipes in front of these — horizontal, vertical, horizontal … each layer resting on the one behind — until this share of the bare wall is covered (1 = none left). A stack taller than four pipe radii is scaled to fit the height range: raise the height amount for rounder pipes',
+    }),
     P.float('radius', 'Pipe radius', 6, 0.5, 256, { softMax: 32, unit: 'px', step: 0.1 }),
     P.float('variety', 'Radius variety', 0.3, 0, 1, { step: 0.01 }),
     P.float('bend', 'Bend radius', 2, 1, 8, { step: 0.01, hint: 'Elbow centre-line radius in pipe radii' }),
@@ -114,7 +120,11 @@ export const pipeworkLayer: LayerDef = {
       elbowFittings: q.elbow_fittings !== false,
       fill: Number(q.fill ?? 0.5),
     }
-    return { pipes: encodePrims(buildPrims(pipeRuns(q, o), o)) }
+    const prims = buildPrims(pipeRuns(q, o), o)
+    // A stack taller than the default 4 × radius (density, runs lying over runs) is scaled to fit rather than having its
+    // front pipes clipped flat; one that fits keeps the default (0 in the header).
+    const top = stackHeight(prims)
+    return { pipes: encodePrims(prims, top > 4 * Math.max(Number(q.radius ?? 6), 0.5) ? top : 0) }
   },
   glsl: /* glsl */ `
 float pp_u16(vec2 b) { return floor(b.x * 255.0 + 0.5) * 256.0 + floor(b.y * 255.0 + 0.5); }
@@ -125,7 +135,9 @@ GenOut gen(vec2 p) {
   vec2 q = vec2(p.x, uRes.y - p.y);
   vec4 head = texelFetch(t_pipes, ivec2(0, 0), 0);
   int n = int(pp_u16(head.rg));
-  float hnorm = 4.0 * max(u_radius, 0.5);
+  // Height for a value of 1: from the header when the layout set one (a dense stack), else 4 × the pipe radius.
+  float hn = pp_u16(head.ba) / 16.0;
+  float hnorm = hn > 0.0 ? hn : 4.0 * max(u_radius, 0.5);
   float sd = 1e4;
   float sdFit = 1e4;
   float sdTube = 1e4;

@@ -27,7 +27,7 @@ export const symmetryLayer: LayerDef = {
   label: 'Symmetry',
   category: 'filter',
   kind: 'filter',
-  description: 'Kaleidoscope: folds every channel below (including the shape register) through mirror, rotational or kaleidoscope symmetry, per cell of a grid — turns noise and shapes into medallions and ornaments.',
+  description: 'Kaleidoscope: folds every channel below (including the shape mask) through mirror, rotational or kaleidoscope symmetry, per cell of a grid — turns noise and shapes into medallions and ornaments.',
   params: [
     P.enum('mode', 'Symmetry', 'square8', MODES),
     P.int('n', 'Folds', 6, 2, 12, { showIf: polar, hint: 'Rotational order (n copies around the centre)' }),

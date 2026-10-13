@@ -9,7 +9,8 @@ editable.
 
 ## Design
 - **Model** (`Project.materials`, `SmartMaterial`): recipe id, macro values, and role → member layer id. Members are
-  ordinary layers in either stack (the outliner marks them ◆); the renderer knows nothing of materials.
+  ordinary layers in either stack (the outliner shows them as one collapsible row; added from the Smart materials row
+  of the add-layer grid); the renderer knows nothing of materials.
 - **Recipes** (`src/recipes/`): `RecipeDef { params (macros, grouped), groups, build(macros, size) → role-tagged
   layers, render? }`. Built from the hand-authoring lessons: Stone wall (dressed → rubble via *Irregularity*),
   Cobblestones, Hammered metal, Brushed metal, Water & rust stains (scattered or *Start at ledges*).

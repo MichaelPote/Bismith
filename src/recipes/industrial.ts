@@ -48,10 +48,11 @@ export const pipes: RecipeDef = {
     P.bitmap('points', 'Runs', '0,0.4 1,0.4 | 0.3,0.4 0.3,1', 'points', {
       group: 'layout', showIf: drawn, hint: 'Centre lines, x,y as fractions of the texture; one run per line or "|" (edit on the canvas with the shape editor)',
     }),
-    P.int('runs', 'Horizontal runs', 3, 0, 16, { group: 'layout', softMax: 8, showIf: random }),
-    P.int('drops', 'Vertical runs', 2, 0, 16, { group: 'layout', softMax: 8, showIf: random }),
+    P.int('runs', 'Horizontal runs', 3, 0, 64, { group: 'layout', softMax: 16, showIf: random, hint: 'Beyond the room for them, runs lie over the ones they overlap' }),
+    P.int('drops', 'Vertical runs', 2, 0, 64, { group: 'layout', softMax: 16, showIf: random, hint: 'Beyond the room for them, runs lie over the ones they overlap' }),
     P.float('jogs', 'Jogs', 0.5, 0, 1, { group: 'layout', step: 0.01, showIf: random }),
     P.float('tees', 'Tees', 0.5, 0, 1, { group: 'layout', step: 0.01, showIf: random }),
+    P.float('density', 'Density', 0, 0, 1, { group: 'layout', step: 0.01, showIf: random, hint: 'Stack more pipes in front, layer on layer, until this share of the bare wall is covered (1 = none left). The stack is scaled to fit: raise Roundness for rounder pipes' }),
     P.float('radius', 'Pipe radius', 8, 1, 128, { group: 'layout', softMax: 32, unit: 'px', step: 0.1 }),
     P.float('variety', 'Radius variety', 0.3, 0, 1, { group: 'layout', step: 0.01 }),
     P.float('bend', 'Bend radius', 2, 1, 6, { group: 'layout', step: 0.01, hint: 'Elbows, in pipe radii' }),
@@ -81,7 +82,7 @@ export const pipes: RecipeDef = {
     const radius = num(m.radius, 8)
     const seed = num(m.seed, 3)
     const shape: ParamValues = {
-      layout: m.layout ?? 'random', points: m.points ?? '0,0.4 1,0.4 | 0.3,0.4 0.3,1', units: 'fraction', runs: num(m.runs, 3), drops: num(m.drops, 2), jogs: num(m.jogs, 0.5), tees: num(m.tees, 0.5),
+      layout: m.layout ?? 'random', points: m.points ?? '0,0.4 1,0.4 | 0.3,0.4 0.3,1', units: 'fraction', runs: num(m.runs, 3), drops: num(m.drops, 2), jogs: num(m.jogs, 0.5), tees: num(m.tees, 0.5), density: num(m.density, 0),
       radius, variety: num(m.variety, 0.3), bend: num(m.bend, 2), spacing: num(m.spacing, 96), flanges: num(m.flanges, 0.35), collar: num(m.collar, 0.18), elbow_fittings: m.elbow_fittings !== false, seed,
     }
     const finish = String(m.finish ?? 'rusty')
@@ -260,12 +261,12 @@ export const cutout: RecipeDef = {
     const depth = num(m.depth, 1)
     const off = { dif_on: false, h_on: false }
     return [
-      { role: 'opening', stack: 'relief', layer: L(type, 'Opening (mask)', { ...shape(0), sdf_op: 'none', bevel: 0, profile: 'flat', aa: true, ...off, mk_write: String(m.mask ?? '1'), mk_mode: 'replace' }) },
-      { role: 'recess', stack: 'relief', layer: L(type, 'Recess', { ...shape(0), sdf_op: 'none', bevel: r2(Math.max(0.5, num(m.rim, 1))), profile: 'smooth', aa: true, dif_on: false, h_on: true, h_mode: 'subtract', h_amount: r2(depth) }, depth > 0) },
-      { role: 'frame', stack: 'relief', layer: L(type, 'Frame', { ...shape(frame), outline: r2(frame), sdf_op: 'none', bevel: r2(Math.min(2, frame / 2)), profile: 'round', aa: true, dif_on: false, h_on: true, h_mode: 'add', h_amount: r2(num(m.frame_height, 0.6)) }, frame > 0) },
+      { role: 'opening', stack: 'relief', layer: L(type, 'Opening (mask)', { ...shape(0), sm_on: false, bevel: 0, profile: 'flat', aa: true, ...off, mk_write: String(m.mask ?? '1'), mk_mode: 'replace' }) },
+      { role: 'recess', stack: 'relief', layer: L(type, 'Recess', { ...shape(0), sm_on: false, bevel: r2(Math.max(0.5, num(m.rim, 1))), profile: 'smooth', aa: true, dif_on: false, h_on: true, h_mode: 'subtract', h_amount: r2(depth) }, depth > 0) },
+      { role: 'frame', stack: 'relief', layer: L(type, 'Frame', { ...shape(frame), outline: r2(frame), sm_on: false, bevel: r2(Math.min(2, frame / 2)), profile: 'round', aa: true, dif_on: false, h_on: true, h_mode: 'add', h_amount: r2(num(m.frame_height, 0.6)) }, frame > 0) },
       {
         role: 'frame-colour', stack: 'paint',
-        layer: L(type, 'Frame colour', { ...shape(frame), outline: r2(frame), sdf_op: 'none', bevel: 0, profile: 'flat', aa: true, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(String(m.frame_colour ?? '#6a6a66')), s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.5, s_b: 0.5 }, frame > 0),
+        layer: L(type, 'Frame colour', { ...shape(frame), outline: r2(frame), sm_on: false, bevel: 0, profile: 'flat', aa: true, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(String(m.frame_colour ?? '#6a6a66')), s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.5, s_b: 0.5 }, frame > 0),
       },
     ]
   },

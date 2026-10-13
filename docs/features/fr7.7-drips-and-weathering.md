@@ -37,6 +37,24 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
   meet; two sizes combined with height **Min** (dented where either hammer struck), per-dent depth (`h_var`), a
   slight height blur, tinted specular.
 
+## Runnels style (detailed stains)
+The classic trail is a 1 px-friendly strip; at higher resolutions and widths it reads as a stripe. **Style → Runnels**
+models water running down a wall instead (`dr_runnels` in `drips.ts`):
+- **Wash**: the water sheet, its centre line wandering on two octaves of smooth 1D noise (Wobble = how far, Meander
+  length = one swing), narrowing or spreading down its length (Taper), widening from a third of its width at the seep
+  over its first stretch (so the runnels fan out from one point). A darker **tide mark** within ~1 px of its edges,
+  **dry patches** from value noise breaking it up.
+- **Runnels**: 1 to *Runnels* thin streams per stain (narrow stains hold fewer), each wandering on its own around its
+  lane — so they cross, merge and split — thinning to half, keeping most of their strength (Fade sets how much they
+  lose), each ending at its own length; some end in a **bead**, an ellipse narrower than it is tall hanging from the
+  runnel (a round one read as a rivet).
+- The cell search widens to the columns a stain can reach and up to 40 rows, as one flat loop with a uniform-derived
+  count (D3D compiles it quickly). The streak style keeps its exact search, so its renders are unchanged.
+- **Where it applies**: Drips added in the editor start as runnels sized to the texture (`LayerDef.fresh`: a
+  multiply-darkening water stain); stored projects, recipes and templates keep the streak default. The Water & rust
+  stains material has a **Style** macro — Auto (streaks below 128 px, runnels from 128 px), Streaks, Runnels — with a
+  source grid sized from the stain's width and length for runnels, rust following the strongest runnels.
+
 ## Relief / paint mixing (lesson)
 Enforcing "paint never changes the shape" regressed the stone walls: part of their look was paint noise layers also
 adding fine height, so lit bumps coincided with colour patches. The model is therefore: **the relief stack carries
@@ -51,3 +69,5 @@ Caution: the Noise generator's default has height on (0.25) — set it deliberat
 - [x] Brushed ribs on the riveted panels; hammered copper (radial Hammered generator)
 - [x] Hammered generator: weighted-Voronoi regions with arc boundaries, concentric dent rings, dent shape
 - [x] Relief/paint mixing settled (paint may add colour-coupled relief)
+- [x] Runnels style: wandering wash, tide marks, dry patches, braided runnels, elliptical beads; editor default; Style
+      macro on the stains material

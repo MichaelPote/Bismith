@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PRIM_ARC, PRIM_LINE, buildPrims, encodePrims, parseRuns, randomRuns, runLevel, runPrims, rng, yAt, type PipeOptions } from './pipesGeometry'
+import { Coverage, PRIM_ARC, PRIM_LINE, buildPrims, encodePrims, parseRuns, randomRuns, runLevel, runPrims, rng, yAt, type PipeOptions } from './pipesGeometry'
 import { pipeRuns } from './pipes'
 
 const opts: PipeOptions = { width: 128, height: 128, tile: true, seed: 3, bend: 2, spacing: 40, flanges: 0.3, collar: 0.15, elbowFittings: true }
@@ -61,6 +61,35 @@ describe('pipe geometry', () => {
         expect(ys).toContain(y1)
       }
     }
+  })
+
+  it('stacks runs that find no room over the ones they overlap instead of dropping them', () => {
+    const runs = randomRuns(opts, { runs: 24, drops: 24, radius: 5, variety: 0.2, jogs: 0.5, tees: 0 })
+    expect(runs).toHaveLength(48)
+    const horizontal = runs.slice(0, 24)
+    expect(horizontal.some((r) => r.depth > 0)).toBe(true)
+    // Verticals stand in front of every horizontal run.
+    const front = Math.max(...horizontal.map((r) => r.depth + r.radius))
+    for (const v of runs.slice(24)) expect(v.depth).toBeGreaterThanOrEqual(front - 1e-9)
+  })
+
+  it('fills the wall with stacked layers as density rises; density 0 is the plain layout', () => {
+    const layout = { runs: 2, drops: 1, radius: 5, variety: 0.2, jogs: 0.5, tees: 0.5 }
+    const covered = (runs: ReturnType<typeof randomRuns>) => {
+      const c = new Coverage(128, 128, true)
+      for (const r of runs) c.add(r)
+      return c.fraction()
+    }
+    const plain = randomRuns(opts, layout)
+    expect(randomRuns(opts, { ...layout, density: 0 })).toEqual(plain)
+    const half = randomRuns(opts, { ...layout, density: 0.5 })
+    const full = randomRuns(opts, { ...layout, density: 1 })
+    expect(half.slice(0, plain.length)).toEqual(plain)
+    expect(covered(half)).toBeGreaterThanOrEqual(covered(plain) + 0.5 * (1 - covered(plain)) - 1e-3)
+    expect(covered(full)).toBeGreaterThan(0.999)
+    // The added layers stand in front of the plain layout.
+    const plainTop = Math.max(...plain.map((r) => r.depth))
+    for (const r of full.slice(plain.length)) expect(r.depth).toBeGreaterThan(plainTop)
   })
 
   it('keeps the liquid surface level through bends, pooled in the lowest length, shared by branches', () => {

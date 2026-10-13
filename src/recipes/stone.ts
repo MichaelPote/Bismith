@@ -43,7 +43,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
   const chips = num(m.chips, 0.6)
   const rough = num(m.rough, 0.5)
   const glint = num(m.glints, 0.6)
-  const flat = { ...shape, bevel: 0, profile: 'flat', sdf_op: 'none', dif_on: false }
+  const flat = { ...shape, bevel: 0, profile: 'flat', sm_on: false, dif_on: false }
   const stones = m.stone_colours ?? STONES
   const joint = String(m.joint_colour ?? '#16110a')
   const relief = (role: string, layer: ReturnType<typeof L>): RecipeLayer => ({ role, stack: 'relief', layer })
@@ -62,7 +62,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
     relief(
       'chips',
       L('voronoi', 'Chips', {
-        output: 'facets', scale: across(ctx, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: seed + 13, sdf_op: 'none',
+        output: 'facets', scale: across(ctx, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: seed + 13, sm_on: false,
         h_on: true, h_mode: 'min', h_amount: r2(lerp(2.2, 0.8, chips)), dif_on: false, m_hmode: 'below', m_hlevel: r2(0.8 * (pillow + edge)), m_hsoft: 0.08,
       }, chips > 0),
     ),
@@ -85,7 +85,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
     paint('stone-noise', L('noise', 'Stone noise', { noise: 'value', fractal: 'fbm', scale: across(ctx, 7), octaves: 3, seed: seed + 6, m_clip: 'inside', h_on: false, dif_on: true, dif_grad: stones })),
     paint(
       'stone-colour',
-      L(type, 'Stone colour', { ...shape, bevel: 0, profile: 'flat', sdf_op: 'none', h_on: false, m_clip: 'inside', dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.6)), dif_grad: stones }),
+      L(type, 'Stone colour', { ...shape, bevel: 0, profile: 'flat', sm_on: false, h_on: false, m_clip: 'inside', dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.6)), dif_grad: stones }),
     ),
     paint(
       'moss',

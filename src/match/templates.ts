@@ -237,7 +237,7 @@ function dents(a: Analysis, amount = 0.1): Layer {
 function dressedRelief(a: Analysis, type: 'bricks' | 'voronoi', shape: ParamValues, blockMin: number, blockMax: number): Layer[] {
   const pillow = 0.6
   const edge = 0.5
-  const flat = { ...shape, bevel: 0, profile: 'flat', sdf_op: 'none', dif_on: false }
+  const flat = { ...shape, bevel: 0, profile: 'flat', sm_on: false, dif_on: false }
   return [
     L(type, 'Pillow', { ...flat, h_on: true, h_amount: pillow }),
     L('blur', 'Pillow blur', { radius: r2(clamp(blockMin / 4, 1.5, 6)), ...HEIGHT_ONLY }),
@@ -246,7 +246,7 @@ function dressedRelief(a: Analysis, type: 'bricks' | 'voronoi', shape: ParamValu
       h_on: true, h_amount: edge, r_on: true, r_mode: 'replace', r_src: 'flat', r_a: 0.6, r_b: 0.6, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.6, s_b: 0.6,
     }),
     L('voronoi', 'Chips', {
-      output: 'facets', scale: across(a, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: 19, sdf_op: 'none',
+      output: 'facets', scale: across(a, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: 19, sm_on: false,
       h_on: true, h_mode: 'min', h_amount: 1.3, dif_on: false, m_hmode: 'below', m_hlevel: r2(0.8 * (pillow + edge)), m_hsoft: 0.08,
     }),
     L(type, 'Block heights', { ...flat, h_on: true, h_amount: 0.4, h_var: 1 }),
@@ -285,7 +285,7 @@ function stonePaint(a: Analysis, type: 'bricks' | 'voronoi', shape: ParamValues,
       noise: 'value', fractal: 'fbm', scale: across(a, 7), octaves: 3, seed: 12, m_clip: 'inside', h_on: false, dif_on: true, dif_grad: hueRamp(a, 0.15, 0.85),
     }),
     L(type, 'Stone colour', {
-      ...shape, bevel: 0, profile: 'flat', sdf_op: 'none', h_on: false, m_clip: 'inside', dif_on: true, dif_src: 'random', dif_opacity: 0.6, dif_grad: hueRamp(a, 0.2, 1),
+      ...shape, bevel: 0, profile: 'flat', sm_on: false, h_on: false, m_clip: 'inside', dif_on: true, dif_src: 'random', dif_opacity: 0.6, dif_grad: hueRamp(a, 0.2, 1),
     }),
     ...(moss
       ? [
@@ -402,7 +402,7 @@ export const TEMPLATES: Template[] = [
         relief: [
           L('noise', 'Ridges', { noise: 'perlin', fractal: 'ridged', scale: 4, octaves: 5, warp: 0.4, seed: 24, h_on: true, h_amount: 0.6, dif_on: false }),
           // Broad tilted planes: rock breaks into flat faces, not only smooth swells.
-          L('voronoi', 'Facets', { output: 'facets', scale: across(a, 12), jitter: 1, tilt: 1.6, seed: 19, sdf_op: 'none', h_on: true, h_amount: 0.5, dif_on: false }),
+          L('voronoi', 'Facets', { output: 'facets', scale: across(a, 12), jitter: 1, tilt: 1.6, seed: 19, sm_on: false, h_on: true, h_amount: 0.5, dif_on: false }),
           lumps(a, 5, 0.15, false),
         ],
         paint: [
@@ -520,7 +520,7 @@ export const TEMPLATES: Template[] = [
           speckle(0.15),
           L('rect', 'Plate', { size_mode: 'inset', inset_x: 2, inset_y: 2, radius: 0, bevel: 2, profile: 'linear', aa: false, h_on: true, h_amount: 0.5, dif_on: false }),
           L('ellipse', 'Rivets', {
-            radius: 1.6, x: 0.12, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, bevel: 1.5, aa: false, sdf_op: 'none', h_on: true, h_amount: 0.5,
+            radius: 1.6, x: 0.12, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, bevel: 1.5, aa: false, sm_on: false, h_on: true, h_amount: 0.5,
             dif_on: true, dif_grad: ramp(pick(a, 0.3), pick(a, 1)), s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.6, s_b: 0.6,
           }),
           ...stains(a, { ledges: true }),
@@ -541,7 +541,7 @@ export const TEMPLATES: Template[] = [
           L('noise', 'Brushed', { noise: 'value', fractal: 'fbm', ...streaks(a, a.edgeX > a.edgeY, a.width * 0.3, 2), octaves: 2, seed: 7, sh_lo: 0.32, sh_hi: 0.68, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0.25, 0.85) }),
           L('grid', 'Seams', { count_x, count_y, ...phase(a), width: 1, bevel: 1, profile: 'linear', aa: false, h_on: true, h_mode: 'subtract', h_amount: 0.5, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 0)), dif_opacity: 0.8 }),
           L('ellipse', 'Bolts', {
-            radius: 1.4, x: 0.1, y: 0.1, rep_x: 4, rep_y: 4, rep_mirror: true, bevel: 1.2, aa: false, sdf_op: 'none', h_on: true, h_amount: 0.4,
+            radius: 1.4, x: 0.1, y: 0.1, rep_x: 4, rep_y: 4, rep_mirror: true, bevel: 1.2, aa: false, sm_on: false, h_on: true, h_amount: 0.4,
             dif_on: true, dif_grad: ramp(pick(a, 0.3), pick(a, 1)), s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.6, s_b: 0.6,
           }),
           ...stains(a, { ledges: true }),
@@ -710,7 +710,7 @@ export const TEMPLATES: Template[] = [
         paint: [
           L('noise', 'Brushed', { noise: 'value', fractal: 'fbm', ...streaks(a, false, a.width * 0.4, 2), octaves: 2, seed: 7, sh_lo: 0.32, sh_hi: 0.68, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0.2, 0.8) }),
           L('rect', 'Band', { size_mode: 'inset', inset_x: -2, inset_y: Math.max(1, Math.round(a.height / 4)), radius: 0, bevel: 1.5, profile: 'round', aa: false, h_on: true, h_amount: 0.5, dif_on: true, dif_src: 'value', dif_grad: ramp(pick(a, 0.3), pick(a, 0.9)) }),
-          L('rect', 'Edges', { size_mode: 'size', width: a.width + 4, height: 1, y: 0.02, radius: 0, bevel: 0, profile: 'flat', aa: false, rep_y: 1, sdf_op: 'none', h_on: true, h_mode: 'subtract', h_amount: 0.3, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 0)) }),
+          L('rect', 'Edges', { size_mode: 'size', width: a.width + 4, height: 1, y: 0.02, radius: 0, bevel: 0, profile: 'flat', aa: false, rep_y: 1, sm_on: false, h_on: true, h_mode: 'subtract', h_amount: 0.3, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 0)) }),
           grime(a, 1),
         ],
       }, METAL),
@@ -725,7 +725,7 @@ export const TEMPLATES: Template[] = [
         paint: [
           L('noise', 'Housing', { noise: 'value', fractal: 'fbm', scale: across(a, 10), octaves: 3, seed: 8, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0, 0.5) }),
           L('rect', 'Frame', { size_mode: 'inset', inset_x: Math.round(a.width * 0.15), inset_y: Math.round(a.height * 0.15), radius: 2, bevel: 2, profile: 'round', aa: false, h_on: true, h_amount: 0.4, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 0.3)) }),
-          L('rect', 'Lamp', { size_mode: 'inset', inset_x: Math.round(a.width * 0.25), inset_y: Math.round(a.height * 0.25), radius: 2, bevel: 1, aa: false, sdf_op: 'none', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 1)), e_on: true, e_src: 'flat', e_color: pick(a, 1), e_intensity: 1.2 }),
+          L('rect', 'Lamp', { size_mode: 'inset', inset_x: Math.round(a.width * 0.25), inset_y: Math.round(a.height * 0.25), radius: 2, bevel: 1, aa: false, sm_on: false, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 1)), e_on: true, e_src: 'flat', e_color: pick(a, 1), e_intensity: 1.2 }),
         ],
       }, { ...METAL, render: { ...METAL.render, ao: 0.8 } }),
   },
@@ -752,7 +752,7 @@ TEMPLATES.push(
           L('noise', 'Grime', { noise: 'value', fractal: 'fbm', scale: across(a, 5), octaves: 4, seed: 8, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0, 0.6) }),
           L('panels', 'Panels', { ...layout, bevel: 1, profile: 'linear', h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: paletteRamp(a, 0, 1), dif_jitter: 0.3 }),
           ...(a.glow > 0.005
-            ? [L('panels', 'Lights', { ...layout, output: 'lights', sdf_op: 'none', bevel: 0, profile: 'flat', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 1)), e_on: true, e_src: 'flat', e_intensity: 1.2, e_color: pick(a, 1) })]
+            ? [L('panels', 'Lights', { ...layout, output: 'lights', sm_on: false, bevel: 0, profile: 'flat', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 1)), e_on: true, e_src: 'flat', e_intensity: 1.2, e_color: pick(a, 1) })]
             : []),
           speckle(0.12),
         ],
@@ -1017,7 +1017,7 @@ TEMPLATES.push(
         relief: [dents(a, 0.06)],
         paint: [
           L('noise', 'Plate', { noise: 'value', fractal: 'fbm', scale: across(a, 12), octaves: 4, seed: 8, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0.2, 0.7) }),
-          L('rect', 'Frame', { size_mode: 'inset', inset_x: 3, inset_y: 3, radius: 0, outline: 2, bevel: 1, aa: false, sdf_op: 'none', h_on: true, h_amount: 0.3, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 0.15)) }),
+          L('rect', 'Frame', { size_mode: 'inset', inset_x: 3, inset_y: 3, radius: 0, outline: 2, bevel: 1, aa: false, sm_on: false, h_on: true, h_amount: 0.3, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 0.15)) }),
           L('glyph', 'Glyph', {
             size: Math.min(a.width, a.height) * 0.55, width: 2, strokes: 4, mirror: true, bevel: 1, aa: false,
             h_on: true, h_amount: 0.35, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 0.05)),

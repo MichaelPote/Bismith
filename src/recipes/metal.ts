@@ -112,7 +112,12 @@ export const stains: RecipeDef = {
     P.bool('ledges', 'Start at ledges', false, { group: 'sources', hint: 'Drips start only below raised features (rivets, lips) — every ledge drips, taller ones longer' }),
     P.float('density', 'Density', 0.25, 0, 1, { group: 'sources', step: 0.01 }),
     P.float('length', 'Length', 40, 2, 512, { group: 'sources', softMax: 128, unit: 'px' }),
-    P.float('width', 'Width', 3, 0.5, 16, { group: 'sources', unit: 'px' }),
+    P.float('width', 'Width', 3, 0.5, 64, { group: 'sources', unit: 'px', softMax: 16 }),
+    P.enum('style', 'Style', 'auto', [
+      ['auto', 'Auto', 'pixel streaks below 128 px, detailed runnels from 128 px'],
+      ['streak', 'Streaks (pixel)', 'narrow trails, crisp at 1 px'],
+      ['runnels', 'Runnels (detailed)', 'washes of water with tide-marked edges and thin runnels that split, merge and end in beads'],
+    ], { group: 'sources' }),
     P.float('water', 'Water darkening', 0.6, 0, 1, { group: 'colour', step: 0.01 }),
     P.float('rust', 'Rust', 0.5, 0, 1, { group: 'colour', step: 0.01, hint: 'Rust shows where the stain is strongest' }),
     P.color('rust_colour', 'Rust colour', '#a84a22', { group: 'colour' }),
@@ -126,14 +131,23 @@ export const stains: RecipeDef = {
       ? { cols: Math.ceil(ctx.width / 3), rows: Math.ceil(ctx.height / 3), density: r2(lerp(0.5, 1, num(m.density, 0.25))), relief: 1, ledge: 0.15, ledge_reach: 2, ledge_soft: 0.15, relief_len: 1 }
       : { cols: Math.max(4, Math.round(ctx.width / 5)), rows: Math.max(2, Math.round(ctx.height / 9)), density: num(m.density, 0.25), relief: 0 }
     const src = { ...grid, len_min: r2(len * 0.2), len_max: len, wobble: 0.3, head: 0, seed: num(m.seed, 5) }
+    // Runnels (detailed): a wash around thin runnels, sized from Width; rust follows the runnels (the strongest parts).
+    const style = String(m.style ?? 'auto')
+    const runnels = style === 'runnels' || (style === 'auto' && Math.max(ctx.width, ctx.height) >= 128)
+    const w = num(m.width, 3)
+    const flow = { style: 'runnels', wobble: r2(w), wander: r2(Math.max(8, len * 0.6)), hard: false }
+    // Wide stains need a coarser source grid than 1 px streaks (scattered sources only; ledges keep theirs).
+    const cells: ParamValues = runnels && !ledges ? { cols: Math.max(2, Math.round(ctx.width / (w * 4))), rows: Math.max(1, Math.round(ctx.height / Math.max(8, len * 0.6))) } : {}
+    const waterFlow: ParamValues = runnels ? { ...flow, ...cells, width: r2(w * 3), runnel_width: r2(Math.max(1, w * 0.5)), runnels: 4, sheet: 0.4, edge: 0.55, breakup: 0.35, beads: 0.3, taper: -0.2 } : {}
+    const rustFlow: ParamValues = runnels ? { ...flow, ...cells, width: r2(w * 1.6), runnel_width: r2(Math.max(1, w * 0.4)), runnels: 2, fade: 0.3, sheet: 0.15, edge: 0.3, breakup: 0.5, beads: 0.2, taper: 0.1 } : {}
     const water = num(m.water, 0.6)
     const rust = num(m.rust, 0.5)
     const rc = String(m.rust_colour ?? '#a84a22')
     const wv = Math.round(255 * (1 - 0.65 * water))
     return [
-      { role: 'water', stack: 'paint', layer: L('drips', 'Water stain', { output: 'stain', ...src, width: num(m.width, 3), width_var: 0.5, start: 0.7, fade: 0.9, hard: false, h_on: false, dif_on: true, dif_blend: 'multiply', dif_grad: gradient('#ffffff', `#${[wv, Math.round(wv * 0.85), Math.round(wv * 0.7)].map((v) => v.toString(16).padStart(2, '0')).join('')}`) }, water > 0) },
-      { role: 'rust', stack: 'paint', layer: L('drips', 'Rust trails', { output: 'stain', ...src, width: r2(num(m.width, 3) * 0.45), width_var: 0.6, start: 1, fade: 1, hard: true, sh_cut: r2(lerp(0.9, 0.6, rust)), sh_cut_soft: 0.05, h_on: false, dif_on: true, dif_grad: shade(rc, 0.7) }, rust > 0) },
-      { role: 'blisters', stack: 'paint', layer: L('drips', 'Blisters', { output: 'source', ...src, head: r2(0.4 + 1.2 * num(m.blisters, 0)), hard: true, h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: shade(rc, 0.55) }, num(m.blisters, 0) > 0) },
+      { role: 'water', stack: 'paint', layer: L('drips', 'Water stain', { output: 'stain', ...src, width: num(m.width, 3), width_var: 0.5, start: 0.7, fade: 0.9, hard: false, ...waterFlow, h_on: false, dif_on: true, dif_blend: 'multiply', dif_grad: gradient('#ffffff', `#${[wv, Math.round(wv * 0.85), Math.round(wv * 0.7)].map((v) => v.toString(16).padStart(2, '0')).join('')}`) }, water > 0) },
+      { role: 'rust', stack: 'paint', layer: L('drips', 'Rust trails', { output: 'stain', ...src, width: r2(num(m.width, 3) * 0.45), width_var: 0.6, start: 1, fade: 1, hard: true, ...rustFlow, sh_cut: r2(lerp(0.9, 0.6, rust)), sh_cut_soft: 0.05, h_on: false, dif_on: true, dif_grad: shade(rc, 0.7) }, rust > 0) },
+      { role: 'blisters', stack: 'paint', layer: L('drips', 'Blisters', { output: 'source', ...src, ...cells, head: r2(0.4 + 1.2 * num(m.blisters, 0)), hard: true, h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: shade(rc, 0.55) }, num(m.blisters, 0) > 0) },
     ]
   },
 }

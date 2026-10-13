@@ -89,13 +89,13 @@ export const tiles: RecipeDef = {
       {
         role: 'raise', stack: 'relief',
         // A 1 px ridge a couple of pixels inside each edge.
-        layer: L(type, 'Raised border', { ...shape, bevel: r2(clamp(size * 0.15, 2, 5)), profile: 'custom', bevel_curve: { points: [{ x: 0, y: 0 }, { x: 0.3, y: 0 }, { x: 0.45, y: 1 }, { x: 0.6, y: 0 }, { x: 1, y: 0 }] }, sdf_op: 'none', h_on: true, h_amount: r2(0.25 * raise), dif_on: false }, raise > 0),
+        layer: L(type, 'Raised border', { ...shape, bevel: r2(clamp(size * 0.15, 2, 5)), profile: 'custom', bevel_curve: { points: [{ x: 0, y: 0 }, { x: 0.3, y: 0 }, { x: 0.45, y: 1 }, { x: 0.6, y: 0 }, { x: 1, y: 0 }] }, sm_on: false, h_on: true, h_amount: r2(0.25 * raise), dif_on: false }, raise > 0),
       },
-      { role: 'heights', stack: 'relief', layer: L(type, 'Tile heights', { ...shape, bevel: 0, profile: 'flat', sdf_op: 'none', h_on: true, h_amount: r2(0.15 * num(m.heights, 0.1)), h_var: 1, dif_on: false }, num(m.heights, 0.1) > 0) },
+      { role: 'heights', stack: 'relief', layer: L(type, 'Tile heights', { ...shape, bevel: 0, profile: 'flat', sm_on: false, h_on: true, h_amount: r2(0.15 * num(m.heights, 0.1)), h_var: 1, dif_on: false }, num(m.heights, 0.1) > 0) },
       { role: 'lumps', stack: 'relief', layer: L('noise', 'Lumps', { noise: 'perlin', fractal: 'fbm', scale: across(ctx, clamp(size * 0.6, 4, 16)), octaves: 2, seed: seed + 1, h_on: true, h_amount: r2(0.1 * rough), dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'value', s_a: 0.2, s_b: 1, ...ON_FACES }, rough > 0) },
       { role: 'grout', stack: 'paint', layer: L('noise', 'Grout', { noise: 'white', seed: seed + 2, m_clip: 'outside', h_on: false, dif_on: true, dif_grad: shade(grout, 0.65) }) },
       { role: 'mottle', stack: 'paint', layer: L('noise', 'Mottle', { noise: 'value', fractal: 'fbm', scale: across(ctx, clamp(size * 0.5, 3, 24)), octaves: 3, seed: seed + 3, m_clip: 'inside', sh_lo: r2(0.5 - 0.5 * num(m.mottle, 0.15)), sh_hi: r2(0.5 + 0.5 * num(m.mottle, 0.15)), h_on: false, dif_on: true, dif_grad: colours }) },
-      { role: 'tile-colour', stack: 'paint', layer: L(type, 'Tile colour', { ...shape, bevel: 0, profile: 'flat', sdf_op: 'none', m_clip: 'inside', h_on: false, dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.15)), dif_grad: colours }, num(m.variety, 0.15) > 0) },
+      { role: 'tile-colour', stack: 'paint', layer: L(type, 'Tile colour', { ...shape, bevel: 0, profile: 'flat', sm_on: false, m_clip: 'inside', h_on: false, dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.15)), dif_grad: colours }, num(m.variety, 0.15) > 0) },
       { role: 'grain', stack: 'paint', layer: L('noise', 'Colour grain', { noise: 'white', seed: seed + 5, m_clip: 'inside', h_on: false, dif_on: true, dif_opacity: r2(0.5 * num(m.grain, 0.4)), dif_grad: colours }, num(m.grain, 0.4) > 0) },
       {
         role: 'flecks', stack: 'paint',

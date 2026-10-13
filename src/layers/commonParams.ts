@@ -12,15 +12,17 @@ const SRC: [string, string, string][] = [
 
 const SRC_HINT = 'What drives this output'
 
+// The shape register is "Shape Mask" in the UI: one running shape (a signed distance) that shape layers write and
+// later layers clip to. Writing is a toggle (sm_on, like Diffuse); the mode is how the layer's shape combines with
+// what is there. Option order matters: the index + 1 is sdfCombine's op (0 = not written).
 export const SDF_OPS: [string, string][] = [
-  ['none', 'Ignore register'],
-  ['replace', 'New shape'],
+  ['replace', 'Normal'],
   ['union', 'Union'],
   ['subtract', 'Subtract'],
-  ['intersect', 'Intersect'],
+  ['intersect', 'Intersection'],
   ['smooth-union', 'Smooth union'],
   ['smooth-subtract', 'Smooth subtract'],
-  ['smooth-intersect', 'Smooth intersect'],
+  ['smooth-intersect', 'Smooth intersection'],
 ]
 
 export const PROFILES: [string, string][] = [
@@ -85,8 +87,12 @@ const HEIGHT_MODES: [string, string, string][] = [
 const LEVEL_MODES: [string, string][] = [['replace', 'Replace'], ['multiply', 'Multiply'], ['add', 'Add'], ['min', 'Min'], ['max', 'Max']]
 
 export const SDF_PARAMS: ParamDef[] = [
-  P.enum('sdf_op', 'Operator', 'replace', SDF_OPS, { group: 'shape', hint: 'How this shape combines with the shape register written by earlier layers' }),
-  P.float('sdf_k', 'Smoothness', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'shape', showIf: isSmooth }),
+  P.bool('sm_on', 'Shape Mask', true, { group: 'shapemask', hint: 'Write this layer\'s shape to the shape mask, for later layers to clip to (Mask › Clip to shape mask) and bevel from' }),
+  P.enum('sdf_op', 'Mode', 'replace', SDF_OPS, {
+    group: 'shapemask',
+    hint: 'Normal: this shape replaces the shape mask. Union: adds to it. Subtract: cuts this shape out of it. Intersection: keeps only the overlap. Smooth: blended with a rounded fillet. In every mode the layer itself draws the combined shape',
+  }),
+  P.float('sdf_k', 'Smoothness', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'shapemask', showIf: isSmooth }),
   P.float('bevel', 'Bevel', 3, 0, 1024, { softMax: 32, unit: 'px', step: 0.1, group: 'shape' }),
   P.enum('profile', 'Profile', 'round', PROFILES, { group: 'shape' }),
   bevelCurveParam('shape'),
@@ -136,7 +142,10 @@ export const MASK_PARAMS: ParamDef[] = [
   ...MASK_USE_PARAMS,
   P.enum('mk_write', 'Write to mask', 'none', MASK_CHANNELS, { group: 'mask', hint: 'Record this layer\'s coverage in a named mask. Masks are worked out before everything else (their writers in stack order, over the base only), so any layer or material can clip to them wherever it sits' }),
   P.enum('mk_mode', 'Mask mode', 'replace', [['replace', 'Replace'], ['add', 'Add (union)'], ['subtract', 'Subtract'], ['intersect', 'Intersect']], { group: 'mask', showIf: (p) => (p.mk_write ?? 'none') !== 'none' }),
-  P.enum('m_clip', 'Clip to shape', 'none', [['none', 'None'], ['inside', 'Inside register'], ['outside', 'Outside register']], { group: 'mask' }),
+  P.enum('m_clip', 'Clip to shape mask', 'none', [['none', 'None'], ['inside', 'Inside the shape mask'], ['outside', 'Outside the shape mask']], {
+    group: 'mask',
+    hint: 'Only where the shape mask left by earlier layers is (or isn\'t) — e.g. grout outside the tiles, grime on them',
+  }),
   P.enum('m_hmode', 'Height mask', 'none', [['none', 'None'], ['above', 'Above level'], ['below', 'Below level']], { group: 'mask' }),
   P.float('m_hlevel', 'Level', 0.5, -16, 16, { softMin: 0, softMax: 1, step: 0.001, group: 'mask', showIf: (p) => p.m_hmode !== 'none' }),
   P.float('m_hsoft', 'Softness', 0.1, 0, 4, { softMax: 1, step: 0.001, group: 'mask', showIf: (p) => p.m_hmode !== 'none' }),
@@ -185,6 +194,7 @@ export const GENERATOR_GROUPS: GroupDef[] = [
   { id: 'shape', label: 'Shape' },
   { id: 'shaping', label: 'Shaping', collapsed: true },
   { id: 'mask', label: 'Mask', collapsed: true },
+  { id: 'shapemask', label: 'Shape Mask', toggleKey: 'sm_on' },
   { id: 'diffuse', label: 'Diffuse', toggleKey: 'dif_on' },
   { id: 'alpha', label: 'Opacity', toggleKey: 'op_on' },
   { id: 'height', label: 'Height', toggleKey: 'h_on' },
@@ -241,8 +251,10 @@ void main() {
   float cov = g.mask;
 ${sdf ? /* glsl */ `
   if (g.sdf > NO_SDF) {
-    float d = u_sdf_op == 0 ? g.sdf : sdfCombine(u_sdf_op, prevReg, g.sdf, u_sdf_k);
-    if (u_sdf_op != 0) S.a = d;
+    // Shape Mask (the register): written when ticked; the mode's index + 1 is the sdfCombine op.
+    int op = u_sm_on ? u_sdf_op + 1 : 0;
+    float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_sdf_k);
+    if (op != 0) S.a = d;
     cov *= coverage(d, u_aa);
     // Flat (or zero-width) bevels output 1 and let coverage do the anti-aliasing, so edges ramp
     // symmetrically across the boundary; profiled bevels rise from 0 at the edge.

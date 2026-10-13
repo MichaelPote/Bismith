@@ -12,7 +12,8 @@ Starter projects that demonstrate both target styles and act as optimiser seeds.
 - `src/presets/presets.test.ts` checks every preset only uses registered types and known param keys, so presets
   can't silently drift when a layer's params are renamed. `npx tsx tools/presets.ts` renders them all to a contact
   sheet for visual review.
-- File ▸ New from preset menu; presets are plain `Project` objects in `src/presets/`.
+- The presets are the Starters of the New project wizard (FR8.16; they used to be a File ▸ New from preset menu);
+  presets are plain `Project` objects in `src/presets/`.
 
 ## Checklist
 - [x] Preset plumbing + New-from-preset menu — File ▸ New from preset; first run opens Stone bricks
@@ -24,4 +25,5 @@ Starter projects that demonstrate both target styles and act as optimiser seeds.
 - [x] UI: sunken well
 - [x] UI: bevelled panel
 - [x] UI: ember gem (extra)
+- [x] Nature: water caustics — the Liquid material with refracted light, Gerstner waves and an ocean blue-teal ramp
 - [x] Preset param validation test + render-all tool
