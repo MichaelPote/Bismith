@@ -257,7 +257,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
     </div>
     <div ref="scroller" class="scroll">
       <button type="button" class="row root" :class="{ sel: isSel('project') }" @click="editor.select('project')">
-        <IconBox :size="13" :color="isSel('project') ? 'var(--accent-hi)' : 'var(--text-lo)'" />
+        <IconBox :size="15" :color="isSel('project') ? 'var(--accent-hi)' : 'var(--text-lo)'" />
         <span class="name strong">{{ store.project.name }}</span>
         <span v-tip:right="'Texture size @ supersampling. Select the project for the texture, base material, world lighting and render settings'" class="meta cf-mono"
           >{{ store.project.width }}×{{ store.project.height }} @{{ supersampleFactor(store.project) }}x</span
@@ -277,8 +277,8 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
           <span class="swatch" :style="{ background: store.project.base.color }" />
           <span v-tip:right="{ title: 'Base', body: 'The material under every layer: colour, roughness, specular, height, opacity. Opens the project settings.' }" class="name">Base</span>
           <span class="cells">
-            <span v-tip:right="{ title: 'Diffuse', body: 'The layer colours the surface. Click a layer’s mark to switch its Diffuse output.' }" class="ch head"><IconDroplet :size="13" /></span>
-            <span v-tip:right="{ title: 'Height', body: 'The layer shapes the surface. Click a layer’s mark to switch its Height output.' }" class="ch head"><IconMountain :size="13" /></span>
+            <span v-tip:right="{ title: 'Diffuse', body: 'The layer colours the surface. Click a layer’s mark to switch its Diffuse output.' }" class="ch colhead"><IconDroplet :size="14" /></span>
+            <span v-tip:right="{ title: 'Height', body: 'The layer shapes the surface. Click a layer’s mark to switch its Height output.' }" class="ch colhead"><IconMountain :size="14" /></span>
             <span class="ch" />
           </span>
         </div>
@@ -307,9 +307,9 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
               :aria-label="expanded.has(u.material.id) ? 'Collapse material' : 'Expand material'"
               @click.stop="toggleExpanded(u.material.id)"
             >
-              <component :is="expanded.has(u.material.id) ? IconChevronDown : IconChevronRight" :size="11" />
+              <component :is="expanded.has(u.material.id) ? IconChevronDown : IconChevronRight" :size="12" />
             </button>
-            <IconSquareRotated :size="13" :color="isSel('material', u.material.id) ? 'var(--accent-hi)' : MATERIAL_HUE" />
+            <IconSquareRotated :size="15" :color="isSel('material', u.material.id) ? 'var(--accent-hi)' : MATERIAL_HUE" />
             <input
               v-if="renaming === u.material.id"
               ref="renameInput"
@@ -325,7 +325,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             <span v-tip:right="`${u.layers.length} layers`" class="meta cf-mono">{{ u.layers.length }}</span>
             <span class="cells">
               <span v-for="ch in CHANNELS" :key="ch" v-tip:right="materialChannel(u, ch) ? `Some of its layers ${ch === 'diffuse' ? 'colour' : 'shape'} the surface` : undefined" class="ch fixed">
-                <component :is="CHANNEL_ICON[ch]" v-if="materialChannel(u, ch)" :size="12" />
+                <component :is="CHANNEL_ICON[ch]" v-if="materialChannel(u, ch)" :size="14" />
               </span>
               <button
                 v-tip:right="materialShown(u.material) ? 'Hide the material' : 'Show the material'"
@@ -334,7 +334,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
                 :aria-label="materialShown(u.material) ? 'Hide material' : 'Show material'"
                 @click.stop="store.setMaterialEnabled(u.material.id, !materialShown(u.material))"
               >
-                <component :is="materialShown(u.material) ? IconEye : IconEyeOff" :size="12" />
+                <component :is="materialShown(u.material) ? IconEye : IconEyeOff" :size="14" />
               </button>
             </span>
           </div>
@@ -357,7 +357,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             @dragend="onDragEnd"
             @click="editor.select('layer', layer.id)"
           >
-            <component :is="layerIcon(layer.type)" :size="13" :color="isSel('layer', layer.id) ? 'var(--accent-hi)' : layerHue(layer.type)" />
+            <component :is="layerIcon(layer.type)" :size="15" :color="isSel('layer', layer.id) ? 'var(--accent-hi)' : layerHue(layer.type)" />
             <input
               v-if="renaming === layer.id"
               ref="renameInput"
@@ -383,9 +383,9 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
                   :aria-label="`${CHANNEL_LABEL[ch]} output`"
                   @click.stop="toggleChannel(layer, ch)"
                 >
-                  <component :is="CHANNEL_ICON[ch]" :size="12" />
+                  <component :is="CHANNEL_ICON[ch]" :size="14" />
                 </button>
-                <span v-else-if="channelState(layer, ch) === 'always'" v-tip:right="channelTip(layer, ch)" class="ch fixed"><component :is="CHANNEL_ICON[ch]" :size="12" /></span>
+                <span v-else-if="channelState(layer, ch) === 'always'" v-tip:right="channelTip(layer, ch)" class="ch fixed"><component :is="CHANNEL_ICON[ch]" :size="14" /></span>
                 <span v-else class="ch" />
               </template>
               <button
@@ -395,7 +395,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
                 :aria-label="layer.enabled ? 'Hide layer' : 'Show layer'"
                 @click.stop="store.updateLayer(layer.id, { enabled: !layer.enabled })"
               >
-                <component :is="layer.enabled ? IconEye : IconEyeOff" :size="12" />
+                <component :is="layer.enabled ? IconEye : IconEyeOff" :size="14" />
               </button>
             </span>
           </div>
@@ -418,7 +418,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
           :class="{ sel: isSel('light', light.id), off: !light.enabled }"
           @click="editor.select('light', light.id)"
         >
-          <component :is="light.type === 'point' ? IconBulb : IconSun" :size="13" :color="isSel('light', light.id) ? 'var(--accent-hi)' : LIGHT_HUE" />
+          <component :is="light.type === 'point' ? IconBulb : IconSun" :size="15" :color="isSel('light', light.id) ? 'var(--accent-hi)' : LIGHT_HUE" />
           <input
             v-if="renaming === light.id"
             ref="renameInput"
@@ -439,7 +439,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             :aria-label="light.enabled ? 'Disable light' : 'Enable light'"
             @click.stop="store.updateLight(light.id, { enabled: !light.enabled })"
           >
-            <component :is="light.enabled ? IconEye : IconEyeOff" :size="12" />
+            <component :is="light.enabled ? IconEye : IconEyeOff" :size="14" />
           </button>
         </div>
         <div v-if="!store.project.lighting.lights.length" class="empty">No lights: sky and ambient only (project settings).</div>
@@ -465,7 +465,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
           @dragend="onDragEnd"
           @click="editor.select('post', f.id)"
         >
-          <IconSparkles :size="13" :color="isSel('post', f.id) ? 'var(--accent-hi)' : POST_HUE" />
+          <IconSparkles :size="15" :color="isSel('post', f.id) ? 'var(--accent-hi)' : POST_HUE" />
           <span class="name">{{ allPostDefs().find((d) => d.type === f.type)?.label ?? f.type }}</span>
           <span v-if="errors[f.id]" v-tip:right="errors[f.id]" class="err">!</span>
           <button
@@ -475,7 +475,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             :aria-label="f.enabled ? 'Disable filter' : 'Enable filter'"
             @click.stop="store.updatePost(f.id, { enabled: !f.enabled })"
           >
-            <component :is="f.enabled ? IconEye : IconEyeOff" :size="12" />
+            <component :is="f.enabled ? IconEye : IconEyeOff" :size="14" />
           </button>
         </div>
         <div v-if="!store.project.post.length" class="empty">No post filters. The render is clamped to 0–1.</div>
@@ -549,20 +549,12 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
   box-shadow: inset 0 0 0 1px var(--hairline);
   color: var(--e300);
 }
-/* Base: the first row, heading the Diffuse / Height columns. */
-.row.base {
-  border-bottom: 1px solid var(--hairline);
-}
 .swatch {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   border: 1px solid var(--line);
   border-radius: 2px;
   flex: none;
-}
-.ch.head {
-  color: var(--text-lo);
-  cursor: default;
 }
 .list {
   display: flex;
@@ -575,8 +567,8 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
   position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
-  height: 24px;
+  gap: 8px;
+  height: 30px;
   width: 100%;
   padding: 0 4px 0 14px;
   border: 0;
@@ -584,7 +576,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
   color: var(--text);
   text-align: left;
   cursor: default;
-  font-size: 13px;
+  font-size: 14px;
 }
 .row:hover {
   background: var(--raised);
@@ -607,8 +599,17 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
   text-decoration: line-through;
   text-decoration-color: var(--line);
 }
+/* A hidden row: its Diffuse / Height marks and its eye all take the dimmest (off) grey. The marks can't be switched
+   while hidden: no hover, and a click falls through to the row. */
+.row.off .ch,
+.row.off .mini {
+  color: var(--line);
+}
 .row.off .ch {
-  opacity: 0.45;
+  pointer-events: none;
+}
+.row.off .mini:hover {
+  color: var(--text-lo);
 }
 .row.root {
   padding-left: 10px;
@@ -690,7 +691,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
 .rename {
   flex: 1;
   min-width: 0;
-  height: 20px;
+  height: 24px;
   border: 1px solid var(--accent);
   border-radius: var(--r-field);
   background: var(--sunken);
@@ -704,8 +705,8 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
 /* Diffuse / Height cells: studs — a bright mark when on, a faint one when off (click to switch), a quiet fixed mark
    when the filter always affects the channel. */
 .ch {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -715,6 +716,10 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
   border-radius: 3px;
   background: transparent;
   color: var(--text-hi);
+}
+.ch.colhead {
+  color: var(--text-lo);
+  cursor: default;
 }
 /* Diffuse, Height and eye sit flush, under the column heads. */
 .cells {
@@ -735,8 +740,8 @@ button.ch.off:hover {
   color: var(--text-lo);
 }
 .mini {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -744,7 +749,7 @@ button.ch.off:hover {
   border: 0;
   border-radius: 3px;
   background: transparent;
-  color: var(--text-lo);
+  color: var(--text-hi);
   flex: none;
 }
 .mini:hover {
