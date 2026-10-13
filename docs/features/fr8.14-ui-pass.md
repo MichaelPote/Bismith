@@ -33,6 +33,9 @@ the old ember-underline styling instead of Cinderforge's Forged keys v2.
   double-click returns to the value before the last change (again to come back; the default when unchanged),
   remembered per owner and key across reselection. Dropdowns step with the wheel or arrow keys (a wheel that is
   scrolling the panel keeps scrolling). Labels have Tippy.js tooltips: hint, option meanings, key and default.
+- **Colour fields**: swatch + hex (selected whole on focus, a pasted hex applies at once); the swatch opens a picker
+  drawn in CSS, HSV or OKLCH (one switch for every field, remembered). OKLCH shows chroma × lightness at the hue,
+  clipped to the sRGB gamut (`maxSrgbChroma` / `srgbCusp` in `core/color.ts`), with a strip of each hue's cusp colour.
 - **Channel outputs**: Source · Mode share one row; Source reads *Pattern / Solid / Random* (was *Pattern value /
   Flat (1.0) / Per-feature random*); roughness and specular *At 0 / At 1* are one grey **Ramp** (`RampField`: drag
   the gems or type; ⇄ swaps). Joins are declared on the ParamDef (`join: { with, as: 'pair' | 'ramp', label }`).

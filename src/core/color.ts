@@ -119,3 +119,82 @@ export function hsvToRgb(hsv: RGB): RGB {
 export function luminance(rgb: RGB): number {
   return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
 }
+
+/** sRGB → OKLCH: [L 0..1, C ≥ 0, h in degrees, 0..360). Greys come out with C ≈ 0 and an arbitrary hue. */
+export function srgbToOklch(rgb: RGB): RGB {
+  const [L, a, b] = srgbToOklab(rgb)
+  const h = (Math.atan2(b, a) * 180) / Math.PI
+  return [L, Math.hypot(a, b), h < 0 ? h + 360 : h]
+}
+
+/** OKLCH → linear sRGB, unclamped (out-of-gamut colours fall outside 0..1). */
+export function oklchToLinear(lch: RGB): RGB {
+  const [L, C, h] = lch
+  const r = (h * Math.PI) / 180
+  return oklabToLinear([L, C * Math.cos(r), C * Math.sin(r)])
+}
+
+/** OKLCH → sRGB, clipped to the gamut. */
+export function oklchToSrgb(lch: RGB): RGB {
+  const lin = oklchToLinear(lch)
+  return linearToSrgb([clamp01(lin[0]), clamp01(lin[1]), clamp01(lin[2])])
+}
+
+/** How far below 0 a channel may dip, relative to the brightest (linear), and still count as in gamut. */
+const GAMUT_TOLERANCE = 1e-3
+
+/**
+ * The most chroma lightness L and hue h (degrees) can have inside the sRGB gamut. Scans in from beyond sRGB's most
+ * chromatic colour (magenta, C 0.3225) to the outer boundary, then refines it: OKLab's line of constant hue out to pure
+ * blue grazes just outside the gamut on the way (red dips to -0.0006), so a search out from grey would stop short of
+ * it. The dip is let through by GAMUT_TOLERANCE — at most ~3/255 of red in a vivid blue once clipped — which, being
+ * relative, adds nothing in the shadows, where every channel is near 0.
+ */
+export function maxSrgbChroma(L: number, h: number): number {
+  if (L <= 0 || L >= 1) return 0
+  const r = (h * Math.PI) / 180
+  const a = Math.cos(r)
+  const b = Math.sin(r)
+  // oklabToLinear, inlined: l_, m_, s_ are linear in chroma, so each channel is a cubic in it.
+  const kl = 0.3963377774 * a + 0.2158037573 * b
+  const km = -0.1055613458 * a - 0.0638541728 * b
+  const ks = -0.0894841775 * a - 1.291485548 * b
+  const inside = (c: number): boolean => {
+    const l = (L + kl * c) ** 3
+    const m = (L + km * c) ** 3
+    const s = (L + ks * c) ** 3
+    const R = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+    const G = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+    const B = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+    const hi = Math.max(R, G, B)
+    return Math.min(R, G, B) >= -GAMUT_TOLERANCE * hi && hi <= 1 + 1e-6
+  }
+  const step = 0.001
+  let c = 0.33
+  while (c > 0 && !inside(c)) c -= step
+  if (c <= 0) return 0
+  let lo = c
+  let hi = c + step
+  for (let i = 0; i < 16; i++) {
+    const mid = (lo + hi) / 2
+    if (inside(mid)) lo = mid
+    else hi = mid
+  }
+  return lo
+}
+
+/** The sRGB gamut's cusp at hue h: the lightness and chroma of its most saturated colour, [L, C]. */
+export function srgbCusp(h: number): [number, number] {
+  // Max chroma rises to the cusp and falls after it: golden-section search over lightness.
+  const g = (Math.sqrt(5) - 1) / 2
+  let a = 0
+  let b = 1
+  for (let i = 0; i < 40; i++) {
+    const x1 = b - g * (b - a)
+    const x2 = a + g * (b - a)
+    if (maxSrgbChroma(x1, h) < maxSrgbChroma(x2, h)) a = x1
+    else b = x2
+  }
+  const L = (a + b) / 2
+  return [L, maxSrgbChroma(L, h)]
+}
