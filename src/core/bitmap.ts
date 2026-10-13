@@ -108,6 +108,19 @@ export function parsePolygons(src: string): number[][][] {
     .filter((poly) => poly.length >= 3)
 }
 
+/** Open polylines (Polyline layers, pipe runs): the same text format, two or more points each. */
+export function parsePolylines(src: string): number[][][] {
+  return src
+    .split(/\n|\|/)
+    .map((line) =>
+      (line.match(/-?\d*\.?\d+(?:e-?\d+)?/gi) ?? [])
+        .map(Number)
+        .reduce<number[][]>((pts, v, i) => (i % 2 ? (pts[pts.length - 1].push(v), pts) : (pts.push([v]), pts)), [])
+        .filter((p) => p.length === 2),
+    )
+    .filter((line) => line.length >= 2)
+}
+
 /** Packs polygons as vec4 (x, y, next vertex index, polygon index); returns the data and the vertex count. */
 export function packPolygons(polys: number[][][]): { data: Float32Array; count: number; polygons: number } {
   const data = new Float32Array(MAX_PATH_POINTS * 4)

@@ -80,7 +80,7 @@ export const pipeworkLayer: LayerDef = {
       hint: 'Surface height: the round pipes (for relief; 1 = 4 × the pipe radius). Coverage: the pipes\' outline (writes the shape mask, so later layers can clip to the pipes). Fittings: 1 on collars and flanges. Underside: 0 on top of a pipe → 1 underneath (rust, grime). Tubes only: the outline of the tubes without their fittings (writes the shape mask — e.g. glass tubes with metal collars). Facing the light: across each pipe, 1 on the side towards the top-left → 0 away (reflection bands on chrome). Liquid: 1 below each run\'s liquid surface (Liquid level)',
     }),
     P.enum('layout', 'Layout', 'random', [['random', 'Random (tileable)'], ['drawn', 'Drawn runs']]),
-    P.bitmap('points', 'Runs', '0,24 40,24 40,48 64,48 | 20,0 20,24', 'points', {
+    P.bitmap('points', 'Runs', '0,24 40,24 40,48 64,48 | 20,0 20,24', 'lines', {
       hint: 'x,y centre-line points (px from the top-left, or 0..1 with Units = fraction); one run per line or "|". Ends inside the texture get a flange; an end on another run tees into it',
       showIf: isDrawn,
       uniform: false,

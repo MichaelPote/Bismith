@@ -1,20 +1,29 @@
 <script setup lang="ts">
-// Shape editor (docs/features/fr8.5-shape-editor.md): edit a Path layer's polygons on the viewport.
-//   Edit      drag vertices (a press within GRAB px of one grabs it, wherever it lands) · click an edge away from the
-//             vertices to insert one · right-click or double-click a vertex to delete it · click a shape to select it
-//   Polygon   click to place vertices; Enter, double-click or a click on the first vertex closes the shape
-//   Freehand  press and draw; the stroke is simplified to fit the vertex budget
-// Vertices snap to half pixels (hold Alt for free placement). The layer's `points` text stays the source of truth.
+// Shape editor (docs/features/fr8.5-shape-editor.md): draw and edit shapes on the viewport.
+//   Edit      the selected item's shapes only — a Path layer's polygons, a Polyline layer's lines, the runs of a Pipes
+//             material or pipework layer: drag vertices (a press within GRAB px grabs one), click an edge to insert a
+//             vertex, right-click or double-click a vertex to delete it, click a shape to select it
+//   Polygon   click to place vertices; Enter, double-click or a click on the first vertex closes it → a new Path layer
+//   Freehand  press and draw a closed shape → a new Path layer
+//   Line      click to place points; Enter, double-click or a click on the last point ends it → a new Polyline layer, or a
+//             new run of the selected Pipes
+// Drafts are kept in texture px and converted to the destination's units on commit. Vertices snap to half pixels
+// (hold Alt for free placement). The `points` text stays the source of truth; the middle button still pans.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { MAX_PATH_POINTS, parsePolygons } from '@/core/bitmap'
+import { MAX_PATH_POINTS, parsePolygons, parsePolylines } from '@/core/bitmap'
+import type { SmartMaterial } from '@/core/project'
+import { layerParamDefs } from '@/layers/registry'
+import { getRecipe, materialOf } from '@/recipes'
 import { useProjectStore } from '@/stores/project'
+import { useEditorStore, type ShapeTool } from '@/stores/editor'
+import { useActions } from '@/ui/actions'
 import Icon from '@/ui/components/Icon.vue'
 
 type Pt = [number, number]
-type Mode = 'edit' | 'polygon' | 'freehand'
 
 const props = defineProps<{
-  layerId: string
+  /** The selected layer or material whose shapes are edited (null: drawing only). */
+  target: { kind: 'layer' | 'material'; id: string } | null
   /** The texture's rectangle on screen (CSS px, relative to the stage). */
   rect: { x: number; y: number; w: number; h: number }
   texW: number
@@ -26,190 +35,282 @@ const props = defineProps<{
 const GRAB = 10
 
 const store = useProjectStore()
-const layer = computed(() => store.getLayer(props.layerId))
-const fraction = computed(() => layer.value?.params.units === 'fraction')
-const polys = computed<Pt[][]>(() => parsePolygons(String(layer.value?.params.points ?? '')) as Pt[][])
-const total = computed(() => polys.value.reduce((n, p) => n + p.length, 0))
+const editor = useEditorStore()
+const act = useActions()
 
-/** A Path layer without shapes yet opens ready to place vertices. */
-const startMode = (): Mode => (total.value === 0 ? 'polygon' : 'edit')
-const mode = ref<Mode>(startMode())
+/** Where the selected item's shapes live, and how to write them back. */
+interface Source {
+  open: boolean
+  fraction: boolean
+  budget: number
+  text: string
+  /** Pipe runs: the Line tool adds runs here instead of creating a layer. */
+  pipes: boolean
+  write(text: string): void
+}
+
+/** A material whose controls include its shapes (e.g. Pipes' runs): edited through the control, so every layer follows. */
+function materialSource(m: SmartMaterial): Source | null {
+  const d = getRecipe(m.recipe)?.params.find((p) => p.bitmap === 'points' || p.bitmap === 'lines')
+  if (!d) return null
+  // Random layouts have no runs to edit; drawing one switches the layout to drawn runs.
+  const drawn = !('layout' in m.params) || m.params.layout === 'drawn'
+  return {
+    open: d.bitmap === 'lines',
+    fraction: true,
+    budget: 512,
+    text: drawn ? String(m.params[d.key] ?? '') : '',
+    pipes: d.bitmap === 'lines',
+    write: (text) => {
+      if (!drawn) store.setMaterialParam(m.id, 'layout', 'drawn')
+      store.setMaterialParam(m.id, d.key, text)
+    },
+  }
+}
+
+const source = computed<Source | null>(() => {
+  const t = props.target
+  if (!t) return null
+  if (t.kind === 'material') {
+    const m = store.getMaterial(t.id)
+    return m ? materialSource(m) : null
+  }
+  const l = store.getLayer(t.id)
+  const d = l && layerParamDefs(l.type).find((p) => p.bitmap === 'points' || p.bitmap === 'lines')
+  if (!l || !d) return null
+  const m = materialOf(store.project, l.id)
+  if (m && getRecipe(m.recipe)?.params.some((p) => p.key === d.key && p.bitmap)) return materialSource(m)
+  const pipes = l.type === 'pipework'
+  const drawn = !pipes || l.params.layout === 'drawn'
+  return {
+    open: d.bitmap === 'lines',
+    fraction: l.params.units === 'fraction',
+    budget: d.uniform === false ? 512 : MAX_PATH_POINTS,
+    text: drawn ? String(l.params[d.key] ?? '') : '',
+    pipes,
+    write: (text) => {
+      if (!drawn) store.setLayerParam(l.id, 'layout', 'drawn')
+      store.setLayerParam(l.id, d.key, text)
+    },
+  }
+})
+
+const open = computed(() => source.value?.open ?? false)
+const fraction = computed(() => source.value?.fraction ?? false)
+/** The source's shapes, in its units (px, or fractions of the texture). */
+const shapes = computed<Pt[][]>(() => {
+  const s = source.value
+  if (!s) return []
+  return (s.open ? parsePolylines(s.text) : parsePolygons(s.text)) as Pt[][]
+})
+const total = computed(() => shapes.value.reduce((n, p) => n + p.length, 0))
+const minPoints = computed(() => (open.value ? 2 : 3))
+
+const tool = computed<ShapeTool>({ get: () => editor.shapeTool, set: (v) => (editor.shapeTool = v) })
 const selected = ref<number | null>(null)
+/** The shape being drawn, in texture px. */
 const draft = ref<Pt[]>([])
 const hover = ref<Pt | null>(null)
-let drag: { poly: number; vert: number } | null = null
+let drag: { shape: number; vert: number } | null = null
 let sketching = false
 const svg = ref<SVGSVGElement | null>(null)
 
 function capture(e: PointerEvent, on: boolean): void {
   try {
     if (on) svg.value?.setPointerCapture(e.pointerId)
-    else capture(e, false)
+    else svg.value?.releasePointerCapture(e.pointerId)
   } catch {
     /* not an active pointer (e.g. synthetic events) */
   }
 }
 
 watch(
-  () => props.layerId,
+  () => props.target?.id,
   () => {
-    draft.value = []
     selected.value = null
-    mode.value = startMode()
   },
 )
 
 // ---------------------------------------------------------------- coordinates
-/** Texture units (px from the top-left, or 0..1 with Units = fraction) → screen. */
-function toScreen([x, y]: Pt): Pt {
-  const r = props.rect
-  const fx = fraction.value ? x : x / props.texW
-  const fy = fraction.value ? y : y / props.texH
-  return [r.x + fx * r.w, r.y + fy * r.h]
-}
+const srcToPx = ([x, y]: Pt): Pt => (fraction.value ? [x * props.texW, y * props.texH] : [x, y])
+const pxToSrc = ([x, y]: Pt, frac = fraction.value): Pt => (frac ? [x / props.texW, y / props.texH] : [x, y])
 
-function toTex(e: PointerEvent | MouseEvent, snap = !e.altKey): Pt {
+/** Texture px → screen. */
+function pxToScreen([x, y]: Pt): Pt {
+  const r = props.rect
+  return [r.x + (x / props.texW) * r.w, r.y + (y / props.texH) * r.h]
+}
+const toScreen = (p: Pt): Pt => pxToScreen(srcToPx(p))
+
+/** Pointer → texture px (snapped to half pixels unless Alt). */
+function toPx(e: PointerEvent | MouseEvent, snap = !e.altKey): Pt {
   const b = svg.value!.getBoundingClientRect()
   const r = props.rect
-  const fx = (e.clientX - b.left - r.x) / r.w
-  const fy = (e.clientY - b.top - r.y) / r.h
-  let x = fx * props.texW
-  let y = fy * props.texH
+  let x = ((e.clientX - b.left - r.x) / r.w) * props.texW
+  let y = ((e.clientY - b.top - r.y) / r.h) * props.texH
   if (snap) {
     x = Math.round(x * 2) / 2
     y = Math.round(y * 2) / 2
   }
-  return fraction.value ? [x / props.texW, y / props.texH] : [x, y]
+  return [x, y]
 }
 
-const fmt = (v: number) => (fraction.value ? String(Number(v.toFixed(4))) : String(Number(v.toFixed(2))))
+const fmt = (v: number, frac: boolean) => (frac ? String(Number(v.toFixed(4))) : String(Number(v.toFixed(2))))
+const shapeText = (list: Pt[][], frac: boolean, min: number) =>
+  list
+    .filter((p) => p.length >= min)
+    .map((p) => p.map(([x, y]) => `${fmt(x, frac)},${fmt(y, frac)}`).join(' '))
+    .join('\n')
 
 function write(next: Pt[][]): void {
-  const text = next
-    .filter((p) => p.length >= 3)
-    .map((p) => p.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(' '))
-    .join('\n')
-  store.setLayerParam(props.layerId, 'points', text)
+  source.value?.write(shapeText(next, fraction.value, minPoints.value))
 }
 
-const copy = (): Pt[][] => polys.value.map((p) => p.map(([x, y]) => [x, y] as Pt))
-const pathD = (p: Pt[], closed = true) => p.map((q, i) => `${i ? 'L' : 'M'}${toScreen(q).join(' ')}`).join('') + (closed ? 'Z' : '')
+const copy = (): Pt[][] => shapes.value.map((p) => p.map(([x, y]) => [x, y] as Pt))
+const pathD = (p: Pt[], closed: boolean, conv = toScreen) => p.map((q, i) => `${i ? 'L' : 'M'}${conv(q).join(' ')}`).join('') + (closed ? 'Z' : '')
+/** Edges of a shape: (j, j + 1), and the closing one for polygons. */
+const edges = (p: Pt[]) => (open.value ? p.slice(0, -1) : p).map((q, j) => [q, p[(j + 1) % p.length]] as [Pt, Pt])
 
-// ---------------------------------------------------------------- edit mode
+// ---------------------------------------------------------------- edit
 /** The vertex nearest the pointer within GRAB screen px (the selected shape's first), if any. */
-function nearestVertex(e: MouseEvent): { poly: number; vert: number } | null {
+function nearestVertex(e: MouseEvent): { shape: number; vert: number } | null {
   const b = svg.value!.getBoundingClientRect()
   const x = e.clientX - b.left
   const y = e.clientY - b.top
-  let best: { poly: number; vert: number } | null = null
+  let best: { shape: number; vert: number } | null = null
   let bestD = GRAB
-  polys.value.forEach((p, i) =>
+  shapes.value.forEach((p, i) =>
     p.forEach((q, j) => {
       const [sx, sy] = toScreen(q)
       // The selected shape wins ties with a shape underneath.
       const d = Math.hypot(sx - x, sy - y) - (i === selected.value ? 0.5 : 0)
       if (d < bestD) {
         bestD = d
-        best = { poly: i, vert: j }
+        best = { shape: i, vert: j }
       }
     }),
   )
   return best
 }
 
-function startDrag(e: PointerEvent, poly: number, vert: number): void {
+function startDrag(e: PointerEvent, shape: number, vert: number): void {
   e.stopPropagation()
   e.preventDefault()
-  selected.value = poly
-  drag = { poly, vert }
+  selected.value = shape
+  drag = { shape, vert }
   capture(e, true)
 }
 
 function onVertexDown(e: PointerEvent): void {
-  if (mode.value !== 'edit' || e.button !== 0) return
+  if (tool.value !== 'edit' || e.button !== 0) return
   const v = nearestVertex(e)
-  if (v) startDrag(e, v.poly, v.vert)
+  if (v) startDrag(e, v.shape, v.vert)
 }
 
-function deleteVertex(poly: number, vert: number): void {
+function deleteVertex(shape: number, vert: number): void {
   const next = copy()
-  next[poly].splice(vert, 1)
-  if (next[poly].length < 3) next.splice(poly, 1)
+  next[shape].splice(vert, 1)
+  if (next[shape].length < minPoints.value) next.splice(shape, 1)
   write(next)
 }
 
 /** Right-click or double-click near a vertex deletes it. */
 function onVertexDelete(e: MouseEvent): void {
-  if (mode.value !== 'edit') return
+  if (tool.value !== 'edit') return
   const v = nearestVertex(e)
   if (!v) return
   e.preventDefault()
   e.stopPropagation()
-  deleteVertex(v.poly, v.vert)
+  deleteVertex(v.shape, v.vert)
 }
 
-function onEdgeDown(e: PointerEvent, poly: number, after: number): void {
-  if (mode.value !== 'edit' || e.button !== 0) return
+function onEdgeDown(e: PointerEvent, shape: number, after: number): void {
+  if (tool.value !== 'edit' || e.button !== 0) return
   // Near a vertex, grab it instead of inserting one beside it.
   const v = nearestVertex(e)
-  if (v) return startDrag(e, v.poly, v.vert)
-  if (total.value >= MAX_PATH_POINTS) return
+  if (v) return startDrag(e, v.shape, v.vert)
+  if (total.value >= (source.value?.budget ?? MAX_PATH_POINTS)) return
   e.stopPropagation()
   e.preventDefault()
   const next = copy()
-  next[poly].splice(after + 1, 0, toTex(e))
+  next[shape].splice(after + 1, 0, pxToSrc(toPx(e)))
   write(next)
-  selected.value = poly
-  drag = { poly, vert: after + 1 }
+  selected.value = shape
+  drag = { shape, vert: after + 1 }
   capture(e, true)
 }
 
-function onShapeDown(e: PointerEvent, poly: number): void {
-  if (mode.value !== 'edit' || e.button !== 0) return
+function onShapeDown(e: PointerEvent, shape: number): void {
+  if (tool.value !== 'edit' || e.button !== 0) return
   const v = nearestVertex(e)
-  if (v) return startDrag(e, v.poly, v.vert)
+  if (v) return startDrag(e, v.shape, v.vert)
   e.stopPropagation()
-  selected.value = poly
+  selected.value = shape
 }
 
 // ---------------------------------------------------------------- drawing
+/** Drop repeated points (a double-click places its point twice). */
+const dedupe = (pts: Pt[]) => pts.filter((p, i) => i === 0 || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1])
+
+/** Finish the draft: a new Path or Polyline layer, or a new run of the selected pipes. */
+function commit(): void {
+  const pts = dedupe(draft.value)
+  const kind = tool.value
+  draft.value = []
+  hover.value = null
+  if (kind === 'line') {
+    if (pts.length < 2) return
+    const s = source.value
+    if (s?.pipes) {
+      const run = shapeText([pts.map((p) => pxToSrc(p, s.fraction))], s.fraction, 2)
+      s.write(s.text.trim() ? `${s.text.trim()}\n${run}` : run)
+      selected.value = shapes.value.length - 1
+    } else void act.addShapeLayer('polyline', shapeText([pts], false, 2))
+  } else {
+    if (pts.length < 3) return
+    void act.addShapeLayer('path', shapeText([pts], false, 3))
+  }
+  tool.value = 'edit'
+}
+
 function onCaptureDown(e: PointerEvent): void {
+  // Only the left button draws: the middle button still pans the view.
+  if (e.button !== 0) return
   e.stopPropagation()
   e.preventDefault()
-  const p = toTex(e)
-  if (mode.value === 'freehand') {
-    if (total.value + 3 > MAX_PATH_POINTS) return
+  const p = toPx(e)
+  if (tool.value === 'freehand') {
     sketching = true
-    draft.value = [toTex(e, false)]
+    draft.value = [toPx(e, false)]
     capture(e, true)
     return
   }
-  // Polygon: a click near the first vertex closes the shape.
-  if (draft.value.length >= 3) {
-    const [fx, fy] = toScreen(draft.value[0])
-    const [px, py] = toScreen(p)
-    if (Math.hypot(fx - px, fy - py) < 8) return closeDraft()
+  const near = (q: Pt) => {
+    const [ax, ay] = pxToScreen(q)
+    const [bx, by] = pxToScreen(p)
+    return Math.hypot(ax - bx, ay - by) < 8
   }
-  if (total.value + draft.value.length >= MAX_PATH_POINTS) return
+  // Polygon: a click on the first vertex closes it. Line: a click on the last point ends it.
+  if (tool.value === 'polygon' && draft.value.length >= 3 && near(draft.value[0])) return commit()
+  if (tool.value === 'line' && draft.value.length >= 2 && near(draft.value[draft.value.length - 1])) return commit()
   draft.value = [...draft.value, p]
 }
 
 function onMove(e: PointerEvent): void {
   if (drag) {
     const next = copy()
-    next[drag.poly][drag.vert] = toTex(e)
+    next[drag.shape][drag.vert] = pxToSrc(toPx(e))
     write(next)
     return
   }
   if (sketching) {
-    const p = toTex(e, false)
-    const last = draft.value[draft.value.length - 1]
-    const [ax, ay] = toScreen(last)
-    const [bx, by] = toScreen(p)
+    const p = toPx(e, false)
+    const [ax, ay] = pxToScreen(draft.value[draft.value.length - 1])
+    const [bx, by] = pxToScreen(p)
     if (Math.hypot(ax - bx, ay - by) >= 3) draft.value = [...draft.value, p]
     return
   }
-  if (mode.value === 'polygon') hover.value = toTex(e)
+  if (tool.value === 'polygon' || tool.value === 'line') hover.value = toPx(e)
 }
 
 function onUp(e: PointerEvent): void {
@@ -220,27 +321,13 @@ function onUp(e: PointerEvent): void {
   if (sketching) {
     sketching = false
     capture(e, false)
-    const budget = MAX_PATH_POINTS - total.value
-    const simple = simplify(draft.value, budget)
-    draft.value = []
-    if (simple.length >= 3) {
-      const snapped = simple.map(([x, y]) => (fraction.value ? [x, y] : [Math.round(x * 2) / 2, Math.round(y * 2) / 2]) as Pt)
-      write([...copy(), snapped])
-      selected.value = polys.value.length - 1
-    }
+    const simple = simplify(draft.value, MAX_PATH_POINTS)
+    draft.value = simple.map(([x, y]) => [Math.round(x * 2) / 2, Math.round(y * 2) / 2] as Pt)
+    commit()
   }
 }
 
-function closeDraft(): void {
-  if (draft.value.length >= 3) {
-    write([...copy(), draft.value])
-    selected.value = polys.value.length - 1
-  }
-  draft.value = []
-  hover.value = null
-}
-
-/** Ramer–Douglas–Peucker on a closed stroke, loosening the tolerance until it fits `budget` vertices. */
+/** Ramer–Douglas–Peucker on a stroke (texture px), loosening the tolerance until it fits `budget` vertices. */
 function simplify(pts: Pt[], budget: number): Pt[] {
   if (pts.length <= 3) return pts
   const rdp = (a: number, b: number, eps: number, keep: Set<number>) => {
@@ -262,8 +349,7 @@ function simplify(pts: Pt[], budget: number): Pt[] {
       rdp(best, b, eps, keep)
     }
   }
-  const unit = fraction.value ? 1 / Math.max(props.texW, props.texH) : 1
-  for (let eps = 0.75 * unit; ; eps *= 1.4) {
+  for (let eps = 0.75; ; eps *= 1.4) {
     const keep = new Set([0, pts.length - 1])
     rdp(0, pts.length - 1, eps, keep)
     const out = [...keep].sort((a, b) => a - b).map((i) => pts[i])
@@ -273,14 +359,21 @@ function simplify(pts: Pt[], budget: number): Pt[] {
 
 function onCaptureDbl(e: MouseEvent): void {
   e.stopPropagation()
-  if (mode.value === 'polygon') closeDraft()
+  if (tool.value === 'polygon' || tool.value === 'line') commit()
 }
 
 // ---------------------------------------------------------------- toolbar
-function setMode(m: Mode): void {
-  if (mode.value === 'polygon' && m !== 'polygon') closeDraft()
-  mode.value = m
-}
+/** Switching tools finishes a draft that is already a shape, and drops one that isn't. */
+watch(tool, (_now, before) => {
+  if (draft.value.length && (before === 'polygon' || before === 'line')) {
+    const keep = tool.value
+    editor.shapeTool = before
+    commit()
+    editor.shapeTool = keep
+  }
+  draft.value = []
+  hover.value = null
+})
 
 function deleteSelected(): void {
   if (selected.value === null) return
@@ -293,61 +386,83 @@ function deleteSelected(): void {
 function onKey(e: KeyboardEvent): void {
   const t = e.target as HTMLElement | null
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
-  if (e.key === 'Enter' && mode.value === 'polygon') {
+  if (e.key === 'Enter' && (tool.value === 'polygon' || tool.value === 'line') && draft.value.length) {
     e.preventDefault()
-    closeDraft()
-  } else if (e.key === 'Escape' && (draft.value.length || mode.value !== 'edit')) {
+    commit()
+  } else if (e.key === 'Escape' && (draft.value.length || tool.value !== 'edit')) {
     e.preventDefault()
     e.stopPropagation()
     draft.value = []
-    mode.value = 'edit'
+    tool.value = 'edit'
   }
 }
 onMounted(() => window.addEventListener('keydown', onKey, true))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
+
+const draftClosed = computed(() => tool.value === 'polygon' || tool.value === 'freehand')
+const draftPath = computed(() => {
+  const pts = (tool.value === 'polygon' || tool.value === 'line') && hover.value ? [...draft.value, hover.value] : draft.value
+  return pathD(pts, draftClosed.value && !sketching, pxToScreen)
+})
 </script>
 
 <template>
   <svg ref="svg" class="shape-editor" :width="size.w" :height="size.h" @pointermove="onMove" @pointerup="onUp" @pointercancel="onUp" @contextmenu="onVertexDelete">
-    <!-- Drawing modes capture the whole stage. -->
-    <rect v-if="mode !== 'edit'" class="capture" x="0" y="0" :width="size.w" :height="size.h" @pointerdown="onCaptureDown" @dblclick="onCaptureDbl" />
-    <g v-for="(p, i) in polys" :key="`p${i}`" :class="{ sel: selected === i }">
-      <path :d="pathD(p)" class="fill" :class="{ live: mode === 'edit' }" @pointerdown="onShapeDown($event, i)" />
-      <template v-if="mode === 'edit'">
+    <!-- Drawing tools capture the whole stage (left button only). -->
+    <rect v-if="tool !== 'edit'" class="capture" x="0" y="0" :width="size.w" :height="size.h" @pointerdown="onCaptureDown" @dblclick="onCaptureDbl" />
+    <g v-for="(p, i) in shapes" :key="`p${i}`" :class="{ sel: selected === i, open }">
+      <path :d="pathD(p, !open)" class="fill" :class="{ live: tool === 'edit' }" @pointerdown="onShapeDown($event, i)" />
+      <template v-if="tool === 'edit'">
         <line
-          v-for="(q, j) in p"
+          v-for="([a, b], j) in edges(p)"
           :key="`e${j}`"
           class="edge"
-          :x1="toScreen(q)[0]"
-          :y1="toScreen(q)[1]"
-          :x2="toScreen(p[(j + 1) % p.length])[0]"
-          :y2="toScreen(p[(j + 1) % p.length])[1]"
+          :x1="toScreen(a)[0]"
+          :y1="toScreen(a)[1]"
+          :x2="toScreen(b)[0]"
+          :y2="toScreen(b)[1]"
           @pointerdown="onEdgeDown($event, i, j)"
         />
         <g v-for="(q, j) in p" :key="`v${j}`" class="vgrab" @pointerdown="onVertexDown" @dblclick="onVertexDelete">
           <circle class="hit" :cx="toScreen(q)[0]" :cy="toScreen(q)[1]" :r="GRAB" />
-          <circle class="vertex" :cx="toScreen(q)[0]" :cy="toScreen(q)[1]" r="4.5" />
+          <circle class="vertex" :class="{ end: open && (j === 0 || j === p.length - 1) }" :cx="toScreen(q)[0]" :cy="toScreen(q)[1]" r="4.5" />
         </g>
       </template>
-      <path v-else :d="pathD(p)" class="outline" />
+      <path v-else :d="pathD(p, !open)" class="outline" />
     </g>
     <template v-if="draft.length">
-      <path :d="pathD(mode === 'polygon' && hover ? [...draft, hover] : draft, mode === 'freehand')" class="draft" />
-      <circle v-for="(q, j) in mode === 'polygon' ? draft : []" :key="`d${j}`" class="vertex draftv" :class="{ first: j === 0 }" :cx="toScreen(q)[0]" :cy="toScreen(q)[1]" r="4" />
+      <path :d="draftPath" class="draft" :class="{ open: !draftClosed }" />
+      <circle
+        v-for="(q, j) in tool === 'freehand' ? [] : draft"
+        :key="`d${j}`"
+        class="vertex draftv"
+        :class="{ first: tool === 'polygon' ? j === 0 : j === draft.length - 1 }"
+        :cx="pxToScreen(q)[0]"
+        :cy="pxToScreen(q)[1]"
+        r="4"
+      />
     </template>
   </svg>
   <div class="shape-tools" @pointerdown.stop>
-    <button type="button" :class="{ on: mode === 'edit' }" title="Edit: drag vertices, click an edge to add one, right-click a vertex to remove it" @click="setMode('edit')">
+    <button type="button" :class="{ on: tool === 'edit' }" title="Edit the selected layer's shapes: drag vertices, click an edge to add one, right-click a vertex to remove it" @click="tool = 'edit'">
       <Icon name="polygon" :size="13" />Edit
     </button>
-    <button type="button" :class="{ on: mode === 'polygon' }" title="Polygon: click to place vertices; Enter, double-click or the first vertex closes it" @click="setMode('polygon')">
+    <button type="button" :class="{ on: tool === 'polygon' }" title="Polygon: click to place vertices; Enter, double-click or the first vertex closes it — a new Path layer" @click="tool = 'polygon'">
       <Icon name="line" :size="13" />Polygon
     </button>
-    <button type="button" :class="{ on: mode === 'freehand' }" title="Freehand: press and draw" @click="setMode('freehand')">
+    <button type="button" :class="{ on: tool === 'freehand' }" title="Freehand: press and draw a shape — a new Path layer" @click="tool = 'freehand'">
       <Icon name="curve" :size="13" />Freehand
     </button>
-    <button type="button" :disabled="selected === null" title="Delete the selected shape" @click="deleteSelected"><Icon name="trash" :size="13" /></button>
-    <span class="count cf-mono" :class="{ full: total >= MAX_PATH_POINTS }" title="Vertices used (all shapes share the budget)">{{ total }}/{{ MAX_PATH_POINTS }}</span>
+    <button
+      type="button"
+      :class="{ on: tool === 'line' }"
+      :title="source?.pipes ? 'Line: click to place points; Enter, double-click or the last point ends it — a new run of the selected pipes' : 'Line: click to place points; Enter, double-click or the last point ends it — a new Polyline layer'"
+      @click="tool = 'line'"
+    >
+      <Icon name="line" :size="13" />{{ source?.pipes ? 'Pipe run' : 'Line' }}
+    </button>
+    <button v-if="shapes.length > 1" type="button" :disabled="selected === null" title="Delete the selected shape" @click="deleteSelected"><Icon name="trash" :size="13" /></button>
+    <span v-if="source" class="count cf-mono" :class="{ full: total >= source.budget }" title="Vertices used">{{ total }}/{{ source.budget }}</span>
   </div>
 </template>
 
@@ -411,6 +526,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
 }
 .vgrab:hover .vertex {
   fill: var(--accent-hi);
+}
+.open .fill {
+  fill: none;
+  stroke: rgba(246, 110, 16, 0.35);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.open .fill.live {
+  pointer-events: stroke;
+}
+.sel.open .fill {
+  stroke: rgba(246, 110, 16, 0.55);
+}
+.vertex.end {
+  fill: var(--text-hi);
+}
+.draft.open {
+  fill: none;
 }
 .draft {
   fill: rgba(246, 110, 16, 0.08);

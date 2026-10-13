@@ -15,6 +15,9 @@ export interface Selection {
 
 export type Workspace = 'create' | 'match'
 
+/** Viewport shape tools: edit the selected layer's shapes, or draw a new one (a new layer, or a run of the selected pipes). */
+export type ShapeTool = 'edit' | 'polygon' | 'freehand' | 'line'
+
 export const useEditorStore = defineStore('editor', () => {
   const selection = ref<Selection>({ kind: 'project' })
   const workspace = ref<Workspace>('create')
@@ -41,6 +44,7 @@ export const useEditorStore = defineStore('editor', () => {
   const busy = ref<{ title: string; detail?: string; instant?: boolean } | null>(null)
   /** The new-project wizard is open. */
   const wizard = ref(false)
+  const shapeTool = ref<ShapeTool>('edit')
 
   function select(kind: SelectionKind, id?: string): void {
     selection.value = { kind, id }
@@ -60,6 +64,7 @@ export const useEditorStore = defineStore('editor', () => {
 
   return {
     wizard,
+    shapeTool,
     selection,
     workspace,
     channel,

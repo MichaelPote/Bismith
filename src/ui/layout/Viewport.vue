@@ -8,6 +8,7 @@ import { GpuError } from '@/gpu/context'
 import { CHANNEL_VIEWS } from '@/render/display'
 import Icon from '@/ui/components/Icon.vue'
 import ShapeEditor from '@/ui/components/ShapeEditor.vue'
+import { getRecipe } from '@/recipes'
 import SelectField from '@/ui/components/SelectField.vue'
 import { vTip } from '@/ui/tooltip'
 import { layerParamDefs } from '@/layers/registry'
@@ -157,13 +158,21 @@ const gizmos = computed(() => {
     })
 })
 
-// ---------------------------------------------------------------- shape editor (Path layers)
-/** The selected layer when it has editable polygons (a `points` param). */
-const shapeLayer = computed(() => {
+// ---------------------------------------------------------------- shape editor
+/** The selected layer or material whose shapes the editor edits (Path / Line layers, pipe runs); null = drawing only. */
+const shapeTarget = computed<{ kind: 'layer' | 'material'; id: string } | null>(() => {
   const s = editor.selection
-  if (s.kind !== 'layer' || !s.id) return null
-  const l = store.getLayer(s.id)
-  return l && layerParamDefs(l.type).some((d) => d.bitmap === 'points') ? l : null
+  if (!s.id) return null
+  const shaped = (d: { bitmap?: string }) => d.bitmap === 'points' || d.bitmap === 'lines'
+  if (s.kind === 'layer') {
+    const l = store.getLayer(s.id)
+    return l && layerParamDefs(l.type).some(shaped) ? { kind: 'layer', id: l.id } : null
+  }
+  if (s.kind === 'material') {
+    const m = store.getMaterial(s.id)
+    return m && getRecipe(m.recipe)?.params.some(shaped) ? { kind: 'material', id: m.id } : null
+  }
+  return null
 })
 
 const CHANNEL_OPTIONS = CHANNEL_VIEWS.map((c) => ({ value: c.id, label: `${c.label} · ${c.key.toUpperCase()}` }))
@@ -308,7 +317,7 @@ watch(
           </g>
         </template>
       </svg>
-      <ShapeEditor v-if="shapeLayer" :key="shapeLayer.id" :layer-id="shapeLayer.id" :rect="texRect" :tex-w="project.width" :tex-h="project.height" :size="cssSize" />
+      <ShapeEditor v-if="editor.workspace === 'create'" :target="shapeTarget" :rect="texRect" :tex-w="project.width" :tex-h="project.height" :size="cssSize" />
     </div>
 
     <div class="header">

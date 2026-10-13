@@ -65,9 +65,11 @@ export interface ParamDef {
    * Text params only: upload the text as a pixel bitmap (see core/bitmap.ts) — 'pixels' parses rows of cell
    * characters, 'font' renders the text in the pixel font. Declares `ivec4 u_<key>[64]` + `ivec2 u_<key>_size`.
    * 'points' parses polygons ("x,y x,y …", one polygon per line or '|') into `vec4 u_<key>[64]` (x, y, index of
-   * the polygon's next vertex, polygon index) + `ivec2 u_<key>_size` (vertex count, polygon count).
+   * the polygon's next vertex, polygon index) + `ivec2 u_<key>_size` (vertex count, polygon count). 'lines' is the
+   * same for open polylines (two or more points; the last vertex's "next" still wraps — skip that closing segment).
+   * The shape editor draws 'points' shapes closed and 'lines' shapes open.
    */
-  bitmap?: 'pixels' | 'font' | 'points'
+  bitmap?: 'pixels' | 'font' | 'points' | 'lines'
   hint?: string
   /**
    * UI only: draw this param in one row with the param `with`, which then isn't drawn on its own. 'pair' puts the two
@@ -207,7 +209,7 @@ export const P = {
     key, label, type: 'curve', default: def, optimize: false, ...extra,
   }),
   /** A pixel bitmap typed as text (uploaded as a bitmap uniform). */
-  bitmap: (key: string, label: string, def: string, mode: 'pixels' | 'font' | 'points', extra: Extra = {}): ParamDef => ({
+  bitmap: (key: string, label: string, def: string, mode: 'pixels' | 'font' | 'points' | 'lines', extra: Extra = {}): ParamDef => ({
     key, label, type: 'text', default: def, bitmap: mode, optimize: false, ...extra,
   }),
 }

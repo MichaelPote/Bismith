@@ -45,7 +45,7 @@ export const pipes: RecipeDef = {
   ],
   params: [
     P.enum('layout', 'Layout', 'random', [['random', 'Random (tileable)'], ['drawn', 'Drawn runs']], { group: 'layout' }),
-    P.bitmap('points', 'Runs', '0,0.4 1,0.4 | 0.3,0.4 0.3,1', 'points', {
+    P.bitmap('points', 'Runs', '0,0.4 1,0.4 | 0.3,0.4 0.3,1', 'lines', {
       group: 'layout', showIf: drawn, hint: 'Centre lines, x,y as fractions of the texture; one run per line or "|" (edit on the canvas with the shape editor)',
     }),
     P.int('runs', 'Horizontal runs', 3, 0, 64, { group: 'layout', softMax: 16, showIf: random, hint: 'Beyond the room for them, runs lie over the ones they overlap' }),

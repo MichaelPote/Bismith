@@ -132,7 +132,7 @@ export const pathLayer: LayerDef = {
   ],
   defaults: { bevel: 1, profile: 'linear', h_on: true, h_amount: 0.3, dif_on: true },
   glsl: /* glsl */ `
-vec2 pathSdf(vec2 q, float k) {
+vec2 pathSdf(vec2 q, vec2 k) {
   int n = u_points_size.x;
   float d = 1e20;
   float s = 1.0;
@@ -155,7 +155,8 @@ vec2 pathSdf(vec2 q, float k) {
 
 GenOut gen(vec2 p) {
   if (u_points_size.x < 3) return genOut(0.0, 0.0, 0.0, 1e4);
-  float k = u_units == 1 ? uRes.x : 1.0;
+  // Fractions of the texture's width and height, as the shape editor draws them.
+  vec2 k = u_units == 1 ? uRes : vec2(1.0);
   vec2 q = vec2(p.x, uRes.y - p.y);
   vec2 r = pathSdf(q, k);
   if (uTile) {
@@ -171,4 +172,72 @@ GenOut gen(vec2 p) {
 `,
 }
 
-export const STAMP_LAYERS: LayerDef[] = [stampLayer, labelLayer, pathLayer]
+export const polylineLayer: LayerDef = {
+  type: 'polyline',
+  label: 'Polyline',
+  category: 'shape',
+  kind: 'generator',
+  sdf: true,
+  description: 'Open polylines with a width — cables, trims, cracks, painted lines; drawn with the Line tool on the canvas. Round joins; round or flat ends.',
+  params: [
+    P.bitmap('points', 'Points', '8,32 56,32', 'lines', {
+      hint: 'x,y vertex pairs (px from the top-left, or 0..1 with Units = fraction); one line per row or "|". Max 64 vertices',
+    }),
+    P.enum('units', 'Units', 'px', [['px', 'Pixels'], ['fraction', 'Fraction of the texture']]),
+    P.float('width', 'Width', 3, 0.25, 1024, { softMax: 32, unit: 'px', step: 0.25 }),
+    P.enum('caps', 'Ends', 'round', [['round', 'Round'], ['flat', 'Flat']]),
+  ],
+  defaults: { bevel: 1.5, profile: 'round', h_on: true, h_amount: 0.4, dif_on: true },
+  glsl: /* glsl */ `
+// Distance to the open polylines (segments whose "next" wraps back close a line: skipped), minus half the width.
+vec2 lineSdf(vec2 q, vec2 k, float hw) {
+  int n = u_points_size.x;
+  float d = 1e20;
+  float pid = 0.0;
+  for (int i = 0; i < ${MAX_PATH_POINTS}; i++) {
+    if (i >= n) break;
+    vec4 a4 = u_points[i];
+    int j = int(a4.z);
+    if (j <= i) continue;
+    vec2 a = a4.xy * k;
+    vec2 b = u_points[j].xy * k;
+    vec2 e = b - a;
+    float L = max(length(e), 1e-6);
+    vec2 t = e / L;
+    vec2 w = q - a;
+    float u = dot(w, t);
+    float v = dot(w, vec2(-t.y, t.x));
+    float dd = length(vec2(u - clamp(u, 0.0, L), v)) - hw;
+    if (u_caps == 1) {
+      // Flat ends: cut square at a line's first and last vertex.
+      bool first = i == 0 || u_points[i - 1].w != a4.w;
+      bool last = int(u_points[j].z) <= j;
+      if (first && u < 0.0) dd = max(abs(v) - hw, -u);
+      if (last && u > L) dd = max(abs(v) - hw, u - L);
+    }
+    if (dd < d) { d = dd; pid = a4.w; }
+  }
+  return vec2(d, pid);
+}
+
+GenOut gen(vec2 p) {
+  if (u_points_size.x < 2) return genOut(0.0, 0.0, 0.0, 1e4);
+  // Fractions of the texture's width and height, as the shape editor draws them.
+  vec2 k = u_units == 1 ? uRes : vec2(1.0);
+  float hw = 0.5 * u_width;
+  vec2 q = vec2(p.x, uRes.y - p.y);
+  vec2 r = lineSdf(q, k, hw);
+  if (uTile) {
+    for (int j = -1; j <= 1; j++)
+    for (int i = -1; i <= 1; i++) {
+      if (i == 0 && j == 0) continue;
+      vec2 o = lineSdf(q + vec2(float(i), float(j)) * uRes, k, hw);
+      if (o.x < r.x) r = o;
+    }
+  }
+  return genOut(1.0, 1.0, hashI(ivec2(int(r.y), 7), uSeed), r.x);
+}
+`,
+}
+
+export const STAMP_LAYERS: LayerDef[] = [stampLayer, labelLayer, pathLayer, polylineLayer]

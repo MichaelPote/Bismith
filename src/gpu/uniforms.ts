@@ -6,7 +6,7 @@
 
 import * as THREE from 'three'
 import { hexToLinear, hexToRgb } from '@/core/color'
-import { BITMAP_MAX, MAX_PATH_POINTS, packBitmap, packPolygons, parseBitmap, parsePolygons, textBitmap } from '@/core/bitmap'
+import { BITMAP_MAX, MAX_PATH_POINTS, packBitmap, packPolygons, parseBitmap, parsePolygons, textBitmap, parsePolylines } from '@/core/bitmap'
 import { MAX_CURVE_POINTS, MAX_GRADIENT_STOPS, curveTangents, enumIndex, type Curve, type Gradient, type ParamDef, type ParamValues } from '@/core/params'
 import type { Uniforms } from './context'
 
@@ -55,7 +55,7 @@ export function declareUniforms(defs: ParamDef[]): string {
         )
         break
       case 'text':
-        if (d.bitmap === 'points') lines.push(`uniform vec4 ${n}[${MAX_PATH_POINTS}];`, `uniform ivec2 ${n}_size;`)
+        if (d.bitmap === 'points' || d.bitmap === 'lines') lines.push(`uniform vec4 ${n}[${MAX_PATH_POINTS}];`, `uniform ivec2 ${n}_size;`)
         else lines.push(`uniform ivec4 ${n}[${BITMAP_MAX}];`, `uniform ivec2 ${n}_size;`)
         break
     }
@@ -74,7 +74,7 @@ export function createUniforms(defs: ParamDef[]): Uniforms {
       u[`${n}_count`] = { value: 0 }
     }
     else if (d.type === 'text') {
-      u[n] = { value: d.bitmap === 'points' ? new Float32Array(MAX_PATH_POINTS * 4) : new Int32Array(BITMAP_MAX * 4) }
+      u[n] = { value: d.bitmap === 'points' || d.bitmap === 'lines' ? new Float32Array(MAX_PATH_POINTS * 4) : new Int32Array(BITMAP_MAX * 4) }
       u[`${n}_size`] = { value: new Int32Array(2) }
     }
     else if (d.type === 'gradient') {
@@ -109,8 +109,8 @@ export function updateUniforms(u: Uniforms, defs: ParamDef[], values: ParamValue
       }
       case 'text': {
         if (!u[n]) break
-        if (d.bitmap === 'points') {
-          const pk = packPolygons(parsePolygons(String(v)))
+        if (d.bitmap === 'points' || d.bitmap === 'lines') {
+          const pk = packPolygons(d.bitmap === 'lines' ? parsePolylines(String(v)) : parsePolygons(String(v)))
           u[n].value = pk.data
           u[`${n}_size`].value = new Int32Array([pk.count, pk.polygons])
           break

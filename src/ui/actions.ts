@@ -190,6 +190,14 @@ export function useActions() {
     })
   }
 
+  /** A shape drawn on the canvas becomes its own layer (Path for polygons, Polyline for open lines), just after the selection. */
+  async function addShapeLayer(type: 'path' | 'polyline', points: string): Promise<void> {
+    await withShaders([type], getLayerDef(type)?.label ?? type, () => {
+      const l = store.addLayer(type, insertionIndex(), { points, units: 'px' })
+      editor.select('layer', l.id)
+    })
+  }
+
   /** Add a smart material (one block of layers) just after the selection. */
   async function addMaterial(recipeId: string): Promise<void> {
     await withShaders(recipeLayerTypes(recipeId, store.project), getRecipe(recipeId)?.label ?? recipeId, () => {
@@ -199,6 +207,7 @@ export function useActions() {
   }
 
   return {
+    addShapeLayer,
     exportFinal,
     exportMap,
     exportAllMaps,

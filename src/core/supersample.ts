@@ -38,7 +38,7 @@ export function scaleProject(p: Project, k: number): Project {
       const v = l.params[d.key]
       if (typeof v === 'number' && d.unit === 'px') l.params[d.key] = v * k
       else if (typeof v === 'number' && d.perArea) l.params[d.key] = v / (k * k)
-      else if (typeof v === 'string' && d.bitmap === 'points' && l.params.units !== 'fraction') l.params[d.key] = scalePoints(v, k)
+      else if (typeof v === 'string' && (d.bitmap === 'points' || d.bitmap === 'lines') && l.params.units !== 'fraction') l.params[d.key] = scalePoints(v, k)
     }
   }
   for (const light of q.lighting.lights) {
