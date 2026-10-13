@@ -99,7 +99,15 @@ export const SDF_MASK_PARAMS: ParamDef[] = [
     showIf: (p) => p.sm_on !== false,
     hint: 'Normal: this shape replaces the shape mask. Union: adds to it. Subtract: cuts this shape out of it. Intersection: keeps only the overlap. Smooth: blended with a rounded fillet. In every mode the layer itself draws the combined shape',
   }),
-  P.float('sdf_k', 'Smoothness', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'mask', section: 'Shape mask', showIf: (p) => p.sm_on !== false && isSmooth(p) }),
+  P.float('sdf_k', 'Smoothness', 4, 0, 256, {
+    softMax: 32,
+    unit: 'px',
+    step: 0.1,
+    group: 'mask',
+    section: 'Shape mask',
+    showIf: (p) => p.sm_on !== false && isSmooth(p),
+    hint: 'How wide the rounded fillet is where this shape meets the shape mask (the smooth modes)',
+  }),
 ]
 
 export const SDF_PARAMS: ParamDef[] = [
@@ -145,20 +153,51 @@ const MASK_CHANNELS: [string, string][] = [['none', 'None'], ['1', 'Mask 1'], ['
 
 /** Named masks (FR8.13), read side: clip a layer (or filter) to one of the four mask channels. */
 export const MASK_USE_PARAMS: ParamDef[] = [
-  P.enum('mk_use', 'Masked by', 'none', MASK_CHANNELS, { group: 'mask', section: 'Named masks', hint: 'Only where this named mask is set (by a layer\'s "Write to mask", anywhere in the stacks)' }),
-  P.bool('mk_invert', 'Outside the mask', false, { group: 'mask', section: 'Named masks', showIf: (p) => (p.mk_use ?? 'none') !== 'none', hint: 'Only where the mask is not set: cut a hole' }),
+  P.enum('mk_use', 'Masked by', 'none', MASK_CHANNELS, {
+    group: 'mask',
+    section: 'Named masks',
+    hint: 'Limit this layer to where one of the four named masks is set. A named mask is recorded by any layer\'s Write to mask, wherever that layer sits in the stack',
+  }),
+  P.bool('mk_invert', 'Outside the mask', false, {
+    group: 'mask',
+    section: 'Named masks',
+    showIf: (p) => (p.mk_use ?? 'none') !== 'none',
+    hint: 'Use the mask the other way round: only where it is not set — cut a hole',
+  }),
 ]
 
 export const MASK_PARAMS: ParamDef[] = [
-  P.float('opacity', 'Layer opacity', 1, 0, 1, { step: 0.001, group: 'mask' }),
-  P.enum('m_clip', 'Clip to', 'none', [['none', 'None'], ['inside', 'Inside the shape mask'], ['outside', 'Outside the shape mask']], {
+  P.float('opacity', 'Strength', 1, 0, 1, {
+    step: 0.001,
+    group: 'mask',
+    hint: 'How much of this layer shows: it scales everything the layer writes (colour, height, roughness, specular, glow) at once — 1 = full, 0.5 = half way from what was beneath, 0 = no effect. Not the Opacity output, which writes the texture\'s alpha',
+  }),
+  P.enum('m_clip', 'Clip to', 'none', [
+    ['none', 'None', 'anywhere: the shape mask doesn\'t limit this layer'],
+    ['inside', 'Inside the shape mask', 'only where the shape mask is — grime on the tiles'],
+    ['outside', 'Outside the shape mask', 'only where it isn\'t — grout between the tiles'],
+  ], {
     group: 'mask',
     section: 'Shape mask',
-    hint: 'Only where the shape mask left by earlier layers is (or isn\'t) — e.g. grout outside the tiles, grime on them',
+    hint: 'Limit this layer to where the shape mask is, or isn\'t. The shape mask is the shape the shape layers before this one built up (their Use shape mask)',
   }),
   ...MASK_USE_PARAMS,
-  P.enum('mk_write', 'Write to mask', 'none', MASK_CHANNELS, { group: 'mask', section: 'Named masks', hint: 'Record this layer\'s coverage in a named mask. Masks are worked out before everything else (their writers in stack order, over the base only), so any layer or material can clip to them wherever it sits' }),
-  P.enum('mk_mode', 'Mask mode', 'replace', [['replace', 'Replace'], ['add', 'Add (union)'], ['subtract', 'Subtract'], ['intersect', 'Intersect']], { group: 'mask', section: 'Named masks', showIf: (p) => (p.mk_write ?? 'none') !== 'none' }),
+  P.enum('mk_write', 'Write to mask', 'none', MASK_CHANNELS, {
+    group: 'mask',
+    section: 'Named masks',
+    hint: 'Record where this layer covers in a named mask, for other layers or whole materials to be limited by (Masked by). Masks are worked out before everything else — their writers in stack order, over the base only — so a layer can use a mask written further down the stack. Layers that read the surface beneath (Drips, Crevices & high spots) write theirs where they sit instead: only the layers after them see it',
+  }),
+  P.enum('mk_mode', 'Combine', 'replace', [
+    ['replace', 'Replace', 'the mask becomes where this layer covers'],
+    ['add', 'Add (union)', 'set where either this layer covers or the mask already was'],
+    ['subtract', 'Subtract', 'clear the mask where this layer covers'],
+    ['intersect', 'Intersect', 'keep the mask only where this layer covers too'],
+  ], {
+    group: 'mask',
+    section: 'Named masks',
+    showIf: (p) => (p.mk_write ?? 'none') !== 'none',
+    hint: 'How this layer\'s coverage goes into the named mask, over what layers earlier in the stack wrote there',
+  }),
   P.float('mk_feather', 'Feather', 0, 0, 1024, {
     softMax: 32,
     unit: 'px',
@@ -168,9 +207,32 @@ export const MASK_PARAMS: ParamDef[] = [
     showIf: (p) => (p.mk_write ?? 'none') !== 'none',
     hint: 'Soft edge of the written mask: a ramp this wide across a shape\'s outline (shape layers). Noise-type layers soften with Shaping › Cutoff softness',
   }),
-  P.enum('m_hmode', 'Height mask', 'none', [['none', 'None'], ['above', 'Above level'], ['below', 'Below level']], { group: 'mask', section: 'Height mask' }),
-  P.float('m_hlevel', 'Level', 0.5, -16, 16, { softMin: 0, softMax: 1, step: 0.001, group: 'mask', section: 'Height mask', showIf: (p) => p.m_hmode !== 'none' }),
-  P.float('m_hsoft', 'Softness', 0.1, 0, 4, { softMax: 1, step: 0.001, group: 'mask', section: 'Height mask', showIf: (p) => p.m_hmode !== 'none' }),
+  P.enum('m_hmode', 'Limit to', 'none', [
+    ['none', 'Anywhere', 'the height doesn\'t limit this layer'],
+    ['above', 'Above the level', 'only where the surface stands higher — wear, highlights, dust on the tops'],
+    ['below', 'Below the level', 'only where it lies lower — dirt, water, moss in the hollows and joints'],
+  ], {
+    group: 'mask',
+    section: 'Height mask',
+    hint: 'Limit this layer by the height of the surface the layers before it built: only above, or only below, a level',
+  }),
+  P.float('m_hlevel', 'Level', 0.5, -16, 16, {
+    softMin: 0,
+    softMax: 1,
+    step: 0.001,
+    group: 'mask',
+    section: 'Height mask',
+    showIf: (p) => p.m_hmode !== 'none',
+    hint: 'The height that divides above from below, in height units (1 = the project\'s Height depth in px; the base starts at its own Height, 0 by default). The viewport\'s Hgt view shows the heights',
+  }),
+  P.float('m_hsoft', 'Softness', 0.1, 0, 4, {
+    softMax: 1,
+    step: 0.001,
+    group: 'mask',
+    section: 'Height mask',
+    showIf: (p) => p.m_hmode !== 'none',
+    hint: 'How gradually the layer fades in across the level, in height units either side of it: 0 = a hard cut',
+  }),
 ]
 
 export const OUTPUT_PARAMS: ParamDef[] = [
