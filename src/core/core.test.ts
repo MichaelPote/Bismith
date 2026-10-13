@@ -160,6 +160,7 @@ describe('supersampling', () => {
         createLayer('bricks', { columns: 4, mortar: 1.5, bevel: 2 }),
         createLayer('path', { points: '8,16 24,8 56,8' }),
         createLayer('noise', { noise: 'white', block: 1, scale: 6 }),
+        createLayer('scratches', { density: 18 }),
       ],
     })
     p.render.supersample = 3
@@ -172,6 +173,8 @@ describe('supersampling', () => {
     expect(q.layers[1].params.points).toBe('24,48 72,24 168,24')
     expect(q.layers[2].params.block).toBe(3)
     expect(q.layers[2].params.scale).toBe(6)
+    // Scratches per 64×64 px: 9× the pixels at 3× → a ninth of the density, the same scratches in the texture.
+    expect(q.layers[3].params.density).toBe(2)
     expect(q.render.aoRadius).toBe(p.render.aoRadius * 3)
     expect(p.width).toBe(64) // input untouched
   })

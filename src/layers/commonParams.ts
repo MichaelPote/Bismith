@@ -166,7 +166,7 @@ export const OUTPUT_PARAMS: ParamDef[] = [
   source('h_src', 'height', 'h_mode'),
   P.enum('h_mode', 'Mode', 'add', HEIGHT_MODES, { group: 'height', hint: 'How the height combines with the surface below' }),
   P.float('h_amount', 'Amount', 0.5, -64, 64, { softMin: 0, softMax: 2, step: 0.001, group: 'height', hint: 'Height at a source of 1 (1.0 = the project’s height depth in px)' }),
-  P.float('h_var', 'Per-feature variation', 0, 0, 1, { step: 0.001, group: 'height', hint: 'Each brick / cell / instance gets its own share of the amount (1 = anywhere from 0 to full): some barely raised, others bold' }),
+  P.float('h_var', 'Per-feature variation', 0, 0, 1, { step: 0.001, group: 'height', hint: 'Each brick / cell / instance gets its own share of the amount (1 = anywhere from 0 to full): some barely raised, others bold. No effect on patterns without features (smooth noise, clouds)' }),
 
   P.bool('r_on', 'Roughness', false, { group: 'roughness' }),
   source('r_src', 'roughness', 'r_mode'),
@@ -291,7 +291,7 @@ ${sdf ? /* glsl */ `
   }
   if (u_h_on) {
     // Per-feature amplitude from a hash decorrelated from the colour random.
-    float v = srcValue(u_h_src, value, g.rnd) * u_h_amount * (1.0 - u_h_var * fract(g.rnd * 61.37 + 0.123));
+    float v = srcValue(u_h_src, value, g.rnd) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123));
     float h = S.r;
     float nh = u_h_mode == 0 ? h + v : u_h_mode == 1 ? h - v : u_h_mode == 2 ? max(h, v)
              : u_h_mode == 3 ? min(h, v) : u_h_mode == 4 ? v : h * v;

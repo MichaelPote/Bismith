@@ -17,6 +17,14 @@ time before.
   `sdfCombine` op, so keep their order), `sdf_k`, and `m_clip` (*Clip to shape mask*). Old projects with
   `sdf_op: 'none'` migrate to `sm_on: false` (`migrateParams` in `src/layers/registry.ts`). The four numbered
   *named masks* (`mk_*` params, `tMasks`) are a separate feature (docs/features/fr8.13-named-masks.md).
+- **Pixel units and supersampling.** Supersampling renders the stack at k× and scales params by their declared
+  unit (`src/core/supersample.ts`): lengths need `unit: 'px'` (× k), and a count per pixel area (features per N×N
+  px) needs `perArea: true` (÷ k²) — otherwise raising the supersampling changes the texture (Scratches gained k² ×
+  the scratches). Counts per texture or per cell ("cells across") need nothing.
+- **Featureless generators return `genOutSmooth(...)`.** `rnd` is meant to be one random per feature (brick, cell,
+  instance); Height's *Per-feature variation* hashes it with `fract(rnd · 61.37)`. A generator without features that
+  passes a continuous value as `rnd` (smooth noise, clouds) must use `genOutSmooth`, which switches that variation
+  off — with `genOut` the hash turns into dozens of terraces along the pattern's contours.
 - **Shader compile time (D3D11, Chrome's default on Windows) is the cost users feel** — a card renders in ~50 ms,
   but a generator's first compile can take seconds. D3D's compiler inlines every function call, so a helper called
   in several branches (or a branch per case that each calls the same thing) multiplies the shader: pick arguments

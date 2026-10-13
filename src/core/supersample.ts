@@ -4,7 +4,8 @@
 //
 // scaleProject builds the k× project: every pixel-unit parameter (ParamDef unit 'px': bevels, joints, radii, widths,
 // white-noise block sizes, stamp pixel sizes …) is multiplied by k, so the pattern keeps its size in texture pixels;
-// world height per height unit (heightDepth) scales too, so slopes stay the same. Post filters run after the
+// world height per height unit (heightDepth) scales too, so slopes stay the same; counts per pixel area (ParamDef
+// perArea: scratches per 64×64 px) divide by k², so the texture keeps as many features. Post filters run after the
 // downsample, at the real size, and are left alone.
 
 import type { Project } from './project'
@@ -36,6 +37,7 @@ export function scaleProject(p: Project, k: number): Project {
     for (const d of layerParamDefs(l.type)) {
       const v = l.params[d.key]
       if (typeof v === 'number' && d.unit === 'px') l.params[d.key] = v * k
+      else if (typeof v === 'number' && d.perArea) l.params[d.key] = v / (k * k)
       else if (typeof v === 'string' && d.bitmap === 'points' && l.params.units !== 'fraction') l.params[d.key] = scalePoints(v, k)
     }
   }

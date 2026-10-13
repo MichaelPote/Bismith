@@ -40,8 +40,11 @@ function withMaskPassThrough(body: string): string {
 const GENOUT = /* glsl */ `
 // gen() may return sdf <= NO_SDF to opt out of SDF handling for a pixel.
 const float NO_SDF = -9e4;
-struct GenOut { float value; float mask; float rnd; float sdf; };
-GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf); }
+struct GenOut { float value; float mask; float rnd; float sdf; float feat; };
+GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0); }
+// Patterns without features (smooth noise, clouds): rnd is a continuous value there, so per-feature variation has
+// nothing to vary — fract(rnd · k) would turn it into terraces along the pattern's contours.
+GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0); }
 `
 
 /** Everything a GLSL snippet in the material stage can rely on. */

@@ -44,7 +44,7 @@ GenOut gen(vec2 p) {
   // Threshold so that roughly 'coverage' of the area lands above 0.5 (fBm spreads ~0.5 +- 0.2).
   float thr = 0.5 - (u_coverage - 0.5) * 0.4;
   float v = clamp((n - thr) * u_contrast + 0.5, 0.0, 1.0);
-  return genOut(v, 1.0, n, 0.0);
+  return genOutSmooth(v, 1.0, n, 0.0);
 }
 `,
 }
@@ -119,7 +119,7 @@ export const scratchesLayer: LayerDef = {
   kind: 'generator',
   description: 'Many short random line segments — metal wear, scuffs, scored stone. Coverage masks the outputs.',
   params: [
-    P.float('density', 'Density', 12, 0, 512, { softMax: 64, step: 0.1, hint: 'Scratches per 64×64 px (saturates at very high values)' }),
+    P.float('density', 'Density', 12, 0, 512, { softMax: 64, step: 0.1, perArea: true, hint: 'Scratches per 64×64 px (saturates at very high values)' }),
     P.float('len_min', 'Min length', 6, 0, 1024, { softMax: 64, unit: 'px', step: 0.5 }),
     P.float('len_max', 'Max length', 20, 0, 1024, { softMax: 128, unit: 'px', step: 0.5 }),
     P.float('thickness', 'Thickness', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.05 }),

@@ -61,9 +61,9 @@ GenOut gen(vec2 p) {
     x += warpOffset(p / uRes * wc, wper, uSeed + 7.0) * u_warp * 2.0;
   }
   float v = fractalNoise(u_noise, u_fractal, x, period, u_octaves, u_lacunarity, u_gain, uSeed);
-  float rnd = v;
-  if (u_noise >= 3) rnd = worleyNoise(x, period, 1.0, 0, uSeed).z;
-  return genOut(v, 1.0, rnd, 0.0);
+  // Worley types have cells (features); value / perlin / simplex are smooth — their "random" is the value itself.
+  if (u_noise >= 3) return genOut(v, 1.0, worleyNoise(x, period, 1.0, 0, uSeed).z, 0.0);
+  return genOutSmooth(v, 1.0, v, 0.0);
 }
 `,
 }

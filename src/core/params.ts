@@ -52,6 +52,11 @@ export interface ParamDef {
   /** Properties-panel group id (see GroupDef). */
   group?: string
   showIf?: (p: ParamValues) => boolean
+  /**
+   * A count per pixel area (e.g. scratches per 64×64 px): supersampling (k× the pixels per side) divides it by k² so
+   * the texture keeps the same number of features — like unit 'px' values are multiplied by k.
+   */
+  perArea?: boolean
   /** Whether the optimiser may mutate it. Defaults: float/int/color/gradient yes, others no. */
   optimize?: boolean
   /** Set false for UI-only params that are not uploaded as uniforms. */

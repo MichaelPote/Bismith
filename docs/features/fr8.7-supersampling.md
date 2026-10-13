@@ -9,6 +9,8 @@ joints and small bolt holes are computed at k× and averaged instead of being de
 - `core/supersample.ts` — `scaleProject(p, k)`: width / height, every pixel-unit param (ParamDef `unit: 'px'`:
   bevels, joints, radii, widths, white-noise block sizes, stamp pixel sizes, path vertex lists in px), heightDepth,
   AO radius and point-light px params × k, so patterns keep their size in texture pixels and slopes stay the same.
+  Counts per pixel area (ParamDef `perArea`: Scratches' density, per 64×64 px) ÷ k², so the texture keeps as many
+  features — before, raising the supersampling multiplied the scratches by k².
 - Engine: keeps the k× project for material + tracer; `traced()` box-filters into a texture-size target that post,
   the display ("final") and `readRender` use. Channel views show the k× maps (display `uSS` texel scale); map
   readback (`readMap`, `readAO`) is box-filtered to the texture size so exports match the final image; the cursor
