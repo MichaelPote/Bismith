@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
 import { getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry'
+import { shapeMaskChain, shapeMaskLabel } from '@/layers/shapeMask'
 import { getPostDef } from '@/render/post/registry'
 import { LIGHT_DEFS } from '@/core/lights'
 import { P, type ParamDef, type ParamValue, type ParamValues } from '@/core/params'
@@ -73,11 +74,19 @@ function unpackMaterial(): void {
   editor.select(first ? 'layer' : 'project', first)
 }
 
+/** Mask › Shape mask › Clip to: name what the shape mask holds here — "Inside Bricks", "Outside Panel − Vent". */
+function withClipNames(d: ParamDef, layerId: string): ParamDef {
+  const chain = shapeMaskChain(store.project, layerId)
+  const what = chain.length ? shapeMaskLabel(chain) : 'the shape mask (empty here)'
+  const label = (v: string) => (v === 'inside' ? `Inside ${what}` : v === 'outside' ? `Outside ${what}` : undefined)
+  return { ...d, options: d.options?.map((o) => ({ ...o, label: label(o.value) ?? o.label })) }
+}
+
 const layerCards = computed(() => {
   const l = layer.value
   const def = layerDef.value
   if (!l || !def) return []
-  const defs = layerParamDefs(l.type)
+  const defs = layerParamDefs(l.type).map((d) => (d.key === 'm_clip' ? withClipNames(d, l.id) : d))
   const shown = (d: ParamDef) => !d.showIf || d.showIf(l.params)
   return layerGroups(def)
     .map((g) => ({
@@ -85,7 +94,7 @@ const layerCards = computed(() => {
       defs: defs.filter((d) => (d.group ?? 'params') === g.id && d.key !== g.toggleKey),
       toggle: defs.find((d) => d.key === g.toggleKey),
     }))
-    // A card whose params (and header tick) are all hidden for these settings goes too — Drips' Shape Mask on Stains.
+    // A card whose params (and header tick) are all hidden for these settings goes too.
     .filter((c) => c.defs.length > 0 && (c.defs.some(shown) || (c.toggle !== undefined && shown(c.toggle))))
 })
 
@@ -304,6 +313,7 @@ const asValues = (o: object) => o as unknown as ParamValues
         <IconBox :size="15" color="var(--text-lo)" />
         <input class="name" :value="store.project.name" aria-label="Project name" @change="store.project.name = ($event.target as HTMLInputElement).value" />
       </div>
+      <div v-if="sel.kind === 'base'" class="sub"><span class="type">Base</span></div>
       <p class="desc">Texture size and tiling, the base material every layer builds on, world lighting and the path tracer.</p>
       <div class="scroll">
         <PanelCard title="Texture">
@@ -321,6 +331,9 @@ const asValues = (o: object) => o as unknown as ParamValues
           </div>
           <ParamList :defs="PROJECT_DEFS" :values="asValues(store.project)" @change="(k, v) => assign(store.project, k, v)" />
         </PanelCard>
+        <PanelCard title="Path tracer" storage-key="world:tracer">
+          <ParamList :defs="RENDER_DEFS" :values="asValues(store.project.render)" @change="(k, v) => assign(store.project.render, k, v)" />
+        </PanelCard>
         <PanelCard title="Base material">
           <ParamList :defs="BASE_DEFS" :values="asValues(store.project.base)" @change="(k, v) => assign(store.project.base, k, v)" />
         </PanelCard>
@@ -332,9 +345,6 @@ const asValues = (o: object) => o as unknown as ParamValues
         </PanelCard>
         <PanelCard title="Ambient" storage-key="world:ambient">
           <ParamList :defs="AMBIENT_DEFS" :values="asValues(store.project.lighting.ambient)" @change="(k, v) => assign(store.project.lighting.ambient, k, v)" />
-        </PanelCard>
-        <PanelCard title="Path tracer" storage-key="world:tracer">
-          <ParamList :defs="RENDER_DEFS" :values="asValues(store.project.render)" @change="(k, v) => assign(store.project.render, k, v)" />
         </PanelCard>
       </div>
     </template>

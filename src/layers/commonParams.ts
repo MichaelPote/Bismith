@@ -86,36 +86,42 @@ const HEIGHT_MODES: [string, string, string][] = [
 ]
 const LEVEL_MODES: [string, string][] = [['replace', 'Replace'], ['multiply', 'Multiply'], ['add', 'Add'], ['min', 'Min'], ['max', 'Max']]
 
-/** The Shape Mask card: whether and how the layer's shape goes to the register. */
+/** Mask card › Shape mask: whether and how the layer's shape goes to the register (shape layers only). */
 export const SDF_MASK_PARAMS: ParamDef[] = [
-  P.bool('sm_on', 'Shape Mask', true, { group: 'shapemask', hint: 'Write this layer\'s shape to the shape mask, for later layers to clip to (Mask › Clip to shape mask) and bevel from' }),
+  P.bool('sm_on', 'Use shape mask', true, {
+    group: 'mask',
+    section: 'Shape mask',
+    hint: 'The shape mask is one running shape that shape layers build up down the stack. Ticked, this layer merges its shape into it (by the Mode) and draws the merged shape; later layers can clip to it (Clip to, below) or bevel from it. Unticked, the layer draws only its own shape and leaves the shape mask as it was',
+  }),
   P.enum('sdf_op', 'Mode', 'replace', SDF_OPS, {
-    group: 'shapemask',
+    group: 'mask',
+    section: 'Shape mask',
+    showIf: (p) => p.sm_on !== false,
     hint: 'Normal: this shape replaces the shape mask. Union: adds to it. Subtract: cuts this shape out of it. Intersection: keeps only the overlap. Smooth: blended with a rounded fillet. In every mode the layer itself draws the combined shape',
   }),
-  P.float('sdf_k', 'Smoothness', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'shapemask', showIf: isSmooth }),
+  P.float('sdf_k', 'Smoothness', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'mask', section: 'Shape mask', showIf: (p) => p.sm_on !== false && isSmooth(p) }),
 ]
 
 export const SDF_PARAMS: ParamDef[] = [
   ...SDF_MASK_PARAMS,
-  P.float('bevel', 'Bevel', 3, 0, 1024, { softMax: 32, unit: 'px', step: 0.1, group: 'shape' }),
-  P.enum('profile', 'Profile', 'round', PROFILES, { group: 'shape' }),
-  bevelCurveParam('shape'),
-  P.bool('aa', 'Anti-alias', true, { group: 'shape', hint: 'Off gives hard pixel edges' }),
+  P.float('bevel', 'Bevel', 3, 0, 1024, { softMax: 32, unit: 'px', step: 0.1, group: 'shaping', section: 'Edge' }),
+  P.enum('profile', 'Profile', 'round', PROFILES, { group: 'shaping', section: 'Edge' }),
+  { ...bevelCurveParam('shaping'), section: 'Edge' },
+  P.bool('aa', 'Anti-alias', true, { group: 'shaping', section: 'Edge', hint: 'Off gives hard pixel edges' }),
 ]
 
 export const SHAPING_PARAMS: ParamDef[] = [
-  P.float('ofs_x', 'Offset X', 0, -4096, 4096, { softMin: -32, softMax: 32, unit: 'px', step: 0.1, group: 'shaping', hint: 'Shift the whole pattern (wraps on tileable projects)' }),
-  P.float('ofs_y', 'Offset Y', 0, -4096, 4096, { softMin: -32, softMax: 32, unit: 'px', step: 0.1, group: 'shaping', hint: 'Shift the whole pattern down' }),
-  P.float('dw_amount', 'Domain warp', 0, 0, 256, { softMax: 8, unit: 'px', step: 0.05, group: 'shaping', hint: 'Displaces the whole generated pattern by smooth noise (after generation): joints wander but keep their width' }),
-  P.float('dw_scale', 'Warp scale', 4, 0.25, 128, { softMax: 32, step: 0.01, group: 'shaping', showIf: (p) => Number(p.dw_amount) > 0, hint: 'Warp features across the texture (rounded when tiling)' }),
-  P.bool('sh_invert', 'Invert', false, { group: 'shaping' }),
-  P.float('sh_lo', 'Low', 0, 0, 1, { step: 0.001, group: 'shaping' }),
-  P.float('sh_hi', 'High', 1, 0, 1, { step: 0.001, group: 'shaping' }),
-  P.float('sh_gamma', 'Gamma', 1, 0.05, 20, { softMin: 0.2, softMax: 5, step: 0.01, group: 'shaping' }),
-  P.int('sh_steps', 'Posterize', 0, 0, 64, { softMax: 16, group: 'shaping', hint: '0 = off' }),
-  P.float('sh_cut', 'Cutoff', 0, 0, 1, { step: 0.001, group: 'shaping', hint: 'Covers only where the shaped value ≥ cutoff (0 = off): sparse flecks from white noise, islands from clouds' }),
-  P.float('sh_cut_soft', 'Cutoff softness', 0, 0, 0.5, { step: 0.001, group: 'shaping', showIf: (p) => Number(p.sh_cut) > 0 }),
+  P.float('ofs_x', 'Offset X', 0, -4096, 4096, { softMin: -32, softMax: 32, sliderSpan: 'width', unit: 'px', step: 0.1, group: 'shaping', section: 'Position', hint: 'Shift the whole pattern (wraps on tileable projects)' }),
+  P.float('ofs_y', 'Offset Y', 0, -4096, 4096, { softMin: -32, softMax: 32, sliderSpan: 'height', unit: 'px', step: 0.1, group: 'shaping', section: 'Position', hint: 'Shift the whole pattern down' }),
+  P.float('dw_amount', 'Domain warp', 0, 0, 256, { softMax: 8, unit: 'px', step: 0.05, group: 'shaping', section: 'Position', hint: 'Displaces the whole generated pattern by smooth noise (after generation): joints wander but keep their width' }),
+  P.float('dw_scale', 'Warp scale', 4, 0.25, 128, { softMax: 32, step: 0.01, group: 'shaping', section: 'Position', showIf: (p) => Number(p.dw_amount) > 0, hint: 'Warp features across the texture (rounded when tiling)' }),
+  P.bool('sh_invert', 'Invert', false, { group: 'shaping', section: 'Value' }),
+  P.float('sh_lo', 'Low', 0, 0, 1, { step: 0.001, group: 'shaping', section: 'Value', join: { with: 'sh_hi', as: 'pair', label: 'Levels' }, hint: 'Low: the value at or below it becomes 0 (raise it to drop the faint parts)' }),
+  P.float('sh_hi', 'High', 1, 0, 1, { step: 0.001, group: 'shaping', section: 'Value', hint: 'High: the value at or above it becomes 1 (lower it to push more of the pattern to full)' }),
+  P.float('sh_gamma', 'Gamma', 1, 0.05, 20, { softMin: 0.2, softMax: 5, step: 0.01, group: 'shaping', section: 'Value' }),
+  P.int('sh_steps', 'Posterize', 0, 0, 64, { softMax: 16, group: 'shaping', section: 'Value', hint: '0 = off' }),
+  P.float('sh_cut', 'Cutoff', 0, 0, 1, { step: 0.001, group: 'shaping', section: 'Value', hint: 'Covers only where the shaped value ≥ cutoff (0 = off): sparse flecks from white noise, islands from clouds' }),
+  P.float('sh_cut_soft', 'Cutoff softness', 0, 0, 0.5, { step: 0.001, group: 'shaping', section: 'Value', showIf: (p) => Number(p.sh_cut) > 0 }),
 ]
 
 const PHASE_HINT = 'Animates the noise: 0 → 1 is one seamless loop (render frames at even steps); it repeats beyond 1'
@@ -130,6 +136,7 @@ export const WARP_PHASE_PARAM: ParamDef = P.float('phase', 'Warp phase', 0, -100
   step: 0.001,
   optimize: false,
   group: 'shaping',
+  section: 'Position',
   showIf: (p) => Number(p.dw_amount) > 0 || Number(p.warp ?? 0) > 0 || Number(p.wobble ?? 0) > 0,
   hint: 'Animates the domain warp: 0 → 1 is one seamless loop; it repeats beyond 1',
 })
@@ -138,30 +145,32 @@ const MASK_CHANNELS: [string, string][] = [['none', 'None'], ['1', 'Mask 1'], ['
 
 /** Named masks (FR8.13), read side: clip a layer (or filter) to one of the four mask channels. */
 export const MASK_USE_PARAMS: ParamDef[] = [
-  P.enum('mk_use', 'Masked by', 'none', MASK_CHANNELS, { group: 'mask', hint: 'Only where this named mask is set (by a layer\'s "Write to mask", anywhere in the stacks)' }),
-  P.bool('mk_invert', 'Outside the mask', false, { group: 'mask', showIf: (p) => (p.mk_use ?? 'none') !== 'none', hint: 'Only where the mask is not set: cut a hole' }),
+  P.enum('mk_use', 'Masked by', 'none', MASK_CHANNELS, { group: 'mask', section: 'Named masks', hint: 'Only where this named mask is set (by a layer\'s "Write to mask", anywhere in the stacks)' }),
+  P.bool('mk_invert', 'Outside the mask', false, { group: 'mask', section: 'Named masks', showIf: (p) => (p.mk_use ?? 'none') !== 'none', hint: 'Only where the mask is not set: cut a hole' }),
 ]
 
 export const MASK_PARAMS: ParamDef[] = [
   P.float('opacity', 'Layer opacity', 1, 0, 1, { step: 0.001, group: 'mask' }),
+  P.enum('m_clip', 'Clip to', 'none', [['none', 'None'], ['inside', 'Inside the shape mask'], ['outside', 'Outside the shape mask']], {
+    group: 'mask',
+    section: 'Shape mask',
+    hint: 'Only where the shape mask left by earlier layers is (or isn\'t) — e.g. grout outside the tiles, grime on them',
+  }),
   ...MASK_USE_PARAMS,
-  P.enum('mk_write', 'Write to mask', 'none', MASK_CHANNELS, { group: 'mask', hint: 'Record this layer\'s coverage in a named mask. Masks are worked out before everything else (their writers in stack order, over the base only), so any layer or material can clip to them wherever it sits' }),
-  P.enum('mk_mode', 'Mask mode', 'replace', [['replace', 'Replace'], ['add', 'Add (union)'], ['subtract', 'Subtract'], ['intersect', 'Intersect']], { group: 'mask', showIf: (p) => (p.mk_write ?? 'none') !== 'none' }),
+  P.enum('mk_write', 'Write to mask', 'none', MASK_CHANNELS, { group: 'mask', section: 'Named masks', hint: 'Record this layer\'s coverage in a named mask. Masks are worked out before everything else (their writers in stack order, over the base only), so any layer or material can clip to them wherever it sits' }),
+  P.enum('mk_mode', 'Mask mode', 'replace', [['replace', 'Replace'], ['add', 'Add (union)'], ['subtract', 'Subtract'], ['intersect', 'Intersect']], { group: 'mask', section: 'Named masks', showIf: (p) => (p.mk_write ?? 'none') !== 'none' }),
   P.float('mk_feather', 'Feather', 0, 0, 1024, {
     softMax: 32,
     unit: 'px',
     step: 0.1,
     group: 'mask',
+    section: 'Named masks',
     showIf: (p) => (p.mk_write ?? 'none') !== 'none',
     hint: 'Soft edge of the written mask: a ramp this wide across a shape\'s outline (shape layers). Noise-type layers soften with Shaping › Cutoff softness',
   }),
-  P.enum('m_clip', 'Clip to shape mask', 'none', [['none', 'None'], ['inside', 'Inside the shape mask'], ['outside', 'Outside the shape mask']], {
-    group: 'mask',
-    hint: 'Only where the shape mask left by earlier layers is (or isn\'t) — e.g. grout outside the tiles, grime on them',
-  }),
-  P.enum('m_hmode', 'Height mask', 'none', [['none', 'None'], ['above', 'Above level'], ['below', 'Below level']], { group: 'mask' }),
-  P.float('m_hlevel', 'Level', 0.5, -16, 16, { softMin: 0, softMax: 1, step: 0.001, group: 'mask', showIf: (p) => p.m_hmode !== 'none' }),
-  P.float('m_hsoft', 'Softness', 0.1, 0, 4, { softMax: 1, step: 0.001, group: 'mask', showIf: (p) => p.m_hmode !== 'none' }),
+  P.enum('m_hmode', 'Height mask', 'none', [['none', 'None'], ['above', 'Above level'], ['below', 'Below level']], { group: 'mask', section: 'Height mask' }),
+  P.float('m_hlevel', 'Level', 0.5, -16, 16, { softMin: 0, softMax: 1, step: 0.001, group: 'mask', section: 'Height mask', showIf: (p) => p.m_hmode !== 'none' }),
+  P.float('m_hsoft', 'Softness', 0.1, 0, 4, { softMax: 1, step: 0.001, group: 'mask', section: 'Height mask', showIf: (p) => p.m_hmode !== 'none' }),
 ]
 
 export const OUTPUT_PARAMS: ParamDef[] = [
@@ -204,10 +213,10 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 
 export const GENERATOR_GROUPS: GroupDef[] = [
   { id: 'params', label: 'Pattern' },
-  { id: 'shape', label: 'Shape' },
-  { id: 'shaping', label: 'Shaping', collapsed: true },
+  // Shaping: the shape's edge (bevel, profile, anti-alias), where the pattern sits (offset, warp) and its value (levels,
+  // gamma, posterize, invert, cutoff) — the chain that makes the layer's value.
+  { id: 'shaping', label: 'Shaping' },
   { id: 'mask', label: 'Mask', collapsed: true },
-  { id: 'shapemask', label: 'Shape Mask', toggleKey: 'sm_on' },
   { id: 'diffuse', label: 'Diffuse', toggleKey: 'dif_on' },
   { id: 'alpha', label: 'Opacity', toggleKey: 'op_on' },
   { id: 'height', label: 'Height', toggleKey: 'h_on' },

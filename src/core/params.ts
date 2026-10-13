@@ -46,6 +46,10 @@ export interface ParamDef {
   /** Slider range shown in the UI when narrower than the hard limits. */
   softMin?: number
   softMax?: number
+  /** UI only: the slider runs ± the texture width / height (px) instead of softMin..softMax (still the optimiser's range). */
+  sliderSpan?: 'width' | 'height'
+  /** UI only: a sub-heading within the card. ParamList keeps a section's params together and heads them with it. */
+  section?: string
   step?: number
   unit?: string
   options?: EnumOption[]
@@ -73,7 +77,7 @@ export interface ParamDef {
   hint?: string
   /**
    * UI only: draw this param in one row with the param `with`, which then isn't drawn on its own. 'pair' puts the two
-   * controls side by side (Source · Mode); 'ramp' draws a scalar ramp from this value (where the source is 0) to the
+   * controls side by side (Source · Mode, Levels low · high); 'ramp' draws a scalar ramp from this value (where the source is 0) to the
    * partner's (where it is 1). `label` names the row.
    */
   join?: { with: string; as: 'pair' | 'ramp'; label: string }

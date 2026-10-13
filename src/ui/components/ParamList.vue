@@ -12,6 +12,7 @@ import GradientField from './GradientField.vue'
 import CurveField from './CurveField.vue'
 import RampField from './RampField.vue'
 import { IconDice5 } from '@tabler/icons-vue'
+import { useProjectStore } from '@/stores/project'
 import { vTip, type Tip } from '@/ui/tooltip'
 
 const props = defineProps<{ defs: ParamDef[]; values: ParamValues }>()
@@ -20,16 +21,34 @@ const emit = defineEmits<{
   (e: 'commit'): void
 }>()
 
-type Row = { def: ParamDef; partner?: ParamDef }
+/** A drawn row; `heading` is the section heading drawn above it (the first row of a section). */
+type Row = { def: ParamDef; partner?: ParamDef; heading?: string }
 
 const rows = computed<Row[]>(() => {
   const visible = props.defs.filter((d) => !d.showIf || d.showIf(props.values))
   const byKey = new Map(visible.map((d) => [d.key, d]))
   const joined = new Set(visible.filter((d) => d.join && byKey.has(d.join.with)).map((d) => d.join!.with))
-  return visible.filter((d) => !joined.has(d.key)).map((d) => ({ def: d, partner: d.join ? byKey.get(d.join.with) : undefined }))
+  const list: Row[] = visible.filter((d) => !joined.has(d.key)).map((d) => ({ def: d, partner: d.join ? byKey.get(d.join.with) : undefined }))
+  if (!list.some((r) => r.def.section)) return list
+  // Rows without a section first, then the sections in order of first appearance, each kept together under its heading.
+  const sections = new Map<string, Row[]>([['', []]])
+  for (const r of list) {
+    const s = r.def.section ?? ''
+    if (!sections.has(s)) sections.set(s, [])
+    sections.get(s)!.push(r)
+  }
+  return [...sections].flatMap(([s, rs]) => rs.map((r, i) => (i === 0 && s ? { ...r, heading: s } : r)))
 })
 
 const value = (d: ParamDef): ParamValue => props.values[d.key] ?? d.default
+
+const store = useProjectStore()
+/** Slider range: ± the texture width / height for sliderSpan params, else the soft limits. */
+function slider(d: ParamDef): { lo?: number; hi?: number } {
+  if (!d.sliderSpan) return { lo: d.softMin, hi: d.softMax }
+  const s = d.sliderSpan === 'width' ? store.project.width : store.project.height
+  return { lo: -s, hi: s }
+}
 
 function set(key: string, v: ParamValue): void {
   emit('change', key, v)
@@ -83,6 +102,7 @@ function tip(r: Row): Tip {
 <template>
   <div class="plist">
     <template v-for="r in rows" :key="r.def.key">
+      <div v-if="r.heading" class="sec cf-label">{{ r.heading }}</div>
       <div v-if="r.def.type === 'bool'" v-tip="tip(r)" class="row">
         <span />
         <CheckField :model-value="Boolean(value(r.def))" :label="r.def.label" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
@@ -108,20 +128,32 @@ function tip(r: Row): Tip {
       <div v-else-if="r.partner" class="row">
         <span v-tip="tip(r)" class="lbl">{{ r.def.join!.label }}</span>
         <div class="pair">
-          <SelectField
-            :model-value="String(value(r.def))"
-            :options="r.def.options ?? []"
-            :label="r.def.label"
-            @update:model-value="set(r.def.key, $event)"
-            @commit="emit('commit')"
-          />
-          <SelectField
-            :model-value="String(value(r.partner))"
-            :options="r.partner.options ?? []"
-            :label="r.partner.label"
-            @update:model-value="set(r.partner!.key, $event)"
-            @commit="emit('commit')"
-          />
+          <template v-for="d in [r.def, r.partner]" :key="d.key">
+            <SelectField
+              v-if="d.type === 'enum'"
+              :model-value="String(value(d))"
+              :options="d.options ?? []"
+              :label="d.label"
+              @update:model-value="set(d.key, $event)"
+              @commit="emit('commit')"
+            />
+            <NumberField
+              v-else
+              :model-value="Number(value(d))"
+              :min="d.min"
+              :max="d.max"
+              :soft-min="slider(d).lo"
+              :soft-max="slider(d).hi"
+              :step="d.step"
+              :unit="d.unit"
+              :int="d.type === 'int'"
+              :label="d.label"
+              :default-value="Number(d.default)"
+              :memory-key="memory(d)"
+              @update:model-value="set(d.key, $event)"
+              @commit="emit('commit')"
+            />
+          </template>
         </div>
       </div>
       <div v-else-if="r.def.type === 'gradient'" class="row wide">
@@ -183,8 +215,8 @@ function tip(r: Row): Tip {
           :model-value="Number(value(r.def))"
           :min="r.def.min"
           :max="r.def.max"
-          :soft-min="r.def.softMin"
-          :soft-max="r.def.softMax"
+          :soft-min="slider(r.def).lo"
+          :soft-max="slider(r.def).hi"
           :step="r.def.step"
           :unit="r.def.unit"
           :int="r.def.type === 'int'"
@@ -231,6 +263,14 @@ function tip(r: Row): Tip {
 }
 .lbl:hover {
   color: var(--text);
+}
+/* Section heading within a card (ParamDef.section). */
+.sec {
+  padding: 8px 0 2px;
+  font-size: 10px;
+}
+.sec:first-child {
+  padding-top: 0;
 }
 .pair {
   display: grid;

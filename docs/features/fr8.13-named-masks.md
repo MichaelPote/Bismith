@@ -3,10 +3,10 @@
 **Status:** done — four mask channels; per-layer, per-filter and per-material clipping; Cut-out lump; Masks view
 
 ## Naming
-In the UI the shape register is the **Shape Mask** (code keeps `register`, `sdf_op`, `m_clip`): a toggle group like
-Diffuse — ticked (`sm_on`) the layer writes its shape, unticked it leaves the shape mask alone (formerly the
+In the UI the shape register is the **Shape Mask** (code keeps `register`, `sdf_op`, `m_clip`), the first section of the
+Mask card — *Use shape mask* ticked (`sm_on`) the layer writes its shape, unticked it leaves the shape mask alone (formerly the
 "Ignore register" operator; old projects migrate on load and on `createLayer`, `migrateParams`). *Mode*: Normal
-(was New shape), Union, Subtract, Intersection and their smooth variants; *Mask › Clip to shape mask*:
+(was New shape), Union, Subtract, Intersection and their smooth variants; *Mask › Shape mask › Clip to*:
 inside / outside. Named masks are the four numbered masks below; the viewport has *Shape Mask* (`0`) and *Named
 masks* (`M`) views.
 

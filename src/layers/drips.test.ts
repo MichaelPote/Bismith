@@ -13,9 +13,8 @@ describe('drips blisters', () => {
     const keys = layerParamDefs('drips').map((p) => p.key)
     expect(keys).toEqual(expect.arrayContaining(['sm_on', 'sdf_op', 'sdf_k']))
     expect(keys).not.toContain('bevel')
-    const groups = layerGroups(getLayerDef('drips')!).map((g) => g.id)
-    expect(groups).toContain('shapemask')
-    expect(groups).not.toContain('shape')
+    expect(def('sm_on').group).toBe('mask')
+    expect(layerGroups(getLayerDef('drips')!).map((g) => g.id)).not.toContain('shape')
   })
 
   it('shows the Shape Mask only for Sources', () => {

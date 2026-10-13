@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Colour-ramp editor: a bar with draggable gem stops. Double-click the bar to add a stop.
+// Colour-ramp editor: a bar with draggable gem stops. Click the bar to add a stop.
 import { computed, ref } from 'vue'
 import { MAX_GRADIENT_STOPS, type Gradient } from '@/core/params'
 import { hexToRgb, rgbToHex } from '@/core/color'
@@ -107,7 +107,7 @@ function reverse(): void {
 
 <template>
   <div class="grad">
-    <div ref="bar" class="bar" :style="{ background: css }" title="Double-click to add a stop" @dblclick="addStop" />
+    <div ref="bar" class="bar" :style="{ background: css }" title="Click to add a stop" @click="addStop" />
     <div class="stops">
       <button
         v-for="(s, i) in stops"

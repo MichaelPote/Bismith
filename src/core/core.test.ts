@@ -190,9 +190,11 @@ describe('shape mask (the register)', () => {
     p.layers.push({ ...createLayer('rect'), params: { ...createLayer('rect').params, sdf_op: 'none', sm_on: undefined as never } })
     const loaded = normalizeProject(JSON.parse(JSON.stringify(p)))
     expect([loaded.layers[0].params.sm_on, loaded.layers[0].params.sdf_op]).toEqual([false, 'replace'])
-    // A new shape writes by default, in Normal mode; the group is a toggle like Diffuse, on shape layers only.
+    // A new shape writes by default, in Normal mode; "Use shape mask" sits in the Mask card, on shape layers only.
     expect([createLayer('rect').params.sm_on, createLayer('rect').params.sdf_op]).toEqual([true, 'replace'])
-    expect(layerGroups(getLayerDef('rect')!).find((g) => g.id === 'shapemask')?.toggleKey).toBe('sm_on')
-    expect(layerGroups(getLayerDef('noise')!).some((g) => g.id === 'shapemask')).toBe(false)
+    const { layerParamDefs } = await import('@/layers/registry')
+    expect(layerParamDefs('rect').find((d) => d.key === 'sm_on')?.group).toBe('mask')
+    expect(layerParamDefs('noise').some((d) => d.key === 'sm_on')).toBe(false)
+    expect(layerGroups(getLayerDef('rect')!).some((g) => g.id === 'shapemask')).toBe(false)
   })
 })

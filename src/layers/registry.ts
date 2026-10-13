@@ -66,7 +66,7 @@ export function layerParamDefs(type: string): ParamDef[] {
 
 export function layerGroups(def: LayerDef): GroupDef[] {
   const base = def.kind === 'generator' ? GENERATOR_GROUPS : FILTER_GROUPS
-  const groups = base.filter((g) => (g.id === 'shapemask' ? Boolean(def.sdf) : g.id === 'shape' ? def.sdf === true : true))
+  const groups = base.filter((g) => g.id !== 'shape' || def.sdf === true)
   const extra = def.groups ?? []
   // Type-specific groups go right after the main params group.
   return [groups[0], ...extra, ...groups.slice(1)]
