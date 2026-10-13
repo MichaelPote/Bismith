@@ -163,6 +163,23 @@ function materialChannel(u: LayerUnit, ch: Channel): boolean {
   return !!u.material && u.layers.some((l) => l.enabled && (channelState(l, ch) === 'on' || channelState(l, ch) === 'always'))
 }
 
+// ---------------------------------------------------------------- context menu
+// Right-clicking a row selects it (so the menu's target is the highlighted row) and opens its menu at the cursor.
+const rowMenu = ref<InstanceType<typeof DropMenu> | null>(null)
+const rowMenuItems = ref<MenuItem[]>([])
+
+async function onRowMenu(e: MouseEvent, kind: 'layer' | 'material', id: string): Promise<void> {
+  const { clientX: x, clientY: y } = e
+  editor.select(kind, id)
+  rowMenuItems.value = [
+    { label: 'Delete', shortcut: 'Del', hint: kind === 'material' ? 'Delete the material and its layers' : undefined, action: act.deleteSelection },
+  ]
+  // The menu closes on scroll, so let a half-hidden row finish scrolling into view (the watch above) first.
+  await nextTick()
+  await new Promise(requestAnimationFrame)
+  rowMenu.value?.openAt(x, y)
+}
+
 // ---------------------------------------------------------------- rename
 const renaming = ref<string | null>(null)
 const renameText = ref('')
@@ -299,6 +316,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             @dragstart="onDragStart($event, { kind: 'unit', id: u.material.id })"
             @dragend="onDragEnd"
             @click="editor.select('material', u.material.id)"
+            @contextmenu.prevent="onRowMenu($event, 'material', u.material.id)"
           >
             <button
               type="button"
@@ -317,6 +335,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
               class="rename"
               aria-label="Material name"
               @click.stop
+              @contextmenu.stop
               @keydown.enter.prevent="finishRename('material', true)"
               @keydown.esc.prevent="finishRename('material', false)"
               @blur="finishRename('material', true)"
@@ -356,6 +375,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             @dragover="u.material && onMemberOver($event, u.material.id, li)"
             @dragend="onDragEnd"
             @click="editor.select('layer', layer.id)"
+            @contextmenu.prevent="onRowMenu($event, 'layer', layer.id)"
           >
             <component :is="layerIcon(layer.type)" :size="15" :color="isSel('layer', layer.id) ? 'var(--accent-hi)' : layerHue(layer.type)" />
             <input
@@ -365,6 +385,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
               class="rename"
               aria-label="Layer name"
               @click.stop
+              @contextmenu.stop
               @keydown.enter.prevent="finishRename('layer', true)"
               @keydown.esc.prevent="finishRename('layer', false)"
               @blur="finishRename('layer', true)"
@@ -481,6 +502,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
         <div v-if="!store.project.post.length" class="empty">No post filters. The render is clamped to 0–1.</div>
       </div>
     </div>
+    <DropMenu ref="rowMenu" :items="rowMenuItems" placement="pointer" />
   </aside>
 </template>
 

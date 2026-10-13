@@ -21,6 +21,7 @@ Blender-style editing: an outliner of everything in the project and a properties
 - [x] Outliner sections + selection
 - [x] Add-layer / add-light / add-post menus
 - [x] Reorder (drag + move up/down), duplicate, delete, rename, enable
+- [x] Right-click menu on layer and material rows (selects the row; Delete) — DropMenu `placement="pointer"`
 - [x] Properties generated from ParamDefs with groups + showIf
 - [x] Channel output cards
 - [x] Project + render settings panel

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Dropdown menu: a trigger button and a popover list of actions, section headers and separators.
 // layout="tiles" lays each section out as a wrapping row of square tiles; placement="right" pops the menu out
-// beside the trigger (teleported to <body> so the panel it sits in can't clip it).
+// beside the trigger (teleported to <body> so the panel it sits in can't clip it). placement="pointer" is a context
+// menu: no trigger, opened at the cursor with `openAt(e.clientX, e.clientY)` from a contextmenu handler.
 import { computed, nextTick, onBeforeUnmount, ref, type Component } from 'vue'
 import { IconSquareRotated } from '@tabler/icons-vue'
 import { vTip } from '@/ui/tooltip'
@@ -29,7 +30,7 @@ const props = withDefaults(
     items: MenuItem[]
     label?: string
     align?: 'left' | 'right'
-    placement?: 'below' | 'right'
+    placement?: 'below' | 'right' | 'pointer'
     layout?: 'list' | 'tiles'
     triggerClass?: string
     ariaLabel?: string
@@ -46,9 +47,12 @@ const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 const trigger = ref<HTMLElement | null>(null)
 const list = ref<HTMLElement | null>(null)
-const side = computed(() => props.placement === 'right')
-/** Right placement: fixed viewport position, null until measured (the popover stays hidden till then). */
+/** Right and pointer placements: teleported, at a fixed viewport position. */
+const floating = computed(() => props.placement !== 'below')
+/** Floating: the measured position, null until then (the popover stays hidden till then). */
 const pos = ref<{ left: string; top: string } | null>(null)
+/** Pointer placement: where the menu was opened (viewport px). */
+let at = { x: 0, y: 0 }
 
 /** Tile layout: items grouped under their section headers (separators are dropped). */
 const groups = computed(() => {
@@ -74,32 +78,44 @@ function onScroll(e: Event): void {
   if (!list.value?.contains(e.target as Node)) close()
 }
 
-/** Pin the popover just right of the trigger, top-aligned, nudged back inside the viewport. */
+/** Pin the popover just right of the trigger, top-aligned (or at the pointer), nudged back inside the viewport. */
 function place(): void {
   const t = trigger.value?.getBoundingClientRect()
   const el = list.value
-  if (!t || !el) return
+  const anchor = props.placement === 'pointer' ? at : t && { x: t.right + 6, y: t.top }
+  if (!anchor || !el) return
   const m = 8
-  const left = Math.max(m, Math.min(t.right + 6, innerWidth - m - el.offsetWidth))
-  const top = Math.max(m, Math.min(t.top, innerHeight - m - el.offsetHeight))
+  const left = Math.max(m, Math.min(anchor.x, innerWidth - m - el.offsetWidth))
+  const top = Math.max(m, Math.min(anchor.y, innerHeight - m - el.offsetHeight))
   pos.value = { left: `${left}px`, top: `${top}px` }
 }
 
-async function toggle(): Promise<void> {
-  if (open.value) return close()
+async function show(): Promise<void> {
   open.value = true
   document.addEventListener('pointerdown', onDocDown, true)
   document.addEventListener('keydown', onKey)
-  if (side.value) {
+  if (floating.value) {
     window.addEventListener('resize', close)
     window.addEventListener('scroll', onScroll, true)
   }
   await nextTick()
-  if (side.value) {
+  if (floating.value) {
     place()
     await nextTick()
   }
   ;(list.value?.querySelector('button:not(:disabled)') as HTMLElement | null)?.focus()
+}
+
+async function toggle(): Promise<void> {
+  if (open.value) return close()
+  await show()
+}
+
+/** Pointer placement: open the menu at a viewport point, or move it there when it is already open. */
+async function openAt(x: number, y: number): Promise<void> {
+  close()
+  at = { x, y }
+  await show()
 }
 
 function close(): void {
@@ -117,22 +133,23 @@ function run(item: MenuItem): void {
 }
 
 onBeforeUnmount(close)
-defineExpose({ toggle, close })
+defineExpose({ toggle, close, openAt })
 </script>
 
 <template>
   <div ref="root" class="dm">
-    <button ref="trigger" type="button" :class="[triggerClass, { open }]" :aria-expanded="open" :aria-label="ariaLabel" aria-haspopup="menu" @click="toggle">
+    <button v-if="placement !== 'pointer'" ref="trigger" type="button" :class="[triggerClass, { open }]" :aria-expanded="open" :aria-label="ariaLabel" aria-haspopup="menu" @click="toggle">
       <slot>{{ label }}</slot>
     </button>
-    <Teleport to="body" :disabled="!side">
+    <Teleport to="body" :disabled="!floating">
       <div
         v-if="open"
         ref="list"
         class="pop"
-        :class="[side ? 'side' : align, { tiled: layout === 'tiles' }]"
-        :style="side ? (pos ?? { visibility: 'hidden' }) : undefined"
+        :class="[floating ? (placement === 'right' ? 'side' : 'pointer') : align, { tiled: layout === 'tiles' }]"
+        :style="floating ? (pos ?? { visibility: 'hidden' }) : undefined"
         role="menu"
+        @contextmenu.prevent
       >
         <template v-if="layout === 'tiles'">
           <div v-for="(g, gi) in groups" :key="gi" role="group" :aria-label="g.section">
@@ -224,10 +241,16 @@ defineExpose({ toggle, close })
 .pop.right {
   right: 0;
 }
-.pop.side {
+.pop.side,
+.pop.pointer {
   position: fixed;
-  width: min(80vw, 800px);
   max-height: calc(100vh - 16px);
+}
+.pop.side {
+  width: min(80vw, 800px);
+}
+.pop.pointer {
+  min-width: 160px;
 }
 .pop.tiled {
   padding: 2px 12px 12px;
