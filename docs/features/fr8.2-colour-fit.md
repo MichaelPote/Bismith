@@ -34,4 +34,4 @@ rankings compare shapes rather than starting colours (on a stone wall, rubble lo
 - [x] Slots, quantile maps, colour map, iterative fit (`colourFit.test.ts`)
 - [x] Tone fit (`fit: 'tones'`, the Liquid lump)
 - [x] Emulation (before screening), Suggest gallery
-- [ ] "Fit colours" button in the Match workspace for hand-built projects
+- [x] "Fit colours" button in the Match workspace for hand-built projects (palette snaps off while fitting; undoable)

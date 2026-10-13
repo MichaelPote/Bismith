@@ -136,6 +136,12 @@ writes to every copy — see [FR7.8](fr7.8-optimizer-heuristics.md).
 `timeMs` (wall clock), `steps`, `evaluations` (total), `patience` (steps in a row without the best loss improving
 by `minImprovement`, default 0.001 — restarts don't reset it), or an abort signal. `RunLimits` holds the bookkeeping
 so the same rules drive the harness CLI and the Match workspace. With no bound set a run only ends when aborted.
-- Match workspace: *Max steps* (whole run), *Stop at loss*, *Time limit* (per press of Optimise / Resume), *Stall
-  after* — 0 switches each off; with all off the optimiser runs until paused. The log ends with the reason.
+- Match workspace: *Max steps*, *Stop at loss*, *Time limit*, *Stall after* — each press of Optimise / Continue /
+  Resume runs afresh (up to Max steps *more*, a new time limit and stall count; a target loss already reached no
+  longer stops it), so a finished run can always keep going without Apply best. 0 switches each off; with all off
+  the optimiser runs until paused. The log ends with the reason.
+- The workspace is kept alive across Create ↔ Match: the reference, settings and optimiser survive. Leaving pauses a
+  run (the viewport needs the engine); returning re-renders the preview, and if the project was edited in Create the
+  optimiser starts over from it (its best would undo the edits). *Fit colours* fits the current project's colours to
+  the reference (FR8.2) — undoable.
 - `harness optimize … --until LOSS --time SECONDS --patience STEPS` (`--iters` then caps the steps only when given).

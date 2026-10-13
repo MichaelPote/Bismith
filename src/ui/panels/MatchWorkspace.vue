@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Reference matching (docs/features/fr6.3-optimizer.md): load a reference, then let the evolution strategy
 // tune the unlocked layers toward it while you watch the loss fall.
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, toRaw } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, toRaw } from 'vue'
 import type { Project } from '@/core/project'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
@@ -45,7 +45,11 @@ const bestResult = shallowRef<MetricResult | null>(null)
 const startLoss = ref<number | null>(null)
 const renderPx = shallowRef<{ pixels: Uint8ClampedArray; width: number; height: number } | null>(null)
 const diffPx = shallowRef<{ pixels: Uint8ClampedArray; width: number; height: number } | null>(null)
+const fitting = ref(false)
 let abort = false
+/** The project as last scored / optimised from: on returning to Match, a different one means it was edited meanwhile. */
+let seen = ''
+const snapshot = () => JSON.stringify(toRaw(store.project))
 
 const TERM_SHORT: Record<string, string> = { colour: 'Colour', spectrum: 'Frequency', gradients: 'Edges', contrast: 'Contrast', aligned: 'Alignment', structure: 'Structure', texture: 'Texture', alpha: 'Alpha' }
 
@@ -126,12 +130,47 @@ async function scoreCurrent(): Promise<void> {
   const matcher = await makeMatcher()
   engine.suspend()
   try {
+    seen = snapshot()
     const img = renderImage(toRaw(store.project))
     bestResult.value = matcher.score(img)
     show(img, matcher)
   } finally {
     engine.resume(toRaw(store.project))
   }
+}
+
+/** Palette snaps off while fitting (the fit compares raw colours), back on after. */
+function paletteOff(p: Project): { project: Project; restore: (q: Project) => Project } {
+  const on = new Set(p.post.filter((f) => f.type === 'palette' && f.enabled !== false).map((f) => f.id))
+  return {
+    project: { ...p, post: p.post.map((f) => (on.has(f.id) ? { ...f, enabled: false } : f)) },
+    restore: (q) => ({ ...q, post: q.post.map((f) => (on.has(f.id) ? { ...f, enabled: true } : f)) }),
+  }
+}
+
+/** Fit the current project's colours to the reference (materials through their colour controls; Liquid by tones). */
+async function fitColoursNow(): Promise<void> {
+  const engine = editor.engine
+  if (!engine || !reference.value || running.value || busy.value || fitting.value) return
+  fitting.value = true
+  await nextFrame()
+  const matcher = await makeMatcher()
+  engine.suspend()
+  try {
+    const { project, restore } = paletteOff(structuredClone(toRaw(store.project)))
+    const r = await fitColours(project, matcher, (p) => renderImage(p))
+    if (r.after < r.before - 1e-5) {
+      store.load(restore(r.project))
+      reset()
+      editor.notify(`Colours fitted · loss ${r.before.toFixed(3)} → ${r.after.toFixed(3)} — undo with Ctrl+Z`)
+    } else editor.notify('The colours already fit as well as the fit can do')
+  } catch (e) {
+    editor.notify(`Colour fit failed: ${e instanceof Error ? e.message : e}`, 'error')
+  } finally {
+    fitting.value = false
+    engine.resume(toRaw(store.project))
+  }
+  void scoreCurrent()
 }
 
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
@@ -153,16 +192,18 @@ async function run(): Promise<void> {
         },
         { lambda: 4, structural: structural.value, heuristics: heuristics.value, space: { ...space.value }, seed: 1 },
       )
+      seen = snapshot()
       startLoss.value = await opt.init()
       optimizer.value = opt
       curve.value = [startLoss.value]
       log.value = [`start · loss ${startLoss.value.toFixed(4)} · ${opt.space.entries.length} params`]
     }
     const opt = optimizer.value
-    // Max steps counts the whole run (across resumes); the time limit and the stall count restart with each press.
+    // Every press runs afresh: up to Max steps more, a new time limit and stall count — so a run that stopped can
+    // always keep going. A target loss already reached no longer stops it (it keeps improving past it).
     const stop: StopCriteria = {
-      ...(maxSteps.value > 0 ? { steps: Math.max(0, maxSteps.value - opt.history.length) } : {}),
-      ...(targetLoss.value > 0 ? { targetLoss: targetLoss.value } : {}),
+      ...(maxSteps.value > 0 ? { steps: maxSteps.value } : {}),
+      ...(targetLoss.value > 0 && opt.best.loss > targetLoss.value ? { targetLoss: targetLoss.value } : {}),
       ...(timeLimit.value > 0 ? { timeMs: timeLimit.value * 1000 } : {}),
       ...(stallSteps.value > 0 ? { patience: stallSteps.value } : {}),
     }
@@ -333,6 +374,21 @@ onBeforeUnmount(() => {
   abort = true
   window.removeEventListener('bismith:reference', onDropEvent)
 })
+// Kept alive across workspace switches: the reference, settings and optimiser survive a visit to Create. Leaving pauses
+// a run (the viewport needs the engine); coming back re-renders — and if the project was edited meanwhile, the
+// optimiser starts over from it (its best would undo the edits).
+onDeactivated(() => {
+  abort = true
+})
+onActivated(() => {
+  if (!reference.value || running.value) return
+  if (snapshot() === seen) return
+  if (optimizer.value) {
+    reset()
+    editor.notify('The project changed in Create — the optimiser will start over from it')
+  }
+  void scoreCurrent()
+})
 
 const improvement = computed(() => {
   const c = curve.value
@@ -354,8 +410,17 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
       <button type="button" class="cf-btn" :disabled="!editor.engine || running || !!busy" title="Eight variations around the current project — pick by eye, repeat" @click="vary">
         <Icon name="grid" :size="13" />Variations
       </button>
+      <button
+        type="button"
+        class="cf-btn"
+        :disabled="!reference || !editor.engine || running || !!busy || fitting"
+        title="Fit the current project's colours to the reference — materials through their colour controls, liquids by their tones (undo with Ctrl+Z)"
+        @click="fitColoursNow"
+      >
+        <Icon name="palette" :size="13" />{{ fitting ? 'Fitting…' : 'Fit colours' }}
+      </button>
       <button v-if="!running" type="button" class="fk primary" :disabled="!reference || !editor.engine" @click="run">
-        <span class="fk-face"><Icon name="play" :size="12" />{{ optimizer ? 'Resume' : 'Optimise' }}</span>
+        <span class="fk-face"><Icon name="play" :size="12" />{{ optimizer ? (stopped && stopped !== 'aborted' ? 'Continue' : 'Resume') : 'Optimise' }}</span>
       </button>
       <button v-else type="button" class="cf-btn" @click="pause"><Icon name="pause" :size="12" />Pause</button>
       <button type="button" class="cf-btn" :disabled="!optimizer || running" @click="applyBest">Apply best</button>
@@ -413,7 +478,7 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
       <div class="settings">
         <div class="row"><span class="lbl">Metric</span><SelectField v-model="preset" :options="[{ value: 'tile', label: 'Tile (structure at best shift)' }, { value: 'texture', label: 'Texture (statistics)' }, { value: 'layout', label: 'Layout (+ pixel aligned)' }]" label="Metric preset" @update:model-value="reset" /></div>
         <div class="row"><span class="lbl">Samples</span><NumberField v-model="samples" :min="1" :max="256" :soft-min="1" :soft-max="64" int label="Samples per candidate" /></div>
-        <div class="row" title="Stop after this many steps in total (0 = no limit)"><span class="lbl">Max steps</span><NumberField v-model="maxSteps" :min="0" :max="1000000" :soft-min="0" :soft-max="2000" int label="Max steps" /></div>
+        <div class="row" title="Each Optimise / Continue runs up to this many steps (0 = no limit)"><span class="lbl">Max steps</span><NumberField v-model="maxSteps" :min="0" :max="1000000" :soft-min="0" :soft-max="2000" int label="Max steps" /></div>
         <div class="row" title="Stop as soon as the best loss reaches this (0 = off)"><span class="lbl">Stop at loss</span><NumberField v-model="targetLoss" :min="0" :max="2" :soft-max="0.6" :step="0.001" label="Target loss" /></div>
         <div class="row" title="Stop after this long, per run (0 = off)"><span class="lbl">Time limit</span><NumberField v-model="timeLimit" :min="0" :max="86400" :soft-max="1800" :step="1" unit="s" int label="Time limit" /></div>
         <div class="row" title="Stop after this many steps without progress, restarts included (0 = off)"><span class="lbl">Stall after</span><NumberField v-model="stallSteps" :min="0" :max="100000" :soft-max="400" int unit="steps" label="Stall after" /></div>

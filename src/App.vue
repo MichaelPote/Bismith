@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
 import { useActions } from '@/ui/actions'
@@ -135,6 +135,8 @@ async function onDrop(e: DragEvent): Promise<void> {
   if (f.name.endsWith('.json') || f.type === 'application/json') act.loadProjectText(await f.text())
   else if (f.type.startsWith('image/')) {
     editor.workspace = 'match'
+    // After the workspace has mounted (a first visit), so it hears the event.
+    await nextTick()
     window.dispatchEvent(new CustomEvent('bismith:reference', { detail: f }))
   }
 }
@@ -164,7 +166,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <div class="gutter" role="separator" aria-orientation="vertical" aria-label="Resize outliner" @pointerdown="startResize($event, 'left')" />
       <div class="centre">
         <Viewport v-show="editor.workspace === 'create'" />
-        <MatchWorkspace v-if="editor.workspace === 'match'" />
+        <KeepAlive><MatchWorkspace v-if="editor.workspace === 'match'" /></KeepAlive>
       </div>
       <div class="gutter" role="separator" aria-orientation="vertical" aria-label="Resize properties" @pointerdown="startResize($event, 'right')" />
       <Properties />
