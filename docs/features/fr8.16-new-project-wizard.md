@@ -12,8 +12,16 @@ And one place to add anything to the layer list.
   composites sit right after the generators they are made of. The separate ◆ button is gone.
 - **Wizard** (`ui/panels/NewProjectWizard.vue`, `editor.wizard`): Starters — Blank (no layers, base material only)
   and the presets as they are (the File ▸ New from preset menu is gone) — then Suggestions: every reference template
-  (`match/templates.ts`) built at the chosen size (32–256) from a random scheme. Thumbnails render one by one on the
-  engine, suspended meanwhile, shaders precompiled first; Shuffle colours re-rolls the schemes. Esc / the backdrop
+  (`match/templates.ts`) built at the chosen size (32–256) from a random scheme. Every card can be picked at once.
+  Thumbnails render on demand for the cards scrolled into view (an IntersectionObserver), one at a time with a frame
+  between, cheaply (no supersampling, 8 samples). Shaders dominate the cost — measured on D3D11 (Windows Chrome,
+  RTX 5080): a card renders in ~48 ms, but its first render waits for its generators' shaders (0.5–7 s each; Truchet
+  17 s), ~66 s for all 45 cards one after another. So on opening, where the browser compiles off the main thread
+  (KHR_parallel_shader_compile), every card's shaders compile in one batch — in parallel, ~7 s cold for all 26, near
+  instant once the driver has cached them — and cards render as soon as theirs are ready (already-compiled ones at
+  once). Without parallel compile a batch would freeze the page, so each card compiles its own as it comes into view; they are cached across openings (examples by preset, suggestions by template + size + colours, the colour
+  seed kept until Shuffle). The main viewport is suspended only while a batch renders and always resumed after —
+  picking a card mid-batch used to leave it frozen. Shuffle colours re-rolls the schemes. Esc / the backdrop
   closes it; while it is open the editor's shortcuts wait. Light fixtures get a little glow so their emission comes on.
 - **Schemes** (`match/schemes.ts`): a texture's palette is one or two colours in many values and saturations, not a
   background / primary / accent set — and its colours belong to its material. Each template has a Look
