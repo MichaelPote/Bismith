@@ -109,7 +109,7 @@ export const SHAPING_PARAMS: ParamDef[] = [
   P.float('sh_hi', 'High', 1, 0, 1, { step: 0.001, group: 'shaping' }),
   P.float('sh_gamma', 'Gamma', 1, 0.05, 20, { softMin: 0.2, softMax: 5, step: 0.01, group: 'shaping' }),
   P.int('sh_steps', 'Posterize', 0, 0, 64, { softMax: 16, group: 'shaping', hint: '0 = off' }),
-  P.float('sh_cut', 'Cutoff', 0, 0, 1, { step: 0.001, group: 'shaping', hint: 'Covers only where the shaped value ≥ cutoff (0 = off): sparse flecks from white noise, islands from fBm' }),
+  P.float('sh_cut', 'Cutoff', 0, 0, 1, { step: 0.001, group: 'shaping', hint: 'Covers only where the shaped value ≥ cutoff (0 = off): sparse flecks from white noise, islands from clouds' }),
   P.float('sh_cut_soft', 'Cutoff softness', 0, 0, 0.5, { step: 0.001, group: 'shaping', showIf: (p) => Number(p.sh_cut) > 0 }),
 ]
 

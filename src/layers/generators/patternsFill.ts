@@ -15,7 +15,7 @@ export const cloudsLayer: LayerDef = {
   description: 'Classic fractal clouds with domain warp, contrast and coverage — grime, stains, soft variation.',
   params: [
     P.enum('basis', 'Basis', 'perlin', [['value', 'Value'], ['perlin', 'Perlin']]),
-    P.enum('style', 'Style', 'fbm', [['fbm', 'Soft (fBm)'], ['billow', 'Billow (puffy)'], ['ridged', 'Ridged']]),
+    P.enum('style', 'Style', 'fbm', [['fbm', 'Soft'], ['billow', 'Billow (puffy)'], ['ridged', 'Ridged']]),
     P.float('scale', 'Scale', 4, 0.25, 256, { softMax: 32, step: 0.01, hint: 'Base cells across the texture width (rounded when tiling)' }),
     P.float('stretch', 'Stretch', 1, 0.05, 20, { softMin: 0.2, softMax: 8, step: 0.01, hint: '>1 elongates features horizontally' }),
     P.int('octaves', 'Octaves', 6, 1, 12),

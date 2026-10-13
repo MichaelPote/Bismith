@@ -4,6 +4,7 @@
 // beside the trigger (teleported to <body> so the panel it sits in can't clip it).
 import { computed, nextTick, onBeforeUnmount, ref, type Component } from 'vue'
 import { IconSquareRotated } from '@tabler/icons-vue'
+import { vTip } from '@/ui/tooltip'
 
 export interface MenuItem {
   label?: string
@@ -140,11 +141,11 @@ defineExpose({ toggle, close })
               <button
                 v-for="(item, i) in g.items"
                 :key="i"
+                v-tip:top="item.hint ? { title: item.label, body: item.hint } : null"
                 type="button"
                 role="menuitem"
                 class="tile"
                 :disabled="item.disabled"
-                :title="item.hint"
                 :style="item.hue ? { '--hue': item.hue } : undefined"
                 @click="run(item)"
               >
@@ -160,7 +161,7 @@ defineExpose({ toggle, close })
         <template v-for="(item, i) in items" v-else :key="i">
           <div v-if="item.separator" class="sep" />
           <div v-else-if="item.section" class="section">{{ item.section }}</div>
-          <button v-else type="button" role="menuitem" class="item" :disabled="item.disabled" :title="item.hint" @click="run(item)">
+          <button v-else v-tip:right="item.hint" type="button" role="menuitem" class="item" :disabled="item.disabled" @click="run(item)">
             <span class="tick" :style="item.hue ? { borderColor: item.hue } : undefined" :class="{ hue: !!item.hue, checked: item.checked }" />
             <span class="lbl">{{ item.label }}</span>
             <span v-if="item.shortcut" class="sc">{{ item.shortcut }}</span>

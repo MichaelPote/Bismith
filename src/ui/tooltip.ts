@@ -17,6 +17,9 @@ export interface Tip {
 
 export type TipValue = string | Tip | null | undefined
 
+/** What last triggered each tip (mouseenter / focus). */
+const lastTrigger = new WeakMap<Instance, string>()
+
 tippy.setDefaultProps({
   theme: 'cinder',
   arrow: false,
@@ -25,6 +28,10 @@ tippy.setDefaultProps({
   offset: [0, 8],
   maxWidth: 300,
   appendTo: () => document.body,
+  onTrigger: (instance, event) => void lastTrigger.set(instance, event.type),
+  // Focus shows a tip only when it is keyboard focus, not when a click or a script moves focus (a menu focusing its
+  // first item would otherwise pop that item's tip up unasked).
+  onShow: (instance) => (lastTrigger.get(instance) === 'focus' && !instance.reference.matches(':focus-visible') ? false : undefined),
 })
 
 function el(tag: string, cls: string, text?: string): HTMLElement {

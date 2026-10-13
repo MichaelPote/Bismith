@@ -13,7 +13,7 @@ export const NOISE_TYPES: [string, string][] = [
 
 export const FRACTAL_MODES: [string, string][] = [
   ['none', 'Single octave'],
-  ['fbm', 'fBm'],
+  ['fbm', 'Clouds'],
   ['ridged', 'Ridged'],
   ['billow', 'Billow'],
   ['turbulence', 'Turbulence'],
