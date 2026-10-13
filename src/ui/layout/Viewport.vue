@@ -141,6 +141,9 @@ const texRect = computed(() => {
   }
 })
 
+/** A sun gizmo's horizon (CSS px from the texture centre): just outside the texture. */
+const sunHorizon = (r: { w: number; h: number }) => Math.max(40, Math.min(r.w, r.h) / 2 + 26)
+
 const gizmos = computed(() => {
   const r = texRect.value
   return project.value.lighting.lights
@@ -153,8 +156,11 @@ const gizmos = computed(() => {
       const az = (Number(l.params.azimuth) * Math.PI) / 180
       const cx = r.x + r.w / 2
       const cy = r.y + r.h / 2
-      const len = Math.max(40, Math.min(r.w, r.h) / 2 + 26)
-      return { id: l.id, type: 'directional' as const, sel, color: String(l.params.color), cx, cy, x: cx + Math.sin(az) * len, y: cy - Math.cos(az) * len }
+      // A sky map seen from above: the angle is the azimuth, the distance the elevation (linear, 0° on the horizon
+      // ring, 90° at the centre).
+      const horizon = sunHorizon(r)
+      const len = horizon * (1 - Number(l.params.elevation) / 90)
+      return { id: l.id, type: 'directional' as const, sel, color: String(l.params.color), cx, cy, horizon, x: cx + Math.sin(az) * len, y: cy - Math.cos(az) * len }
     })
 })
 
@@ -190,19 +196,32 @@ const toggles = computed(() => [
   { label: 'Alpha checkerboard', tip: 'Alpha checkerboard', icon: IconBackground, on: editor.checker, flip: () => (editor.checker = !editor.checker) },
 ])
 
+/** Ctrl (⌘) while dragging a sun snaps its angles to this step. */
+const ANGLE_SNAP = 15
 let gizmoDrag: { id: string; type: 'point' | 'directional' } | null = null
+/** The last pointer position of the drag (client px), so pressing or releasing a modifier re-applies without a move. */
+let gizmoAt = { x: 0, y: 0 }
+/** The sun being Shift-dragged (placed under the cursor): its horizon ring is shown. */
+const sunPlacing = ref<string | null>(null)
 function onGizmoDown(e: PointerEvent, g: { id: string; type: 'point' | 'directional' }): void {
   e.stopPropagation()
   e.preventDefault()
   editor.select('light', g.id)
   gizmoDrag = g
+  gizmoAt = { x: e.clientX, y: e.clientY }
   ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+  window.addEventListener('keydown', onGizmoKey)
+  window.addEventListener('keyup', onGizmoKey)
 }
-function onGizmoMove(e: PointerEvent): void {
+/**
+ * Point lights follow the cursor. A sun's azimuth follows the cursor's angle about the texture centre; with Shift its
+ * elevation follows the cursor's distance too, so the handle lands under the cursor. Ctrl (⌘) snaps both angles.
+ */
+function dragGizmo(mods: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): void {
   if (!gizmoDrag) return
   const rect = wrap.value!.getBoundingClientRect()
-  const px = e.clientX - rect.left
-  const py = e.clientY - rect.top
+  const px = gizmoAt.x - rect.left
+  const py = gizmoAt.y - rect.top
   const r = texRect.value
   if (gizmoDrag.type === 'point') {
     store.setLightParam(gizmoDrag.id, 'x', Number(((px - r.x) / r.w).toFixed(4)))
@@ -210,15 +229,36 @@ function onGizmoMove(e: PointerEvent): void {
   } else {
     const dx = px - (r.x + r.w / 2)
     const dy = py - (r.y + r.h / 2)
-    let az = (Math.atan2(dx, -dy) * 180) / Math.PI
-    if (az < 0) az += 360
-    store.setLightParam(gizmoDrag.id, 'azimuth', Math.round(az))
+    const snap = mods.ctrlKey || mods.metaKey
+    const az = (Math.atan2(dx, -dy) * 180) / Math.PI
+    const step = snap ? ANGLE_SNAP : 1
+    store.setLightParam(gizmoDrag.id, 'azimuth', (Math.round(az / step) * step + 360) % 360)
+    sunPlacing.value = mods.shiftKey ? gizmoDrag.id : null
+    if (mods.shiftKey) {
+      const el = 90 * (1 - Math.hypot(dx, dy) / sunHorizon(r))
+      const snapped = snap ? Math.round(el / ANGLE_SNAP) * ANGLE_SNAP : Math.round(el * 2) / 2
+      store.setLightParam(gizmoDrag.id, 'elevation', Math.max(1, Math.min(90, snapped)))
+    }
   }
+}
+function onGizmoMove(e: PointerEvent): void {
+  if (!gizmoDrag) return
+  gizmoAt = { x: e.clientX, y: e.clientY }
+  dragGizmo(e)
+}
+function onGizmoKey(e: KeyboardEvent): void {
+  if ((e.key === 'Control' || e.key === 'Meta' || e.key === 'Shift') && !e.repeat) dragGizmo(e)
+}
+function endGizmoDrag(): void {
+  gizmoDrag = null
+  sunPlacing.value = null
+  window.removeEventListener('keydown', onGizmoKey)
+  window.removeEventListener('keyup', onGizmoKey)
 }
 function onGizmoUp(e: PointerEvent): void {
   if (!gizmoDrag) return
   ;(e.currentTarget as Element).releasePointerCapture(e.pointerId)
-  gizmoDrag = null
+  endGizmoDrag()
 }
 
 // ---------------------------------------------------------------- status
@@ -262,6 +302,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  endGizmoDrag()
   ro?.disconnect()
   editor.setEngine(null)
   engine?.dispose()
@@ -298,13 +339,14 @@ watch(
       @dblclick="fit"
     >
       <canvas ref="canvas" class="canvas" />
-      <svg class="gizmos" :width="cssSize.w" :height="cssSize.h" @pointermove="onGizmoMove" @pointerup="onGizmoUp">
+      <svg class="gizmos" :width="cssSize.w" :height="cssSize.h" @pointermove="onGizmoMove" @pointerup="onGizmoUp" @pointercancel="onGizmoUp">
         <template v-for="g in gizmos" :key="g.id">
           <g v-if="g.type === 'point'" class="gizmo" :class="{ sel: g.sel }" @pointerdown="onGizmoDown($event, g)">
             <circle :cx="g.x" :cy="g.y" r="11" class="ring" />
             <circle :cx="g.x" :cy="g.y" r="5" :fill="g.color" class="core" />
           </g>
           <g v-else class="gizmo" :class="{ sel: g.sel }">
+            <circle v-if="sunPlacing === g.id" :cx="g.cx" :cy="g.cy" :r="g.horizon" class="horizon" />
             <line :x1="g.cx" :y1="g.cy" :x2="g.x" :y2="g.y" class="ray" />
             <g @pointerdown="onGizmoDown($event, g)">
               <circle :cx="g.x" :cy="g.y" r="11" class="ring" />
@@ -435,6 +477,14 @@ watch(
   stroke-width: 1;
   stroke-dasharray: 3 3;
   opacity: 0.6;
+  pointer-events: none;
+}
+.gizmo .horizon {
+  fill: none;
+  stroke: var(--text-hi);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.5;
   pointer-events: none;
 }
 .gizmo .rays {

@@ -258,7 +258,7 @@ const asValues = (o: object) => o as unknown as ParamValues
         <button v-tip="'Duplicate (Ctrl+D)'" type="button" class="cf-ico-btn" aria-label="Duplicate light" @click="act.duplicateSelection"><IconCopy :size="13" /></button>
         <button v-tip="'Delete (Del)'" type="button" class="cf-ico-btn" aria-label="Delete light" @click="act.deleteSelection"><IconTrash :size="13" /></button>
       </div>
-      <p class="desc">{{ light.type === 'point' ? 'Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at 64 px.' : 'Drag the sun gizmo around the texture to set the azimuth.' }}</p>
+      <p class="desc">{{ light.type === 'point' ? 'Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at 64 px.' : 'Drag the sun gizmo around the texture to set the azimuth. Hold Shift to place it under the cursor, setting the elevation too (the centre is overhead, the dashed ring the horizon); hold Ctrl to snap to 15° steps.' }}</p>
       <div class="scroll">
         <PanelCard title="Light">
           <ParamList :defs="LIGHT_DEFS[light.type].params" :values="light.params" @change="(k, v) => store.setLightParam(light!.id, k, v)" />

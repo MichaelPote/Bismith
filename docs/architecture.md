@@ -272,7 +272,8 @@ Light = { id, name, enabled, type: 'directional' | 'point', color, intensity,
         }
 ```
 
-Point lights are draggable gizmos in the viewport.
+Point lights are draggable gizmos in the viewport; so are suns, on a sky map about the texture centre (angle = azimuth,
+distance = elevation; FR3.1).
 
 ---
 

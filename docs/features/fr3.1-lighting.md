@@ -21,5 +21,8 @@ Global lighting as a project setting: sky light, ambient strength, and individua
 - [x] Directional lights
 - [x] Point lights
 - [x] Light list in outliner + properties
-- [x] Draggable point-light gizmos — directional lights get an azimuth handle too
+- [x] Draggable point-light gizmos — directional lights get a handle too, on a sky map about the texture centre: the
+  angle is the azimuth, the distance the elevation (linear: 90° at the centre, 0° on a horizon ring just outside the
+  texture). Dragging it sets the azimuth; Shift-drag puts it under the cursor (elevation too); Ctrl (⌘) snaps both
+  to 15° steps
 - [x] Lighting presets — UI key, Overhead, Torch-lit, Raking, Flat
