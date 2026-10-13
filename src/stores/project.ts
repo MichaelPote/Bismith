@@ -7,7 +7,7 @@ import type { Layer, LayerUnit, Light, LightType, PostFilter, Project, SmartMate
 import { flattenUnits, layerUnits } from '@/core/project'
 import { addMaterial as recipeAdd, deleteMaterial as recipeDelete, pruneMaterials, setMacro, setMaterialMask as recipeMask, unpackMaterial as recipeUnpack } from '@/recipes'
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize'
-import { getLayerDef } from '@/layers/registry'
+import { getLayerDef, linkedChanges } from '@/layers/registry'
 import { newId } from '@/core/ids'
 import { MAX_LIGHTS } from '@/core/project'
 import { PRESETS } from '@/presets'
@@ -219,7 +219,8 @@ export const useProjectStore = defineStore('project', () => {
 
   function setLayerParam(id: string, key: string, value: ParamValue): void {
     const l = getLayer(id)
-    if (l) l.params[key] = value
+    // With any linked defaults that follow it (Drips: Height turns on with the Sources output).
+    if (l) Object.assign(l.params, linkedChanges(l.type, l.params, key, value))
   }
 
   // ---------------------------------------------------------------- smart materials

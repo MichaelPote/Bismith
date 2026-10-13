@@ -347,7 +347,7 @@ function stains(a: Analysis, opts: { ledges?: boolean; seed?: number; blisters?:
           ...(opts.blisters
             ? [
                 L('drips', 'Blisters', {
-                  output: 'source', ...src, head: 0.9, hard: true, h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value',
+                  output: 'source', ...src, blister: 1.2, ledge_mix: opts.ledges ? 0.6 : 0, hard: true, sm_on: false, h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value',
                   dif_grad: ramp(mix('#5a2412', rust, 0.25), mix('#7a3418', rust, 0.25)),
                 }),
               ]

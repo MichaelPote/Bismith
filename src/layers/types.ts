@@ -1,6 +1,7 @@
 import type { GroupDef, ParamDef, ParamValue, ParamValues } from '@/core/params'
 import type { Layer } from '@/core/project'
 import type { FilterContext } from '@/render/materialPipeline'
+import type * as THREE from 'three'
 
 export type LayerCategory = 'noise' | 'shape' | 'pattern' | 'filter' | 'adjust'
 
@@ -16,15 +17,21 @@ export interface LayerDef {
    * Generators: GLSL defining `GenOut gen(vec2 p)` where p is the GL pixel position (centres at .5).
    * In scope: the common/noise/sdf GLSL chunks, `uSeed` (layer seed), `uRes`, `uTile`, the previous state
    * samplers `tAlbedo`, `tSurface`, `tEmissive`, and a `u_<key>` uniform per param.
-   * Construct results with `genOut(value, mask, rnd, sdf)`.
+   * Construct results with `genOut(value, mask, rnd, sdf)`, or `genOutHeight(…, height)` with a signed height profile
+   * of the generator's own (see GENOUT in render/materialPipeline.ts).
    */
   glsl?: string
   /**
    * Generator produces a signed distance (px, negative inside) in GenOut.sdf. The wrapper then adds the
    * shape params (SDF operator, bevel, profile, anti-alias) and derives mask + value from the distance.
    * A gen() may return sdf <= NO_SDF (-9e4) to opt out per-pixel (value/mask pass through, register untouched).
+   * 'mask': the distance only goes to the Shape Mask (the register) and named-mask writes — the generator shapes its
+   * own value and coverage around it (Drips' blisters: a lifted lip outside the edge, a pit inside), so there is no
+   * Shape (bevel) card.
    */
-  sdf?: boolean
+  sdf?: boolean | 'mask'
+  /** When the Shape Mask params apply (default: always) — e.g. only one of a generator's outputs has a shape. */
+  sdfShowIf?: (params: ParamValues) => boolean
   /**
    * Filters: a single MRT pass. GLSL defining `void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip)`
    * (note: `filter` is a reserved word in GLSL ES 3.00).
@@ -39,6 +46,12 @@ export interface LayerDef {
    */
   cpuData?: (params: ParamValues, ctx: { width: number; height: number; tileable: boolean; seed: number }) => Record<string, CpuTexture>
   textures?: string[]
+  /**
+   * Generators: GPU passes over the current state run just before the layer (e.g. a distance field of something in
+   * the heights below). Returns textures by name, bound like cpuData's (declare the names in `textures`; any it leaves
+   * out stay blank). Runs on every evaluation, so keep it to what the layer's params ask for.
+   */
+  prepare?: (ctx: FilterContext, layer: Layer) => Record<string, THREE.Texture>
   /**
    * Generators: the pattern comes from the noise library (glsl/noise.ts) or its cell points, so a Phase param in the
    * Pattern card animates it. Other generators get the Phase in Shaping, shown while a domain warp is on.
@@ -56,6 +69,14 @@ export interface LayerDef {
    * so only the layers after them can use those masks.
    */
   readsState?: boolean
+  /**
+   * Defaults that follow other params (Drips: Height on for the Sources output). A new layer takes them unless given
+   * them; changing a param moves any still at its old default to the new one (`linkedChanges`), so a value set by
+   * hand stays.
+   */
+  linkedDefaults?: (params: ParamValues) => ParamValues
+  /** Rewrites params stored before a change to this type's params (after the common migrations). */
+  migrate?: (params: ParamValues) => ParamValues
   /** Overrides for common param defaults (e.g. which channel outputs start enabled). */
   defaults?: Record<string, ParamValue>
   /** Extra groups for this type's params, in display order (the default 'params' group is implicit). */

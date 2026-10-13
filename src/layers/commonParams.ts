@@ -86,13 +86,18 @@ const HEIGHT_MODES: [string, string, string][] = [
 ]
 const LEVEL_MODES: [string, string][] = [['replace', 'Replace'], ['multiply', 'Multiply'], ['add', 'Add'], ['min', 'Min'], ['max', 'Max']]
 
-export const SDF_PARAMS: ParamDef[] = [
+/** The Shape Mask card: whether and how the layer's shape goes to the register. */
+export const SDF_MASK_PARAMS: ParamDef[] = [
   P.bool('sm_on', 'Shape Mask', true, { group: 'shapemask', hint: 'Write this layer\'s shape to the shape mask, for later layers to clip to (Mask › Clip to shape mask) and bevel from' }),
   P.enum('sdf_op', 'Mode', 'replace', SDF_OPS, {
     group: 'shapemask',
     hint: 'Normal: this shape replaces the shape mask. Union: adds to it. Subtract: cuts this shape out of it. Intersection: keeps only the overlap. Smooth: blended with a rounded fillet. In every mode the layer itself draws the combined shape',
   }),
   P.float('sdf_k', 'Smoothness', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'shapemask', showIf: isSmooth }),
+]
+
+export const SDF_PARAMS: ParamDef[] = [
+  ...SDF_MASK_PARAMS,
   P.float('bevel', 'Bevel', 3, 0, 1024, { softMax: 32, unit: 'px', step: 0.1, group: 'shape' }),
   P.enum('profile', 'Profile', 'round', PROFILES, { group: 'shape' }),
   bevelCurveParam('shape'),
@@ -226,7 +231,7 @@ float namedMask(vec4 M) {
 `
 
 /** GLSL for the generator wrapper's use of the common params (declared automatically from the defs above). */
-export const GLSL_GENERATOR_MAIN = (sdf: boolean) => /* glsl */ `
+export const GLSL_GENERATOR_MAIN = (sdf: boolean | 'mask') => /* glsl */ `
 
 float shapeValue(float v) {
   v = clamp((v - u_sh_lo) / max(u_sh_hi - u_sh_lo, 1e-5), 0.0, 1.0);
@@ -259,7 +264,7 @@ void main() {
   float cov = g.mask;
   // What a named-mask write records: the coverage, or for a shape with Feather a soft ramp across its outline.
   float covW = -1.0;
-${sdf ? /* glsl */ `
+${sdf === true ? /* glsl */ `
   if (g.sdf > NO_SDF) {
     // Shape Mask (the register): written when ticked; the mode's index + 1 is the sdfCombine op.
     int op = u_sm_on ? u_sdf_op + 1 : 0;
@@ -271,6 +276,14 @@ ${sdf ? /* glsl */ `
     // symmetrically across the boundary; profiled bevels rise from 0 at the edge.
     float inside = max(-d, 0.0);
     value = (u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, inside / u_bevel) : 1.0;
+  }
+` : ''}${sdf === 'mask' ? /* glsl */ `
+  if (g.sdf > NO_SDF) {
+    // A shape for the Shape Mask and named masks only: the generator shapes its own value and coverage around it.
+    int op = u_sm_on ? u_sdf_op + 1 : 0;
+    float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_sdf_k);
+    if (op != 0) S.a = d;
+    covW = u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : clamp(0.5 - d, 0.0, 1.0);
   }
 ` : ''}
   value = shapeValue(value);
@@ -307,12 +320,15 @@ ${sdf ? /* glsl */ `
     else A.a *= 1.0 - m;
   }
   if (u_h_on) {
+    // A height profile of the generator's own (signed, genOutHeight) stands in for the value and carries its own extent:
+    // it applies wherever it is non-zero, limited by the clips and opacity but not by the coverage.
+    bool own = u_h_src == 0 && g.height > NO_SDF;
     // Per-feature amplitude from a hash decorrelated from the colour random.
-    float v = srcValue(u_h_src, value, g.rnd) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123));
+    float v = (own ? g.height : srcValue(u_h_src, value, g.rnd)) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123));
     float h = S.r;
     float nh = u_h_mode == 0 ? h + v : u_h_mode == 1 ? h - v : u_h_mode == 2 ? max(h, v)
              : u_h_mode == 3 ? min(h, v) : u_h_mode == 4 ? v : h * v;
-    S.r = mix(h, nh, m);
+    S.r = mix(h, nh, own ? (g.height != 0.0 ? k : 0.0) : m);
   }
   if (u_r_on) {
     float v = srcValue(u_r_src, value, g.rnd);

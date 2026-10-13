@@ -151,7 +151,11 @@ LayerDef {
   kind: 'generator' | 'filter',
   params: ParamDef[],            // drives both the UI and the uniforms
   glsl?: string,                 // generator: defines `GenOut gen(vec2 p)`
-  sdf?: boolean,                 // generator produces a signed distance (shapes, bricks, voronoi)
+  sdf?: boolean | 'mask',        // generator produces a signed distance (shapes, bricks, voronoi); 'mask': for the
+                                 //   Shape Mask only, the generator shapes its own value and coverage (Drips' blisters)
+  prepare?: (ctx, layer) => textures, // generator: GPU pre-passes over the current state (e.g. a jump-flood field)
+  linkedDefaults?: (params) => params, // defaults that follow other params (Drips: Height on for Sources); a value
+                                 //   still at its old default moves with them, one set by hand stays
   run?: (ctx, layer) => void,    // filter: custom multi-pass implementation
   defaults?: Partial<LayerOutputs>
 }
@@ -173,6 +177,9 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
 - `mask` — coverage `0..1` (anti-aliased inside-ness for shapes; `1` for noise).
 - `rnd` — a per-feature random `0..1` (per brick / per cell / per repeated shape instance) for variation.
 - `sdf` — signed distance in px, negative inside (SDF generators only).
+- `height` — optional (`genOutHeight`): a signed height profile of the generator's own. Height › Pattern adds it
+  (× amount) instead of the value, wherever it is non-zero — not limited by the coverage, so it can rise past what the
+  other outputs paint and sink below the surface (Drips' blisters: a lifted lip outside the hole, the hole below).
 
 The common generator wrapper then:
 

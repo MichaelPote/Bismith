@@ -26,11 +26,17 @@ export const DISTANCE_SOURCE = {
   opacity: 1,
   luminance: 2,
   shape: 3,
+  custom: 4,
 } as const
 
 export interface DistanceFieldOptions {
-  /** 0 height, 1 opacity, 2 diffuse luminance (perceptual, sRGB), 3 shape register sign. */
+  /** 0 height, 1 opacity, 2 diffuse luminance (perceptual, sRGB), 3 shape register sign, 4 custom (`custom`). */
   source: number
+  /**
+   * Source 4: GLSL defining `float jfaCustom(ivec2 c)`, > 0 inside — continuous across the edge for a sub-pixel
+   * boundary. It may use the layer's u_<param> uniforms and the state textures. Materials are cached per `name`.
+   */
+  custom?: string
   /** Inside = value above this (ignored for the shape register, which is inside where < 0). */
   threshold: number
   /** Swap inside and outside. */
@@ -58,6 +64,9 @@ uniform bool uJfaInvert;
 
 float jfaValue(ivec2 c) {
   float v;
+#ifdef JFA_CUSTOM
+  if (uJfaSource == 4) v = jfaCustom(c); else
+#endif
   if (uJfaSource == 0) v = fetchT(tSurface, c).r - uJfaThreshold;
   else if (uJfaSource == 1) v = fetchT(tAlbedo, c).a - uJfaThreshold;
   else if (uJfaSource == 2) v = luma(linearToSrgb(fetchT(tAlbedo, c).rgb)) - uJfaThreshold;
@@ -220,7 +229,10 @@ export function jumpFlood(ctx: FilterContext, opts: DistanceFieldOptions): THREE
   const pong = ctx.scratch(`${name}:b`)
   const out = ctx.scratch(`${name}:dist`)
 
-  const seedMat = ctx.material('jfa:seed', SEED, sourceUniforms())
+  // A custom source is compiled into its own seed and final materials.
+  const custom = opts.source === DISTANCE_SOURCE.custom && opts.custom ? `#define JFA_CUSTOM\n${opts.custom}\n` : ''
+  const variant = custom ? `:${name}` : ''
+  const seedMat = ctx.material(`jfa:seed${variant}`, custom + SEED, sourceUniforms())
   setSource(seedMat, opts)
   ctx.run(seedMat, seeds)
 
@@ -252,7 +264,7 @@ export function jumpFlood(ctx: FilterContext, opts: DistanceFieldOptions): THREE
     dst = dst === ping ? pong : ping
   }
 
-  const finalMat = ctx.material('jfa:final', FINAL, { ...sourceUniforms(), tJfa: { value: null }, tSeed: { value: null } })
+  const finalMat = ctx.material(`jfa:final${variant}`, custom + FINAL, { ...sourceUniforms(), tJfa: { value: null }, tSeed: { value: null } })
   setSource(finalMat, opts)
   finalMat.uniforms.tJfa.value = src.texture
   finalMat.uniforms.tSeed.value = seedTex.texture

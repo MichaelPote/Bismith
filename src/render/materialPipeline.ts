@@ -40,11 +40,15 @@ function withMaskPassThrough(body: string): string {
 const GENOUT = /* glsl */ `
 // gen() may return sdf <= NO_SDF to opt out of SDF handling for a pixel.
 const float NO_SDF = -9e4;
-struct GenOut { float value; float mask; float rnd; float sdf; float feat; };
-GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0); }
+// height: a signed height profile of the generator's own (× the Height amount), or NO_SDF for none (see genOutHeight).
+struct GenOut { float value; float mask; float rnd; float sdf; float feat; float height; };
+GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF); }
 // Patterns without features (smooth noise, clouds): rnd is a continuous value there, so per-feature variation has
 // nothing to vary — fract(rnd · k) would turn it into terraces along the pattern's contours.
-GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0); }
+GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0, NO_SDF); }
+// With its own height profile, signed (below the surface < 0): Height › Pattern adds it instead of the value, wherever it
+// is non-zero — not limited by the coverage, so it can reach past what the other outputs paint (a lip round a hole).
+GenOut genOutHeight(float value, float mask, float rnd, float sdf, float height) { return GenOut(value, mask, rnd, sdf, 1.0, height); }
 `
 
 /** Everything a GLSL snippet in the material stage can rely on. */
@@ -256,6 +260,18 @@ export class MaterialPipeline {
     return tex
   }
 
+  /**
+   * A generator's data textures: from the CPU (LayerDef.cpuData, cached) and from its GPU pre-passes over the current
+   * state (LayerDef.prepare, run every time — they read what the layers before left).
+   */
+  private bindTextures(def: LayerDef, layer: Layer, project: Project, seed: number, mat: THREE.RawShaderMaterial): void {
+    if (def.cpuData) for (const [name, t] of Object.entries(this.cpuTextures(def, layer, project, seed))) mat.uniforms[`t_${name}`].value = t
+    if (def.prepare) {
+      for (const t of def.textures ?? []) mat.uniforms[`t_${t}`].value = this.blankTexture()
+      for (const [name, t] of Object.entries(def.prepare(this.filterContext(project, layer, seed), layer))) mat.uniforms[`t_${name}`].value = t
+    }
+  }
+
   /** Generator types among `types` whose shader isn't compiled yet: their first run would compile it, stalling the page. */
   uncompiled(types: string[]): string[] {
     return [...new Set(types)].filter((t) => getLayerDef(t)?.kind === 'generator' && !this.compiled.has(t))
@@ -289,7 +305,7 @@ export class MaterialPipeline {
         GENOUT +
         (def.textures ?? []).map((t) => `uniform sampler2D t_${t};\n`).join('') +
         (def.glsl ?? '') +
-        GLSL_GENERATOR_MAIN(Boolean(def.sdf))
+        GLSL_GENERATOR_MAIN(def.sdf === 'mask' ? 'mask' : Boolean(def.sdf))
       const tex = Object.fromEntries((def.textures ?? []).map((t) => [`t_${t}`, { value: this.blankTexture() }]))
       mat = this.gpu.material(frag, { ...this.commonUniforms(), ...createUniforms(defs), ...tex, uWriteMasks: { value: false } })
       this.materials.set(key, mat)
@@ -398,7 +414,7 @@ export class MaterialPipeline {
         try {
           const mat = this.generatorMaterial(def)
           updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params)
-          if (def.cpuData) for (const [name, t] of Object.entries(this.cpuTextures(def, layer, project, seed))) mat.uniforms[`t_${name}`].value = t
+          this.bindTextures(def, layer, project, seed, mat)
           this.setCommon(mat, project, seed)
           mat.uniforms.uWriteMasks.value = true
           this.gpu.run(mat, state.write)
@@ -424,7 +440,7 @@ export class MaterialPipeline {
         if (def.kind === 'generator') {
           const mat = this.generatorMaterial(def)
           updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params)
-          if (def.cpuData) for (const [name, t] of Object.entries(this.cpuTextures(def, layer, project, seed))) mat.uniforms[`t_${name}`].value = t
+          this.bindTextures(def, layer, project, seed, mat)
           this.setCommon(mat, project, seed)
           // Masks are written in the pre-pass, except by layers that read earlier state: those write in place.
           mat.uniforms.uWriteMasks.value = def.readsState === true

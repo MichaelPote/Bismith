@@ -78,12 +78,15 @@ const layerCards = computed(() => {
   const def = layerDef.value
   if (!l || !def) return []
   const defs = layerParamDefs(l.type)
+  const shown = (d: ParamDef) => !d.showIf || d.showIf(l.params)
   return layerGroups(def)
     .map((g) => ({
       group: g,
       defs: defs.filter((d) => (d.group ?? 'params') === g.id && d.key !== g.toggleKey),
+      toggle: defs.find((d) => d.key === g.toggleKey),
     }))
-    .filter((c) => c.defs.length > 0)
+    // A card whose params (and header tick) are all hidden for these settings goes too — Drips' Shape Mask on Stains.
+    .filter((c) => c.defs.length > 0 && (c.defs.some(shown) || (c.toggle !== undefined && shown(c.toggle))))
 })
 
 /** Position in the layer list (top = applied first), or within its material. */
