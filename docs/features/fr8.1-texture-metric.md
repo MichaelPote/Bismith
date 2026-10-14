@@ -34,6 +34,10 @@ computer panel → greeble (marble), rock → rocky (cobbles), rusty panel → r
 Still missed: hammered copper (carpet; its hammering is subtle under colour speckle) and carved stone (brushed wins
 the race over carved).
 
+Tried and not adopted (2026-10): sliced Wasserstein distances between the feature distributions instead of Gram
+matrices, other input scales, and a higher texture weight — none ranked references better or improved optimised
+results; see FR6.3, "A stronger texture term".
+
 ## Checklist
 - [x] Weights extracted (fp16) + manifest; numpy validation
 - [x] GPU network, Gram, reduction; parity with numpy

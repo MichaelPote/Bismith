@@ -192,6 +192,18 @@ significantly better than structure. Optimising with structure at weight 0.5 or 
 totals of the results unchanged (paired, 14 pairs × 3 seeds). So the term stays; its residual on such materials is a
 property of the material, not something a search can remove.
 
+**A stronger texture term (investigated, metric unchanged).** Three ways of strengthening the VGG term were measured:
+- *Sliced Wasserstein* distances between the VGG feature distributions instead of Gram matrices (Heitz et al. 2021;
+  one random direction per channel at each tap, sorted projections compared).
+- *Scale*: the network run at 1×, 2× or 4× the reference's size, or a mean over several of those.
+- A *texture weight* doubled in the objective (Tile with texture 6).
+
+SW tracks the Gram distance closely (r 0.95–0.98 over 4 356 pairs), ranked the right reference no better (25/66 vs 27/66
+on the retrieval test) and cost 3× as much (≈16 vs 5 ms). Optimising with it changed nothing (Δ Tile + Texture
++0.001 ± 0.008 on 15 pairs × 3 seeds, +0.000 ± 0.009 held out). 2× — what the optimiser already sees for a 64²
+reference at a 128² comparison — is as good as any. With the doubled weight the results' *Texture* totals didn't
+even drop (+0.002 ± 0.011). Gram stays; the search, not the texture statistic, limits the results.
+
 **Metric speed.** The colour and contrast terms sort tens of thousands of values per evaluation; `sortFloat32` (LSD
 radix on the float bit patterns, exactly Float32Array#sort's order) made feature computation 3.2× faster (128²:
 35 → 11 ms; CPU scoring per evaluation 8.6 → 4.1 ms at 64², 42.5 → 14.6 ms at 128²) with bit-identical scores.
