@@ -180,6 +180,10 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
 - `height` — optional (`genOutHeight`): a signed height profile of the generator's own. Height › Pattern adds it
   (× amount) instead of the value, wherever it is non-zero — not limited by the coverage, so it can rise past what the
   other outputs paint and sink below the surface (Drips' blisters: a lifted lip outside the hole, the hole below).
+- `own` — set by `genOutOwn`: an SDF generator painted its own value and coverage (Wood's grain × plank edges, Chips &
+  splits' carve), so the wrapper only hands `sdf` to the shape register and named masks.
+- `hval` — optional: a separate 0..1 value for Height › Pattern, shaped like the value (Wood: shallower grain in Height
+  than in colour). Negative = use the value.
 
 The common generator wrapper then:
 
@@ -204,12 +208,15 @@ The common generator wrapper then:
 
 | Output    | Source                 | Mapping                                  | Modes                                                |
 | --------- | ---------------------- | ---------------------------------------- | ---------------------------------------------------- |
-| Diffuse   | value / flat / random  | gradient ramp (≤8 stops) + random jitter | normal, multiply, screen, overlay, add, subtract, darken, lighten, soft light |
+| Diffuse   | value / flat / random / shape | gradient ramp (≤8 stops) + random jitter | normal, multiply, screen, overlay, add, subtract, darken, lighten, soft light |
 | Opacity   | coverage               | —                                        | replace, multiply, union (max), subtract             |
-| Height    | value / flat / random  | `value × amount`                         | add, subtract, max, min, replace, multiply           |
-| Roughness | value / flat / random  | `mix(a, b, value)`                       | replace, multiply, add, min, max                     |
-| Emissive  | value / flat / random  | `colour × intensity × value` (HDR)       | add, replace, max                                    |
-| Specular  | value / flat / random  | `mix(a, b, value)` level 0..1            | replace, multiply, add, min, max                     |
+| Height    | value / flat / random / shape | `value × amount`                         | add, subtract, max, min, replace, multiply           |
+| Roughness | value / flat / random / shape | `mix(a, b, value)`                       | replace, multiply, add, min, max                     |
+| Emissive  | value / flat / random / shape | `colour × intensity × value` (HDR)       | add, replace, max                                    |
+| Specular  | value / flat / random / shape | `mix(a, b, value)` level 0..1            | replace, multiply, add, min, max                     |
+
+*Shape* is inside the layer's own shape (1 in, 0 out, anti-aliased; 1 for layers without a shape) — the shape without
+its pattern, for layers that paint their own value over it (Wood: rougher gaps than boards, the grain ignored).
 
 Height also has a **per-feature variation**: each brick / cell / instance scales the amount by its own random share.
 
@@ -220,7 +227,8 @@ as rows of characters — insignia, emblems), **Label** (pixel-font lettering) a
 list — chamfered cut-outs, channels, inlays), all as SDFs so bevels and the shape register apply; and **Cable**
 draws tubes wound on a helix (coils, twisted rope mouldings). **Drips** (FR7.7) runs stains down from scattered
 sources (or outputs the sources as blisters); **Hammered** lays dish dents on concentric rings around a few centres
-whose regions interlock along arcs.
+whose regions interlock along arcs. **Chips & splits** (FR8.17) damages whatever is in the shape register: chips off its
+edges and corners, splits along the grain from the edges that cross it (merging where they meet), nicks across it.
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
@@ -294,8 +302,8 @@ top-down camera:
 - **Visibility** (shadow rays, bounce rays) ray-marches the height field in ~1 px xy steps, escaping once the
   ray is above the field's max height and rising, then bisects for a precise hit. Rays wrap on tileable projects;
   otherwise they leave the texture over an infinite plane at height 0 (`render.edgeMode`).
-- **BRDF**: Lambert diffuse + GGX specular (Smith height-correlated, Schlick Fresnel, F0 = 0.08 × per-pixel specular level × `render.specular` scale, optionally tinted
-  toward the albedo's hue by `render.specularTint`),
+- **BRDF**: Lambert diffuse + GGX specular (Smith height-correlated, Schlick Fresnel, F0 = 0.08 × per-pixel specular level × `render.specular` scale, tinted
+  toward the albedo's hue by `render.specularTint` — 1 by default, 0 for white glints),
   lobe chosen stochastically; GGX via visible-normal sampling.
 - **Ambient occlusion** (optional): a horizon-based pass over the height field; surface lighting × AO^strength.
 - **Next-event estimation** for directional (cone-sampled, soft) and point (sphere-sampled, soft) lights.
@@ -445,3 +453,4 @@ docs/
 | 8.12  | [Pipework and peeling paint](features/fr8.12-pipework-paint.md) |
 | 8.13  | [Named masks and cut-outs](features/fr8.13-named-masks.md) |
 | 8.14  | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md) |
+| 8.17  | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md) |

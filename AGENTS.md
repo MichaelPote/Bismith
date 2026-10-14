@@ -42,6 +42,9 @@ describe a motif generically ("riveted panel", "staggered slots"), never by a re
   unchanged. For a generator with many modes, describe each mode as data (shapes, anchors) and run them all through
   one loop (`geometricTessellation.ts`). Don't time while
   another GPU job (e.g. the studio starting) runs. Batch compiles run in parallel (`engine.precompile([...])`).
+- **The studio's page loads `src/` once.** `tools/studio.ts` keeps one browser page for its whole run, so edits to
+  `src/` never reach it: a new layer type is silently dropped on load and renders come out unchanged. Restart the
+  studio after changing generator or pipeline code (check a render's metrics actually moved).
 - **Icons are `@tabler/icons-vue` components, used directly** (`<IconTrash :size="13" />`; `:color`, not `:stroke`, for
   a hue; `<component :is>` for data-driven ones — layer types and recipes via `layerIcon` / `recipeIcon` in
   `src/ui/meta.ts`). `.tabler-icon { stroke-width: 1.75 }` in `src/styles/base.css` sets the UI's line weight and

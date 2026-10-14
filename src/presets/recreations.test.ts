@@ -15,7 +15,7 @@ interface RawLayer {
 
 const projects = import.meta.glob('../../private/recreations/**/*.json', { eager: true, import: 'default' }) as Record<
   string,
-  { relief?: RawLayer[]; layers: RawLayer[] }
+  { relief?: RawLayer[]; layers: RawLayer[]; render?: { shadows?: boolean } }
 >
 const entries = Object.entries(projects).map(([path, p]) => [path.split('/').pop()!, p] as const)
 
@@ -31,6 +31,6 @@ describe.skipIf(entries.length === 0)('recreations', () => {
     }
     const p = normalizeProject(raw)
     expect(p.layers.length).toBe(raw.layers.length + (raw.relief?.length ?? 0))
-    expect(p.render.shadows).toBe(false)
+    expect(p.render.shadows).toBe(raw.render?.shadows ?? true)
   })
 })

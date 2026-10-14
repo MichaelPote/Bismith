@@ -446,7 +446,7 @@ export class PathTracer {
     const r = project.render
     u.uBounces.value = override?.bounces ?? r.bounces
     u.uF0.value = 0.08 * r.specular
-    u.uSpecTint.value = r.specularTint ?? 0
+    u.uSpecTint.value = r.specularTint ?? 1
     u.uAO.value = r.ao ?? 0
     // Always computed (cheap) so the AO channel can be viewed and exported even at strength 0.
     this.computeAO(project, nt, r.aoRadius ?? 4)

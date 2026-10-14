@@ -4,6 +4,7 @@
 import type { Component } from 'vue'
 import {
   IconAdjustmentsHorizontal,
+  IconAxe,
   IconBadge,
   IconBlur,
   IconBorderCorners,
@@ -92,6 +93,7 @@ const TYPE_ICON: Record<string, Component> = {
   wood: IconWood,
   marble: IconTexture,
   drips: IconDropletHalf2,
+  chips: IconAxe,
   scratches: IconWaveSawTool,
   hammered: IconHammer,
   pipes: IconPipeline,

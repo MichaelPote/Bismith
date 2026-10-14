@@ -7,7 +7,7 @@ import type { Layer, LayerUnit, Light, LightType, PostFilter, Project, SmartMate
 import { flattenUnits, layerUnits } from '@/core/project'
 import { addMaterial as recipeAdd, deleteMaterial as recipeDelete, pruneMaterials, setMacro, setMaterialMask as recipeMask, unpackMaterial as recipeUnpack } from '@/recipes'
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize'
-import { getLayerDef, linkedChanges } from '@/layers/registry'
+import { freshParams, linkedChanges } from '@/layers/registry'
 import { newId } from '@/core/ids'
 import { MAX_LIGHTS } from '@/core/project'
 import { PRESETS } from '@/presets'
@@ -155,10 +155,10 @@ export const useProjectStore = defineStore('project', () => {
     return seed
   }
 
-  /** Insert a new layer at `atIndex` (default last, on top); never inside a material's block. It starts from its type's
-   * editor defaults (LayerDef.fresh); a seeded layer gets a seed no other layer has. */
+  /** Insert a new layer at `atIndex` (default last, on top); never inside a material's block. It starts from the editor
+   * defaults (freshParams: shape-driven roughness, the type's LayerDef.fresh); a seeded layer gets a seed no other layer has. */
   function addLayer(type: string, atIndex?: number, overrides: Record<string, ParamValue> = {}): Layer {
-    const fresh = getLayerDef(type)?.fresh?.({ width: project.value.width, height: project.value.height }) ?? {}
+    const fresh = freshParams(type, { width: project.value.width, height: project.value.height })
     const layer = createLayer(type, { ...fresh, ...overrides })
     if (layer.params.seed !== undefined && overrides.seed === undefined) layer.params.seed = freshSeed()
     const list = layers()

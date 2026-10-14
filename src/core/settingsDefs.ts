@@ -23,7 +23,7 @@ export const RENDER_DEFS: ParamDef[] = [
   P.int('samplesPerFrame', 'Per frame', 4, 1, 64, { softMax: 32 }),
   P.int('bounces', 'Bounces', 2, 0, 4),
   P.float('specular', 'Specular scale', 1, 0, 4, { step: 0.001, hint: 'Multiplies every pixel’s specular level: F0 = 0.08 × level × scale. 0 turns highlights off' }),
-  P.float('specularTint', 'Specular tint', 0, 0, 1, { step: 0.001, hint: '0 = white highlights; 1 = highlights in the surface’s own hue, enriching the colour' }),
+  P.float('specularTint', 'Specular tint', 1, 0, 1, { step: 0.001, hint: '1 = highlights in the surface’s own hue, enriching the colour (the default); 0 = white highlights, like a clear coat or wet surface' }),
   P.float('ao', 'Ambient occlusion', 0, 0, 8, { softMax: 3, step: 0.01, hint: 'Darkens creases and touching edges: lighting × AO^strength (0 = off). Works with cast shadows off' }),
   P.float('aoRadius', 'AO radius', 4, 0.5, 128, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => Number(p.ao) > 0 }),
   P.float('clamp', 'Firefly clamp', 8, 0, 1000, { softMax: 32, step: 0.1, hint: 'Max luminance of indirect samples (0 = off)' }),

@@ -78,6 +78,7 @@ export const wood: RecipeDef = {
   groups: [
     { id: 'boards', label: 'Boards' },
     { id: 'grain', label: 'Grain' },
+    { id: 'wear', label: 'Wear' },
     { id: 'colour', label: 'Colour' },
   ],
   params: [
@@ -91,19 +92,33 @@ export const wood: RecipeDef = {
     P.float('streaks', 'Streaks', 0.5, 0, 1, { group: 'grain', step: 0.01, hint: 'Fine dark / light streaks along the grain' }),
     P.float('figure', 'Figure', 0.25, 0, 1, { group: 'grain', step: 0.01 }),
     P.float('knots', 'Knots', 0.15, 0, 1, { group: 'grain', step: 0.01 }),
+    P.float('chips', 'Chips', 0.3, 0, 1, { group: 'wear', step: 0.01, hint: 'Chips knocked off the board edges and corners' }),
+    P.float('splits', 'Splits', 0.4, 0, 1, { group: 'wear', step: 0.01, hint: 'Splits along the grain from the board ends, tapering in; a few in the open' }),
     P.gradient('colours', 'Wood colours', gradient('#2a1a0e', '#4a3020', '#6a4a30'), { group: 'colour' }),
     P.float('variety', 'Per-board colour', 0.2, 0, 1, { group: 'colour', step: 0.01 }),
     P.seed('seed', 'Seed', 91, { group: 'boards' }),
   ],
   render: { ao: 0.6, aoRadius: 2 },
-  build(m) {
+  build(m, ctx) {
     const w = {
       planks: m.planks !== false, direction: m.direction ?? 'horizontal', count: Math.max(1, Math.round(num(m.count, 4))), gap: num(m.gap, 1), joints: Math.round(num(m.joints, 1)), stagger: 0.5, joint_rand: 0.6,
-      grain_px: num(m.grain_px, 1), grain_stretch: 40, fine: 0.9, rings: num(m.rings, 0.15), ring_px: 4, ring_line: 0.4, figure: num(m.figure, 0.25), ring_stretch: 6, ring_warp: 0.5, knots: num(m.knots, 0.15), knot_size: 3, aa: false, seed: num(m.seed, 91),
+      grain_px: num(m.grain_px, 1), grain_stretch: 40, fine: 0.9, rings: num(m.rings, 0.15), ring_px: 4, ring_line: 0.4, figure: num(m.figure, 0.25), ring_stretch: 6, ring_warp: 0.5, grain_soft: 0.3, knots: num(m.knots, 0.15), knot_size: 3, aa: false, seed: num(m.seed, 91),
+    }
+    // Wear sized to the boards: chips a few % of a board's width, splits about a third of its length.
+    const vertical = w.direction === 'vertical'
+    const across = (vertical ? ctx.width : ctx.height) / (w.planks ? w.count : 1)
+    const along = (vertical ? ctx.height : ctx.width) / (w.planks && w.joints > 0 ? w.joints : 1)
+    const chips = num(m.chips, 0.3), splits = num(m.splits, 0.4)
+    const wear = {
+      grain: w.direction, chips: r2(chips), corners: r2(Math.min(1, 1.5 * chips)), chip_size: r2(Math.max(1, Math.min(12, 0.06 * across))), chip_var: 0.6, chip_depth: 0.8,
+      splits, interior: r2(0.25 * splits), split_len: r2(Math.max(4, 0.35 * along)), split_width: r2(Math.max(1, across / 64)), split_space: r2(Math.max(3, across / 10)),
+      split_wobble: r2(Math.max(0.5, across / 96)), nicks: 0, seed: num(m.seed, 91) + 2, sm_on: false, bevel: 1, profile: 'linear',
     }
     return [
       { role: 'relief', stack: 'relief', layer: L('wood', 'Board relief', { ...w, output: 'shape', bevel: 0.75, profile: 'custom', sdf_op: 'replace', h_on: true, h_amount: 0.2, dif_on: false }, m.planks !== false) },
       { role: 'grain-relief', stack: 'relief', layer: L('wood', 'Grain relief', { ...w, output: 'grain', sm_on: false, h_on: true, h_amount: 0.06, dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'value', s_a: 0.4, s_b: 1 }) },
+      // Carves the chips and splits out of the board relief (both wear layers read the boards' shape mask, untouched).
+      { role: 'wear-relief', stack: 'relief', layer: L('chips', 'Chips & splits', { ...wear, h_on: true, h_mode: 'multiply', h_amount: 1, dif_on: false }, chips > 0 || splits > 0) },
       { role: 'wood', stack: 'paint', layer: L('wood', 'Wood', { ...w, output: 'wood', sm_on: false, h_on: false, dif_on: true, dif_grad: m.colours ?? gradient('#2a1a0e', '#6a4a30'), dif_jitter: r2(num(m.variety, 0.2)) }) },
       {
         role: 'streaks', stack: 'paint',
@@ -112,6 +127,7 @@ export const wood: RecipeDef = {
           sh_lo: 0.25, sh_hi: 0.75, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: r2(Math.min(1, 1.2 * num(m.streaks, 0.5))), dif_grad: gradient('#000000', '#ffffff'),
         }, num(m.streaks, 0.5) > 0),
       },
+      { role: 'wear', stack: 'paint', layer: L('chips', 'Chip shading', { ...wear, h_on: false, dif_on: true, dif_blend: 'multiply', dif_grad: gradient('#3a2a1e', '#ffffff') }, chips > 0 || splits > 0) },
     ]
   },
 }

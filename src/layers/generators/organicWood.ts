@@ -3,7 +3,8 @@
 // Both are SDF layers with an Output switch, because the generator wrapper replaces the value of an SDF
 // pixel with the bevel profile:
 //   - "combined" (default): the pattern value (grain / scale shading) multiplied by the layer's own bevel
-//     profile and coverage — gaps and outlines read 0. No register write (per-pixel NO_SDF opt-out).
+//     profile and coverage — gaps and outlines read 0. Wood hands its plank outline to the shape register
+//     (genOutOwn), so chips and clips can follow it; scales don't write it (per-pixel NO_SDF opt-out).
 //   - "shape": the plank / scale SDF for the shape register (bevel, clip, etch); value = wrapper profile.
 //   - wood only, "grain": the grain value without gaps or edges (stack it over a "shape" layer).
 
@@ -15,6 +16,7 @@ import { ORG_GLSL, ORG_GLSL_SDF, ORG_NO_SDF } from './organicShared'
 
 const planksOn = (p: Record<string, unknown>) => p.planks !== false
 const jointsOn = (p: Record<string, unknown>) => p.planks !== false && Number(p.joints) > 0
+const ringsOn = (p: Record<string, unknown>) => Number(p.rings) > 0
 
 export const woodLayer: LayerDef = {
   type: 'wood',
@@ -23,6 +25,8 @@ export const woodLayer: LayerDef = {
   category: 'pattern',
   kind: 'generator',
   sdf: true,
+  // The plank outline goes to the Shape Mask from the Wood and Plank shapes outputs (not Grain only, nor one slab).
+  sdfShowIf: (p) => p.planks !== false && p.output !== 'grain',
   description: 'Wooden planks with staggered end joints and grain: fine streaks, ring figure (cathedral arches) and knots.',
   params: [
     P.enum('output', 'Output', 'wood', [
@@ -33,17 +37,22 @@ export const woodLayer: LayerDef = {
     P.bool('planks', 'Planks', true, { hint: 'Off: one continuous piece of wood (no gaps, joints or boards)' }),
     P.enum('direction', 'Direction', 'vertical', [['vertical', 'Vertical'], ['horizontal', 'Horizontal']], { hint: 'Which way the planks (and grain) run' }),
     P.int('count', 'Planks', 4, 1, 128, { softMax: 16, showIf: planksOn, hint: 'Planks across the texture' }),
-    P.float('gap', 'Gap', 1, 0, 64, { softMax: 4, unit: 'px', step: 0.1, showIf: planksOn }),
+    P.float('gap', 'Gap X', 1, 0, 64, { softMax: 4, unit: 'px', step: 0.1, showIf: planksOn, join: { with: 'gap_y', as: 'pair', label: 'Gap X · Y' }, hint: 'Width of the gaps across the texture (X: the up-and-down gaps — between vertical planks, at the ends of horizontal ones) and down it (Y: the gaps that run across)' }),
+    P.float('gap_y', 'Gap Y', 1, 0, 64, { softMax: 4, unit: 'px', step: 0.1, showIf: planksOn }),
     P.int('joints', 'End joints', 1, 0, 32, { softMax: 8, showIf: planksOn, hint: 'Board ends per plank along the texture (0 = full-length boards)' }),
     P.float('stagger', 'Stagger', 0.5, 0, 1, { step: 0.001, showIf: jointsOn, hint: 'Regular joint offset from one plank to the next (fraction of a board)' }),
     P.float('joint_rand', 'Joint randomness', 0.6, 0, 1, { step: 0.001, showIf: jointsOn, hint: 'Random joint offset per plank' }),
     P.float('width_var', 'Width variation', 0, 0, 1, { step: 0.001, showIf: planksOn, hint: 'Uneven plank widths' }),
+    P.float('end_wobble', 'End wobble', 0, 0, 64, { softMax: 8, unit: 'px', step: 0.05, showIf: jointsOn, hint: 'Board ends — the cuts across the grain — wander by up to this much, as if sawn by hand. Both sides of a joint follow the same line (mostly), so the gap keeps its width; the long edges stay straight' }),
+    P.float('end_wobble_px', 'Wobble size', 32, 2, 1024, { softMax: 128, unit: 'px', step: 0.1, showIf: (p) => jointsOn(p) && Number(p.end_wobble) > 0, hint: 'Distance between the wobble\'s bends along a board end' }),
     P.float('grain_px', 'Grain spacing', 2, 0.5, 32, { softMax: 8, unit: 'px', step: 0.05, group: 'grain', hint: 'Distance between fine grain streaks' }),
     P.float('grain_stretch', 'Grain length', 24, 1, 64, { softMax: 32, step: 0.1, group: 'grain', hint: 'How elongated the fine grain is along the plank' }),
+    P.float('grain_depth', 'Grain depth', 1, 0, 1, { step: 0.001, group: 'grain', hint: 'How deep the grain cuts in Height, as a share of the layer\'s height: the plank surface is (1 − depth) + depth × grain, so at 1 dark grain sinks as low as the gaps, at 0.2 it is a fine texture on a full-height board, at 0 the boards are smooth. The gaps and bevels always span the full height; colours keep the full grain' }),
     P.float('fine', 'Fine grain', 0.6, 0, 1, { step: 0.001, group: 'grain' }),
     P.float('rings', 'Rings', 0.6, 0, 1, { step: 0.001, group: 'grain', hint: 'Strength of the growth-ring lines' }),
     P.float('ring_px', 'Ring spacing', 4, 1, 64, { softMax: 16, unit: 'px', step: 0.05, group: 'grain' }),
     P.float('ring_line', 'Latewood', 0.4, 0.02, 1, { step: 0.001, group: 'grain', hint: 'Width of the dark part of each ring (fraction of the spacing)' }),
+    P.float('grain_soft', 'Softness', 0, 0, 1, { step: 0.001, group: 'grain', showIf: (p) => ringsOn(p) || Number(p.fine) > 0, hint: 'How soft the rings and grain streaks are — in Height above all. 0: crisp (ring edges anti-aliased to the pixel unless Anti-alias is off, then hard pixel-art steps); 1: soft, rounded bands that rise and fall gently instead of little cliffs' }),
     P.float('figure', 'Arches', 0.5, 0, 1, { step: 0.001, group: 'grain', hint: 'Planks: fraction of boards sawn through the heart (cathedral arches / ovals); the rest show straight lines. No planks: how strongly the lines fold into arches' }),
     P.float('ring_stretch', 'Arch length', 6, 1, 40, { softMax: 16, step: 0.1, group: 'grain', hint: 'Elongation of the rings along the board' }),
     P.float('ring_warp', 'Ring warp', 0.5, 0, 4, { softMax: 2, step: 0.001, group: 'grain', hint: 'Wobble of the ring lines' }),
@@ -52,6 +61,10 @@ export const woodLayer: LayerDef = {
     P.seed(),
   ],
   groups: [{ id: 'grain', label: 'Grain' }],
+  // Added in the editor: soft grain (stored projects keep 0, the crisp grain they were made with).
+  fresh: () => ({ grain_soft: 0.4, grain_depth: 0.35 }),
+  // One gap for both directions before Gap Y: an older (or recipe-built) layer's gap keeps applying to both.
+  migrate: (p) => (p.gap !== undefined && p.gap_y === undefined ? { ...p, gap_y: p.gap } : p),
   defaults: {
     bevel: 1,
     profile: 'round',
@@ -75,6 +88,13 @@ float org_plankEdge(int k, int n, float pw) {
   return floor((float(k) + j) * pw + 0.5);
 }
 
+// Smooth 1D noise in -1..1 along a board end (x in wobble cells across the plank; key = plank column, joint).
+float org_endWob(float x, int col, int joint, float seed) {
+  float i = floor(x), f = x - i;
+  ivec2 k = ivec2(int(i), col * 4099 + joint);
+  return 2.0 * mix(hashI(k, seed), hashI(k + ivec2(1, 0), seed), f * f * (3.0 - 2.0 * f)) - 1.0;
+}
+
 GenOut gen(vec2 p) {
   bool horiz = u_direction == 1;
   // Plank frame: a runs across the planks, l along them (px, from the top / left on screen).
@@ -85,7 +105,9 @@ GenOut gen(vec2 p) {
 
   int n = u_planks ? max(u_count, 1) : 1;
   int nj = u_planks ? max(u_joints, 0) : 0;
-  float gap = u_planks ? u_gap : 0.0;
+  // Gaps in the plank frame: gA between planks (along their sides), gL at the board ends. X / Y are screen axes.
+  float gA = u_planks ? (horiz ? u_gap_y : u_gap) : 0.0;
+  float gL = u_planks ? (horiz ? u_gap : u_gap_y) : 0.0;
   float pw = A / float(n);
   float bl = nj > 0 ? Lr / float(nj) : Lr;
 
@@ -100,16 +122,28 @@ GenOut gen(vec2 p) {
     float a0 = org_plankEdge(c, n, pw);
     float a1 = org_plankEdge(c + 1, n, pw);
     float off = float(cw) * u_stagger + hashI(ivec2(cw, 9), uSeed + 29.0) * u_joint_rand;
-    int b0 = nj > 0 ? int(floor(l / bl - off)) : 0;
+    // End wobble: the board ends move along the plank by a noise of the across position, one line per joint (shared by
+    // the boards either side, so the gap keeps its width) plus a little of each side's own. Shifting l by the nearest
+    // joint's offset bends only the ends: the long edges don't depend on l.
+    float lw = l;
+    if (nj > 0 && u_end_wobble > 0.0) {
+      int bj = int(floor(l / bl - off + 0.5));
+      int bjw = uTile ? imod(bj, nj) : bj;
+      float x = (a - a0) / max(u_end_wobble_px, 1.0);
+      float sh = u_end_wobble * org_endWob(x, cw, bjw, uSeed + 71.0);
+      bool below = l > floor((float(bj) + off) * bl + 0.5) + 0.5 * gL + sh;
+      lw = l - sh - 0.25 * u_end_wobble * org_endWob(x + 0.5, cw, 2 * bjw + (below ? 1 : 0), uSeed + 73.0);
+    }
+    int b0 = nj > 0 ? int(floor(lw / bl - off)) : 0;
     for (int j = -1; j <= 1; j++) {
       if (nj == 0 && j != 0) continue;
       int b = b0 + j;
       float l0 = nj > 0 ? floor((float(b) + off) * bl + 0.5) : l - 1e4;
       float l1 = nj > 0 ? floor((float(b + 1) + off) * bl + 0.5) : l + 1e4;
-      vec2 lo = vec2(a0 + gap, l0 + (nj > 0 ? gap : 0.0));
+      vec2 lo = vec2(a0 + gA, l0 + (nj > 0 ? gL : 0.0));
       vec2 hi = vec2(a1, l1);
       vec2 hs = max(0.5 * (hi - lo), vec2(0.0));
-      float d = sdBox(vec2(a, l) - 0.5 * (lo + hi), hs);
+      float d = sdBox(vec2(a, lw) - 0.5 * (lo + hi), hs);
       if (d < best) {
         best = d;
         bid = ivec2(cw, nj > 0 ? (uTile ? imod(b, nj) : b) : 0);
@@ -156,8 +190,9 @@ GenOut gen(vec2 p) {
   if (uTile) gc = max(floor(gc + 0.5), vec2(1.0));
   ivec2 gper = uTile ? ivec2(gc + 0.5) : NO_PERIOD;
   vec2 gx = vec2(aAbs / A, l / Lr) * gc + hb.xy * vec2(57.0, 31.0);
-  float g = org_noiseFbm(0, false, gx, gper, 3, 0.5, uSeed + 11.0);
-  float fineDark = smoothstep(0.42, 0.78, g);
+  // Softness damps the finest octave and widens the streaks' edges.
+  float g = org_noiseFbm(0, false, gx, gper, 3, 0.5 - 0.3 * u_grain_soft, uSeed + 11.0);
+  float fineDark = smoothstep(0.42 - 0.3 * u_grain_soft, 0.78 + 0.12 * u_grain_soft, g);
 
   // Ring figure. Low-frequency wobble: about one warp cell per plank across, a few along the texture.
   vec2 rc = vec2(float(n), float(n) * (Lr / A) * 0.75);
@@ -188,16 +223,35 @@ GenOut gen(vec2 p) {
   }
   float t = fract(r / spacing);
   int ri = int(floor(r / spacing));
-  if (!u_planks && uTile) ri = imod(ri, nRings);
-  float ringDark = smoothstep(1.0 - u_ring_line, 1.0, t) * (0.55 + 0.45 * hashI(ivec2(ri, bid.x * 131 + bid.y), uSeed + 19.0));
-  // Fade rings that crowd closer than ~2 px (they would alias into moiré).
+  int rp = ri - 1;
+  if (!u_planks && uTile) { ri = imod(ri, nRings); rp = imod(rp, nRings); }
+  // Rings per pixel.
   float density = length(vec2(dFdx(r), dFdy(r))) / spacing;
+  // Each ring darkens through its latewood and stops where the next ring starts. That edge is softened over e (in rings:
+  // up to half a ring with Softness, at least a pixel when anti-aliased) centred on the boundary, so the end of the
+  // previous ring spills into the start of this one.
+  // The darkening widens with it too (to at least half a ring), so a soft ring is a rounded band, not a fainter line.
+  float he = 0.5 * clamp(max(0.5 * u_grain_soft, u_aa ? density : 0.0), 2e-4, 1.0);
+  float rw = mix(u_ring_line, max(u_ring_line, 0.5), u_grain_soft);
+  float ringDark = smoothstep(1.0 - rw, 1.0, t) * (1.0 - smoothstep(1.0 - he, 1.0 + he, t)) * (0.55 + 0.45 * hashI(ivec2(ri, bid.x * 131 + bid.y), uSeed + 19.0))
+                 + (1.0 - smoothstep(-he, he, t)) * (0.55 + 0.45 * hashI(ivec2(rp, bid.x * 131 + bid.y), uSeed + 19.0));
+  // Fade rings that crowd closer than ~2 px (they would alias into moiré).
   ringDark *= 1.0 - smoothstep(0.35, 0.6, density);
 
   float v = 1.0 - 0.85 * clamp(u_fine * fineDark + u_rings * ringDark, 0.0, 1.0);
-  v = mix(v, 1.0 - knotDark, knotMask);
-  if (u_output == 0 && u_planks) v *= org_edgeProfile(best) * coverage(best, u_aa);
-  return genOut(clamp(v, 0.0, 1.0), 1.0, rnd, ${ORG_NO_SDF});
+  v = clamp(mix(v, 1.0 - knotDark, knotMask), 0.0, 1.0);
+  // Height: the grain at Grain depth on a full-height surface; edges and gaps keep the full range.
+  float hv = mix(1.0, v, u_grain_depth);
+  GenOut o;
+  if (u_output == 0 && u_planks) {
+    float edge = org_edgeProfile(best) * coverage(best, u_aa);
+    o = genOutOwn(v * edge, 1.0, rnd, best);
+    o.hval = hv * edge;
+  } else {
+    o = genOut(v, 1.0, rnd, ${ORG_NO_SDF});
+    o.hval = hv;
+  }
+  return o;
 }
 `,
 }

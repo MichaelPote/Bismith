@@ -96,14 +96,18 @@ Subtract is right for net mode: rims sink, cells bulge).
 ### wood
 | Param | Default | Notes |
 | --- | --- | --- |
-| `output` | wood | wood (grain × plank bevel, gaps = 0) · shape (plank SDF → register) · grain (no gaps / edges) |
+| `output` | wood | wood (grain × plank bevel, gaps = 0; the plank outline still goes to the register, `genOutOwn`) · shape (plank SDF → register) · grain (no gaps / edges) |
 | `planks` | on | off = one continuous piece (no boards; rings fold into arches with `figure`) |
 | `direction` | vertical | vertical · horizontal |
-| `count`, `gap` | 4, 1 px | planks across; gap on the left / top edge of each plank |
+| `count` | 4 | planks across |
+| `gap`, `gap_y` | 1, 1 px | Gap X · Y: width of the up-and-down gaps (X) and of the gaps that run across (Y), on the left / top edge of each plank — between planks or at board ends depending on the direction. Layers stored with one `gap` copy it to `gap_y` (FR8.17) |
 | `joints`, `stagger`, `joint_rand` | 1, 0.5, 0.6 | board ends per plank along the texture (0 = full length); regular and random offsets |
 | `width_var` | 0 | uneven plank widths |
+| `end_wobble`, `end_wobble_px` | 0, 32 px | board ends wander by up to this much (bends this far apart), one line per joint shared by both sides plus ¼ of each side's own; long edges stay straight (FR8.17) |
+| `grain_depth` | 1 (0.35 added in the editor) | how deep the grain cuts in Height: plank surface = (1 − depth) + depth × grain, × the edge profile — gaps and bevels keep the full height; colour keeps the full grain (`GenOut.hval`, FR8.17) |
 | `grain_px`, `grain_stretch`, `fine` | 2 px, 24, 0.6 | fine streak spacing, elongation, strength |
 | `rings`, `ring_px`, `ring_line` | 0.6, 4 px, 0.4 | ring strength, spacing, latewood fraction |
+| `grain_soft` | 0 (0.4 added in the editor) | softness of the rings and fine streaks: 0 crisp (ring edges get one pixel of anti-aliasing, none with `aa` off), 1 soft rounded bands (FR8.17) |
 | `figure` | 0.5 | planks: fraction of boards cut through the heart (cathedral arches / ovals); no planks: fold strength |
 | `ring_stretch`, `ring_warp` | 6, 0.5 | ring elongation along the board; wobble |
 | `knots`, `knot_size` | 0.15, 3 px | chance per board (≤ 1 each); radius across the grain |

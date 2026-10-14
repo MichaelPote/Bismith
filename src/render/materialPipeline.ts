@@ -41,14 +41,20 @@ const GENOUT = /* glsl */ `
 // gen() may return sdf <= NO_SDF to opt out of SDF handling for a pixel.
 const float NO_SDF = -9e4;
 // height: a signed height profile of the generator's own (× the Height amount), or NO_SDF for none (see genOutHeight).
-struct GenOut { float value; float mask; float rnd; float sdf; float feat; float height; };
-GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF); }
+// own: the generator shaped its value and coverage itself; sdf only goes to the Shape Mask and named masks (genOutOwn).
+// hval: what Height › Pattern reads instead of the value (0..1, shaped like it; < 0 = the value) — Wood's grain is
+// shallower in Height than in colour.
+struct GenOut { float value; float mask; float rnd; float sdf; float feat; float height; bool own; float hval; };
+GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, false, -1.0); }
 // Patterns without features (smooth noise, clouds): rnd is a continuous value there, so per-feature variation has
 // nothing to vary — fract(rnd · k) would turn it into terraces along the pattern's contours.
-GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0, NO_SDF); }
+GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0, NO_SDF, false, -1.0); }
 // With its own height profile, signed (below the surface < 0): Height › Pattern adds it instead of the value, wherever it
 // is non-zero — not limited by the coverage, so it can reach past what the other outputs paint (a lip round a hole).
-GenOut genOutHeight(float value, float mask, float rnd, float sdf, float height) { return GenOut(value, mask, rnd, sdf, 1.0, height); }
+GenOut genOutHeight(float value, float mask, float rnd, float sdf, float height) { return GenOut(value, mask, rnd, sdf, 1.0, height, false, -1.0); }
+// An SDF layer's output that paints its own value and coverage (wood's grain × plank edges, chips' carve) but still
+// hands its shape to the Shape Mask: the wrapper writes sdf to the register (by the Mode) and named masks only.
+GenOut genOutOwn(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, true, -1.0); }
 `
 
 /** Everything a GLSL snippet in the material stage can rely on. */

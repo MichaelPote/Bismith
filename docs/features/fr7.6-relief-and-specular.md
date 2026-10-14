@@ -25,6 +25,7 @@ needed the means to express that.
   0.5, scale = old value / 0.5). Viewport channel view and map export "Specular".
 - **Specular tint** (`render.specularTint` 0..1): highlights take the albedo's hue at unit luminance —
   `F0 ·= mix(1, albedo / luma(albedo), tint)` — so a glint is as bright as a white one but enriches the colour.
+  Defaults to 1 (FR8.17): white glints read as a clear coat; 0 brings them back.
 - **Per-feature height variation** (`h_var`, Height group of every generator): each brick / cell / instance gets
   `amount × (1 − h_var × hash(rnd))` — some barely raised, others bold (hash decorrelated from the colour random).
 - **Course height variation** (`row_var`, Bricks): jittered bed joints (≤ 0.45 courses, pixel-snapped, tile-safe).

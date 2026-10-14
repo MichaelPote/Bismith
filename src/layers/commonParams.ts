@@ -3,11 +3,12 @@
 
 import { P, gradient, type GroupDef, type ParamDef } from '@/core/params'
 
-/** What drives a channel output (the uniform keeps the option order: 0 value, 1 flat, 2 random). */
+/** What drives a channel output (the uniform keeps the option order: 0 value, 1 flat, 2 random, 3 shape). */
 const SRC: [string, string, string][] = [
   ['value', 'Pattern', 'the layer’s own value: noise brightness, the bevel’s rise on a shape — varies across it'],
   ['flat', 'Solid', 'full strength everywhere the layer covers: the ramp’s end colour, the whole amount'],
   ['random', 'Random', 'one random value per feature: each brick, cell or shape instance its own'],
+  ['shape', 'Shape', 'the layer’s shape without its pattern: 1 inside, 0 outside (anti-aliased) — e.g. Wood’s gaps rougher than its boards, grain ignored. 1 everywhere on layers without a shape'],
 ]
 
 const SRC_HINT = 'What drives this output'
@@ -311,7 +312,8 @@ float shapeValue(float v) {
   return u_sh_invert ? 1.0 - v : v;
 }
 
-float srcValue(int src, float value, float rnd) { return src == 1 ? 1.0 : src == 2 ? rnd : value; }
+// shapeV: inside the layer's shape (Source › Shape), 1 for layers without one.
+float srcValue(int src, float value, float rnd, float shapeV) { return src == 1 ? 1.0 : src == 2 ? rnd : src == 3 ? shapeV : value; }
 
 ${GLSL_NAMED_MASK}
 uniform bool uWriteMasks;
@@ -335,18 +337,25 @@ void main() {
   float cov = g.mask;
   // What a named-mask write records: the coverage, or for a shape with Feather a soft ramp across its outline.
   float covW = -1.0;
+  float shapeV = 1.0;
 ${sdf === true ? /* glsl */ `
   if (g.sdf > NO_SDF) {
     // Shape Mask (the register): written when ticked; the mode's index + 1 is the sdfCombine op.
     int op = u_sm_on ? u_sdf_op + 1 : 0;
     float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_sdf_k);
     if (op != 0) S.a = d;
-    covW = cov * (u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : coverage(d, u_aa));
-    cov *= coverage(d, u_aa);
-    // Flat (or zero-width) bevels output 1 and let coverage do the anti-aliasing, so edges ramp
-    // symmetrically across the boundary; profiled bevels rise from 0 at the edge.
-    float inside = max(-d, 0.0);
-    value = (u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, inside / u_bevel) : 1.0;
+    shapeV = coverage(d, u_aa);
+    if (g.own) {
+      // genOutOwn: the generator painted its own value and coverage; the shape only goes to the masks.
+      covW = u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : coverage(d, u_aa);
+    } else {
+      covW = cov * (u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : coverage(d, u_aa));
+      cov *= coverage(d, u_aa);
+      // Flat (or zero-width) bevels output 1 and let coverage do the anti-aliasing, so edges ramp
+      // symmetrically across the boundary; profiled bevels rise from 0 at the edge.
+      float inside = max(-d, 0.0);
+      value = (u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, inside / u_bevel) : 1.0;
+    }
   }
 ` : ''}${sdf === 'mask' ? /* glsl */ `
   if (g.sdf > NO_SDF) {
@@ -354,10 +363,13 @@ ${sdf === true ? /* glsl */ `
     int op = u_sm_on ? u_sdf_op + 1 : 0;
     float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_sdf_k);
     if (op != 0) S.a = d;
+    shapeV = clamp(0.5 - d, 0.0, 1.0);
     covW = u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : clamp(0.5 - d, 0.0, 1.0);
   }
 ` : ''}
   value = shapeValue(value);
+  // A separate value for Height (GenOut.hval), shaped the same way.
+  float hval = g.hval < 0.0 ? value : shapeValue(g.hval);
   float cutK = 1.0;
   if (u_sh_cut > 0.0) cutK = u_sh_cut_soft > 0.0 ? smoothstep(u_sh_cut - u_sh_cut_soft, u_sh_cut + u_sh_cut_soft, value) : step(u_sh_cut, value);
   cov *= cutK;
@@ -377,7 +389,7 @@ ${sdf === true ? /* glsl */ `
   float mw = covW * k;
 
   if (u_dif_on) {
-    float v = srcValue(u_dif_src, value, g.rnd);
+    float v = srcValue(u_dif_src, value, g.rnd, shapeV);
     v = clamp(v + (g.rnd - 0.5) * u_dif_jitter, 0.0, 1.0);
     vec3 top = gradientLookup(u_dif_grad_stops, u_dif_grad_count, v);
     vec3 base = linearToSrgb(A.rgb);
@@ -395,28 +407,28 @@ ${sdf === true ? /* glsl */ `
     // it applies wherever it is non-zero, limited by the clips and opacity but not by the coverage.
     bool own = u_h_src == 0 && g.height > NO_SDF;
     // Per-feature amplitude from a hash decorrelated from the colour random.
-    float v = (own ? g.height : srcValue(u_h_src, value, g.rnd)) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123));
+    float v = (own ? g.height : srcValue(u_h_src, hval, g.rnd, shapeV)) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123));
     float h = S.r;
     float nh = u_h_mode == 0 ? h + v : u_h_mode == 1 ? h - v : u_h_mode == 2 ? max(h, v)
              : u_h_mode == 3 ? min(h, v) : u_h_mode == 4 ? v : h * v;
     S.r = mix(h, nh, own ? (g.height != 0.0 ? k : 0.0) : m);
   }
   if (u_r_on) {
-    float v = srcValue(u_r_src, value, g.rnd);
+    float v = srcValue(u_r_src, value, g.rnd, shapeV);
     float r = mix(u_r_a, u_r_b, v);
     float o = S.g;
     float nr = u_r_mode == 0 ? r : u_r_mode == 1 ? o * r : u_r_mode == 2 ? o + r : u_r_mode == 3 ? min(o, r) : max(o, r);
     S.g = clamp(mix(o, nr, m * u_r_opacity), 0.0, 1.0);
   }
   if (u_s_on) {
-    float v = srcValue(u_s_src, value, g.rnd);
+    float v = srcValue(u_s_src, value, g.rnd, shapeV);
     float sp = mix(u_s_a, u_s_b, v);
     float o = E.a;
     float ns = u_s_mode == 0 ? sp : u_s_mode == 1 ? o * sp : u_s_mode == 2 ? o + sp : u_s_mode == 3 ? min(o, sp) : max(o, sp);
     E.a = clamp(mix(o, ns, m * u_s_opacity), 0.0, 1.0);
   }
   if (u_e_on) {
-    float v = srcValue(u_e_src, value, g.rnd);
+    float v = srcValue(u_e_src, value, g.rnd, shapeV);
     vec3 e = u_e_color * u_e_intensity * v;
     vec3 ne = u_e_mode == 0 ? E.rgb + e : u_e_mode == 1 ? e : max(E.rgb, e);
     E.rgb = mix(E.rgb, ne, m);

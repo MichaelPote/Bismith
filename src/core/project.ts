@@ -153,7 +153,7 @@ export function defaultLighting(): Lighting {
 }
 
 export function defaultRender(): RenderSettings {
-  return { samplesPerFrame: 4, maxSamples: 256, bounces: 2, specular: 1, specularTint: 0, ao: 0, aoRadius: 4, jitter: true, clamp: 8, shadows: true, supersample: 1 }
+  return { samplesPerFrame: 4, maxSamples: 256, bounces: 2, specular: 1, specularTint: 1, ao: 0, aoRadius: 4, jitter: true, clamp: 8, shadows: true, supersample: 1 }
 }
 
 export function defaultBase(): MaterialBase {
