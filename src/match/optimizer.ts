@@ -690,6 +690,11 @@ export interface OptimizerOptions {
    * page and a loss in another, and identical runs would part ways.
    */
   tolerance?: number
+  /**
+   * Adapt the move mix (default true): each move kind's rate (sweeps, gradient steps, colour fits, copy alignment) is scaled by its recent gain per evaluation relative to plain mutations — ×0.25 to ×4, once each has
+   * enough evaluations; gains decay with a half-life of ~35 steps, since what pays early (colour fits) fades later.
+   */
+  adaptive?: boolean
   /** What to optimise (see SpaceOptions). */
   space?: SpaceOptions
   /**
@@ -807,6 +812,8 @@ export class Optimizer {
   private inserted = new Set<string>()
   /** Search tiers open (see OptimizerOptions.ordered). */
   private stage = 0
+  /** Decayed gain and evaluations per move kind (adaptive move mix). */
+  private moveStats = new Map<string, { gain: number; evals: number }>()
   /** Independent chains (successive halving: the worse half is dropped every `islandSteps` rounds). */
   private islands: Island[]
   /** The island the last / current step works on. */
@@ -865,6 +872,7 @@ export class Optimizer {
       gradientSize: Math.max(2, Math.round(opts.gradientSize ?? 8)),
       target: opts.target ?? null,
       colourFitRate: opts.colourFitRate ?? 0.08,
+      adaptive: opts.adaptive ?? true,
       tolerance: Math.max(0, opts.tolerance ?? 1e-6),
       heuristics: opts.heuristics ?? true,
       space: opts.heuristics === false ? (opts.space ?? {}) : { prior: craftPrior, ...(opts.space ?? {}) },
@@ -953,8 +961,8 @@ export class Optimizer {
     const candidates: Candidate[] = []
     const momentum = this.opts.momentum ? this.momentumCandidate(parent) : null
     this.lastDelta = null
-    const sweep = this.rng.next() < this.opts.sweepRate ? this.sweepCandidates(parent) : null
-    const gradient = !sweep && this.rng.next() < this.opts.gradientRate ? await this.gradientCandidates(parent) : null
+    const sweep = this.rng.next() < this.rate('sweep', this.opts.sweepRate) ? this.sweepCandidates(parent) : null
+    const gradient = !sweep && this.rng.next() < this.rate('gradient', this.opts.gradientRate) ? await this.gradientCandidates(parent) : null
     if (sweep) {
       for (const c of sweep) {
         await this.score(c)
@@ -967,14 +975,27 @@ export class Optimizer {
         let c: Candidate | null = null
         if (i === 0 && momentum) c = momentum
         else if (this.opts.structural && this.rng.next() < this.opts.structuralRate) c = this.structuralCandidate(parent)
-        else if (this.rng.next() < this.opts.relinkRate) c = this.relinkCandidate(parent)
-        else if (this.opts.target && this.rng.next() < this.opts.colourFitRate) c = this.colourFitCandidate(parent)
+        else if (this.rng.next() < this.rate('align', this.opts.relinkRate)) c = this.relinkCandidate(parent)
+        else if (this.opts.target && this.rng.next() < this.rate('colour', this.opts.colourFitRate)) c = this.colourFitCandidate(parent)
         c ??= this.mutateCandidate(parent)
         if (!c) continue
         await this.score(c)
         if (c.inserted) c = await this.incubate(c, [c.inserted], this.opts.incubation, 0.25)
         candidates.push(c)
       }
+    }
+
+    // Move-mix credit: gain beyond the tolerance per evaluation, decayed per step.
+    for (const s of this.moveStats.values()) {
+      s.gain *= 0.98
+      s.evals *= 0.98
+    }
+    for (const c of candidates) {
+      const m = (c.move ?? 'mutate') === 'momentum' ? 'mutate' : (c.move ?? 'mutate')
+      const s = this.moveStats.get(m) ?? { gain: 0, evals: 0 }
+      s.gain += this.cmp(c.loss, parent.loss) < 0 ? parent.loss - c.loss : 0
+      s.evals += 1
+      this.moveStats.set(m, s)
     }
 
     // Step-size / selection-weight adaptation.
@@ -1092,6 +1113,21 @@ export class Optimizer {
   }
 
   // ---------------------------------------------------------------------------------------------- internals
+
+  /**
+   * A move kind's rate: `base`, scaled (adaptive) by its recent gain per evaluation relative to plain mutations,
+   * ×0.25…×4 once both have ≥ 20 (decayed) evaluations.
+   */
+  private rate(move: string, base: number): number {
+    if (!this.opts.adaptive || base <= 0) return base
+    const s = this.moveStats.get(move)
+    const m = this.moveStats.get('mutate')
+    if (!s || !m || s.evals < 20 || m.evals < 20) return base
+    const mine = s.gain / s.evals
+    const ref = m.gain / m.evals
+    const k = ref > 0 ? mine / ref : mine > 0 ? 4 : 0.25
+    return Math.min(0.9, base * Math.min(4, Math.max(0.25, k)))
+  }
 
   /** -1 when loss `a` beats `b` by more than the tolerance, 1 when it loses by more, 0 for a tie. */
   private cmp(a: number, b: number): -1 | 0 | 1 {

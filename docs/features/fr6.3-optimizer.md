@@ -164,6 +164,11 @@ tone, then everything). Colour still moves from the start, through colour fits.
   (0.003) of loss to be kept — removals are credited the same — so the stack no longer fills to `maxLayers` with
   layers that barely help.
 
+*Adaptive move mix* (`adaptive`, default on): each move kind's rate is scaled by its recent gain per evaluation
+relative to plain mutations (×0.25…×4 once both have ≥ 20 evaluations; gains count only beyond `tolerance` and decay
+with a half-life of ~35 steps) — colour fits pay early and fade later, so a fixed rate is wrong at one end or the
+other. Neutral to slightly positive in the benchmark (Δ Tile + Texture −0.004 ± 0.007, 15 pairs × 3 seeds).
+
 `StepInfo` reports `stage` / `opened`, `sweep`, and the move kind behind each candidate (`moves`) and the accepted
 one (`move`); the Match log shows tier openings and kept structural changes.
 
@@ -175,6 +180,21 @@ so `Engine.renderNow` waits for the GPU (`gl.finish`) before and after tracing (
 from sample 0 at full quality; and the optimiser compared losses exactly, so last-bit noise decided ties between inert
 moves — losses within `tolerance` (1e-6) now tie, and ties go to the earlier candidate (also for the sign of a
 gradient step). Headless pages run with the interactive loop suspended.
+
+**The structure floor (investigated, metric unchanged).** On stochastic materials the Tile preset's *structure* term
+has a floor: two renders of one project that differ only in their random detail already score ≈0.58 (stone wall),
+≈0.60 (metal), ≈0.62 (wood) on it — a match whose detail was re-rolled is "perfect" yet far from 0, and optimised
+results sit near that floor. Coarser scales, local shift tolerance and edge maps were tried as a *layout* term
+(multi-scale |Δz| at ½–⅛ scale, ±1 texel tolerance): none lowered the floor relative to unrelated textures
+(≈0.41–0.50 of their distance for every variant — the randomness reaches every scale: mottle, lumps, joint tone),
+and on a retrieval test (66 hand-authored recreations against their references) none ranked the right reference
+significantly better than structure. Optimising with structure at weight 0.5 or 0 left the original Tile and Texture
+totals of the results unchanged (paired, 14 pairs × 3 seeds). So the term stays; its residual on such materials is a
+property of the material, not something a search can remove.
+
+**Metric speed.** The colour and contrast terms sort tens of thousands of values per evaluation; `sortFloat32` (LSD
+radix on the float bit patterns, exactly Float32Array#sort's order) made feature computation 3.2× faster (128²:
+35 → 11 ms; CPU scoring per evaluation 8.6 → 4.1 ms at 64², 42.5 → 14.6 ms at 128²) with bit-identical scores.
 
 **Metric.** Optimising the Tile preset lowered the *Texture* total too — more than optimising a mean of the two
 presets did (+0.04 on the Tile + Texture sum at 1000 steps, worse on both) and as much as switching presets mid-run
@@ -193,7 +213,12 @@ presets did (+0.04 on the Tile + Texture sum at 1000 steps, worse on both) and a
 Tried and dropped (paired, not better): higher colour-fit rates (0.2, 0.35 — clearly worse), colour fits of one layer
 or of lightness only, λ 6 at equal evaluations, σ₀ 0.15, three entries per mutation, islands (no reliable gain at 300
 or 1000 steps), a longer restart patience, seeds in the space (neutral at 300 steps, slightly worse at 1000 — also
-with each new seed incubated, and on converged projects), and a Tile + Texture objective (above).
+with each new seed incubated, and on converged projects), and a Tile + Texture objective (above). Also measured and
+removed: a *layout fit* (rescale a pattern parameter by the ratio of the render's repeat to the reference's, from
+edge-profile periods — as efficient per candidate as a mutation but no better overall, +0.004 ± 0.009, and
+consistently worse on irregular cobblestones) and *cheap screening* (score candidates at 4 or 8 samples, evaluate in
+full only those beating the parent's cheap score — 5× fewer full evaluations but only 13 % less time, since scoring,
+not tracing, dominates an evaluation; quality unchanged within noise).
 
 **Benchmark tool.** `npx tsx tools/matchbench.ts <pairs.json> <strategy.json> [--seeds N] [--workers N]`: runs the
 optimiser headlessly the way the Match workspace does (same matcher: periodic comparison and the VGG term), one

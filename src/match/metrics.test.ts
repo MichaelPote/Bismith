@@ -10,6 +10,7 @@ import {
   fromRgba8,
   quantiles,
   resample,
+  sortFloat32,
   toRgba8,
   type MatchImage,
   type MetricOptions,
@@ -112,6 +113,18 @@ describe('fft', () => {
       }
     })
   }
+})
+
+describe('sortFloat32', () => {
+  it('orders exactly as Float32Array#sort', () => {
+    const r = rng(7)
+    for (const n of [0, 5, 600, 5000, 20000]) {
+      const v = Float32Array.from({ length: n }, (_, i) => (i % 97 === 0 ? 0 : i % 89 === 0 ? -0 : (r() - 0.4) * 10 ** Math.floor(r() * 8 - 4)))
+      const expected = Float32Array.from(v).sort()
+      const got = sortFloat32(v)
+      expect(Array.from(got).map((x) => Object.is(x, -0) ? '-0' : x)).toEqual(Array.from(expected).map((x) => Object.is(x, -0) ? '-0' : x))
+    }
+  })
 })
 
 describe('metrics', () => {
