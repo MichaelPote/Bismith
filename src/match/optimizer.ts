@@ -684,6 +684,12 @@ export interface OptimizerOptions {
   target?: MatchImage
   /** Probability that a candidate is a colour fit, when `target` is set (default 0.08). */
   colourFitRate?: number
+  /**
+   * Losses closer than this are equal (default 1e-6). The same project renders a hair differently in different pages
+   * (last-bit float differences, ~1e-8), and inert moves tie exactly — compared exactly, a tie would be a win in one
+   * page and a loss in another, and identical runs would part ways.
+   */
+  tolerance?: number
   /** What to optimise (see SpaceOptions). */
   space?: SpaceOptions
   /**
@@ -859,6 +865,7 @@ export class Optimizer {
       gradientSize: Math.max(2, Math.round(opts.gradientSize ?? 8)),
       target: opts.target ?? null,
       colourFitRate: opts.colourFitRate ?? 0.08,
+      tolerance: Math.max(0, opts.tolerance ?? 1e-6),
       heuristics: opts.heuristics ?? true,
       space: opts.heuristics === false ? (opts.space ?? {}) : { prior: craftPrior, ...(opts.space ?? {}) },
       library: opts.library ?? (opts.heuristics === false ? DEFAULT_LIBRARY : CRAFT_LIBRARY),
@@ -975,10 +982,11 @@ export class Optimizer {
       for (const e of c.mutated) {
         const s = this.stat(e)
         const k = c.sweep ? 1 : 0 // sweeps place values across the range: count them, but leave σ alone
-        if (c.loss < parent.loss) {
+        const vs = this.cmp(c.loss, parent.loss)
+        if (vs < 0) {
           s.success++
           s.sigma = Math.min(0.5, s.sigma * (k ? 1 : 1.5))
-        } else if (c.loss === parent.loss) {
+        } else if (vs === 0) {
           // Inert (hidden, quantised or position-only under a texture metric): try bigger steps, pick less.
           s.neutral++
           s.sigma = Math.min(0.5, s.sigma * (k ? 1 : 1.25))
@@ -992,11 +1000,12 @@ export class Optimizer {
     // Selection: inserts pay the layer cost, removals are credited it (the reported losses stay as measured).
     const judged = (c: Candidate) => c.loss + (c.inserted ? this.opts.layerCost : 0) - (c.removed ? this.opts.layerCost : 0)
     let winner: Candidate | null = null
-    for (const c of candidates) if (!winner || judged(c) < judged(winner)) winner = c
-    const accepted = !!winner && judged(winner) <= parent.loss
+    // Ties (within the tolerance) go to the earlier candidate, so the choice doesn't hinge on float noise.
+    for (const c of candidates) if (!winner || this.cmp(judged(c), judged(winner)) < 0) winner = c
+    const accepted = !!winner && this.cmp(judged(winner), parent.loss) <= 0
     let improved = false
     if (winner && accepted) {
-      if (winner.loss < parent.loss) {
+      if (this.cmp(winner.loss, parent.loss) < 0) {
         if (!winner.structural && winner.space === parent.space) {
           const delta = new Float64Array(winner.vector.length)
           for (let i = 0; i < delta.length; i++) delta[i] = winner.vector[i] - parent.vector[i]
@@ -1004,7 +1013,7 @@ export class Optimizer {
         }
       }
       this.parent = winner
-      if (winner.loss < (this.bestC?.loss ?? Infinity)) {
+      if (this.cmp(winner.loss, this.bestC?.loss ?? Infinity) < 0) {
         this.bestC = winner
         this.bestStep = this.stepCount
         improved = true
@@ -1083,6 +1092,12 @@ export class Optimizer {
   }
 
   // ---------------------------------------------------------------------------------------------- internals
+
+  /** -1 when loss `a` beats `b` by more than the tolerance, 1 when it loses by more, 0 for a tie. */
+  private cmp(a: number, b: number): -1 | 0 | 1 {
+    const t = this.opts.tolerance
+    return a < b - t ? -1 : a > b + t ? 1 : 0
+  }
 
   private stat(e: ParamEntry): EntryStats {
     let s = this.stats.get(e.id)
@@ -1295,7 +1310,7 @@ export class Optimizer {
       for (let j = 0; j < k; j++) this.mutateEntry(vector, pool.splice(this.rng.int(pool.length), 1)[0], sigma)
       const v: Candidate = { ...c, project: this.build(c.base, c.space, vector), vector, loss: Infinity }
       await this.score(v)
-      if (v.loss < best.loss) best = v
+      if (this.cmp(v.loss, best.loss) < 0) best = v
     }
     return best
   }
@@ -1369,7 +1384,8 @@ export class Optimizer {
     await this.score(minus)
     const out = [plus, minus]
     const d = plus.loss - minus.loss
-    if (Number.isFinite(d) && d !== 0) {
+    // A tie says nothing about the slope (and its sign would be float noise).
+    if (Number.isFinite(d) && this.cmp(plus.loss, minus.loss) !== 0) {
       // Step against the estimated slope: per entry −sign(gᵢ)·σᵢ (unit-free, so one loss scale fits every entry).
       for (const k of [1, 2]) {
         const c = make((e, i) => -Math.sign(d) * signs[i] * k * this.stat(e).sigma)
@@ -1448,7 +1464,7 @@ export class Optimizer {
     }
     await this.score(c)
     this.parent = c
-    if (c.loss < best.loss) {
+    if (this.cmp(c.loss, best.loss) < 0) {
       this.bestC = c
       this.bestStep = this.stepCount
     }

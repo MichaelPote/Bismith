@@ -10,7 +10,7 @@ import { cloudsLayer, gradientLayer, scratchesLayer } from './patternsFill'
 
 /** Small GLSL helpers shared by the pattern layers (each layer compiles its own copy; names are prefixed). */
 export const PAT_GLSL = /* glsl */ `
-int pat_imod(int a, int m) { return ((a % m) + m) % m; }
+int pat_imod(int a, int m) { return (a + m * (1 + abs(a) / m)) % m; } // Euclidean, defined for a < 0 (see imod)
 
 // Convex cells (hex tiles, Voronoi cells) are intersections of half-planes. We keep the PAT_K nearest edges
 // of the cell under the pixel (distance m, positive inside; outward unit normal n), then build an exact

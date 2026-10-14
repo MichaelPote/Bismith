@@ -167,6 +167,15 @@ tone, then everything). Colour still moves from the start, through colour fits.
 `StepInfo` reports `stage` / `opened`, `sweep`, and the move kind behind each candidate (`moves`) and the accepted
 one (`move`); the Match log shows tier openings and kept structural changes.
 
+**Determinism.** Identical runs (same project, reference, seed) now reach identical results, also when several
+headless pages run at once. Three causes were found and fixed: the wrap helpers `imod` / `pat_imod` took `%` of
+negative numbers — undefined in GLSL ES, and on ANGLE / D3D11 its result could vary between runs of the same draw
+(it is now Euclidean with non-negative operands); under multi-page load, render passes still raced in the last bits,
+so `Engine.renderNow` waits for the GPU (`gl.finish`) before and after tracing (no measurable cost) and always starts
+from sample 0 at full quality; and the optimiser compared losses exactly, so last-bit noise decided ties between inert
+moves — losses within `tolerance` (1e-6) now tie, and ties go to the earlier candidate (also for the sign of a
+gradient step). Headless pages run with the interactive loop suspended.
+
 **Metric.** Optimising the Tile preset lowered the *Texture* total too — more than optimising a mean of the two
 presets did (+0.04 on the Tile + Texture sum at 1000 steps, worse on both) and as much as switching presets mid-run
 (Tile already weighs the VGG texture term at 3) — so Tile stays the default objective.

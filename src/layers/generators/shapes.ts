@@ -37,7 +37,7 @@ GenOut gen(vec2 p) {
     int cy = cy0 + j;
     // GL rows count upward; stagger alternate rows counted from the top so presets read naturally.
     int rowFromTop = int(reps.y) - 1 - cy;
-    float shift = (((rowFromTop % 2) + 2) % 2 == 1) ? u_rep_stagger : 0.0;
+    float shift = imod(rowFromTop, 2) == 1 ? u_rep_stagger : 0.0;
     int cx0 = int(floor(p.x / cell.x - shift));
     for (int i = -1; i <= 1; i++) {
       ivec2 c = ivec2(cx0 + i, cy);
@@ -50,7 +50,7 @@ GenOut gen(vec2 p) {
       if (u_rep_mirror) {
         ivec2 cm = imod(c, ivec2(2));
         // Rows count up in GL; mirror relative to the top row so y keeps meaning "down from the top".
-        int rowTop = ((rowFromTop % 2) + 2) % 2;
+        int rowTop = imod(rowFromTop, 2);
         if (cm.x == 1) off.x = -off.x;
         if (rowTop == 1) off.y = -off.y;
       }

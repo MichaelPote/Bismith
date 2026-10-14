@@ -98,6 +98,14 @@ export async function emulate(engine: Engine, target: MatchImage, opts: EmulateO
     window: opts.metric?.window ?? !analysis.tileable,
   })
   await attachTexture(engine, matcher, analysis.tileable)
+  try {
+    return await emulateWith(engine, matcher, analysis, t0, opts)
+  } finally {
+    matcher.dispose()
+  }
+}
+
+async function emulateWith(engine: Engine, matcher: Matcher, analysis: Analysis, t0: number, opts: EmulateOptions): Promise<EmulateResult> {
   const evaluate = makeEvaluator(engine, matcher, { samples: opts.samples ?? 8 })
   const space: SpaceOptions = opts.space ?? { layers: true, base: true, lights: true, enums: true }
   const seed = opts.seed ?? 1

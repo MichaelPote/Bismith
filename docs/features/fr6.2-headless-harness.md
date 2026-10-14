@@ -61,6 +61,9 @@ npx tsx tools/matchbench.ts pairs.json strategy.json [--seeds N] [--workers N] [
   so 100 steps × λ6 ≈ 15 s. Runs are deterministic for a given `--seed`.
 - Flags `--lights --post --base --shading --enums --seeds` widen the parameter space; `--structural` enables
   toggle / blend / insert / remove layer mutations (FR6.3).
+- Headless pages keep the editor's interactive render loop suspended (nothing is displayed; its frames would trace
+  between API calls). `memoryInfo()` reports the GPU objects alive (three.js `renderer.info.memory`) — `compare`,
+  `fitColours` and each new `optimizeStart` free the VGG scorer targets of the matcher they replace.
 - `compare` and `optimize` use the Match workspace's matcher: tileable projects are compared periodically (best
   wrap-around shift, `window` off) and the VGG texture term is attached whenever the preset weights it — so their
   totals are the numbers the workspace shows. `--wrap` / `--window` still override.

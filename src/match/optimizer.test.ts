@@ -360,6 +360,27 @@ describe('Optimizer', () => {
     expect(opt.best.loss).toBeLessThan(l0 * 0.2)
   })
 
+  it('makes the same decisions when losses carry float noise below the tolerance', async () => {
+    // The same project renders a hair differently in different pages; identical runs must still agree. Only three
+    // entries matter, so every other mutation ties exactly — compared exactly, the noise would decide those.
+    const goal = project()
+    goal.layers[0].params.scale = 9
+    goal.layers[0].params.h_amount = 1.1
+    goal.layers[1].params.inset_x = 14
+    const keys: [number, string][] = [[0, 'scale'], [0, 'h_amount'], [1, 'inset_x']]
+    const base = (p: Project) => Math.hypot(...keys.map(([l, k]) => Number(p.layers[l].params[k]) - Number(goal.layers[l].params[k])))
+    const noisy = (salt: number) => {
+      let n = 0
+      return (p: Project) => base(p) + Math.sin(++n * 12.9898 + salt) * 5e-7
+    }
+    const a = new Optimizer(project(), noisy(1), { seed: 7, lambda: 4 })
+    const b = new Optimizer(project(), noisy(2), { seed: 7, lambda: 4 })
+    await a.run(80)
+    await b.run(80)
+    expect(JSON.stringify(b.best.project.layers)).toBe(JSON.stringify(a.best.project.layers))
+    expect(b.best.loss).toBeCloseTo(a.best.loss, 5)
+  })
+
   it('runs islands with successive halving', async () => {
     const opt = new Optimizer(project(), syntheticLoss(), { seed: 1, islands: 4, islandSteps: 3 })
     const l0 = await opt.init()

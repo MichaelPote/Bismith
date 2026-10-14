@@ -18,6 +18,7 @@ export async function attachTexture(engine: Engine, matcher: Matcher, wrap: bool
   if (!((matcher.weights.texture ?? 0) > 0)) return false
   try {
     const net = await TextureNet.load(engine.gpu)
+    matcher.texture?.dispose()
     matcher.texture = net.scorer(matcher.target, wrap)
     return true
   } catch (e) {

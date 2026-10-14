@@ -370,14 +370,20 @@ export class Engine {
   /** Render the current project to completion (or `samples`) synchronously and run post. */
   renderNow(samples?: number): void {
     if (!this.project) throw new Error('No project')
+    // Deterministic: full quality (no draft) from the first sample, whatever the interactive loop accumulated meanwhile
+    // — otherwise the same project could score differently depending on timing.
     this.prepare()
+    // Wait for the GPU before and after tracing. With several pages rendering at once (parallel harness workers on
+    // ANGLE / D3D11), renders of one project otherwise differed in the last bits from run to run — enough to send
+    // identical optimiser runs apart; with these two sync points they match exactly.
+    const gl = this.gpu.renderer.getContext()
+    gl.finish()
+    this.tracer.reset()
     const target = samples ?? this.project.render.maxSamples
-    if (this.tracer.samples > target) {
-      this.tracer.reset()
-    }
     while (this.tracer.samples < target) {
       this.tracer.trace(Math.min(16, target - this.tracer.samples), target)
     }
+    gl.finish()
     this.post.run(this.project, this.traced()!)
     this.postDirty = false
     this.displayDirty = true

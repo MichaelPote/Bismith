@@ -95,6 +95,8 @@ export interface BismithHeadless {
   optimizeStep(steps?: number): Promise<StepInfo[]>
   /** The best project so far (without finishing). */
   optimizeBest(): { project: Project; loss: number } | null
+  /** GPU objects alive (three.js renderer.info.memory) — for spotting leaks. */
+  memoryInfo(): { textures: number; geometries: number }
   optimizeFinish(): Promise<HeadlessOptimizeResult>
   /** WebGL renderer string (to confirm GPU vs SwiftShader). */
   rendererInfo(): string
@@ -218,7 +220,11 @@ export function installHeadless(engine: Engine): BismithHeadless {
       const matcher = new Matcher(img, { wrap: p.tileable, window: !p.tileable, ...opts, size: opts.size ?? [p.width, p.height] })
       await attachTexture(engine, matcher, opts.wrap ?? p.tileable)
       const samples = opts.samples ?? p.render.maxSamples
-      return compareResult(matcher, renderToMatchImage(engine, p, samples), samples, t0, opts.diffGain)
+      try {
+        return compareResult(matcher, renderToMatchImage(engine, p, samples), samples, t0, opts.diffGain)
+      } finally {
+        matcher.dispose()
+      }
     },
 
     async optimizeStart(target, opts = {}) {
@@ -228,6 +234,7 @@ export function installHeadless(engine: Engine): BismithHeadless {
       await attachTexture(engine, matcher, opts.metric?.wrap ?? p.tileable)
       const samples = opts.samples ?? 16
       const optimizer = new Optimizer(p, makeEvaluator(engine, matcher, { samples }), { target: matcher.target, ...opts })
+      session?.matcher.dispose()
       session = { optimizer, matcher, opts }
       const initialLoss = await optimizer.init()
       return { initialLoss, entries: optimizer.space.entries.length, width: matcher.width, height: matcher.height }
@@ -270,6 +277,7 @@ export function installHeadless(engine: Engine): BismithHeadless {
     },
 
     rendererInfo: () => rendererString(engine),
+    memoryInfo: () => ({ ...engine.gpu.renderer.info.memory }),
     async precompile(types, opts = {}) {
       if (opts.cold) engine.setShaderSalt(`${Date.now()}-${Math.random()}`)
       const t = performance.now()
@@ -285,7 +293,9 @@ export function installHeadless(engine: Engine): BismithHeadless {
       // Palette snap off while fitting (a quantised render moves in steps), back as it was afterwards.
       const snap = (q: Project, on: boolean): Project => ({ ...q, post: q.post.map((f) => (f.type === 'palette' ? { ...f, enabled: on && f.enabled } : f)) })
       const palOn = new Map(p.post.map((f) => [f.id, f.enabled]))
-      const r = await fitColoursImpl(snap(p, false), matcher, (q) => renderToMatchImage(engine, q, opts.samples ?? 16), { rounds: opts.rounds })
+      const r = await fitColoursImpl(snap(p, false), matcher, (q) => renderToMatchImage(engine, q, opts.samples ?? 16), { rounds: opts.rounds }).finally(() =>
+        matcher.dispose(),
+      )
       const fitted = { ...r.project, post: r.project.post.map((f) => ({ ...f, enabled: palOn.get(f.id) ?? f.enabled })) }
       api.loadProject(fitted)
       return { before: r.before, after: r.after, rounds: r.rounds, project: project! }
@@ -327,6 +337,8 @@ export function bootHeadless(root: HTMLElement): void {
   canvas.height = 64
   root.appendChild(canvas)
   const engine = new Engine(canvas)
+  // No interactive loop: nothing is displayed, and its frames would trace between API calls.
+  engine.suspend()
   const api = installHeadless(engine)
   const worker = new URLSearchParams(location.search).get('worker')
   if (worker !== null) void workerLoop(api, worker)

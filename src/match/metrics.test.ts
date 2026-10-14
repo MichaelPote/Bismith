@@ -115,6 +115,16 @@ describe('fft', () => {
 })
 
 describe('metrics', () => {
+  it('frees its texture scorer on dispose', () => {
+    const m = new Matcher(testTexture(16, 16, 1), { preset: 'tile' })
+    let disposed = 0
+    m.texture = { distance: () => 0.1, dispose: () => disposed++ }
+    m.dispose()
+    m.dispose()
+    expect(disposed).toBe(1)
+    expect(m.texture).toBe(null)
+  })
+
   it('scores identical images ~0 for every term and preset', () => {
     for (const preset of ['texture', 'layout'] as const) {
       const r = score(tex, tex, { preset })

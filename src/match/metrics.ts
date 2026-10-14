@@ -601,6 +601,12 @@ export class Matcher {
     return resample(img, this.width, this.height)
   }
 
+  /** Free the texture scorer's GPU targets (the texture term no longer counts afterwards). */
+  dispose(): void {
+    this.texture?.dispose()
+    this.texture = null
+  }
+
   score(render: MatchImage): MetricResult {
     const fit = this.fit(render)
     const texture = this.texture && (this.weights.texture ?? 0) > 0 ? this.texture.distance(fit) : undefined

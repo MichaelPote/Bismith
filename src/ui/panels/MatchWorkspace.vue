@@ -47,6 +47,8 @@ const heuristics = ref(true)
 
 const running = ref(false)
 const optimizer = shallowRef<Optimizer | null>(null)
+/** The matcher the current optimiser scores with (its GPU texture statistics are freed on reset). */
+let runMatcher: Matcher | null = null
 const curve = ref<number[]>([])
 const lastInfo = shallowRef<StepInfo | null>(null)
 const log = ref<string[]>([])
@@ -144,6 +146,7 @@ async function scoreCurrent(): Promise<void> {
     bestResult.value = matcher.score(img)
     show(img, matcher)
   } finally {
+    matcher.dispose()
     engine.resume(toRaw(store.project))
   }
 }
@@ -176,6 +179,7 @@ async function fitColoursNow(): Promise<void> {
   } catch (e) {
     editor.notify(`Colour fit failed: ${e instanceof Error ? e.message : e}`, 'error')
   } finally {
+    matcher.dispose()
     fitting.value = false
     engine.resume(toRaw(store.project))
   }
@@ -227,7 +231,12 @@ async function run(): Promise<void> {
   if (!engine || !reference.value || running.value) return
   running.value = true
   abort = false
-  const matcher = await makeMatcher()
+  // One matcher per optimiser (its evaluate scores with it): created with the optimiser, reused by later presses.
+  if (!optimizer.value) {
+    runMatcher?.dispose()
+    runMatcher = await makeMatcher()
+  }
+  const matcher = runMatcher!
   engine.suspend()
   try {
     if (!optimizer.value) {
@@ -293,6 +302,11 @@ async function run(): Promise<void> {
     editor.notify(`Optimiser stopped: ${e instanceof Error ? e.message : e}`, 'error')
   } finally {
     running.value = false
+    // Reset during the run: its matcher goes with the optimiser.
+    if (!optimizer.value) {
+      runMatcher?.dispose()
+      runMatcher = null
+    }
     engine.resume(toRaw(store.project))
   }
 }
@@ -328,25 +342,27 @@ async function suggest(): Promise<void> {
   overlay.value = 'suggest'
   cards.value = []
   engine.suspend()
+  let matcher: Matcher | null = null
   try {
     // At most 128 px on the long side: game textures are that size; a photo is matched at a texture's scale.
     const s = Math.min(1, 128 / Math.max(ref.width, ref.height))
     const target = s < 1 ? resample(ref, Math.max(1, Math.round(ref.width * s)), Math.max(1, Math.round(ref.height * s))) : ref
     const analysis = analyzeTarget(target)
-    const matcher = await makeMatcher(target, analysis.tileable)
+    matcher = await makeMatcher(target, analysis.tileable)
     const ctx = { palette: palette.value === 'none' ? '' : palette.value }
     const list = availableTemplates()
     for (const [i, t] of list.entries()) {
       if (overlay.value !== 'suggest') break
       busy.value = `Trying ${t.label} (${i + 1}/${list.length})`
       await nextFrame()
-      const fit = await fitColours(withPalette(t.build(analysis, ctx), false), matcher, (p) => renderImage(p))
+      const fit = await fitColours(withPalette(t.build(analysis, ctx), false), matcher!, (p) => renderImage(p))
       const project = withPalette(fit.project, true)
       cards.value = [...cards.value, { id: t.id, label: t.label, project, loss: fit.after, px: thumb(renderImage(project)) }].sort((a, b) => (a.loss ?? 0) - (b.loss ?? 0))
     }
   } catch (e) {
     editor.notify(`Suggest stopped: ${e instanceof Error ? e.message : e}`, 'error')
   } finally {
+    matcher?.dispose()
     busy.value = null
     engine.resume(toRaw(store.project))
   }
@@ -379,6 +395,7 @@ async function vary(): Promise<void> {
   } catch (e) {
     editor.notify(`Variations failed: ${e instanceof Error ? e.message : e}`, 'error')
   } finally {
+    matcher?.dispose()
     busy.value = null
     engine.resume(toRaw(store.project))
   }
@@ -414,6 +431,11 @@ function reset(): void {
   abort = true
   stopped.value = null
   optimizer.value = null
+  // A run in progress still scores with it; the run disposes it when it ends.
+  if (!running.value) {
+    runMatcher?.dispose()
+    runMatcher = null
+  }
   curve.value = []
   log.value = []
   lastInfo.value = null
@@ -432,6 +454,8 @@ function applyBest(): void {
 onMounted(() => window.addEventListener('bismith:reference', onDropEvent))
 onBeforeUnmount(() => {
   abort = true
+  runMatcher?.dispose()
+  runMatcher = null
   window.removeEventListener('bismith:reference', onDropEvent)
 })
 // Kept alive across workspace switches: the reference, settings and optimiser survive a visit to Create. Leaving pauses

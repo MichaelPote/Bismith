@@ -34,7 +34,14 @@ interface Manifest {
 /** Bound to a target: distance of a render's texture statistics to the target's (0 = identical). */
 export interface TextureScorer {
   distance(render: MatchImage): number
+  /** Free the GPU targets holding the reference's statistics (also done once the scorer is garbage-collected). */
+  dispose(): void
 }
+
+/** Safety net for scorers dropped without dispose(): their targets are freed when the scorer is collected. */
+const orphanTargets = new FinalizationRegistry<THREE.WebGLRenderTarget[]>((targets) => {
+  for (const t of targets) t.dispose()
+})
 
 const WTEX = 4096
 const MEAN_BGR = [103.939, 116.779, 123.68]
@@ -365,12 +372,22 @@ export class TextureNet {
   scorer(target: MatchImage, wrap: boolean): TextureScorer {
     const own = this.layers.filter((l) => l.tap).map((l) => this.gpu.target(l.sout, l.spec.cout))
     this.gramsOf(target, wrap, own)
-    return {
+    let alive = true
+    const scorer: TextureScorer = {
       distance: (render: MatchImage) => {
+        if (!alive) throw new Error('TextureScorer: disposed')
         if (render.width !== target.width || render.height !== target.height) throw new Error('TextureScorer: size mismatch')
         return this.distanceTo(matchHistogram(render, target), wrap, own)
       },
+      dispose: () => {
+        if (!alive) return
+        alive = false
+        orphanTargets.unregister(scorer)
+        for (const t of own) t.dispose()
+      },
     }
+    orphanTargets.register(scorer, own, scorer)
+    return scorer
   }
 
   /** Texture distance of two images of the same size (no colour matching), for tests and tools. */

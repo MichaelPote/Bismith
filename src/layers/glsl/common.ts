@@ -40,8 +40,10 @@ vec3 hash3I(ivec2 c, float seed) {
 float hash1(float x, float seed) { return u2f(pcg2(uvec2(floatBitsToUint(x), uint(seed)))); }
 
 // ---------------------------------------------------------------- wrapping & texel access
-ivec2 imod(ivec2 a, ivec2 m) { return ((a % m) + m) % m; }
-int imod(int a, int m) { return ((a % m) + m) % m; }
+// Euclidean modulo (m > 0). GLSL ES leaves % undefined for a negative operand, so a is first shifted up by a multiple
+// of m to be non-negative — with ((a % m) + m) % m, renders could differ from run to run.
+ivec2 imod(ivec2 a, ivec2 m) { return (a + m * (1 + abs(a) / m)) % m; }
+int imod(int a, int m) { return (a + m * (1 + abs(a) / m)) % m; }
 vec2 fmod2(vec2 a, vec2 m) { return a - m * floor(a / m); }
 
 ivec2 texelCoord(ivec2 c) {
