@@ -50,6 +50,6 @@ export function makeEvaluator(engine: Engine, matcher: Matcher, opts: EvaluatorO
     const image = renderToMatchImage(engine, project, samples)
     const result = matcher.score(image)
     opts.onEvaluate?.(project, image, result)
-    return { loss: result.total, detail: result }
+    return { loss: result.total, detail: result, image }
   }
 }

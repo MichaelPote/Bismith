@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Reference matching (docs/features/fr6.3-optimizer.md): load a reference, then let the evolution strategy
 // tune the unlocked layers toward it while you watch the loss fall.
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, toRaw } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, toRaw, watch } from 'vue'
 import type { Project } from '@/core/project'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
@@ -41,7 +41,7 @@ const targetLoss = ref(0)
 const timeLimit = ref(0)
 const stallSteps = ref(0)
 const stopped = ref<StopReason | null>(null)
-const space = ref({ layers: true, base: true, lights: false, post: false, enums: false, seeds: false })
+const space = ref({ layers: true, base: true, shading: true, lights: true, post: false, enums: false, seeds: false })
 const structural = ref(false)
 const heuristics = ref(true)
 
@@ -184,6 +184,44 @@ async function fitColoursNow(): Promise<void> {
 
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
 
+// ---------------------------------------------------------------- resizable settings panel
+const LOWER_KEY = 'cf-match-lower'
+function readLower(): number {
+  try {
+    const v = Number(localStorage.getItem(LOWER_KEY))
+    return v > 0 ? v : 190
+  } catch {
+    return 190
+  }
+}
+const lowerH = ref(readLower())
+watch(lowerH, (h) => {
+  try {
+    localStorage.setItem(LOWER_KEY, String(h))
+  } catch {
+    /* storage unavailable */
+  }
+})
+const rows = computed(() => `36px minmax(0, 1fr) 4px ${lowerH.value}px`)
+
+function startResize(e: PointerEvent): void {
+  const startY = e.clientY
+  const start = lowerH.value
+  const el = e.currentTarget as HTMLElement
+  // Keep at least 120 px for the reference / render panes above.
+  const max = Math.max(120, (el.parentElement?.clientHeight ?? 600) - 36 - 4 - 120)
+  el.setPointerCapture(e.pointerId)
+  const move = (ev: PointerEvent) => {
+    lowerH.value = Math.round(Math.max(120, Math.min(max, start - (ev.clientY - startY))))
+  }
+  const up = () => {
+    el.removeEventListener('pointermove', move)
+    el.removeEventListener('pointerup', up)
+  }
+  el.addEventListener('pointermove', move)
+  el.addEventListener('pointerup', up)
+}
+
 async function run(): Promise<void> {
   const engine = editor.engine
   if (!engine || !reference.value || running.value) return
@@ -196,10 +234,18 @@ async function run(): Promise<void> {
       const opt = new Optimizer(
         structuredClone(toRaw(store.project)),
         (p) => {
-          const r = matcher.score(renderImage(p))
-          return { loss: r.total, detail: r }
+          const image = renderImage(p)
+          const r = matcher.score(image)
+          return { loss: r.total, detail: r, image }
         },
-        { lambda: 4, structural: structural.value, heuristics: heuristics.value, space: { ...space.value }, seed: 1 },
+        {
+          lambda: 4,
+          structural: structural.value,
+          heuristics: heuristics.value,
+          space: { ...space.value },
+          seed: 1,
+          target: matcher.target,
+        },
       )
       seen = snapshot()
       startLoss.value = await opt.init()
@@ -232,6 +278,11 @@ async function run(): Promise<void> {
         show(renderImage(opt.best.project), matcher)
         const what = info.structural ?? info.changed.slice(0, 3).join(', ')
         log.value = [`#${info.step} ${info.bestLoss.toFixed(4)} ${what}`, ...log.value].slice(0, 40)
+      } else if (info.opened) {
+        log.value = [`#${info.step} opening ${info.stage === 1 ? 'tone (diffuse amounts, shaping, masks)' : 'colour (colours and ramps)'}`, ...log.value].slice(0, 40)
+      } else if (info.structural) {
+        // Kept without beating the best (equal loss, or on a chain behind it): still worth seeing.
+        log.value = [`#${info.step} ${info.parentLoss.toFixed(4)} ${info.structural} (kept)`, ...log.value].slice(0, 40)
       }
       reason = limits.after(opt.best.loss, opt.evaluations)
       await nextFrame()
@@ -407,7 +458,7 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
 </script>
 
 <template>
-  <section class="match cf-panel">
+  <section class="match cf-panel" :style="{ gridTemplateRows: rows }">
     <div class="bar">
       <button type="button" class="cf-btn" @click="pickFile"><IconPhoto :size="13" />Load reference…</button>
       <span v-if="reference" class="cf-mono ref">{{ refName }} · {{ reference.width }}×{{ reference.height }}</span>
@@ -483,6 +534,8 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
       </figure>
     </div>
 
+    <div class="gutter" role="separator" aria-orientation="horizontal" aria-label="Resize settings panel" @pointerdown="startResize" />
+
     <div class="lower">
       <div class="settings">
         <div class="row"><span class="lbl">Metric</span><SelectField v-model="preset" :options="[{ value: 'tile', label: 'Tile (structure at best shift)' }, { value: 'texture', label: 'Texture (statistics)' }, { value: 'layout', label: 'Layout (+ pixel aligned)' }]" label="Metric preset" @update:model-value="reset" /></div>
@@ -495,6 +548,7 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
           <div class="checks">
             <CheckField v-model="space.layers" label="Layers" @update:model-value="reset" />
             <CheckField v-model="space.base" label="Base" @update:model-value="reset" />
+            <CheckField v-model="space.shading" label="Shading" title="Ambient occlusion strength and radius, specular scale and tint, height depth" @update:model-value="reset" />
             <CheckField v-model="space.lights" label="Lights" @update:model-value="reset" />
             <CheckField v-model="space.post" label="Post" @update:model-value="reset" />
             <CheckField v-model="space.enums" label="Modes" @update:model-value="reset" />
@@ -610,8 +664,14 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
 }
 .match {
   display: grid;
-  grid-template-rows: 36px minmax(0, 1fr) 190px;
   overflow: hidden;
+}
+.gutter {
+  cursor: row-resize;
+  touch-action: none;
+}
+.gutter:hover {
+  background: linear-gradient(180deg, transparent 1px, var(--line) 1px, var(--line) 2px, transparent 2px);
 }
 .bar {
   display: flex;
@@ -654,6 +714,11 @@ figure {
   gap: 2px;
   min-height: 0;
   overflow-y: auto;
+}
+.settings > * {
+  /* Rows keep their content height (wrapped checkboxes included) and the column scrolls, instead of rows being
+     squashed to their min-height and overlapping the next. */
+  flex-shrink: 0;
 }
 .row {
   display: grid;

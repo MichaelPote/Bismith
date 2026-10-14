@@ -44,6 +44,19 @@ export function featureHalfPx(l: Layer, p: Pick<Project, 'width' | 'height'>): n
   return null
 }
 
+/** Blocks that touch (bricks with ≤ 1 px mortar, Voronoi cells with ≤ 1 px gaps) and carry height. */
+export function hasTightJoints(p: Project): boolean {
+  return p.layers.some(
+    (l) =>
+      l.enabled &&
+      l.params.h_on !== false &&
+      ((l.type === 'bricks' && num(l.params.mortar, 2) <= 1) || (l.type === 'voronoi' && (l.params.output ?? 'cells') === 'cells' && num(l.params.gap, 1) <= 1)),
+  )
+}
+
+/** Ambient occlusion the ao-for-joints rule keeps tight joints at (at least). */
+const JOINT_AO = 0.8
+
 const STEADY_PROFILES = new Set(['linear', 'smooth', 'round'])
 /** Layers whose height is real geometry (round pipes): their relief is their shape, not a cliff to cap. */
 const TRUE_SCALE = new Set(['pipework'])
@@ -143,16 +156,10 @@ export const CRAFT_RULES: CraftRule[] = [
     label: 'Occlusion where blocks touch',
     why: 'Stones that touch read as separate through ambient occlusion in the creases, not through wide mortar.',
     apply(p) {
-      const tight = p.layers.some(
-        (l) =>
-          l.enabled &&
-          l.params.h_on !== false &&
-          ((l.type === 'bricks' && num(l.params.mortar, 2) <= 1) || (l.type === 'voronoi' && (l.params.output ?? 'cells') === 'cells' && num(l.params.gap, 1) <= 1)),
-      )
-      if (!tight || num(p.render.ao) >= 0.8) return []
-      p.render.ao = 0.8
+      if (!hasTightJoints(p) || num(p.render.ao) >= JOINT_AO) return []
+      p.render.ao = JOINT_AO
       if (num(p.render.aoRadius) <= 0) p.render.aoRadius = 3
-      return ['ambient occlusion → 0.8 (tight joints)']
+      return [`ambient occlusion → ${JOINT_AO} (tight joints)`]
     },
   },
   {
@@ -217,6 +224,8 @@ export interface Prior {
 
 /** Search-space priors from the craft rules. */
 export function craftPrior(q: PriorQuery): Prior | undefined {
+  // The AO lever only searches above the floor ao-for-joints would restore (lower values would be repaired away).
+  if (q.scope === 'render' && q.def.key === 'ao' && hasTightJoints(q.project)) return { lo: JOINT_AO }
   if (q.scope !== 'layer' || !q.layerType) return undefined
   const layer = { type: q.layerType, params: q.params } as Layer
   const key = q.def.key

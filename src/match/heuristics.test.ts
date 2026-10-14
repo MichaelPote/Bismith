@@ -104,6 +104,14 @@ describe('optimiser with heuristics', () => {
     })
   })
 
+  it('searches ambient occlusion only above the floor tight joints keep it at', () => {
+    const p = proj({ layers: [createLayer('bricks', { mortar: 0.5, h_on: true })] })
+    const ao = new Optimizer(p, () => 1, { space: { shading: true } }).space.entries.find((e) => e.id === 'render::ao')!
+    expect(ao.lo).toBe(0.8)
+    const loose = proj({ layers: [createLayer('bricks', { mortar: 3, h_on: true })] })
+    expect(new Optimizer(loose, () => 1, { space: { shading: true } }).space.entries.find((e) => e.id === 'render::ao')!.lo).toBe(0)
+  })
+
   it('can be switched off', () => {
     const p = proj({ layers: [createLayer('bricks', { wobble: 2 })] })
     const opt = new Optimizer(p, () => 1, { heuristics: false })

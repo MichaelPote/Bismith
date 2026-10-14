@@ -38,13 +38,16 @@ npm run harness -- render a.json --out harness-out/a.png --samples 64 [--maps]
 npm run harness -- sheet harness-out/sheet.png a.png b.png --scale 3
 
 # Score a project against a reference: metric table + sheet [target | render | |difference|×2]
-npm run harness -- compare b.json target.png [--out sheet.png] [--samples N] [--preset texture|layout]
+npm run harness -- compare b.json target.png [--out sheet.png] [--samples N] [--preset texture|layout|tile]
         [--weights colour=2,aligned=1] [--max-size 128] [--wrap] [--window] [--json] [--scale N]
 
 # Optimise a project toward a reference: progress per step, best JSON + sheet [target | start | best | diff×2]
 npm run harness -- optimize b.json target.png [--iters 100] [--samples 16] [--out best.json]
-        [--preset texture|layout] [--weights …] [--lambda 6] [--islands N] [--seed N] [--sigma 0.1]
-        [--lights] [--post] [--base] [--enums] [--seeds] [--structural] [--final-samples 64] [--max-size N]
+        [--preset texture|layout|tile] [--weights …] [--lambda 6] [--islands N] [--seed N] [--sigma 0.1]
+        [--lights] [--post] [--base] [--shading] [--enums] [--seeds] [--structural] [--final-samples 64] [--max-size N]
+
+# Benchmark the optimiser on (start project, reference) pairs, several seeds each, scored under Tile and Texture
+npx tsx tools/matchbench.ts pairs.json strategy.json [--seeds N] [--workers N] [--label NAME] [--only REGEX]
 ```
 
 - The target is decoded in Node (pngjs, exact 8-bit sRGB) and resampled (area average, linear light) to the
@@ -56,8 +59,15 @@ npm run harness -- optimize b.json target.png [--iters 100] [--samples 16] [--ou
   progress) and again at the end, followed by a metric table of the best re-rendered at `--final-samples`.
   `--iters` counts steps; each step renders λ candidates. 64² at 16 spp ≈ 25 ms per candidate under SwiftShader,
   so 100 steps × λ6 ≈ 15 s. Runs are deterministic for a given `--seed`.
-- Flags `--lights --post --base --enums --seeds` widen the parameter space; `--structural` enables
+- Flags `--lights --post --base --shading --enums --seeds` widen the parameter space; `--structural` enables
   toggle / blend / insert / remove layer mutations (FR6.3).
+- `compare` and `optimize` use the Match workspace's matcher: tileable projects are compared periodically (best
+  wrap-around shift, `window` off) and the VGG texture term is attached whenever the preset weights it — so their
+  totals are the numbers the workspace shows. `--wrap` / `--window` still override.
+- `tools/matchbench.ts` (FR6.3 v2): `pairs.json` lists `{ name, project, reference }`, `strategy.json` the phases
+  (`{ preset, steps, options }`, each from the previous phase's best). Every pair × seed runs on a shared worker
+  queue; it writes each best project and a [reference | start | best | diff] sheet, appends a line per run to
+  `results.jsonl`, and prints per-pair means of the best Tile / Texture totals and per-move statistics.
 
 ## Page API (`window.__bismith`, src/headless.ts)
 - `loadProject(json) → Project`, `getProject()`, `render({ samples }) → { png, width, height, samples, ms, errors }`,

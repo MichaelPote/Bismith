@@ -7,6 +7,7 @@ import { getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry'
 import { shapeMaskChain, shapeMaskLabel } from '@/layers/shapeMask'
 import { getPostDef } from '@/render/post/registry'
 import { LIGHT_DEFS } from '@/core/lights'
+import { BASE_DEFS, PROJECT_DEFS, RENDER_DEFS } from '@/core/settingsDefs'
 import { P, type ParamDef, type ParamValue, type ParamValues } from '@/core/params'
 import { layerUnits, SIZE_PRESETS } from '@/core/project'
 import { layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta'
@@ -120,20 +121,6 @@ function canStep(id: string, dir: number): boolean {
 }
 
 // ---------------------------------------------------------------- project / world param tables
-const PROJECT_DEFS: ParamDef[] = [
-  P.int('width', 'Width', 128, 1, 2048, { softMin: 16, softMax: 1024, unit: 'px' }),
-  P.int('height', 'Height', 128, 1, 2048, { softMin: 16, softMax: 1024, unit: 'px' }),
-  P.bool('tileable', 'Tileable (seamless wrap)', true),
-  P.float('heightDepth', 'Height depth', 2, 0, 4096, { softMax: 8, unit: 'px', step: 0.01, hint: 'World height in px of a height value of 1.0. Keep it small (1–3 px) for fine relief' }),
-  P.seed('seed', 'Global seed'),
-]
-const BASE_DEFS: ParamDef[] = [
-  P.color('color', 'Colour', '#7a7570'),
-  P.float('roughness', 'Roughness', 0.75, 0, 1, { step: 0.001 }),
-  P.float('specular', 'Specular', 0.5, 0, 1, { step: 0.001, hint: 'Specular level before layers (0.5 ≈ 4 % reflectance at scale 1); Specular outputs vary it per pixel' }),
-  P.float('height', 'Height', 0, -64, 64, { softMin: -1, softMax: 1, step: 0.001 }),
-  P.float('opacity', 'Opacity', 1, 0, 1, { step: 0.001 }),
-]
 const SKY_DEFS: ParamDef[] = [
   P.bool('enabled', 'Sky light', true),
   P.color('zenith', 'Zenith', '#9fb4c8'),
@@ -143,19 +130,6 @@ const SKY_DEFS: ParamDef[] = [
 const AMBIENT_DEFS: ParamDef[] = [
   P.color('color', 'Colour', '#ffffff'),
   P.float('intensity', 'Strength', 0.02, 0, 1000, { softMax: 1, step: 0.001, hint: 'Un-shadowed fill light' }),
-]
-const RENDER_DEFS: ParamDef[] = [
-  P.int('maxSamples', 'Max samples', 256, 1, 65536, { softMin: 1, softMax: 2048 }),
-  P.int('samplesPerFrame', 'Per frame', 4, 1, 64, { softMax: 32 }),
-  P.int('bounces', 'Bounces', 2, 0, 4),
-  P.float('specular', 'Specular scale', 1, 0, 4, { step: 0.001, hint: 'Multiplies every pixel’s specular level: F0 = 0.08 × level × scale. 0 turns highlights off' }),
-  P.float('specularTint', 'Specular tint', 0, 0, 1, { step: 0.001, hint: '0 = white highlights; 1 = highlights in the surface’s own hue, enriching the colour' }),
-  P.float('ao', 'Ambient occlusion', 0, 0, 8, { softMax: 3, step: 0.01, hint: 'Darkens creases and touching edges: lighting × AO^strength (0 = off). Works with cast shadows off' }),
-  P.float('aoRadius', 'AO radius', 4, 0.5, 128, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => Number(p.ao) > 0 }),
-  P.float('clamp', 'Firefly clamp', 8, 0, 1000, { softMax: 32, step: 0.1, hint: 'Max luminance of indirect samples (0 = off)' }),
-  P.bool('jitter', 'Sub-pixel jitter (soft shadow edges)', true),
-  P.bool('shadows', 'Cast shadows', true, { hint: 'Off: lights shade by surface angle only (painted / hand-lit look)' }),
-  P.int('supersample', 'Supersample', 1, 1, 4, { hint: 'Render the surface and lighting at 2–4× and average down: finer 1 px highlights, thin joints and small holes (costs k² time). Shown as @Nx beside the project in the outliner' }),
 ]
 
 function assign(obj: object, key: string, v: ParamValue): void {

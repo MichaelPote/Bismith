@@ -17,7 +17,7 @@
 //       --until / --time / --patience run until the loss reaches LOSS, the time is up or STEPS steps pass without
 //       progress (whichever first); --iters then caps the steps only when given.
 //                              [--preset texture|layout] [--weights …] [--lambda N] [--islands N] [--seed N]
-//                              [--sigma X] [--lights] [--post] [--base] [--enums] [--seeds]
+//                              [--sigma X] [--lights] [--post] [--base] [--shading] [--enums] [--seeds]
 //                              [--structural] [--no-heuristics] [--final-samples N] [--max-size N] [--wrap] [--window]
 //       Runs the (1+λ)-ES optimiser in-page for N steps (λ renders each, default 100 × 6 at 16 spp),
 //       printing progress; writes the best project JSON (also after every improvement) and a contact
@@ -115,7 +115,7 @@ async function cmdSheet(args: ReturnType<typeof parseArgs>) {
 
 type Args = ReturnType<typeof parseArgs>
 
-const TERMS = ['colour', 'spectrum', 'gradients', 'contrast', 'aligned', 'structure', 'alpha'] as const
+const TERMS = ['colour', 'spectrum', 'gradients', 'contrast', 'aligned', 'structure', 'texture', 'alpha'] as const
 
 function targetInput(file: string): TargetInput {
   const img = readPng(file)
@@ -228,6 +228,7 @@ async function cmdOptimize(args: Args) {
       lights: Boolean(args.flags.lights),
       post: Boolean(args.flags.post),
       base: Boolean(args.flags.base),
+      shading: Boolean(args.flags.shading),
       enums: Boolean(args.flags.enums),
       seeds: Boolean(args.flags.seeds),
     },

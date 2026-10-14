@@ -213,7 +213,10 @@ export function installHeadless(engine: Engine): BismithHeadless {
       const p = need()
       const t0 = performance.now()
       const img = await decodeTarget(target)
-      const matcher = new Matcher(img, { ...opts, size: opts.size ?? [p.width, p.height] })
+      // Same matcher as the Match workspace: periodic comparison for tileable projects, the VGG texture term
+      // whenever the preset weights it.
+      const matcher = new Matcher(img, { wrap: p.tileable, window: !p.tileable, ...opts, size: opts.size ?? [p.width, p.height] })
+      await attachTexture(engine, matcher, opts.wrap ?? p.tileable)
       const samples = opts.samples ?? p.render.maxSamples
       return compareResult(matcher, renderToMatchImage(engine, p, samples), samples, t0, opts.diffGain)
     },
@@ -221,10 +224,10 @@ export function installHeadless(engine: Engine): BismithHeadless {
     async optimizeStart(target, opts = {}) {
       const p = need()
       const img = await decodeTarget(target)
-      const matcher = new Matcher(img, { ...opts.metric, size: opts.metric?.size ?? [p.width, p.height] })
+      const matcher = new Matcher(img, { wrap: p.tileable, window: !p.tileable, ...opts.metric, size: opts.metric?.size ?? [p.width, p.height] })
       await attachTexture(engine, matcher, opts.metric?.wrap ?? p.tileable)
       const samples = opts.samples ?? 16
-      const optimizer = new Optimizer(p, makeEvaluator(engine, matcher, { samples }), opts)
+      const optimizer = new Optimizer(p, makeEvaluator(engine, matcher, { samples }), { target: matcher.target, ...opts })
       session = { optimizer, matcher, opts }
       const initialLoss = await optimizer.init()
       return { initialLoss, entries: optimizer.space.entries.length, width: matcher.width, height: matcher.height }

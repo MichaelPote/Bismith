@@ -11,18 +11,22 @@
 // adapted by success rate (≈1/5 rule), per-entry selection weights learnt from successes / inert
 // mutations, categorical resampling for enums (low probability), restarts around the best after
 // stagnation, and optional structural mutations (toggle a layer, change a blend mode, insert / remove a
-// layer from a small library). All randomness comes from a seeded RNG, so runs are reproducible as long
-// as `evaluate` is deterministic (fixed sample count; the path tracer is seeded by sample index).
+// layer from a small library; an inserted layer gets a few evaluations of its own tuning before it is judged).
+// All randomness comes from a seeded RNG, so runs are reproducible as long as `evaluate` is deterministic (fixed
+// sample count; the path tracer is seeded by sample index).
 
 import { linearToOklab, oklabToLinear, linearToSrgb1, srgbToLinear1, rgbToHex, hexToRgb, type RGB } from '@/core/color'
 import { isOptimizable, gradient, type Gradient, type ParamDef, type ParamValues } from '@/core/params'
 import type { Layer, Project } from '@/core/project'
 import { LIGHT_DEFS } from '@/core/lights'
+import { BASE_DEFS, PROJECT_DEFS, RENDER_DEFS } from '@/core/settingsDefs'
 import { ensureBuiltins } from '@/render/builtins'
 import { createLayer, getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry'
 import { getPostDef } from '@/render/post/registry'
 import { CRAFT_LIBRARY, conformProject, craftPrior, type Prior, type PriorQuery } from './heuristics'
 import { patternKeys } from '@/core/links'
+import { applyColourMap, colourMap } from './colourFit'
+import type { MatchImage } from './image'
 
 // ------------------------------------------------------------------------------------------------ RNG
 
@@ -61,8 +65,13 @@ export interface SpaceOptions {
   lights?: boolean
   /** Post filter params of enabled filters (default false). */
   post?: boolean
-  /** Base material colour / roughness (default false). */
+  /** Base material colour, roughness and specular (default false). */
   base?: boolean
+  /**
+   * Shading levers (default false): ambient occlusion strength and radius, specular scale and tint (render settings)
+   * and the project's height depth.
+   */
+  shading?: boolean
   /** Include enum / bool params (resampled categorically, with low probability). Default false. */
   enums?: boolean
   /** Include layer seeds (re-rolled, like enums). Default false. */
@@ -75,7 +84,7 @@ export interface SpaceOptions {
   prior?: (q: PriorQuery) => Prior | undefined
 }
 
-export type ParamScope = 'layer' | 'light' | 'post' | 'base' | 'lighting'
+export type ParamScope = 'layer' | 'light' | 'post' | 'base' | 'lighting' | 'render' | 'project'
 
 export type EntryKind = 'number' | 'color' | 'stop-color' | 'stop-pos' | 'enum' | 'seed'
 
@@ -86,9 +95,9 @@ export interface ParamEntry {
   label: string
   kind: EntryKind
   scope: ParamScope
-  /** Layer / light / post filter id ('' for base and lighting). */
+  /** Layer / light / post filter id ('' for base, lighting, render and project). */
   owner: string
-  /** Param key ('color' / 'roughness' for base, 'sky.intensity' / 'ambient.intensity' for lighting). */
+  /** Param key (e.g. 'roughness' for base, 'heightDepth' for project, 'sky.intensity' for lighting). */
   key: string
   /** Gradient stop index for stop-color / stop-pos. */
   stop?: number
@@ -246,6 +255,17 @@ function owners(project: Project, opts: SpaceOptions): Owner[] {
       out.push({ scope: 'light', id: light.id, name: light.name, defs: LIGHT_DEFS[light.type].params, params: light.params, toggles: new Map() })
     }
   }
+  if (opts.base) {
+    const defs = BASE_DEFS.filter((d) => d.key === 'color' || d.key === 'roughness' || d.key === 'specular')
+    out.push({ scope: 'base', id: '', name: 'Base', defs, params: project.base as unknown as ParamValues, toggles: new Map() })
+  }
+  if (opts.shading) {
+    // The AO radius only matters while the strength is above 0 (its showIf), so isEntryActive skips it until then.
+    const keys = new Set(['ao', 'aoRadius', 'specular', 'specularTint'])
+    out.push({ scope: 'render', id: '', name: 'Render', defs: RENDER_DEFS.filter((d) => keys.has(d.key)), params: project.render as unknown as ParamValues, toggles: new Map() })
+    const depth = PROJECT_DEFS.filter((d) => d.key === 'heightDepth')
+    out.push({ scope: 'project', id: '', name: 'Texture', defs: depth, params: project as unknown as ParamValues, toggles: new Map() })
+  }
   if (opts.post) {
     for (const f of project.post) {
       const def = getPostDef(f.type)
@@ -326,11 +346,6 @@ export function extractParams(project: Project, opts: SpaceOptions = {}): ParamS
     }
   }
 
-  if (opts.base) {
-    add({ id: 'base::color', label: 'Base › Colour', kind: 'color', scope: 'base', owner: '', key: 'color', dims: 3 }, colorToVec(project.base.color))
-    const e = { id: 'base::roughness', label: 'Base › Roughness', kind: 'number' as const, scope: 'base' as const, owner: '', key: 'roughness', dims: 1, lo: 0, hi: 1 }
-    add(e, [project.base.roughness])
-  }
   if (opts.lights) {
     const sky = { id: 'lighting::sky.intensity', label: 'Sky › Intensity', kind: 'number' as const, scope: 'lighting' as const, owner: '', key: 'sky.intensity', dims: 1, lo: 0, hi: Math.max(2, project.lighting.sky.intensity) }
     if (project.lighting.sky.enabled) add(sky, [numToX(sky as ParamEntry, project.lighting.sky.intensity)])
@@ -345,6 +360,9 @@ function findParams(p: Project, e: ParamEntry): ParamValues | null {
   if (e.scope === 'layer') return p.layers.find((l) => l.id === e.owner)?.params ?? null
   if (e.scope === 'light') return p.lighting.lights.find((l) => l.id === e.owner)?.params ?? null
   if (e.scope === 'post') return p.post.find((f) => f.id === e.owner)?.params ?? null
+  if (e.scope === 'render') return p.render as unknown as ParamValues
+  if (e.scope === 'base') return p.base as unknown as ParamValues
+  if (e.scope === 'project') return p as unknown as ParamValues
   return null
 }
 
@@ -372,11 +390,6 @@ export function applyParams(project: Project, space: ParamSpace, vector: ArrayLi
   const touched = new Set<Gradient>()
   for (const e of space.entries) {
     const v = entryValue(e, vector)
-    if (e.scope === 'base') {
-      if (e.key === 'color') p.base.color = String(v)
-      else p.base.roughness = Number(v)
-      continue
-    }
     if (e.scope === 'lighting') {
       if (e.key === 'sky.intensity') p.lighting.sky.intensity = Number(v)
       else p.lighting.ambient.intensity = Number(v)
@@ -403,7 +416,7 @@ export function applyParams(project: Project, space: ParamSpace, vector: ArrayLi
 
 /** Whether mutating the entry can change the render of `project` (its layer/channel is on, showIf passes). */
 export function isEntryActive(project: Project, e: ParamEntry): boolean {
-  if (e.scope === 'base' || e.scope === 'lighting') return true
+  if (e.scope === 'lighting') return true
   const params = findParams(project, e)
   if (!params) return false
   const def = e.def
@@ -417,6 +430,51 @@ export function isEntryActive(project: Project, e: ParamEntry): boolean {
     if (group?.toggleKey && params[group.toggleKey] !== true) return false
   }
   return true
+}
+
+// ------------------------------------------------------------------------------------------------ search order
+
+/**
+ * Search tier of an entry: 0 form (layout, lighting, height, roughness, specular, edge shaping, shading), 1 tone
+ * (diffuse amounts, value shaping, masks, post), 2 colour (colours and gradient stops).
+ */
+export function entryTier(e: ParamEntry): 0 | 1 | 2 {
+  if (e.kind === 'color' || e.kind === 'stop-color' || e.kind === 'stop-pos') return 2
+  if (e.scope === 'post') return 1
+  if (e.scope !== 'layer') return 0
+  const g = e.def?.group ?? 'params'
+  if (g === 'params' || g === 'height' || g === 'roughness' || g === 'specular') return 0
+  if (g === 'shaping' && !e.key.startsWith('sh_')) return 0 // bevel, profile, offset, warp; sh_* shape the value
+  return 1
+}
+
+/** Selection weight per tier while form only (stage 0), form + tone (1), everything (2) is open. */
+const TIER_WEIGHTS = [
+  [1, 0.2, 0.03],
+  [1, 1, 0.25],
+  [1, 1, 1],
+]
+
+/**
+ * Pattern copies that drifted apart: layers of one type and seed (copies of one pattern doing different jobs —
+ * pillow, edges, heights, colour) whose pattern params differ. Returns the differing keys per group; locked and
+ * disabled layers are left out. Copies can drift a long way (a tuning run moves each one), so any difference counts.
+ */
+export function driftedCopies(p: Project): { ids: string[]; keys: string[] }[] {
+  const groups = new Map<string, Layer[]>()
+  for (const l of p.layers) {
+    if (!l.enabled || l.locked || l.params.seed === undefined) continue
+    const k = `${l.type}\u0000${String(l.params.seed)}`
+    groups.set(k, [...(groups.get(k) ?? []), l])
+  }
+  const out: { ids: string[]; keys: string[] }[] = []
+  for (const ls of groups.values()) {
+    if (ls.length < 2) continue
+    const keys = [...patternKeys(ls[0].type)].filter((k) => k !== 'seed' && ls.every((l) => l.params[k] !== undefined))
+    const differ = keys.filter((k) => ls.some((l) => JSON.stringify(l.params[k]) !== JSON.stringify(ls[0].params[k])))
+    if (differ.length) out.push({ ids: ls.map((l) => l.id), keys: differ })
+  }
+  return out
 }
 
 // ------------------------------------------------------------------------------------------------ structure
@@ -544,6 +602,8 @@ export interface EvalResult {
   loss: number
   /** Anything the caller wants to keep with the best candidate (e.g. the MetricResult breakdown). */
   detail?: unknown
+  /** The render the loss was measured on: with `target` set, colour-fit candidates are mapped from it. */
+  image?: MatchImage
 }
 
 export type Evaluate = (project: Project) => Promise<number | EvalResult> | number | EvalResult
@@ -578,10 +638,52 @@ export interface OptimizerOptions {
   structural?: boolean
   /** Probability that a candidate is a structural mutation when enabled (default 0.1). */
   structuralRate?: number
+  /**
+   * Extra evaluations spent tuning a freshly inserted layer (its own params only) before it is judged against the
+   * parent (default 3; 0 = judge it as inserted). A new layer at its template values almost never beats a parent
+   * whose params have been tuned for many steps, so without this inserts are rejected before they can be tuned.
+   */
+  incubation?: number
+  /**
+   * Loss a layer must save to be inserted, and may cost when removed (default 0.003): without it every insert whose
+   * tuned version happens to be a hair better is kept, and the stack fills to `maxLayers` with layers that do little.
+   */
+  layerCost?: number
   /** Layer library for insertions (default DEFAULT_LIBRARY; types that aren't registered are skipped). */
   library?: LayerTemplate[]
   /** Never grow the stack beyond this many layers (default: initial count + 3). */
   maxLayers?: number
+  /**
+   * Search in order (default true): form first — layout, lighting, height, roughness, specular, shading — then tone
+   * (diffuse amounts, value shaping, masks), then colour (colours and ramp stops). The next tier opens when the
+   * search stalls (where it would otherwise restart), so colour ramps aren't bent to make up for light and form.
+   */
+  ordered?: boolean
+  /**
+   * Probability that a step sweeps one parameter: its λ candidates spread over the parameter's range (or a window
+   * around its value), a coarse line search that steps over the local dips small mutations get stuck in. Default 0.2.
+   */
+  sweepRate?: number
+  /**
+   * Probability that a step estimates a gradient (default 0.15): a few active numeric parameters (`gradientSize`,
+   * default 8) move together by ±½σ (two candidates, SPSA), then two more candidates step along the estimate. It finds
+   * the correlated moves single-parameter mutations miss (light elevation against height depth against AO).
+   */
+  gradientRate?: number
+  gradientSize?: number
+  /**
+   * Probability that a candidate re-aligns drifted pattern copies (see driftedCopies) to one member's pattern;
+   * aligned copies are then tuned together. Default 0.05.
+   */
+  relinkRate?: number
+  /**
+   * The reference (as compared). With it, and renders returned by `evaluate`, a candidate may refit the parent's
+   * colours to the reference's distribution (colourFit.ts: a moments or quantile map at a random strength) — one
+   * principled move for every colour instead of many random ramp tweaks.
+   */
+  target?: MatchImage
+  /** Probability that a candidate is a colour fit, when `target` is set (default 0.08). */
+  colourFitRate?: number
   /** What to optimise (see SpaceOptions). */
   space?: SpaceOptions
   /**
@@ -617,6 +719,16 @@ export interface StepInfo {
   /** Island (chain) this step worked on, and how many are still alive. */
   island: number
   islands: number
+  /** Search tiers open (ordered search): 0 form, 1 form + tone, 2 everything. */
+  stage: number
+  /** The step opened the next tier instead of restarting. */
+  opened: boolean
+  /** Label of the entry this step swept, if it was a sweep step. */
+  sweep: string | null
+  /** Kind of move behind each candidate of the step, and of the accepted one (mutate, momentum, sweep, gradient,
+   *  colour, align, structural). */
+  moves: string[]
+  move: string | null
   ms: number
 }
 
@@ -649,6 +761,16 @@ interface Candidate {
   detail?: unknown
   mutated: ParamEntry[]
   structural: string | null
+  /** Id of the layer a structural insert added (tuned by incubate() before it is judged). */
+  inserted?: string
+  /** A structural removal (judged with the layer cost credited). */
+  removed?: boolean
+  /** Part of a sweep: its value was placed across the range, so it says nothing about the step size. */
+  sweep?: boolean
+  /** Its render, when the evaluator returns one (for colour fits). */
+  image?: MatchImage
+  /** Kind of move that made it (see StepInfo.moves). */
+  move?: string
 }
 
 export interface OptimizerBest {
@@ -660,11 +782,12 @@ export interface OptimizerBest {
 }
 
 export class Optimizer {
-  readonly opts: Required<Omit<OptimizerOptions, 'space' | 'library' | 'maxLayers' | 'heuristics'>> & {
+  readonly opts: Required<Omit<OptimizerOptions, 'space' | 'library' | 'maxLayers' | 'heuristics' | 'target'>> & {
     heuristics: boolean
     space: SpaceOptions
     library: LayerTemplate[]
     maxLayers: number
+    target: MatchImage | null
   }
   readonly history: StepInfo[] = []
   evaluations = 0
@@ -676,6 +799,8 @@ export class Optimizer {
   private stats = new Map<string, EntryStats>()
   private stepCount = 0
   private inserted = new Set<string>()
+  /** Search tiers open (see OptimizerOptions.ordered). */
+  private stage = 0
   /** Independent chains (successive halving: the worse half is dropped every `islandSteps` rounds). */
   private islands: Island[]
   /** The island the last / current step works on. */
@@ -725,6 +850,15 @@ export class Optimizer {
       minImprovement: opts.minImprovement ?? 0.002,
       structural: opts.structural ?? false,
       structuralRate: opts.structuralRate ?? 0.1,
+      incubation: Math.max(0, Math.round(opts.incubation ?? 3)),
+      layerCost: Math.max(0, opts.layerCost ?? 0.003),
+      ordered: opts.ordered ?? true,
+      sweepRate: opts.sweepRate ?? 0.2,
+      relinkRate: opts.relinkRate ?? 0.05,
+      gradientRate: opts.gradientRate ?? 0.15,
+      gradientSize: Math.max(2, Math.round(opts.gradientSize ?? 8)),
+      target: opts.target ?? null,
+      colourFitRate: opts.colourFitRate ?? 0.08,
       heuristics: opts.heuristics ?? true,
       space: opts.heuristics === false ? (opts.space ?? {}) : { prior: craftPrior, ...(opts.space ?? {}) },
       library: opts.library ?? (opts.heuristics === false ? DEFAULT_LIBRARY : CRAFT_LIBRARY),
@@ -796,44 +930,70 @@ export class Optimizer {
     this.stepCount++
     this.nextIsland()
     let restarted = false
+    let opened = false
     if (this.stagnation >= this.opts.restartAfter) {
-      await this.restart()
-      restarted = true
+      if (this.opts.ordered && this.stage < 2) {
+        // Stalled on the open tiers: open the next one rather than restarting.
+        this.stage++
+        this.stagnation = 0
+        opened = true
+      } else {
+        await this.restart()
+        restarted = true
+      }
     }
     const parent = this.parent
     const candidates: Candidate[] = []
     const momentum = this.opts.momentum ? this.momentumCandidate(parent) : null
     this.lastDelta = null
-    for (let i = 0; i < this.opts.lambda; i++) {
-      const structural =
-        !(i === 0 && momentum) && this.opts.structural && this.rng.next() < this.opts.structuralRate ? this.structuralCandidate(parent) : null
-      const c = i === 0 && momentum ? momentum : (structural ?? this.mutateCandidate(parent))
-      if (!c) continue
-      await this.score(c)
-      candidates.push(c)
+    const sweep = this.rng.next() < this.opts.sweepRate ? this.sweepCandidates(parent) : null
+    const gradient = !sweep && this.rng.next() < this.opts.gradientRate ? await this.gradientCandidates(parent) : null
+    if (sweep) {
+      for (const c of sweep) {
+        await this.score(c)
+        candidates.push(c)
+      }
+    } else if (gradient) {
+      candidates.push(...gradient)
+    } else {
+      for (let i = 0; i < this.opts.lambda; i++) {
+        let c: Candidate | null = null
+        if (i === 0 && momentum) c = momentum
+        else if (this.opts.structural && this.rng.next() < this.opts.structuralRate) c = this.structuralCandidate(parent)
+        else if (this.rng.next() < this.opts.relinkRate) c = this.relinkCandidate(parent)
+        else if (this.opts.target && this.rng.next() < this.opts.colourFitRate) c = this.colourFitCandidate(parent)
+        c ??= this.mutateCandidate(parent)
+        if (!c) continue
+        await this.score(c)
+        if (c.inserted) c = await this.incubate(c, [c.inserted], this.opts.incubation, 0.25)
+        candidates.push(c)
+      }
     }
 
     // Step-size / selection-weight adaptation.
     for (const c of candidates) {
       for (const e of c.mutated) {
         const s = this.stat(e)
+        const k = c.sweep ? 1 : 0 // sweeps place values across the range: count them, but leave σ alone
         if (c.loss < parent.loss) {
           s.success++
-          s.sigma = Math.min(0.5, s.sigma * 1.5)
+          s.sigma = Math.min(0.5, s.sigma * (k ? 1 : 1.5))
         } else if (c.loss === parent.loss) {
           // Inert (hidden, quantised or position-only under a texture metric): try bigger steps, pick less.
           s.neutral++
-          s.sigma = Math.min(0.5, s.sigma * 1.25)
+          s.sigma = Math.min(0.5, s.sigma * (k ? 1 : 1.25))
         } else {
           s.fail++
-          s.sigma = Math.max(0.004, s.sigma * 0.9)
+          s.sigma = Math.max(0.004, s.sigma * (k ? 1 : 0.9))
         }
       }
     }
 
+    // Selection: inserts pay the layer cost, removals are credited it (the reported losses stay as measured).
+    const judged = (c: Candidate) => c.loss + (c.inserted ? this.opts.layerCost : 0) - (c.removed ? this.opts.layerCost : 0)
     let winner: Candidate | null = null
-    for (const c of candidates) if (!winner || c.loss < winner.loss) winner = c
-    const accepted = !!winner && winner.loss <= parent.loss
+    for (const c of candidates) if (!winner || judged(c) < judged(winner)) winner = c
+    const accepted = !!winner && judged(winner) <= parent.loss
     let improved = false
     if (winner && accepted) {
       if (winner.loss < parent.loss) {
@@ -871,6 +1031,11 @@ export class Optimizer {
       meanSigma: this.meanSigma(),
       island: this.isl.id,
       islands: this.islands.length,
+      stage: this.opts.ordered ? this.stage : 2,
+      opened,
+      sweep: sweep?.[0]?.mutated[0]?.label ?? null,
+      moves: candidates.map((c) => c.move ?? '?'),
+      move: accepted ? (winner!.move ?? null) : null,
       ms: performance.now() - t0,
     }
     this.history.push(info)
@@ -948,6 +1113,7 @@ export class Optimizer {
       else {
         c.loss = r.loss
         c.detail = r.detail
+        c.image = r.image
       }
       if (!Number.isFinite(c.loss)) c.loss = Infinity
     } catch (err) {
@@ -961,12 +1127,13 @@ export class Optimizer {
     let w = (1 + s.success) / (1 + 0.15 * s.fail + 0.5 * s.neutral)
     if (e.kind === 'enum' || e.kind === 'seed') w *= this.opts.enumWeight
     else if (e.dormant && s.success === 0) w *= this.opts.dormantWeight
-    return Math.max(0.02, w)
+    w = Math.max(0.02, w)
+    return this.opts.ordered ? w * TIER_WEIGHTS[this.stage][entryTier(e)] : w
   }
 
-  /** Pick k distinct active entries, weighted. */
-  private pickEntries(parent: Candidate, k: number): ParamEntry[] {
-    const pool = parent.space.entries.filter((e) => isEntryActive(parent.project, e))
+  /** Pick k distinct active entries (passing `only`), weighted. */
+  private pickEntries(parent: Candidate, k: number, only?: (e: ParamEntry) => boolean): ParamEntry[] {
+    const pool = parent.space.entries.filter((e) => isEntryActive(parent.project, e) && (!only || only(e)))
     const chosen: ParamEntry[] = []
     const weights = pool.map((e) => this.weight(e))
     for (let n = 0; n < k && pool.length; n++) {
@@ -1034,6 +1201,7 @@ export class Optimizer {
       loss: Infinity,
       mutated: picked,
       structural: null,
+      move: 'mutate',
     }
   }
 
@@ -1056,6 +1224,7 @@ export class Optimizer {
       loss: Infinity,
       mutated: d.entries,
       structural: null,
+      move: 'momentum',
     }
   }
 
@@ -1072,6 +1241,8 @@ export class Optimizer {
     if (!kinds.length) return null
     const kind = this.rng.pick(kinds)
     let desc = ''
+    let inserted: string | undefined
+    let removed = false
     if (kind === 'toggle') {
       const enabledCount = all.filter((l) => l.enabled).length
       const choices = unlocked.filter((l) => !l.enabled || enabledCount > 1)
@@ -1097,14 +1268,162 @@ export class Optimizer {
       list.splice(Math.min(at, list.length), 0, layer)
       desc = `insert "${t.name}" (${t.type}) as ${t.stack ?? 'paint'} at ${at}`
       this.inserted.add(layer.id)
+      inserted = layer.id
     } else {
       const l = this.rng.pick(all.filter((x) => this.inserted.has(x.id)))
       proj.layers = proj.layers.filter((x) => x !== l)
       desc = `remove "${l.name}"`
+      removed = true
     }
     const conformed = this.opts.heuristics ? conformProject(proj).project : proj
     const space = extractParams(conformed, this.opts.space)
-    return { project: conformed, base: conformed, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc }
+    return { project: conformed, base: conformed, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc, inserted, removed, move: 'structural' }
+  }
+
+  /**
+   * Tune a fresh change for a few evaluations — only the numbers of the layers it concerns (`owners`), at step size
+   * `sigma` — and return the best version (the change itself when nothing beats it). An inserted layer is then judged
+   * by what it can do rather than by its template values.
+   */
+  private async incubate(c: Candidate, owners: string[], rounds: number, sigma: number): Promise<Candidate> {
+    const own = c.space.entries.filter((e) => owners.includes(e.owner) && e.kind === 'number' && isEntryActive(c.project, e))
+    let best = c
+    for (let n = 0; n < rounds && own.length; n++) {
+      const vector = Float64Array.from(best.vector)
+      const k = Math.min(own.length, 1 + this.rng.int(2))
+      const pool = [...own]
+      for (let j = 0; j < k; j++) this.mutateEntry(vector, pool.splice(this.rng.int(pool.length), 1)[0], sigma)
+      const v: Candidate = { ...c, project: this.build(c.base, c.space, vector), vector, loss: Infinity }
+      await this.score(v)
+      if (v.loss < best.loss) best = v
+    }
+    return best
+  }
+
+  /**
+   * One parameter at λ values spread over its range — or, half the time, over a window around its value — the rest
+   * unchanged: a coarse line search. Integers with few values try each other value; enums try other options; seeds
+   * try λ new seeds (for a pattern, λ layouts).
+   */
+  private sweepCandidates(parent: Candidate): Candidate[] | null {
+    const [e] = this.pickEntries(parent, 1, (x) => x.kind !== 'color' && x.kind !== 'stop-color')
+    if (!e) return null
+    const n = this.opts.lambda
+    const o = e.offset
+    const cur = parent.vector[o]
+    let xs: number[]
+    if (e.kind === 'enum') {
+      const others = e.options!.map((_, i) => i).filter((i) => i !== Math.round(cur))
+      xs = []
+      while (others.length && xs.length < n) xs.push(others.splice(this.rng.int(others.length), 1)[0])
+    } else if (e.kind === 'seed') {
+      xs = Array.from({ length: n }, () => 1 + this.rng.int(99998))
+    } else {
+      const local = this.rng.next() < 0.5
+      const lo = local ? Math.max(0, cur - 0.15) : 0
+      const hi = local ? Math.min(1, cur + 0.15) : 1
+      xs = Array.from({ length: n }, (_, i) => lo + ((i + this.rng.next()) / n) * (hi - lo))
+      if (e.int) {
+        // Distinct integer values other than the current one.
+        const seen = new Set([entryValue(e, parent.vector)])
+        const vals: number[] = []
+        const v = Float64Array.from(parent.vector)
+        for (const x of xs) {
+          v[o] = x
+          const iv = entryValue(e, v)
+          if (seen.has(iv)) continue
+          seen.add(iv)
+          vals.push(x)
+        }
+        xs = vals
+      }
+    }
+    if (!xs.length) return null
+    return xs.map((x) => {
+      const vector = Float64Array.from(parent.vector)
+      vector[o] = x
+      return { project: this.build(parent.base, parent.space, vector), base: parent.base, space: parent.space, vector, loss: Infinity, mutated: [e], structural: null, sweep: true, move: 'sweep' }
+    })
+  }
+
+  /**
+   * SPSA: perturb k active numeric entries together by ±½σᵢ (random signs), score both, estimate the gradient, then
+   * step along it by one and two σ-scaled units. Returns the four scored candidates (null when < 2 entries apply).
+   */
+  private async gradientCandidates(parent: Candidate): Promise<Candidate[] | null> {
+    const es = this.pickEntries(parent, this.opts.gradientSize, (e) => e.kind === 'number' || e.kind === 'stop-pos').filter((e) => !e.int)
+    if (es.length < 2) return null
+    const signs = es.map(() => (this.rng.next() < 0.5 ? -1 : 1))
+    const make = (f: (e: ParamEntry, i: number) => number): Candidate => {
+      const vector = Float64Array.from(parent.vector)
+      es.forEach((e, i) => {
+        const x = vector[e.offset] + f(e, i)
+        vector[e.offset] = e.wrap ? ((x % 1) + 1) % 1 : reflect01(x)
+      })
+      return { project: this.build(parent.base, parent.space, vector), base: parent.base, space: parent.space, vector, loss: Infinity, mutated: es, structural: null, sweep: true, move: 'gradient' }
+    }
+    const h = (e: ParamEntry) => 0.5 * this.stat(e).sigma
+    const plus = make((e, i) => signs[i] * h(e))
+    const minus = make((e, i) => -signs[i] * h(e))
+    await this.score(plus)
+    await this.score(minus)
+    const out = [plus, minus]
+    const d = plus.loss - minus.loss
+    if (Number.isFinite(d) && d !== 0) {
+      // Step against the estimated slope: per entry −sign(gᵢ)·σᵢ (unit-free, so one loss scale fits every entry).
+      for (const k of [1, 2]) {
+        const c = make((e, i) => -Math.sign(d) * signs[i] * k * this.stat(e).sigma)
+        await this.score(c)
+        out.push(c)
+      }
+    }
+    return out
+  }
+
+  /**
+   * The parent's colours mapped towards the reference's distribution (see OptimizerOptions.target). Every colour at
+   * once: mapping one layer's or the lightness only was tried and lost on long runs.
+   */
+  private colourFitCandidate(parent: Candidate): Candidate | null {
+    if (!this.opts.target || !parent.image || this.opts.space.layers === false) return null
+    const mode = this.rng.next() < 0.5 ? 'moments' : 'quantile'
+    const strength = 0.4 + 0.6 * this.rng.next()
+    const proj: Project = JSON.parse(JSON.stringify(parent.project))
+    applyColourMap(proj, colourMap(parent.image, this.opts.target, strength, mode))
+    const conformed = this.opts.heuristics ? conformProject(proj).project : proj
+    const space = extractParams(conformed, this.opts.space)
+    const desc = `fit colours (${mode}, ${strength.toFixed(2)})`
+    return { project: conformed, base: conformed, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc, move: 'colour' }
+  }
+
+  /**
+   * Re-align a drifted pattern copy (see driftedCopies) to another: all the keys they differ in, or half the time a
+   * random half of them. Small moves, so each can be judged; copies converge only as far as the loss wants.
+   */
+  private relinkCandidate(parent: Candidate): Candidate | null {
+    const groups = driftedCopies(parent.project)
+    if (!groups.length) return null
+    const g = this.rng.pick(groups)
+    const proj: Project = JSON.parse(JSON.stringify(parent.project))
+    const members = proj.layers.filter((l) => g.ids.includes(l.id))
+    const donor = this.rng.pick(members)
+    const same = (k: string, l: Layer) => JSON.stringify(l.params[k]) === JSON.stringify(donor.params[k])
+    const targets = members.filter((l) => l !== donor && g.keys.some((k) => !same(k, l)))
+    if (!targets.length) return null
+    const target = this.rng.pick(targets)
+    let keys = g.keys.filter((k) => !same(k, target))
+    if (keys.length > 1 && this.rng.next() < 0.5) {
+      for (let i = keys.length - 1; i > 0; i--) {
+        const j = this.rng.int(i + 1)
+        ;[keys[i], keys[j]] = [keys[j], keys[i]]
+      }
+      keys = keys.slice(0, Math.ceil(keys.length / 2))
+    }
+    for (const k of keys) target.params[k] = JSON.parse(JSON.stringify(donor.params[k]))
+    const conformed = this.opts.heuristics ? conformProject(proj).project : proj
+    const space = extractParams(conformed, this.opts.space)
+    const desc = `align ${keys.join(', ')} of "${target.name}" to "${donor.name}"`
+    return { project: conformed, base: conformed, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc, move: 'align' }
   }
 
   private async restart(): Promise<void> {

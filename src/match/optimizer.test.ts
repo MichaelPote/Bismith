@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createLayer, createProject, normalizeProject } from '@/core/serialize'
 import type { Gradient } from '@/core/params'
+import { hexToRgb } from '@/core/color'
+import { createImage } from './image'
 import type { Project } from '@/core/project'
-import { Optimizer, RunLimits, applyParams, entryValue, extractParams, isEntryActive, type ParamSpace } from './optimizer'
+import { Optimizer, RunLimits, applyParams, driftedCopies, entryTier, entryValue, extractParams, isEntryActive, type ParamSpace } from './optimizer'
 
 const EXAMPLE = {
   width: 64,
@@ -118,6 +120,24 @@ describe('parameter space', () => {
     expect(isEntryActive(applyParams(p, space, v), byId(space, 'layer:noise1:warp_scale'))).toBe(true)
   })
 
+  it('offers ambient occlusion as a lever: the strength always, the radius once occlusion is on', () => {
+    const p = project()
+    expect(extractParams(p).entries.some((e) => e.scope === 'render')).toBe(false)
+    const space = extractParams(p, { shading: true })
+    const ao = byId(space, 'render::ao')
+    const radius = byId(space, 'render::aoRadius')
+    expect(ao.lo).toBe(0)
+    expect(ao.dormant).toBe(true) // off: switching it on is picked less often until it helps
+    expect(isEntryActive(p, ao)).toBe(true)
+    expect(isEntryActive(p, radius)).toBe(false)
+    const v = Float64Array.from(space.initial)
+    v[ao.offset] = 0.5
+    const q = applyParams(p, space, v)
+    expect(q.render.ao).toBeGreaterThan(0)
+    expect(p.render.ao).toBe(0)
+    expect(isEntryActive(q, radius)).toBe(true)
+  })
+
   it('ties the pattern params of same-type, same-seed copies and writes them together', () => {
     const shape = { columns: 4, rows: 8, mortar: 0.5, seed: 6 }
     const p = createProject({
@@ -183,7 +203,8 @@ describe('Optimizer', () => {
     console.log(`synthetic loss ${a.l0.toFixed(3)} → ${a.opt.best.loss.toFixed(3)}`)
     expect(a.opt.best.loss).toBeLessThan(a.l0 * 0.35)
     expect(a.opt.history.length).toBe(150)
-    expect(a.opt.evaluations).toBeGreaterThanOrEqual(1 + 150 * 4)
+    // λ per step, except sweeps of an integer with fewer other values than λ.
+    expect(a.opt.evaluations).toBeGreaterThan(150 * 3)
     const curve = a.opt.lossCurve
     for (let i = 1; i < curve.length; i++) expect(curve[i]).toBeLessThanOrEqual(curve[i - 1])
     const b = await run(3)
@@ -204,27 +225,139 @@ describe('Optimizer', () => {
     expect(JSON.stringify(rect)).toBe(JSON.stringify(p.layers[1]))
   })
 
-  it('restarts after stagnation and reports it', async () => {
+  it('opens the next search tier at each stall, then restarts, and reports both', async () => {
     const opt = new Optimizer(project(), () => 1, { seed: 2, restartAfter: 3 })
-    const steps = await opt.run(10)
-    expect(steps.some((s) => s.restarted)).toBe(true)
+    const steps = await opt.run(16)
+    expect(steps.filter((s) => s.opened).map((s) => s.stage)).toEqual([1, 2])
+    const firstRestart = steps.findIndex((s) => s.restarted)
+    expect(firstRestart).toBeGreaterThan(steps.findIndex((s) => s.stage === 2))
     // Neutral moves are accepted (drift) but never count as improvements.
     expect(steps.every((s) => !s.improved)).toBe(true)
   })
 
   it('applies structural mutations when they help', async () => {
-    // Loss rewards an extra enabled noise layer and a "multiply" blend on the bottom layer.
+    // Loss rewards an extra enabled layer and a "multiply" blend on the noise layer (found by id: relief snippets
+    // are inserted beneath it).
     const loss = (p: Project) => {
       const enabled = p.layers.filter((l) => l.enabled)
       let s = Math.abs(enabled.length - 3)
-      if (p.layers[0].params.dif_blend !== 'multiply') s += 0.5
+      if (p.layers.find((l) => l.id === 'noise1')!.params.dif_blend !== 'multiply') s += 0.5
       return s
     }
     const opt = new Optimizer(project(), loss, { seed: 5, structural: true, structuralRate: 0.5 })
-    await opt.run(60)
+    await opt.run(100)
     expect(opt.best.loss).toBe(0)
     expect(opt.history.some((h) => h.structural)).toBe(true)
     expect(opt.best.project.layers.length).toBeLessThanOrEqual(5)
+  })
+
+  it('tunes an inserted layer before judging it', async () => {
+    // The probe hurts at its template opacity and helps once that is tuned at all; nothing else matters.
+    const loss = (p: Project) => {
+      const probe = p.layers.find((l) => l.name === 'Probe' && l.enabled)
+      return !probe ? 1 : Math.abs(Number(probe.params.dif_opacity) - 0.9) < 0.01 ? 2 : 0.5
+    }
+    const opts = {
+      seed: 4,
+      lambda: 2,
+      structural: true,
+      structuralRate: 1,
+      heuristics: false,
+      library: [{ type: 'noise', name: 'Probe', params: { noise: 'perlin', dif_on: true, dif_opacity: 0.9 } }],
+      space: { filter: (e: { key: string }) => e.key === 'dif_opacity' },
+    }
+    const judgedAsInserted = new Optimizer(project(), loss, { ...opts, incubation: 0 })
+    await judgedAsInserted.run(20)
+    expect(judgedAsInserted.history.some((h) => h.structural?.startsWith('insert'))).toBe(false)
+    expect(judgedAsInserted.best.loss).toBe(1)
+    const incubated = new Optimizer(project(), loss, opts)
+    await incubated.run(20)
+    expect(incubated.history.some((h) => h.structural?.startsWith('insert'))).toBe(true)
+    expect(incubated.best.loss).toBe(0.5)
+  })
+
+  it('finds drifted pattern copies and re-aligns them when that helps', async () => {
+    const copy = (name: string, over: Record<string, unknown>) => ({ ...createLayer('bricks', { columns: 4, rows: 8, mortar: 1, seed: 6, ...over }), name })
+    const p = normalizeProject({
+      width: 64,
+      height: 64,
+      layers: [copy('Pillow', {}), copy('Edges', { columns: 5, mortar: 2 }), copy('Colour', { rows: 6 }), { ...createLayer('bricks', { seed: 9 }), name: 'Other' }],
+    })
+    const drifted = driftedCopies(p)
+    expect(drifted).toHaveLength(1) // the seed-9 layer is no copy
+    expect(drifted[0].keys.sort()).toEqual(['columns', 'mortar', 'rows'])
+    // Loss: how far the copies' layouts are from agreeing.
+    const loss = (q: Project) => {
+      const ls = q.layers.filter((l) => l.params.seed === 6)
+      return ['columns', 'rows'].reduce((s, k) => s + new Set(ls.map((l) => l.params[k])).size - 1, 0)
+    }
+    const opt = new Optimizer(p, loss, { seed: 2, relinkRate: 0.5, sweepRate: 0, heuristics: false })
+    await opt.run(40)
+    expect(opt.best.loss).toBe(0)
+    expect(opt.history.some((h) => h.structural?.startsWith('align'))).toBe(true)
+  })
+
+  it('searches form before tone before colour', () => {
+    const space = extractParams(project(), { base: true, shading: true, lights: true })
+    const tier = (id: string) => entryTier(byId(space, id))
+    expect(tier('layer:noise1:scale')).toBe(0) // pattern
+    expect(tier('layer:noise1:h_amount')).toBe(0) // height
+    expect(tier('light:sun:azimuth')).toBe(0)
+    expect(tier('render::ao')).toBe(0)
+    expect(tier('project::heightDepth')).toBe(0)
+    expect(tier('layer:noise1:dif_opacity')).toBe(1) // a diffuse amount
+    expect(tier('layer:noise1:dif_grad:1:color')).toBe(2)
+    expect(tier('base::color')).toBe(2)
+  })
+
+  it('sweeps step over local dips to a far, narrow basin', async () => {
+    // A shallow local minimum at the start (scale 4) and a better, narrow basin around scale 30.
+    const loss = (p: Project) => {
+      const sc = Number(p.layers[0].params.scale)
+      return Math.min(0.5 + 0.01 * Math.abs(sc - 4), Math.abs(sc - 30) / 30)
+    }
+    const opt = new Optimizer(project(), loss, { seed: 3, sweepRate: 0.5, heuristics: false, space: { filter: (e) => e.id === 'layer:noise1:scale' } })
+    await opt.run(40)
+    expect(opt.history.some((h) => h.sweep === 'Noise › Scale' && h.improved)).toBe(true)
+    expect(Number(opt.best.project.layers[0].params.scale)).toBeGreaterThan(20)
+    expect(opt.best.loss).toBeLessThan(0.3)
+  })
+
+  it('takes gradient steps along correlated directions', async () => {
+    const loss = syntheticLoss()
+    const opt = new Optimizer(project(), loss, { seed: 4, gradientRate: 1, sweepRate: 0, heuristics: false })
+    const l0 = await opt.init()
+    await opt.run(30)
+    expect(opt.history.every((h) => h.moves.includes('gradient'))).toBe(true)
+    expect(opt.history.some((h) => h.move === 'gradient')).toBe(true)
+    expect(opt.best.loss).toBeLessThan(l0)
+  })
+
+  it('fits colours to the reference as one move when colour entries are out of the search', async () => {
+    // The "render" is the noise layer's first ramp colour; the reference is one brown.
+    const brown: [number, number, number, number] = [0.45, 0.25, 0.1, 1]
+    const target = createImage(16, 16, brown)
+    const render = (p: Project) => {
+      const g = p.layers[0].params.dif_grad as Gradient
+      const [r, gr, b] = hexToRgb(g.stops[0].color)
+      return createImage(16, 16, [r, gr, b, 1])
+    }
+    const evaluate = (p: Project) => {
+      const img = render(p)
+      const d = Math.hypot(img.data[0] - brown[0], img.data[1] - brown[1], img.data[2] - brown[2])
+      return { loss: d, image: img }
+    }
+    const opt = new Optimizer(project(), evaluate, {
+      seed: 2,
+      target,
+      colourFitRate: 0.5,
+      heuristics: false,
+      space: { filter: (e) => e.kind !== 'stop-color' && e.kind !== 'color' },
+    })
+    const l0 = await opt.init()
+    await opt.run(20)
+    expect(opt.history.some((h) => h.move === 'colour')).toBe(true)
+    expect(opt.best.loss).toBeLessThan(l0 * 0.2)
   })
 
   it('runs islands with successive halving', async () => {

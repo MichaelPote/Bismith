@@ -20,7 +20,7 @@ matching starts from, and stays within, what reads right.
    | `domain-warp` | Bricks wobble → whole-pattern domain warp | wobble makes joints wide and narrow; warp keeps their width |
    | `no-tent` | bricks / Voronoi cells / hex with a steady profile (linear, smooth, round) whose bevel ≥ ½ the feature half-size → custom curve (steep edge, slow rise) | wide steady bevels tent up in the middle |
    | `tinted-glints` | specular in use → tint ≥ 0.6 | highlights enrich the colour, not grey it |
-   | `ao-for-joints` | tight joints (mortar / gap ≤ 1 px) → AO ≥ 0.8 | touching stones separate through occlusion, not wide mortar |
+   | `ao-for-joints` | tight joints (mortar / gap ≤ 1 px) → AO ≥ 0.8 (the AO lever then searches from 0.8 up) | touching stones separate through occlusion, not wide mortar |
    | `ledge-grid` | relief-driven Drips → source cells ≤ 3 px | every ledge (each rivet) must get candidates |
    | `painted-light` | a game palette (quake / doom) present → cast shadows off | palettised game textures are hand-painted |
 2. **Search-space priors** — `craftPrior` plugs into the new `SpaceOptions.prior` hook of `extractParams`

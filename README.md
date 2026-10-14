@@ -58,7 +58,9 @@ npx tsx tools/harness.ts sheet harness-out/sheet.png a.png b.png --scale 3
 ```
 
 Other tools: `npx tsx tools/smoke.ts` (compile + render every layer/post type), `npx tsx tools/presets.ts`
-(render every preset to a contact sheet), `npx tsx tools/shot.ts out.png --eval "…"` (screenshot the editor).
+(render every preset to a contact sheet), `npx tsx tools/shot.ts out.png --eval "…"` (screenshot the editor),
+`npx tsx tools/matchbench.ts pairs.json strategy.json --seeds 3` (benchmark the Match optimiser on reference pairs,
+scored under the Tile and Texture presets).
 
 See [`docs/features/fr6.2-headless-harness.md`](docs/features/fr6.2-headless-harness.md) for `compare` and
 `optimize`. On machines without the NSS libraries Chromium needs (and without root), unpack them locally:
