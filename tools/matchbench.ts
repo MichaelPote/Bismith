@@ -2,7 +2,8 @@
 // does, and score each best result under both the Tile and the Texture preset.
 //
 //   npx tsx tools/matchbench.ts <pairs.json> <strategy.json> [--label NAME] [--out DIR] [--workers N]
-//                               [--backend windows|swiftshader] [--only REGEX] [--seeds N]
+//                               [--backend windows|swiftshader] [--only REGEX] [--seeds N] [--compare BASELINE]
+//   npx tsx tools/matchbench.ts --report <results.jsonl> <baseline label> <label…>
 //
 // pairs.json:    { "pairs": [{ "name": "wall", "project": "start.json", "reference": "ref.png" }, …] }  (paths relative
 //                to the file)
@@ -12,9 +13,12 @@
 // Every pair runs with seeds 1..N (default 1) — single runs are noisy, compare means. Runs are spread over the
 // workers. Per run it writes <out>/<label>/<name>-s<seed>.json (best project) and .png ([reference | start | best |
 // diff]), and appends one line per run to <out>/results.jsonl; the table shows the mean over seeds per pair.
+// --compare (or --report, without running) prints the paired difference to a baseline label: the mean over the
+// (pair, seed) runs both have, ± its standard error — strategies differ by less than seeds do, so only paired
+// differences tell them apart.
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, extname, join, resolve } from 'node:path'
 import { openSession, type BackendKind } from './backend'
 import { contactSheet, decodePng, readPng, writePng, type Rgba8 } from './png'
 import type { HeadlessCompareResult, HeadlessOptimizeOptions, HeadlessOptimizeStart, TargetInput } from '../src/headless'
@@ -39,6 +43,47 @@ interface Scores {
 }
 
 const args = process.argv.slice(2)
+
+interface Row {
+  label: string
+  name: string
+  seed?: number
+  best: Scores
+}
+
+/** Paired differences of `labels` to `baseline`: mean ± s.e. of Δtile, Δtexture and their sum, and per pair. */
+function report(rows: Row[], baseline: string, labels: string[]): void {
+  const key = (r: Row) => `${r.name}\u0000${r.seed ?? 1}`
+  const base = new Map(rows.filter((r) => r.label === baseline).map((r) => [key(r), r]))
+  const stat = (xs: number[]) => {
+    const m = xs.reduce((a, b) => a + b, 0) / xs.length
+    const se = xs.length > 1 ? Math.sqrt(xs.reduce((a, x) => a + (x - m) ** 2, 0) / (xs.length - 1) / xs.length) : 0
+    return `${m >= 0 ? '+' : ''}${m.toFixed(4)}±${se.toFixed(4)}`
+  }
+  console.log(`\npaired vs ${baseline} (negative = better)`)
+  for (const label of labels) {
+    const d = rows.filter((r) => r.label === label && base.has(key(r))).map((r) => ({ r, b: base.get(key(r))! }))
+    if (!d.length) {
+      console.log(`  ${label}: no runs in common`)
+      continue
+    }
+    const dt = d.map(({ r, b }) => r.best.tile - b.best.tile)
+    const dx = d.map(({ r, b }) => r.best.texture - b.best.texture)
+    console.log(`  ${label.padEnd(28)} n=${String(d.length).padStart(3)}  Δtile ${stat(dt)}  Δtex ${stat(dx)}  Δsum ${stat(dt.map((v, i) => v + dx[i]))}`)
+    const pairs = [...new Set(d.map(({ r }) => r.name))]
+    const per = pairs.map((p) => {
+      const xs = d.filter(({ r }) => r.name === p).map(({ r, b }) => r.best.tile + r.best.texture - b.best.tile - b.best.texture)
+      return `${p} ${(xs.reduce((a, b) => a + b, 0) / xs.length >= 0 ? '+' : '')}${(xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(3)}`
+    })
+    console.log(`      per pair Δsum: ${per.join(' · ')}`)
+  }
+}
+
+if (args[0] === '--report') {
+  const rows: Row[] = readFileSync(resolve(args[1]), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  report(rows, args[2], args.slice(3))
+  process.exit(0)
+}
 const flag = (n: string) => {
   const i = args.indexOf(`--${n}`)
   return i >= 0 ? args[i + 1] : undefined
@@ -54,7 +99,13 @@ const pairs = spec.pairs.filter((p) => !only || only.test(p.name))
 const samples = strategy.samples ?? 16
 const seeds = Number(flag('seeds') ?? 1)
 
+/** PNGs are decoded here (exact 8-bit); other formats (JPEG, WebP) go to the page as data URLs, decoded there. */
 function target(file: string): TargetInput {
+  const ext = extname(file).toLowerCase()
+  if (ext !== '.png') {
+    const type = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : `image/${ext.slice(1)}`
+    return `data:${type};base64,${readFileSync(file).toString('base64')}`
+  }
   const img = readPng(file)
   return { width: img.width, height: img.height, rgba: Buffer.from(img.data).toString('base64') }
 }
@@ -102,6 +153,11 @@ async function main() {
       t.proposed += v.proposed
       t.improved += v.improved
       t.gain += v.gain
+    }
+    const compare = flag('compare')
+    if (compare) {
+      const rows: Row[] = readFileSync(join(outDir, 'results.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+      report(rows, compare, [label])
     }
     console.log(
       'moves (proposed / improved best / total gain): ' +
