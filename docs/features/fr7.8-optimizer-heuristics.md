@@ -1,7 +1,10 @@
 # FR7.8 — Craft heuristics for the optimiser
 
-**Status:** done — on by default (`OptimizerOptions.heuristics`, Match workspace "Craft heuristics",
-`harness optimize --no-heuristics` to disable)
+**Status:** removed (2026-10-15) — the craft rules and priors are gone (`heuristics.ts`, `OptimizerOptions.heuristics`,
+the Match workspace checkbox, `--no-heuristics`): conforming every candidate to them could leave a run worse than the
+project it started from, with no way for the search to undo it (see FR6.3). Kept: the layer snippets, now the
+optimiser's insert library (`DEFAULT_LIBRARY` in `optimizer.ts`), and the tied pattern params. The design below is
+history.
 
 ## Goal
 Hand-authoring textures against references (FR7.4–7.7) produced a list of lessons, most of them review corrections:

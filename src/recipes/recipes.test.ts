@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { createProject, normalizeProject } from '@/core/serialize'
 import type { Project } from '@/core/project'
 import { layerParamDefs } from '@/layers/registry'
-import { conformProject } from '@/match/heuristics'
 import { RECIPES, addMaterial, deleteMaterial, materialOf, pruneMaterials, setMacro, setMaterialMask, unpackMaterial } from './index'
 
 const blank = (): Project => createProject({ width: 64, height: 64, layers: [] })
@@ -29,9 +28,6 @@ describe('recipes', () => {
         const l = byRole(p, b.role)
         for (const k of ['dif_on', 'op_on', 'e_on', 'diffuse', 'opacity', 'emissive']) expect(l.params[k] === true, `${r.id}/${l.name} paints in relief (${k})`).toBe(false)
       }
-      // Only changes the recipe introduces (the blank project's own render settings aside).
-      const baseline = new Set(conformProject(blank()).changes)
-      expect(conformProject(p).changes.filter((c) => !baseline.has(c))).toEqual([])
     })
   }
 

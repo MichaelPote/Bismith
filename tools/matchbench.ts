@@ -8,7 +8,9 @@
 // pairs.json:    { "pairs": [{ "name": "wall", "project": "start.json", "reference": "ref.png" }, …] }  (paths relative
 //                to the file)
 // strategy.json: { "phases": [{ "preset": "tile", "steps": 300, "options": { …OptimizerOptions } }, …],  (each phase
-//                starts from the previous phase's best)  "samples": 16 (evaluation spp) }
+//                starts from the previous phase's best; "evaluations": N instead of or with "steps" ends the phase
+//                after N evaluations — the fair budget when strategies spend different evaluations per step)
+//                "samples": 16 (evaluation spp) }
 //
 // Every pair runs with seeds 1..N (default 1) — single runs are noisy, compare means. Runs are spread over the
 // workers. Per run it writes <out>/<label>/<name>-s<seed>.json (best project) and .png ([reference | start | best |
@@ -27,7 +29,9 @@ import type { StepInfo } from '../src/match/optimizer'
 
 interface Phase {
   preset: MetricPreset
-  steps: number
+  steps?: number
+  /** Evaluation budget (the phase ends at whichever of steps / evaluations comes first). */
+  evaluations?: number
   options?: HeadlessOptimizeOptions
 }
 interface Spec {
@@ -49,6 +53,8 @@ interface Row {
   name: string
   seed?: number
   best: Scores
+  /** Enabled layers at the start and in the best project (absent in older rows). */
+  enabled?: [number, number]
 }
 
 /** Paired differences of `labels` to `baseline`: mean ± s.e. of Δtile, Δtexture and their sum, and per pair. */
@@ -69,7 +75,11 @@ function report(rows: Row[], baseline: string, labels: string[]): void {
     }
     const dt = d.map(({ r, b }) => r.best.tile - b.best.tile)
     const dx = d.map(({ r, b }) => r.best.texture - b.best.texture)
-    console.log(`  ${label.padEnd(28)} n=${String(d.length).padStart(3)}  Δtile ${stat(dt)}  Δtex ${stat(dx)}  Δsum ${stat(dt.map((v, i) => v + dx[i]))}`)
+    const de = d.filter(({ r, b }) => r.enabled && b.enabled).map(({ r, b }) => r.enabled![1] - b.enabled![1])
+    console.log(
+      `  ${label.padEnd(28)} n=${String(d.length).padStart(3)}  Δtile ${stat(dt)}  Δtex ${stat(dx)}  Δsum ${stat(dt.map((v, i) => v + dx[i]))}` +
+        (de.length ? `  Δlayers ${stat(de).replace(/(\.\d{2})\d+/g, '$1')}` : ''),
+    )
     const pairs = [...new Set(d.map(({ r }) => r.name))]
     const per = pairs.map((p) => {
       const xs = d.filter(({ r }) => r.name === p).map(({ r, b }) => r.best.tile + r.best.texture - b.best.tile - b.best.texture)
@@ -110,6 +120,7 @@ function target(file: string): TargetInput {
   return { width: img.width, height: img.height, rgba: Buffer.from(img.data).toString('base64') }
 }
 const png = (url: string): Rgba8 => decodePng(Buffer.from(url.split(',')[1], 'base64'))
+const enabledLayers = (p: unknown) => (p as { layers: { enabled?: boolean }[] }).layers.filter((l) => l.enabled !== false).length
 
 async function main() {
   mkdirSync(join(outDir, label), { recursive: true })
@@ -132,6 +143,7 @@ async function main() {
         start: rs[0].start,
         best: { tile: avg(rs.map((r) => r.best.tile)), texture: avg(rs.map((r) => r.best.texture)) },
         layers: [rs[0].layers[0], Math.max(...rs.map((r) => r.layers[1]))],
+        enabled: [rs[0].enabled[0], avg(rs.map((r) => r.enabled[1]))],
         evaluations: Math.round(avg(rs.map((r) => r.evaluations))),
         ms: avg(rs.map((r) => r.ms)),
       }
@@ -146,7 +158,10 @@ async function main() {
       )
     }
     const mean = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0) / rows.length
-    console.log(`mean best tile ${mean((r) => r.best.tile).toFixed(4)} · texture ${mean((r) => r.best.texture).toFixed(4)} · sum ${mean((r) => r.best.tile + r.best.texture).toFixed(4)}`)
+    console.log(
+      `mean best tile ${mean((r) => r.best.tile).toFixed(4)} · texture ${mean((r) => r.best.texture).toFixed(4)} · sum ${mean((r) => r.best.tile + r.best.texture).toFixed(4)}` +
+        ` · enabled layers ${mean((r) => r.enabled[0]).toFixed(1)} → ${mean((r) => r.enabled[1]).toFixed(1)}`,
+    )
     const tot: Record<string, { proposed: number; improved: number; gain: number }> = {}
     for (const r of runs) for (const [k, v] of Object.entries(r.moves)) {
       const t = (tot[k] ??= { proposed: 0, improved: 0, gain: 0 })
@@ -192,8 +207,12 @@ async function runPair(s: Awaited<ReturnType<typeof openSession>>, w: number, pa
     const opts: HeadlessOptimizeOptions = { lambda: 4, ...ph.options, seed, samples, metric: { preset: ph.preset, ...ph.options?.metric } }
     const st = await s.callOn<HeadlessOptimizeStart>(w, 'optimizeStart', ref, opts)
     let last: StepInfo | undefined
-    for (let done = 0; done < ph.steps; ) {
-      const n = Math.min(25, ph.steps - done)
+    const steps = ph.steps ?? Infinity
+    const budget = ph.evaluations ?? Infinity
+    if (!Number.isFinite(steps) && !Number.isFinite(budget)) throw new Error('strategy phase: give steps or evaluations')
+    for (let done = 0; done < steps && (last?.evaluations ?? 0) < budget; ) {
+      // Near the budget, step in smaller batches (a step costs about λ evaluations).
+      const n = Math.max(1, Math.min(25, steps - done, Math.floor((budget - (last?.evaluations ?? 0)) / ((opts.lambda ?? 4) + 1))))
       const infos = await s.callOn<StepInfo[]>(w, 'optimizeStep', n)
       done += n
       for (const info of infos) {
@@ -226,6 +245,7 @@ async function runPair(s: Awaited<ReturnType<typeof openSession>>, w: number, pa
     start: { tile: s0.tile, texture: s0.texture },
     best: { tile: s1.tile, texture: s1.texture },
     layers: [(start as { layers: unknown[] }).layers.length, (project as { layers: unknown[] }).layers.length],
+    enabled: [enabledLayers(start), enabledLayers(project)],
     evaluations,
     ms: Date.now() - t0,
     moves,

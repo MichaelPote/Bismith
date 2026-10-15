@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { ensureBuiltins } from '@/render/builtins'
 import { layerParamDefs } from '@/layers/registry'
 import { TEMPLATES, availableTemplates } from './templates'
-import { conformProject } from './heuristics'
 import { extractParams } from './optimizer'
 import type { Analysis } from './analyze'
 
@@ -25,11 +24,6 @@ describe('emulation templates', () => {
       for (const l of p.layers) {
         const keys = new Set(layerParamDefs(l.type).map((d) => d.key))
         for (const k of Object.keys(l.params)) expect(keys.has(k), `${t.id}/${l.name}: unknown param ${k}`).toBe(true)
-      }
-    })
-    it(`${t.id} already follows the craft rules`, () => {
-      for (const palette of ['quake', '']) {
-        expect(conformProject(t.build(analysis, { palette })).changes, `${t.id} (${palette || 'no palette'})`).toEqual([])
       }
     })
   }

@@ -4,7 +4,7 @@ import type { Gradient } from '@/core/params'
 import { hexToRgb } from '@/core/color'
 import { createImage } from './image'
 import type { Project } from '@/core/project'
-import { Optimizer, RunLimits, applyParams, driftedCopies, entryTier, entryValue, extractParams, isEntryActive, type ParamSpace } from './optimizer'
+import { DEFAULT_LIBRARY, Optimizer, Rng, RunLimits, applyParams, driftedCopies, residualColours, entryTier, entryValue, extractParams, isEntryActive, type ParamSpace } from './optimizer'
 
 const EXAMPLE = {
   width: 64,
@@ -218,7 +218,7 @@ describe('Optimizer', () => {
     const p = project()
     p.layers[1].locked = true
     const before = JSON.stringify(p)
-    const opt = new Optimizer(p, syntheticLoss(), { seed: 1, structural: true, structuralRate: 0.3 })
+    const opt = new Optimizer(p, syntheticLoss(), { seed: 1, structural: true, structuralWhen: 'always' as const, structuralRate: 0.3 })
     await opt.run(40)
     expect(JSON.stringify(p)).toBe(before)
     const rect = opt.best.project.layers.find((l) => l.id === 'rect1')!
@@ -244,7 +244,7 @@ describe('Optimizer', () => {
       if (p.layers.find((l) => l.id === 'noise1')!.params.dif_blend !== 'multiply') s += 0.5
       return s
     }
-    const opt = new Optimizer(project(), loss, { seed: 5, structural: true, structuralRate: 0.5 })
+    const opt = new Optimizer(project(), loss, { seed: 5, structural: true, structuralWhen: 'always' as const, structuralRate: 0.5 })
     await opt.run(100)
     expect(opt.best.loss).toBe(0)
     expect(opt.history.some((h) => h.structural)).toBe(true)
@@ -261,8 +261,8 @@ describe('Optimizer', () => {
       seed: 4,
       lambda: 2,
       structural: true,
+      structuralWhen: 'always' as const,
       structuralRate: 1,
-      heuristics: false,
       library: [{ type: 'noise', name: 'Probe', params: { noise: 'perlin', dif_on: true, dif_opacity: 0.9 } }],
       space: { filter: (e: { key: string }) => e.key === 'dif_opacity' },
     }
@@ -274,6 +274,62 @@ describe('Optimizer', () => {
     await incubated.run(20)
     expect(incubated.history.some((h) => h.structural?.startsWith('insert'))).toBe(true)
     expect(incubated.best.loss).toBe(0.5)
+  })
+
+  it('takes residual colours from where the render misses the reference', () => {
+    const render = createImage(16, 16, [0.5, 0.5, 0.5, 1])
+    const target = createImage(16, 16, [0.5, 0.5, 0.5, 1])
+    // A red block (≥ 10 % of the pixels) the render lacks.
+    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) target.data.set([0.8, 0.1, 0.1], (y * 16 + x) * 4)
+    expect(residualColours(render, target, 3, new Rng(1))).toEqual(['#cc1a1a', '#cc1a1a', '#cc1a1a'])
+  })
+
+  it('inserts relief snippets under the colour layers', async () => {
+    const p = normalizeProject({
+      width: 64,
+      height: 64,
+      layers: [createLayer('bricks', { mortar: 2, dif_on: false, h_on: true }), createLayer('noise', { noise: 'perlin', dif_on: true })],
+    })
+    const opt = new Optimizer(p, () => 1, { seed: 3, structural: true, structuralWhen: 'always' as const, structuralRate: 1, lambda: 6 })
+    for (let i = 0; i < 6; i++) await opt.step()
+    const relief = new Set(DEFAULT_LIBRARY.filter((t) => t.stack === 'relief').map((t) => t.name))
+    const c = opt.current.project
+    const firstPaint = c.layers.findIndex((l) => l.params.dif_on === true)
+    c.layers.forEach((l, i) => {
+      if (relief.has(l.name)) expect(i).toBeLessThan(firstPaint)
+    })
+  })
+
+  it('duplicates a layer as a new instance right above it', async () => {
+    // Rewards a second noise layer with its own seed; the library is empty, so only a duplicate can add one.
+    const loss = (p: Project) => {
+      const noise = p.layers.filter((l) => l.enabled && l.type === 'noise')
+      return noise.length === 2 && noise[0].params.seed !== noise[1].params.seed ? 0 : 1
+    }
+    const opt = new Optimizer(project(), loss, { seed: 3, structural: true, structuralWhen: 'always' as const, structuralRate: 1, library: [] })
+    await opt.run(40)
+    expect(opt.best.loss).toBe(0)
+    expect(opt.history.some((h) => h.move === 'structural:duplicate')).toBe(true)
+    const layers = opt.best.project.layers
+    const i = layers.findIndex((l) => l.id === 'noise1')
+    expect(layers[i + 1].type).toBe('noise')
+    expect(layers[i + 1].id).not.toBe('noise1')
+    expect(layers[i + 1].name).toContain('(copy)')
+  })
+
+  it("tries structure only once tuning has stalled (structuralWhen 'stalled')", async () => {
+    const loss = (p: Project) => {
+      const noise = p.layers.filter((l) => l.enabled && l.type === 'noise')
+      return noise.length === 2 && noise[0].params.seed !== noise[1].params.seed ? 0 : 1
+    }
+    const opts = { seed: 3, structural: true, structuralWhen: 'stalled' as const, restartAfter: 4, library: [] }
+    const opt = new Optimizer(project(), loss, opts)
+    await opt.run(40)
+    expect(opt.best.loss).toBe(0)
+    // Nothing structural until the two later tiers have opened and the search stalled again.
+    const first = opt.history.findIndex((h) => h.moves.some((m) => m.startsWith('structural')))
+    expect(first).toBeGreaterThanOrEqual(3 * opts.restartAfter - 1)
+    expect(opt.history.slice(first).some((h) => h.structural?.startsWith('duplicate'))).toBe(true)
   })
 
   it('finds drifted pattern copies and re-aligns them when that helps', async () => {
@@ -291,7 +347,7 @@ describe('Optimizer', () => {
       const ls = q.layers.filter((l) => l.params.seed === 6)
       return ['columns', 'rows'].reduce((s, k) => s + new Set(ls.map((l) => l.params[k])).size - 1, 0)
     }
-    const opt = new Optimizer(p, loss, { seed: 2, relinkRate: 0.5, sweepRate: 0, heuristics: false })
+    const opt = new Optimizer(p, loss, { seed: 2, relinkRate: 0.5, sweepRate: 0 })
     await opt.run(40)
     expect(opt.best.loss).toBe(0)
     expect(opt.history.some((h) => h.structural?.startsWith('align'))).toBe(true)
@@ -316,7 +372,7 @@ describe('Optimizer', () => {
       const sc = Number(p.layers[0].params.scale)
       return Math.min(0.5 + 0.01 * Math.abs(sc - 4), Math.abs(sc - 30) / 30)
     }
-    const opt = new Optimizer(project(), loss, { seed: 3, sweepRate: 0.5, heuristics: false, space: { filter: (e) => e.id === 'layer:noise1:scale' } })
+    const opt = new Optimizer(project(), loss, { seed: 3, sweepRate: 0.5, space: { filter: (e) => e.id === 'layer:noise1:scale' } })
     await opt.run(40)
     expect(opt.history.some((h) => h.sweep === 'Noise › Scale' && h.improved)).toBe(true)
     expect(Number(opt.best.project.layers[0].params.scale)).toBeGreaterThan(20)
@@ -325,7 +381,7 @@ describe('Optimizer', () => {
 
   it('takes gradient steps along correlated directions', async () => {
     const loss = syntheticLoss()
-    const opt = new Optimizer(project(), loss, { seed: 4, gradientRate: 1, sweepRate: 0, heuristics: false })
+    const opt = new Optimizer(project(), loss, { seed: 4, gradientRate: 1, sweepRate: 0 })
     const l0 = await opt.init()
     await opt.run(30)
     expect(opt.history.every((h) => h.moves.includes('gradient'))).toBe(true)
@@ -351,7 +407,6 @@ describe('Optimizer', () => {
       seed: 2,
       target,
       colourFitRate: 0.5,
-      heuristics: false,
       space: { filter: (e) => e.kind !== 'stop-color' && e.kind !== 'color' },
     })
     const l0 = await opt.init()

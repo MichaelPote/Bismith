@@ -388,7 +388,7 @@ src/
   layers/            registry, glsl/ (common, noise, sdf, blend chunks), generators/, filters/
   gpu/               three.js context, fullscreen pass helper, render-target utilities, jump flood
   render/            engine, material pipeline, normals, path tracer, post/ stack, display, export
-  match/             metrics, VGG texture term, colour fit, optimiser, heuristics, templates, emulation, variations
+  match/             metrics, VGG texture term, colour fit, optimiser, templates, emulation, variations
   recipes/           smart-material recipes (macro controls → member layers)
   stores/            Pinia: project (with undo/redo), editor (selection, view state)
   ui/                components/ (fields, panel cards, icons), layout/ (bars, outliner, viewport, properties), panels/
@@ -438,7 +438,7 @@ docs/
 | 7.5   | [Stamps, labels, paths & cables](features/fr7.5-stamps.md)       |
 | 7.6   | [Relief stack, specular channel, richer relief](features/fr7.6-relief-and-specular.md) |
 | 7.7   | [Drips, weathering and relief/paint mixing](features/fr7.7-drips-and-weathering.md) |
-| 7.8   | [Craft heuristics for the optimiser](features/fr7.8-optimizer-heuristics.md) |
+| 7.8   | [Craft heuristics for the optimiser](features/fr7.8-optimizer-heuristics.md) (rules removed) |
 | 8.1   | [Texture term: VGG-19 Gram statistics](features/fr8.1-texture-metric.md) |
 | 8.2   | [Colour fitting](features/fr8.2-colour-fit.md) |
 | 8.3   | [Smart materials (recipes as a few controls)](features/fr8.3-smart-materials.md) |

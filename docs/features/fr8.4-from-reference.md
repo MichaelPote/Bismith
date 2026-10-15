@@ -12,8 +12,8 @@ alternatives.
   ranked as it goes. Optional palette snap (None / Quake / Doom). Clicking a card loads it (undoable) — then
   *Optimise* (with the FR6.3 stop criteria) or *Variations*.
 - **Variations**: eight perturbations around the current project in a 3×3 grid, the current one in the centre;
-  each moves a few tunable params by *Spread* of their range (colours a third as far), sometimes re-rolls a seed, and
-  is conformed to the craft rules; linked copies move together. Scored when a reference is loaded. Clicking one
+  each moves a few tunable params by *Spread* of their range (colours a third as far), sometimes re-rolls a seed;
+  linked copies move together. Scored when a reference is loaded. Clicking one
   takes it and varies again (interactive evolution); the centre or ✕ closes.
 - The Match workspace's matcher carries the texture term when the preset uses it.
 

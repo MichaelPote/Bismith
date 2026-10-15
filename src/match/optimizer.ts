@@ -23,7 +23,6 @@ import { BASE_DEFS, PROJECT_DEFS, RENDER_DEFS } from '@/core/settingsDefs'
 import { ensureBuiltins } from '@/render/builtins'
 import { createLayer, getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry'
 import { getPostDef } from '@/render/post/registry'
-import { CRAFT_LIBRARY, conformProject, craftPrior, type Prior, type PriorQuery } from './heuristics'
 import { patternKeys } from '@/core/links'
 import { applyColourMap, colourMap } from './colourFit'
 import type { MatchImage } from './image'
@@ -58,6 +57,23 @@ export class Rng {
 
 // ------------------------------------------------------------------------------------------------ space
 
+export interface PriorQuery {
+  project: Project
+  scope: ParamScope
+  /** Layer type when the owner is a layer. */
+  layerType?: string
+  params: ParamValues
+  def: ParamDef
+}
+
+export interface Prior {
+  /** Leave the entry out of the search. */
+  exclude?: boolean
+  /** Narrow the numeric range (the current value always stays inside). */
+  lo?: number
+  hi?: number
+}
+
 export interface SpaceOptions {
   /** Unlocked, enabled layers' optimisable params (default true). */
   layers?: boolean
@@ -80,7 +96,7 @@ export interface SpaceOptions {
   softRange?: boolean
   /** Final say over which entries are included (e.g. a UI checklist). */
   filter?: (entry: ParamEntry) => boolean
-  /** Per-param prior: exclude an entry or narrow its numeric range (see heuristics.ts craftPrior). */
+  /** Per-param prior: exclude an entry or narrow its numeric range. */
   prior?: (q: PriorQuery) => Prior | undefined
 }
 
@@ -487,32 +503,67 @@ export interface LayerTemplate {
   stack?: 'relief' | 'paint'
 }
 
-/** Small library of texture-detail layers for the "insert layer" structural mutation. */
+/**
+ * Blend modes a structural mutation may switch a layer's diffuse to: paint and the tonal modulations. Add, subtract,
+ * darken and lighten could win a few pixels, but turn a layer's colour into something nobody would author.
+ */
+const TONAL_BLENDS = new Set(['normal', 'multiply', 'overlay', 'softlight', 'screen'])
+
+/** Evaluations of tuning for each of the two most promising new layers of a stalled structural round. */
+const ROUND_TUNING = 16
+
+/**
+ * Layer snippets for the "insert layer" structural mutation — ones that kept recurring in hand-authored textures, each
+ * tagged relief (shape only, goes under the colour layers) or paint.
+ */
 export const DEFAULT_LIBRARY: LayerTemplate[] = [
   {
     type: 'noise',
-    name: 'Grain',
-    params: { noise: 'white', block: 1, h_on: true, h_amount: 0.04, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.25, dif_grad: gradient('#000000', '#ffffff') },
+    name: 'Lumps',
+    stack: 'relief',
+    params: { noise: 'perlin', fractal: 'fbm', scale: 6, octaves: 2, h_on: true, h_amount: 0.25, dif_on: false },
+  },
+  {
+    type: 'noise',
+    name: 'Colour grain',
+    stack: 'paint',
+    params: { noise: 'white', block: 1, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.2, dif_grad: gradient('#000000', '#ffffff') },
   },
   {
     type: 'noise',
     name: 'Mottle',
-    params: { noise: 'perlin', fractal: 'fbm', scale: 3, octaves: 4, h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.4, dif_grad: gradient('#9a9a9a', '#ffffff') },
+    stack: 'paint',
+    params: { noise: 'perlin', fractal: 'fbm', scale: 4, octaves: 4, h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.4, dif_grad: gradient('#9a9a9a', '#ffffff') },
+  },
+  {
+    type: 'cavity',
+    name: 'Crevice dirt',
+    stack: 'paint',
+    params: { radius: 1.5, threshold: 0.05, sensitivity: 0.8, wear_amount: 0, dirt_amount: 0.6, dirt_color: '#140e08', noise_scale: 8 },
+  },
+  {
+    type: 'cavity',
+    name: 'Edge wear',
+    stack: 'paint',
+    params: { radius: 1.5, threshold: 0.05, sensitivity: 1, wear_amount: 0.5, wear_color: '#8a7a6a', dirt_amount: 0, noise_scale: 8 },
+  },
+  {
+    type: 'drips',
+    name: 'Water stains',
+    stack: 'paint',
+    params: { output: 'stain', cols: 12, rows: 6, density: 0.5, len_min: 6, len_max: 30, width: 2.5, width_var: 0.5, start: 0.8, fade: 0.9, hard: false, h_on: false, dif_on: true, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#5a4a3c') },
   },
   {
     type: 'noise',
-    name: 'Bumps',
-    params: { noise: 'perlin', fractal: 'fbm', scale: 12, octaves: 4, h_on: true, h_amount: 0.15, dif_on: false },
+    name: 'Moss in hollows',
+    stack: 'paint',
+    params: { noise: 'perlin', fractal: 'fbm', scale: 10, octaves: 3, sh_cut: 0.7, sh_cut_soft: 0.05, m_hmode: 'below', m_hlevel: 0.3, m_hsoft: 0.15, h_on: false, dif_on: true, dif_opacity: 0.85, dif_grad: gradient('#2e2e06', '#3e3e0c') },
   },
   {
-    type: 'noise',
-    name: 'Cells',
-    params: { noise: 'cells', fractal: 'none', scale: 6, h_on: true, h_amount: 0.4, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.5, dif_grad: gradient('#5a5a5a', '#ffffff') },
-  },
-  {
-    type: 'noise',
-    name: 'Blotches',
-    params: { noise: 'worley', fractal: 'fbm', scale: 4, octaves: 3, h_on: false, dif_on: true, dif_blend: 'softlight', dif_opacity: 0.5, dif_grad: gradient('#303030', '#d0d0d0') },
+    type: 'voronoi',
+    name: 'Chipped edges',
+    stack: 'relief',
+    params: { output: 'facets', scale: 6, jitter: 1, tilt: 1.4, sm_on: false, m_hmode: 'below', m_hlevel: 0.6, m_hsoft: 0.1, h_on: true, h_mode: 'min', h_amount: 1.2, dif_on: false },
   },
 ]
 
@@ -636,8 +687,17 @@ export interface OptimizerOptions {
   islandSteps?: number
   /** Enable structural mutations (default false). */
   structural?: boolean
-  /** Probability that a candidate is a structural mutation when enabled (default 0.1). */
+  /** structuralWhen 'always': probability that a candidate is a structural mutation (default 0.1). */
   structuralRate?: number
+  /**
+   * When structural changes are tried: 'always' — mixed into every step at `structuralRate`; 'stalled' — only when the
+   * search has stalled with every tier open, as a round of `structuralRound` changes from the best (the most promising
+   * new layers tuned properly) in place of a restart, which follows only when none of them pays. Default 'stalled':
+   * mixed in from the start, structure competes with tuning that still pays and rarely wins on merit.
+   */
+  structuralWhen?: 'always' | 'stalled'
+  /** Structural changes tried per stalled round (default 8). */
+  structuralRound?: number
   /**
    * Extra evaluations spent tuning a freshly inserted layer (its own params only) before it is judged against the
    * parent (default 3; 0 = judge it as inserted). A new layer at its template values almost never beats a parent
@@ -697,11 +757,6 @@ export interface OptimizerOptions {
   adaptive?: boolean
   /** What to optimise (see SpaceOptions). */
   space?: SpaceOptions
-  /**
-   * Craft heuristics (heuristics.ts, default true): conform the start project and every candidate to the rules
-   * learnt from hand-authoring, use the craft search-space priors, and insert from the craft layer library.
-   */
-  heuristics?: boolean
 }
 
 export interface StepInfo {
@@ -737,7 +792,7 @@ export interface StepInfo {
   /** Label of the entry this step swept, if it was a sweep step. */
   sweep: string | null
   /** Kind of move behind each candidate of the step, and of the accepted one (mutate, momentum, sweep, gradient,
-   *  colour, align, structural). */
+   *  colour, align, structural:toggle / blend / insert / duplicate / remove). */
   moves: string[]
   move: string | null
   ms: number
@@ -782,6 +837,35 @@ interface Candidate {
   image?: MatchImage
   /** Kind of move that made it (see StepInfo.moves). */
   move?: string
+  /** Structural moves: which one (toggle, blend, insert, duplicate, remove). */
+  kind?: string
+  /** Evaluations it took (1, plus any incubation). */
+  cost?: number
+}
+
+/**
+ * Colours of `target` where `render` misses it most (the worst-matched tenth of the pixels), `count` of them, ordered
+ * dark to light — what a layer added to supply the missing detail should paint.
+ */
+export function residualColours(render: MatchImage, target: MatchImage, count: number, rng: Rng): string[] {
+  const n = Math.min(render.width * render.height, target.width * target.height)
+  const err = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const o = i * 4
+    err[i] = Math.abs(render.data[o] - target.data[o]) + Math.abs(render.data[o + 1] - target.data[o + 1]) + Math.abs(render.data[o + 2] - target.data[o + 2])
+  }
+  const cut = Float32Array.from(err).sort()[Math.floor(n * 0.9)]
+  const worst: number[] = []
+  for (let i = 0; i < n; i++) if (err[i] >= cut) worst.push(i)
+  const picks = Array.from({ length: count }, () => rng.pick(worst))
+  const rgb = picks.map((i) => [target.data[i * 4], target.data[i * 4 + 1], target.data[i * 4 + 2]] as RGB)
+  const lum = (c: RGB) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+  return rgb.sort((a, b) => lum(a) - lum(b)).map((c) => rgbToHex(c.map((v) => Math.min(1, Math.max(0, v))) as RGB))
+}
+
+/** A candidate's move as StepInfo reports it (structural ones with their kind, e.g. "structural:insert"). */
+function moveName(c: Candidate): string {
+  return c.kind ? `${c.move ?? 'structural'}:${c.kind}` : (c.move ?? '?')
 }
 
 export interface OptimizerBest {
@@ -793,8 +877,7 @@ export interface OptimizerBest {
 }
 
 export class Optimizer {
-  readonly opts: Required<Omit<OptimizerOptions, 'space' | 'library' | 'maxLayers' | 'heuristics' | 'target'>> & {
-    heuristics: boolean
+  readonly opts: Required<Omit<OptimizerOptions, 'space' | 'library' | 'maxLayers' | 'target'>> & {
     space: SpaceOptions
     library: LayerTemplate[]
     maxLayers: number
@@ -810,6 +893,8 @@ export class Optimizer {
   private stats = new Map<string, EntryStats>()
   private stepCount = 0
   private inserted = new Set<string>()
+  /** Moves of this step's structural round (structuralWhen 'stalled'), for StepInfo.moves. */
+  private roundMoves: string[] = []
   /** Search tiers open (see OptimizerOptions.ordered). */
   private stage = 0
   /** Decayed gain and evaluations per move kind (adaptive move mix). */
@@ -863,6 +948,8 @@ export class Optimizer {
       minImprovement: opts.minImprovement ?? 0.002,
       structural: opts.structural ?? false,
       structuralRate: opts.structuralRate ?? 0.1,
+      structuralWhen: opts.structuralWhen ?? 'stalled',
+      structuralRound: Math.max(1, Math.round(opts.structuralRound ?? 8)),
       incubation: Math.max(0, Math.round(opts.incubation ?? 3)),
       layerCost: Math.max(0, opts.layerCost ?? 0.003),
       ordered: opts.ordered ?? true,
@@ -874,13 +961,12 @@ export class Optimizer {
       colourFitRate: opts.colourFitRate ?? 0.08,
       adaptive: opts.adaptive ?? true,
       tolerance: Math.max(0, opts.tolerance ?? 1e-6),
-      heuristics: opts.heuristics ?? true,
-      space: opts.heuristics === false ? (opts.space ?? {}) : { prior: craftPrior, ...(opts.space ?? {}) },
-      library: opts.library ?? (opts.heuristics === false ? DEFAULT_LIBRARY : CRAFT_LIBRARY),
+      space: opts.space ?? {},
+      library: opts.library ?? DEFAULT_LIBRARY,
       maxLayers: opts.maxLayers ?? project.layers.length + 3,
     }
     this.rng = new Rng(this.opts.seed)
-    const base: Project = this.opts.heuristics ? conformProject(project).project : JSON.parse(JSON.stringify(project))
+    const base: Project = JSON.parse(JSON.stringify(project))
     const space = extractParams(base, this.opts.space)
     const start: Candidate = { project: base, base, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: null }
     this.islands = Array.from({ length: this.opts.islands }, (_, id) => ({
@@ -946,12 +1032,17 @@ export class Optimizer {
     this.nextIsland()
     let restarted = false
     let opened = false
+    let reshaped: Candidate | null = null
+    const bestBefore = this.bestC?.loss ?? Infinity
+    this.roundMoves = []
     if (this.stagnation >= this.opts.restartAfter) {
       if (this.opts.ordered && this.stage < 2) {
         // Stalled on the open tiers: open the next one rather than restarting.
         this.stage++
         this.stagnation = 0
         opened = true
+      } else if (this.opts.structural && this.opts.structuralWhen === 'stalled' && (reshaped = await this.structuralRound())) {
+        // Tuning had nothing left: a change of structure gives it something new.
       } else {
         await this.restart()
         restarted = true
@@ -974,7 +1065,8 @@ export class Optimizer {
       for (let i = 0; i < this.opts.lambda; i++) {
         let c: Candidate | null = null
         if (i === 0 && momentum) c = momentum
-        else if (this.opts.structural && this.rng.next() < this.opts.structuralRate) c = this.structuralCandidate(parent)
+        else if (this.opts.structural && this.opts.structuralWhen === 'always' && this.rng.next() < this.rate('structural', this.opts.structuralRate))
+          c = this.structuralCandidate(parent)
         else if (this.rng.next() < this.rate('align', this.opts.relinkRate)) c = this.relinkCandidate(parent)
         else if (this.opts.target && this.rng.next() < this.rate('colour', this.opts.colourFitRate)) c = this.colourFitCandidate(parent)
         c ??= this.mutateCandidate(parent)
@@ -990,13 +1082,7 @@ export class Optimizer {
       s.gain *= 0.98
       s.evals *= 0.98
     }
-    for (const c of candidates) {
-      const m = (c.move ?? 'mutate') === 'momentum' ? 'mutate' : (c.move ?? 'mutate')
-      const s = this.moveStats.get(m) ?? { gain: 0, evals: 0 }
-      s.gain += this.cmp(c.loss, parent.loss) < 0 ? parent.loss - c.loss : 0
-      s.evals += 1
-      this.moveStats.set(m, s)
-    }
+    for (const c of candidates) this.credit(c, parent.loss)
 
     // Step-size / selection-weight adaptation.
     for (const c of candidates) {
@@ -1019,7 +1105,7 @@ export class Optimizer {
     }
 
     // Selection: inserts pay the layer cost, removals are credited it (the reported losses stay as measured).
-    const judged = (c: Candidate) => c.loss + (c.inserted ? this.opts.layerCost : 0) - (c.removed ? this.opts.layerCost : 0)
+    const judged = (c: Candidate) => this.judged(c)
     let winner: Candidate | null = null
     // Ties (within the tolerance) go to the earlier candidate, so the choice doesn't hinge on float noise.
     for (const c of candidates) if (!winner || this.cmp(judged(c), judged(winner)) < 0) winner = c
@@ -1053,19 +1139,22 @@ export class Optimizer {
       candidateLoss: winner?.loss ?? Infinity,
       parentLoss: this.parent.loss,
       bestLoss: this.best.loss,
-      improved,
+      improved: improved || this.cmp(this.best.loss, bestBefore) < 0,
       accepted,
       restarted,
-      structural: accepted ? (winner!.structural ?? null) : null,
-      changed: accepted ? (winner!.structural ? [winner!.structural] : winner!.mutated.map((e) => e.label)) : [],
+      structural: reshaped?.structural ?? (accepted ? (winner!.structural ?? null) : null),
+      changed: [
+        ...(reshaped?.structural ? [reshaped.structural] : []),
+        ...(accepted ? (winner!.structural ? [winner!.structural] : winner!.mutated.map((e) => e.label)) : []),
+      ],
       meanSigma: this.meanSigma(),
       island: this.isl.id,
       islands: this.islands.length,
       stage: this.opts.ordered ? this.stage : 2,
       opened,
       sweep: sweep?.[0]?.mutated[0]?.label ?? null,
-      moves: candidates.map((c) => c.move ?? '?'),
-      move: accepted ? (winner!.move ?? null) : null,
+      moves: [...this.roundMoves, ...candidates.map(moveName)],
+      move: reshaped ? moveName(reshaped) : accepted ? moveName(winner!) : null,
       ms: performance.now() - t0,
     }
     this.history.push(info)
@@ -1120,13 +1209,19 @@ export class Optimizer {
    */
   private rate(move: string, base: number): number {
     if (!this.opts.adaptive || base <= 0) return base
+    const k = this.payoff(move)
+    return k === null ? base : Math.min(0.9, base * k)
+  }
+
+  /** A move's recent gain per evaluation relative to plain mutations, ×0.25…×4 (null until both have 20 evaluations). */
+  private payoff(move: string): number | null {
     const s = this.moveStats.get(move)
     const m = this.moveStats.get('mutate')
-    if (!s || !m || s.evals < 20 || m.evals < 20) return base
+    if (!s || !m || s.evals < 20 || m.evals < 20) return null
     const mine = s.gain / s.evals
     const ref = m.gain / m.evals
     const k = ref > 0 ? mine / ref : mine > 0 ? 4 : 0.25
-    return Math.min(0.9, base * Math.min(4, Math.max(0.25, k)))
+    return Math.min(4, Math.max(0.25, k))
   }
 
   /** -1 when loss `a` beats `b` by more than the tolerance, 1 when it loses by more, 0 for a tie. */
@@ -1150,10 +1245,9 @@ export class Optimizer {
     return es.reduce((s, e) => s + this.stat(e).sigma, 0) / es.length
   }
 
-  /** A candidate project from a vector, conformed to the craft rules when heuristics are on. */
+  /** A candidate project from a vector. */
   private build(base: Project, space: ParamSpace, vector: Float64Array): Project {
-    const p = applyParams(base, space, vector)
-    return this.opts.heuristics ? conformProject(p).project : p
+    return applyParams(base, space, vector)
   }
 
   private async score(c: Candidate): Promise<void> {
@@ -1288,9 +1382,16 @@ export class Optimizer {
     if (unlocked.some((l) => l.enabled && l.params.dif_on === true)) kinds.push('blend')
     const library = this.opts.library.filter((t) => getLayerDef(t.type))
     if (library.length && all.length < this.opts.maxLayers) kinds.push('insert')
+    const copyable = unlocked.filter((l) => l.enabled && getLayerDef(l.type)?.kind === 'generator')
+    if (all.length < this.opts.maxLayers && copyable.length) kinds.push('duplicate')
     if (all.some((l) => this.inserted.has(l.id))) kinds.push('remove')
     if (!kinds.length) return null
-    const kind = this.rng.pick(kinds)
+    // Kinds that have paid lately (gain per evaluation, as for the move mix) are picked more often.
+    const weights = kinds.map((k) => (this.opts.adaptive ? (this.payoff(`structural:${k}`) ?? 1) : 1))
+    let r = this.rng.next() * weights.reduce((a, b) => a + b, 0)
+    let pick = 0
+    while (pick < kinds.length - 1 && r >= weights[pick]) r -= weights[pick++]
+    const kind = kinds[pick]
     let desc = ''
     let inserted: string | undefined
     let removed = false
@@ -1304,7 +1405,7 @@ export class Optimizer {
     } else if (kind === 'blend') {
       const l = this.rng.pick(unlocked.filter((x) => x.enabled && x.params.dif_on === true))
       const def = layerParamDefs(l.type).find((d) => d.key === 'dif_blend')
-      const opts = (def?.options ?? []).map((o) => o.value).filter((v) => v !== l.params.dif_blend)
+      const opts = (def?.options ?? []).map((o) => o.value).filter((v) => v !== l.params.dif_blend && TONAL_BLENDS.has(String(v)))
       if (!opts.length) return null
       l.params.dif_blend = this.rng.pick(opts)
       desc = `blend of "${l.name}" → ${l.params.dif_blend}`
@@ -1318,6 +1419,31 @@ export class Optimizer {
       const at = t.stack === 'relief' ? this.rng.int(split + 1) : split + 1 + this.rng.int(Math.max(1, list.length - split))
       list.splice(Math.min(at, list.length), 0, layer)
       desc = `insert "${t.name}" (${t.type}) as ${t.stack ?? 'paint'} at ${at}`
+      // A paint snippet takes its colours from where the render misses the reference most.
+      if (this.opts.target && parent.image && t.stack !== 'relief' && this.paintFromResidual(layer, parent.image, this.opts.target)) desc += ', residual colours'
+      this.inserted.add(layer.id)
+      inserted = layer.id
+    } else if (kind === 'duplicate') {
+      // Another instance of a layer the project already has (new seed), right above it — or above its smart
+      // material, whose members stay together.
+      const src = this.rng.pick(copyable)
+      const params: ParamValues = JSON.parse(JSON.stringify(src.params))
+      if (typeof params.seed === 'number') params.seed = 1 + this.rng.int(99998)
+      // Half the time an octave apart (detail over detail, or a coarser pass of it).
+      const octave = typeof params.scale === 'number' && this.rng.next() < 0.5 ? (this.rng.next() < 0.5 ? 2 : 0.5) : 1
+      if (octave !== 1) {
+        const def = layerParamDefs(src.type).find((d) => d.key === 'scale')
+        params.scale = Math.min(def?.max ?? Infinity, Math.max(def?.min ?? 0, Number(params.scale) * octave))
+      }
+      const layer: Layer = { ...createLayer(src.type, params, `${src.name} (copy)`), params }
+      const block = (proj.materials ?? []).find((m) => Object.values(m.members).includes(src.id))
+      const members = new Set(block ? Object.values(block.members) : [src.id])
+      let at = 0
+      proj.layers.forEach((l, i) => {
+        if (members.has(l.id)) at = i + 1
+      })
+      proj.layers.splice(at, 0, layer)
+      desc = `duplicate "${src.name}"${octave !== 1 ? ` at scale ×${octave}` : ''}`
       this.inserted.add(layer.id)
       inserted = layer.id
     } else {
@@ -1326,9 +1452,26 @@ export class Optimizer {
       desc = `remove "${l.name}"`
       removed = true
     }
-    const conformed = this.opts.heuristics ? conformProject(proj).project : proj
-    const space = extractParams(conformed, this.opts.space)
-    return { project: conformed, base: conformed, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc, inserted, removed, move: 'structural' }
+    const space = extractParams(proj, this.opts.space)
+    return { project: proj, base: proj, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc, inserted, removed, move: 'structural', kind }
+  }
+
+  /** Set a new layer's colour params and its paint ramp (normal blend) to residual colours; false when it has none. */
+  private paintFromResidual(layer: Layer, render: MatchImage, target: MatchImage): boolean {
+    let changed = false
+    for (const d of layerParamDefs(layer.type)) {
+      const v = layer.params[d.key]
+      if (d.type === 'color' && typeof v === 'string') {
+        layer.params[d.key] = residualColours(render, target, 1, this.rng)[0]
+        changed = true
+      } else if (d.key === 'dif_grad' && (layer.params.dif_blend ?? 'normal') === 'normal' && v && typeof v === 'object') {
+        const g = v as Gradient
+        const cs = residualColours(render, target, g.stops.length, this.rng)
+        g.stops.forEach((st, i) => (st.color = cs[i]))
+        changed = true
+      }
+    }
+    return changed
   }
 
   /**
@@ -1339,6 +1482,7 @@ export class Optimizer {
   private async incubate(c: Candidate, owners: string[], rounds: number, sigma: number): Promise<Candidate> {
     const own = c.space.entries.filter((e) => owners.includes(e.owner) && e.kind === 'number' && isEntryActive(c.project, e))
     let best = c
+    let cost = 1
     for (let n = 0; n < rounds && own.length; n++) {
       const vector = Float64Array.from(best.vector)
       const k = Math.min(own.length, 1 + this.rng.int(2))
@@ -1346,9 +1490,34 @@ export class Optimizer {
       for (let j = 0; j < k; j++) this.mutateEntry(vector, pool.splice(this.rng.int(pool.length), 1)[0], sigma)
       const v: Candidate = { ...c, project: this.build(c.base, c.space, vector), vector, loss: Infinity }
       await this.score(v)
+      cost++
       if (this.cmp(v.loss, best.loss) < 0) best = v
     }
-    return best
+    return { ...best, cost }
+  }
+
+  /**
+   * (1+1)-ES on the numbers and colours of the layers `owners` (a new layer) for `rounds` evaluations, the step size
+   * ×1.5 after a win and ×0.85 otherwise.
+   */
+  private async tune(c: Candidate, owners: string[], rounds: number): Promise<Candidate> {
+    const own = c.space.entries.filter((e) => owners.includes(e.owner) && (e.kind === 'number' || e.kind === 'color' || e.kind === 'stop-color') && isEntryActive(c.project, e))
+    let best = c
+    let sigma = 0.2
+    let cost = c.cost ?? 1
+    for (let n = 0; n < rounds && own.length; n++) {
+      const vector = Float64Array.from(best.vector)
+      const pool = [...own]
+      for (let j = Math.min(own.length, 1 + this.rng.int(3)); j > 0; j--) this.mutateEntry(vector, pool.splice(this.rng.int(pool.length), 1)[0], sigma)
+      const v: Candidate = { ...c, project: this.build(c.base, c.space, vector), vector, loss: Infinity }
+      await this.score(v)
+      cost++
+      if (this.cmp(v.loss, best.loss) < 0) {
+        best = v
+        sigma = Math.min(0.5, sigma * 1.5)
+      } else sigma = Math.max(0.02, sigma * 0.85)
+    }
+    return { ...best, cost }
   }
 
   /**
@@ -1442,10 +1611,9 @@ export class Optimizer {
     const strength = 0.4 + 0.6 * this.rng.next()
     const proj: Project = JSON.parse(JSON.stringify(parent.project))
     applyColourMap(proj, colourMap(parent.image, this.opts.target, strength, mode))
-    const conformed = this.opts.heuristics ? conformProject(proj).project : proj
-    const space = extractParams(conformed, this.opts.space)
+    const space = extractParams(proj, this.opts.space)
     const desc = `fit colours (${mode}, ${strength.toFixed(2)})`
-    return { project: conformed, base: conformed, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc, move: 'colour' }
+    return { project: proj, base: proj, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc, move: 'colour' }
   }
 
   /**
@@ -1472,10 +1640,62 @@ export class Optimizer {
       keys = keys.slice(0, Math.ceil(keys.length / 2))
     }
     for (const k of keys) target.params[k] = JSON.parse(JSON.stringify(donor.params[k]))
-    const conformed = this.opts.heuristics ? conformProject(proj).project : proj
-    const space = extractParams(conformed, this.opts.space)
+    const space = extractParams(proj, this.opts.space)
     const desc = `align ${keys.join(', ')} of "${target.name}" to "${donor.name}"`
-    return { project: conformed, base: conformed, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc, move: 'align' }
+    return { project: proj, base: proj, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: desc, move: 'align' }
+  }
+
+  /** A candidate's loss for selection: inserts pay the layer cost, removals are credited it. */
+  private judged(c: Candidate): number {
+    return c.loss + (c.inserted ? this.opts.layerCost : 0) - (c.removed ? this.opts.layerCost : 0)
+  }
+
+  /** Move-mix credit: gain over `ref` beyond the tolerance, per evaluation (structural kinds also on their own). */
+  private credit(c: Candidate, ref: number): void {
+    const m = (c.move ?? 'mutate') === 'momentum' ? 'mutate' : (c.move ?? 'mutate')
+    const gain = this.cmp(c.loss, ref) < 0 ? ref - c.loss : 0
+    for (const key of c.kind ? [m, `${m}:${c.kind}`] : [m]) {
+      const s = this.moveStats.get(key) ?? { gain: 0, evals: 0 }
+      s.gain += gain
+      s.evals += c.cost ?? 1
+      this.moveStats.set(key, s)
+    }
+  }
+
+  /**
+   * structuralWhen 'stalled': `structuralRound` structural changes of the best (inserts incubated as usual, the two most
+   * promising then tuned for ROUND_TUNING evaluations); the best one becomes the parent when it beats the best (layer
+   * cost included). Null when none does.
+   */
+  private async structuralRound(): Promise<Candidate | null> {
+    const best = this.bestC ?? this.parent
+    const tried: Candidate[] = []
+    for (let i = 0; i < this.opts.structuralRound; i++) {
+      let c = this.structuralCandidate(best)
+      if (!c) continue
+      await this.score(c)
+      if (c.inserted) c = await this.incubate(c, [c.inserted], this.opts.incubation, 0.25)
+      tried.push(c)
+    }
+    // The two most promising new layers get a proper tuning before the round is judged: a missing detail needs its
+    // threshold, scale, opacity and colours right together, which a few random nudges don't find.
+    const fresh = tried.filter((c) => c.inserted).sort((a, b) => this.judged(a) - this.judged(b)).slice(0, 2)
+    for (const c of fresh) tried[tried.indexOf(c)] = await this.tune(c, [c.inserted!], ROUND_TUNING)
+    let winner: Candidate | null = null
+    for (const c of tried) {
+      this.credit(c, best.loss)
+      this.roundMoves.push(moveName(c))
+      if (!winner || this.cmp(this.judged(c), this.judged(winner)) < 0) winner = c
+    }
+    if (!winner || this.cmp(this.judged(winner), best.loss) >= 0) return null
+    this.parent = winner
+    if (this.cmp(winner.loss, best.loss) < 0) {
+      this.bestC = winner
+      this.bestStep = this.stepCount
+    }
+    this.stagnation = 0
+    this.stagRef = winner.loss
+    return winner
   }
 
   private async restart(): Promise<void> {

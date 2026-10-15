@@ -1,29 +1,37 @@
 <script setup lang="ts">
-// Best-loss curve for the optimiser: one ember line over a hairline grid.
+// Best-loss curve for the optimiser: one ember line over a hairline grid. The axis spans at least `minSpan` (default
+// 0.2) down from the highest value, so small late gains stay small instead of being stretched to the full height —
+// the curve visibly flattens once the gains are exhausted.
 import { computed } from 'vue'
 
-const props = defineProps<{ values: number[]; width?: number; height?: number }>()
+const props = defineProps<{ values: number[]; width?: number; height?: number; minSpan?: number }>()
 const W = computed(() => props.width ?? 320)
 const H = computed(() => props.height ?? 96)
 
-const path = computed(() => {
+const range = computed(() => {
   const v = props.values
-  if (v.length < 2) return ''
+  if (!v.length) return null
   const max = Math.max(...v)
   const min = Math.min(...v)
-  const span = max - min || 1
+  const span = props.minSpan ?? 0.2
+  if (max - min >= span) return { max, min }
+  // Hang the span from the top (the start of a run); keep it above 0 for losses below the span.
+  return max >= span ? { max, min: max - span } : { max: span, min: 0 }
+})
+
+const path = computed(() => {
+  const v = props.values
+  const r = range.value
+  if (v.length < 2 || !r) return ''
+  const span = r.max - r.min || 1
   const pad = 4
   return v
     .map((y, i) => {
       const px = pad + (i / (v.length - 1)) * (W.value - pad * 2)
-      const py = pad + (1 - (y - min) / span) * (H.value - pad * 2)
+      const py = pad + (1 - (y - r.min) / span) * (H.value - pad * 2)
       return `${i ? 'L' : 'M'}${px.toFixed(1)} ${py.toFixed(1)}`
     })
     .join(' ')
-})
-const range = computed(() => {
-  const v = props.values
-  return v.length ? { max: Math.max(...v), min: Math.min(...v) } : null
 })
 </script>
 

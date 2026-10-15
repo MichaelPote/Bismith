@@ -42,8 +42,7 @@ const timeLimit = ref(0)
 const stallSteps = ref(0)
 const stopped = ref<StopReason | null>(null)
 const space = ref({ layers: true, base: true, shading: true, lights: true, post: false, enums: false, seeds: false })
-const structural = ref(false)
-const heuristics = ref(true)
+const structural = ref(true)
 
 const running = ref(false)
 const optimizer = shallowRef<Optimizer | null>(null)
@@ -250,7 +249,6 @@ async function run(): Promise<void> {
         {
           lambda: 4,
           structural: structural.value,
-          heuristics: heuristics.value,
           space: { ...space.value },
           seed: 1,
           target: matcher.target,
@@ -578,12 +576,6 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
             <CheckField v-model="space.enums" label="Modes" @update:model-value="reset" />
             <CheckField v-model="space.seeds" label="Seeds" @update:model-value="reset" />
             <CheckField v-model="structural" label="Add/remove layers" @update:model-value="reset" />
-            <CheckField
-              v-model="heuristics"
-              label="Craft heuristics"
-              title="Apply the rules learnt hand-authoring: fine relief, no pixel-scale height, warp not wobble, crisp-edge bevels, AO for tight joints, tinted glints, painted light"
-              @update:model-value="reset"
-            />
           </div>
         </div>
         <p class="hint">{{ entryCount }} parameters in play. Lock layers in the outliner to keep them fixed.</p>

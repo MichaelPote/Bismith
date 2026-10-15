@@ -63,9 +63,14 @@ an improving step, the next step's first candidate repeats the same change. *Res
 (20) steps without a significant gain (`minImprovement` 0.002), σ is reset and the parent restarts from a
 perturbed copy of the best. *Islands* (`islands`, default 1): independent chains explored round-robin, the
 worse half dropped every `islandSteps` (12) rounds — helps long runs (≳ 250 steps) escape early bad basins.
-*Structural mutations* (`structural: true`, 10 % of candidates): toggle an unlocked layer, change a diffuse blend
-mode, insert a layer from `DEFAULT_LIBRARY` (Grain, Mottle, Bumps, Cells, Blotches — noise-based; types that
-aren't registered are skipped; up to `maxLayers`), or remove a layer the optimiser inserted. An inserted layer
+*Structural mutations* (`structural: true`; by default only once the search has stalled, see below): toggle an unlocked layer, switch a diffuse blend
+among the tonal modes (normal, multiply, overlay, soft light, screen — add, subtract, darken and lighten won pixels
+but left colours nobody would author), insert a snippet from `DEFAULT_LIBRARY` (lumps, colour grain, mottle,
+crevice dirt, edge wear, water stains, moss, chipped edges; types that aren't registered are skipped; up to
+`maxLayers`), *duplicate* an enabled generator layer (a new seed, half the time an octave apart in `scale`, right
+above it or above its smart material), or remove a layer the optimiser added. A paint snippet takes its colours from
+the reference where the parent's render misses it most (`residualColours`, the worst tenth of the pixels). Kinds are
+picked by their recent gain per evaluation (`StepInfo.moves` reports them as `structural:insert` …). An inserted layer
 is *incubated* before it is judged: `incubation` (default 3) extra evaluations mutate only its own numeric params
 with wide steps (σ 0.25), and the best version competes with the parent — at its template values a new layer almost
 never beats a parent tuned for many steps, so without this inserts were rejected before they could be tuned.
@@ -121,7 +126,8 @@ pre-screening of parameters; per-region (masked) metrics.
 **Match workspace (UI).** Top tab *Match*. Load or drop a reference image; *Match size* resizes the project to it
 (long side ≤ 512). Panes: reference · best so far · |difference|×3. Settings: metric preset (texture / layout),
 samples per candidate, max steps, which parts to tune (layers, base, shading, lights, post, modes, seeds, add/remove
-layers). Live stats (step, evaluations, best, gain, σ), the best-loss curve, per-term bars of the best and a
+layers — on by default). Live stats (step, evaluations, best, gain, σ), the best-loss curve (its axis spans at least 0.2 down from the start, so late
+gains look as small as they are and a flattening is plain), per-term bars of the best and a
 log of accepted changes (structural ones too when they're kept without a new best). The settings panel's
 height is draggable (stored per browser). *Apply best* loads the best project into the editor (undoable); *Reset* forgets the
 run. It drives the editor's own Engine, suspending the interactive render loop for the duration
@@ -160,9 +166,13 @@ tone, then everything). Colour still moves from the start, through colour fits.
 - *Copy alignment* (`relinkRate` 0.05): layers of one type and seed are copies of one pattern
   (`driftedCopies`); when they've drifted apart, a candidate aligns one copy to another (all differing keys or a
   random half).
-- *Structural* (`structural`, off by default): inserted layers are incubated (above) and must save `layerCost`
+- *Structural* (`structural`, off by default in the API, on in the Match workspace): inserted layers are incubated (above) and must save `layerCost`
   (0.003) of loss to be kept — removals are credited the same — so the stack no longer fills to `maxLayers` with
-  layers that barely help.
+  layers that barely help. `structuralWhen` (default `'stalled'`): when the search stalls with every tier open, a
+  round of `structuralRound` (8) changes of the best replaces the restart — inserts incubated, the two most promising
+  new layers then tuned for 16 evaluations ((1+1)-ES on their numbers and colours) — and the best of them is kept if
+  it beats the best, layer cost included; otherwise the restart follows. `'always'` mixes structural candidates into
+  every step at `structuralRate` (adaptive like the other moves; incubation evaluations count against them).
 
 *Adaptive move mix* (`adaptive`, default on): each move kind's rate is scaled by its recent gain per evaluation
 relative to plain mutations (×0.25…×4 once both have ≥ 20 evaluations; gains count only beyond `tolerance` and decay
@@ -198,11 +208,25 @@ property of the material, not something a search can remove.
 - *Scale*: the network run at 1×, 2× or 4× the reference's size, or a mean over several of those.
 - A *texture weight* doubled in the objective (Tile with texture 6).
 
-SW tracks the Gram distance closely (r 0.95–0.98 over 4 356 pairs), ranked the right reference no better (25/66 vs 27/66
-on the retrieval test) and cost 3× as much (≈16 vs 5 ms). Optimising with it changed nothing (Δ Tile + Texture
-+0.001 ± 0.008 on 15 pairs × 3 seeds, +0.000 ± 0.009 held out). 2× — what the optimiser already sees for a 64²
-reference at a 128² comparison — is as good as any. With the doubled weight the results' *Texture* totals didn't
-even drop (+0.002 ± 0.011). Gram stays; the search, not the texture statistic, limits the results.
+SW tracks the Gram distance closely (r 0.96–0.98 over 4 356 pairs). On the retrieval test it ranked the right reference
+first just as often: 46/66 each on the term alone, and 60 vs 59 within the Tile metric. It also cost 3× as much (≈16 vs
+5 ms). Optimising with it changed nothing (Δ Tile + Texture +0.001 ± 0.008 on 15 pairs × 3 seeds, +0.000 ± 0.009 held
+out). No scale or mix of scales was consistently better (retrieval 42–48/66; separation favoured the larger scales).
+A heavier texture weight ranked references no better (58/66 at 2×, 57/66 at 4×), and with the doubled weight the
+results' *Texture* totals didn't even drop (+0.002 ± 0.011). Gram stays; the search, not the texture statistic,
+limits the results.
+
+**Structural moves (measured, 2026-10-15).** At an equal budget of evaluations (`matchbench` phases take
+`"evaluations"`), mixed in from the start the old structural moves cost Tile + Texture +0.008 ± 0.016 at 1200
+evaluations (15 pairs × 3 seeds) — they compete with tuning that still pays. Counting incubation as cost, adaptive
+kind choice, duplicates (the best kind per candidate) and tonal blends only brought that to about neutral (−0.009 ±
+0.012 at 1200, +0.010 ± 0.017 at 6000). Stalled rounds were neutral on the dev set (−0.004 ± 0.009 at 6000). A
+direct test of what structure is for — 18 hand-authored textures, each with its most telling detail layer removed,
+against the full render (≈ 0.15 of loss to recover) — showed how little the moves rebuild: mixed in, −0.001 ± 0.004;
+stalled rounds, −0.002 ± 0.002; stalled rounds that tune their best new layers properly, −0.005 ± 0.002 (never more
+than +0.008 worse on a pair, up to −0.030 better; +0.2 layers). Residual colours for inserts made no measurable
+difference. A missing speckle or streak needs a snippet close to it to begin with; the library and duplicates rarely
+are, so most of the gap is closed — partly — by retuning the layers that are there.
 
 **Metric speed.** The colour and contrast terms sort tens of thousands of values per evaluation; `sortFloat32` (LSD
 radix on the float bit patterns, exactly Float32Array#sort's order) made feature computation 3.2× faster (128²:
@@ -238,10 +262,12 @@ phase per metric preset in the strategy, every pair × seed on a shared worker q
 [reference | start | best | diff] sheet, appends a line per run to `results.jsonl`, and prints per-pair means and the
 move statistics (candidates proposed, steps won that improved the best, total gain per move kind).
 
-## Craft heuristics (FR7.8)
-On by default: the start project and every candidate are conformed to the rules learnt hand-authoring, the search
-space uses craft priors and structural inserts come from the craft library — see
-[FR7.8](fr7.8-optimizer-heuristics.md). `heuristics: false` restores the plain optimiser.
+## Craft heuristics (FR7.8, removed)
+The craft rules — conforming the start project and every candidate to the lessons of hand-authoring, with search-space
+priors to match — were removed (2026-10-15): a project that broke a rule was rewritten before its first evaluation and
+on every candidate, so a run could end worse than the project it started from (on two of 18 test projects, Tile
+0.07 → 0.19 and 0.12 → 0.17), and the search could never undo the rewrite. What remains of FR7.8: the insert library
+(`DEFAULT_LIBRARY`, its snippets) and the tied pattern params below.
 
 **Tied pattern params** (always on): layers of one type and seed are copies of one pattern; a pattern param they
 hold equal is a single entry (`ParamEntry.tied` lists the other owners, label "(+N linked)") that `applyParams`

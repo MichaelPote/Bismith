@@ -18,7 +18,7 @@
 //       progress (whichever first); --iters then caps the steps only when given.
 //                              [--preset texture|layout] [--weights …] [--lambda N] [--islands N] [--seed N]
 //                              [--sigma X] [--lights] [--post] [--base] [--shading] [--enums] [--seeds]
-//                              [--structural] [--no-heuristics] [--final-samples N] [--max-size N] [--wrap] [--window]
+//                              [--structural] [--final-samples N] [--max-size N] [--wrap] [--window]
 //       Runs the (1+λ)-ES optimiser in-page for N steps (λ renders each, default 100 × 6 at 16 spp),
 //       printing progress; writes the best project JSON (also after every improvement) and a contact
 //       sheet [target | start | best | |best − target|×2] next to it (best.png).
@@ -222,7 +222,6 @@ async function cmdOptimize(args: Args) {
     seed: num(args.flags.seed),
     sigma: num(args.flags.sigma),
     structural: Boolean(args.flags.structural),
-    heuristics: !args.flags['no-heuristics'],
     metric: metricOptions(args),
     space: {
       lights: Boolean(args.flags.lights),

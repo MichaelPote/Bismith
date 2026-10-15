@@ -1,9 +1,8 @@
 // Variations (docs/features/fr8.4-from-reference.md): a handful of perturbed versions of a project for picking by
 // eye — the step where the metric is least trustworthy. Each variation moves a few random tunable params by a sizeable
-// step (and occasionally re-rolls a seed), conformed to the craft rules like any optimiser candidate.
+// step (and occasionally re-rolls a seed).
 
 import type { Project } from '@/core/project'
-import { conformProject, craftPrior } from './heuristics'
 import { Rng, applyParams, extractParams, type ParamEntry } from './optimizer'
 
 export interface VariationOptions {
@@ -24,7 +23,7 @@ export interface Variation {
 
 export function variations(project: Project, count: number, opts: VariationOptions = {}): Variation[] {
   const rng = new Rng(opts.seed ?? Date.now() % 100000)
-  const space = extractParams(project, { layers: true, base: true, enums: false, seeds: true, prior: craftPrior })
+  const space = extractParams(project, { layers: true, base: true, enums: false, seeds: true })
   const tunable = space.entries.filter((e) => e.kind !== 'seed' && e.kind !== 'enum')
   const seeds = space.entries.filter((e) => e.kind === 'seed')
   const strength = opts.strength ?? 0.2
@@ -45,7 +44,7 @@ export function variations(project: Project, count: number, opts: VariationOptio
       v[e.offset] = 1 + rng.int(99998)
       changed.push(e.label)
     }
-    out.push({ project: conformProject(applyParams(project, space, v)).project, changed })
+    out.push({ project: applyParams(project, space, v), changed })
   }
   return out
 }
