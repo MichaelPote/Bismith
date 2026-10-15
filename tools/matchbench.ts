@@ -1,5 +1,5 @@
 // Benchmark the Match optimiser: run it headlessly on (start project, reference) pairs, the way the Match workspace
-// does, and score each best result under both the Tile and the Texture preset.
+// does, and score each best result under the Tile, the Texture and the Windows preset.
 //
 //   npx tsx tools/matchbench.ts <pairs.json> <strategy.json> [--label NAME] [--out DIR] [--workers N]
 //                               [--backend windows|swiftshader] [--only REGEX] [--seeds N] [--compare BASELINE]
@@ -44,6 +44,8 @@ interface Strategy {
 interface Scores {
   tile: number
   texture: number
+  /** Windows preset (absent in rows from before it existed). */
+  windows?: number
 }
 
 const args = process.argv.slice(2)
@@ -75,9 +77,11 @@ function report(rows: Row[], baseline: string, labels: string[]): void {
     }
     const dt = d.map(({ r, b }) => r.best.tile - b.best.tile)
     const dx = d.map(({ r, b }) => r.best.texture - b.best.texture)
+    const dw = d.filter(({ r, b }) => r.best.windows !== undefined && b.best.windows !== undefined).map(({ r, b }) => r.best.windows! - b.best.windows!)
     const de = d.filter(({ r, b }) => r.enabled && b.enabled).map(({ r, b }) => r.enabled![1] - b.enabled![1])
     console.log(
       `  ${label.padEnd(28)} n=${String(d.length).padStart(3)}  Δtile ${stat(dt)}  Δtex ${stat(dx)}  Δsum ${stat(dt.map((v, i) => v + dx[i]))}` +
+        (dw.length ? `  Δwin ${stat(dw)}` : '') +
         (de.length ? `  Δlayers ${stat(de).replace(/(\.\d{2})\d+/g, '$1')}` : ''),
     )
     const pairs = [...new Set(d.map(({ r }) => r.name))]
@@ -141,7 +145,8 @@ async function main() {
       return {
         name: pair.name,
         start: rs[0].start,
-        best: { tile: avg(rs.map((r) => r.best.tile)), texture: avg(rs.map((r) => r.best.texture)) },
+        best: { tile: avg(rs.map((r) => r.best.tile)), texture: avg(rs.map((r) => r.best.texture)), windows: avg(rs.map((r) => r.best.windows!)) },
+        startWindows: rs[0].start.windows!,
         layers: [rs[0].layers[0], Math.max(...rs.map((r) => r.layers[1]))],
         enabled: [rs[0].enabled[0], avg(rs.map((r) => r.enabled[1]))],
         evaluations: Math.round(avg(rs.map((r) => r.evaluations))),
@@ -149,17 +154,17 @@ async function main() {
       }
     })
     console.log(`\n${label}${seeds > 1 ? ` (mean of ${seeds} seeds)` : ''}`)
-    console.log('pair           start tile/tex     best tile/tex      Δ tile   Δ tex    layers  evals   s')
+    console.log('pair           start tile/tex/win        best tile/tex/win         Δ tile   Δ tex    Δ win    layers  evals   s')
     for (const r of rows) {
       console.log(
-        `${r.name.padEnd(14)} ${r.start.tile.toFixed(4)}/${r.start.texture.toFixed(4)}   ${r.best.tile.toFixed(4)}/${r.best.texture.toFixed(4)}   ` +
-          `${(r.best.tile - r.start.tile).toFixed(4).padStart(7)}  ${(r.best.texture - r.start.texture).toFixed(4).padStart(7)}  ` +
+        `${r.name.padEnd(14)} ${r.start.tile.toFixed(4)}/${r.start.texture.toFixed(4)}/${r.startWindows.toFixed(4)}   ${r.best.tile.toFixed(4)}/${r.best.texture.toFixed(4)}/${r.best.windows.toFixed(4)}   ` +
+          `${(r.best.tile - r.start.tile).toFixed(4).padStart(7)}  ${(r.best.texture - r.start.texture).toFixed(4).padStart(7)}  ${(r.best.windows - r.startWindows).toFixed(4).padStart(7)}  ` +
           `${String(r.layers[0]).padStart(2)}→${String(r.layers[1]).padEnd(3)} ${String(r.evaluations).padStart(6)} ${String(Math.round(r.ms / 1000)).padStart(4)}`,
       )
     }
     const mean = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0) / rows.length
     console.log(
-      `mean best tile ${mean((r) => r.best.tile).toFixed(4)} · texture ${mean((r) => r.best.texture).toFixed(4)} · sum ${mean((r) => r.best.tile + r.best.texture).toFixed(4)}` +
+      `mean best tile ${mean((r) => r.best.tile).toFixed(4)} · texture ${mean((r) => r.best.texture).toFixed(4)} · sum ${mean((r) => r.best.tile + r.best.texture).toFixed(4)} · windows ${mean((r) => r.best.windows).toFixed(4)}` +
         ` · enabled layers ${mean((r) => r.enabled[0]).toFixed(1)} → ${mean((r) => r.enabled[1]).toFixed(1)}`,
     )
     const tot: Record<string, { proposed: number; improved: number; gain: number }> = {}
@@ -189,7 +194,8 @@ async function main() {
 async function scores(s: Awaited<ReturnType<typeof openSession>>, w: number, t: TargetInput): Promise<Scores & { tileResult: HeadlessCompareResult }> {
   const tileResult = await s.callOn<HeadlessCompareResult>(w, 'compare', t, { preset: 'tile', samples })
   const tex = await s.callOn<HeadlessCompareResult>(w, 'compare', t, { preset: 'texture', samples })
-  return { tile: tileResult.total, texture: tex.total, tileResult }
+  const win = await s.callOn<HeadlessCompareResult>(w, 'compare', t, { preset: 'windows', samples })
+  return { tile: tileResult.total, texture: tex.total, windows: win.total, tileResult }
 }
 
 async function runPair(s: Awaited<ReturnType<typeof openSession>>, w: number, pair: Spec['pairs'][number], seed: number) {
@@ -242,8 +248,8 @@ async function runPair(s: Awaited<ReturnType<typeof openSession>>, w: number, pa
     label,
     name: pair.name,
     seed,
-    start: { tile: s0.tile, texture: s0.texture },
-    best: { tile: s1.tile, texture: s1.texture },
+    start: { tile: s0.tile, texture: s0.texture, windows: s0.windows },
+    best: { tile: s1.tile, texture: s1.texture, windows: s1.windows },
     layers: [(start as { layers: unknown[] }).layers.length, (project as { layers: unknown[] }).layers.length],
     enabled: [enabledLayers(start), enabledLayers(project)],
     evaluations,

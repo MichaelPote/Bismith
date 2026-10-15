@@ -257,19 +257,21 @@ export async function fitColours(
   opts: { rounds?: number; strength?: number; mode?: ColourFitMode | 'auto' } = {},
 ): Promise<ColourFitResult> {
   let best: Project = JSON.parse(JSON.stringify(project))
-  let image = matcher.fit(await render(best))
-  const before = matcher.score(image).total
+  // Scored at the render's own size (the windows term compares finer than the fitted image); maps use the fitted one.
+  const first = await render(best)
+  let image = matcher.fit(first)
+  const before = matcher.score(first).total
   let bestLoss = before
   let rounds = 0
   // Tone-fitted materials first (once); the colour maps below leave their ramps alone.
   if ((best.materials ?? []).some((m) => getRecipe(m.recipe)?.fit === 'tones')) {
     const toned = await fitTones(best, matcher.target, render)
-    const im = matcher.fit(await render(toned))
-    const l = matcher.score(im).total
+    const full = await render(toned)
+    const l = matcher.score(full).total
     if (l < bestLoss) {
       best = toned
       bestLoss = l
-      image = im
+      image = matcher.fit(full)
       rounds++
     }
   }
@@ -282,12 +284,12 @@ export async function fitColours(
     for (const mode of modes) {
       const cand: Project = JSON.parse(JSON.stringify(best))
       applyColourMap(cand, colourMap(image, matcher.target, opts.strength ?? 1, mode))
-      const im = matcher.fit(await render(cand))
-      const l = matcher.score(im).total
+      const full = await render(cand)
+      const l = matcher.score(full).total
       if (l < loss) {
         loss = l
         next = cand
-        img = im
+        img = matcher.fit(full)
       }
     }
     if (!next || !img || loss >= bestLoss - 1e-5) break

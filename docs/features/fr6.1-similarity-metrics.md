@@ -48,15 +48,18 @@ background (default mid grey) and keeps alpha separately. `absDiff(a, b, gain)` 
 | contrast | Mean over 1, ½, ¼ scale of W1 between the distributions (64 quantiles) of 3×3 local std of L. | 0.012 |
 | aligned | Mean over 1, ½, ¼ scale of per-pixel OKLab ΔE + \|Δα\|. The only position-sensitive term. | 0.06 |
 | alpha | W1 between alpha distributions; only counted when either image has transparency (else its weight is 0). | 0.1 |
+| windows | Local texture at up to 512 px: windows of render and reference matched to their nearest neighbours both ways ([FR8.19](fr8.19-window-metric.md)); already 0..1, reported as it is. Counts only in the Windows preset. | — |
 
 `total = Σ wᵢ·termᵢ / Σ wᵢ`. Presets (`METRIC_PRESETS`): **texture** colour 2, spectrum 1, gradients 1,
 contrast 1, aligned 0, alpha 0.5; **layout** colour 1, spectrum 0.25, gradients 0.5, contrast 0.25, aligned 3,
-alpha 0.5. `MetricOptions.weights` overrides single terms.
+alpha 0.5; **windows** colour 1, texture 1, windows 4, alpha 0.5 (FR8.19; *tile* and the VGG *texture* term are in FR6.3 / FR8.1).
+`MetricOptions.weights` overrides single terms.
 
 **API.**
 - `compareImages(render, target, opts?) → MetricResult` — one-shot.
 - `new Matcher(target, opts?)` caches the target's descriptors; `matcher.score(render)` resamples the render to
-  the comparison size and compares (≈5 ms at 64², ≈50 ms at 256²); `matcher.fit(img)`, `matcher.target`.
+  the comparison size and compares (≈5 ms at 64², ≈50 ms at 256²); `matcher.fit(img)`, `matcher.target`. Pass
+  `score` the render at its own size, not `fit(render)`: the windows term compares at up to 512 px.
 - `computeFeatures(img)` / `compareFeatures(a, b, weights)` — lower level.
 - `MetricResult = { total, terms, raw, weights, width, height }`; `TERM_NAMES`, `TERM_LABELS` for UIs.
 - Options: `preset`, `weights`, `size` (comparison size; default the target's), `maxSize` (long-side cap,

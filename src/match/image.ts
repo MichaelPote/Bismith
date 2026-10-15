@@ -146,10 +146,18 @@ function axisTaps(src: number, dst: number, mode: ResampleMode): Taps {
  */
 export function resample(img: MatchImage, width: number, height: number, mode: ResampleMode = 'auto'): MatchImage {
   if (img.width === width && img.height === height) return img
-  const sw = img.width
-  const sh = img.height
-  // To linear premultiplied.
-  const lin = new Float32Array(sw * sh * 4)
+  return resampleLinear(toLinearPremul(img), width, height, mode)
+}
+
+/** An image in linear light with premultiplied alpha — what resample filters (convert once, resample to several sizes). */
+export interface LinearPremul {
+  width: number
+  height: number
+  data: Float32Array
+}
+
+export function toLinearPremul(img: MatchImage): LinearPremul {
+  const lin = new Float32Array(img.width * img.height * 4)
   for (let i = 0; i < lin.length; i += 4) {
     const a = img.data[i + 3]
     lin[i] = srgbToLinear1(img.data[i]) * a
@@ -157,28 +165,13 @@ export function resample(img: MatchImage, width: number, height: number, mode: R
     lin[i + 2] = srgbToLinear1(img.data[i + 2]) * a
     lin[i + 3] = a
   }
-  const tx = axisTaps(sw, width, mode)
-  const ty = axisTaps(sh, height, mode)
-  // Horizontal pass: sh rows × width.
-  const tmp = new Float32Array(width * sh * 4)
-  for (let y = 0; y < sh; y++) {
-    for (let x = 0; x < width; x++) {
-      let r = 0, g = 0, b = 0, a = 0
-      for (let k = tx.start[x], e = k + tx.count[x]; k < e; k++) {
-        const si = (y * sw + tx.index[k]) * 4
-        const w = tx.weight[k]
-        r += lin[si] * w
-        g += lin[si + 1] * w
-        b += lin[si + 2] * w
-        a += lin[si + 3] * w
-      }
-      const di = (y * width + x) * 4
-      tmp[di] = r
-      tmp[di + 1] = g
-      tmp[di + 2] = b
-      tmp[di + 3] = a
-    }
-  }
+  return { width: img.width, height: img.height, data: lin }
+}
+
+/** resample() of an image already converted by toLinearPremul (the same result, bit for bit). */
+export function resampleLinear(src: LinearPremul, width: number, height: number, mode: ResampleMode = 'auto'): MatchImage {
+  const tmp = horizontalPass(src, width, mode)
+  const ty = axisTaps(src.height, height, mode)
   // Vertical pass + back to straight sRGB.
   const out = new Float32Array(width * height * 4)
   for (let y = 0; y < height; y++) {
@@ -201,6 +194,83 @@ export function resample(img: MatchImage, width: number, height: number, mode: R
     }
   }
   return { width, height, data: out }
+}
+
+/**
+ * Resample straight to OKLab planes — toOklab(resample(…)) without the round trip through sRGB (equal to float
+ * rounding). Transparent pixels are composited over `background` (sRGB) as toOklab does.
+ */
+export function resampleLinearToOklab(src: LinearPremul, width: number, height: number, background: [number, number, number] = [0.5, 0.5, 0.5], mode: ResampleMode = 'auto'): LabPlanes {
+  const sameSize = src.width === width && src.height === height
+  const tmp = sameSize ? src.data : horizontalPass(src, width, mode)
+  const ty = sameSize ? null : axisTaps(src.height, height, mode)
+  const bg = background.map(srgbToLinear1)
+  const n = width * height
+  const L = new Float32Array(n)
+  const A = new Float32Array(n)
+  const B = new Float32Array(n)
+  const alpha = new Float32Array(n)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0, a = 0
+      if (ty) {
+        for (let k = ty.start[y], e = k + ty.count[y]; k < e; k++) {
+          const si = (ty.index[k] * width + x) * 4
+          const w = ty.weight[k]
+          r += tmp[si] * w
+          g += tmp[si + 1] * w
+          b += tmp[si + 2] * w
+          a += tmp[si + 3] * w
+        }
+      } else {
+        const si = (y * width + x) * 4
+        r = tmp[si]
+        g = tmp[si + 1]
+        b = tmp[si + 2]
+        a = tmp[si + 3]
+      }
+      const al = clamp01(a)
+      const inv = a > 1e-6 ? 1 / a : 0
+      r = clamp01(r * inv)
+      g = clamp01(g * inv)
+      b = clamp01(b * inv)
+      if (al < 1) {
+        r = r * al + bg[0] * (1 - al)
+        g = g * al + bg[1] * (1 - al)
+        b = b * al + bg[2] * (1 - al)
+      }
+      const p = y * width + x
+      oklabInto(r, g, b, p, L, A, B)
+      alpha[p] = al
+    }
+  }
+  return { width, height, L, A, B, alpha }
+}
+
+function horizontalPass(src: LinearPremul, width: number, mode: ResampleMode): Float32Array {
+  const { width: sw, height: sh, data: lin } = src
+  const tx = axisTaps(sw, width, mode)
+  // Horizontal pass: sh rows × width.
+  const tmp = new Float32Array(width * sh * 4)
+  for (let y = 0; y < sh; y++) {
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0, a = 0
+      for (let k = tx.start[x], e = k + tx.count[x]; k < e; k++) {
+        const si = (y * sw + tx.index[k]) * 4
+        const w = tx.weight[k]
+        r += lin[si] * w
+        g += lin[si + 1] * w
+        b += lin[si + 2] * w
+        a += lin[si + 3] * w
+      }
+      const di = (y * width + x) * 4
+      tmp[di] = r
+      tmp[di + 1] = g
+      tmp[di + 2] = b
+      tmp[di + 3] = a
+    }
+  }
+  return tmp
 }
 
 // ------------------------------------------------------------------------------------------------ OKLab
@@ -239,15 +309,20 @@ export function toOklab(img: MatchImage, background: [number, number, number] = 
       g = g * al + bg[1] * (1 - al)
       b = b * al + bg[2] * (1 - al)
     }
-    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
-    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
-    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
-    L[p] = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s
-    A[p] = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s
-    B[p] = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
+    oklabInto(r, g, b, p, L, A, B)
     alpha[p] = al
   }
   return { width: img.width, height: img.height, L, A, B, alpha }
+}
+
+/** Linear sRGB → OKLab, written to pixel p of the planes. */
+function oklabInto(r: number, g: number, b: number, p: number, L: Float32Array, A: Float32Array, B: Float32Array): void {
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  L[p] = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s
+  A[p] = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s
+  B[p] = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
 }
 
 // ------------------------------------------------------------------------------------------------ misc

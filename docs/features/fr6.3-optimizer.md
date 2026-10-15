@@ -124,7 +124,8 @@ Ideas not done: CMA-style correlated steps; a prior pulling towards the starting
 pre-screening of parameters; per-region (masked) metrics.
 
 **Match workspace (UI).** Top tab *Match*. Load or drop a reference image; *Match size* resizes the project to it
-(long side ≤ 512). Panes: reference · best so far · |difference|×3. Settings: metric preset (texture / layout),
+(long side ≤ 512). Panes: reference · best so far · |difference|×3 (with the Windows metric, FR8.19, the window
+mismatch map instead). Settings: metric preset (tile / windows / texture / layout; a reference of ≥ 256 px starts on Windows, a smaller one on Tile, until one is picked; changing it rescores the panes),
 samples per candidate, max steps, which parts to tune (layers, base, shading, lights, post, modes, seeds, add/remove
 layers — on by default). Live stats (step, evaluations, best, gain, σ), the best-loss curve (its axis spans at least 0.2 down from the start, so late
 gains look as small as they are and a flattening is plain), per-term bars of the best and a

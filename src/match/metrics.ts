@@ -16,29 +16,42 @@
 //   alpha      Wasserstein-1 between alpha distributions (only when either image has transparency)
 //   texture    VGG-19 Gram-matrix distance after matching the render's colours to the target (vgg.ts) —
 //              shift-invariant texture similarity; GPU only, counts when a TextureScorer is attached
+//   windows    local texture: windows of render and reference (at up to 512 px) matched to their nearest
+//              neighbours both ways (windows.ts) — fine detail counts, where the layout lands doesn't
 // Total = Σ wᵢ·termᵢ / Σ wᵢ over the applicable terms. Presets: 'texture' (aligned weight 0, stochastic
-// textures) and 'layout' (aligned weight high, for UI elements / laid-out targets).
+// textures), 'layout' (aligned weight high, for UI elements / laid-out targets), 'tile' (structure at the best
+// wrap-around shift) and 'windows' (global colour + local texture; the layout is free).
 
-import { fitSize, resample, toOklab, type LabPlanes, type MatchImage } from './image'
+import { fitSize, resample, resampleLinear, resampleLinearToOklab, toLinearPremul, toOklab, type LabPlanes, type LinearPremul, type MatchImage } from './image'
 import { powerSpectrum2d } from './fft'
+import { quantiles } from './quantiles'
 import type { TextureScorer } from './vgg'
+import { compareWindows, windowBank, windowBankOfLab, windowMismatch, windowSide, type WindowBank, type WindowResult } from './windows'
 
 export * from './image'
+export { quantiles, sortFloat32 } from './quantiles'
 
-export type TermName = 'colour' | 'spectrum' | 'gradients' | 'contrast' | 'aligned' | 'structure' | 'texture' | 'alpha'
-export const TERM_NAMES: TermName[] = ['colour', 'spectrum', 'gradients', 'contrast', 'aligned', 'structure', 'texture', 'alpha']
+export type TermName = 'colour' | 'spectrum' | 'gradients' | 'contrast' | 'aligned' | 'structure' | 'texture' | 'windows' | 'alpha'
+export const TERM_NAMES: TermName[] = ['colour', 'spectrum', 'gradients', 'contrast', 'aligned', 'structure', 'texture', 'windows', 'alpha']
 
 export type MetricWeights = Record<TermName, number>
-export type MetricPreset = 'texture' | 'layout' | 'tile'
+export type MetricPreset = 'texture' | 'layout' | 'tile' | 'windows'
 
 export const METRIC_PRESETS: Record<MetricPreset, MetricWeights> = {
-  texture: { colour: 2, spectrum: 1, gradients: 1, contrast: 1, aligned: 0, structure: 0, texture: 2, alpha: 0.5 },
-  layout: { colour: 1, spectrum: 0.25, gradients: 0.5, contrast: 0.25, aligned: 3, structure: 0, texture: 0, alpha: 0.5 },
+  texture: { colour: 2, spectrum: 1, gradients: 1, contrast: 1, aligned: 0, structure: 0, texture: 2, windows: 0, alpha: 0.5 },
+  layout: { colour: 1, spectrum: 0.25, gradients: 0.5, contrast: 0.25, aligned: 3, structure: 0, texture: 0, windows: 0, alpha: 0.5 },
   /**
    * Tileable game textures: layout matters but the phase is arbitrary — compare at the best wrap-around shift; the
    * VGG texture term (when available) sees the family of the pattern even when the layouts don't line up.
    */
-  tile: { colour: 1.25, spectrum: 0.5, gradients: 0.35, contrast: 0.5, aligned: 0, structure: 2, texture: 3, alpha: 0.5 },
+  tile: { colour: 1.25, spectrum: 0.5, gradients: 0.35, contrast: 0.5, aligned: 0, structure: 2, texture: 3, windows: 0, alpha: 0.5 },
+  /**
+   * Local texture: windows matched both ways at up to 512 px, beside the global colour distribution and a little of
+   * the VGG term. No structure or spectrum (they see where gaps and joints fall), so a different arrangement of the
+   * same material costs about what a re-seed does and fine detail decides. The VGG term reads plank gaps at 128 px
+   * too, but at weight 1 it costs the windows nothing and keeps tone and coarse texture from drifting (FR8.19).
+   */
+  windows: { colour: 1, spectrum: 0, gradients: 0, contrast: 0, aligned: 0, structure: 0, texture: 1, windows: 4, alpha: 0.5 },
 }
 
 export const TERM_LABELS: Record<TermName, string> = {
@@ -49,6 +62,7 @@ export const TERM_LABELS: Record<TermName, string> = {
   aligned: 'Pixel alignment',
   structure: 'Structure (best shift)',
   texture: 'Texture (VGG statistics)',
+  windows: 'Local texture (windows)',
   alpha: 'Alpha',
 }
 
@@ -61,6 +75,7 @@ export const TERM_SCALES: Record<TermName, number> = {
   aligned: 0.06, // mean per-pixel ΔE
   structure: 0.6, // mean |Δz| of normalised lightness at the best circular shift (≈0 identical, ≈1.1 unrelated)
   texture: 0.15, // mean relative Gram distance (right family untuned ≈ 0.14, wrong family ≈ 0.27, tuned ≈ 0.1)
+  windows: 1, // unused: the raw value is already 0..1 (mean nearest-neighbour distance) and is reported as it is
   alpha: 0.1, // alpha units
 }
 
@@ -78,6 +93,10 @@ export interface MetricOptions {
   window?: boolean
   /** Background (sRGB) that semi-transparent pixels are composited over for the colour terms. */
   background?: [number, number, number]
+  /** Windows term: cap on the long side it compares at (default 512) — finer than the other terms' `maxSize`. */
+  windowMaxSize?: number
+  /** Windows term: window side as a fraction of the short side (default ⅛; rounded to a power of two, 16…128 px). */
+  windowFraction?: number
 }
 
 export interface MetricResult {
@@ -127,7 +146,6 @@ export interface Features {
   zPyramid: { width: number; height: number; z: Float32Array }[]
 }
 
-const QUANTILES = 128
 const COLOUR_DIRECTIONS = makeDirections(32)
 /** Weight of OKLab a/b relative to L in the colour term (low-chroma hue errors are very visible). */
 const CHROMA_WEIGHT = 2
@@ -149,60 +167,6 @@ function makeDirections(n: number): [number, number, number][] {
     dirs.push([z, r * Math.cos(t), r * Math.sin(t)])
   }
   return dirs
-}
-
-/** Sorted quantiles (Q evenly spaced, linear interpolation) of `values`. */
-/**
- * Ascending sort of float32 values, exactly as Float32Array#sort orders them (−0 before +0, NaN last), by an LSD radix
- * sort on their bit patterns — three passes of 11 bits, O(n). The metric sorts tens of thousands of values per
- * evaluation (32 colour projections, local contrast), where a comparison sort was two thirds of the scoring time.
- */
-export function sortFloat32(values: Float32Array): Float32Array {
-  const n = values.length
-  if (n < 512) return Float32Array.from(values).sort()
-  const bits = new Uint32Array(values.buffer, values.byteOffset, n)
-  // Order-preserving keys: flip every bit of negatives, set the sign bit of positives.
-  let a = new Uint32Array(n)
-  for (let i = 0; i < n; i++) {
-    const x = bits[i]
-    a[i] = x & 0x80000000 ? ~x >>> 0 : (x | 0x80000000) >>> 0
-  }
-  let b = new Uint32Array(n)
-  const count = new Uint32Array(2048)
-  for (let shift = 0; shift < 32; shift += 11) {
-    count.fill(0)
-    for (let i = 0; i < n; i++) count[(a[i] >>> shift) & 2047]++
-    let sum = 0
-    for (let k = 0; k < 2048; k++) {
-      const c = count[k]
-      count[k] = sum
-      sum += c
-    }
-    for (let i = 0; i < n; i++) b[count[(a[i] >>> shift) & 2047]++] = a[i]
-    const t = a
-    a = b
-    b = t
-  }
-  for (let i = 0; i < n; i++) {
-    const k = a[i]
-    a[i] = k & 0x80000000 ? (k ^ 0x80000000) >>> 0 : ~k >>> 0
-  }
-  return new Float32Array(a.buffer, 0, n)
-}
-
-export function quantiles(values: ArrayLike<number>, q = QUANTILES): Float32Array {
-  const n = values.length
-  const out = new Float32Array(q)
-  if (n === 0) return out
-  const sorted = sortFloat32(values instanceof Float32Array ? values : Float32Array.from(values as ArrayLike<number>))
-  for (let k = 0; k < q; k++) {
-    const pos = ((k + 0.5) / q) * n - 0.5
-    const i0 = Math.max(0, Math.min(n - 1, Math.floor(pos)))
-    const i1 = Math.min(n - 1, i0 + 1)
-    const f = Math.max(0, Math.min(1, pos - i0))
-    out[k] = sorted[i0] * (1 - f) + sorted[i1] * f
-  }
-  return out
 }
 
 /** Wasserstein-1 between two 1-D distributions given as equal-length quantile arrays. */
@@ -395,7 +359,7 @@ export function computeFeatures(img: MatchImage, opts: Pick<MetricOptions, 'wrap
     const ca = da * CHROMA_WEIGHT
     const cb = db * CHROMA_WEIGHT
     for (let i = 0, j = 0; i < n; i += stride, j++) proj[j] = L[i] * dl + A[i] * ca + B[i] * cb
-    return quantiles(proj)
+    return quantiles(proj, 128)
   })
 
   const spec = spectrumProfile(L, w, h, opts.window ?? false)
@@ -539,7 +503,7 @@ export function compareFeatures(
   a: Features,
   b: Features,
   weights: MetricWeights = METRIC_PRESETS.texture,
-  extra: { texture?: number } = {},
+  extra: { texture?: number; windows?: number } = {},
 ): MetricResult {
   if (a.width !== b.width || a.height !== b.height) throw new Error('compareFeatures: size mismatch')
   const raw = {} as Record<TermName, number>
@@ -586,14 +550,21 @@ export function compareFeatures(
     raw.alpha = w1(a.alphaQ ?? one, b.alphaQ ?? one)
   } else raw.alpha = 0
 
-  // The texture term is computed on the GPU by the Matcher; without a scorer it doesn't count.
+  // The texture term is computed on the GPU by the Matcher and the windows term from the full-size images; without
+  // them they don't count.
   raw.texture = extra.texture ?? 0
-  const used: MetricWeights = { ...weights, alpha: hasAlpha ? weights.alpha : 0, texture: extra.texture !== undefined ? (weights.texture ?? 0) : 0 }
+  raw.windows = extra.windows ?? 0
+  const used: MetricWeights = {
+    ...weights,
+    alpha: hasAlpha ? weights.alpha : 0,
+    texture: extra.texture !== undefined ? (weights.texture ?? 0) : 0,
+    windows: extra.windows !== undefined ? (weights.windows ?? 0) : 0,
+  }
   const terms = {} as Record<TermName, number>
   let total = 0
   let wsum = 0
   for (const t of TERM_NAMES) {
-    terms[t] = norm(raw[t], TERM_SCALES[t])
+    terms[t] = t === 'windows' ? Math.min(1, raw[t]) : norm(raw[t], TERM_SCALES[t])
     const wt = Math.max(0, used[t] ?? 0)
     total += wt * terms[t]
     wsum += wt
@@ -624,6 +595,8 @@ export class Matcher {
   weights: MetricWeights
   /** GPU texture statistics bound to `target` (vgg.ts); enables the texture term. */
   texture: TextureScorer | null = null
+  /** The reference's windows at the windows term's size (null when the weights don't use the term). */
+  readonly windowTarget: WindowBank | null = null
   private opts: MetricOptions
 
   constructor(target: MatchImage, opts: MetricOptions = {}) {
@@ -632,6 +605,55 @@ export class Matcher {
     this.target = resample(target, this.width, this.height)
     this.targetFeatures = computeFeatures(this.target, opts)
     this.weights = resolveWeights(opts)
+    if ((this.weights.windows ?? 0) > 0) {
+      const [w, h] = comparisonSize(target, { size: opts.size, maxSize: opts.windowMaxSize ?? 512 })
+      this.windowTarget = windowBank(resample(target, w, h), {
+        wrap: opts.wrap,
+        size: windowSide(w, h, opts.windowFraction),
+        background: opts.background,
+      })
+    }
+  }
+
+  /** The windows term of a render (null without the term): nearest-neighbour distances of its windows. */
+  windows(render: MatchImage, lin?: LinearPremul): (WindowResult & { bank: WindowBank; lab: LabPlanes }) | null {
+    const t = this.windowTarget
+    if (!t) return null
+    const bg = this.opts.background
+    const lab =
+      render.width === t.width && render.height === t.height
+        ? toOklab(render, bg)
+        : resampleLinearToOklab(lin ?? toLinearPremul(render), t.width, t.height, bg)
+    const bank = windowBankOfLab(lab, { wrap: this.opts.wrap, like: t })
+    return { ...compareWindows(bank, t), bank, lab }
+  }
+
+  /**
+   * Where the render's local texture is least like anything in the reference: the render dimmed to grey, with a heat
+   * overlay (red → yellow) by how far the windows covering each pixel are from their closest reference windows —
+   * relative to this render's best- and worst-matched windows, so it shows where, not how much.
+   */
+  windowMap(render: MatchImage): MatchImage | null {
+    const r = this.windows(render)
+    if (!r) return null
+    const m = windowMismatch(r.bank, r.perWindow)
+    let lo = Infinity
+    let hi = -Infinity
+    for (const v of r.perWindow) {
+      lo = Math.min(lo, v)
+      hi = Math.max(hi, v)
+    }
+    const span = Math.max(1e-6, hi - lo)
+    const data = new Float32Array(m.width * m.height * 4)
+    for (let i = 0; i < m.values.length; i++) {
+      const v = Math.max(0, Math.min(1, (m.values[i] - lo) / span))
+      const grey = 0.7 * Math.min(1, Math.max(0, r.lab.L[i]))
+      const a = 0.85 * v ** 1.5
+      const heat = [0.55 + 0.45 * Math.min(1, v * 2), Math.max(0, v * 1.5 - 0.35), Math.max(0, v * 2 - 1.4)]
+      for (let c = 0; c < 3; c++) data[i * 4 + c] = grey * (1 - a) + heat[c] * a
+      data[i * 4 + 3] = 1
+    }
+    return { width: m.width, height: m.height, data }
   }
 
   /** Bring an image to the comparison size. */
@@ -646,8 +668,11 @@ export class Matcher {
   }
 
   score(render: MatchImage): MetricResult {
-    const fit = this.fit(render)
+    // With the windows term the render is compared at two sizes: one conversion to linear light serves both.
+    const lin = this.windowTarget && (render.width !== this.width || render.height !== this.height) ? toLinearPremul(render) : undefined
+    const fit = lin ? resampleLinear(lin, this.width, this.height) : this.fit(render)
     const texture = this.texture && (this.weights.texture ?? 0) > 0 ? this.texture.distance(fit) : undefined
-    return compareFeatures(computeFeatures(fit, this.opts), this.targetFeatures, this.weights, { texture })
+    const windows = this.windows(render, lin)?.raw
+    return compareFeatures(computeFeatures(fit, this.opts), this.targetFeatures, this.weights, { texture, windows })
   }
 }

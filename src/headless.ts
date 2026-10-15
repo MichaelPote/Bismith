@@ -159,7 +159,7 @@ function imagePng(img: MatchImage): string {
 
 function compareResult(matcher: Matcher, render: MatchImage, samples: number, t0: number, diffGain = 2): HeadlessCompareResult {
   const fitted = matcher.fit(render)
-  const r = matcher.score(fitted)
+  const r = matcher.score(render)
   return {
     ...r,
     renderPng: imagePng(fitted),

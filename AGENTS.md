@@ -49,3 +49,6 @@ describe a motif generically ("riveted panel", "staggered slots"), never by a re
   a hue; `<component :is>` for data-driven ones — layer types and recipes via `layerIcon` / `recipeIcon` in
   `src/ui/meta.ts`). `.tabler-icon { stroke-width: 1.75 }` in `src/styles/base.css` sets the UI's line weight and
   overrides Tabler's `stroke` prop, so a different weight needs CSS (see NumberField's chevrons).
+- **`Matcher.score()` takes the render at its own size.** The Windows metric (FR8.19) compares at up to 512 px, finer
+  than the 128 px of the other terms, so `matcher.score(matcher.fit(img))` silently scores it from the small copy.
+  Pass the full render (keep `fit()` for display and for colour maps).

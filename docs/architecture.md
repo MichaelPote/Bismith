@@ -342,8 +342,9 @@ Before display/export the buffer is encoded to sRGB (with a clamp if no tonemap 
   colour distribution (sliced Wasserstein in OKLab), radial power spectrum of luminance (frequency content),
   gradient magnitude/orientation histograms (edge character), multi-scale local contrast; plus an aligned
   per-pixel term (OKLab L1 at several blur scales) for layout-sensitive targets like UI elements; structure at the
-  best wrap shift (tileable textures); and a GPU **texture** term — VGG-19 Gram statistics after matching colours
-  (FR8.1), shift-invariant, which tells pattern families apart.
+  best wrap shift (tileable textures); a GPU **texture** term — VGG-19 Gram statistics after matching colours
+  (FR8.1), shift-invariant, which tells pattern families apart; and a **windows** term (FR8.19) — local patches of
+  render and reference at up to 512 px matched both ways, so fine detail counts and the layout doesn't.
 - **Colour fitting** (FR8.2) solves colours directly before any search; **variations** (FR8.4) offer perturbed
   alternatives to pick by eye.
 - **Optimiser** (in-app "Match" workspace and headless): an evolution strategy over the unlocked numeric/colour
@@ -458,3 +459,4 @@ docs/
 | 8.14  | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md) |
 | 8.17  | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md) |
 | 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md) |
+| 8.19  | [Windows metric (local texture)](features/fr8.19-window-metric.md) |
