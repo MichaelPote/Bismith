@@ -52,6 +52,15 @@ export function createProject(overrides: Partial<Project> = {}): Project {
   return project
 }
 
+/** Longest preview data URL kept on load (a 128 px WebP is a few KB; anything this large is not a preview). */
+export const PREVIEW_LIMIT = 256 * 1024
+const PREVIEW_PATTERN = /^data:image\/(webp|jpeg|png);base64,[A-Za-z0-9+/]+=*$/
+
+/** A project preview (Project.preview): a base64 WebP, JPEG or PNG data URL of reasonable size. */
+export function isPreview(v: unknown): v is string {
+  return typeof v === 'string' && v.length <= PREVIEW_LIMIT && PREVIEW_PATTERN.test(v)
+}
+
 function num(v: unknown, def: number, min: number, max: number, int = false): number {
   let n = typeof v === 'number' ? v : Number(v)
   if (!Number.isFinite(n)) n = def
@@ -188,6 +197,8 @@ export function normalizeProject(input: unknown): Project {
       supersample: num(rr.supersample, 1, 1, 4, true),
     },
     post,
+    // Last, so the file's readable part comes first.
+    ...(isPreview(raw.preview) ? { preview: raw.preview } : {}),
   }
 }
 

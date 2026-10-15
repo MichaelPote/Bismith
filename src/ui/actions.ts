@@ -6,6 +6,7 @@ import { useEditorStore } from '@/stores/editor'
 import { projectFromJSON, projectToJSON } from '@/core/serialize'
 import { zipStore } from '@/core/zip'
 import { downloadBlob, mapPixels, pixelsToBlob, upscale, type MapKind } from '@/render/export'
+import { capturePreview } from '@/render/preview'
 import type { Project } from '@/core/project'
 import { getLayerDef } from '@/layers/registry'
 import { getRecipe, recipeLayerTypes } from '@/recipes'
@@ -59,7 +60,7 @@ export function useActions() {
       const blob = await pixelsToBlob(pixels, width, height)
       entries.push({ name: `${base}_${k}.png`, data: new Uint8Array(await blob.arrayBuffer()) })
     }
-    entries.push({ name: `${base}.bismith.json`, data: new TextEncoder().encode(projectToJSON(store.project)) })
+    entries.push({ name: `${base}.bismith.json`, data: new TextEncoder().encode(projectFile()) })
     downloadBlob(new Blob([zipStore(entries) as BlobPart], { type: 'application/zip' }), `${base}_maps.zip`)
     editor.notify(`Exported ${kinds.length} maps + project`)
   }
@@ -78,9 +79,18 @@ export function useActions() {
     }
   }
 
+  /**
+   * The project as a file: with a preview of what the viewport shows now (FR8.20 — the previous one if nothing has
+   * rendered). Only the file gets it: the open project is left alone, so saving adds no undo step.
+   */
+  function projectFile(): string {
+    const preview = capturePreview(editor.engine) ?? store.project.preview
+    return projectToJSON(preview ? { ...store.project, preview } : store.project)
+  }
+
   function saveProject(): void {
     store.commitNow()
-    const blob = new Blob([projectToJSON(store.project)], { type: 'application/json' })
+    const blob = new Blob([projectFile()], { type: 'application/json' })
     downloadBlob(blob, `${slug(store.project.name)}.bismith.json`)
   }
 

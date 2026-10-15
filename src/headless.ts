@@ -4,6 +4,7 @@ import type { Project } from '@/core/project'
 import { normalizeProject } from '@/core/serialize'
 import { Engine } from '@/render/engine'
 import { mapPixels, pixelsToDataURL, type MapKind } from '@/render/export'
+import { capturePreview } from '@/render/preview'
 import {
   Matcher,
   absDiff,
@@ -100,6 +101,8 @@ export interface BismithHeadless {
   optimizeFinish(): Promise<HeadlessOptimizeResult>
   /** WebGL renderer string (to confirm GPU vs SwiftShader). */
   rendererInfo(): string
+  /** The final image as a project preview (FR8.20; render first) — undefined before anything has rendered. */
+  preview(): string | undefined
   /**
    * Compile generator shaders ahead of use, all at once (parallel where the browser can); returns the wall time.
    * `cold`: salt the shaders first, so neither the browser's nor the driver's shader cache can answer.
@@ -277,6 +280,7 @@ export function installHeadless(engine: Engine): BismithHeadless {
     },
 
     rendererInfo: () => rendererString(engine),
+    preview: () => capturePreview(engine),
     memoryInfo: () => ({ ...engine.gpu.renderer.info.memory }),
     async precompile(types, opts = {}) {
       if (opts.cold) engine.setShaderSalt(`${Date.now()}-${Math.random()}`)

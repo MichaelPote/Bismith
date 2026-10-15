@@ -8,6 +8,7 @@ import { defaultRender } from '@/core/project'
 import { addMaterial } from '@/recipes'
 import { TEMPLATES } from '@/match/templates'
 import { schemeAnalysis } from '@/match/schemes'
+import { PRESET_PREVIEWS } from './previews'
 
 export interface Preset {
   id: string
@@ -365,7 +366,13 @@ function waterCaustics(): Project {
   return p
 }
 
-export const PRESETS: Preset[] = [
+/** A preset whose built project carries its generated preview (PRESET_PREVIEWS), when there is one. */
+const withPreview = (p: Preset): Preset => {
+  const preview = PRESET_PREVIEWS[p.id]
+  return preview ? { ...p, build: () => ({ ...p.build(), preview }) } : p
+}
+
+export const PRESETS: Preset[] = ([
   { id: 'riveted', name: 'Riveted plate', group: 'Quake-style', build: riveted },
   { id: 'bricks', name: 'Stone bricks', group: 'Quake-style', build: stoneBricks },
   { id: 'cobbles', name: 'Cobblestones', group: 'Quake-style', build: cobbles },
@@ -377,4 +384,4 @@ export const PRESETS: Preset[] = [
   { id: 'rock', name: 'Rock face', group: 'Nature', build: rockFace },
   { id: 'water', name: 'Water caustics', group: 'Nature', build: waterCaustics },
   { id: 'blank', name: 'Blank noise', group: 'Basics', build: () => createProject({ name: 'Untitled' }) },
-]
+] satisfies Preset[]).map(withPreview)

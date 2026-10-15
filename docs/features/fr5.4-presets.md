@@ -28,3 +28,4 @@ Starter projects that demonstrate both target styles and act as optimiser seeds.
 - [x] Nature: water caustics — the Liquid material with refracted light, Gerstner waves and an ocean blue-teal ramp
 - [x] Nature: rock face — the Rock face suggestion (FR8.18) at 128 px in a warm sandstone palette
 - [x] Preset param validation test + render-all tool
+- [x] Previews for the new-project wizard (`tools/previews.ts` → `src/presets/previews.ts`, FR8.20)

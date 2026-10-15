@@ -127,6 +127,7 @@ Project {
   lighting: Lighting,
   render: RenderSettings,
   post: PostFilter[],       // applied in order
+  preview?: string,         // small WebP / JPEG data URL of the final image, written on save (FR8.20)
 }
 
 Layer {
@@ -407,6 +408,7 @@ tools/
   harness.ts         Playwright CLI (render / compare / optimize / sheet)
   smoke.ts           renders every layer + post type, reports shader errors, writes contact sheets
   presets.ts         renders every preset to a contact sheet
+  previews.ts        renders the presets' previews for the new-project wizard (src/presets/previews.ts)
   shot.ts            screenshots the editor UI (optionally after scripted clicks)
   png.ts             Node PNG helpers (read/write, contact sheets)
 docs/
@@ -465,3 +467,4 @@ docs/
 | 8.17  | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md) |
 | 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md) |
 | 8.19  | [Windows metric (local texture)](features/fr8.19-window-metric.md) |
+| 8.20  | [Project previews](features/fr8.20-project-previews.md) |

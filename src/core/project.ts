@@ -138,6 +138,12 @@ export interface Project {
   lighting: Lighting
   render: RenderSettings
   post: PostFilter[]
+  /**
+   * A small lossy thumbnail of the final render, as a data URL (base64 WebP, or JPEG where the browser can't encode
+   * WebP; ≤ 128 px), written on save. The new-project wizard shows it instead of rendering the project (FR8.20).
+   * Optional; rendering ignores it.
+   */
+  preview?: string
 }
 
 export const SIZE_PRESETS = [16, 32, 64, 128, 256, 512, 1024]

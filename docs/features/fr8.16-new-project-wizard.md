@@ -39,5 +39,6 @@ And one place to add anything to the layer list.
 ## Checklist
 - [x] Smart materials in the add grid
 - [x] Wizard: Starters (blank + presets), Suggestions, size, shuffle, progressive thumbnails
+- [x] Cards whose project carries a preview show it without compiling or rendering (FR8.20) — the examples all do
 - [x] Schemes per material: valid, dark → light, deterministic per seed; stone never green, lava never blue; every
       template has a look and builds (`schemes.test.ts`)

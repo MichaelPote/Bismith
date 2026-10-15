@@ -3,7 +3,7 @@ import { PRESETS } from './index'
 import { layerParamDefs, getLayerDef } from '@/layers/registry'
 import { getPostDef } from '@/render/post/registry'
 import { LIGHT_DEFS } from '@/core/lights'
-import { normalizeProject } from '@/core/serialize'
+import { isPreview, normalizeProject } from '@/core/serialize'
 
 describe('presets', () => {
   for (const preset of PRESETS) {
@@ -28,6 +28,10 @@ describe('presets', () => {
       const n = normalizeProject(JSON.parse(JSON.stringify(p)))
       expect(n.layers.map((l) => l.type)).toEqual(p.layers.map((l) => l.type))
       expect(n.post.map((f) => f.type)).toEqual(p.post.map((f) => f.type))
+    })
+
+    it(`${preset.id} carries a preview for the new-project wizard (npx tsx tools/previews.ts)`, () => {
+      expect(isPreview(preset.build().preview)).toBe(true)
     })
   }
 })
