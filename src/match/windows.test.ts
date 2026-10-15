@@ -78,7 +78,7 @@ describe('windows term', () => {
     expect(Math.min(...map.values)).toBe(1)
   })
 
-  it('counts in the windows preset only, at up to 512 px', () => {
+  it('counts in the windows presets only, at up to 512 px', () => {
     const big = planks(640, 4, 9)
     const m = new Matcher(big, { preset: 'windows', wrap: true })
     expect(m.windowTarget?.width).toBe(512)
@@ -91,6 +91,10 @@ describe('windows term', () => {
     // Other presets leave it out (and don't pay for it).
     const t = compareImages(big, big, { preset: 'tile', wrap: true })
     expect(t.weights.windows).toBe(0)
+    // Tile + windows keeps Tile's structure term and adds the windows.
+    const tw = new Matcher(big, { preset: 'tilewin', wrap: true }).score(planks(640, 5, 10))
+    expect(tw.weights.structure).toBeGreaterThan(0)
+    expect(tw.weights.windows).toBeGreaterThan(0)
     expect(new Matcher(big, { preset: 'tile' }).windowTarget).toBeNull()
   })
 })

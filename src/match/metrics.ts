@@ -20,7 +20,7 @@
 //              neighbours both ways (windows.ts) — fine detail counts, where the layout lands doesn't
 // Total = Σ wᵢ·termᵢ / Σ wᵢ over the applicable terms. Presets: 'texture' (aligned weight 0, stochastic
 // textures), 'layout' (aligned weight high, for UI elements / laid-out targets), 'tile' (structure at the best
-// wrap-around shift) and 'windows' (global colour + local texture; the layout is free).
+// wrap-around shift), 'windows' (global colour + local texture; the layout is free) and 'tilewin' (tile + windows).
 
 import { fitSize, resample, resampleLinear, resampleLinearToOklab, toLinearPremul, toOklab, type LabPlanes, type LinearPremul, type MatchImage } from './image'
 import { powerSpectrum2d } from './fft'
@@ -35,7 +35,7 @@ export type TermName = 'colour' | 'spectrum' | 'gradients' | 'contrast' | 'align
 export const TERM_NAMES: TermName[] = ['colour', 'spectrum', 'gradients', 'contrast', 'aligned', 'structure', 'texture', 'windows', 'alpha']
 
 export type MetricWeights = Record<TermName, number>
-export type MetricPreset = 'texture' | 'layout' | 'tile' | 'windows'
+export type MetricPreset = 'texture' | 'layout' | 'tile' | 'windows' | 'tilewin'
 
 export const METRIC_PRESETS: Record<MetricPreset, MetricWeights> = {
   texture: { colour: 2, spectrum: 1, gradients: 1, contrast: 1, aligned: 0, structure: 0, texture: 2, windows: 0, alpha: 0.5 },
@@ -52,6 +52,11 @@ export const METRIC_PRESETS: Record<MetricPreset, MetricWeights> = {
    * too, but at weight 1 it costs the windows nothing and keeps tone and coarse texture from drifting (FR8.19).
    */
   windows: { colour: 1, spectrum: 0, gradients: 0, contrast: 0, aligned: 0, structure: 0, texture: 1, windows: 4, alpha: 0.5 },
+  /**
+   * Tile plus the windows term: as good as Tile under Tile and Texture (16 pairs, paired), as good as Windows on the
+   * windows term — the layout of a small game texture still counts, and a big reference's fine detail gets a say.
+   */
+  tilewin: { colour: 1.25, spectrum: 0.5, gradients: 0.35, contrast: 0.5, aligned: 0, structure: 2, texture: 3, windows: 3, alpha: 0.5 },
 }
 
 export const TERM_LABELS: Record<TermName, string> = {

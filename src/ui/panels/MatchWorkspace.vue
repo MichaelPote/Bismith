@@ -33,7 +33,7 @@ const editor = useEditorStore()
 
 const reference = shallowRef<MatchImage | null>(null)
 const refName = ref('')
-const preset = ref<MetricPreset>('tile')
+const preset = ref<MetricPreset>('tilewin')
 /** Set once the metric is picked by hand; until then each reference picks it by its size (see loadFile). */
 let presetChosen = false
 /** Windows metric: window side as 1/N of the short side. */
@@ -81,8 +81,9 @@ const copyProject = (): Project => JSON.parse(snapshot())
 
 const TERM_SHORT: Record<string, string> = { colour: 'Colour', spectrum: 'Frequency', gradients: 'Edges', contrast: 'Contrast', aligned: 'Alignment', structure: 'Structure', texture: 'Texture', windows: 'Windows', alpha: 'Alpha' }
 const PRESET_OPTIONS = [
-  { value: 'tile', label: 'Tile (structure at best shift)' },
+  { value: 'tilewin', label: 'Tile + windows' },
   { value: 'windows', label: 'Windows (local texture)' },
+  { value: 'tile', label: 'Tile (structure at best shift)' },
   { value: 'texture', label: 'Texture (statistics)' },
   { value: 'layout', label: 'Layout (+ pixel aligned)' },
 ]
@@ -107,9 +108,9 @@ async function loadFile(file: File): Promise<void> {
     const d = ctx.getImageData(0, 0, bmp.width, bmp.height)
     reference.value = fromRgba8(d.data, d.width, d.height)
     refName.value = file.name
-    // Big references are matched by local texture (fine detail, layout free); small game textures by Tile, which also
-    // matches the layout (FR8.19).
-    if (!presetChosen) preset.value = Math.max(d.width, d.height) >= 256 ? 'windows' : 'tile'
+    // Big references are matched by local texture (fine detail, layout free); small game textures by Tile + windows,
+    // which also matches the layout (FR8.19).
+    if (!presetChosen) preset.value = Math.max(d.width, d.height) >= 256 ? 'windows' : 'tilewin'
     reset()
     editor.notify(`Reference “${file.name}” · ${d.width}×${d.height} · ${PRESET_OPTIONS.find((o) => o.value === preset.value)?.label ?? preset.value}`)
     void view()
@@ -708,7 +709,7 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
     <div class="lower">
       <div class="settings">
         <div class="row"><span class="lbl">Metric</span><SelectField v-model="preset" :options="PRESET_OPTIONS" label="Metric preset" @update:model-value="metricChanged" /></div>
-        <div v-if="preset === 'windows'" class="row" title="Size of the windows compared (at up to 512 px): smaller looks at finer detail and ignores more of the layout">
+        <div v-if="preset === 'windows' || preset === 'tilewin'" class="row" title="Size of the windows compared (at up to 512 px): smaller looks at finer detail and ignores more of the layout">
           <span class="lbl">Window</span><SelectField v-model="windowDiv" :options="WINDOW_OPTIONS" label="Window size" @update:model-value="metricChanged" />
         </div>
         <div class="row"><span class="lbl">Samples</span><NumberField v-model="samples" :min="1" :max="256" :soft-min="1" :soft-max="64" int label="Samples per candidate" /></div>

@@ -8,7 +8,7 @@
 //   npm run harness -- render  <project.json> [--out file.png] [--samples N] [--maps]
 //   npm run harness -- sheet   <out.png> <a.png> [b.png …] [--scale N]
 //   npm run harness -- compare <project.json> <target.png> [--out sheet.png] [--samples N]
-//                              [--preset tile|windows|texture|layout] [--weights colour=2,aligned=1] [--max-size N]
+//                              [--preset tilewin|windows|tile|texture|layout] [--weights colour=2,aligned=1] [--max-size N]
 //                              [--wrap] [--window] [--json]
 //       Renders the project, scores it against the target (resampled to the project size) and prints the
 //       metric table; writes a contact sheet [target | render | |difference|×2].
@@ -16,7 +16,7 @@
 //       [--until LOSS] [--time SECONDS] [--patience STEPS]
 //       --until / --time / --patience run until the loss reaches LOSS, the time is up or STEPS steps pass without
 //       progress (whichever first); --iters then caps the steps only when given.
-//                              [--preset tile|windows|texture|layout] [--weights …] [--lambda N] [--islands N] [--seed N]
+//                              [--preset tilewin|windows|tile|texture|layout] [--weights …] [--lambda N] [--islands N] [--seed N]
 //                              [--sigma X] [--lights] [--post] [--base] [--shading] [--enums] [--seeds]
 //                              [--structural] [--final-samples N] [--max-size N] [--wrap] [--window]
 //       Runs the (1+λ)-ES optimiser in-page for N steps (λ renders each, default 100 × 6 at 16 spp),
@@ -134,7 +134,7 @@ function metricOptions(args: Args): CompareOptions {
   const opts: CompareOptions = {}
   if (args.flags.preset) {
     const preset = String(args.flags.preset)
-    if (!['texture', 'layout', 'tile', 'windows'].includes(preset)) throw new Error(`unknown preset ${preset} (texture|layout|tile|windows)`)
+    if (!['texture', 'layout', 'tile', 'windows', 'tilewin'].includes(preset)) throw new Error(`unknown preset ${preset} (texture|layout|tile|windows|tilewin)`)
     opts.preset = preset as CompareOptions['preset']
   }
   if (typeof args.flags.weights === 'string') {
@@ -169,7 +169,7 @@ function png(url: string): Rgba8 {
 async function cmdCompare(args: Args) {
   const [file, targetFile] = args.positional
   if (!file || !targetFile) {
-    throw new Error('usage: compare <project.json> <target.png> [--out sheet.png] [--samples N] [--preset tile|windows|texture|layout]')
+    throw new Error('usage: compare <project.json> <target.png> [--out sheet.png] [--samples N] [--preset tilewin|windows|tile|texture|layout]')
   }
   const project = JSON.parse(readFileSync(file, 'utf8'))
   const out = String(args.flags.out ?? join(OUT_DIR, basename(file).replace(/\.json$/, '') + '.compare.png'))
@@ -201,7 +201,7 @@ function sheetScale(width: number, args: Args): number {
 async function cmdOptimize(args: Args) {
   const [file, targetFile] = args.positional
   if (!file || !targetFile) {
-    throw new Error('usage: optimize <project.json> <target.png> [--iters N] [--samples N] [--out best.json] [--preset tile|windows|texture|layout]')
+    throw new Error('usage: optimize <project.json> <target.png> [--iters N] [--samples N] [--out best.json] [--preset tilewin|windows|tile|texture|layout]')
   }
   const project = JSON.parse(readFileSync(file, 'utf8'))
   const out = String(args.flags.out ?? join(OUT_DIR, basename(file).replace(/\.json$/, '') + '.best.json'))

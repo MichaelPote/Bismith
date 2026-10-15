@@ -1,7 +1,8 @@
 # FR8.19 — Windows metric (local texture)
 
-**Status:** done — `windows` term and **Windows** preset (Match workspace — the default for references of 256 px and
-more —, harness, `matchbench`); the older presets are unchanged and stay selectable
+**Status:** done — `windows` term; **Windows** preset (the Match workspace's default for references of 256 px and more)
+and **Tile + windows** (`tilewin`, the default below); harness, `matchbench`. The older presets are unchanged and stay
+selectable
 
 ## Problem
 On a plank reference the Tile preset's biggest residual is the gaps between the planks: where they fall. That is
@@ -47,9 +48,13 @@ Patch-based *bidirectional similarity* (Simakov et al. 2008), with statistics in
 and joints fall. The VGG term reads them too at 128 px, but at weight 1 it costs the windows term nothing and keeps
 tone and coarse texture from drifting (*Results*).
 
-**Match workspace.** *Metric → Windows (local texture)*, with *Window* Fine (1/16) · Medium (1/8) · Coarse (1/4). A
-loaded reference picks the metric by its size — Windows from 256 px on the long side, Tile below (small game textures,
-where Tile matches the layout as well, see *Results*) — until a metric is picked by hand. The
+**Preset `tilewin`:** Tile's weights plus windows 3 — Tile's structure term keeps the layout of a laid-out game texture,
+the windows term gives a big reference's fine detail a say.
+
+**Match workspace.** *Metric → Tile + windows · Windows (local texture) · Tile · Texture · Layout*, with *Window* Fine
+(1/16) · Medium (1/8) · Coarse (1/4) for the two with windows. A loaded reference picks the metric by its size —
+Windows from 256 px on the long side, Tile + windows below (small game textures, where the layout counts too, see
+*Results*) — until a metric is picked by hand. The
 third pane shows the **window mismatch** map instead of the pixel difference: the render dimmed to grey under a heat
 overlay of how far the windows covering each pixel are from their closest reference windows (clear = well matched,
 red → yellow = the worst-matched windows of this render; relative to its own best and worst, so it shows where, not
@@ -102,6 +107,23 @@ colour + windows: Tile +0.080 ± 0.007, Texture +0.070 ± 0.007, Windows −0.02
 Texture −0.04 each, better on 14 of 15 pairs). On small game textures Tile-optimised results already score nearly as
 well on the windows term, and match the layout besides; by eye the Windows results are on a par (better floorboards and
 pipes, worse on a circuit board and on hammered copper for one seed each). Hence the default by reference size.
+
+**Tile + windows and a schedule** (the same 15 pairs plus the plank project, 2 seeds each, rerun on the current code;
+paired against optimising with Tile, so the Windows column here is the Windows preset, VGG included):
+
+| optimised with | Δ Tile | Δ Texture | Δ Windows | plank project: Windows |
+|---|---|---|---|---|
+| Tile | — | — | — | 0.278 |
+| Windows | +0.039 ± 0.007 | +0.037 ± 0.007 | −0.006 ± 0.006 | 0.189 |
+| Tile + windows 3 (`tilewin`) | +0.005 ± 0.005 | +0.005 ± 0.006 | −0.007 ± 0.006 | 0.193 |
+| Tile 150 steps, then Windows 150 | +0.017 ± 0.003 | +0.016 ± 0.004 | −0.014 ± 0.005 | 0.193 |
+
+Tile + windows ties Tile on its own metrics and ties Windows on the windows score (better than Windows on Tile and
+Texture by −0.034 / −0.032); the schedule lands between. By eye, on the 64 px textures it is on a par with Tile (a
+little better on the floorboards, circuit board and grate for one seed each, worse on lava — both seeds holed or too
+yellow, its worst pair, +0.089). On the plank project it smooths the grain but keeps the red streaks Tile keeps;
+Windows alone is the one that drops them and moves to the painted look. So Tile + windows is the default for small
+references and Windows for big ones.
 
 ## Checklist
 - [x] Window banks, bidirectional matching, mismatch map

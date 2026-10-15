@@ -52,7 +52,7 @@ background (default mid grey) and keeps alpha separately. `absDiff(a, b, gain)` 
 
 `total = Σ wᵢ·termᵢ / Σ wᵢ`. Presets (`METRIC_PRESETS`): **texture** colour 2, spectrum 1, gradients 1,
 contrast 1, aligned 0, alpha 0.5; **layout** colour 1, spectrum 0.25, gradients 0.5, contrast 0.25, aligned 3,
-alpha 0.5; **windows** colour 1, texture 1, windows 4, alpha 0.5 (FR8.19; *tile* and the VGG *texture* term are in FR6.3 / FR8.1).
+alpha 0.5; **windows** colour 1, texture 1, windows 4, alpha 0.5; **tilewin** Tile's weights + windows 3 (FR8.19; *tile* and the VGG *texture* term are in FR6.3 / FR8.1).
 `MetricOptions.weights` overrides single terms.
 
 **API.**
