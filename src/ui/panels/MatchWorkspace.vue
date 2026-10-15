@@ -34,6 +34,10 @@ const editor = useEditorStore()
 const reference = shallowRef<MatchImage | null>(null)
 const refName = ref('')
 const preset = ref<MetricPreset>('tile')
+/** Set once the metric is picked by hand; until then each reference picks it by its size (see loadFile). */
+let presetChosen = false
+/** Windows metric: window side as 1/N of the short side. */
+const windowDiv = ref('8')
 const samples = ref(16)
 // Stop criteria (0 = off). With all off the run goes on until paused.
 const maxSteps = ref(300)
@@ -51,17 +55,42 @@ let runMatcher: Matcher | null = null
 const curve = ref<number[]>([])
 const lastInfo = shallowRef<StepInfo | null>(null)
 const log = ref<string[]>([])
-const bestResult = shallowRef<MetricResult | null>(null)
+/** The score of what the middle pane shows. */
+const shownResult = shallowRef<MetricResult | null>(null)
+/** What the middle pane shows: the current project (rescored as you edit it) or the optimiser's best. */
+const showing = ref<'current' | 'best'>('current')
 const startLoss = ref<number | null>(null)
 const renderPx = shallowRef<{ pixels: Uint8ClampedArray; width: number; height: number } | null>(null)
 const diffPx = shallowRef<{ pixels: Uint8ClampedArray; width: number; height: number } | null>(null)
+/** What the third pane shows: |render − reference| or the Windows metric's mismatch map. */
+const diffMode = ref<'pixels' | 'windows'>('pixels')
 const fitting = ref(false)
 let abort = false
-/** The project as last scored / optimised from: on returning to Match, a different one means it was edited meanwhile. */
+/** The project as last shown in the panes: on returning to Match, a different one means it was edited meanwhile. */
 let seen = ''
+/** The project the optimiser started from: a different one now means edits that Resume and Apply best would miss. */
+let runStart = ''
+/** The edited project the user chose to resume the run without (asked once per version). */
+let resumedWithout = ''
 const snapshot = () => JSON.stringify(toRaw(store.project))
+/**
+ * A plain deep copy of the project. Not structuredClone: store edits that rebuild a list from items read through the
+ * reactive project (moving a layer, material helpers) leave proxies inside the raw object, which it can't clone.
+ */
+const copyProject = (): Project => JSON.parse(snapshot())
 
-const TERM_SHORT: Record<string, string> = { colour: 'Colour', spectrum: 'Frequency', gradients: 'Edges', contrast: 'Contrast', aligned: 'Alignment', structure: 'Structure', texture: 'Texture', alpha: 'Alpha' }
+const TERM_SHORT: Record<string, string> = { colour: 'Colour', spectrum: 'Frequency', gradients: 'Edges', contrast: 'Contrast', aligned: 'Alignment', structure: 'Structure', texture: 'Texture', windows: 'Windows', alpha: 'Alpha' }
+const PRESET_OPTIONS = [
+  { value: 'tile', label: 'Tile (structure at best shift)' },
+  { value: 'windows', label: 'Windows (local texture)' },
+  { value: 'texture', label: 'Texture (statistics)' },
+  { value: 'layout', label: 'Layout (+ pixel aligned)' },
+]
+const WINDOW_OPTIONS = [
+  { value: '16', label: 'Fine (1/16 of the side)' },
+  { value: '8', label: 'Medium (1/8)' },
+  { value: '4', label: 'Coarse (1/4)' },
+]
 
 const refPx = computed(() => (reference.value ? { pixels: toRgba8(reference.value), width: reference.value.width, height: reference.value.height } : null))
 const entryCount = computed(() => extractParams(store.project, { ...space.value }).entries.length)
@@ -78,9 +107,12 @@ async function loadFile(file: File): Promise<void> {
     const d = ctx.getImageData(0, 0, bmp.width, bmp.height)
     reference.value = fromRgba8(d.data, d.width, d.height)
     refName.value = file.name
+    // Big references are matched by local texture (fine detail, layout free); small game textures by Tile, which also
+    // matches the layout (FR8.19).
+    if (!presetChosen) preset.value = Math.max(d.width, d.height) >= 256 ? 'windows' : 'tile'
     reset()
-    editor.notify(`Reference “${file.name}” · ${d.width}×${d.height}`)
-    void scoreCurrent()
+    editor.notify(`Reference “${file.name}” · ${d.width}×${d.height} · ${PRESET_OPTIONS.find((o) => o.value === preset.value)?.label ?? preset.value}`)
+    void view()
   } catch (e) {
     editor.notify(`Could not read the image: ${e instanceof Error ? e.message : e}`, 'error')
   }
@@ -115,7 +147,7 @@ function matchSize(): void {
 // ---------------------------------------------------------------- evaluation
 /** A matcher for the reference, with the GPU texture term when the preset uses it. */
 async function makeMatcher(target: MatchImage = reference.value!, wrap = store.project.tileable): Promise<Matcher> {
-  const m = new Matcher(target, { preset: preset.value, wrap, window: !wrap })
+  const m = new Matcher(target, { preset: preset.value, wrap, window: !wrap, windowFraction: 1 / Number(windowDiv.value) })
   if (editor.engine) await attachTexture(editor.engine, m, wrap)
   return m
 }
@@ -129,24 +161,66 @@ function renderImage(p: Project): MatchImage {
 
 function show(img: MatchImage, matcher: Matcher): void {
   renderPx.value = { pixels: toRgba8(img), width: img.width, height: img.height }
-  const a = matcher.fit(img)
-  const d = absDiff(a, matcher.target, 3)
+  // The Windows metric doesn't compare pixels in place: show where the render's windows have no look-alike instead.
+  const d = matcher.windowMap(img) ?? absDiff(matcher.fit(img), matcher.target, 3)
+  diffMode.value = matcher.windowTarget ? 'windows' : 'pixels'
   diffPx.value = { pixels: toRgba8(d), width: d.width, height: d.height }
 }
 
-async function scoreCurrent(): Promise<void> {
+/** The panes' matcher: kept while the reference, metric and tiling stay the same, since edits rescore often. */
+let paneMatcher: Matcher | null = null
+let paneKey: unknown[] = []
+let viewing = false
+let viewNext: 'current' | 'best' | null = null
+
+async function getPaneMatcher(): Promise<Matcher> {
+  const key = [reference.value, preset.value, store.project.tileable, windowDiv.value]
+  if (!paneMatcher || key.some((k, i) => k !== paneKey[i])) {
+    paneMatcher?.dispose()
+    paneMatcher = null
+    paneMatcher = await makeMatcher()
+    paneKey = key
+  }
+  return paneMatcher
+}
+
+function freePaneMatcher(): void {
+  paneMatcher?.dispose()
+  paneMatcher = null
+}
+
+/** Render and score the current project (or the optimiser's best) into the panes. One at a time; the last ask wins. */
+async function view(which: 'current' | 'best' = 'current'): Promise<void> {
   const engine = editor.engine
   if (!engine || !reference.value) return
-  const matcher = await makeMatcher()
-  engine.suspend()
+  if (viewing) {
+    viewNext = which
+    return
+  }
+  viewing = true
   try {
-    seen = snapshot()
-    const img = renderImage(toRaw(store.project))
-    bestResult.value = matcher.score(img)
-    show(img, matcher)
+    const matcher = await getPaneMatcher()
+    const opt = optimizer.value
+    // A run or another job took the engine meanwhile.
+    if (running.value || busy.value || fitting.value || (which === 'best' && !opt)) return
+    engine.suspend()
+    try {
+      if (which === 'current') seen = snapshot()
+      const img = renderImage(which === 'best' ? opt!.best.project : toRaw(store.project))
+      shownResult.value = matcher.score(img)
+      showing.value = which
+      show(img, matcher)
+    } finally {
+      engine.resume(toRaw(store.project))
+    }
+  } catch (e) {
+    editor.notify(`Scoring failed: ${e instanceof Error ? e.message : e}`, 'error')
   } finally {
-    matcher.dispose()
-    engine.resume(toRaw(store.project))
+    viewing = false
+    const next = viewNext
+    viewNext = null
+    // Skip a queued view of the current project that this one has just shown.
+    if (next && !(next === 'current' && showing.value === 'current' && snapshot() === seen)) void view(next)
   }
 }
 
@@ -168,7 +242,7 @@ async function fitColoursNow(): Promise<void> {
   const matcher = await makeMatcher()
   engine.suspend()
   try {
-    const { project, restore } = paletteOff(structuredClone(toRaw(store.project)))
+    const { project, restore } = paletteOff(copyProject())
     const r = await fitColours(project, matcher, (p) => renderImage(p))
     if (r.after < r.before - 1e-5) {
       store.load(restore(r.project))
@@ -182,7 +256,7 @@ async function fitColoursNow(): Promise<void> {
     fitting.value = false
     engine.resume(toRaw(store.project))
   }
-  void scoreCurrent()
+  void view()
 }
 
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
@@ -228,7 +302,22 @@ function startResize(e: PointerEvent): void {
 async function run(): Promise<void> {
   const engine = editor.engine
   if (!engine || !reference.value || running.value) return
+  // The run optimises the copy it began with: edits made since aren't in it, so ask before resuming without them.
+  if (optimizer.value && snapshot() !== runStart && snapshot() !== resumedWithout) {
+    const choice = await editor.ask({
+      title: 'The project has changed since this run began',
+      detail: "The run optimises a copy of the project made when it began, so your edits aren't part of it. Start a new run from the edited project, or resume this one without them?",
+      choices: [
+        { id: 'resume', label: 'Resume without edits' },
+        { id: 'restart', label: 'Start over from edits', primary: true },
+      ],
+    })
+    if (!choice || running.value) return
+    if (choice === 'restart') reset()
+    else resumedWithout = snapshot()
+  }
   running.value = true
+  runEditNoted = false
   abort = false
   // One matcher per optimiser (its evaluate scores with it): created with the optimiser, reused by later presses.
   if (!optimizer.value) {
@@ -239,8 +328,9 @@ async function run(): Promise<void> {
   engine.suspend()
   try {
     if (!optimizer.value) {
+      runStart = snapshot()
       const opt = new Optimizer(
-        structuredClone(toRaw(store.project)),
+        JSON.parse(runStart) as Project,
         (p) => {
           const image = renderImage(p)
           const r = matcher.score(image)
@@ -254,13 +344,19 @@ async function run(): Promise<void> {
           target: matcher.target,
         },
       )
-      seen = snapshot()
       startLoss.value = await opt.init()
       optimizer.value = opt
       curve.value = [startLoss.value]
       log.value = [`start · loss ${startLoss.value.toFixed(4)} · ${opt.space.entries.length} params`]
     }
     const opt = optimizer.value
+    // The panes follow the best while the run goes on.
+    const showBest = () => {
+      shownResult.value = (opt.best.detail as MetricResult) ?? null
+      show(renderImage(opt.best.project), matcher)
+      showing.value = 'best'
+    }
+    if (showing.value !== 'best') showBest()
     // Every press runs afresh: up to Max steps more, a new time limit and stall count — so a run that stopped can
     // always keep going. A target loss already reached no longer stops it (it keeps improving past it).
     const stop: StopCriteria = {
@@ -281,8 +377,7 @@ async function run(): Promise<void> {
       lastInfo.value = info
       curve.value = [...curve.value, info.bestLoss]
       if (info.improved) {
-        bestResult.value = (opt.best.detail as MetricResult) ?? null
-        show(renderImage(opt.best.project), matcher)
+        showBest()
         const what = info.structural ?? info.changed.slice(0, 3).join(', ')
         log.value = [`#${info.step} ${info.bestLoss.toFixed(4)} ${what}`, ...log.value].slice(0, 40)
       } else if (info.opened) {
@@ -300,10 +395,11 @@ async function run(): Promise<void> {
     editor.notify(`Optimiser stopped: ${e instanceof Error ? e.message : e}`, 'error')
   } finally {
     running.value = false
-    // Reset during the run: its matcher goes with the optimiser.
+    // Reset during the run: its matcher goes with the optimiser, and the panes go back to the current project.
     if (!optimizer.value) {
       runMatcher?.dispose()
       runMatcher = null
+      if (showing.value === 'best') void view()
     }
     engine.resume(toRaw(store.project))
   }
@@ -376,7 +472,7 @@ async function vary(): Promise<void> {
   const matcher = reference.value ? await makeMatcher() : null
   engine.suspend()
   try {
-    const base = structuredClone(toRaw(store.project))
+    const base = copyProject()
     const vs = variations(base, 8, { strength: spread.value })
     const all = [...vs.slice(0, 4), { project: base, changed: [] as string[] }, ...vs.slice(4)]
     cards.value = all.map((v, i) => {
@@ -414,11 +510,13 @@ function pickCard(c: Card): void {
   reset()
   overlay.value = null
   editor.notify(`Started from “${c.label}” — Optimise to refine, Variations to explore (undo with Ctrl+Z)`)
-  void scoreCurrent()
+  void view()
 }
 
 function closeOverlay(): void {
   overlay.value = null
+  // Edits made while it was open.
+  if (snapshot() !== seen) void view()
 }
 
 function pause(): void {
@@ -438,45 +536,84 @@ function reset(): void {
   log.value = []
   lastInfo.value = null
   startLoss.value = null
+  runStart = ''
+  resumedWithout = ''
+  // The best is gone (a run in progress shows the current project when it stops).
+  if (showing.value === 'best' && !running.value) void view()
 }
 
-function applyBest(): void {
+/** A new metric: the run starts over, and the panes are rescored with it (the third pane may change kind too). */
+function metricChanged(): void {
+  presetChosen = true
+  reset()
+  if (reference.value && !running.value && showing.value === 'current') void view()
+}
+
+async function applyBest(): Promise<void> {
   const opt = optimizer.value
   if (!opt) return
+  if (snapshot() !== runStart) {
+    const choice = await editor.ask({
+      title: 'Replace your edits?',
+      detail: "The best comes from the project as it was when this run began, so applying it undoes the edits you've made since. Ctrl+Z brings them back.",
+      choices: [{ id: 'apply', label: 'Apply best', primary: true }],
+    })
+    if (choice !== 'apply' || optimizer.value !== opt || running.value) return
+  }
   store.load(opt.best.project)
   editor.notify(`Applied best (loss ${opt.best.loss.toFixed(4)}) — undo with Ctrl+Z`)
   reset()
-  void scoreCurrent()
+  void view()
 }
+
+// Edits show against the reference as you make them (the outliner and properties stay live beside Match), unless a
+// run, an overlay or another job holds the engine. A run optimises its own copy: Resume and Apply best ask about edits.
+let active = false
+let viewTimer: ReturnType<typeof setTimeout> | null = null
+let runEditNoted = false
+watch(
+  () => store.project,
+  () => {
+    if (!active || !reference.value) return
+    if (running.value) {
+      if (!runEditNoted) editor.notify("Edits aren't part of the running optimisation — pause to see them against the reference")
+      runEditNoted = true
+      return
+    }
+    viewTimer ??= setTimeout(() => {
+      viewTimer = null
+      if (active && !running.value && !busy.value && !fitting.value && !overlay.value && snapshot() !== seen) void view()
+    }, 120)
+  },
+  { deep: true },
+)
 
 onMounted(() => window.addEventListener('bismith:reference', onDropEvent))
 onBeforeUnmount(() => {
   abort = true
   runMatcher?.dispose()
   runMatcher = null
+  freePaneMatcher()
   window.removeEventListener('bismith:reference', onDropEvent)
 })
 // Kept alive across workspace switches: the reference, settings and optimiser survive a visit to Create. Leaving pauses
-// a run (the viewport needs the engine); coming back re-renders — and if the project was edited meanwhile, the
-// optimiser starts over from it (its best would undo the edits).
+// a run (the viewport needs the engine) and frees the panes' matcher; coming back shows edits made meanwhile.
 onDeactivated(() => {
+  active = false
   abort = true
+  if (!viewing) freePaneMatcher()
 })
 onActivated(() => {
+  active = true
   if (!reference.value || running.value) return
-  if (snapshot() === seen) return
-  if (optimizer.value) {
-    reset()
-    editor.notify('The project changed in Create — the optimiser will start over from it')
-  }
-  void scoreCurrent()
+  if (snapshot() !== seen) void view()
 })
 
 const improvement = computed(() => {
   const c = curve.value
   return c.length > 1 && c[0] > 0 ? 1 - c[c.length - 1] / c[0] : null
 })
-const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.length - 1] : bestResult.value?.total ?? null))
+const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.length - 1] : shownResult.value?.total ?? null))
 </script>
 
 <template>
@@ -529,7 +666,7 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
       </div>
       <div class="cards" :class="{ nine: overlay === 'vary' }">
         <button v-for="c in cards" :key="c.id" type="button" class="card" :class="{ current: c.current }" :title="c.label" @click="pickCard(c)">
-          <ImageCanvas :pixels="c.px.pixels" :width="c.px.width" :height="c.px.height" :label="c.label" />
+          <ImageCanvas :pixels="c.px.pixels" :width="c.px.width" :height="c.px.height" :label="c.label" pickable />
           <span class="clabel">{{ c.label }}</span>
           <span v-if="c.loss !== null" class="closs cf-mono">{{ c.loss.toFixed(3) }}</span>
         </button>
@@ -539,20 +676,30 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
     <div v-else class="panes">
       <figure>
         <figcaption class="cf-label">Reference</figcaption>
-        <ImageCanvas :pixels="refPx?.pixels ?? null" :width="refPx?.width ?? 1" :height="refPx?.height ?? 1" label="Reference image">
+        <ImageCanvas :pixels="refPx?.pixels ?? null" :width="refPx?.width ?? 1" :height="refPx?.height ?? 1" label="Reference image" pickable>
           Load or drop an image to match. Texture references compare statistics (colour, frequency, edges);
-          the Layout preset also compares pixel positions for UI elements.
+          Windows compares local patches wherever they are; the Layout preset also compares pixel positions for UI
+          elements.
         </ImageCanvas>
       </figure>
       <figure>
-        <figcaption class="cf-label">{{ optimizer ? 'Best so far' : 'Current project' }}</figcaption>
-        <ImageCanvas :pixels="renderPx?.pixels ?? null" :width="renderPx?.width ?? 1" :height="renderPx?.height ?? 1" label="Rendered candidate">
+        <figcaption class="cf-label cap">
+          <span v-if="!optimizer || running">{{ running ? 'Best so far' : 'Current project' }}</span>
+          <span v-else class="pick" role="radiogroup" aria-label="Show">
+            <button type="button" class="cf-toggle" :class="{ on: showing === 'current' }" role="radio" :aria-checked="showing === 'current'" title="The project as it is now, with your edits" @click="view('current')">Current</button>
+            <button type="button" class="cf-toggle" :class="{ on: showing === 'best' }" role="radio" :aria-checked="showing === 'best'" title="The optimiser's best (Apply best to take it)" @click="view('best')">Best so far</button>
+          </span>
+          <span v-if="shownResult" class="loss cf-mono" title="Loss of the image shown">{{ shownResult.total.toFixed(4) }}</span>
+        </figcaption>
+        <ImageCanvas :pixels="renderPx?.pixels ?? null" :width="renderPx?.width ?? 1" :height="renderPx?.height ?? 1" label="Rendered candidate" pickable>
           The render appears once a reference is loaded.
         </ImageCanvas>
       </figure>
       <figure>
-        <figcaption class="cf-label">Difference ×3</figcaption>
-        <ImageCanvas :pixels="diffPx?.pixels ?? null" :width="diffPx?.width ?? 1" :height="diffPx?.height ?? 1" label="Absolute difference" />
+        <figcaption class="cf-label" :title="diffMode === 'windows' ? 'Where the render\'s local texture is least like anything in the reference: dim = well matched, red → yellow = worst matched windows of this render' : undefined">
+          {{ diffMode === 'windows' ? 'Window mismatch' : 'Difference ×3' }}
+        </figcaption>
+        <ImageCanvas :pixels="diffPx?.pixels ?? null" :width="diffPx?.width ?? 1" :height="diffPx?.height ?? 1" :label="diffMode === 'windows' ? 'Window mismatch' : 'Absolute difference'" />
       </figure>
     </div>
 
@@ -560,7 +707,10 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
 
     <div class="lower">
       <div class="settings">
-        <div class="row"><span class="lbl">Metric</span><SelectField v-model="preset" :options="[{ value: 'tile', label: 'Tile (structure at best shift)' }, { value: 'texture', label: 'Texture (statistics)' }, { value: 'layout', label: 'Layout (+ pixel aligned)' }]" label="Metric preset" @update:model-value="reset" /></div>
+        <div class="row"><span class="lbl">Metric</span><SelectField v-model="preset" :options="PRESET_OPTIONS" label="Metric preset" @update:model-value="metricChanged" /></div>
+        <div v-if="preset === 'windows'" class="row" title="Size of the windows compared (at up to 512 px): smaller looks at finer detail and ignores more of the layout">
+          <span class="lbl">Window</span><SelectField v-model="windowDiv" :options="WINDOW_OPTIONS" label="Window size" @update:model-value="metricChanged" />
+        </div>
         <div class="row"><span class="lbl">Samples</span><NumberField v-model="samples" :min="1" :max="256" :soft-min="1" :soft-max="64" int label="Samples per candidate" /></div>
         <div class="row" title="Each Optimise / Continue runs up to this many steps (0 = no limit)"><span class="lbl">Max steps</span><NumberField v-model="maxSteps" :min="0" :max="1000000" :soft-min="0" :soft-max="2000" int label="Max steps" /></div>
         <div class="row" title="Stop as soon as the best loss reaches this (0 = off)"><span class="lbl">Stop at loss</span><NumberField v-model="targetLoss" :min="0" :max="2" :soft-max="0.6" :step="0.001" label="Target loss" /></div>
@@ -596,8 +746,8 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
       <div class="terms">
         <div v-for="t in TERM_NAMES" :key="t" class="term">
           <span class="tl">{{ TERM_SHORT[t] ?? t }}</span>
-          <div class="tb"><div :style="{ width: `${Math.min(100, (bestResult?.terms[t] ?? 0) * 100)}%`, opacity: bestResult?.weights[t] ? 1 : 0.3 }" /></div>
-          <span class="tv cf-mono">{{ bestResult ? bestResult.terms[t].toFixed(3) : '—' }}</span>
+          <div class="tb"><div :style="{ width: `${Math.min(100, (shownResult?.terms[t] ?? 0) * 100)}%`, opacity: shownResult?.weights[t] ? 1 : 0.3 }" /></div>
+          <span class="tv cf-mono">{{ shownResult ? shownResult.terms[t].toFixed(3) : '—' }}</span>
         </div>
         <div class="log cf-mono">
           <div v-for="(l, i) in log" :key="i">{{ l }}</div>
@@ -715,6 +865,28 @@ figure {
   display: grid;
   grid-template-rows: 20px minmax(0, 1fr);
   min-height: 0;
+}
+.cap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pick {
+  display: flex;
+  gap: 4px;
+}
+.pick .cf-toggle {
+  height: 18px;
+  padding: 0 6px;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.cap .loss {
+  margin-left: 4px;
+  letter-spacing: 0;
+  color: var(--text-mid);
 }
 .lower {
   display: grid;

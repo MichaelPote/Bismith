@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Scalar ramp (roughness, specular): the output where the source is 0 (left) and where it is 1 (right), shown as a
 // grey ramp like the colour ramp. Drag a gem sideways to scrub its value (Shift fine, Ctrl whole numbers), or type
-// in the fields below; ⇄ swaps the ends.
+// in the fields below; ⇄ swaps the ends. The eyedropper takes the grey under the pointer.
 import { computed, ref } from 'vue'
 import NumberField from './NumberField.vue'
 import { IconArrowsLeftRight } from '@tabler/icons-vue'
 import { vTip } from '@/ui/tooltip'
+import { vPick } from '@/ui/eyedropper'
 
 const props = withDefaults(
   defineProps<{
@@ -36,6 +37,14 @@ const grey = (v: number) => {
   return `rgb(${g}, ${g}, ${g})`
 }
 const css = computed(() => `linear-gradient(90deg, ${grey(props.a)}, ${grey(props.b)})`)
+
+/** Eyedropper: the bar's grey under the pointer. */
+function greyAt(e: MouseEvent): string {
+  const r = bar.value!.getBoundingClientRect()
+  const t = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
+  const g = Math.round(255 * Math.min(1, Math.max(0, (props.a + (props.b - props.a) * t - props.min) / span.value)))
+  return '#' + g.toString(16).padStart(2, '0').repeat(3)
+}
 
 const clamp = (v: number) => Math.min(props.max, Math.max(props.min, v))
 function setEnd(end: 0 | 1, v: number): void {
@@ -76,7 +85,7 @@ function swap(): void {
 
 <template>
   <div class="ramp">
-    <div ref="bar" class="bar" :style="{ background: css }" />
+    <div ref="bar" v-pick="greyAt" class="bar" :style="{ background: css }" />
     <div class="stops">
       <button
         v-for="end in [0, 1] as const"

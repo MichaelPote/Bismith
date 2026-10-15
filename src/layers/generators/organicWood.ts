@@ -3,8 +3,9 @@
 // Both are SDF layers with an Output switch, because the generator wrapper replaces the value of an SDF
 // pixel with the bevel profile:
 //   - "combined" (default): the pattern value (grain / scale shading) multiplied by the layer's own bevel
-//     profile and coverage — gaps and outlines read 0. Wood hands its plank outline to the shape register
-//     (genOutOwn), so chips and clips can follow it; scales don't write it (per-pixel NO_SDF opt-out).
+//     profile and coverage — gaps and outlines read 0. Wood returns its grain with genOutShaded: the wrapper applies
+//     the bevel of the combined shape and writes the plank outline to the shape register, so chips and clips can follow
+//     it; scales apply their own and don't write it (per-pixel NO_SDF opt-out).
 //   - "shape": the plank / scale SDF for the shape register (bevel, clip, etch); value = wrapper profile.
 //   - wood only, "grain": the grain value without gaps or edges (stack it over a "shape" layer).
 
@@ -114,6 +115,11 @@ GenOut gen(vec2 p) {
   // Nearest board (like bricks): the gap runs along the left / top edge so whole-pixel sizes stay crisp.
   int c0 = int(floor(a / pw));
   float best = 1e9;
+  // The nearest board's distance in the space Bevel aspect stretches (x by √a, y by 1/√a: left / right bevels Bevel / √a,
+  // top / bottom Bevel · √a), in px of Bevel — its bevel (GenOut.bdist), exact, so the bevels meet in a clean mitre.
+  float bestA = 1e9;
+  float ra = sqrt(max(u_bevel_aspect, 1e-3));
+  vec2 asp = horiz ? vec2(ra, 1.0 / ra) : vec2(1.0 / ra, ra);
   ivec2 bid = ivec2(0);
   vec4 box = vec4(0.0, A, 0.0, Lr);
   for (int i = -1; i <= 1; i++) {
@@ -146,13 +152,18 @@ GenOut gen(vec2 p) {
       float d = sdBox(vec2(a, lw) - 0.5 * (lo + hi), hs);
       if (d < best) {
         best = d;
+        bestA = sdBox((vec2(a, lw) - 0.5 * (lo + hi)) / asp, hs / asp);
         bid = ivec2(cw, nj > 0 ? (uTile ? imod(b, nj) : b) : 0);
         box = vec4(a0, a1, l0, l1);
       }
     }
   }
   float rnd = hashI(bid, uSeed);
-  if (u_output == 1 && u_planks) return genOut(0.0, 1.0, rnd, best);
+  if (u_output == 1 && u_planks) {
+    GenOut sh = genOut(0.0, 1.0, rnd, best);
+    sh.bdist = bestA;
+    return sh;
+  }
 
   // Board-local coordinates: la across from the board centre, ll along from its start (period Lb).
   float pwB = max(box.y - box.x, 1.0);
@@ -242,15 +253,11 @@ GenOut gen(vec2 p) {
   v = clamp(mix(v, 1.0 - knotDark, knotMask), 0.0, 1.0);
   // Height: the grain at Grain depth on a full-height surface; edges and gaps keep the full range.
   float hv = mix(1.0, v, u_grain_depth);
+  // Wood output: the grain on the planks — the wrapper multiplies it by their bevel (gaps = 0), from the combined shape.
   GenOut o;
-  if (u_output == 0 && u_planks) {
-    float edge = org_edgeProfile(best) * coverage(best, u_aa);
-    o = genOutOwn(v * edge, 1.0, rnd, best);
-    o.hval = hv * edge;
-  } else {
-    o = genOut(v, 1.0, rnd, ${ORG_NO_SDF});
-    o.hval = hv;
-  }
+  if (u_output == 0 && u_planks) { o = genOutShaded(v, 1.0, rnd, best); o.bdist = bestA; }
+  else o = genOut(v, 1.0, rnd, ${ORG_NO_SDF});
+  o.hval = hv;
   return o;
 }
 `,

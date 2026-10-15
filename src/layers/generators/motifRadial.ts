@@ -294,22 +294,29 @@ export const glyphLayer: LayerDef = {
   category: 'pattern',
   kind: 'generator',
   sdf: true,
-  description: 'Procedural emblems, runes and sigils: random strokes (or blocks) on a small node grid, mirrored left–right. Repeat with variation for rune borders and alien text.',
+  description: 'Procedural emblems, runes and sigils: random strokes (or blocks) on a small node grid, mirrored left–right and / or top–bottom. Repeat with variation for rune borders and alien text.',
   params: [
     P.enum('style', 'Style', 'strokes', [['strokes', 'Strokes (runes, sigils)'], ['blocks', 'Blocks (pixel insignia)']]),
     P.int('cols', 'Columns', 5, 2, 9, { hint: 'Nodes (strokes) or cells (blocks) across; odd counts give a centre column' }),
     P.int('rows', 'Rows', 5, 2, 9),
     P.float('size', 'Size', 32, 1, 4096, { softMax: 128, unit: 'px', step: 0.1, hint: 'Glyph height (node span for strokes, cell span for blocks)' }),
+    P.float('jitter', 'Node jitter', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Moves each node off the grid at random, up to half a node spacing at 1. Strokes that share a node still meet there' }),
     P.float('width', 'Stroke width', 2, 0, 256, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => p.style === 'strokes' }),
+    P.float('taper', 'Taper', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Thin each stroke towards its ends: full width in the middle of the stroke, 1 = pointed tips' }),
     P.int('strokes', 'Strokes', 4, 1, 8, { showIf: (p) => p.style === 'strokes', hint: 'Random walks per glyph' }),
     P.int('steps', 'Steps', 3, 1, 8, { showIf: (p) => p.style === 'strokes', hint: 'Segments per stroke' }),
     P.float('diag', 'Diagonals', 0.4, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a turn goes diagonal' }),
     P.float('straight', 'Straightness', 0.35, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a stroke keeps its direction' }),
-    P.float('curve', 'Curves', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a segment bows into an arc' }),
+    P.float('overlap', 'Overlaps', 1, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a step may land on a node already drawn (by any stroke, or a mirror image). At 0 strokes never run back into the glyph, and stop early when boxed in. Splines never run back along a drawn line or turn back sharply' }),
+    P.enum('line', 'Lines', 'straight', [['straight', 'Straight (and arcs)'], ['spline', 'Splines (hand-drawn)']], { showIf: (p) => p.style === 'strokes', hint: 'Splines draw each stroke as one smooth curve through its nodes' }),
+    P.float('curve', 'Curves', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes' && p.line !== 'spline', hint: 'Chance a segment bows into an arc' }),
+    P.float('roundness', 'Roundness', 1, 0, 2, { step: 0.001, showIf: (p) => p.style === 'strokes' && p.line === 'spline', hint: 'How far the splines swing through the nodes: 0 = straight, 1 = natural, 2 = loopy' }),
     P.float('dots', 'End dots', 0, 0, 64, { softMax: 8, unit: 'px', step: 0.1, showIf: (p) => p.style === 'strokes', hint: 'Radius of a dot at each stroke end (0 = none)' }),
-    P.bool('dot_ring', 'Ring dots', false, { showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0, hint: 'Draw the end dots as small rings (sigil style)' }),
+    P.bool('dot_ring', 'Ring dots', false, { showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0, hint: 'Draw the end dots as open rings that the strokes stop at (sigil style). The ring line is the stroke width, thinned to half the radius on small dots' }),
     P.float('density', 'Fill', 0.5, 0, 1, { step: 0.001, showIf: (p) => p.style === 'blocks', hint: 'Fraction of cells filled' }),
-    P.bool('mirror', 'Mirror', true, { hint: 'Left–right symmetry' }),
+    P.bool('mirror', 'Mirror X', true, { hint: 'Left–right symmetry' }),
+    P.bool('mirror_y', 'Mirror Y', false, { hint: 'Top–bottom symmetry' }),
+    P.bool('centre', 'Centre glyph', false, { hint: 'Centre the drawn glyph on its origin (placement point and rotation pivot) instead of the full node grid' }),
     P.bool('vary', 'Vary per instance', true, { hint: 'Each repeat gets its own glyph (rune text); off repeats one emblem' }),
     P.bool('snap', 'Pixel snap', true, { hint: 'Puts nodes on the pixel grid so 1–2 px strokes stay crisp' }),
     ...PLACEMENT,
@@ -340,7 +347,12 @@ float mot_spacing() {
 }
 float motifBound() {
   ivec2 g = mot_grid();
-  return 0.5 * length(vec2(g)) * mot_spacing() + u_width + 2.0 * u_dots + 1.0;
+  float sp = mot_spacing();
+  // Splines swing out from the nodes by at most a quarter of their tangent (≤ 0.36 · roundness · spacing).
+  // Jitter moves a node up to half the jitter · spacing per axis.
+  float swing = u_style == 0 && u_line == 1 ? 0.36 * u_roundness * (1.0 + u_jitter) * sp : 0.0;
+  float jit = u_style == 0 ? 0.71 * u_jitter * sp : 0.0;
+  return 0.5 * length(vec2(g)) * sp + swing + jit + u_width + 2.0 * u_dots + 1.0;
 }
 // Strokes: nodes on pixel centres for odd widths, on pixel corners for even ones (and for blocks).
 vec2 motifSnap(vec2 c) {
@@ -358,88 +370,255 @@ vec2 motifSnap(vec2 c) {
 vec2 mot_node(ivec2 n, ivec2 g, float sp) {
   return vec2(float(n.x) - 0.5 * float(g.x - 1), 0.5 * float(g.y - 1) - float(n.y)) * sp;
 }
-// Distance to a stroke, and to its mirror image when mirroring.
-float mot_strokeD(vec2 q, vec2 a, vec2 b, float bow) {
-  float d;
-  if (bow != 0.0) {
-    vec2 m = 0.5 * (a + b) + vec2(-(b - a).y, (b - a).x) * bow;
-    d = sdBezier(q, a, m, b);
-    if (u_mirror) d = min(d, sdBezier(vec2(-q.x, q.y), a, m, b));
-  } else {
-    d = sdSegment(q, a, b);
-    if (u_mirror) d = min(d, sdSegment(vec2(-q.x, q.y), a, b));
+// Offset (px) from the grid centre to the centre of the drawn nodes / cells lo..hi (whole px when snapping).
+vec2 mot_centreOff(ivec2 lo, ivec2 hi, ivec2 g, float sp) {
+  vec2 o = vec2(0.5 * float(lo.x + hi.x - g.x + 1), 0.5 * float(g.y - 1 - lo.y - hi.y)) * sp;
+  // A mirror image makes the drawing symmetric about that axis already.
+  if (u_mirror) o.x = 0.0;
+  if (u_mirror_y) o.y = 0.0;
+  return u_snap ? floor(o + 0.5) : o;
+}
+bool mot_cellOn(int i, int j, ivec2 g, int gid) {
+  int mi = u_mirror ? min(i, g.x - 1 - i) : i;
+  int mj = u_mirror_y ? min(j, g.y - 1 - j) : j;
+  return hashI(ivec2(mi + 16 * mj, gid), MOT_SEED + 211.0) < u_density;
+}
+// Visited nodes for the overlap test: one bit per node (x + 9y < 81) over three words. Mirroring folds the node
+// onto the top-left (x onto the left half, y onto the top half), so a node a mirror image has drawn counts as
+// visited too.
+int mot_nodeKey(ivec2 n, ivec2 g) {
+  return (u_mirror ? min(n.x, g.x - 1 - n.x) : n.x) + 9 * (u_mirror_y ? min(n.y, g.y - 1 - n.y) : n.y);
+}
+// Node position with its jitter (one random offset per node and glyph, so strokes sharing a node still meet).
+// Mirroring keys the offset by the folded node and mirrors it on the right / bottom half (zero across the axis on
+// an axis node), so the mirror images land on the same moved nodes.
+vec2 mot_pt(ivec2 n, ivec2 g, float sp, int gid) {
+  vec2 p = mot_node(n, g, sp);
+  if (u_jitter <= 0.0) return p;
+  vec2 j = (hash2I(ivec2(mot_nodeKey(n, g), gid), MOT_SEED + 503.0) - 0.5) * u_jitter * sp;
+  if (u_snap) j = floor(j + 0.5);
+  if (u_mirror) j.x *= float(sign(g.x - 1 - 2 * n.x));
+  if (u_mirror_y) j.y *= float(sign(g.y - 1 - 2 * n.y));
+  return p + j;
+}
+uvec3 mot_bit(int i) { return uvec3(equal(ivec3(i >> 5), ivec3(0, 1, 2))) << uint(i & 31); }
+// Quadratic Bézier distance (as sdBezier) and the parameter t of the nearest point, for the taper.
+vec2 mot_bezierT(vec2 pos, vec2 A, vec2 B, vec2 C) {
+  vec2 a = B - A;
+  vec2 b = A - 2.0 * B + C;
+  if (dot(b, b) < 1e-6) {
+    vec2 pa = pos - A, ca = C - A;
+    float h = clamp(dot(pa, ca) / max(dot(ca, ca), 1e-8), 0.0, 1.0);
+    return vec2(length(pa - ca * h), h);
+  }
+  vec2 c = a * 2.0;
+  vec2 d = A - pos;
+  float kk = 1.0 / dot(b, b);
+  float kx = kk * dot(a, b);
+  float ky = kk * (2.0 * dot(a, a) + dot(d, b)) / 3.0;
+  float kz = kk * dot(d, a);
+  float p = ky - kx * kx;
+  float p3 = p * p * p;
+  float q = kx * (2.0 * kx * kx - 3.0 * ky) + kz;
+  float h = q * q + 4.0 * p3;
+  if (h >= 0.0) {
+    h = sqrt(h);
+    vec2 x = (vec2(h, -h) - q) / 2.0;
+    vec2 uv = sign(x) * pow(abs(x), vec2(1.0 / 3.0));
+    float t = clamp(uv.x + uv.y - kx, 0.0, 1.0);
+    return vec2(length(d + (c + b * t) * t), t);
+  }
+  float z = sqrt(-p);
+  float v = acos(q / (p * z * 2.0)) / 3.0;
+  float m = cos(v);
+  float n = sin(v) * 1.732050808;
+  vec2 t = clamp(vec2(m + m, -n - m) * z - kx, 0.0, 1.0);
+  float d0 = dot2(d + (c + b * t.x) * t.x), d1 = dot2(d + (c + b * t.y) * t.y);
+  return d0 < d1 ? vec2(sqrt(d0), t.x) : vec2(sqrt(d1), t.y);
+}
+// Signed distance to segment k (of n) of a stroke, b → c, and to its mirror images when mirroring. Straight
+// lines: one quadratic Bézier bowed sideways by 'bow' (a straight segment when 0). Splines: the Catmull-Rom curve
+// through the nodes (tangents from the nodes a before and e after, scaled by roundness) as two quadratic Béziers
+// that meet halfway with matching tangents. The half width tapers along the whole stroke (4u(1 − u), u = 0..1).
+// One Bézier call in one loop, so the shader holds a single copy of it.
+float mot_segD(vec2 q, vec2 a, vec2 b, vec2 c, vec2 e, float bow, float k, float n) {
+  bool spline = u_line == 1;
+  vec2 c0 = spline ? b + 0.125 * u_roundness * (c - a) : 0.5 * (b + c) + vec2(b.y - c.y, c.x - b.x) * bow;
+  vec2 c1 = c - 0.125 * u_roundness * (e - b);
+  vec2 m = spline ? 0.5 * (c0 + c1) : c;
+  int pieces = spline ? 2 : 1;
+  int copies = (u_mirror ? 2 : 1) * (u_mirror_y ? 2 : 1);
+  float d = 1e9;
+  for (int i = 0; i < pieces * copies; i++) {
+    bool second = spline && (i & 1) == 1;
+    int mi = i / pieces;                       // which image: bit 0 flips x (when mirroring x), then y
+    vec2 qm = q;
+    if (u_mirror && (mi & 1) == 1) qm.x = -qm.x;
+    if (u_mirror_y && (u_mirror ? mi >= 2 : mi == 1)) qm.y = -qm.y;
+    vec2 A = second ? m : b, B = second ? c1 : c0, C = second ? c : m;
+    // Nearly straight pieces: a plain segment (the Bézier solve loses precision as the curve flattens).
+    vec2 ac = C - A, ab = B - A;
+    if (abs(ac.x * ab.y - ac.y * ab.x) < 0.01 * length(ac)) B = 0.5 * (A + C);
+    vec2 dt = mot_bezierT(qm, A, B, C);
+    float u = (k + (spline ? 0.5 * (float(second) + dt.y) : dt.y)) / max(n, 1.0);
+    d = min(d, dt.x - 0.5 * u_width * mix(1.0, 4.0 * u * (1.0 - u), u_taper));
   }
   return d;
-}
-float mot_dot(vec2 q, vec2 c) {
-  float d = length(q - c);
-  if (u_mirror) d = min(d, length(vec2(-q.x, q.y) - c));
-  d -= u_dots;
-  return u_dot_ring ? abs(d + 0.5 * u_width) - 0.5 * u_width : d;
 }
 
 float motifSdf(vec2 q, float inst) {
   ivec2 g = mot_grid();
   float sp = mot_spacing();
   int gid = u_vary ? int(inst * 65535.0) : 0;
+  // Loop bounds below depend on uniforms, so D3D compiles each loop body once instead of unrolling it.
+  int eight = uRes.x > 0.0 ? 8 : 0;
   if (u_style == 1) {
-    // Blocks: exact distance to the union of filled cells (inside: distance to the nearest empty cell or
-    // the grid's outside).
+    // Blocks: exact distance to the union of filled cells (inside: distance to the nearest empty cell or the
+    // grid's outside). One flat loop over the cells, twice when centring: first for the filled cells' bounds.
+    int cells = g.x * g.y;
+    ivec2 lo = g, hi = ivec2(-1), ci = ivec2(0);
     vec2 hs = vec2(0.5 * sp);
     vec2 gh = 0.5 * vec2(g) * sp;
-    vec2 cq = (q + gh) / sp;
-    ivec2 ci = ivec2(floor(vec2(cq.x, 2.0 * gh.y / sp - cq.y)));
     bool inside = false;
-    float dFill = 1e9, dEmpty = max(-sdBox(q, gh), 0.0);
-    for (int j = 0; j < 9; j++) {
-      if (j >= g.y) break;
-      for (int i = 0; i < 9; i++) {
-        if (i >= g.x) break;
-        int mi = u_mirror ? min(i, g.x - 1 - i) : i;
-        bool on = hashI(ivec2(mi + 16 * j, gid), MOT_SEED + 211.0) < u_density;
-        vec2 c = vec2(float(i) + 0.5, 0.0) * sp - vec2(gh.x, 0.0);
-        c.y = gh.y - (float(j) + 0.5) * sp;
-        float db = sdBox(q - c, hs);
-        if (on) { dFill = min(dFill, db); if (ci == ivec2(i, j)) inside = true; }
-        else dEmpty = min(dEmpty, max(db, 0.0));
+    float dFill = 1e9, dEmpty = 0.0;
+    for (int e = u_centre ? 0 : cells; e < 2 * cells; e++) {
+      int c = e < cells ? e : e - cells;
+      int i = c % g.x, j = c / g.x;
+      bool on = mot_cellOn(i, j, g, gid);
+      if (e < cells) {
+        if (on) { lo = min(lo, ivec2(i, j)); hi = max(hi, ivec2(i, j)); }
+        continue;
       }
+      if (c == 0) {
+        if (u_centre && hi.x >= 0) q += mot_centreOff(lo, hi, g, sp);
+        vec2 cq = (q + gh) / sp;
+        ci = ivec2(floor(vec2(cq.x, 2.0 * gh.y / sp - cq.y)));
+        dEmpty = max(-sdBox(q, gh), 0.0);
+      }
+      vec2 cc = vec2((float(i) + 0.5) * sp - gh.x, gh.y - (float(j) + 0.5) * sp);
+      float db = sdBox(q - cc, hs);
+      if (on) { dFill = min(dFill, db); if (ci == ivec2(i, j)) inside = true; }
+      else dEmpty = min(dEmpty, max(db, 0.0));
     }
     return inside ? -dEmpty : dFill;
   }
   // Strokes: random walks over the node grid; each step keeps going straight or turns (diagonals by chance),
-  // never reverses, and turns away from the grid edge.
-  float d = 1e9, dd = 1e9;
-  float hw = 0.5 * u_width;
-  for (int w = 0; w < 8; w++) {
-    if (w >= u_strokes) break;
-    vec3 h0 = hash3I(ivec2(w * 16, gid), MOT_SEED + 101.0);
-    ivec2 pos = min(ivec2(floor(h0.xy * vec2(g))), g - 1);
-    int dir = int(h0.z * 8.0);
-    if (u_dots > 0.0) dd = min(dd, mot_dot(q, mot_node(pos, g, sp)));
-    for (int s = 0; s < 8; s++) {
-      if (s >= u_steps) break;
-      vec4 hs = vec4(hash3I(ivec2(w * 16 + s + 1, gid), MOT_SEED + 101.0), hashI(ivec2(w * 16 + s + 1, gid), MOT_SEED + 307.0));
-      int nd = dir;
+  // never reverses, turns away from the grid edge and, unless an overlap is allowed, away from drawn nodes.
+  // Splines also never turn back sharply (135°) or step from one drawn node to another (running back along a
+  // drawn line): a curve can't retrace a line, so doubling back draws loops and lenses.
+  // One flat loop walks all the strokes node by node. Each iteration arrives at a node (or, after a stroke's
+  // last node, at a reflected point past its end) and draws the segment before the previous node, now that the
+  // nodes on both sides of it are known (spline tangents need them). Centring and tapering walk everything
+  // twice: the first pass only finds the bounds of the drawn nodes and each stroke's length.
+  float d = 1e9, dd = 1e9, dh = 1e9;
+  float rw = min(u_width, 0.5 * u_dots);       // ring line: the stroke width, but leave a hole on small dots
+  bool spline = u_line == 1;
+  int strokes = clamp(u_strokes, 1, 8), steps = clamp(u_steps, 1, 8);
+  bool draw = !u_centre && u_taper <= 0.0;
+  uint lens = 0u;                              // segments per stroke, 4 bits each (first pass)
+  uvec3 seen = uvec3(0u);
+  ivec2 lo = g, hi = ivec2(-1);
+  int w = 0, s = -1, dir = 0;                  // s: index of the node arrived at (-1: start the next stroke)
+  bool ending = false, old = false;
+  ivec2 pos = ivec2(0), nB = ivec2(0), nC = ivec2(0);
+  vec2 pA = vec2(0.0), pB = vec2(0.0), pC = vec2(0.0), pStart = vec2(0.0);   // nodes s − 3, s − 2, s − 1
+  float bowB = 0.0, bowC = 0.0;                // bows of the segments ending at nodes s − 1 and s
+  for (int it = 0; it < 20 * strokes; it++) {
+    if (s < 0) {
+      if (w >= strokes) {
+        if (draw) break;
+        if (u_centre) q += mot_centreOff(lo, hi, g, sp);
+        draw = true;
+        w = 0;
+        seen = uvec3(0u);
+      }
+      vec3 h0 = hash3I(ivec2(w * 16, gid), MOT_SEED + 101.0);
+      pos = min(ivec2(floor(h0.xy * vec2(g))), g - 1);
+      dir = int(h0.z * 8.0);
+      s = 0;
+    }
+    vec2 pt = 2.0 * pC - pB;
+    if (!ending) {
+      // Arrive at pos. A node is old when drawn before (a node on a mirror axis always is: its mirror image
+      // arrives with it).
+      uvec3 pb = mot_bit(mot_nodeKey(pos, g));
+      old = any(notEqual(seen & pb, uvec3(0u))) || (u_mirror && 2 * pos.x == g.x - 1) ||
+            (u_mirror_y && 2 * pos.y == g.y - 1);
+      seen |= pb;
+      lo = min(lo, pos);
+      hi = max(hi, pos);
+      pt = mot_pt(pos, g, sp, gid);
+      if (s == 0) { pStart = pt; pB = pt; pC = pt; }
+    }
+    // The segment from node s − 2 to s − 1; past either end of the stroke the missing neighbour is reflected. A
+    // segment that is its own mirror image (along an axis, or across one between mirror nodes, or through the
+    // centre when mirroring both ways) stays straight: as a curve it would split from its mirror into a lens.
+    if (draw && s >= 2) {
+      vec2 before = s > 2 ? pA : 2.0 * pB - pC, after = pt;
+      ivec2 mB = g - 1 - nB, mC = g - 1 - nC;
+      bool selfX = u_mirror && (ivec2(mB.x, nB.y) == nC || (mB.x == nB.x && mC.x == nC.x));
+      bool selfY = u_mirror_y && (ivec2(nB.x, mB.y) == nC || (mB.y == nB.y && mC.y == nC.y));
+      if (selfX || selfY || (u_mirror && u_mirror_y && mB == nC)) {
+        before = 2.0 * pB - pC;
+        after = 2.0 * pC - pB;
+      }
+      d = min(d, mot_segD(q, before, pB, pC, after, bowB, float(s - 2), float((lens >> uint(4 * w)) & 15u)));
+    }
+    if (ending) {
+      if (!draw) lens |= uint(s - 1) << uint(4 * w);
+      if (draw && u_dots > 0.0) {
+        for (int k = 0; k < 2; k++) {
+          vec2 c = k == 0 ? pStart : pC;
+          // Nearest of the dot and its mirror images: fold both onto the same side of each mirror axis.
+          vec2 qf = q, cf = c;
+          if (u_mirror) { qf.x = abs(qf.x); cf.x = abs(cf.x); }
+          if (u_mirror_y) { qf.y = abs(qf.y); cf.y = abs(cf.y); }
+          float l = length(qf - cf);
+          dd = min(dd, u_dot_ring ? abs(l - u_dots + 0.5 * rw) - 0.5 * rw : l - u_dots);
+          dh = min(dh, l - u_dots + rw);
+        }
+      }
+      ending = false;
+      w++;
+      s = -1;
+      continue;
+    }
+    // Choose the next node; a stroke ends after its last step, or when boxed in.
+    bool moved = false;
+    int nd = dir;
+    float nbow = 0.0;
+    if (s < steps) {
+      int hid = w * 16 + s + 1;
+      vec4 hs = vec4(hash3I(ivec2(hid, gid), MOT_SEED + 101.0), hashI(ivec2(hid, gid), MOT_SEED + 307.0));
       if (s == 0 || hs.x >= u_straight) {
         int k = int(hs.z * 4.0);
         nd = hs.y < u_diag ? 2 * k + 1 : 2 * k;
       }
-      bool ok = false;
-      for (int t = 0; t < 8; t++) {
+      bool revisit = (u_overlap >= 1.0 || hashI(ivec2(hid, gid), MOT_SEED + 409.0) < u_overlap) && !(spline && old);
+      for (int t = 0; t < eight; t++) {
         ivec2 np = pos + MOT_DIRS[nd];
-        if (np.x >= 0 && np.y >= 0 && np.x < g.x && np.y < g.y && (s == 0 || nd != (dir + 4) % 8)) { ok = true; break; }
+        bool inGrid = all(greaterThanEqual(np, ivec2(0))) && all(lessThan(np, g));
+        // Free: not drawn yet, or the step across an axis onto one of its own mirror nodes (even counts).
+        ivec2 mp = g - 1 - pos;
+        bool free_ = revisit || all(equal(seen & mot_bit(mot_nodeKey(np, g)), uvec3(0u))) ||
+                     (u_mirror && np == ivec2(mp.x, pos.y)) || (u_mirror_y && np == ivec2(pos.x, mp.y)) ||
+                     (u_mirror && u_mirror_y && np == mp);
+        int turn = abs((nd - dir + 8) % 8 - 4);   // 0 = straight back, 1 = a 135° hairpin
+        if (inGrid && free_ && (s == 0 || turn > (spline ? 1 : 0))) { moved = true; break; }
         nd = (nd + 3) % 8;
       }
-      if (!ok) break;
-      ivec2 np = pos + MOT_DIRS[nd];
-      float bow = hs.w < u_curve ? (fract(hs.w * 7.31) < 0.5 ? 0.35 : -0.35) : 0.0;
-      d = min(d, mot_strokeD(q, mot_node(pos, g, sp), mot_node(np, g, sp), bow));
-      pos = np;
-      dir = nd;
+      nbow = hs.w < u_curve ? (fract(hs.w * 7.31) < 0.5 ? 0.35 : -0.35) : 0.0;
     }
-    if (u_dots > 0.0) dd = min(dd, mot_dot(q, mot_node(pos, g, sp)));
+    pA = pB; pB = pC; pC = pt;
+    nB = nC; nC = pos;
+    bowB = bowC; bowC = nbow;
+    if (moved) { pos += MOT_DIRS[nd]; dir = nd; }
+    else ending = true;
+    s++;
   }
-  return min(d - hw, dd);
+  // Ring dots are open: the strokes stop at the ring instead of running into its hole.
+  if (u_dot_ring) d = max(d, -dh);
+  return min(d, dd);
 }
 
 GenOut motifOut(float d, float rnd, vec2 nearQ) { return genOut(0.0, 1.0, rnd, d); }

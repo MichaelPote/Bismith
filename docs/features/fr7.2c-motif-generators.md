@@ -42,6 +42,7 @@ discs), sigils, a light fitting, a winged emblem with runes, and other ornamente
   and at its mirror image). Steps go straight or turn, can go diagonal, can bow into arcs, never reverse, and turn
   away from the grid edge. Stroke ends can have dots or rings. A `blocks` style fills cells instead, with an exact
   union-of-cells SDF, for pixel insignia. Instances can each get their own glyph, which gives rune text.
+  Follow-ups (below): overlap control, splines, taper, node jitter, centring, open ring dots, top–bottom mirror.
 - **Shared repeat wrapper** (rosette, glyph), after shapes.ts: a 3×3 neighbourhood of repeat cells with torus
   copies when tiling, plus row stagger, rotation jitter and dropout. It adds a bounding-circle early-out, so a far
   instance costs one `length()`.
@@ -69,6 +70,9 @@ read from a uniform (`MOT_1`) keep D3D from unrolling them (a small gain on its 
   bead rings (solid / ring, overlapping), outputs shape / glow / radial, repeat grid
 - [x] `glyph`: strokes (walks, diagonals, straightness, curves, end dots / rings), blocks, mirror, per-instance
   variation, pixel snap, repeat grid
+- [x] `glyph` follow-ups: overlaps chance, spline lines (roundness), taper, node jitter, centre glyph (strokes and
+  blocks), open ring dots, Mirror Y (alone or with X for four-fold glyphs). Defaults leave existing glyphs
+  pixel-identical, except ring dots (see below)
 - [x] Typecheck (`vue-tsc -b`), oxlint and smoke (`--only truchet,symmetry,rosette,glyph`) clean
 - [x] Non-square (256×32), small (24×24) and non-tiling renders checked; 2×2 tiled views show no seams;
   square8 / quad output is exactly pixel-symmetric
@@ -131,11 +135,18 @@ instance.
 | `cols`, `rows` | 5, 5 | Nodes (strokes) or cells (blocks), 2–9. Odd column counts give a centre column |
 | `size` | 32 px | Glyph height (node span for strokes, cell span for blocks) |
 | `width` | 2 px | Stroke width |
+| `jitter` | 0 | Random offset per node, up to ½ · jitter · spacing per axis. One offset per node, so strokes that share a node still meet; mirrored glyphs mirror the offsets (axis nodes stay on the axis) |
+| `taper` | 0 | Thins each stroke towards its ends: half width × mix(1, 4u(1 − u), taper), u = 0..1 along the whole stroke (by segment count). 1 = pointed tips |
 | `strokes`, `steps` | 4, 3 | Random walks per glyph, segments per walk (≤ 8 each) |
-| `diag`, `straight`, `curve` | 0.4, 0.35, 0 | Chance of a diagonal turn, of keeping direction, of a bowed (Bézier) segment |
-| `dots`, `dot_ring` | 0 px, off | End-dot radius, drawn as rings when on (sigil style) |
+| `diag`, `straight` | 0.4, 0.35 | Chance of a diagonal turn, of keeping direction |
+| `overlap` | 1 | Chance a step may land on a node already drawn (by any stroke, or the mirror image: visited nodes are kept as a folded bitmask). A step that may not and finds no free direction ends the stroke |
+| `line` | straight | straight (segments, optional arcs) · spline (Catmull-Rom through the nodes) |
+| `curve` | 0 | Straight lines: chance of a bowed (Bézier) segment |
+| `roundness` | 1 | Splines: tangent scale (0 = straight, 1 = Catmull-Rom, 2 = loopy) |
+| `dots`, `dot_ring` | 0 px, off | End-dot radius; rings when on. Rings are open (strokes stop at the ring); the ring line is the stroke width, at most half the radius, so small rings keep a hole |
 | `density` | 0.5 | Blocks: fill fraction |
-| `mirror`, `vary`, `snap` | on, on, on | Left–right symmetry; a different glyph per instance; nodes on the pixel grid |
+| `mirror`, `mirror_y` | on, off | Mirror X (left–right) and Mirror Y (top–bottom) symmetry; both give four-fold glyphs. Strokes are evaluated at q and each mirror image of it; visited nodes, jitter and block cells are keyed by the node folded onto the top-left |
+| `centre`, `vary`, `snap` | off, on, on | Centre the drawn nodes / cells (bounding box) on the origin instead of the full grid (whole px when snapping); a different glyph per instance; nodes on the pixel grid |
 | placement + repeat | as rosette | `x`, `y`, `rotation`, `rep_*`, `seed` |
 
 ## Reference recreations
@@ -176,9 +187,23 @@ Full projects (existing layers plus these; post = tonemap, then palette `doom` o
   capsules with round ends.
 - **Cost.** truchet: at most 16 segments per pixel, except the circuit, which caches the bus direction and chip
   flag of the 5×5 tiles around the pixel (a 3×3 Voronoi each) before evaluating 3×3 tiles. rosette: O(n) for
-  `{n/k}` lines, O(1) for the rest. glyph: at most 64 strokes (each evaluated at q and its mirror image) or 81
+  `{n/k}` lines, O(1) for the rest. glyph: at most 64 segments (two Bézier pieces each as splines), each evaluated at q and its mirror images (up to 4) or 81
   block cells per nearby instance, after the bounding-circle early-out. symmetry: one pass, three fetches (or 12
   bilinear).
+- **Glyph splines.** Each segment is two quadratic Béziers meeting halfway, controls at node ± tangent / 4
+  (tangent = roundness · (next − previous) / 2), so the curve passes through every node with C1 joins and one
+  exact quadratic distance per piece; past a stroke's ends the missing neighbour is reflected. Curves can't
+  retrace a line: two curves through the same pair of nodes split into a lens. So in spline mode the walk never
+  makes a 135° hairpin, never steps from a drawn node to another drawn node (axis nodes count as drawn when
+  mirroring, since the mirror image arrives with the stroke), and a segment that is its own mirror image (along an
+  axis, across one between mirror nodes, or through the centre with both mirrors) is drawn straight. Lines mode
+  keeps its walk unchanged.
+- **Glyph walk loop.** One flat loop walks every stroke node by node (twice when centring or tapering: the first
+  pass collects the drawn nodes' bounds and each stroke's segment count). Each iteration arrives at a node, or at a
+  reflected point past a stroke's end, and draws the segment before the previous node, once both of its
+  neighbours are known. Every helper (Bézier, jitter hash, node bitmask) has one call site. Cold D3D11 compile:
+  1.25 s before these follow-ups, 2.8 s with nested pass / stroke / step loops, 1.95 s flat, ≈ 2.05 s with Mirror Y.
+  Render time is unchanged (1024², 16 × 16 glyphs of 8 × 8 steps, 16 spp: ≈ 0.2 s in lines and spline modes).
 - **Seeds.** `uSeed` can be negative (see below), so these layers hash with `abs(uSeed)` (`GLSL_MOT_SEED` in
   motifRadial.ts).
 

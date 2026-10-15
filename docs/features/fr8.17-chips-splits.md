@@ -56,6 +56,25 @@ Cost: three flat loops with uniform-derived bounds (9 chip cells, 15 split cells
 split for a merge is evaluated only when the pixel lies on a merging split. Cold compile on D3D11 (RTX 5080):
 **1.8 s** (1.6 s before the split Bevel and Length jitter).
 
+### Following the shape (round 2)
+- **Split starts** were found by dividing the distance at a split's spot by the edge normal's grain component. On a
+  wobbly end the normal tilts, the division overshoots, and splits started tens of px off the edge — inside the next
+  board. They now step along the grain by the distance (sphere tracing on the register, ≤ 8 fetches) until on the edge,
+  so they open exactly where the (wobbly, chipped) end is.
+- **Carve eats the bevel**: the carve value is the bevel on the chipped shape over the bevel on the original
+  (`bevelAt(d') · coverage(d') / bevelAt(reg) · coverage(reg)`) with this layer's Bevel / Profile / aspect — give it
+  those of the layer that drew the relief and Height › Multiply leaves that relief exactly, its bevel following every
+  chip and split (before, chip walls had their own profile and the plank bevel ran straight past them). Splits' and
+  nicks' distances are scaled so the bevel spans the split Bevel (narrowing with the crack); hairlines keep their
+  thin-line coverage. The chipped shape also goes to the Shape Mask, as before, for later clips.
+- **Bevel aspect** (Shaping › Edge, every SDF layer): left / right bevels Bevel / √aspect, top / bottom Bevel · √aspect —
+  the two trade around Bevel (their geometric mean), so both axes move; an edge at an angle gets the stretched width
+  across it, √((nx·Wx)² + (ny·Wy)²). The wrapper takes the
+  combined distance and its screen-space gradient before branching (`bevelAt(d, grad)`, `GLSL_BEVEL`); a generator
+  can give an exact bevel distance (`GenOut.bdist`) — Wood's boxes in a stretched space, so a wide end bevel meets the
+  side bevel in a clean crease instead of a step along the 45° diagonal. Wood's grain now reaches the wrapper through
+  `genOutShaded`, which applies the bevel (with aspect, and the combined shape for other Shape Mask modes).
+
 ## `genOutOwn`
 `GenOut` gained `own`: an SDF generator that paints its own value and coverage but still has a shape. The wrapper
 writes the distance to the register (by the Mode) and named masks and leaves value and coverage alone. Wood's `wood`

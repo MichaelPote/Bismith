@@ -9,7 +9,7 @@ import { createUniforms, declareUniforms, mixSeed, updateUniforms } from '@/gpu/
 import { GLSL_COMMON } from '@/layers/glsl/common'
 import { GLSL_NOISE } from '@/layers/glsl/noise'
 import { GLSL_SDF } from '@/layers/glsl/sdf'
-import { GLSL_GENERATOR_MAIN, GLSL_NAMED_MASK, bevelCurveDefine, bevelCurveImpl } from '@/layers/commonParams'
+import { GLSL_BEVEL, GLSL_GENERATOR_MAIN, GLSL_NAMED_MASK, bevelCurveDefine, bevelCurveImpl } from '@/layers/commonParams'
 import { getLayerDef, layerParamDefs } from '@/layers/registry'
 import type { LayerDef } from '@/layers/types'
 
@@ -41,20 +41,27 @@ const GENOUT = /* glsl */ `
 // gen() may return sdf <= NO_SDF to opt out of SDF handling for a pixel.
 const float NO_SDF = -9e4;
 // height: a signed height profile of the generator's own (× the Height amount), or NO_SDF for none (see genOutHeight).
-// own: the generator shaped its value and coverage itself; sdf only goes to the Shape Mask and named masks (genOutOwn).
+// own (SDF layers): 0 the wrapper draws the shape (value = bevel, coverage = inside); 1 the generator painted its value
+// and coverage itself, sdf only goes to the Shape Mask and named masks (genOutOwn); 2 the generator's value × the
+// shape's bevel, its own coverage (genOutShaded).
 // hval: what Height › Pattern reads instead of the value (0..1, shaped like it; < 0 = the value) — Wood's grain is
 // shallower in Height than in colour.
-struct GenOut { float value; float mask; float rnd; float sdf; float feat; float height; bool own; float hval; };
-GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, false, -1.0); }
+// bdist: the distance the bevel is measured in, Bevel aspect already applied (px of Bevel; NO_SDF = the shape's own
+// distance, the aspect taken from its direction) — exact on boxes, whose bevels then meet in a clean mitre.
+struct GenOut { float value; float mask; float rnd; float sdf; float feat; float height; int own; float hval; float bdist; };
+GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 0, -1.0, NO_SDF); }
 // Patterns without features (smooth noise, clouds): rnd is a continuous value there, so per-feature variation has
 // nothing to vary — fract(rnd · k) would turn it into terraces along the pattern's contours.
-GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0, NO_SDF, false, -1.0); }
+GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0, NO_SDF, 0, -1.0, NO_SDF); }
 // With its own height profile, signed (below the surface < 0): Height › Pattern adds it instead of the value, wherever it
 // is non-zero — not limited by the coverage, so it can reach past what the other outputs paint (a lip round a hole).
-GenOut genOutHeight(float value, float mask, float rnd, float sdf, float height) { return GenOut(value, mask, rnd, sdf, 1.0, height, false, -1.0); }
-// An SDF layer's output that paints its own value and coverage (wood's grain × plank edges, chips' carve) but still
-// hands its shape to the Shape Mask: the wrapper writes sdf to the register (by the Mode) and named masks only.
-GenOut genOutOwn(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, true, -1.0); }
+GenOut genOutHeight(float value, float mask, float rnd, float sdf, float height) { return GenOut(value, mask, rnd, sdf, 1.0, height, 0, -1.0, NO_SDF); }
+// An SDF layer's output that paints its own value and coverage (chips' carve) but still hands its shape to the Shape
+// Mask: the wrapper writes sdf to the register (by the Mode) and named masks only.
+GenOut genOutOwn(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 1, -1.0, NO_SDF); }
+// A pattern on a shape (Wood's grain on its planks): the wrapper multiplies the value (and hval) by the bevel of the
+// combined shape — Bevel, Profile, Bevel aspect, the Shape Mask mode — and keeps the generator's coverage.
+GenOut genOutShaded(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 2, -1.0, NO_SDF); }
 `
 
 /** Everything a GLSL snippet in the material stage can rely on. */
@@ -309,6 +316,7 @@ export class MaterialPipeline {
         declareUniforms(defs) +
         bevelCurveImpl(defs) +
         GENOUT +
+        (def.sdf === true ? GLSL_BEVEL : '') +
         (def.textures ?? []).map((t) => `uniform sampler2D t_${t};\n`).join('') +
         (def.glsl ?? '') +
         GLSL_GENERATOR_MAIN(def.sdf === 'mask' ? 'mask' : Boolean(def.sdf))

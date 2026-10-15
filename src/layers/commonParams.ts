@@ -116,8 +116,34 @@ export const SDF_PARAMS: ParamDef[] = [
   P.float('bevel', 'Bevel', 3, 0, 1024, { softMax: 32, unit: 'px', step: 0.1, group: 'shaping', section: 'Edge' }),
   P.enum('profile', 'Profile', 'round', PROFILES, { group: 'shaping', section: 'Edge' }),
   { ...bevelCurveParam('shaping'), section: 'Edge' },
+  P.float('bevel_aspect', 'Bevel aspect', 1, 0.05, 20, {
+    softMin: 0.25,
+    softMax: 4,
+    step: 0.01,
+    group: 'shaping',
+    section: 'Edge',
+    showIf: (p) => Number(p.bevel) > 0 && p.profile !== 'flat',
+    hint: 'Top / bottom bevel width against left / right: the two trade around Bevel (their geometric mean) — 2 makes top and bottom bevels 1.41× Bevel and left and right 0.71× (the ends of vertical planks round off twice as far in as their sides), 0.5 the reverse. Slanted edges and corners fall in between',
+  }),
   P.bool('aa', 'Anti-alias', true, { group: 'shaping', section: 'Edge', hint: 'Off gives hard pixel edges' }),
 ]
+
+/**
+ * GLSL for SDF layers (needs their u_bevel, u_bevel_aspect, u_profile): the bevel profile at signed distance d (px,
+ * < 0 inside) with screen-space gradient g — 0 at the edge rising to 1 a bevel in. Bevel aspect a makes left / right
+ * bevels Bevel / √a and top / bottom ones Bevel · √a; an edge with unit normal n gets the width the bevel has across it
+ * in that stretched space, √((nx·Wx)² + (ny·Wy)²). 1 everywhere for a flat profile or no bevel (coverage anti-aliases).
+ */
+export const GLSL_BEVEL = /* glsl */ `
+vec2 bevelWidths() { float r = sqrt(max(u_bevel_aspect, 1e-3)); return u_bevel * vec2(1.0 / r, r); }
+float bevelAt(float d, vec2 g) {
+  if (u_bevel <= 0.0 || u_profile == 0) return 1.0;
+  float gg = dot(g, g);
+  vec2 n2 = gg > 1e-12 ? g * g / gg : vec2(0.5);
+  vec2 W = bevelWidths();
+  return profileCurve(u_profile, max(-d, 0.0) / max(sqrt(dot(n2, W * W)), 1e-4));
+}
+`
 
 export const SHAPING_PARAMS: ParamDef[] = [
   P.float('ofs_x', 'Offset X', 0, -4096, 4096, { softMin: -32, softMax: 32, sliderSpan: 'width', unit: 'px', step: 0.1, group: 'shaping', section: 'Position', hint: 'Shift the whole pattern (wraps on tileable projects)' }),
@@ -339,22 +365,35 @@ void main() {
   float covW = -1.0;
   float shapeV = 1.0;
 ${sdf === true ? /* glsl */ `
+  // Shape Mask (the register): written when ticked; the mode's index + 1 is the sdfCombine op. The combined distance and
+  // its screen-space gradient (Bevel aspect) are taken before branching: derivatives need uniform control flow.
+  int op = u_sm_on ? u_sdf_op + 1 : 0;
+  float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_sdf_k);
+  vec2 dGrad = vec2(dFdx(d), dFdy(d));
   if (g.sdf > NO_SDF) {
-    // Shape Mask (the register): written when ticked; the mode's index + 1 is the sdfCombine op.
-    int op = u_sm_on ? u_sdf_op + 1 : 0;
-    float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_sdf_k);
     if (op != 0) S.a = d;
     shapeV = coverage(d, u_aa);
-    if (g.own) {
+    float covD = u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : coverage(d, u_aa);
+    // The bevel: from the generator's own bevel distance (GenOut.bdist) while the drawn shape is its own (not combined
+    // with the shape mask), else from the combined distance with the aspect taken from its direction.
+    float bev = g.bdist > NO_SDF && op <= 1 ? ((u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, max(-g.bdist, 0.0) / u_bevel) : 1.0)
+                                            : bevelAt(d, dGrad);
+    if (g.own == 1) {
       // genOutOwn: the generator painted its own value and coverage; the shape only goes to the masks.
-      covW = u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : coverage(d, u_aa);
+      covW = covD;
+    } else if (g.own == 2) {
+      // genOutShaded: the generator's pattern × the bevel of the combined shape (so another shape mode — Intersection
+      // with a chipped shape mask — bevels round it too); the coverage stays the generator's.
+      float e = bev * coverage(d, u_aa);
+      value *= e;
+      if (g.hval >= 0.0) g.hval *= e;
+      covW = covD;
     } else {
-      covW = cov * (u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : coverage(d, u_aa));
+      covW = cov * covD;
       cov *= coverage(d, u_aa);
       // Flat (or zero-width) bevels output 1 and let coverage do the anti-aliasing, so edges ramp
       // symmetrically across the boundary; profiled bevels rise from 0 at the edge.
-      float inside = max(-d, 0.0);
-      value = (u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, inside / u_bevel) : 1.0;
+      value = bev;
     }
   }
 ` : ''}${sdf === 'mask' ? /* glsl */ `

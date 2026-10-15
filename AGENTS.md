@@ -42,6 +42,11 @@ describe a motif generically ("riveted panel", "staggered slots"), never by a re
   unchanged. For a generator with many modes, describe each mode as data (shapes, anchors) and run them all through
   one loop (`geometricTessellation.ts`). Don't time while
   another GPU job (e.g. the studio starting) runs. Batch compiles run in parallel (`engine.precompile([...])`).
+- **Never set three's `renderer.outputColorSpace`** (nor `gl.drawingBufferColorSpace`). The setter assigns
+  `gl.drawingBufferColorSpace`, and Firefox (seen with Windows HDR) then colour-manages the viewport canvas — even
+  for `'srgb'`, the default — so the viewport's hues drift from the Match panes and exports (reds toward orange).
+  Our shaders write display values themselves; `Gpu.clearCanvas` passes its colour as sRGB instead
+  (`src/gpu/context.ts`).
 - **The studio's page loads `src/` once.** `tools/studio.ts` keeps one browser page for its whole run, so edits to
   `src/` never reach it: a new layer type is silently dropped on load and renders come out unchanged. Restart the
   studio after changing generator or pipeline code (check a render's metrics actually moved).

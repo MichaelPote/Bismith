@@ -87,6 +87,12 @@ a:hover {
   font-family: var(--font-mono);
 }
 
+/* Eyedropper (ui/eyedropper.ts): while a pick is on, a crosshair over everything a colour can be taken from. */
+html.picking [data-pick],
+html.picking [data-pick] * {
+  cursor: crosshair !important;
+}
+
 /* Icons: @tabler/icons-vue components, used directly (`<IconEye :size="12" />`, `:color` for a hue). The UI's line
    weight is 1.75 in Tabler's 24-unit grid; CSS beats the SVG attribute, so the `stroke` prop has no effect — set
    another weight in CSS, as NumberField's chevrons do. */

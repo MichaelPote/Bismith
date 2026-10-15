@@ -108,6 +108,14 @@ export class PostStack {
     return this.output
   }
 
+  /** One texel of the output (linear RGBA), rows top-down; null before the first run. */
+  probe(x: number, y: number): Float32Array | null {
+    if (!this.output || !this.pp || x < 0 || y < 0 || x >= this.width || y >= this.height) return null
+    const buf = new Float32Array(4)
+    this.gpu.renderer.readRenderTargetPixels(this.pp.read, x, this.height - 1 - y, 1, 1, buf)
+    return buf
+  }
+
   dispose(): void {
     this.pp?.dispose()
     for (const m of this.materials.values()) m.dispose()

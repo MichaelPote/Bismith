@@ -1,11 +1,13 @@
 <script setup lang="ts">
-// Colour-ramp editor: a bar with draggable gem stops. Click the bar to add a stop.
+// Colour-ramp editor: a bar with draggable gem stops. Click the bar to add a stop. The eyedropper takes the ramp's
+// colour under the pointer.
 import { computed, ref } from 'vue'
 import { MAX_GRADIENT_STOPS, type Gradient } from '@/core/params'
 import { hexToRgb, rgbToHex } from '@/core/color'
 import ColorField from './ColorField.vue'
 import NumberField from './NumberField.vue'
 import { IconArrowsLeftRight, IconTrash } from '@tabler/icons-vue'
+import { vPick } from '@/ui/eyedropper'
 
 const props = defineProps<{ modelValue: Gradient; label?: string }>()
 const emit = defineEmits<{
@@ -51,6 +53,11 @@ function colorAt(t: number): string {
 function posFromEvent(e: PointerEvent | MouseEvent): number {
   const r = bar.value!.getBoundingClientRect()
   return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
+}
+
+/** Eyedropper: the ramp's colour under the pointer. */
+function colorUnder(e: MouseEvent): string {
+  return colorAt(posFromEvent(e))
 }
 
 function addStop(e: MouseEvent): void {
@@ -107,7 +114,7 @@ function reverse(): void {
 
 <template>
   <div class="grad">
-    <div ref="bar" class="bar" :style="{ background: css }" title="Click to add a stop" @click="addStop" />
+    <div ref="bar" v-pick="colorUnder" class="bar" :style="{ background: css }" title="Click to add a stop" @click="addStop" />
     <div class="stops">
       <button
         v-for="(s, i) in stops"

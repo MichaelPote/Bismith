@@ -45,7 +45,10 @@ export class Gpu {
       throw new GpuError('This GPU/browser cannot render to float textures (EXT_color_buffer_float).')
     }
     renderer.autoClear = false
-    renderer.outputColorSpace = THREE.LinearSRGBColorSpace
+    // The output colour space stays three's default: setting it assigns gl.drawingBufferColorSpace, and Firefox (seen
+    // with Windows HDR) then colour-manages the canvas and shifts its hues, though the value is 'srgb' either way. Our
+    // shaders write display values themselves (RawShaderMaterial gets no output conversion); only the clear colour
+    // goes through it, so clearCanvas passes that as sRGB.
     this.renderer = renderer
     this.parallelCompile = renderer.extensions.has('KHR_parallel_shader_compile')
 
@@ -141,7 +144,7 @@ export class Gpu {
 
   clearCanvas(r = 0, g = 0, b = 0, a = 0): void {
     this.renderer.setRenderTarget(null)
-    this.renderer.setClearColor(new THREE.Color(r, g, b), a)
+    this.renderer.setClearColor(new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace), a)
     this.renderer.clear(true, false, false)
   }
 

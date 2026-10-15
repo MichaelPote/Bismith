@@ -6,7 +6,9 @@
 // Every feature is a cut c (px, > 0 inside it) and a depth f (0..1). Two outputs:
 //   - Carve (default): value = how much of the surface is left (1 untouched … 0 cut away to the shape's edge level),
 //     covering only the damage, so Height › Multiply carves it out of the relief below and Diffuse › Multiply darkens
-//     it. Chip walls follow this layer's Bevel / Profile.
+//     it. It is the bevel re-evaluated on the chipped shape over the bevel on the original (this layer's Bevel / Profile /
+//     aspect): with those matched to the layer that drew the relief, the multiply leaves exactly that relief, its bevel
+//     following every chip and split. Hairline cracks add their thin-line coverage.
 //   - Chipped shape: the shape mask minus the cuts as an SDF; a part-depth cut sinks (1 − f) × bevel below the surface
 //     instead of reaching the edge, so the wrapper's bevel gives it a floor.
 // Both write the chipped shape to the Shape Mask when it's used (genOutOwn for Carve), for later clips.
@@ -28,7 +30,7 @@ export const chipsLayer: LayerDef = {
   description: 'Damage to the shape mask: chips knocked off its edges and corners, splits along the grain from the edges that cross it, nicks across it.',
   params: [
     P.enum('output', 'Output', 'carve', [
-      ['carve', 'Carve what is below', 'how much of the surface is left, 1 untouched … 0 cut away, over the damage only: Height › Multiply carves it out of the relief beneath, Diffuse › Multiply darkens it'],
+      ['carve', 'Carve what is below', 'how much of the surface is left, 1 untouched … 0 cut away, over the damage only: Height › Multiply carves it out of the relief beneath, Diffuse › Multiply darkens it. Give this layer the Bevel, Profile and Bevel aspect of the layer that drew the relief and its bevel follows every chip and split'],
       ['shape', 'Chipped shape (SDF)', 'the shape mask with the damage taken out, drawn with this layer’s bevel: build the relief from it'],
     ], { hint: 'Both outputs put the chipped shape in the Shape Mask (when Use shape mask is on), so later layers can clip to it' }),
     P.float('chips', 'Chips', 0.35, 0, 1, { step: 0.001, section: 'Chips', hint: 'Chance of a chip at each spot along the edges of the shape mask' }),
@@ -88,16 +90,6 @@ vec3 ch_regN(vec2 s) {
   return vec3(d, dot(g, g) > 1e-6 ? normalize(g) : vec2(0.0));
 }
 
-// A crack's removal across it (Carve), ax px from its side (< 0 inside): the crack itself with thin-line coverage (a
-// pixel box filter, ≤ the width w when under a pixel, so hairlines fade instead of flickering) and the Bevel's
-// shoulder either side, b px wide (the Bevel, narrowing with the crack so its tip stays sharp), shaped by the layer's
-// Profile (Flat counts as Linear).
-float ch_crack(float ax, float w, float b) {
-  float core = clamp(0.5 - ax, 0.0, min(w, 1.0));
-  float sh = b > 0.0 ? 1.0 - profileCurve(u_profile == 0 ? 1 : u_profile, max(ax, 0.0) / b) : 0.0;
-  return max(core, sh);
-}
-
 // Smooth 1D noise in -1..1.
 float ch_noise1(float x, float seed) {
   float i = floor(x), f = x - i;
@@ -127,7 +119,18 @@ ChSplit ch_split(ivec2 c, vec2 cs, ivec2 per, bool vert) {
   S.len = cs.x * (1.0 - u_split_len_var * h.w);
   if (abs(dn.x) < cs.x && abs(ng) > 0.75) {
     if (h.z >= u_splits) return S;
-    S.start = s.x - dn.x / ng;
+    // Where the lane meets that edge: step along the grain by the distance (sphere tracing) until on it. Exact on bent
+    // and wobbly ends, where dividing by the normal's grain component overshot — into the next board.
+    float u = s.x, dd = dn.x, toward = dd < 0.0 ? sign(ng) : -sign(ng);
+    for (int k = 0; k < 8 * CH_1; k++) {
+      if (abs(dd) < 0.35) break;
+      u += toward * abs(dd);
+      float nd = ch_reg(vert ? vec2(s.y, u) : vec2(u, s.y));
+      if (sign(nd) != sign(dd)) toward = -toward;
+      dd = nd;
+    }
+    if (abs(dd) > 1.5 || abs(u - s.x) > 1.5 * cs.x) return S;
+    S.start = u;
     S.dir = -sign(ng);
   } else {
     if (dn.x > -2.0 || h.z >= u_interior) return S;
@@ -154,7 +157,6 @@ float ch_defl(ivec2 cw, float u, vec2 kn) {
 GenOut gen(vec2 p) {
   float reg0 = ch_reg(gl_FragCoord.xy);
   float K = max(u_bevel, 1.0);
-  float bs = K / max(u_split_bevel, 0.25);   // Chipped shape: splits' shoulders span their own Bevel
   float cut = -1e9;    // the furthest-reaching cut, depth applied (Chipped shape)
   float keep = 1.0;    // how much of the surface is left (Carve)
   float rnd = 0.5;
@@ -201,11 +203,8 @@ GenOut gen(vec2 p) {
         dc = max(dc, dot(d, vec2(cos(a), sin(a))) - R * (0.6 + 0.4 * fract(jit * 7.31)));
       }
       float f = u_chip_depth * (0.6 + 0.4 * fract(g.z * 31.7));
-      cut = max(cut, -dc - (1.0 - f) * K);
-      // The wall: anti-aliased, then this layer's bevel profile from the rim inward.
-      float wall = coverage(dc, u_aa) * ((u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, max(-dc, 0.0) / u_bevel) : 1.0);
-      float kc = 1.0 - f * wall;
-      if (kc < keep) { keep = kc; rnd = g.x; }
+      float cc = -dc - (1.0 - f) * K;
+      if (cc > cut) { cut = cc; rnd = g.x; }
     }
   }
 
@@ -244,11 +243,12 @@ GenOut gen(vec2 p) {
       float w = A.w * pow(tau, 0.3) * (A.open ? 1.0 : 1.0 + 0.6 * exp(-max(t, 0.0) / max(A.w, 1.0)));
       float ends = min(t + 3.0, A.len - t + (merged ? 2.0 : 0.0));
       float f = pow(tau, 0.35);
-      // Chipped shape: the distance from the crack's side scaled so the layer's bevel spans the split Bevel.
+      // The distance from the crack's side scaled so the layer's bevel spans the split Bevel (narrowing with the crack,
+      // so tips stay sharp); hairlines also keep their thin-line coverage (a pixel box filter, ≤ the width).
       float ax = abs(x) - 0.5 * w;
-      cut = max(cut, min(-ax * bs, ends) - (1.0 - f) * K);
-      float ks = 1.0 - f * ch_crack(ax, w, u_split_bevel * sqrt(tau)) * clamp(ends + 0.5, 0.0, 1.0);
-      if (ks < keep) { keep = ks; rnd = A.rnd; }
+      float cc = min(-ax * K / max(u_split_bevel * sqrt(tau), 0.25), ends) - (1.0 - f) * K;
+      if (cc > cut) { cut = cc; rnd = A.rnd; }
+      keep = min(keep, 1.0 - f * clamp(0.5 - ax, 0.0, min(w, 1.0)) * clamp(ends + 0.5, 0.0, 1.0));
     }
   }
 
@@ -274,15 +274,21 @@ GenOut gen(vec2 p) {
       float w = u_nick_width * (1.0 + u_split_width_var * (2.0 * fract(h.w * 9.1) - 1.0)) * pow(tau, 0.3);
       float f = pow(tau, 0.3);
       float ax = abs(x) - 0.5 * w;
-      cut = max(cut, min(-ax * bs, min(t, L - t)) - (1.0 - f) * K);
-      float kn = 1.0 - f * ch_crack(ax, w, u_split_bevel * sqrt(tau)) * clamp(min(t, L - t) + 0.5, 0.0, 1.0);
-      if (kn < keep) { keep = kn; rnd = h.x; }
+      float cc = min(-ax * K / max(u_split_bevel * sqrt(tau), 0.25), min(t, L - t)) - (1.0 - f) * K;
+      if (cc > cut) { cut = cc; rnd = h.x; }
+      keep = min(keep, 1.0 - f * clamp(0.5 - ax, 0.0, min(w, 1.0)) * clamp(min(t, L - t) + 0.5, 0.0, 1.0));
     }
   }
 
   float d = max(reg0, cut);
+  // Screen-space gradients for Bevel aspect, taken in uniform control flow.
+  vec2 g0 = vec2(dFdx(reg0), dFdy(reg0)), g1 = vec2(dFdx(d), dFdy(d));
   if (u_output == 1) return genOutSmooth(0.0, 1.0, 0.5, d);
-  // Only the shape is carved: beyond its edge there is nothing to take away.
+  // Carve: the bevel on the chipped shape over the bevel on the original. Only the shape is carved: beyond its edge
+  // there is nothing to take away.
+  float b0 = bevelAt(reg0, g0) * coverage(reg0, u_aa);
+  float b1 = bevelAt(d, g1) * coverage(d, u_aa);
+  keep = min(keep, b0 > 1e-3 ? clamp(b1 / b0, 0.0, 1.0) : 1.0);
   keep = 1.0 - (1.0 - keep) * coverage(reg0, true);
   return genOutOwn(keep, clamp((1.0 - keep) * 64.0, 0.0, 1.0), rnd, d);
 }

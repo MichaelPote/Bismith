@@ -180,8 +180,13 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
 - `height` — optional (`genOutHeight`): a signed height profile of the generator's own. Height › Pattern adds it
   (× amount) instead of the value, wherever it is non-zero — not limited by the coverage, so it can rise past what the
   other outputs paint and sink below the surface (Drips' blisters: a lifted lip outside the hole, the hole below).
-- `own` — set by `genOutOwn`: an SDF generator painted its own value and coverage (Wood's grain × plank edges, Chips &
-  splits' carve), so the wrapper only hands `sdf` to the shape register and named masks.
+- `own` — how an SDF generator's value relates to its shape: 0 the wrapper draws the shape (value = bevel profile,
+  coverage = inside); 1 (`genOutOwn`) the generator painted its own value and coverage and `sdf` only goes to the shape
+  register and named masks (Chips & splits' carve); 2 (`genOutShaded`) the generator's pattern × the bevel of the
+  combined shape, its own coverage (Wood's grain on its planks).
+- `bdist` — optional: the distance the bevel is measured in with Bevel aspect applied (Wood: its boxes in a vertically
+  stretched space, so bevels of different widths meet in a clean mitre). Otherwise the aspect comes from the direction
+  of the shape's distance gradient.
 - `hval` — optional: a separate 0..1 value for Height › Pattern, shaped like the value (Wood: shallower grain in Height
   than in colour). Negative = use the value.
 

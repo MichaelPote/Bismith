@@ -11,7 +11,7 @@ import { getLayerDef } from '@/layers/registry'
 import { getRecipe, recipeLayerTypes } from '@/recipes'
 
 /** Resolves once the browser has painted the current DOM (so a modal is on screen before blocking work starts). */
-function afterPaint(): Promise<void> {
+export function afterPaint(): Promise<void> {
   return nextTick().then(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
 

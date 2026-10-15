@@ -18,12 +18,20 @@ export type Workspace = 'create' | 'match'
 /** Viewport shape tools: edit the selected layer's shapes, or draw a new one (a new layer, or a run of the selected pipes). */
 export type ShapeTool = 'edit' | 'polygon' | 'freehand' | 'line'
 
+/** A question for the user (editor.ask): pick one of `choices`, or cancel. */
+export interface Question {
+  title: string
+  detail?: string
+  /** Listed after Cancel; the `primary` one is the forged key, focused so Enter picks it. */
+  choices: { id: string; label: string; primary?: boolean }[]
+}
+
 export const useEditorStore = defineStore('editor', () => {
   const selection = ref<Selection>({ kind: 'project' })
   const workspace = ref<Workspace>('create')
   const channel = ref<ChannelView>('final')
   const tile = ref(false)
-  const grid = ref(true)
+  const grid = ref(false)
   const checker = ref(true)
   /** Preview the stack only up to the selected layer. */
   const solo = ref(false)
@@ -42,6 +50,8 @@ export const useEditorStore = defineStore('editor', () => {
    * unless `instant` (when the work will freeze the page, the modal has to be on screen before it starts).
    */
   const busy = ref<{ title: string; detail?: string; instant?: boolean } | null>(null)
+  /** The open question (see ask), with the function that answers it. */
+  const question = shallowRef<(Question & { answer: (id: string | null) => void }) | null>(null)
   /** The new-project wizard is open. */
   const wizard = ref(false)
   const shapeTool = ref<ShapeTool>('edit')
@@ -60,6 +70,20 @@ export const useEditorStore = defineStore('editor', () => {
 
   function notify(text: string, kind: 'info' | 'error' = 'info'): void {
     toast.value = { text, kind, at: Date.now() }
+  }
+
+  /** Ask in a modal: resolves to the picked choice's id, or null when cancelled (Cancel, Esc, a click outside). */
+  function ask(q: Question): Promise<string | null> {
+    question.value?.answer(null)
+    return new Promise((resolve) => {
+      question.value = {
+        ...q,
+        answer: (id) => {
+          question.value = null
+          resolve(id)
+        },
+      }
+    })
   }
 
   return {
@@ -81,9 +105,11 @@ export const useEditorStore = defineStore('editor', () => {
     engineError,
     toast,
     busy,
+    question,
     select,
     setEngine,
     requestFit,
     notify,
+    ask,
   }
 })

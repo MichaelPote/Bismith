@@ -12,6 +12,7 @@ import { PostStack } from './post/stack'
 import { Display, type ChannelView, type DisplayOptions, type ViewTransform } from './display'
 import { ensureBuiltins } from './builtins'
 import { scaleProject, supersampleFactor } from '@/core/supersample'
+import { clamp01, linearToSrgb1 } from '@/core/color'
 
 // Box filter for supersampling: average each k×k block of the traced image (linear HDR) into one texel.
 const DOWNSAMPLE = /* glsl */ `
@@ -404,6 +405,19 @@ export class Engine {
     this.downMat.uniforms.uK.value = this.ss
     this.gpu.run(this.downMat, this.down)
     return this.down.texture
+  }
+
+  /**
+   * The colour the viewport shows at texel (x, y), sRGB 0..1: the albedo in the Diffuse view, the final image in every
+   * other. Null outside the texture or before the first frame.
+   */
+  pickColour(x: number, y: number): [number, number, number] | null {
+    let v: Float32Array | null
+    if (this.view.channel === 'diffuse') {
+      const k = this.ss
+      v = this.material.probe(x * k + (k >> 1), y * k + (k >> 1))?.albedo ?? null
+    } else v = this.post.probe(x, y)
+    return v && [linearToSrgb1(clamp01(v[0])), linearToSrgb1(clamp01(v[1])), linearToSrgb1(clamp01(v[2]))]
   }
 
   /** Read the final post-processed image (linear, display-referred), rows top-to-bottom. */

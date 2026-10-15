@@ -11,6 +11,8 @@ import Properties from '@/ui/layout/Properties.vue'
 import StatusBar from '@/ui/layout/StatusBar.vue'
 import MatchWorkspace from '@/ui/panels/MatchWorkspace.vue'
 import BusyModal from '@/ui/components/BusyModal.vue'
+import AskModal from '@/ui/components/AskModal.vue'
+import EyedropperChip from '@/ui/components/EyedropperChip.vue'
 import NewProjectWizard from '@/ui/panels/NewProjectWizard.vue'
 
 const store = useProjectStore()
@@ -66,8 +68,8 @@ function isTyping(t: EventTarget | null): boolean {
 }
 
 function onKey(e: KeyboardEvent): void {
-  // The new-project wizard is modal: the editor's shortcuts wait until it closes.
-  if (editor.wizard) return
+  // The new-project wizard and questions are modal: the editor's shortcuts wait until they close.
+  if (editor.wizard || editor.question) return
   const mod = e.ctrlKey || e.metaKey
   const k = e.key.toLowerCase()
   if (mod && k === 'z' && !e.shiftKey) {
@@ -175,6 +177,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <div v-if="toastVisible && editor.toast" class="toast" :class="editor.toast.kind" role="status">{{ editor.toast.text }}</div>
     <NewProjectWizard v-if="editor.wizard" />
     <BusyModal />
+    <AskModal />
+    <EyedropperChip />
   </div>
 </template>
 

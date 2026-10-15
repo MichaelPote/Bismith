@@ -1,11 +1,13 @@
 <script setup lang="ts">
-// Extra actions for specific post filters. Palette: preview swatches and extract a palette from the render.
+// Extra actions for specific post filters. Palette: preview swatches (the eyedropper takes their colours) and extract a
+// palette from the render.
 import { computed, ref, toRaw } from 'vue'
 import type { PostFilter, Project } from '@/core/project'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
 import { extractPalette, paletteColors } from '@/render/post/palettes'
 import NumberField from '@/ui/components/NumberField.vue'
+import { vPick } from '@/ui/eyedropper'
 
 const props = defineProps<{ filter: PostFilter }>()
 const store = useProjectStore()
@@ -42,7 +44,7 @@ function extract(): void {
 <template>
   <div v-if="filter.type === 'palette'" class="pe">
     <div v-if="swatches.length" class="sw" :title="`${swatches.length} colours`">
-      <span v-for="(c, i) in swatches" :key="i" :style="{ background: c }" />
+      <span v-for="(c, i) in swatches" :key="i" v-pick="() => c" :style="{ background: c }" />
     </div>
     <div class="row">
       <span class="lbl">From render</span>

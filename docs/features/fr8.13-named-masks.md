@@ -27,6 +27,8 @@ register (one signed distance, rewritten by every shape layer) can't hold a hole
 - **Using** (generators and filters, Mask group): *Masked by* 1–4, *Outside the mask* to cut a hole. Single-pass
   filters blend their result by the mask inline; multi-pass filters (blur, cavity, bevel …) run on the whole state
   and are blended back against a snapshot taken before them.
+- **As an edge**: Bevel and Etch take *Source › Mask 1–4* — the mask above *Threshold*, turned into a distance by
+  jump flood like the channel sources (FR2.5), so a mask's outline can be bevelled or grooved.
 - **Materials**: a material's Mask card (`SmartMaterial.mask`, `setMaterialMask`) clips every member; kept on the
   material, so members a macro rebuilds keep it. Cutting a hole: the material in front *outside* the mask, the one
   behind *inside* it — a material painted over another replaces colour, not its glow or relief.

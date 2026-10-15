@@ -36,6 +36,13 @@ the old ember-underline styling instead of Cinderforge's Forged keys v2.
 - **Colour fields**: swatch + hex (selected whole on focus, a pasted hex applies at once); the swatch opens a picker
   drawn in CSS, HSV or OKLCH (one switch for every field, remembered). OKLCH shows chroma × lightness at the hue,
   clipped to the sRGB gamut (`maxSrgbChroma` / `srgbCusp` in `core/color.ts`), with a strip of each hue's cusp colour.
+  While a picker is open its **eyedropper** is on (`ui/eyedropper.ts`): a click on any element with a `v-pick` sampler
+  takes that colour and the picker stays open for more — the viewport (the final image, or the albedo in the Diffuse
+  view, via `Engine.pickColour`), colour ramps, grey ramps, palette swatches, colour-field and outliner swatches, and
+  the Match reference, candidate and card images. Hovering one previews the colour by the cursor; the click is
+  swallowed, so the surface doesn't react too. Clicks elsewhere behave as usual (and close the picker); scrolling a
+  sidebar keeps it open, following its swatch. Samplers read the data behind the surface, not the screen, so the
+  browser's display colour management never leaks into a pick.
 - **Channel outputs**: Source · Mode share one row; Source reads *Pattern / Solid / Random* (was *Pattern value /
   Flat (1.0) / Per-feature random*); roughness and specular *At 0 / At 1* are one grey **Ramp** (`RampField`: drag
   the gems or type; ⇄ swaps). Joins are declared on the ParamDef (`join: { with, as: 'pair' | 'ramp', label }`).

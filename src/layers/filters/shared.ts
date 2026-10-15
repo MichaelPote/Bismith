@@ -12,6 +12,10 @@ export const DISTANCE_SOURCES: [string, string][] = [
   ['opacity', 'Opacity above threshold'],
   ['luminance', 'Luminance above threshold'],
   ['shape', 'Shape mask (exact)'],
+  ['mask1', 'Mask 1'],
+  ['mask2', 'Mask 2'],
+  ['mask3', 'Mask 3'],
+  ['mask4', 'Mask 4'],
 ]
 
 /** Contour relaxation for thresholded (jump-flood) sources; see DistanceFieldOptions.relax. */
@@ -24,7 +28,7 @@ export const SMOOTH_PARAM: ParamDef = P.float('smooth', 'Edge smoothing', 3, 0, 
 
 export const SOURCE_PARAMS: ParamDef[] = [
   P.enum('source', 'Source', 'height', DISTANCE_SOURCES, {
-    hint: 'What defines the edge: a thresholded channel (jump-flood distance) or the shape mask written by shape layers',
+    hint: 'What defines the edge: a channel or one of the four named masks, above the threshold (its distance found by jump flood), or the shape mask written by shape layers (exact)',
   }),
   P.float('threshold', 'Threshold', 0.5, -16, 16, {
     softMin: 0,

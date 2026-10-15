@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
+import { afterPaint } from '@/ui/actions'
 import { Engine } from '@/render/engine'
 import { GpuError } from '@/gpu/context'
 import { CHANNEL_VIEWS } from '@/render/display'
@@ -11,6 +12,7 @@ import ShapeEditor from '@/ui/components/ShapeEditor.vue'
 import { getRecipe } from '@/recipes'
 import SelectField from '@/ui/components/SelectField.vue'
 import { vTip } from '@/ui/tooltip'
+import { vPick } from '@/ui/eyedropper'
 import { layerParamDefs } from '@/layers/registry'
 import { linearToSrgb1, rgbToHex } from '@/core/color'
 
@@ -128,6 +130,22 @@ function probeCursor(): void {
     e: Math.max(v.emissive[0], v.emissive[1], v.emissive[2]),
     sdf: v.surface[3],
   }
+}
+
+// ---------------------------------------------------------------- eyedropper
+/** The colour shown under the pointer (any copy in the tile preview): the final image, or the albedo in Diffuse. */
+function pickTexel(e: MouseEvent): string | null {
+  if (!engine) return null
+  const rect = canvas.value!.getBoundingClientRect()
+  const p = store.project
+  const tx = Math.floor(((e.clientX - rect.left) * dpr.value - editor.offsetX) / editor.zoom)
+  const ty = Math.floor(((e.clientY - rect.top) * dpr.value - editor.offsetY) / editor.zoom)
+  const lo = editor.tile ? -1 : 0
+  const hi = editor.tile ? 2 : 1
+  if (tx < lo * p.width || ty < lo * p.height || tx >= hi * p.width || ty >= hi * p.height) return null
+  const mod = (v: number, n: number) => ((v % n) + n) % n
+  const rgb = engine.pickColour(mod(tx, p.width), mod(ty, p.height))
+  return rgb && rgbToHex(rgb)
 }
 
 // ---------------------------------------------------------------- light gizmos
@@ -298,8 +316,32 @@ onMounted(() => {
   ro.observe(wrap.value!)
   engine.setProject(toRaw(store.project))
   pushView()
-  engine.start()
+  void startEngine(engine)
 })
+
+/**
+ * Start rendering behind the busy modal. The first frame compiles every shader the project uses, which can take
+ * seconds (D3D on Windows); started straight away, it ran before the first paint and left the page blank meanwhile.
+ */
+async function startEngine(e: Engine): Promise<void> {
+  editor.busy = {
+    title: 'Compiling shaders…',
+    detail: 'Setting up the renderer for this project. This can take a few seconds.',
+    // Without background compiling the page freezes during the compile, so the modal can't wait to fade in.
+    instant: !e.parallelCompile,
+  }
+  try {
+    await afterPaint()
+    await e.precompile(store.project.layers.map((l) => l.type))
+    // Unmounted meanwhile: the engine is disposed.
+    if (engine !== e) return
+    e.start()
+    // The first frame compiles the rest (filters, tracer, post): keep the modal up until it has run.
+    await e.settled()
+  } finally {
+    editor.busy = null
+  }
+}
 
 onBeforeUnmount(() => {
   endGizmoDrag()
@@ -329,6 +371,7 @@ watch(
   <section class="viewport cf-panel">
     <div
       ref="wrap"
+      v-pick="pickTexel"
       class="stage"
       @wheel="onWheel"
       @pointerdown="onPointerDown"

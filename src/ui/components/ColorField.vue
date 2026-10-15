@@ -51,14 +51,16 @@ function oklchHueStrip(): string {
 // - OKLCH: a chroma × lightness square at the hue — only the part inside the sRGB gamut, the rest hatched — and a strip
 //   of each hue's most chromatic colour.
 // Below them: the numbers of the model, the colour the picker opened with (click to go back) and the hex with a copy
-// key. Drags update live and commit on release; keys and typed values commit as they land. The picker keeps its own
-// coordinates, so the hue survives greys and black, and in OKLCH the chroma asked for survives a trip through a hue
-// or lightness with less room for it.
+// key. While the picker is open, a click on the texture, a ramp, palette or swatch in the sidebars, or a Match image
+// takes that colour, and the picker stays open (ui/eyedropper.ts). Drags update live and commit on release; keys, typed
+// values and picks commit as they land. The picker keeps its own coordinates, so the hue survives greys and black, and in OKLCH
+// the chroma asked for survives a trip through a hue or lightness with less room for it.
 // (`ref`, `rgbToHex`, `oklchToSrgb` and `srgbCusp` come from the module script above.)
 import { computed, nextTick, onBeforeUnmount, reactive, watch } from 'vue'
 import { IconCheck, IconCopy } from '@tabler/icons-vue'
 import { clamp01, hexToRgb, hsvToRgb, maxSrgbChroma, rgbToHsv, srgbToOklch } from '@/core/color'
 import { vTip, type TipValue } from '@/ui/tooltip'
+import { startPick, vPick } from '@/ui/eyedropper'
 
 const props = defineProps<{ modelValue: string; label?: string }>()
 const emit = defineEmits<{
@@ -242,6 +244,8 @@ const hueEl = ref<HTMLElement | null>(null)
 const pos = ref<{ left: string; top: string } | null>(null)
 /** The colour when the picker opened. */
 const original = ref('')
+/** Ends the open picker's eyedropper session: meanwhile a click on a colour anywhere takes it (ui/eyedropper.ts). */
+let stopPick: (() => void) | null = null
 
 /** Below the swatch, left-aligned; above it when there's no room below; nudged inside the viewport. */
 function place(): void {
@@ -259,9 +263,9 @@ function onDocDown(e: PointerEvent): void {
   const t = e.target as Node
   if (!root.value?.contains(t) && !pop.value?.contains(t)) close()
 }
-/** The pinned popover would drift from its swatch, so scrolling anything but the popover closes it. */
+/** Scrolling anything but the popover (a sidebar, to reach a colour to pick) moves it back to its swatch. */
 function onScroll(e: Event): void {
-  if (!pop.value?.contains(e.target as Node)) close()
+  if (!pop.value?.contains(e.target as Node)) place()
 }
 function onResize(): void {
   close()
@@ -276,6 +280,7 @@ async function toggle(): Promise<void> {
   window.addEventListener('scroll', onScroll, true)
   await nextTick()
   place()
+  if (open.value && root.value && pop.value) stopPick = startPick([root.value, pop.value], apply)
   await nextTick()
   areaEl.value?.focus()
 }
@@ -283,6 +288,8 @@ async function toggle(): Promise<void> {
 /** `settle` lands an edit still in progress in one of the picker's fields first. */
 function close(refocus = false, settle = true): void {
   if (!open.value) return
+  stopPick?.()
+  stopPick = null
   const active = document.activeElement as HTMLElement | null
   if (settle && active && pop.value?.contains(active)) active.blur()
   open.value = false
@@ -306,6 +313,9 @@ function onPopKey(e: KeyboardEvent): void {
 function revert(): void {
   apply(original.value)
 }
+
+/** Another open picker can take this field's colour from its swatch (its own picker closes on it instead). */
+const swatchHex = () => normalize(props.modelValue)
 
 // ---------------------------------------------------------------- square and strip
 /** OKLCH: the boundary of the gamut is sampled at this many lightnesses (plus the cusp) for the square's clip. */
@@ -471,6 +481,7 @@ onBeforeUnmount(() => {
   <div ref="root" class="cf-color">
     <button
       ref="swatch"
+      v-pick="open ? null : swatchHex"
       type="button"
       class="swatch"
       :class="{ open }"

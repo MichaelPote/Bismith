@@ -30,6 +30,7 @@ import {
 import { RECIPES } from '@/recipes'
 import { supersampleFactor } from '@/core/supersample'
 import { vTip, type Tip } from '@/ui/tooltip'
+import { vPick } from '@/ui/eyedropper'
 
 const store = useProjectStore()
 const editor = useEditorStore()
@@ -172,6 +173,8 @@ async function onRowMenu(e: MouseEvent, kind: 'layer' | 'material', id: string):
   const { clientX: x, clientY: y } = e
   editor.select(kind, id)
   rowMenuItems.value = [
+    // Duplicating copies a layer; materials have no duplicate.
+    ...(kind === 'layer' ? [{ label: 'Duplicate', shortcut: 'Ctrl+D', action: act.duplicateSelection }] : []),
     { label: 'Delete', shortcut: 'Del', hint: kind === 'material' ? 'Delete the material and its layers' : undefined, action: act.deleteSelection },
   ]
   // The menu closes on scroll, so let a half-hidden row finish scrolling into view (the watch above) first.
@@ -291,7 +294,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
       <div class="list" @dragleave.self="dropAt = null">
         <!-- Base material: under every layer; heads the Diffuse / Height columns -->
         <div class="row base" :class="{ sel: isSel('base') }" @click="editor.select('base')">
-          <span class="swatch" :style="{ background: store.project.base.color }" />
+          <span v-pick="() => store.project.base.color" class="swatch" :style="{ background: store.project.base.color }" />
           <span v-tip:right="{ title: 'Base', body: 'The material under every layer: colour, roughness, specular, height, opacity. Opens the project settings.' }" class="name">Base</span>
           <span class="cells">
             <span v-tip:right="{ title: 'Diffuse', body: 'The layer colours the surface. Click a layer’s mark to switch its Diffuse output.' }" class="ch colhead"><IconDroplet :size="14" /></span>
@@ -452,7 +455,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
             @blur="finishRename('light', true)"
           />
           <span v-else class="name" @dblclick.stop="startRename(light.id, light.name)">{{ light.name }}</span>
-          <span class="chip" :style="{ background: String(light.params.color) }" />
+          <span v-pick="() => String(light.params.color)" class="chip" :style="{ background: String(light.params.color) }" />
           <button
             v-tip:right="light.enabled ? 'Turn off' : 'Turn on'"
             type="button"

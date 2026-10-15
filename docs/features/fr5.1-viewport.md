@@ -19,7 +19,7 @@ place lights.
 - [x] Display pass with zoom / pan / nearest
 - [x] Channel views
 - [x] Tile preview 3×3
-- [x] Pixel grid at high zoom
+- [x] Pixel grid at high zoom (off by default; G toggles it)
 - [x] Alpha checkerboard
 - [x] Viewport header toolbar + readouts
 - [x] Light gizmos
