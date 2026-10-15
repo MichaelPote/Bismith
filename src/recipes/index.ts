@@ -9,14 +9,14 @@ import { concrete } from './surfaces'
 import { tiles } from './tiles'
 import { stripes } from './patterned'
 import { circuit, grate, lightPanel, metalPlate } from './tech'
-import { liquid, marble, wood } from './nature'
+import { liquid, marble, rock, wood } from './nature'
 import { cutout, paint, pipes } from './industrial'
 import type { RecipeContext, RecipeDef } from './types'
 
 export type { RecipeDef, RecipeLayer, RecipeContext } from './types'
 
 export const RECIPES: RecipeDef[] = [
-  dressedStone, cobblestones, tiles, concrete, stripes, metalPlate, grate, lightPanel, circuit, liquid, wood, marble, hammeredMetal, brushedMetal, stains, pipes, paint, cutout,
+  dressedStone, cobblestones, tiles, concrete, stripes, metalPlate, grate, lightPanel, circuit, liquid, wood, marble, rock, hammeredMetal, brushedMetal, stains, pipes, paint, cutout,
 ]
 
 export function getRecipe(id: string): RecipeDef | undefined {

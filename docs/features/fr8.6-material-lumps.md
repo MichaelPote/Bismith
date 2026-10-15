@@ -18,6 +18,7 @@ of controls each, fitted and tuned against real references rather than left to t
 | Liquid | Caustics (net / blobs, glow) |
 | Wood | Wood, streak noise |
 | Marble | Marble, grid joints |
+| Rock face | Rock (relief, colour, bed overlay, scarps, crevice dirt, moss — the wizard's Rock face template under macros, FR8.18), grain |
 | Circuit board | Truchet circuit (glow) |
 Plus the earlier Stone wall, Cobblestones, Hammered metal, Brushed metal, Water & rust stains.
 

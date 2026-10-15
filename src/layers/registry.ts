@@ -122,7 +122,9 @@ export function linkedChanges(type: string, params: ParamValues, key: string, va
   if (!link) return changes
   const before = link(params)
   const after = link({ ...params, [key]: value })
-  for (const [k, v] of Object.entries(after)) if (k !== key && params[k] === before[k] && v !== before[k]) changes[k] = v
+  // By value: a linked gradient is a new object on every call (and a loaded one never the same object).
+  const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b)
+  for (const [k, v] of Object.entries(after)) if (k !== key && same(params[k], before[k]) && !same(v, before[k])) changes[k] = v
   return changes
 }
 

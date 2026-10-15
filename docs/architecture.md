@@ -228,7 +228,10 @@ list — chamfered cut-outs, channels, inlays), all as SDFs so bevels and the sh
 draws tubes wound on a helix (coils, twisted rope mouldings). **Drips** (FR7.7) runs stains down from scattered
 sources (or outputs the sources as blisters); **Hammered** lays dish dents on concentric rings around a few centres
 whose regions interlock along arcs. **Chips & splits** (FR8.17) damages whatever is in the shape register: chips off its
-edges and corners, splits along the grain from the edges that cross it (merging where they meet), nicks across it.
+edges and corners, splits along the grain from the edges that cross it (merging where they meet), nicks across it. **Rock**
+(FR8.18) builds natural rock faces from blocks in strata on a sheared lattice — each block a mesa with its own height,
+tilt and draped scarps, finer facets, joints, folds — with outputs for the relief and for paint (scarps, crevices, rain
+streaks).
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
@@ -454,3 +457,4 @@ docs/
 | 8.13  | [Named masks and cut-outs](features/fr8.13-named-masks.md) |
 | 8.14  | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md) |
 | 8.17  | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md) |
+| 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md) |

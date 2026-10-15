@@ -36,4 +36,13 @@ describe('emulation templates', () => {
     expect(columns).toHaveLength(1)
     expect(columns[0].tied).toHaveLength(3)
   })
+
+  it('ties the five Rock copies of the rock face', () => {
+    const p = TEMPLATES.find((t) => t.id === 'rocky')!.build(analysis, { palette: '' })
+    const space = extractParams(p, { enums: true })
+    // Relief, colour, bed colour, scarps and crevices: one rock, so a tuning move reshapes all of them together.
+    const bedding = space.entries.filter((e) => e.key === 'bedding')
+    expect(bedding).toHaveLength(1)
+    expect(bedding[0].tied).toHaveLength(4)
+  })
 })

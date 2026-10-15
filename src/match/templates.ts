@@ -40,6 +40,7 @@ const L = (type: string, name: string, params: ParamValues = {}): Layer => creat
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 const r2 = (v: number) => Math.round(v * 100) / 100
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
 /** Palette entry at t (0 = darkest, 1 = lightest). */
 function pick(a: Analysis, t: number): string {
@@ -367,6 +368,59 @@ function withBase(look: Look, base: Partial<MaterialBase>): Look {
   return { ...look, base: { ...look.base, ...base } }
 }
 
+/**
+ * A natural rock face (FR8.18): one Rock pattern used five times — the relief (height only), its colour by height,
+ * colour bands per bed, darker scarps and dirt (or moss, on a palette with a real green) in the crevices — plus in-hue grain
+ * and cavity grime. Steep strata broken into tilted blocks, with whole, smooth fracture planes beside shattered zones;
+ * blocks about an eighth of the texture's side and deep relief, so they cast shadows under a low, warm key light and a
+ * cool sky. Painted light (game palettes, no shadows) gets the same rock, shaded by its slopes alone.
+ */
+function rockFace(a: Analysis, ctx: TemplateContext): Project {
+  const painted = GAME_PALETTES.has(ctx.palette)
+  // Blocks about an eighth of the texture's mean side (wide textures don't get huge blocks).
+  const size = r2(clamp(Math.sqrt(a.width * a.height) * 0.12, 7, 32))
+  // Small blocks (small textures) lose their facets (under ~8 px they fade out), so they get the irregularity instead:
+  // less bedding, more tilt, a little grain. k: 0 for small blocks … 1 from 16 px up. Sizes spread wide and many blocks
+  // merge at every size: big blocks among small ones, not a regular lattice of scales.
+  const k = clamp((size - 8) / 8, 0, 1)
+  const rock: ParamValues = {
+    seed: 11, angle: -60, cross: 0, fold: 0, size, elong: 1.15, bedding: r2(lerp(0.2, 0.6, k)), jitter: 1, merge: 0.45,
+    size_var: 0.9, warp: 0.15, jag: 0.3, heights: 1, coherence: 0.3, tilt: r2(lerp(1.3, 1, k)), dip: 0, bulge: 0, lean: 0.6, scarp: 1.5,
+    weather: r2(lerp(0.8, 0.5, k)), detail: size >= 14 ? 3 : 2, facets: 0.35, zones: 0.8, rough: r2(lerp(0.06, 0.04, k)), rough_scale: r2(lerp(2, 4, k)),
+    // Scarps stepped every 2 px: thin layered edges along the blocks' sides. (Laminae, even faint, turned the smooth
+    // faces into wood grain.)
+    steps: 0.8, step_px: 2, joint: 0, sm_on: false,
+    // (The Rock layer's Fractured face style is this look: picking another style then moves every param.)
+    style: 'fractured',
+  }
+  // Moss only for a real (yellowish) green: greenest() also takes slate's blue-greys, and lighter than the rock they
+  // drew pale lines along every crevice.
+  const green = greenest(a)
+  const moss = green && oklab(green)[2] > 0.005 ? green : null
+  const dark = mix(pick(a, 0), '#000000', 0.35)
+  const p = base(a, ctx, 'Rock face', {
+    relief: [L('rock', 'Rock', { ...rock, h_on: true, h_amount: r2(size * 0.32) })],
+    paint: [
+      L('rock', 'Rock colour', { ...rock, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0.05, 0.95) }),
+      L('rock', 'Bed colour', { ...rock, rnd_mode: 'mix', h_on: false, dif_on: true, dif_src: 'random', dif_blend: 'overlay', dif_opacity: 0.35, dif_grad: hueRamp(a, 0.2, 0.9) }),
+      L('rock', 'Scarps', { ...rock, output: 'scarps', h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.8, dif_grad: ramp('#ffffff', mix(pick(a, 0.3), dark, 0.5)) }),
+      L('rock', moss ? 'Moss' : 'Crevice dirt', {
+        ...rock, output: 'crevices', crev_reach: r2(clamp(size * 0.12, 1.2, 4)), crev_patch: 0.6, h_on: false, dif_on: true,
+        ...(moss ? { dif_opacity: 0.7, dif_grad: ramp(mix(moss, '#000000', 0.3), moss) } : { dif_blend: 'multiply', dif_opacity: 0.3, dif_grad: ramp('#ffffff', dark) }),
+      }),
+      L('noise', 'Grain', { noise: 'white', seed: 15, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.25, dif_grad: hueRamp(a, 0.3, 0.9) }),
+      grime(a, 2, 0.2),
+    ],
+  }, { base: { color: pick(a, 0.4), roughness: 0.95, specular: 0.2 }, render: painted ? {} : { jitter: true } })
+  if (!painted) {
+    // A low, warm key light so the blocks cast shadows; a brighter, cool sky fills the shadowed faces.
+    const key = p.lighting.lights[0]
+    key.params = { ...key.params, elevation: 25, intensity: 1.9, color: '#fff0dc' }
+    p.lighting.sky = { ...p.lighting.sky, intensity: 0.45, zenith: '#b4c4dc', horizon: '#c8ccd4' }
+  }
+  return p
+}
+
 // ------------------------------------------------------------------------------------------------ templates
 
 export const TEMPLATES: Template[] = [
@@ -394,24 +448,10 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: 'rocky',
-    label: 'Ridged, faceted rock',
-    tags: ['rock', 'cliff'],
-    requires: ['voronoi'],
-    build: (a, ctx) =>
-      base(a, ctx, 'Rocky', {
-        relief: [
-          L('noise', 'Ridges', { noise: 'perlin', fractal: 'ridged', scale: 4, octaves: 5, warp: 0.4, seed: 24, h_on: true, h_amount: 0.6, dif_on: false }),
-          // Broad tilted planes: rock breaks into flat faces, not only smooth swells.
-          L('voronoi', 'Facets', { output: 'facets', scale: across(a, 12), jitter: 1, tilt: 1.6, seed: 19, sm_on: false, h_on: true, h_amount: 0.5, dif_on: false }),
-          lumps(a, 5, 0.15, false),
-        ],
-        paint: [
-          L('noise', 'Ridge shade', { noise: 'perlin', fractal: 'ridged', scale: 4, octaves: 5, warp: 0.4, seed: 24, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0, 1) }),
-          L('noise', 'Tint', { noise: 'value', fractal: 'fbm', scale: across(a, 12), octaves: 3, seed: 22, h_on: false, dif_on: true, dif_opacity: 0.45, dif_grad: hueRamp(a, 0.2, 0.8) }),
-          L('noise', 'Grain', { noise: 'value', fractal: 'fbm', scale: across(a, 3), octaves: 2, seed: 23, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.3, dif_grad: ramp('#000000', '#ffffff') }),
-          grime(a, 1.5),
-        ],
-      }, { base: { roughness: 0.95, specular: 0.3 }, render: { ao: 0.6, aoRadius: 3 } }),
+    label: 'Rock face (fractured strata)',
+    tags: ['rock', 'cliff', 'stone'],
+    requires: ['rock', 'cavity'],
+    build: (a, ctx) => rockFace(a, ctx),
   },
   {
     id: 'cobbles',

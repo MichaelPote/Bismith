@@ -1,8 +1,9 @@
-// Natural-surface lumps tuned against references (FR8.6): liquids (lava, water, slime, nukage), wood and marble.
+// Natural-surface lumps tuned against references (FR8.6): liquids (lava, water, slime, nukage), wood, marble and a
+// rock face (the Rock generator, FR8.18).
 // Colour is carried by the generators; relief stays minimal.
 
 import { P, type ParamValues } from '@/core/params'
-import { L, gradient, num, r2 } from './parts'
+import { L, clamp, gradient, num, r2, shade } from './parts'
 import type { RecipeDef } from './types'
 
 export const liquid: RecipeDef = {
@@ -160,6 +161,69 @@ export const marble: RecipeDef = {
       { role: 'joints', stack: 'relief', layer: L('grid', 'Joints', { count_x: Math.max(1, tiles), count_y: Math.max(1, Math.round((tiles * ctx.height) / ctx.width)), width: 1, aa: false, bevel: 0.5, profile: 'linear', sdf_op: 'replace', h_on: true, h_mode: 'subtract', h_amount: 0.25, dif_on: false }, tiles > 0) },
       { role: 'marble', stack: 'paint', layer: L('marble', 'Marble', { ...mb, h_on: false, dif_on: true, dif_grad: grad, r_on: true, r_a: 0.3, r_b: 0.5 }) },
       { role: 'speckle', stack: 'paint', layer: L('noise', 'Speckle', { noise: 'white', seed: num(m.seed, 101) + 1, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.1, dif_grad: gradient('#000000', '#ffffff') }) },
+    ]
+  },
+}
+
+export const rock: RecipeDef = {
+  id: 'rock',
+  label: 'Rock face',
+  description: 'Fractured, bedded stone: tilted blocks with stepped scarps and finer facets, shaded scarps, dirt or moss in the crevices.',
+  groups: [
+    { id: 'strata', label: 'Strata' },
+    { id: 'relief', label: 'Relief' },
+    { id: 'weather', label: 'Weathering' },
+    { id: 'colour', label: 'Colour' },
+  ],
+  params: [
+    P.float('angle', 'Bedding angle', -60, -90, 90, { group: 'strata', unit: '°', step: 1 }),
+    P.float('size', 'Block size', 0, 0, 64, { group: 'strata', unit: 'px', step: 0.5, softMax: 32, hint: '0 (or under 2) = about an eighth of the texture’s mean side' }),
+    P.float('variety', 'Block variety', 0.9, 0, 1, { group: 'strata', step: 0.01, hint: 'Spread of block sizes, and how many merge into big ones' }),
+    P.float('bedding', 'Bedding', 0.6, 0, 1, { group: 'strata', step: 0.01, hint: 'How strictly the blocks keep to their beds' }),
+    P.float('depth', 'Relief depth', 1, 0, 3, { group: 'relief', step: 0.01, hint: 'Height relative to the block size (1: a third of it)' }),
+    P.float('tilt', 'Tilt', 1, 0, 2, { group: 'relief', step: 0.01 }),
+    P.float('facets', 'Facets', 0.35, 0, 1, { group: 'relief', step: 0.01, hint: 'Finer fractures across the blocks' }),
+    P.float('steps', 'Scarp steps', 0.8, 0, 1, { group: 'relief', step: 0.01, hint: 'Thin layered edges along the blocks’ sides' }),
+    P.float('weather', 'Weathering', 0.5, 0, 8, { group: 'weather', unit: 'px', step: 0.05, hint: 'Rounds the blocks’ edges' }),
+    P.float('dirt', 'Crevice dirt', 0.3, 0, 1, { group: 'weather', step: 0.01 }),
+    P.float('moss', 'Moss', 0, 0, 1, { group: 'weather', step: 0.01, hint: 'Moss in the crevices, spreading out from them in patches' }),
+    P.color('moss_colour', 'Moss colour', '#5a6a2a', { group: 'weather' }),
+    P.gradient('colours', 'Rock colours', gradient('#3a2a1c', '#7a6248', '#b89a78'), { group: 'colour' }),
+    P.float('beds', 'Bed colour', 0.35, 0, 1, { group: 'colour', step: 0.01, hint: 'Each bed a little lighter or darker' }),
+    P.seed('seed', 'Seed', 11, { group: 'strata' }),
+  ],
+  render: { shadows: true },
+  build(m, ctx) {
+    const size = num(m.size, 0) >= 2 ? num(m.size, 0) : r2(clamp(Math.sqrt(ctx.width * ctx.height) * 0.12, 6, 48))
+    const variety = num(m.variety, 0.9)
+    // The wizard's Rock face (match/templates.ts), its look under the macros.
+    const rk: ParamValues = {
+      seed: num(m.seed, 11), angle: num(m.angle, -60), cross: 0, fold: 0, size, elong: 1.15, bedding: num(m.bedding, 0.6), jitter: 1,
+      merge: r2(0.5 * variety), size_var: variety, warp: 0.15, jag: 0.3, heights: 1, coherence: 0.3, tilt: num(m.tilt, 1), dip: 0, bulge: 0,
+      lean: 0.6, scarp: 1.5, weather: num(m.weather, 0.5), detail: size >= 14 ? 3 : 2, facets: num(m.facets, 0.35), zones: 0.8, rough: 0.04,
+      rough_scale: 4, steps: num(m.steps, 0.8), step_px: 2, joint: 0, sm_on: false, style: 'fractured',
+    }
+    const colours = (m.colours as ReturnType<typeof gradient> | undefined) ?? gradient('#3a2a1c', '#7a6248', '#b89a78')
+    const dark = shade(colours.stops[0]?.color ?? '#3a2a1c', 0.6).stops[0].color
+    const reach = r2(clamp(size * 0.12, 1.2, 4))
+    const dirt = num(m.dirt, 0.3), moss = num(m.moss, 0), beds = num(m.beds, 0.35)
+    return [
+      { role: 'relief', stack: 'relief', layer: L('rock', 'Rock', { ...rk, h_on: true, h_amount: r2(size * 0.32 * num(m.depth, 1)), dif_on: false }) },
+      { role: 'colour', stack: 'paint', layer: L('rock', 'Rock colour', { ...rk, h_on: false, dif_on: true, dif_grad: colours }) },
+      {
+        role: 'beds', stack: 'paint',
+        layer: L('rock', 'Bed colour', { ...rk, rnd_mode: 'mix', h_on: false, dif_on: true, dif_src: 'random', dif_blend: 'overlay', dif_opacity: beds, dif_grad: gradient('#606060', '#a0a0a0') }, beds > 0),
+      },
+      { role: 'scarps', stack: 'paint', layer: L('rock', 'Scarps', { ...rk, output: 'scarps', h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.8, dif_grad: gradient('#ffffff', dark) }) },
+      {
+        role: 'dirt', stack: 'paint',
+        layer: L('rock', 'Crevice dirt', { ...rk, output: 'crevices', crev_reach: reach, crev_patch: 0.6, h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: dirt, dif_grad: gradient('#ffffff', dark) }, dirt > 0),
+      },
+      {
+        role: 'moss', stack: 'paint',
+        layer: L('rock', 'Moss', { ...rk, output: 'crevices', crev_reach: r2(reach * 2.5), crev_patch: 0.5, h_on: false, dif_on: true, dif_opacity: r2(0.85 * moss), dif_grad: shade(String(m.moss_colour ?? '#5a6a2a'), 0.7) }, moss > 0),
+      },
+      { role: 'grain', stack: 'paint', layer: L('noise', 'Grain', { noise: 'white', seed: num(m.seed, 11) + 4, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.25, dif_grad: gradient('#404040', '#c0c0c0') }) },
     ]
   },
 }

@@ -6,6 +6,8 @@ import type { Layer, Light, PostFilter, Project } from '@/core/project'
 import { createLayer, createLight, createPostFilter, createProject } from '@/core/serialize'
 import { defaultRender } from '@/core/project'
 import { addMaterial } from '@/recipes'
+import { TEMPLATES } from '@/match/templates'
+import { schemeAnalysis } from '@/match/schemes'
 
 export interface Preset {
   id: string
@@ -312,6 +314,13 @@ function emberGem(): Project {
 
 // ------------------------------------------------------------------------------------------- Nature
 
+/** The Rock face suggestion (FR8.18) in a warm sandstone palette: steep, fractured strata casting shadows. */
+function rockFace(): Project {
+  const palette = ['#1c140c', '#3a2a1a', '#5a4430', '#7e6248', '#a08060', '#c0a07c', '#d8c0a0']
+  const a = schemeAnalysis({ look: 'stone', accent: '#7e6248', palette }, 128, 128)
+  return { ...TEMPLATES.find((t) => t.id === 'rocky')!.build(a, { palette: '' }), name: 'Rock face' }
+}
+
 /** Sunlight through a rolling sea onto a sandless floor: the Liquid material, refracted light, Gerstner waves. */
 function waterCaustics(): Project {
   const p = createProject({
@@ -365,6 +374,7 @@ export const PRESETS: Preset[] = [
   { id: 'well', name: 'Sunken well', group: 'UI surfaces', build: sunkenWell },
   { id: 'panel', name: 'Bevelled panel', group: 'UI surfaces', build: bevelledPanel },
   { id: 'gem', name: 'Ember gem', group: 'UI surfaces', build: emberGem },
+  { id: 'rock', name: 'Rock face', group: 'Nature', build: rockFace },
   { id: 'water', name: 'Water caustics', group: 'Nature', build: waterCaustics },
   { id: 'blank', name: 'Blank noise', group: 'Basics', build: () => createProject({ name: 'Untitled' }) },
 ]
