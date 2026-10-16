@@ -96,6 +96,7 @@ const TYPE_ICON: Record<string, Component> = {
   drips: IconDropletHalf2,
   chips: IconAxe,
   rock: IconMountain,
+  stone_blocks: IconWall,
   grass: IconPlant2,
   scratches: IconWaveSawTool,
   hammered: IconHammer,

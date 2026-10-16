@@ -27,5 +27,7 @@ Starter projects that demonstrate both target styles and act as optimiser seeds.
 - [x] UI: ember gem (extra)
 - [x] Nature: water caustics — the Liquid material with refracted light, Gerstner waves and an ocean blue-teal ramp
 - [x] Nature: rock face — the Rock face suggestion (FR8.18) at 128 px in a warm sandstone palette
+- [x] Nature: stone walls (FR8.22) at 512 px — Sandstone ashlar, Rust rubble wall, Lichen sandstone, Mossy slate wall,
+      Frosted stone: the Stone blocks recreations, its Joints / Gaps outputs and noise layers painted over the relief
 - [x] Preset param validation test + render-all tool
 - [x] Previews for the new-project wizard (`tools/previews.ts` → `src/presets/previews.ts`, FR8.20)

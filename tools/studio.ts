@@ -5,7 +5,8 @@
 // Keeps a GPU session open and watches <dir> for project JSONs. Whenever `<name>.json` is newer than its
 // outputs it renders it and writes:
 //   <name>.png          the render (final post-processed image)
-//   <name>.sheet.png    [reference | render] (+ [height | diffuse] when the project sets "_maps": true),
+//   <name>.sheet.png    [reference | render] (+ [height | diffuse] when the project sets "_maps": true, or the maps
+//                       it lists, e.g. "_maps": ["height", "ao", "normal-gl"]),
 //                       nearest-upscaled so 64 px textures are inspectable
 //   <name>.txt          render info, errors and the tile-metric breakdown against the reference
 // Project fields used by the studio (ignored by the app): "_ref" (reference PNG path), "_maps" (bool),
@@ -73,8 +74,9 @@ async function main() {
       }
       tiles.push(render)
       if (project._maps) {
-        const maps = await s.callOn<Record<string, string>>(0, 'renderMaps', ['height', 'diffuse'])
-        tiles.push(png(maps.height), png(maps.diffuse))
+        const kinds = Array.isArray(project._maps) ? (project._maps as string[]) : ['height', 'diffuse']
+        const maps = await s.callOn<Record<string, string>>(0, 'renderMaps', kinds)
+        for (const k of kinds) tiles.push(png(maps[k]))
       }
       const scale = typeof project._scale === 'number' ? project._scale : Math.max(1, Math.min(6, Math.floor(320 / Math.max(render.width, render.height))))
       writePng(join(dir, `${name}.sheet.png`), contactSheet(tiles, scale))

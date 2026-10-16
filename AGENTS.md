@@ -64,6 +64,11 @@ doesn't.)
 - **The studio's page loads `src/` once.** `tools/studio.ts` keeps one browser page for its whole run, so edits to
   `src/` never reach it: a new layer type is silently dropped on load and renders come out unchanged. Restart the
   studio after changing generator or pipeline code (check a render's metrics actually moved).
+- **"only 0/1 browser workers connected" can be a dead port.** The Windows backend serves the page from WSL on the
+  first free port from 5290, and WSL's localhost forwarding sometimes stops working for one port: Chrome starts (its
+  `bismith-gpu-<port>-0` profile is written) but never reaches the page, every retry fails the same way, and other
+  sessions on other ports run fine. Check with a throwaway `python3 -m http.server <port>` and
+  `Invoke-WebRequest localhost:<port>` from PowerShell; start the tool on a working port with `BISMITH_PORT=5299`.
 - **Icons are `@tabler/icons-vue` components, used directly** (`<IconTrash :size="13" />`; `:color`, not `:stroke`, for
   a hue; `<component :is>` for data-driven ones — layer types and recipes via `layerIcon` / `recipeIcon` in
   `src/ui/meta.ts`). `.tabler-icon { stroke-width: 1.75 }` in `src/styles/base.css` sets the UI's line weight and

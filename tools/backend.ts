@@ -249,7 +249,9 @@ async function openWindowsSession(opts: SessionOptions): Promise<Session> {
     plugins: [queue.plugin()],
     // Bind every interface so the Windows host reaches it through WSL's localhost forwarding.
     // No HMR / file watching: edits elsewhere must not reload pages mid-run.
-    server: { port: 5290, strictPort: false, host: '0.0.0.0', hmr: false, watch: null },
+    // BISMITH_PORT picks the first port to try: WSL's localhost forwarding to Windows sometimes sticks on a port, and the
+    // browser then never reaches the page (only 0/N workers connect).
+    server: { port: Number(process.env.BISMITH_PORT ?? 5290), strictPort: false, host: '0.0.0.0', hmr: false, watch: null },
   })
   await server.listen()
   const port = (server.httpServer?.address() as { port: number }).port

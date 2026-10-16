@@ -402,6 +402,277 @@ function waterCaustics(): Project {
   return p
 }
 
+// Stone walls (FR8.22): rock-faced ashlar from the Stone blocks generator, its Joints / Gaps outputs painted over the
+// relief and noise for the weathering.
+
+/** Yellow sandstone in broken ashlar: pitched faces, faint joints, open gaps, cream blotches. */
+function sandstoneAshlar(): Project {
+  const wall = {
+    course: 64, length: 3.6, split: 0.4, scar_size: 110, levels: 2, min_size: 26, tall: 0.25, heights: 0.1,
+    recess: 0.1, joint_depth: 0.15, scars: 0.95, scar_stretch: 1, scar_depth: 3.2, scar_detail: 0.5, margin: 10,
+    pitch: 0.8, gap: 1, jag: 0.8, gaps: 0.15, gap_w: 3.5,
+  }
+  return createProject({
+    name: 'Sandstone ashlar',
+    width: 512,
+    height: 512,
+    tileable: true,
+    heightDepth: 2,
+    base: { color: '#b39a74', roughness: 0.9, specular: 0.5, height: 0, opacity: 1 },
+    layers: [
+      L('stone_blocks', 'Stone blocks', {
+        ...wall,
+        h_amount: 14, dif_src: 'random', dif_grad: ramp('#d0ac5c', '#dcba6c', '#e6c67e'),
+      }),
+      L('noise', 'Zones', {
+        noise: 'perlin', fractal: 'fbm', scale: 3, octaves: 3, dif_on: true, dif_blend: 'multiply',
+        dif_opacity: 0.35, sh_lo: 0.35, sh_hi: 0.7, dif_grad: ramp('#ffffff', '#c8a050'), seed: 3,
+      }),
+      L('noise', 'Mottle', {
+        noise: 'perlin', fractal: 'fbm', scale: 24, octaves: 6, gain: 0.62, sh_cut: 0.56, sh_cut_soft: 0.03,
+        dif_on: true, dif_blend: 'multiply', dif_opacity: 0.4, dif_grad: ramp('#ecd6a0', '#c8a050'), seed: 5,
+      }),
+      L('noise', 'Blotches', {
+        noise: 'perlin', fractal: 'fbm', scale: 22, octaves: 7, gain: 0.78, sh_cut: 0.57, sh_cut_soft: 0.02,
+        dif_on: true, dif_grad: ramp('#f0dc9c', '#fbf0c8'), seed: 9,
+      }),
+      L('noise', 'Grain', {
+        noise: 'white', block: 1, sh_cut: 0.8, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.35,
+        dif_grad: ramp('#d8b470', '#b08848'), seed: 12,
+      }),
+      L('stone_blocks', 'Joints', {
+        ...wall,
+        output: 'joints', reach: 1.2, patch: 0, h_on: false, dif_src: 'value', dif_blend: 'multiply',
+        dif_grad: ramp('#ffffff', '#b09060'),
+      }),
+      L('noise', 'Joint grit', {
+        noise: 'white', block: 1, sh_cut: 0.55, m_clip: 'outside', dif_on: true, dif_opacity: 0.7,
+        dif_grad: ramp('#6a4c22', '#9a7a44'), seed: 21,
+      }),
+      L('stone_blocks', 'Gaps', {
+        ...wall,
+        output: 'gaps', h_on: false, dif_src: 'value', dif_grad: ramp('#1c2420', '#2a3a30'),
+      }),
+    ],
+    lighting: {
+      sky: { enabled: true, zenith: '#d8dde2', horizon: '#c9c6c0', intensity: 0.6 },
+      ambient: { color: '#ffffff', intensity: 0.02 },
+      lights: [sun({ azimuth: 315, elevation: 40, angle: 2, intensity: 1.35, color: '#ffffff' })],
+    },
+    render: { ...defaultRender(), maxSamples: 64, bounces: 1, specular: 0, ao: 0.7, aoRadius: 4 },
+    post: [post('tonemap', { operator: 'clamp' })],
+  })
+}
+
+/** Small rust-red stones in random ashlar with orange lichen specks. */
+function rustRubble(): Project {
+  const wall = {
+    course: 26, length: 2.6, split: 0.45, levels: 2, min_size: 11, tall: 0.2, heights: 0.15, recess: 0.05,
+    recess_depth: 0.3, joint_depth: 0.2, scars: 0.9, scar_size: 34, scar_depth: 2.2, scar_detail: 0.6,
+    scar_stretch: 1, margin: 4, pitch: 0.4, gap: 1, jag: 0.6, rough: 0.12, rough_scale: 2, gaps: 0, seed: 7,
+  }
+  return createProject({
+    name: 'Rust rubble wall',
+    width: 512,
+    height: 512,
+    tileable: true,
+    heightDepth: 2,
+    base: { color: '#7a3a1e', roughness: 0.9, specular: 0.5, height: 0, opacity: 1 },
+    layers: [
+      L('stone_blocks', 'Stone blocks', {
+        ...wall,
+        h_amount: 5, dif_src: 'random', dif_grad: ramp('#6a2c14', '#82381a', '#964424', '#a05430'),
+      }),
+      L('noise', 'Dark mottle', {
+        noise: 'perlin', fractal: 'fbm', scale: 18, octaves: 6, gain: 0.65, sh_cut: 0.52, sh_cut_soft: 0.05,
+        dif_on: true, dif_blend: 'multiply', dif_opacity: 0.6, dif_grad: ramp('#c8a090', '#6a4a3a'), seed: 3,
+      }),
+      L('noise', 'Orange lichen', {
+        noise: 'perlin', fractal: 'fbm', scale: 60, octaves: 6, gain: 0.8, sh_cut: 0.58, sh_cut_soft: 0.02,
+        dif_on: true, dif_opacity: 0.8, dif_grad: ramp('#a8582a', '#c08040'), seed: 5,
+      }),
+      L('noise', 'Grain', {
+        noise: 'white', block: 1, sh_cut: 0.75, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.4,
+        dif_grad: ramp('#c09080', '#704838'), seed: 9,
+      }),
+      L('stone_blocks', 'Joints', {
+        ...wall,
+        output: 'joints', reach: 1, patch: 0.2, h_on: false, dif_src: 'value', dif_blend: 'multiply',
+        dif_grad: ramp('#ffffff', '#b08870'),
+      }),
+    ],
+    lighting: {
+      sky: { enabled: true, zenith: '#d8dde2', horizon: '#c9c6c0', intensity: 0.5 },
+      ambient: { color: '#ffffff', intensity: 0.02 },
+      lights: [sun({ azimuth: 315, elevation: 40, angle: 2, intensity: 1.3, color: '#ffffff' })],
+    },
+    render: { ...defaultRender(), maxSamples: 64, bounces: 1, specular: 0, ao: 0.8, aoRadius: 4 },
+    post: [post('tonemap', { operator: 'clamp' })],
+  })
+}
+
+/** Long sandstone blocks with flat, finely cracked faces under grey, rust and pale lichen. */
+function lichenSandstone(): Project {
+  const wall = {
+    course: 64, length: 4.2, split: 0.25, levels: 1, min_size: 24, tall: 0.15, heights: 0.08, recess: 0.05,
+    joint_depth: 0.2, scars: 0.6, scar_size: 90, scar_depth: 1.2, scar_detail: 0.4, scar_stretch: 1, margin: 6,
+    pitch: 0.4, gap: 1, jag: 0.5, rough: 0.05, gaps: 0, seed: 11,
+  }
+  return createProject({
+    name: 'Lichen sandstone',
+    width: 512,
+    height: 512,
+    tileable: true,
+    heightDepth: 2,
+    base: { color: '#e6c88e', roughness: 0.9, specular: 0.5, height: 0, opacity: 1 },
+    layers: [
+      L('stone_blocks', 'Stone blocks', {
+        ...wall,
+        h_amount: 8, dif_src: 'random', dif_grad: ramp('#d8b47a', '#e6c88e', '#efd8a8'),
+      }),
+      L('noise', 'Grey patches', {
+        noise: 'perlin', fractal: 'fbm', scale: 4, octaves: 7, gain: 0.78, sh_cut: 0.55, sh_cut_soft: 0.06,
+        dif_on: true, dif_grad: ramp('#b4aa9a', '#d2cbbe'), seed: 3,
+      }),
+      L('noise', 'Rust patches', {
+        noise: 'perlin', fractal: 'fbm', scale: 6, octaves: 7, gain: 0.78, sh_cut: 0.6, sh_cut_soft: 0.06,
+        dif_on: true, dif_grad: ramp('#b07848', '#c89058'), seed: 5,
+      }),
+      L('noise', 'Dark lichen', {
+        noise: 'perlin', fractal: 'fbm', scale: 9, octaves: 7, gain: 0.78, sh_cut: 0.64, sh_cut_soft: 0.06,
+        dif_on: true, dif_grad: ramp('#7c6c5c', '#968472'), seed: 7,
+      }),
+      L('noise', 'Pale crust', {
+        noise: 'perlin', fractal: 'fbm', scale: 14, octaves: 7, gain: 0.78, sh_cut: 0.6, sh_cut_soft: 0.06,
+        dif_on: true, dif_grad: ramp('#efe2c6', '#f8efdc'), seed: 9,
+      }),
+      L('cracks', 'Cracks', {
+        scale: 6, width: 0.7, width_var: 0.9, zigzag: 2, warp: 0.1, sub: 0.25, sub_width: 0.5, sm_on: false,
+        bevel: 0, halo: 0, m_clip: 'inside', dif_on: true, dif_blend: 'multiply', dif_opacity: 0.6,
+        dif_grad: ramp('#5a4a3a', '#ffffff'), h_on: false, seed: 13,
+      }),
+      L('stone_blocks', 'Joints', {
+        ...wall,
+        output: 'joints', reach: 1.2, patch: 0, h_on: false, dif_src: 'value', dif_blend: 'multiply',
+        dif_grad: ramp('#ffffff', '#a08a68'),
+      }),
+    ],
+    lighting: {
+      sky: { enabled: true, zenith: '#d8dde2', horizon: '#c9c6c0', intensity: 0.6 },
+      ambient: { color: '#ffffff', intensity: 0.02 },
+      lights: [sun({ azimuth: 315, elevation: 45, angle: 2, intensity: 1.25, color: '#ffffff' })],
+    },
+    render: { ...defaultRender(), maxSamples: 64, bounces: 1, specular: 0, ao: 0.6, aoRadius: 4 },
+    post: [post('tonemap', { operator: 'clamp' })],
+  })
+}
+
+/** Dark wet slate in tall courses, crazed with cracks, moss and bright green flecks along the joints. */
+function mossySlate(): Project {
+  const wall = {
+    course: 125, length: 2.2, split: 0.15, levels: 1, slabs: 1, min_size: 40, tall: 0, row_var: 0.1, heights: 0.1,
+    recess: 0, joint_depth: 0.3, scars: 0.95, scar_size: 50, scar_depth: 2.4, scar_detail: 1, scar_stretch: 0.6,
+    scar_edge: 0.3, margin: 4, pitch: 0.3, gap: 1, jag: 0.4, rough: 0.3, rough_scale: 3, gaps: 0, seed: 17,
+  }
+  return createProject({
+    name: 'Mossy slate wall',
+    width: 512,
+    height: 512,
+    tileable: true,
+    heightDepth: 2,
+    base: { color: '#363733', roughness: 0.9, specular: 0.5, height: 0, opacity: 1 },
+    layers: [
+      L('stone_blocks', 'Stone blocks', {
+        ...wall,
+        h_amount: 8, dif_src: 'random', dif_grad: ramp('#26271f', '#2e2f2a', '#383934'), s_on: true, s_src: 'flat',
+        s_a: 0.5, s_b: 0.5, r_on: true, r_src: 'flat', r_a: 0.45, r_b: 0.45,
+      }),
+      L('noise', 'Tone', {
+        noise: 'perlin', fractal: 'fbm', scale: 8, octaves: 5, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.5,
+        dif_grad: ramp('#ffffff', '#707060'), seed: 3,
+      }),
+      L('cracks', 'Cracks', {
+        scale: 8, width: 1.5, width_var: 0.9, zigzag: 3, warp: 0.1, sub: 0.85, sub_width: 1, sub_scale: 3,
+        sm_on: false, bevel: 0, halo: 0, dif_on: true, dif_blend: 'multiply', dif_grad: ramp('#141410', '#ffffff'),
+        h_on: false, s_on: true, s_mode: 'multiply', s_a: 0, s_b: 1, seed: 19,
+      }),
+      L('noise', 'Moss', {
+        noise: 'perlin', fractal: 'fbm', scale: 10, octaves: 6, gain: 0.65, sh_cut: 0.62, sh_cut_soft: 0.05,
+        dif_on: true, dif_opacity: 0.45, dif_grad: ramp('#3a3c22', '#56552a'), seed: 5,
+      }),
+      L('stone_blocks', 'Joint moss', {
+        ...wall,
+        output: 'joints', reach: 10, patch: 0.55, h_on: false, dif_src: 'value', dif_blend: 'normal',
+        dif_opacity: 0.6, dif_grad: ramp('#3a3a1e', '#4e5226'), mk_write: '1',
+      }),
+      L('noise', 'Green flecks', {
+        noise: 'white', block: 2, sh_cut: 0.86, dif_on: true, dif_grad: ramp('#6ac81a', '#9af030'), mk_use: '1',
+        seed: 23,
+      }),
+    ],
+    lighting: {
+      sky: { enabled: true, zenith: '#d8dde2', horizon: '#c9c6c0', intensity: 0.45 },
+      ambient: { color: '#ffffff', intensity: 0.02 },
+      lights: [sun({ azimuth: 315, elevation: 40, angle: 2, intensity: 1.4, color: '#ffffff' })],
+    },
+    render: { ...defaultRender(), maxSamples: 64, bounces: 1, specular: 1, ao: 0.8, aoRadius: 4 },
+    post: [post('tonemap', { operator: 'clamp' })],
+  })
+}
+
+/** Pale frosted blocks with a fine crumpled face, hairline cracks and speckled moss. */
+function frostedStone(): Project {
+  const wall = {
+    course: 80, length: 3.5, split: 0.2, levels: 1, min_size: 30, tall: 0.1, heights: 0.05, recess: 0,
+    joint_depth: 0.1, scars: 0.95, scar_size: 12, scar_depth: 2.5, scar_detail: 1, scar_edge: 0.2, margin: 3,
+    pitch: 0.2, gap: 1, jag: 0.5, rough: 0.2, rough_scale: 1.5, gaps: 0, seed: 29,
+  }
+  return createProject({
+    name: 'Frosted stone',
+    width: 512,
+    height: 512,
+    tileable: true,
+    heightDepth: 2,
+    base: { color: '#96a0a4', roughness: 0.9, specular: 0.5, height: 0, opacity: 1 },
+    layers: [
+      L('stone_blocks', 'Stone blocks', {
+        ...wall,
+        h_amount: 5, dif_src: 'random', dif_grad: ramp('#868e92', '#92999c', '#9ea5a8'),
+      }),
+      L('noise', 'Frost', {
+        noise: 'perlin', fractal: 'fbm', scale: 40, octaves: 7, gain: 0.72, dif_on: true, dif_blend: 'overlay',
+        dif_opacity: 0.8, dif_grad: ramp('#606a70', '#ffffff'), seed: 3,
+      }),
+      L('cracks', 'Cracks', {
+        scale: 10, width: 0.6, width_var: 0.9, zigzag: 2, warp: 0.1, sub: 0.5, sub_width: 0.4, sm_on: false,
+        bevel: 0, halo: 0, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.45,
+        dif_grad: ramp('#4a5258', '#ffffff'), h_on: false, seed: 31,
+      }),
+      L('noise', 'Moss clusters', {
+        noise: 'perlin', fractal: 'fbm', scale: 7, octaves: 6, gain: 0.7, sh_cut: 0.58, sh_cut_soft: 0.06,
+        dif_on: true, dif_blend: 'multiply', dif_opacity: 0.35, dif_grad: ramp('#c8c8a8', '#909070'), mk_write: '2',
+        seed: 5,
+      }),
+      L('noise', 'Moss specks', {
+        noise: 'perlin', fractal: 'fbm', scale: 140, octaves: 3, gain: 0.6, sh_cut: 0.56, sh_cut_soft: 0.03,
+        mk_use: '2', dif_on: true, dif_grad: ramp('#3a3a20', '#5e5c36'), seed: 6,
+      }),
+      L('stone_blocks', 'Joints', {
+        ...wall,
+        output: 'joints', reach: 1, patch: 0.4, h_on: false, dif_src: 'value', dif_blend: 'multiply',
+        dif_grad: ramp('#ffffff', '#9aa2a6'),
+      }),
+    ],
+    lighting: {
+      sky: { enabled: true, zenith: '#d8dde2', horizon: '#c9c6c0', intensity: 0.6 },
+      ambient: { color: '#ffffff', intensity: 0.02 },
+      lights: [sun({ azimuth: 315, elevation: 45, angle: 2, intensity: 1.2, color: '#ffffff' })],
+    },
+    render: { ...defaultRender(), maxSamples: 64, bounces: 1, specular: 0, ao: 0.5, aoRadius: 4 },
+    post: [post('tonemap', { operator: 'clamp' })],
+  })
+}
+
 /** A preset whose built project carries its generated preview (PRESET_PREVIEWS), when there is one. */
 const withPreview = (p: Preset): Preset => {
   const preview = PRESET_PREVIEWS[p.id]
@@ -420,5 +691,10 @@ export const PRESETS: Preset[] = ([
   { id: 'gem', name: 'Ember gem', group: 'UI surfaces', build: emberGem },
   { id: 'rock', name: 'Rock face', group: 'Nature', build: rockFace },
   { id: 'water', name: 'Water caustics', group: 'Nature', build: waterCaustics },
+  { id: 'ashlar', name: 'Sandstone ashlar', group: 'Nature', build: sandstoneAshlar },
+  { id: 'rustwall', name: 'Rust rubble wall', group: 'Nature', build: rustRubble },
+  { id: 'lichen', name: 'Lichen sandstone', group: 'Nature', build: lichenSandstone },
+  { id: 'slate', name: 'Mossy slate wall', group: 'Nature', build: mossySlate },
+  { id: 'frost', name: 'Frosted stone', group: 'Nature', build: frostedStone },
   { id: 'blank', name: 'Blank noise', group: 'Basics', build: () => createProject({ name: 'Untitled' }) },
 ] satisfies Preset[]).map(withPreview)
