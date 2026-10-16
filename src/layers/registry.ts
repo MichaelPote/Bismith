@@ -39,7 +39,7 @@ export function registerLayer(def: LayerDef): void {
     const shaping = hasPhase || def.noise ? SHAPING_PARAMS : [...SHAPING_PARAMS, WARP_PHASE_PARAM]
     let shape = def.sdf === 'mask' ? SDF_MASK_PARAMS : def.sdf ? SDF_PARAMS : []
     const when = def.sdfShowIf
-    if (when) shape = shape.map((p) => ({ ...p, showIf: (v: ParamValues) => when(v) && (!p.showIf || p.showIf(v)) }))
+    if (when) shape = shape.map((p) => ({ ...p, showIf: (v: ParamValues) => when(v, p.key) && (!p.showIf || p.showIf(v)) }))
     all = [...pattern, ...shape, ...shaping, ...MASK_PARAMS, ...OUTPUT_PARAMS]
   } else {
     // Filters: their own params, then the named-mask clip (FR8.13).
@@ -47,6 +47,9 @@ export function registerLayer(def: LayerDef): void {
   }
   if (def.defaults) {
     all = all.map((p) => (p.key in def.defaults! ? { ...p, default: def.defaults![p.key] } : p))
+  }
+  if (def.paramPatch) {
+    all = all.map((p) => (p.key in def.paramPatch! ? { ...p, ...def.paramPatch![p.key] } : p))
   }
   fullParams.set(def.type, all)
 }

@@ -24,6 +24,7 @@ function writes(layer: Layer, hidden: Set<string>): boolean {
   const def = getLayerDef(layer.type)
   if (!def || def.kind !== 'generator' || !def.sdf) return false
   if (!layer.enabled || hidden.has(layer.id) || layer.params.sm_on === false) return false
+  if (def.writesMask) return def.writesMask(layer.params)
   return !def.sdfShowIf || def.sdfShowIf(layer.params)
 }
 

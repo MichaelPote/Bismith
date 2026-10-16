@@ -30,8 +30,18 @@ export interface LayerDef {
    * Shape (bevel) card.
    */
   sdf?: boolean | 'mask'
-  /** When the Shape Mask params apply (default: always) — e.g. only one of a generator's outputs has a shape. */
-  sdfShowIf?: (params: ParamValues) => boolean
+  /**
+   * When the Shape Mask params apply (default: always) — e.g. only one of a generator's outputs has a shape. Called
+   * with a `key` it decides that one Edge / Shape Mask control (a value mode may keep Anti-alias but hide Bevel);
+   * without one, whether the layer has a shape at all (shapeMask.ts).
+   */
+  sdfShowIf?: (params: ParamValues, key?: string) => boolean
+  /**
+   * Whether the layer actually writes the Shape Mask with these params, when that differs from `sdfShowIf` (default:
+   * `sdfShowIf`) — e.g. a relief output that shows the Edge controls but writes the register only when told what to
+   * write. Used for the Clip to labels (shapeMask.ts).
+   */
+  writesMask?: (params: ParamValues) => boolean
   /**
    * Filters: a single MRT pass. GLSL defining `void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip)`
    * (note: `filter` is a reserved word in GLSL ES 3.00).
@@ -79,6 +89,8 @@ export interface LayerDef {
   migrate?: (params: ParamValues) => ParamValues
   /** Overrides for common param defaults (e.g. which channel outputs start enabled). */
   defaults?: Record<string, ParamValue>
+  /** This type's own hint, label or note on a common param (e.g. a note on Bevel when this type caps it). */
+  paramPatch?: Record<string, Pick<ParamDef, 'hint' | 'labelFor' | 'note'>>
   /** Extra groups for this type's params, in display order (the default 'params' group is implicit). */
   groups?: GroupDef[]
   /**

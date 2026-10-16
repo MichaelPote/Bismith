@@ -83,19 +83,25 @@ function meta(d: ParamDef): string {
   return def === undefined ? d.key : `${d.key} · default ${def}`
 }
 
+/** The label for the current values (ParamDef.labelFor) and the note on them (ParamDef.note), if any. */
+const labelOf = (d: ParamDef): string => d.labelFor?.(props.values) ?? d.label
+const noteOf = (d: ParamDef): string | undefined => d.note?.(props.values)
+const rowNote = (r: Row): string | undefined => [r.def, r.partner].map((d) => d && noteOf(d)).filter(Boolean).join('. ') || undefined
+
 function tip(r: Row): Tip {
   const d = r.def
   const options = d.options?.filter((o) => o.hint).map((o) => [o.label, o.hint!] as [string, string])
+  const note = rowNote(r)
   if (r.partner) {
     const p = r.partner
     return {
       title: d.join!.label,
-      body: [d.hint, p.hint].filter(Boolean).join('. ') || undefined,
+      body: [note, d.hint, p.hint].filter(Boolean).join('. ') || undefined,
       list: options?.length ? options : undefined,
       meta: d.join!.as === 'ramp' ? `${d.key} · ${p.key} · default ${show(d, d.default)} → ${show(p, p.default)}` : `${meta(d)}\n${meta(p)}`,
     }
   }
-  return { title: d.label, body: d.hint, list: options?.length ? options : undefined, meta: meta(d) }
+  return { title: labelOf(d), body: [note, d.hint].filter(Boolean).join('. ') || undefined, list: options?.length ? options : undefined, meta: meta(d) }
 }
 </script>
 
@@ -105,10 +111,10 @@ function tip(r: Row): Tip {
       <div v-if="r.heading" class="sec cf-label">{{ r.heading }}</div>
       <div v-if="r.def.type === 'bool'" v-tip="tip(r)" class="row">
         <span />
-        <CheckField :model-value="Boolean(value(r.def))" :label="r.def.label" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
+        <CheckField :model-value="Boolean(value(r.def))" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
       </div>
       <div v-else-if="r.partner && r.def.join?.as === 'ramp'" class="row wide">
-        <span v-tip="tip(r)" class="lbl">{{ r.def.join.label }}</span>
+        <span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ r.def.join.label }}</span>
         <RampField
           :a="Number(value(r.def))"
           :b="Number(value(r.partner))"
@@ -126,14 +132,14 @@ function tip(r: Row): Tip {
         />
       </div>
       <div v-else-if="r.partner" class="row">
-        <span v-tip="tip(r)" class="lbl">{{ r.def.join!.label }}</span>
+        <span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ r.def.join!.label }}</span>
         <div class="pair">
           <template v-for="d in [r.def, r.partner]" :key="d.key">
             <SelectField
               v-if="d.type === 'enum'"
               :model-value="String(value(d))"
               :options="d.options ?? []"
-              :label="d.label"
+              :label="labelOf(d)"
               @update:model-value="set(d.key, $event)"
               @commit="emit('commit')"
             />
@@ -147,7 +153,7 @@ function tip(r: Row): Tip {
               :step="d.step"
               :unit="d.unit"
               :int="d.type === 'int'"
-              :label="d.label"
+              :label="labelOf(d)"
               :default-value="Number(d.default)"
               :memory-key="memory(d)"
               @update:model-value="set(d.key, $event)"
@@ -157,38 +163,38 @@ function tip(r: Row): Tip {
         </div>
       </div>
       <div v-else-if="r.def.type === 'gradient'" class="row wide">
-        <span v-tip="tip(r)" class="lbl">{{ r.def.label }}</span>
-        <GradientField :model-value="value(r.def) as Gradient" :label="r.def.label" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
+        <span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>
+        <GradientField :model-value="value(r.def) as Gradient" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
       </div>
       <div v-else-if="r.def.type === 'curve'" class="row wide">
-        <span v-tip="tip(r)" class="lbl">{{ r.def.label }}</span>
-        <CurveField :model-value="value(r.def) as Curve" :label="r.def.label" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
+        <span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>
+        <CurveField :model-value="value(r.def) as Curve" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
       </div>
       <div v-else-if="r.def.type === 'text'" class="row wide">
-        <span v-tip="tip(r)" class="lbl">{{ r.def.label }}</span>
+        <span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>
         <textarea
           class="text"
           rows="3"
           spellcheck="false"
           :value="String(value(r.def) ?? '')"
-          :aria-label="r.def.label"
+          :aria-label="labelOf(r.def)"
           @change="set(r.def.key, ($event.target as HTMLTextAreaElement).value); emit('commit')"
         />
       </div>
       <div v-else class="row">
-        <label v-tip="tip(r)" class="lbl">{{ r.def.label }}</label>
+        <label v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
         <SelectField
           v-if="r.def.type === 'enum'"
           :model-value="String(value(r.def))"
           :options="r.def.options ?? []"
-          :label="r.def.label"
+          :label="labelOf(r.def)"
           @update:model-value="set(r.def.key, $event)"
           @commit="emit('commit')"
         />
         <ColorField
           v-else-if="r.def.type === 'color'"
           :model-value="String(value(r.def))"
-          :label="r.def.label"
+          :label="labelOf(r.def)"
           @update:model-value="set(r.def.key, $event)"
           @commit="emit('commit')"
         />
@@ -200,7 +206,7 @@ function tip(r: Row): Tip {
             :soft-min="0"
             :soft-max="100"
             int
-            :label="r.def.label"
+            :label="labelOf(r.def)"
             :default-value="Number(r.def.default)"
             :memory-key="memory(r.def)"
             @update:model-value="set(r.def.key, $event)"
@@ -220,7 +226,7 @@ function tip(r: Row): Tip {
           :step="r.def.step"
           :unit="r.def.unit"
           :int="r.def.type === 'int'"
-          :label="r.def.label"
+          :label="labelOf(r.def)"
           :default-value="Number(r.def.default)"
           :memory-key="memory(r.def)"
           @update:model-value="set(r.def.key, $event)"
@@ -263,6 +269,10 @@ function tip(r: Row): Tip {
 }
 .lbl:hover {
   color: var(--text);
+}
+/* The current values carry a note (ParamDef.note): see the tooltip. */
+.lbl.noted {
+  color: var(--gold);
 }
 /* Section heading within a card (ParamDef.section). */
 .sec {

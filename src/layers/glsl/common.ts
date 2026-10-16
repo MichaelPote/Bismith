@@ -83,6 +83,65 @@ vec2 cellsFor(float scale, float stretch) {
   return uTile ? max(vec2(1.0), floor(c + 0.5)) : max(c, vec2(1e-3));
 }
 
+// ---------------------------------------------------------------- repeat grids (Column / Row spacing)
+// The step between a grid's instances: the span over the count, plus the spacing as a share of the texture size (1 = a
+// whole width more). Never quite 0: at −1 the instances stack up.
+float repPitch(float span, int n, float spacing, float size) { return max(span / float(max(n, 1)) + spacing * size, 1e-3); }
+
+// A grid of n instances 'pitch' apart, centred on g (instance i at g + (i − (n − 1) / 2) · pitch, per axis). With wrap
+// the whole grid repeats every 'period' px (the texture, when tiling), so instances pushed past an edge come round the
+// other side. The candidates are the instances centred in [lo, hi] (at most 25 pitches of it, round its middle); per
+// axis:
+//  - in order along the axis (no wrap, or the row fits in one period): a run of consecutive slots — instance c of copy
+//    k is slot k·n + c — with at least the nearest instance either side of the window's middle (across a gap at the
+//    seam, or the end instances for a pixel beyond the grid);
+//  - otherwise (spacing pushes the row past a period, so its copies overlap) copy by copy, as many instances of each
+//    as fit in the window (at most n, the window slid into the row where it overhangs an end), at most 9 copies.
+// Both axes at once, so a loop over the candidates holds one copy of the arithmetic.
+struct RepGrid { ivec2 n; vec2 pitch; vec2 first; vec2 period; vec2 lo; bvec2 run; ivec2 s0; ivec2 k0; ivec2 m; ivec2 cnt; };
+// The first slot at or after x (in order along the axis).
+ivec2 repSlot(RepGrid a, vec2 x, bool wrap) {
+  vec2 k = wrap ? floor((x - a.first) / a.period) : vec2(0.0);
+  return ivec2(k) * a.n + clamp(ivec2(ceil((x - a.first - k * a.period) / a.pitch)), ivec2(0), a.n);
+}
+RepGrid repGrid(ivec2 n, vec2 pitch, vec2 g, vec2 period, bool wrap, vec2 lo, vec2 hi) {
+  RepGrid a;
+  a.n = max(n, ivec2(1));
+  a.pitch = pitch;
+  a.first = g - 0.5 * vec2(a.n - 1) * pitch;
+  a.period = period;
+  vec2 mid = 0.5 * (lo + hi), hw = min(0.5 * (hi - lo), 12.0 * pitch);
+  a.lo = mid - hw;
+  a.run = bvec2(!wrap || float(a.n.x) * pitch.x <= 1.0001 * period.x, !wrap || float(a.n.y) * pitch.y <= 1.0001 * period.y);
+  ivec2 sm = repSlot(a, mid, wrap);
+  ivec2 s0 = min(repSlot(a, a.lo, wrap), sm - 1), s1 = max(repSlot(a, mid + hw, wrap) - 1, sm);
+  if (!wrap) { s0 = clamp(s0, ivec2(0), a.n - 1); s1 = clamp(s1, ivec2(0), a.n - 1); }
+  a.s0 = s0;
+  a.m = min(ivec2(floor(2.0 * hw / pitch)) + 1, a.n);
+  a.k0 = ivec2(ceil((a.lo - a.first - vec2(a.n - 1) * pitch) / period));
+  ivec2 k1 = ivec2(floor((mid + hw - a.first) / period));
+  ivec2 kc = (a.k0 + k1) / 2 - 4;
+  a.k0 = ivec2(k1.x - a.k0.x >= 9 ? kc.x : a.k0.x, k1.y - a.k0.y >= 9 ? kc.y : a.k0.y);
+  ivec2 laps = clamp(k1 - a.k0 + 1, 1, 9);
+  a.cnt = ivec2(a.run.x ? s1.x - s0.x + 1 : laps.x * a.m.x, a.run.y ? s1.y - s0.y + 1 : laps.y * a.m.y);
+  return a;
+}
+int repCount(RepGrid a) { return a.cnt.x * a.cnt.y; }
+// Candidate e (0 ≤ e < repCount), each axis counted from the middle of the window outwards (the nearest instances
+// first, for a search that prunes by distance). c: the instance (0 … n − 1, the same on every copy), pos: its centre,
+// near the window (unwrapped).
+void repAt(RepGrid a, int e, out ivec2 c, out vec2 pos) {
+  ivec2 i = ivec2(e % a.cnt.x, e / a.cnt.x), odd = i & 1;
+  ivec2 j = (a.cnt - 1) / 2 + odd * ((i + 1) / 2) - (1 - odd) * (i / 2);
+  ivec2 s = a.s0 + j;
+  ivec2 kr = ivec2(floor(vec2(s) / vec2(a.n)));
+  ivec2 kl = a.k0 + j / a.m;
+  ivec2 k = ivec2(a.run.x ? kr.x : kl.x, a.run.y ? kr.y : kl.y);
+  ivec2 cl = clamp(ivec2(ceil((a.lo - a.first - vec2(kl) * a.period) / a.pitch)), ivec2(0), a.n - a.m) + j % a.m;
+  c = ivec2(a.run.x ? s.x - kr.x * a.n.x : cl.x, a.run.y ? s.y - kr.y * a.n.y : cl.y);
+  pos = a.first + vec2(k) * a.period + vec2(c) * a.pitch;
+}
+
 // ---------------------------------------------------------------- colour
 vec3 srgbToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
 vec3 linearToSrgb(vec3 c) {

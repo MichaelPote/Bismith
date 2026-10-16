@@ -9,6 +9,13 @@ Keep anything tied to third-party reference textures — recreations, exemplars,
 `private/`, which is gitignored and is its own repo. In public files (code, comments, docs, commit messages),
 describe a motif generically ("riveted panel", "staggered slots"), never by a reference texture's name or file path.
 
+## Nothing is released yet
+
+Saved projects, recipes, presets and templates don't have to keep rendering the same. Generators may change as
+much as they need to: improve plain defaults directly, and don't add hidden version params, legacy code paths or
+migrations just to preserve old looks. (Loading old files without errors still matters; matching their old renders
+doesn't.)
+
 ## Gotchas
 
 - **`<< out` breaks esbuild / `tsx`.** esbuild (used by `npx tsx`, so by every script in `tools/` and any ad-hoc
@@ -31,6 +38,12 @@ describe a motif generically ("riveted panel", "staggered slots"), never by a re
   instance); Height's *Per-feature variation* hashes it with `fract(rnd · 61.37)`. A generator without features that
   passes a continuous value as `rnd` (smooth noise, clouds) must use `genOutSmooth`, which switches that variation
   off — with `genOut` the hash turns into dozens of terraces along the pattern's contours.
+- **The shape mask is read at a distance, not only by its sign.** Bevel and Etch on the shape mask read the
+  register's distance out to their width, so an SDF generator's distance must stay exact (at least continuous) past
+  its edge. A shortcut such as "far instances return their bounding circle's `r − bound`" jumps below the true
+  distance where it kicks in and draws a ring there; prune against the nearest distance found so far instead
+  (`MOT_REPEAT` in `motifRadial.ts`). Grids of separate objects take `spacingParams()` (Column / Row spacing) and lay
+  themselves out with `repGrid` (`src/layers/glsl/common.ts`).
 - **Shader compile time (D3D11, Chrome's default on Windows) is the cost users feel** — a card renders in ~50 ms,
   but a generator's first compile can take seconds. D3D's compiler inlines every function call, so a helper called
   in several branches (or a branch per case that each calls the same thing) multiplies the shader: pick arguments
@@ -54,6 +67,9 @@ describe a motif generically ("riveted panel", "staggered slots"), never by a re
   a hue; `<component :is>` for data-driven ones — layer types and recipes via `layerIcon` / `recipeIcon` in
   `src/ui/meta.ts`). `.tabler-icon { stroke-width: 1.75 }` in `src/styles/base.css` sets the UI's line weight and
   overrides Tabler's `stroke` prop, so a different weight needs CSS (see NumberField's chevrons).
+- **ANGLE / D3D11 can miscompile `continue` in a loop.** In Scratches' cell loop it cut the strokes short and thin
+  at cell borders (SwiftShader was right). Wrap the loop body in `if (!skip) { … }` instead of `continue`, and check
+  a generator's loops on the GPU backend, not only SwiftShader.
 - **`Matcher.score()` takes the render at its own size.** The Windows metric (FR8.19) compares at up to 512 px, finer
   than the 128 px of the other terms, so `matcher.score(matcher.fit(img))` silently scores it from the small copy.
   Pass the full render (keep `fit()` for display and for colour maps).

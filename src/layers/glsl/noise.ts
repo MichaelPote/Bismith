@@ -95,10 +95,12 @@ vec4 worleyNoise(vec2 x, ivec2 period, float jitter, int metric, float seed) {
     else if (d < F2) { F2 = d; }
   }
   if (metric == 0) { F1 = sqrt(F1); F2 = sqrt(F2); }
+  // Border distance: search around the nearest point's cell (not the pixel's), or bisectors two cells off it are missed.
+  ivec2 mb = mc - ip;
   float md = 1e9;
   for (int j = -2; j <= 2; j++)
   for (int i = -2; i <= 2; i++) {
-    ivec2 g = ivec2(i, j);
+    ivec2 g = mb + ivec2(i, j);
     vec2 o = 0.5 + (cellPoint(imod(ip + g, period), seed) - 0.5) * jitter;
     vec2 r = vec2(g) + o - fp;
     vec2 dr = r - mr;

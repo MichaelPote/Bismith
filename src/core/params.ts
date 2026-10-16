@@ -75,6 +75,13 @@ export interface ParamDef {
    */
   bitmap?: 'pixels' | 'font' | 'points' | 'lines'
   hint?: string
+  /** UI only: the label for the current values, when the param means something different per mode (e.g. per style). */
+  labelFor?: (p: ParamValues) => string
+  /**
+   * UI only: a note on the current values (e.g. "capped at 0.4 cell by Even strokes"), or undefined for none. The
+   * label is highlighted and the tooltip shows the note above the hint. LayerDef.paramPatch adds one to a shared param.
+   */
+  note?: (p: ParamValues) => string | undefined
   /**
    * UI only: draw this param in one row with the param `with`, which then isn't drawn on its own. 'pair' puts the two
    * controls side by side (Source · Mode, Levels low · high); 'ramp' draws a scalar ramp from this value (where the source is 0) to the

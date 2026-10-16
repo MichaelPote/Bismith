@@ -18,7 +18,7 @@ describe('freshParams', () => {
   it('keeps Pattern on layers without a shape (or with a mask-only one) and adds the type’s own defaults', () => {
     expect(freshParams('noise', tex).r_src).toBeUndefined()
     expect(freshParams('drips', tex).r_src).toBeUndefined()
-    expect(freshParams('wood', tex)).toMatchObject({ grain_soft: 0.4, grain_depth: 0.35 })
+    expect(freshParams('wood', tex)).toMatchObject({ ring_px: 4, gap: 1 })
   })
 
   it('leaves layers built in code on the plain default', () => {

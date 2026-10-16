@@ -113,7 +113,7 @@ export const SDF_MASK_PARAMS: ParamDef[] = [
 
 export const SDF_PARAMS: ParamDef[] = [
   ...SDF_MASK_PARAMS,
-  P.float('bevel', 'Bevel', 3, 0, 1024, { softMax: 32, unit: 'px', step: 0.1, group: 'shaping', section: 'Edge' }),
+  P.float('bevel', 'Bevel', 3, 0, 1024, { softMax: 64, unit: 'px', step: 0.1, group: 'shaping', section: 'Edge' }),
   P.enum('profile', 'Profile', 'round', PROFILES, { group: 'shaping', section: 'Edge' }),
   { ...bevelCurveParam('shaping'), section: 'Edge' },
   P.float('bevel_aspect', 'Bevel aspect', 1, 0.05, 20, {
@@ -157,6 +157,25 @@ export const SHAPING_PARAMS: ParamDef[] = [
   P.int('sh_steps', 'Posterize', 0, 0, 64, { softMax: 16, group: 'shaping', section: 'Value', hint: '0 = off' }),
   P.float('sh_cut', 'Cutoff', 0, 0, 1, { step: 0.001, group: 'shaping', section: 'Value', hint: 'Covers only where the shaped value ≥ cutoff (0 = off): sparse flecks from white noise, islands from clouds' }),
   P.float('sh_cut_soft', 'Cutoff softness', 0, 0, 0.5, { step: 0.001, group: 'shaping', section: 'Value', showIf: (p) => Number(p.sh_cut) > 0 }),
+]
+
+/**
+ * Column / Row spacing of a grid of separate objects (repeat grids, vent slots, tread plate, tabs on cells): the step
+ * between neighbours grows (or, below 0, shrinks) by a share of the texture — 1 = a whole width / height more. The grid
+ * stays centred; on a tileable texture, instances pushed past an edge come round the other side. repPitch / repGrid
+ * (glsl/common.ts) lay it out.
+ */
+export const spacingParams = (extra: Pick<ParamDef, 'group' | 'showIf'> = {}): ParamDef[] => [
+  P.float('col_sp', 'Column spacing', 0, -1, 1, {
+    step: 0.001,
+    ...extra,
+    hint: 'Pushes the columns apart (or, below 0, draws them together) by this share of the texture width: 1 = a whole width more between neighbours. The grid stays centred; when tiling, columns pushed past an edge come round the other side',
+  }),
+  P.float('row_sp', 'Row spacing', 0, -1, 1, {
+    step: 0.001,
+    ...extra,
+    hint: 'Pushes the rows apart (or, below 0, draws them together) by this share of the texture height: 1 = a whole height more between neighbours. The grid stays centred; when tiling, rows pushed past an edge come round the other side',
+  }),
 ]
 
 const PHASE_HINT = 'Animates the noise: 0 → 1 is one seamless loop (render frames at even steps); it repeats beyond 1'
@@ -391,6 +410,9 @@ ${sdf === true ? /* glsl */ `
     } else {
       covW = cov * covD;
       cov *= coverage(d, u_aa);
+      // The coverage now carries the shape's anti-aliasing, so Source › Shape is 1 wherever the layer paints — taking
+      // the coverage twice put the ramp's middle (often its darkest) on every edge pixel, a dark 1 px outline.
+      shapeV = 1.0;
       // Flat (or zero-width) bevels output 1 and let coverage do the anti-aliasing, so edges ramp
       // symmetrically across the boundary; profiled bevels rise from 0 at the edge.
       value = bev;
