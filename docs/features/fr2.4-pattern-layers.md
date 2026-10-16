@@ -17,7 +17,7 @@ edge distance so they can be bevelled and varied per cell.
 - **Stripes**, **Checker**, **Grid lines**, **Hex tiles**, **Scratches** (random short segments).
 
 ## Checklist
-- [x] Bricks (+ length variation, edge jitter, wobble, wobble scale / variation, stone shape, straight creases, smallest piece, chipped corners with broken outline, face relief / crown / tilt, mortar level)
+- [x] Bricks (+ length variation, edge jitter, wobble, wobble scale / variation, stone shape, straight creases, smallest piece, chipped corners with broken outline, face relief / crown / tilt, mortar level, joint variation)
 - [x] Voronoi (cells, F1, F2, edges, crackle, facets, gap SDF, corner rounding, warp, cell size variation, size / position / rotation jitter, grout level, face relief / tilt, crack width variation, facets kept in range)
 - [x] Clouds
 - [x] Gradient (linear / radial / angular / diamond, clamp / repeat / mirror)
@@ -31,7 +31,7 @@ edge distance so they can be bevelled and varied per cell.
 
 | Type | Category | SDF | Params (own) | Default outputs |
 | --- | --- | --- | --- | --- |
-| `bricks` | pattern | yes | Layout: columns, rows, stagger, mortar px, round px, mortar_level, vertical · Irregularity: row_jitter, len_var, row_var, min_size, size_jitter px, pos_jitter px, rot_jitter °, shape_var, crease, close, wobble px, wobble_var, wobble_scale · Relief: chips, chip_size (share of the brick height), chip_depth, chip_break, chip_dust, face, crown, face_tilt · seed | height (round bevel 2 px) + diffuse by per-brick random |
+| `bricks` | pattern | yes | Layout: columns, rows, stagger, mortar px, joint_var, round px, mortar_level, vertical · Irregularity: row_jitter, len_var, row_var, min_size, size_jitter px, pos_jitter px, rot_jitter °, shape_var, crease, close, wobble px, wobble_var, wobble_scale · Relief: chips, chip_size (share of the brick height), chip_depth, chip_break, chip_dust, face, crown, face_tilt · seed | height (round bevel 2 px) + diffuse by per-brick random |
 | `hex` | pattern | yes | scale, orient (pointy/flat), gap px, round px, round_bevel, grout_level · Irregularity: size_jitter px, pos_jitter px, rot_jitter °, wobble px · Relief: chips, chip_size, chip_depth, chip_break, chip_dust, face, crown, face_tilt · seed | height (smooth bevel) + diffuse by per-tile random |
 | `voronoi` | pattern | cells only | output (cells/f1/f2/edges/crackle/facets), tilt + facet_fit (facets), scale, jitter, metric, gap px, crack_var (crackle), round px, min_cell px, min_bevel, round_bevel, warp px, warp_scale · cells: grout_level, size_var, size_jitter px, pos_jitter px, rot_jitter °, face, crown, face_tilt · seed | height (round bevel 3 px) + diffuse by per-cell random; crackle: Height › Mode Subtract (linked default) |
 | `checker` | pattern | shape / tiles modes | mode (value/shape/tiles), count_x, count_y, gap px, round px · Irregularity: size_jitter px, pos_jitter px, rot_jitter ° · value: soft px, vary · seed | diffuse two-tone; shape: Diffuse › Source Shape, tiles: Source Random (linked defaults) |
@@ -104,6 +104,13 @@ whose every contour has corners of the rounding radius — the depth at which th
 passes through the pixel (per edge pair, a quadratic for the inset corner's position, solved in closed form). It goes
 to the wrapper as `GenOut.bdist` with Bevel aspect applied (`pat_setBevelDist`), so it applies while the shape is the
 layer's own (Shape mask Normal or off).
+
+**Joint variation** (bricks, FR8.22). Each brick gets a share of the joint, `1 − joint_var × hash`: it scales the mortar
+the brick carries (its left and top joints), and for the nearest brick its bevel (handed to the wrapper as the bevel
+distance stretched by 1 / share, so a shut brick has hardly any edge) and, through `pat_js` in `pat_out` / `pat_bedOut`,
+its face relief and Height › Per-feature variation (`feat × share`), so shut bricks sit flush and a run of them reads as
+one stone. A joint closes when the brick that carries it is shut; beside an open brick the open one's bevel still
+shows. At 0 every factor is exactly 1 (bricks, hex and Voronoi renders checked pixel-identical).
 
 **Mortar / grout level** (bricks, hex, Voronoi cells; `pat_bedOut`). Above 0 the layer returns its own height
 profile (`genOutHeight`): the features (bevel × face × per-feature variation) rising from a level, slightly lumpy bed

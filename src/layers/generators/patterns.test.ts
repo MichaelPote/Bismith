@@ -18,6 +18,10 @@ describe('pattern layers', () => {
     }
   })
 
+  it('leave Joint variation off by default, so walls made before it look the same', () => {
+    expect(bricksLayer.params.find((d) => d.key === 'joint_var')!.default).toBe(0)
+  })
+
   it('use every param of their own in the shader', () => {
     for (const def of LAYERS) for (const d of def.params) if (d.key !== 'seed') expect(def.glsl!.includes(`u_${d.key}`), `${def.type}: u_${d.key} unused`).toBe(true)
   })

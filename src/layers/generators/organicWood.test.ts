@@ -9,6 +9,11 @@ import { scalesLayer, woodLayer } from './organicWood'
 describe('wood', () => {
   ensureBuiltins()
 
+  it('leaves Joint variation off by default and uses it in the shader', () => {
+    expect(woodLayer.params.find((d) => d.key === 'joint_var')!.default).toBe(0)
+    expect(woodLayer.glsl!).toContain('u_joint_var')
+  })
+
   it('keeps the plain px sizes up to 128 px and grows them with the texture', () => {
     const small = freshParams('wood', { width: 64, height: 64 })
     const def = getLayerDef('wood')!

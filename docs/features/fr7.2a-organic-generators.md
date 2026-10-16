@@ -157,6 +157,7 @@ compile ~0.7 s.
 | `direction` | vertical | vertical · horizontal |
 | `count` | 4 | planks across |
 | `gap`, `gap_y` | 1, 1 px | Gap X · Y: width of the up-and-down gaps (X) and of the gaps that run across (Y), on the left / top edge of each plank — between planks or at board ends depending on the direction. A single `gap` (older files) is copied to `gap_y` (FR8.17) |
+| `joint_var` | 0 | Joint variation (FR8.22): each board's share of the gaps it carries (`1 − joint_var × hash`), also scaling its bevel (the bevel distance stretched by 1 / share), its crown and its Height › Per-feature variation — shut boards butt flush with hardly any edge; the grain stays. At 0 renders are pixel-identical to before |
 | `joints`, `stagger`, `joint_rand` | 1, 0.5, 0.6 | board ends per plank along the texture (0 = full length); regular and random offsets |
 | `width_var` | 0 | uneven plank widths |
 | `end_wobble`, `end_wobble_px`, `end_var` | 0, 32 px, 0.1 | board ends wander by up to this much (bends this far apart), one line per joint shared by both sides plus `end_var` of each side's own; long edges stay straight (FR8.17) |

@@ -40,6 +40,7 @@ export const woodLayer: LayerDef = {
     P.int('count', 'Planks', 4, 1, 128, { softMax: 16, showIf: planksOn, hint: 'Planks across the texture' }),
     P.float('gap', 'Gap X', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1, showIf: planksOn, join: { with: 'gap_y', as: 'pair', label: 'Gap X · Y' }, hint: 'Width of the gaps across the texture (X: the up-and-down gaps — between vertical planks, at the ends of horizontal ones) and down it (Y: the gaps that run across)' }),
     P.float('gap_y', 'Gap Y', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1, showIf: planksOn }),
+    P.float('joint_var', 'Joint variation', 0, 0, 1, { step: 0.001, showIf: planksOn, hint: 'Each board gets its own share of the gaps it carries (along its left / top side and at its start), of its bevel, crown and height variation: 0 = every gap as set, 1 = from fully shut to full width. Shut boards butt tight against the next, flush, with hardly any edge' }),
     P.int('joints', 'End joints', 1, 0, 32, { softMax: 8, showIf: planksOn, hint: 'Board ends per plank along the texture (0 = full-length boards)' }),
     P.float('stagger', 'Stagger', 0.5, 0, 1, { step: 0.001, showIf: jointsOn, hint: 'Regular joint offset from one plank to the next (fraction of a board)' }),
     P.float('joint_rand', 'Joint randomness', 0.6, 0, 1, { step: 0.001, showIf: jointsOn, hint: 'Random joint offset per plank' }),
@@ -157,6 +158,7 @@ GenOut gen(vec2 p) {
   vec2 asp = horiz ? vec2(ra, 1.0 / ra) : vec2(1.0 / ra, ra);
   ivec2 bid = ivec2(0);
   vec4 box = vec4(0.0, A, 0.0, Lr);
+  float bestJs = 1.0;
   for (int i = -1; i <= 1; i++) {
     int c = c0 + i;
     int cw = uTile ? imod(c, n) : c;
@@ -182,22 +184,29 @@ GenOut gen(vec2 p) {
       int b = b0 + j;
       float l0 = nj > 0 ? floor((float(b) + off) * bl + 0.5) : l - 1e4;
       float l1 = nj > 0 ? floor((float(b + 1) + off) * bl + 0.5) : l + 1e4;
-      vec2 lo = vec2(a0 + gA, l0 + (nj > 0 ? gL : 0.0));
+      ivec2 key = ivec2(cw, nj > 0 ? (uTile ? imod(b, nj) : b) : 0);
+      // Joint variation: the board carries its own share of its gaps (along its side and at its start).
+      float js = u_planks ? 1.0 - u_joint_var * hashI(key, uSeed + 191.0) : 1.0;
+      vec2 lo = vec2(a0 + gA * js, l0 + (nj > 0 ? gL * js : 0.0));
       vec2 hi = vec2(a1, l1);
       vec2 hs = max(0.5 * (hi - lo), vec2(0.0));
       float d = sdBox(vec2(a, lw) - 0.5 * (lo + hi), hs);
       if (d < best) {
         best = d;
         bestA = sdBox((vec2(a, lw) - 0.5 * (lo + hi)) / asp, hs / asp);
-        bid = ivec2(cw, nj > 0 ? (uTile ? imod(b, nj) : b) : 0);
+        bid = key;
         box = vec4(a0, a1, l0, l1);
+        bestJs = js;
       }
     }
   }
   float rnd = hashI(bid, uSeed);
+  // A shut board has hardly any bevel (its bevel distance stretched by 1 / its share).
+  bestA /= max(bestJs, 0.05);
   if (u_output == 1 && u_planks) {
     GenOut sh = genOut(0.0, 1.0, rnd, best);
     sh.bdist = bestA;
+    sh.feat *= bestJs;
     return sh;
   }
 
@@ -473,13 +482,15 @@ GenOut gen(vec2 p) {
   if (u_planks && u_crown != 0.0) {
     float e2 = clamp(2.0 * la / pwB, -1.0, 1.0);
     e2 *= e2;
-    hv *= 1.0 - abs(u_crown) * (u_crown > 0.0 ? e2 : 1.0 - e2);
+    hv *= 1.0 - abs(u_crown) * bestJs * (u_crown > 0.0 ? e2 : 1.0 - e2);
   }
   // Wood output: the grain on the planks — the wrapper multiplies it by their bevel (gaps = 0), from the combined shape.
   GenOut o;
   if (u_output == 0 && u_planks) { o = genOutShaded(v, 1.0, rnd, best); o.bdist = bestA; }
   else o = genOut(v, 1.0, rnd, ${ORG_NO_SDF});
   o.hval = hv;
+  // A shut board sits flush: Height › Per-feature variation shrinks with its share (the grain stays).
+  o.feat *= bestJs;
   return o;
 }
 `,

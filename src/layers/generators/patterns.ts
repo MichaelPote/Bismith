@@ -203,6 +203,10 @@ float pat_tint = 0.0;
 // How deep the pixel is in a chip's smooth hollow, a share of the feature's height (pat_bedOut: where it reaches the
 // bed, the colour is the bed's).
 float pat_hollow = 0.0;
+// The feature's share of its joint (Bricks › Joint variation; 1 = all of it): a shut feature (0) sits flush — its face
+// relief and Height › Per-feature variation shrink with the share — so two shut ones meet level (set before pat_out /
+// pat_bedOut; at 1 nothing changes).
+float pat_js = 1.0;
 
 // Sets pat_bd from a bevel distance in px (negative inside), with Bevel aspect applied the way the wrapper does
 // (from the direction of its gradient). Call in uniform control flow.
@@ -232,7 +236,9 @@ GenOut pat_out(float rnd, float sdf, float drawn, float hv, bool faced) {
       o.hval *= 1.0 - u_h_var * fract(rnd * 61.37 + 0.123);
       o.feat = 0.0;
     }
+    o.hval = mix(1.0, o.hval, pat_js);
   }
+  o.feat *= pat_js;
   o.bdist = pat_bd;
   return o;
 }
@@ -244,7 +250,8 @@ GenOut pat_bedOut(float rnd, float sdf, float drawn, float hv, float level, floa
   vec2 dg = vec2(dFdx(drawn), dFdy(drawn));
   float cov = coverage(drawn, u_aa);
   // Height › Per-feature variation, but never sinking a feature into the bed: at least 0.6 of the way up from it.
-  float var = max(1.0 - u_h_var * fract(rnd * 61.37 + 0.123), min(1.0, level + 0.6 * (1.0 - level)));
+  float var = mix(1.0, max(1.0 - u_h_var * fract(rnd * 61.37 + 0.123), min(1.0, level + 0.6 * (1.0 - level))), pat_js);
+  hv = mix(1.0, hv, pat_js);
   // The bevel as the wrapper draws it (bevelAt, one profileCurve call): from the generator's bevel distance while the
   // shape is its own, else from the drawn distance with Bevel aspect taken from its direction.
   bool own = pat_bd > NO_SDF && (!u_sm_on || u_sdf_op == 0);
@@ -306,6 +313,7 @@ export const bricksLayer: LayerDef = {
     P.int('rows', 'Rows', 12, 1, 256, { softMax: 64, section: 'Layout', hint: 'Brick courses down the texture (use an even count with stagger to tile). Real bricks are about 3× as long as a course is tall' }),
     P.float('stagger', 'Stagger', 0.5, 0, 1, { step: 0.001, section: 'Layout', hint: 'Offset of alternate rows, as a fraction of a brick' }),
     P.float('mortar', 'Mortar', 2, -32, 256, { softMin: -8, softMax: 24, unit: 'px', step: 0.1, section: 'Layout', hint: 'Gap between bricks. Negative grows the bricks into each other so they touch in creases (with position jitter: dry-stone walls)' }),
+    P.float('joint_var', 'Joint variation', 0, 0, 1, { step: 0.001, section: 'Layout', hint: 'Each brick gets its own share of the mortar it carries (its left and top joints), of its bevel, and of its face relief and height variation: 0 = every joint as set, 1 = from fully shut to full width. Shut bricks sit flush against the next with no mortar and hardly any edge, so runs of them read as one stone' }),
     P.float('round', 'Corner rounding', 1, 0, 256, { softMax: 32, unit: 'px', step: 0.1, section: 'Layout' }),
     P.float('mortar_level', 'Mortar level', 0.2, 0, 1, { step: 0.001, section: 'Layout', hint: 'Height of the mortar bed as a share of the bricks’ (Height › Pattern only): 0 leaves the joints at the surface below; higher fills them with a level, slightly lumpy bed, so the bricks stand out less and chips fill up. On, Height skips Shaping › Value' }),
     P.bool('vertical', 'Vertical courses', false, { section: 'Layout', hint: 'Run the courses up the texture (columns then count along a course, rows across)' }),
@@ -407,9 +415,10 @@ GenOut gen(vec2 p) {
       float x1 = pat_joint(k + 1, rw);
       ivec2 id = ivec2(uTile ? pat_imod(k, u_columns) : k, rw);
       // Mortar runs along the left and top (on screen) of each cell, so whole-pixel brick sizes and mortar
-      // widths put every edge on a pixel boundary.
-      vec2 ctr = vec2((0.5 * (x0 + x1) + s) * cs.x, 0.5 * (ry0 + ry1)) + vec2(0.5, -0.5) * u_mortar;
-      vec2 hs = vec2((x1 - x0) * cs.x, ry1 - ry0) * 0.5 - 0.5 * u_mortar;
+      // widths put every edge on a pixel boundary. Joint variation: each brick carries its own share of it.
+      float mo = u_mortar * (1.0 - u_joint_var * hashI(id, uSeed + 191.0));
+      vec2 ctr = vec2((0.5 * (x0 + x1) + s) * cs.x, 0.5 * (ry0 + ry1)) + vec2(0.5, -0.5) * mo;
+      vec2 hs = vec2((x1 - x0) * cs.x, ry1 - ry0) * 0.5 - 0.5 * mo;
       if (u_size_jitter > 0.0) {
         // Independent random inset per side: left, right, bottom, top. Dry stone (straight creases, negative mortar)
         // keeps the stones' sizes and only moves them, so the jitter opens no joints.
@@ -596,6 +605,12 @@ GenOut gen(vec2 p) {
     if (u_chip_break > 0.0) best = max(best, brk);
   }
   bool faced = u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0 || u_chips > 0.0;
+  if (u_joint_var > 0.0) {
+    // Joint variation: the nearest brick's bevel narrows with its share of the joint (a shut brick has hardly any edge)
+    // and its relief goes flush (pat_js).
+    pat_js = 1.0 - u_joint_var * hashI(bestId, uSeed + 191.0);
+    pat_setBevelDist(best / max(pat_js, 0.05));
+  }
   float d = faced || u_mortar_level > 0.0 ? pat_drawnDist(best) : best;
   if (u_mortar_level > 0.0) return pat_bedOut(bestRnd, best, d, hv, u_mortar_level, n);
   return pat_out(bestRnd, best, d, hv, faced);
