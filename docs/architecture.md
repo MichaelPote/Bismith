@@ -242,7 +242,8 @@ whose regions interlock along arcs. **Chips & splits** (FR8.17) damages whatever
 edges and corners, splits along the grain from the edges that cross it (merging where they meet), nicks across it. **Rock**
 (FR8.18) builds natural rock faces from blocks in strata on a sheared lattice — each block a mesa with its own height,
 tilt and draped scarps, finer facets, joints, folds — with outputs for the relief and for paint (scarps, crevices, rain
-streaks).
+streaks). **Grass** (FR8.21) strews tapered blades that bend, curl and waver, in depth over one another, shaded light at
+the tips and dark among the roots, with tufts, bare patches and two kinds of blade on one ramp.
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
@@ -473,3 +474,4 @@ docs/
 | 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md) |
 | 8.19  | [Windows metric (local texture)](features/fr8.19-window-metric.md) |
 | 8.20  | [Project previews](features/fr8.20-project-previews.md) |
+| 8.21  | [Grass](features/fr8.21-grass.md) |

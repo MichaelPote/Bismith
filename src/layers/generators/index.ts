@@ -18,6 +18,7 @@ import { pipeworkLayer } from './pipes'
 import { surfaceMaskLayer } from './surfaceMask'
 import { chipsLayer } from './chips'
 import { rockLayer } from './rock'
+import { grassLayer } from './grass'
 
 /** Every generator layer type, in add-menu order within each category. */
 export const GENERATORS: LayerDef[] = [
@@ -41,4 +42,5 @@ export const GENERATORS: LayerDef[] = [
   surfaceMaskLayer,
   chipsLayer,
   rockLayer,
+  grassLayer,
 ]
