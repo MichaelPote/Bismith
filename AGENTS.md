@@ -1,7 +1,8 @@
 # Notes for agents working on Bismith
 
-Architecture and feature docs live in `docs/` (start with `docs/architecture.md`). Below: gotchas that have cost
-time before.
+Architecture and feature docs live in `docs/` (start with `docs/architecture.md`). To judge a generator's look, render
+test sheets of it (`docs/gensheet.md`) and have a critic subagent review them (`docs/generator-critic.md`). Below: gotchas
+that have cost time before.
 
 ## This repo is public
 
