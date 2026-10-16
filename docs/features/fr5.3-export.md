@@ -9,7 +9,9 @@ Get textures out (final image and every map) and projects in and out.
 - Export final (post-processed) PNG at native size, with an optional integer upscale (nearest) for sharing
   pixel art.
 - Export maps: diffuse (+alpha), height (8-bit, normalised), roughness, normal (GL / DX), emissive.
-- Save / open project JSON (`.bismith.json`), drag-and-drop to open.
+- Save / open project JSON (`.bismith.json`), drag-and-drop to open. Save project opens the browser's Save As dialog
+  where it has one (`showSaveFilePicker`: Chrome, Edge); Firefox and Safari give pages no such dialog, so there it
+  downloads, and asks where only with *Always ask you where to save files* turned on.
 - Copy final image to clipboard.
 
 ## Checklist

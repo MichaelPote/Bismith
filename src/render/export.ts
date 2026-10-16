@@ -142,3 +142,36 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
+
+/** The File System Access API's Save As dialog — Chromium only, and not in TypeScript's DOM types. */
+type SaveFilePicker = (options: {
+  suggestedName?: string
+  id?: string
+  types?: { description: string; accept: Record<string, string[]> }[]
+}) => Promise<FileSystemFileHandle>
+
+/**
+ * Save `blob` through the browser's Save As dialog where it has one (Chrome, Edge). Firefox and Safari offer no way
+ * for a page to open it, so there the file is downloaded, which asks where only if the browser is set to ask.
+ * Resolves to the saved file's name, or null if the dialog was cancelled or the file went to the downloads.
+ */
+export async function saveBlobAs(blob: Blob, filename: string, type: { description: string; extension: string }): Promise<string | null> {
+  const picker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker
+  if (!picker) {
+    downloadBlob(blob, filename)
+    return null
+  }
+  let handle: FileSystemFileHandle
+  try {
+    // The id makes the dialog reopen in the folder last saved to.
+    handle = await picker({ suggestedName: filename, id: 'bismith-save', types: [{ description: type.description, accept: { [blob.type]: [type.extension] } }] })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return null
+    downloadBlob(blob, filename)
+    return null
+  }
+  const out = await handle.createWritable()
+  await out.write(blob)
+  await out.close()
+  return handle.name
+}

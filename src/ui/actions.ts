@@ -5,7 +5,7 @@ import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
 import { projectFromJSON, projectToJSON } from '@/core/serialize'
 import { zipStore } from '@/core/zip'
-import { downloadBlob, mapPixels, pixelsToBlob, upscale, type MapKind } from '@/render/export'
+import { downloadBlob, mapPixels, pixelsToBlob, saveBlobAs, upscale, type MapKind } from '@/render/export'
 import { capturePreview } from '@/render/preview'
 import type { Project } from '@/core/project'
 import { getLayerDef } from '@/layers/registry'
@@ -88,10 +88,15 @@ export function useActions() {
     return projectToJSON(preview ? { ...store.project, preview } : store.project)
   }
 
-  function saveProject(): void {
+  async function saveProject(): Promise<void> {
     store.commitNow()
     const blob = new Blob([projectFile()], { type: 'application/json' })
-    downloadBlob(blob, `${slug(store.project.name)}.bismith.json`)
+    try {
+      const name = await saveBlobAs(blob, `${slug(store.project.name)}.bismith.json`, { description: 'Bismith project', extension: '.json' })
+      if (name) editor.notify(`Saved “${name}”`)
+    } catch (e) {
+      editor.notify(`Could not save the project: ${e instanceof Error ? e.message : e}`, 'error')
+    }
   }
 
   function loadProjectText(text: string): void {
