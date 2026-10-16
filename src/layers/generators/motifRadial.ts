@@ -4,6 +4,7 @@
 // copies when tiling), with a cheap bounding-circle test so far instances cost one length().
 
 import { P, type ParamDef } from '@/core/params'
+import { spacingParams } from '../commonParams'
 import type { LayerDef } from '../types'
 
 /**
@@ -12,6 +13,8 @@ import type { LayerDef } from '../types'
  */
 export const GLSL_MOT_SEED = /* glsl */ `
 #define MOT_SEED abs(uSeed)
+// The sculpted height (0..1) motifSdf leaves for the output (Rosette); the repeat keeps the nearest instance's.
+float gMotH = 0.0;
 `
 
 const PLACEMENT: ParamDef[] = [
@@ -23,8 +26,11 @@ const PLACEMENT: ParamDef[] = [
 const REPEAT: ParamDef[] = [
   P.int('rep_x', 'Count X', 1, 1, 256, { softMax: 16, group: 'repeat' }),
   P.int('rep_y', 'Count Y', 1, 1, 256, { softMax: 16, group: 'repeat' }),
+  ...spacingParams({ group: 'repeat' }),
   P.float('rep_stagger', 'Row offset', 0, 0, 1, { step: 0.001, group: 'repeat', hint: 'Shift odd rows (use an even row count to tile)' }),
   P.float('rep_rot', 'Rotation jitter', 0, 0, 180, { unit: '°', step: 0.1, group: 'repeat' }),
+  P.float('rep_scale', 'Size jitter', 0, 0, 1, { step: 0.001, group: 'repeat', hint: 'Shrinks each instance by its own random share: 0.5 = anywhere from half to full size (line widths and bevels shrink with it)' }),
+  P.float('rep_jit', 'Position jitter', 0, 0, 1, { step: 0.001, group: 'repeat', hint: 'Moves each instance off its cell centre at random, up to half a cell at 1 (scattered medallions, uneven rune text)' }),
   P.float('rep_drop', 'Drop out', 0, 0, 1, { step: 0.001, group: 'repeat', hint: 'Fraction of instances removed at random' }),
   P.seed(),
 ]
@@ -34,40 +40,71 @@ const REPEAT: ParamDef[] = [
  *   float motifBound()                          — radius (px) enclosing the motif
  *   vec2  motifSnap(vec2 centre)                — pixel snapping of an instance centre
  *   float motifSdf(vec2 q, float inst)          — distance at q (px from the centre, y up, un-rotated)
- *   GenOut motifOut(float d, float rnd, vec2 nearQ) — final output (nearQ = offset from the nearest centre)
+ *   GenOut motifOut(float d, float rnd, vec2 nearQ, float h) — final output (nearQ = offset from the nearest
+ *                                                 centre; h = gMotH as motifSdf left it for the nearest instance)
+ *   MOT_TAPS, MOT_BLUR                          — (defines) taps and radius of the value's blur (Rosette's glow)
+ *   MOT_EXACT                                   — (define) how far from the motif the output needs the exact
+ *                                                 distance: past it, the bounding circle's lower bound does
+ * Size jitter evaluates an instance at q / s and scales its distance by s (s ≤ 1, so the bound still holds).
  */
 const MOT_REPEAT = /* glsl */ `
-GenOut gen(vec2 p) {
-  vec2 reps = vec2(float(max(u_rep_x, 1)), float(max(u_rep_y, 1)));
-  ivec2 ireps = ivec2(reps);
-  vec2 cell = uRes / reps;
+GenOut gen(vec2 p0) {
+  ivec2 n = ivec2(max(u_rep_x, 1), max(u_rep_y, 1));
+  // The step between instances (Column / Row spacing) and the grid's centre (X / Y place it within a step).
+  vec2 pitch = vec2(repPitch(uRes.x, n.x, u_col_sp, uRes.x), repPitch(uRes.y, n.y, u_row_sp, uRes.y));
+  vec2 gc = 0.5 * uRes + vec2(u_x - 0.5, 0.5 - u_y) * pitch;
   float bound = motifBound();
-  float best = 1e9, bestRnd = 0.0, nearR = 1e9;
-  vec2 nearQ = vec2(1e9);
-  int cy0 = int(floor(p.y / cell.y));
-  for (int j = -1; j <= 1; j++) {
-    int cy = cy0 + j;
-    int rowFromTop = ireps.y - 1 - cy;
-    float shift = imod(rowFromTop, 2) == 1 ? u_rep_stagger : 0.0;
-    int cx0 = int(floor(p.x / cell.x - shift));
-    for (int i = -1; i <= 1; i++) {
-      ivec2 c = ivec2(cx0 + i, cy);
-      if (!uTile && (c.x < 0 || c.y < 0 || c.x >= ireps.x || c.y >= ireps.y)) continue;
-      ivec2 cw = uTile ? imod(c, ireps) : c;
-      if (u_rep_drop > 0.0 && hashI(cw, MOT_SEED + 3.0) < u_rep_drop) continue;
-      float inst = hashI(cw, MOT_SEED);
-      vec2 centre = (vec2(c) + vec2(0.5 + shift, 0.5)) * cell + vec2(u_x - 0.5, 0.5 - u_y) * cell;
+  // MOT_TAPS > 1: the value averaged over taps on a Vogel disc of radius MOT_BLUR (Rosette's glow softness).
+  int taps = max(MOT_TAPS, 1);
+  // The instances to visit: every one whose motif can reach a tap (its bound, position jitter, the blur, snapping),
+  // and at least those within a step and a half — the neighbours either side, whose distance the output needs too.
+  vec2 reach = max(1.5 * pitch, vec2(bound + MOT_BLUR + 2.0) + 0.5 * u_rep_jit * pitch);
+  float shift = u_rep_stagger * pitch.x;
+  RepGrid rg = repGrid(n, pitch, gc, uRes, uTile, p0 - reach - vec2(shift, 0.0), p0 + reach);
+  int nxy = repCount(rg);
+  GenOut g0 = genOut(0.0, 1.0, 0.0, NO_SDF);
+  float acc = 0.0;
+  float best = 1e9, bestRnd = 0.0, bestH = 0.0, nearR = 1e9;
+  vec2 nearQ = vec2(1e9), p = p0;
+  // One flat loop over the taps × the instances, so D3D keeps a single copy of the body and of motifSdf (a loop of
+  // taps round the instance loop made the compile much slower). The nearest instances come first, and an instance is
+  // measured only when its bounding circle could beat the nearest distance so far (and lies within MOT_EXACT): far
+  // ones cost one length(), and the distance stays exact (a fixed cut-off just past the bound left rings in a bevel
+  // reading the shape mask).
+  for (int e = 0; e < nxy * taps; e++) {
+    int k = e % nxy;
+    if (k == 0) {
+      float t = float(e / nxy) + 0.5;
+      p = p0 + (taps > 1 ? MOT_BLUR * sqrt(t / float(taps)) * vec2(cos(2.39996 * t), sin(2.39996 * t)) : vec2(0.0));
+      best = 1e9; bestRnd = 0.0; bestH = 0.0; nearR = 1e9; nearQ = vec2(1e9);
+    }
+    ivec2 c;
+    vec2 centre;
+    repAt(rg, k, c, centre);
+    // Odd rows, counted from the top, shift by the row offset.
+    if (((n.y - 1 - c.y) & 1) == 1) centre.x += shift;
+    if (!(u_rep_drop > 0.0 && hashI(c, MOT_SEED + 3.0) < u_rep_drop)) {
+      float inst = hashI(c, MOT_SEED);
+      vec3 jit = hash3I(c, MOT_SEED + 7.0);
+      centre += (jit.xy - 0.5) * u_rep_jit * pitch;
       centre = motifSnap(centre);
-      float ang = u_rotation + (u_rep_rot > 0.0 ? (hashI(cw, MOT_SEED + 5.0) - 0.5) * 2.0 * u_rep_rot : 0.0);
-      vec2 q = unrotCW(p - centre, ang);
+      float ang = u_rotation + (u_rep_rot > 0.0 ? (hashI(c, MOT_SEED + 5.0) - 0.5) * 2.0 * u_rep_rot : 0.0);
+      float sc = 1.0 - u_rep_scale * jit.z;
+      vec2 q = unrotCW(p - centre, ang) / sc;
       float r = length(q);
-      // Far instances: the bounding circle is a valid lower bound of the distance.
-      float d = r > bound + 4.0 ? r - bound : motifSdf(q, inst);
-      if (d < best) { best = d; bestRnd = inst; }
+      float d = (r - bound) * sc;
+      if (d < min(best, MOT_EXACT)) d = motifSdf(q, inst) * sc;
+      if (d < best) { best = d; bestRnd = inst; bestH = gMotH; }
       if (r < nearR) { nearR = r; nearQ = q; }
     }
+    if (k == nxy - 1) {
+      GenOut go = motifOut(best, bestRnd, nearQ, bestH);
+      acc += go.value;
+      if (e == nxy - 1) g0 = go;
+    }
   }
-  return motifOut(best, bestRnd, nearQ);
+  g0.value = acc / float(taps);
+  return g0;
 }
 `
 
@@ -108,6 +145,24 @@ const STAR_MODES: [string, string][] = [
 ]
 
 const has = (key: string) => (p: Record<string, unknown>) => Number(p[key]) > 0
+const r1 = (v: number) => Math.round(v * 10) / 10
+
+/**
+ * Rosette's linked bevel: half its narrowest line (rings, spokes, star lines, bead rings, petal outlines), so every
+ * element rises to the full height — the narrowest lines with a round, domed section, wider ones with rounded
+ * shoulders; a fiftieth of the radius when it only has filled elements.
+ */
+export function rosetteBevel(p: Record<string, unknown>): number {
+  const n = (k: string) => Number(p[k] ?? 0)
+  const lines = [
+    n('rings') > 0 ? n('ring_w') * (n('rings') > 1 ? Math.min(1, Number(p.ring_w_in ?? 1)) : 1) : 0,
+    n('spokes') > 0 ? n('spoke_w') : 0,
+    n('star') > 0 && p.star_mode !== 'filled' ? n('star_w') : 0,
+    n('dots') > 0 ? n('dot_w') : 0,
+    n('petals') > 0 ? n('petal_line') : 0,
+  ].filter((w) => w > 0)
+  return r1(Math.min(64, Math.max(0.5, lines.length ? 0.5 * Math.min(...lines) : 0.02 * n('radius'))))
+}
 
 export const rosetteLayer: LayerDef = {
   type: 'rosette',
@@ -122,37 +177,54 @@ export const rosetteLayer: LayerDef = {
       ['glow', 'Glow (falloff from shape)'],
       ['radial', 'Radial (1 at centre → 0 at radius)'],
     ], { hint: 'Glow and radial are plain values for emissive / colour ramps' }),
-    P.float('glow', 'Glow width', 6, 0.1, 256, { softMax: 32, unit: 'px', step: 0.1, showIf: (p) => p.output === 'glow' }),
-    P.float('radius', 'Radius', 28, 0, 4096, { softMax: 256, unit: 'px', step: 0.1, hint: 'Outer radius; the elements below are placed in fractions of it' }),
+    P.float('glow', 'Glow width', 6, 0.1, 256, { softMax: 64, unit: 'px', step: 0.1, showIf: (p) => p.output === 'glow' }),
+    P.float('glow_soft', 'Glow softness', 0.6, 0, 1, { step: 0.001, showIf: (p) => p.output === 'glow', hint: 'Blurs the glow into a bloom: 0 = the exact falloff from the shape (creases where two elements are equally near), 1 = blurred across about half the glow width' }),
+    P.enum('relief', 'Relief', 'sculpted', [
+      ['bevel', 'Bevel', 'the Edge bevel round the whole rosette: every element at one height, one profile'],
+      ['sculpted', 'Sculpted', 'each element its own section and height: lines, beads and the hub domed, rays, solid petals and filled stars ridged along their spine (faceted)'],
+    ], { showIf: (p) => p.output === 'shape', hint: 'How Height › Pattern shapes the rosette. Sculpted needs the shape mask in Normal mode (or off): combined with it, the Edge bevel applies' }),
+    P.float('blend', 'Fillet', 0, 0, 256, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => p.output !== 'radial', hint: 'Rounds the joins between elements (a smooth union): fills the slivers and teeth where petals, rays, stars and the hub meet' }),
+    P.float('radius', 'Radius', 28, 0, 4096, { softMax: 512, unit: 'px', step: 0.1, hint: 'Outer radius; the elements below are placed in fractions of it' }),
     ...PLACEMENT,
-    P.float('hub', 'Hub', 0, 0, 1, { step: 0.001, hint: 'Filled centre disc, fraction of the radius (0 = none)' }),
+    P.float('hub', 'Hub', 0.1, 0, 1, { step: 0.001, hint: 'Filled centre disc, fraction of the radius (0 = none)' }),
+    P.float('hub_gap', 'Hub clearance', 0, 0, 1024, { softMax: 64, unit: 'px', step: 0.1, hint: 'Clears a ring this wide round the hub (a disc at the centre without one): spokes, star, petals and beads stop short of it — a clean moat instead of a tangle where they converge' }),
+    P.float('hub_h', 'Hub height', 0.9, 0, 1, { step: 0.001, showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && Number(p.hub) > 0, hint: 'The hub’s height in the sculpted relief (a domed boss)' }),
     P.int('rings', 'Rings', 2, 0, 32, { softMax: 8, group: 'rings' }),
-    P.float('ring_w', 'Ring width', 2, 0, 256, { softMax: 16, unit: 'px', step: 0.1, group: 'rings', showIf: has('rings') }),
-    P.float('ring_in', 'Innermost ring', 0.82, 0, 1, { step: 0.001, group: 'rings', showIf: has('rings'), hint: 'Rings are spread evenly from this fraction of the radius out to the rim' }),
-    P.int('spokes', 'Spokes', 0, 0, 128, { softMax: 64, group: 'spokes' }),
-    P.float('spoke_w', 'Width', 2, 0, 256, { softMax: 16, unit: 'px', step: 0.1, group: 'spokes', showIf: has('spokes') }),
+    P.float('ring_w', 'Ring width', 2, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'rings', showIf: has('rings') }),
+    P.float('ring_in', 'Innermost ring', 0.8, 0, 1, { step: 0.001, group: 'rings', showIf: has('rings'), hint: 'Rings are spread evenly from this fraction of the radius out to the rim' }),
+    P.float('ring_h', 'Height', 1, 0, 1, { step: 0.001, group: 'rings', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('rings')(p), hint: 'The rings’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
+    P.float('ring_w_in', 'Innermost width', 1, 0, 8, { softMax: 3, step: 0.001, group: 'rings', showIf: (p) => Number(p.rings) > 1, hint: 'Width of the innermost ring as a multiple of Ring width, the rings between graded: 0.3 = a heavy rim with fine inner rings, 2 = the reverse' }),
+    P.int('spokes', 'Spokes', 0, 0, 256, { softMax: 96, group: 'spokes' }),
+    P.float('spoke_w', 'Width', 2, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'spokes', showIf: has('spokes') }),
     P.float('spoke_taper', 'Taper', 0, -1, 1, { step: 0.001, group: 'spokes', showIf: has('spokes'), hint: '1 = sharp at the tip (rays), −1 = sharp at the centre' }),
     P.float('spoke_in', 'From', 0.15, 0, 2, { softMax: 1, step: 0.001, group: 'spokes', showIf: has('spokes'), hint: 'Start, fraction of the radius' }),
     P.float('spoke_out', 'To', 1, 0, 2, { softMax: 1.5, step: 0.001, group: 'spokes', showIf: has('spokes') }),
     P.float('spoke_off', 'Offset', 0, 0, 1, { step: 0.001, group: 'spokes', showIf: has('spokes'), hint: 'Angular offset, fraction of a step (0.5 puts spokes between star points)' }),
+    P.float('spoke_h', 'Height', 0.55, 0, 1, { step: 0.001, group: 'spokes', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('spokes')(p), hint: 'The spokes’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
+    P.float('spoke_alt', 'Alternate length', 0, 0, 1, { step: 0.001, group: 'spokes', showIf: has('spokes'), hint: 'Shortens every other spoke by this share of its length (compass roses, sunbursts; needs an even spoke count)' }),
     P.int('star', 'Star points', 8, 0, 32, { softMax: 16, group: 'star', hint: '0 = none' }),
     P.enum('star_mode', 'Style', 'lines', STAR_MODES, { group: 'star', showIf: has('star') }),
-    P.float('star_r', 'Size', 0.8, 0, 2, { softMax: 1.2, step: 0.001, group: 'star', showIf: has('star'), hint: 'Fraction of the radius' }),
+    P.float('star_r', 'Size', 0.77, 0, 2, { softMax: 1.2, step: 0.001, group: 'star', showIf: has('star'), hint: 'Fraction of the radius' }),
+    P.float('star_off', 'Offset', 0, 0, 1, { step: 0.001, group: 'star', showIf: has('star'), hint: 'Turns the star by this fraction of a point step (0.5 puts its points between the spokes)' }),
+    P.float('star_h', 'Height', 0.65, 0, 1, { step: 0.001, group: 'star', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('star')(p), hint: 'The star’s height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
     P.float('star_inner', 'Inner ratio', 0.45, 0.02, 1, { step: 0.001, group: 'star', showIf: (p) => has('star')(p) && p.star_mode !== 'lines' }),
     P.int('star_skip', 'Skip (k)', 3, 1, 15, { group: 'star', showIf: (p) => has('star')(p) && p.star_mode === 'lines', hint: 'Each vertex joins the k-th next: {7/3} heptagram, {5/2} pentagram, 1 = polygon' }),
     P.bool('star_sharp', 'Sharp tips', true, { group: 'star', showIf: (p) => has('star')(p) && p.star_mode === 'lines', hint: 'Mitre the points (else the strokes end round)' }),
-    P.float('star_w', 'Line width', 2, 0, 256, { softMax: 16, unit: 'px', step: 0.1, group: 'star', showIf: (p) => has('star')(p) && p.star_mode !== 'filled' }),
+    P.float('star_w', 'Line width', 2, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'star', showIf: (p) => has('star')(p) && p.star_mode !== 'filled' }),
     P.int('petals', 'Petals', 0, 0, 64, { softMax: 24, group: 'petals' }),
     P.enum('petal_shape', 'Shape', 'pointed', [['pointed', 'Pointed (vesica)'], ['round', 'Round (ellipse)']], { group: 'petals', showIf: has('petals') }),
     P.float('petal_pos', 'Position', 0.55, 0, 2, { softMax: 1, step: 0.001, group: 'petals', showIf: has('petals'), hint: 'Petal centre, fraction of the radius' }),
     P.float('petal_len', 'Length', 0.7, 0, 2, { softMax: 1, step: 0.001, group: 'petals', showIf: has('petals') }),
     P.float('petal_w', 'Width', 0.25, 0, 2, { softMax: 1, step: 0.001, group: 'petals', showIf: has('petals') }),
     P.float('petal_off', 'Offset', 0, 0, 1, { step: 0.001, group: 'petals', showIf: has('petals'), hint: 'Angular offset, fraction of a step' }),
-    P.int('dots', 'Beads', 0, 0, 128, { softMax: 48, group: 'dots', hint: 'A ring of round beads / rivets (0 = none)' }),
-    P.float('dot_r', 'Bead radius', 1.5, 0, 256, { softMax: 16, unit: 'px', step: 0.1, group: 'dots', showIf: has('dots') }),
-    P.float('dot_w', 'Ring width', 0, 0, 256, { softMax: 8, unit: 'px', step: 0.1, group: 'dots', showIf: has('dots'), hint: '0 = solid beads; otherwise rings (overlapping rings make flower-of-life rosettes)' }),
+    P.float('petal_line', 'Outline', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'petals', showIf: has('petals'), hint: '0 = solid petals; otherwise petal outlines this wide (overlapping petals cross into a lattice, fused at one height: no over-and-under weave)' }),
+    P.float('petal_h', 'Height', 0.8, 0, 1, { step: 0.001, group: 'petals', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('petals')(p), hint: 'The petals’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
+    P.int('dots', 'Beads', 24, 0, 128, { softMax: 48, group: 'dots', hint: 'A ring of round beads / rivets (0 = none)' }),
+    P.float('dot_r', 'Bead radius', 1.5, 0, 1024, { softMax: 64, unit: 'px', step: 0.1, group: 'dots', showIf: has('dots') }),
+    P.float('dot_w', 'Ring width', 0, 0, 256, { softMax: 16, unit: 'px', step: 0.1, group: 'dots', showIf: has('dots'), hint: '0 = solid beads; otherwise rings (overlapping rings make flower-of-life rosettes)' }),
     P.float('dot_pos', 'Position', 0.9, 0, 2, { softMax: 1.2, step: 0.001, group: 'dots', showIf: has('dots'), hint: 'Fraction of the radius' }),
     P.float('dot_off', 'Offset', 0, 0, 1, { step: 0.001, group: 'dots', showIf: has('dots'), hint: 'Angular offset, fraction of a step' }),
+    P.float('dot_h', 'Height', 0.8, 0, 1, { step: 0.001, group: 'dots', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('dots')(p), hint: 'The beads’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
     ...REPEAT,
   ],
   groups: [
@@ -172,6 +244,21 @@ export const rosetteLayer: LayerDef = {
     dif_src: 'flat',
     dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] },
   },
+  // The bevel follows the line widths (domed lines), and the glow / radial outputs are light: emissive, not paint
+  // (Diffuse would paint the whole texture) nor relief.
+  linkedDefaults: (p) => ({
+    bevel: rosetteBevel(p),
+    ...(p.output === 'glow' || p.output === 'radial' ? { dif_on: false, h_on: false, e_on: true } : { dif_on: true, h_on: true, e_on: false }),
+  }),
+  // Added in the editor: the medallion (two rings with a bead ring between them, an {8/3} star whose tips end in
+  // the inner ring, a hub) filling most of the texture, its lines in proportion.
+  fresh: ({ width, height }) => {
+    const R = r1(Math.max(4, 0.4 * Math.min(width, height)))
+    const w = r1(Math.max(1, 0.035 * R))
+    return {
+      radius: R, ring_w: w, spoke_w: w, star_w: w, dot_r: r1(Math.max(1, 0.026 * R)),
+    }
+  },
   glsl:
     GLSL_MOT_SEED +
     GLSL_TRAPEZOID +
@@ -183,36 +270,57 @@ float motifBound() {
   if (u_star > 0) b = max(b, u_star_r * R + u_star_w);
   if (u_petals > 0) b = max(b, (u_petal_pos + 0.5 * u_petal_len) * R);
   if (u_dots > 0) b = max(b, u_dot_pos * R + u_dot_r);
-  if (u_output == 1) b += u_glow;
   return b;
 }
 vec2 motifSnap(vec2 c) { return c; }
 
+// Each element leaves its distance (E_D), its depth at full height (E_N: half its line width, its radius, or for
+// ridges the half width / inradius) and its kind (E_K: 0 domed, 1 ridged — linear, faceted —, +2 cut by the hub
+// clearance) in slot 0 hub, 1 rings, 2 spokes, 3 star, 4 petals, 5 beads; one loop then makes the union (smooth with
+// a Fillet), the sculpted height (the highest element at the point) and the nearest element's height and section
+// (for the fillets' height) — one copy of that code.
+float E_D[6], E_N[6];
+int E_K[6];
+
 float motifSdf(vec2 q, float inst) {
   float R = u_radius;
   float r = length(q);
-  float d = 1e9;
-  if (u_hub > 0.0) d = r - u_hub * R;
+  for (int i = 0; i < 6; i++) { E_D[i] = 1e9; E_N[i] = 1.0; E_K[i] = 0; }
+  if (u_hub > 0.0) { E_D[0] = r - u_hub * R; E_N[0] = u_hub * R; }
   if (u_rings > 0) {
-    float hw = 0.5 * u_ring_w;
+    // Ring i (0 = outer) is centred at r1 − i·st; its half width runs from the outer ring's to the innermost's.
+    // The two rings either side of r are tested (they may differ in width).
+    float hw = 0.5 * u_ring_w, hwi = hw * u_ring_w_in;
+    float n1 = float(u_rings - 1);
     float r1 = R - hw;                          // outer ring's outer edge sits on the radius
-    float r0 = min(u_ring_in * R + hw, r1);
-    float rc = r1;
-    if (u_rings > 1) {
-      float st = (r1 - r0) / float(u_rings - 1);
-      rc = r1 - clamp(floor((r1 - r) / max(st, 1e-4) + 0.5), 0.0, float(u_rings - 1)) * st;
+    float r0 = min(u_ring_in * R + hwi, r1);
+    float st = u_rings > 1 ? (r1 - r0) / n1 : 0.0;
+    float f = clamp(floor((r1 - r) / max(st, 1e-4)), 0.0, n1);
+    float dr = 1e9, wr = hw;
+    for (int j = 0; j < 2; j++) {
+      float i = min(f + float(j), n1);
+      float w = mix(hw, hwi, u_rings > 1 ? i / n1 : 0.0);
+      float e = abs(r - (r1 - i * st)) - w;
+      if (e < dr) { dr = e; wr = w; }
     }
-    d = min(d, abs(r - rc) - hw);
+    E_D[1] = dr; E_N[1] = wr;
   }
   if (u_spokes > 0) {
     vec2 l = mot_polarFold(q, u_spokes, u_spoke_off);
     float a = u_spoke_in * R, b = max(u_spoke_out * R, a + 1e-3);
+    // Alternate length: every other spoke shortened from its outer end (even counts, so the pattern closes).
+    int k = int(floor(atan(q.x, q.y) / (TAU / float(u_spokes)) - u_spoke_off + 0.5));
+    if (u_spoke_alt > 0.0 && imod(u_spokes, 2) == 0 && imod(k, 2) == 1) b = max(b - (b - a) * u_spoke_alt, a + 1e-3);
     float w0 = 0.5 * u_spoke_w * (1.0 - max(-u_spoke_taper, 0.0));
     float w1 = 0.5 * u_spoke_w * (1.0 - max(u_spoke_taper, 0.0));
-    d = min(d, mot_trapezoid(l - vec2(0.0, 0.5 * (a + b)), w0, w1, 0.5 * (b - a)));
+    // Ridged along the spine: the depth at full height is the half width where the point is along the spoke.
+    float wl = mix(w0, w1, clamp((l.y - a) / (b - a), 0.0, 1.0));
+    E_D[2] = mot_trapezoid(l - vec2(0.0, 0.5 * (a + b)), w0, w1, 0.5 * (b - a)); E_N[2] = max(wl, 0.25); E_K[2] = 3;
   }
   if (u_star > 1) {
     float Rs = u_star_r * R;
+    vec2 qs = u_star_off != 0.0 ? unrotCW(q, u_star_off * 360.0 / float(u_star)) : q;
+    float ds, nrm = 0.5 * u_star_w;
     if (u_star_mode == 2) {
       // {n/k}: chords from vertex i to vertex i + k (vertex 0 points up).
       int n = u_star;
@@ -228,23 +336,31 @@ float motifSdf(vec2 q, float inst) {
         for (int i = 0; i < 32; i++) {
           if (i >= n) break;
           float a = (float(i) + 0.5 * float(k)) * s;
-          dl = min(dl, abs(dot(q, vec2(sin(a), cos(a))) - h));
+          dl = min(dl, abs(dot(qs, vec2(sin(a), cos(a))) - h));
         }
         float div = 2.0 * float(n) / float(n - 2 * k + 2);
         float m = n > 2 ? 1.0 - (div - 2.0) / float(n - 2) : 1.0;
-        d = min(d, max(dl - hw, sdStar(q, Rs * (h + hw) / max(h, 1e-3), n, m)));
+        ds = max(dl - hw, sdStar(qs, Rs * (h + hw) / max(h, 1e-3), n, m));
       } else {
         for (int i = 0; i < 32; i++) {
           if (i >= n) break;
           float a0 = float(i) * s, a1 = float(i + k) * s;
-          dl = min(dl, sdSegment(q, Rs * vec2(sin(a0), cos(a0)), Rs * vec2(sin(a1), cos(a1))));
+          dl = min(dl, sdSegment(qs, Rs * vec2(sin(a0), cos(a0)), Rs * vec2(sin(a1), cos(a1))));
         }
-        d = min(d, dl - hw);
+        ds = dl - hw;
       }
     } else {
-      float ds = sdStar(q, Rs, u_star, u_star_inner);
-      d = min(d, u_star_mode == 1 ? abs(ds + 0.5 * u_star_w) - 0.5 * u_star_w : ds);
+      ds = sdStar(qs, Rs, u_star, u_star_inner);
+      if (u_star_mode == 1) ds = abs(ds + 0.5 * u_star_w) - 0.5 * u_star_w;
+      else {
+        // Filled: ridged, peaking at the centre — the depth there is the inradius (sdStar's distance at the
+        // centre, worked out the way sdStar does).
+        float an = PI / float(u_star), en = PI / mix(2.0, float(u_star), clamp(1.0 - u_star_inner, 0.0, 1.0));
+        vec2 acs = vec2(cos(an), sin(an)), ecs = vec2(cos(en), sin(en));
+        nrm = length(ecs * clamp(Rs * dot(acs, ecs), 0.0, Rs * acs.y / ecs.y) - Rs * acs);
+      }
     }
+    E_D[3] = ds; E_N[3] = nrm; E_K[3] = u_star_mode == 0 ? 3 : 2;
   }
   // Petals and beads may reach into the neighbouring sectors (overlapping rings / long petals): evaluate the
   // copies on either side too.
@@ -252,10 +368,15 @@ float motifSdf(vec2 q, float inst) {
     vec2 l0 = mot_polarFold(q, u_petals, u_petal_off);
     float s = TAU / float(u_petals);
     float a = 0.5 * u_petal_len * R, b = 0.5 * u_petal_w * R;
+    float dp = 1e9;
     for (int j = -1; j <= 1; j++) {
       vec2 l = rot2(float(j) * s) * l0 - vec2(0.0, u_petal_pos * R);
-      d = min(d, u_petal_shape == 0 ? mot_vesica(l, a, b) : sdEllipse(l, vec2(b, a)));
+      float e = u_petal_shape == 0 ? mot_vesica(l, a, b) : sdEllipse(l, vec2(b, a));
+      // Outlines: each petal's own band (inside its outline), so overlapping petals cross rather than merge.
+      dp = min(dp, u_petal_line > 0.0 ? abs(e + 0.5 * u_petal_line) - 0.5 * u_petal_line : e);
     }
+    // Solid petals: ridged along their length (the depth at full height is the half width, at the middle).
+    E_D[4] = dp; E_N[4] = u_petal_line > 0.0 ? 0.5 * u_petal_line : min(a, b); E_K[4] = u_petal_line > 0.0 ? 2 : 3;
   }
   if (u_dots > 0) {
     vec2 l = mot_polarFold(q, u_dots, u_dot_off);
@@ -264,29 +385,70 @@ float motifSdf(vec2 q, float inst) {
     int reach = min(int(ceil((u_dot_r + 1.0) / max(pr * s, 1e-3))), 4);
     float db = 1e9;
     for (int j = -4; j <= 4; j++) {
-      if (abs(j) > reach) continue;
-      float a = float(j) * s;
-      float e = length(l - pr * vec2(sin(a), cos(a))) - u_dot_r;
-      db = min(db, u_dot_w > 0.0 ? abs(e + 0.5 * u_dot_w) - 0.5 * u_dot_w : e);
+      if (abs(j) <= reach) {
+        float a = float(j) * s;
+        float e = length(l - pr * vec2(sin(a), cos(a))) - u_dot_r;
+        db = min(db, u_dot_w > 0.0 ? abs(e + 0.5 * u_dot_w) - 0.5 * u_dot_w : e);
+      }
     }
-    d = min(d, db);
+    // Domed rivets (or domed ring lines).
+    E_D[5] = db; E_N[5] = u_dot_w > 0.0 ? 0.5 * u_dot_w : u_dot_r; E_K[5] = 2;
   }
+  float H[6] = float[6](u_hub_h, u_ring_h, u_spoke_h, u_star_h, u_petal_h, u_dot_h);
+  float clipR = u_hub_gap > 0.0 ? max(u_hub, 0.0) * R + u_hub_gap : -1.0;
+  float d = 1e9, hv = 0.0, near = 1e9, nh = 0.0, nn = 1.0;
+  bool nr = false;
+  // A last pass (i = 6) gives the fillets their height: as high as the union is deep there, at the nearest
+  // element's height and section.
+  int seven = uRes.x > 0.0 ? 7 : 0;
+  for (int i = 0; i < seven; i++) {
+    bool last = i == 6;
+    int j = min(i, 5);
+    float de = last ? d : E_D[j];
+    if (!last && (E_K[j] & 2) != 0 && clipR > 0.0) de = max(de, clipR - r);
+    float nrm = last ? nn : E_N[j], hgt = last ? nh : H[j];
+    bool ridge = last ? nr : (E_K[j] & 1) != 0;
+    float x = clamp(-de / max(nrm, 1e-3), 0.0, 1.0);
+    if (last && u_blend <= 0.0) x = 0.0;
+    hv = max(hv, hgt * (ridge ? x : sqrt(x * (2.0 - x))));
+    if (last) break;
+    if (de < near) { near = de; nh = hgt; nn = nrm; nr = ridge; }
+    float k = max(u_blend, 1e-6), hb = max(k - abs(d - de), 0.0) / k;
+    d = min(d, de) - (u_blend > 0.0 ? hb * hb * k * 0.25 : 0.0);
+  }
+  gMotH = hv;
   return d;
 }
 
-GenOut motifOut(float d, float rnd, vec2 nearQ) {
+GenOut motifOut(float d, float rnd, vec2 nearQ, float h) {
   if (u_output == 1) {
     float g = d <= 0.0 ? 1.0 : 1.0 - clamp(d / max(u_glow, 1e-3), 0.0, 1.0);
     return genOut(g * g, 1.0, rnd, NO_SDF);
   }
   if (u_output == 2) return genOut(1.0 - clamp(length(nearQ) / max(u_radius, 1e-3), 0.0, 1.0), 1.0, rnd, NO_SDF);
-  return genOut(0.0, 1.0, rnd, d);
+  GenOut o = genOut(0.0, 1.0, rnd, d);
+  // Sculpted: Height › Pattern takes the elements' own sections. Combined with the shape mask (Union, Subtract…)
+  // the drawn shape isn't the rosette's alone, so the Edge bevel stays.
+  if (u_relief == 1 && (!u_sm_on || u_sdf_op == 0)) o.hval = h;
+  return o;
 }
+// Glow softness: the glow averaged over a Vogel disc of taps (a blur), one copy of the repeat in the loop.
+#define MOT_TAPS (u_output == 1 && u_glow_soft > 0.0 ? 16 : 1)
+#define MOT_BLUR (0.5 * u_glow_soft * u_glow)
+// The shape needs the exact distance everywhere (the shape mask), the glow out to its width, radial none at all.
+#define MOT_EXACT (u_output == 1 ? u_glow : u_output == 2 ? -1e9 : 1e9)
 ` +
     MOT_REPEAT,
 }
 
 // ------------------------------------------------------------------------------------------------ glyph
+
+/** Glyph's linked bevel: half the stroke width (domed strokes), or an eighth of a block cell (at least 1 px). */
+export function glyphBevel(p: Record<string, unknown>): number {
+  const n = (k: string, d: number) => Number(p[k] ?? d)
+  if (p.style === 'blocks') return r1(Math.min(32, Math.max(1, (0.12 * n('size', 32)) / Math.max(2, n('rows', 5)))))
+  return r1(Math.min(64, Math.max(0.5, 0.5 * n('width', 2))))
+}
 
 export const glyphLayer: LayerDef = {
   type: 'glyph',
@@ -299,24 +461,41 @@ export const glyphLayer: LayerDef = {
     P.enum('style', 'Style', 'strokes', [['strokes', 'Strokes (runes, sigils)'], ['blocks', 'Blocks (pixel insignia)']]),
     P.int('cols', 'Columns', 5, 2, 9, { hint: 'Nodes (strokes) or cells (blocks) across; odd counts give a centre column' }),
     P.int('rows', 'Rows', 5, 2, 9),
-    P.float('size', 'Size', 32, 1, 4096, { softMax: 128, unit: 'px', step: 0.1, hint: 'Glyph height (node span for strokes, cell span for blocks)' }),
+    P.float('size', 'Size', 32, 1, 4096, { softMax: 512, unit: 'px', step: 0.1, hint: 'Glyph height (node span for strokes, cell span for blocks)' }),
     P.float('jitter', 'Node jitter', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Moves each node off the grid at random, up to half a node spacing at 1. Strokes that share a node still meet there' }),
-    P.float('width', 'Stroke width', 2, 0, 256, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => p.style === 'strokes' }),
+    P.float('width', 'Stroke width', 2, 0, 256, { softMax: 48, unit: 'px', step: 0.1, showIf: (p) => p.style === 'strokes' }),
+    P.float('width_var', 'Width variation', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Each stroke gets its own share of the width (1 = anywhere from a tenth to full): bold main strokes, fine secondary ones' }),
+    P.float('pen', 'Calligraphy', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Broad-nib pen: strokes running along the nib thin out, strokes across it stay full width (1 = hairlines along the nib)' }),
+    P.float('pen_angle', 'Nib angle', 30, -180, 180, { softMin: -90, softMax: 90, unit: '°', step: 0.1, showIf: (p) => p.style === 'strokes' && (Number(p.pen) > 0 || p.cap === 'pen'), hint: 'Direction of the pen’s thin stroke, anticlockwise from horizontal (the same on both sides of a mirror, as a pen would draw it)' }),
     P.float('taper', 'Taper', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Thin each stroke towards its ends: full width in the middle of the stroke, 1 = pointed tips' }),
+    P.enum('cap', 'Ends', 'round', [
+      ['round', 'Round', 'round caps (pen, wire)'],
+      ['square', 'Square', 'cut square half a width past the end node (chiselled runes)'],
+      ['flat', 'Flat', 'cut square at the end node'],
+      ['pen', 'Pen', 'every stroke cut along the nib at its ends and joints, as a broad pen leaves it (with Calligraphy)'],
+    ], { showIf: (p) => p.style === 'strokes', hint: 'How the free stroke ends look. Ends where strokes meet (or meet their mirror image) follow Joins' }),
+    P.enum('join', 'Joins', 'round', [
+      ['round', 'Round', 'round corners where segments meet'],
+      ['mitre', 'Mitre', 'sharp corners: within a stroke and where a stroke meets its mirror image on the axis (turns sharper than about 130° stay round)'],
+    ], { showIf: (p) => p.style === 'strokes' && p.line !== 'spline' && p.cap !== 'pen', hint: 'How segments meet at a node' }),
     P.int('strokes', 'Strokes', 4, 1, 8, { showIf: (p) => p.style === 'strokes', hint: 'Random walks per glyph' }),
     P.int('steps', 'Steps', 3, 1, 8, { showIf: (p) => p.style === 'strokes', hint: 'Segments per stroke' }),
-    P.float('diag', 'Diagonals', 0.4, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a turn goes diagonal' }),
+    P.float('diag', 'Diagonals', 0.4, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a turn goes diagonal. 0 = none at all (a stroke boxed in stops rather than step diagonally)' }),
     P.float('straight', 'Straightness', 0.35, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a stroke keeps its direction' }),
-    P.float('overlap', 'Overlaps', 1, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a step may land on a node already drawn (by any stroke, or a mirror image). At 0 strokes never run back into the glyph, and stop early when boxed in. Splines never run back along a drawn line or turn back sharply' }),
+    P.float('overlap', 'Overlaps', 0.3, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a step may land on a node already drawn (by any stroke, or a mirror image). At 0 strokes never run back into the glyph, and stop early when boxed in. Splines never run back along a drawn line or turn back sharply' }),
+    P.float('connect', 'Connected', 0.85, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a stroke starts on a node already drawn, so the glyph hangs together instead of falling into separate marks (1 = one connected figure). Above 0 the first stroke starts at the centre node — on the axis with Mirror X and an odd column count, joining the halves' }),
     P.enum('line', 'Lines', 'straight', [['straight', 'Straight (and arcs)'], ['spline', 'Splines (hand-drawn)']], { showIf: (p) => p.style === 'strokes', hint: 'Splines draw each stroke as one smooth curve through its nodes' }),
     P.float('curve', 'Curves', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes' && p.line !== 'spline', hint: 'Chance a segment bows into an arc' }),
     P.float('roundness', 'Roundness', 1, 0, 2, { step: 0.001, showIf: (p) => p.style === 'strokes' && p.line === 'spline', hint: 'How far the splines swing through the nodes: 0 = straight, 1 = natural, 2 = loopy' }),
-    P.float('dots', 'End dots', 0, 0, 64, { softMax: 8, unit: 'px', step: 0.1, showIf: (p) => p.style === 'strokes', hint: 'Radius of a dot at each stroke end (0 = none)' }),
+    P.float('dots', 'End dots', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1, showIf: (p) => p.style === 'strokes', hint: 'Radius of a dot at each stroke end (0 = none)' }),
+    P.float('dot_chance', 'Dot chance', 1, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0, hint: 'Chance each stroke end gets its dot (1 = all of them): some strokes end in a dot or ring, others plain' }),
+    P.bool('dot_joins', 'Dots at joins', false, { showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0, hint: 'Also put dots on stroke ends that meet another stroke (or their mirror image); off, only free ends get them' }),
     P.bool('dot_ring', 'Ring dots', false, { showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0, hint: 'Draw the end dots as open rings that the strokes stop at (sigil style). The ring line is the stroke width, thinned to half the radius on small dots' }),
     P.float('density', 'Fill', 0.5, 0, 1, { step: 0.001, showIf: (p) => p.style === 'blocks', hint: 'Fraction of cells filled' }),
+    P.float('gap', 'Gap', 0, 0, 256, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => p.style === 'blocks', hint: 'Space between the cells: 0 merges neighbouring cells into one shape; more gives separate tiles (mosaic, LED panel)' }),
     P.bool('mirror', 'Mirror X', true, { hint: 'Left–right symmetry' }),
     P.bool('mirror_y', 'Mirror Y', false, { hint: 'Top–bottom symmetry' }),
-    P.bool('centre', 'Centre glyph', false, { hint: 'Centre the drawn glyph on its origin (placement point and rotation pivot) instead of the full node grid' }),
+    P.bool('centre', 'Centre glyph', true, { hint: 'Centre the drawn glyph on its origin (placement point and rotation pivot) instead of the full node grid' }),
     P.bool('vary', 'Vary per instance', true, { hint: 'Each repeat gets its own glyph (rune text); off repeats one emblem' }),
     P.bool('snap', 'Pixel snap', true, { hint: 'Puts nodes on the pixel grid so 1–2 px strokes stay crisp' }),
     ...PLACEMENT,
@@ -331,6 +510,14 @@ export const glyphLayer: LayerDef = {
     dif_on: true,
     dif_src: 'flat',
     dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] },
+  },
+  // The bevel follows the strokes (half their width: a round, domed section) or the blocks' cells.
+  // The pen's strokes end as the pen leaves them.
+  linkedDefaults: (p) => ({ bevel: glyphBevel(p), cap: Number(p.pen) > 0 ? 'pen' : 'round' }),
+  // Added in the editor: one emblem across about half the texture, its strokes in proportion.
+  fresh: ({ width, height }) => {
+    const size = r1(Math.max(8, 0.45 * Math.min(width, height)))
+    return { size, width: Math.max(1, Math.round(size / 18)) }
   },
   glsl:
     GLSL_MOT_SEED +
@@ -439,10 +626,12 @@ vec2 mot_bezierT(vec2 pos, vec2 A, vec2 B, vec2 C) {
 // Signed distance to segment k (of n) of a stroke, b → c, and to its mirror images when mirroring. Straight
 // lines: one quadratic Bézier bowed sideways by 'bow' (a straight segment when 0). Splines: the Catmull-Rom curve
 // through the nodes (tangents from the nodes a before and e after, scaled by roundness) as two quadratic Béziers
-// that meet halfway with matching tangents. The half width tapers along the whole stroke (4u(1 − u), u = 0..1).
+// that meet halfway with matching tangents. The half width tapers along the whole stroke (4u(1 − u), u = 0..1),
+// times the stroke's own share wf (Width variation) and the broad-nib factor (Calligraphy).
 // One Bézier call in one loop, so the shader holds a single copy of it.
-float mot_segD(vec2 q, vec2 a, vec2 b, vec2 c, vec2 e, float bow, float k, float n) {
+float mot_segD(vec2 q, vec2 a, vec2 b, vec2 c, vec2 e, float bow, float k, float n, float wf, int caps) {
   bool spline = u_line == 1;
+  vec2 nib = vec2(cos(radians(u_pen_angle)), sin(radians(u_pen_angle)));
   vec2 c0 = spline ? b + 0.125 * u_roundness * (c - a) : 0.5 * (b + c) + vec2(b.y - c.y, c.x - b.x) * bow;
   vec2 c1 = c - 0.125 * u_roundness * (e - b);
   vec2 m = spline ? 0.5 * (c0 + c1) : c;
@@ -452,16 +641,60 @@ float mot_segD(vec2 q, vec2 a, vec2 b, vec2 c, vec2 e, float bow, float k, float
   for (int i = 0; i < pieces * copies; i++) {
     bool second = spline && (i & 1) == 1;
     int mi = i / pieces;                       // which image: bit 0 flips x (when mirroring x), then y
-    vec2 qm = q;
-    if (u_mirror && (mi & 1) == 1) qm.x = -qm.x;
-    if (u_mirror_y && (u_mirror ? mi >= 2 : mi == 1)) qm.y = -qm.y;
+    vec2 fl = vec2(u_mirror && (mi & 1) == 1 ? -1.0 : 1.0, u_mirror_y && (u_mirror ? mi >= 2 : mi == 1) ? -1.0 : 1.0);
+    vec2 qm = q * fl;
+    // The pen is the same on both sides of a mirror: in this image's (mirrored) frame its nib is mirrored.
+    vec2 nibM = nib * fl;
     vec2 A = second ? m : b, B = second ? c1 : c0, C = second ? c : m;
     // Nearly straight pieces: a plain segment (the Bézier solve loses precision as the curve flattens).
     vec2 ac = C - A, ab = B - A;
     if (abs(ac.x * ab.y - ac.y * ab.x) < 0.01 * length(ac)) B = 0.5 * (A + C);
     vec2 dt = mot_bezierT(qm, A, B, C);
     float u = (k + (spline ? 0.5 * (float(second) + dt.y) : dt.y)) / max(n, 1.0);
-    d = min(d, dt.x - 0.5 * u_width * mix(1.0, 4.0 * u * (1.0 - u), u_taper));
+    // Broad nib: the width follows |sin| of the angle between the curve's tangent there and the nib.
+    vec2 tg = mix(B - A, C - B, dt.y);
+    float pf = mix(1.0, max(abs(tg.x * nibM.y - tg.y * nibM.x) / max(length(tg), 1e-6), 0.08), u_pen);
+    float hw = 0.5 * u_width * wf * pf * mix(1.0, 4.0 * u * (1.0 - u), u_taper);
+    float de = dt.x - hw;
+    // Ends and joints, past a piece's end (t clamped there, with a little slack: the solve may stop just short of
+    // 1) — caps bits 4 / 8: this is the stroke's first / last segment. Pen: a free stroke end (bits 1, 2) is cut
+    // along the nib (into the stroke, past the node the band runs on straight up to the cut, so the end is the
+    // nib's slanted edge; near-parallel strokes — hairlines — turn the cut square). Ends on another stroke and
+    // joints within a stroke stay round: a cut there runs through the stroke it joins and leaves a crease in the
+    // bevel (and pieces of unequal width would leave spurs).
+    // Otherwise a free stroke end (bits 1, 2) takes the Ends rule — a box end half a width long (square) or none
+    // (flat) —; with mitre joins, a joint within a stroke fills the corner where its band and the next one's cross,
+    // and an end on a mirror axis (bits 16, 32 X, 64, 128 Y) the corner with its mirror image there. Turns sharper
+    // than about 130° stay round (the crossing would run out into a spike).
+    bool pen = u_cap == 3;
+    bool atA = dt.y <= 1e-4 && !second, atC = dt.y >= 1.0 - 1e-4 && (second || !spline);
+    bool endA = pen && (caps & 1) != 0 && !second && dt.y < 0.5, endC = pen && (caps & 2) != 0 && (second || !spline) && dt.y >= 0.5;
+    bool sA = endA || atA;
+    vec2 P = sA ? A : C;
+    vec2 o = P - (dot2(B - P) > 1e-6 ? B : (sA ? C : A));
+    o /= max(length(o), 1e-6);
+    vec2 r = qm - P;
+    float along = dot(r, o), lat = length(r - along * o);
+    // w2: the way the band this end meets leaves P — the next / previous segment, or the mirror image on an axis.
+    vec2 w2 = (caps & (sA ? 4 : 8)) == 0 && !spline ? normalize(sA ? a - b : e - c)
+            : (caps & (sA ? 16 : 32)) != 0 ? vec2(o.x, -o.y) : (caps & (sA ? 64 : 128)) != 0 ? vec2(-o.x, o.y) : vec2(0.0);
+    float cw = dot(o, w2), sw = abs(o.x * w2.y - o.y * w2.x);
+    bool doPen = endA || endC;
+    bool doCap = !pen && u_cap > 0 && (caps & (sA ? 1 : 2)) != 0 && (atA || atC);
+    // Mitre: the corner both bands cover (their crossing, past this end, reaching hw · tan(turn / 2) along this
+    // band) — exactly the mitre, and its distance stays a proper inside distance (cutting each band at the
+    // bisector would leave a crack along it). Turns sharper than about 133° stay round (it would run out into a
+    // spike), as do straight continuations (nothing to fill).
+    bool doMit = !pen && !doCap && u_join == 1 && (atA || atC) && dot(w2, w2) > 0.5 && cw > -0.68;
+    if (doPen || doCap || doMit) {
+      vec2 pn = vec2(-nibM.y, nibM.x);
+      float cs = dot(pn, o);
+      vec2 nX = doPen ? normalize(mix(o, cs < 0.0 ? -pn : pn, smoothstep(0.1, 0.35, abs(cs)))) : o;
+      float eX = doCap ? (u_cap == 1 ? hw : 0.0) : doMit ? hw * sw / (1.0 + cw) : 0.0;
+      float latN = doMit ? abs(r.x * w2.y - r.y * w2.x) - hw : -1e9;
+      de = max(max(atA || atC ? lat - hw : de, latN), dot(r, nX) - eX);
+    }
+    d = min(d, de);
   }
   return d;
 }
@@ -477,7 +710,7 @@ float motifSdf(vec2 q, float inst) {
     // grid's outside). One flat loop over the cells, twice when centring: first for the filled cells' bounds.
     int cells = g.x * g.y;
     ivec2 lo = g, hi = ivec2(-1), ci = ivec2(0);
-    vec2 hs = vec2(0.5 * sp);
+    vec2 hs = vec2(max(0.5 * (sp - u_gap), 0.0));   // with a gap the tiles are apart: the nearest one is exact
     vec2 gh = 0.5 * vec2(g) * sp;
     bool inside = false;
     float dFill = 1e9, dEmpty = 0.0;
@@ -487,20 +720,20 @@ float motifSdf(vec2 q, float inst) {
       bool on = mot_cellOn(i, j, g, gid);
       if (e < cells) {
         if (on) { lo = min(lo, ivec2(i, j)); hi = max(hi, ivec2(i, j)); }
-        continue;
+      } else {
+        if (c == 0) {
+          if (u_centre && hi.x >= 0) q += mot_centreOff(lo, hi, g, sp);
+          vec2 cq = (q + gh) / sp;
+          ci = ivec2(floor(vec2(cq.x, 2.0 * gh.y / sp - cq.y)));
+          dEmpty = max(-sdBox(q, gh), 0.0);
+        }
+        vec2 cc = vec2((float(i) + 0.5) * sp - gh.x, gh.y - (float(j) + 0.5) * sp);
+        float db = sdBox(q - cc, hs);
+        if (on) { dFill = min(dFill, db); if (ci == ivec2(i, j)) inside = true; }
+        else dEmpty = min(dEmpty, max(db, 0.0));
       }
-      if (c == 0) {
-        if (u_centre && hi.x >= 0) q += mot_centreOff(lo, hi, g, sp);
-        vec2 cq = (q + gh) / sp;
-        ci = ivec2(floor(vec2(cq.x, 2.0 * gh.y / sp - cq.y)));
-        dEmpty = max(-sdBox(q, gh), 0.0);
-      }
-      vec2 cc = vec2((float(i) + 0.5) * sp - gh.x, gh.y - (float(j) + 0.5) * sp);
-      float db = sdBox(q - cc, hs);
-      if (on) { dFill = min(dFill, db); if (ci == ivec2(i, j)) inside = true; }
-      else dEmpty = min(dEmpty, max(db, 0.0));
     }
-    return inside ? -dEmpty : dFill;
+    return inside && u_gap <= 0.0 ? -dEmpty : dFill;
   }
   // Strokes: random walks over the node grid; each step keeps going straight or turns (diagonals by chance),
   // never reverses, turns away from the grid edge and, unless an overlap is allowed, away from drawn nodes.
@@ -508,21 +741,26 @@ float motifSdf(vec2 q, float inst) {
   // drawn line): a curve can't retrace a line, so doubling back draws loops and lenses.
   // One flat loop walks all the strokes node by node. Each iteration arrives at a node (or, after a stroke's
   // last node, at a reflected point past its end) and draws the segment before the previous node, now that the
-  // nodes on both sides of it are known (spline tangents need them). Centring and tapering walk everything
-  // twice: the first pass only finds the bounds of the drawn nodes and each stroke's length.
+  // nodes on both sides of it are known (spline tangents need them). Centring, tapering, square / flat / pen ends
+  // and dots only on free ends walk everything twice: the first pass only finds the bounds of the drawn nodes,
+  // each stroke's length and the nodes arrived at more than once (joints, where an end stays round).
   float d = 1e9, dd = 1e9, dh = 1e9;
   float rw = min(u_width, 0.5 * u_dots);       // ring line: the stroke width, but leave a hole on small dots
   bool spline = u_line == 1;
   int strokes = clamp(u_strokes, 1, 8), steps = clamp(u_steps, 1, 8);
-  bool draw = !u_centre && u_taper <= 0.0;
+  bool draw = !u_centre && u_taper <= 0.0 && u_cap == 0 && (u_dots <= 0.0 || u_dot_joins);
   uint lens = 0u;                              // segments per stroke, 4 bits each (first pass)
-  uvec3 seen = uvec3(0u);
+  uvec3 seen = uvec3(0u), multi = uvec3(0u);   // multi: nodes arrived at more than once (first pass)
   ivec2 lo = g, hi = ivec2(-1);
   int w = 0, s = -1, dir = 0;                  // s: index of the node arrived at (-1: start the next stroke)
   bool ending = false, old = false;
   ivec2 pos = ivec2(0), nB = ivec2(0), nC = ivec2(0);
   vec2 pA = vec2(0.0), pB = vec2(0.0), pC = vec2(0.0), pStart = vec2(0.0);   // nodes s − 3, s − 2, s − 1
   float bowB = 0.0, bowC = 0.0;                // bows of the segments ending at nodes s − 1 and s
+  bool fS = true, fE = true;                   // the stroke's first / last node free (dots, ends)
+  bool mS = false, mE = false;                 // the stroke's first / latest node met more than once
+  int cnt = 0;                                 // nodes stepped on from so far, and a random one of them (Connected)
+  ivec2 pick = ivec2(0);
   for (int it = 0; it < 20 * strokes; it++) {
     if (s < 0) {
       if (w >= strokes) {
@@ -531,19 +769,30 @@ float motifSdf(vec2 q, float inst) {
         draw = true;
         w = 0;
         seen = uvec3(0u);
+        cnt = 0;
       }
       vec3 h0 = hash3I(ivec2(w * 16, gid), MOT_SEED + 101.0);
       pos = min(ivec2(floor(h0.xy * vec2(g))), g - 1);
+      // Connected: the first stroke starts at the centre node (on the mirror axes for odd counts), so the glyph
+      // grows out from the middle; later ones on a drawn node.
+      if (u_connect > 0.0) pos = w == 0 ? (g - 1) / 2 : fract(h0.x * 37.13 + h0.z * 11.31) < u_connect ? pick : pos;
       dir = int(h0.z * 8.0);
       s = 0;
+      fS = true;
+      fE = true;
     }
     vec2 pt = 2.0 * pC - pB;
     if (!ending) {
       // Arrive at pos. A node is old when drawn before (a node on a mirror axis always is: its mirror image
       // arrives with it).
       uvec3 pb = mot_bit(mot_nodeKey(pos, g));
-      old = any(notEqual(seen & pb, uvec3(0u))) || (u_mirror && 2 * pos.x == g.x - 1) ||
-            (u_mirror_y && 2 * pos.y == g.y - 1);
+      bool again = any(notEqual(seen & pb, uvec3(0u)));
+      // Arrived at more than once over the whole glyph (known in the drawing pass): the start / latest node.
+      bool mh = any(notEqual(multi & pb, uvec3(0u)));
+      if (s == 0) mS = mh;
+      mE = mh;
+      old = again || (u_mirror && 2 * pos.x == g.x - 1) || (u_mirror_y && 2 * pos.y == g.y - 1);
+      if (again && !draw) multi |= pb;
       seen |= pb;
       lo = min(lo, pos);
       hi = max(hi, pos);
@@ -556,71 +805,93 @@ float motifSdf(vec2 q, float inst) {
     if (draw && s >= 2) {
       vec2 before = s > 2 ? pA : 2.0 * pB - pC, after = pt;
       ivec2 mB = g - 1 - nB, mC = g - 1 - nC;
-      bool selfX = u_mirror && (ivec2(mB.x, nB.y) == nC || (mB.x == nB.x && mC.x == nC.x));
-      bool selfY = u_mirror_y && (ivec2(nB.x, mB.y) == nC || (mB.y == nB.y && mC.y == nC.y));
+      bvec2 along = bvec2(u_mirror && mB.x == nB.x && mC.x == nC.x, u_mirror_y && mB.y == nB.y && mC.y == nC.y);
+      bool selfX = along.x || (u_mirror && ivec2(mB.x, nB.y) == nC);
+      bool selfY = along.y || (u_mirror_y && ivec2(nB.x, mB.y) == nC);
       if (selfX || selfY || (u_mirror && u_mirror_y && mB == nC)) {
         before = 2.0 * pB - pC;
         after = 2.0 * pC - pB;
       }
-      d = min(d, mot_segD(q, before, pB, pC, after, bowB, float(s - 2), float((lens >> uint(4 * w)) & 15u)));
+      float wf = 1.0 - 0.9 * u_width_var * hashI(ivec2(w * 16 + 15, gid), MOT_SEED + 601.0);
+      // The ends' bits for mot_segD: first / last segment (4, 8); its first / last node free (1, 2) — no other
+      // stroke meets it, nor the stroke itself, nor its mirror image: on a mirror axis it does, unless the segment
+      // runs along the axis —, or else on an axis (16 / 32 on X, 64 / 128 on Y).
+      bvec2 axS = bvec2(u_mirror && 2 * nB.x == g.x - 1 && !along.x, u_mirror_y && 2 * nB.y == g.y - 1 && !along.y);
+      bvec2 axE = bvec2(u_mirror && 2 * nC.x == g.x - 1 && !along.x, u_mirror_y && 2 * nC.y == g.y - 1 && !along.y);
+      if (s == 2) fS = !mS && !any(axS);
+      if (ending) fE = !mE && !any(axE);
+      int caps = (s == 2 ? 4 | (fS ? 1 : axS.x ? 16 : axS.y ? 64 : 0) : 0) | (ending ? 8 | (fE ? 2 : axE.x ? 32 : axE.y ? 128 : 0) : 0);
+      d = min(d, mot_segD(q, before, pB, pC, after, bowB, float(s - 2), float((lens >> uint(4 * w)) & 15u), wf, caps));
     }
     if (ending) {
       if (!draw) lens |= uint(s - 1) << uint(4 * w);
       if (draw && u_dots > 0.0) {
-        for (int k = 0; k < 2; k++) {
-          vec2 c = k == 0 ? pStart : pC;
-          // Nearest of the dot and its mirror images: fold both onto the same side of each mirror axis.
-          vec2 qf = q, cf = c;
-          if (u_mirror) { qf.x = abs(qf.x); cf.x = abs(cf.x); }
-          if (u_mirror_y) { qf.y = abs(qf.y); cf.y = abs(cf.y); }
-          float l = length(qf - cf);
-          dd = min(dd, u_dot_ring ? abs(l - u_dots + 0.5 * rw) - 0.5 * rw : l - u_dots);
-          dh = min(dh, l - u_dots + rw);
+        for (int k = 0; k < eight / 4; k++) {
+          // Dot chance: one draw per stroke end (its mirror images share it).
+          bool on = (u_dot_joins || (k == 0 ? fS : fE)) &&
+                    (u_dot_chance >= 1.0 || hashI(ivec2(w * 2 + k, gid), MOT_SEED + 701.0) < u_dot_chance);
+          if (on) {
+            vec2 c = k == 0 ? pStart : pC;
+            // Nearest of the dot and its mirror images: fold both onto the same side of each mirror axis.
+            vec2 qf = q, cf = c;
+            if (u_mirror) { qf.x = abs(qf.x); cf.x = abs(cf.x); }
+            if (u_mirror_y) { qf.y = abs(qf.y); cf.y = abs(cf.y); }
+            float l = length(qf - cf);
+            dd = min(dd, u_dot_ring ? abs(l - u_dots + 0.5 * rw) - 0.5 * rw : l - u_dots);
+            dh = min(dh, l - u_dots + rw);
+          }
         }
       }
       ending = false;
       w++;
       s = -1;
-      continue;
-    }
-    // Choose the next node; a stroke ends after its last step, or when boxed in.
-    bool moved = false;
-    int nd = dir;
-    float nbow = 0.0;
-    if (s < steps) {
-      int hid = w * 16 + s + 1;
-      vec4 hs = vec4(hash3I(ivec2(hid, gid), MOT_SEED + 101.0), hashI(ivec2(hid, gid), MOT_SEED + 307.0));
-      if (s == 0 || hs.x >= u_straight) {
-        int k = int(hs.z * 4.0);
-        nd = hs.y < u_diag ? 2 * k + 1 : 2 * k;
+    } else {
+      // Choose the next node; a stroke ends after its last step, or when boxed in.
+      bool moved = false;
+      int nd = dir;
+      float nbow = 0.0;
+      if (s < steps) {
+        int hid = w * 16 + s + 1;
+        vec4 hs = vec4(hash3I(ivec2(hid, gid), MOT_SEED + 101.0), hashI(ivec2(hid, gid), MOT_SEED + 307.0));
+        // Reservoir sample of the nodes a stroke steps on from: each replaces the pick with chance 1 / count.
+        cnt++;
+        if (fract(hs.x * 13.71 + hs.w * 3.17) * float(cnt) < 1.0) pick = pos;
+        if (s == 0 || hs.x >= u_straight) {
+          int k = int(hs.z * 4.0);
+          nd = hs.y < u_diag ? 2 * k + 1 : 2 * k;
+        }
+        bool revisit = (u_overlap >= 1.0 || hashI(ivec2(hid, gid), MOT_SEED + 409.0) < u_overlap) && !(spline && old);
+        for (int t = 0; t < eight; t++) {
+          ivec2 np = pos + MOT_DIRS[nd];
+          bool inGrid = all(greaterThanEqual(np, ivec2(0))) && all(lessThan(np, g));
+          // Free: not drawn yet, or the step across an axis onto one of its own mirror nodes (even counts).
+          ivec2 mp = g - 1 - pos;
+          bool free_ = revisit || all(equal(seen & mot_bit(mot_nodeKey(np, g)), uvec3(0u))) ||
+                       (u_mirror && np == ivec2(mp.x, pos.y)) || (u_mirror_y && np == ivec2(pos.x, mp.y)) ||
+                       (u_mirror && u_mirror_y && np == mp);
+          int turn = abs((nd - dir + 8) % 8 - 4);   // 0 = straight back, 1 = a 135° hairpin
+          bool kind = u_diag > 0.0 || (nd & 1) == 0;  // Diagonals 0: no diagonal steps at all, not even when boxed in
+          if (inGrid && free_ && kind && (s == 0 || turn > (spline ? 1 : 0))) { moved = true; break; }
+          nd = (nd + 3) % 8;
+        }
+        nbow = hs.w < u_curve ? (fract(hs.w * 7.31) < 0.5 ? 0.35 : -0.35) : 0.0;
       }
-      bool revisit = (u_overlap >= 1.0 || hashI(ivec2(hid, gid), MOT_SEED + 409.0) < u_overlap) && !(spline && old);
-      for (int t = 0; t < eight; t++) {
-        ivec2 np = pos + MOT_DIRS[nd];
-        bool inGrid = all(greaterThanEqual(np, ivec2(0))) && all(lessThan(np, g));
-        // Free: not drawn yet, or the step across an axis onto one of its own mirror nodes (even counts).
-        ivec2 mp = g - 1 - pos;
-        bool free_ = revisit || all(equal(seen & mot_bit(mot_nodeKey(np, g)), uvec3(0u))) ||
-                     (u_mirror && np == ivec2(mp.x, pos.y)) || (u_mirror_y && np == ivec2(pos.x, mp.y)) ||
-                     (u_mirror && u_mirror_y && np == mp);
-        int turn = abs((nd - dir + 8) % 8 - 4);   // 0 = straight back, 1 = a 135° hairpin
-        if (inGrid && free_ && (s == 0 || turn > (spline ? 1 : 0))) { moved = true; break; }
-        nd = (nd + 3) % 8;
-      }
-      nbow = hs.w < u_curve ? (fract(hs.w * 7.31) < 0.5 ? 0.35 : -0.35) : 0.0;
+      pA = pB; pB = pC; pC = pt;
+      nB = nC; nC = pos;
+      bowB = bowC; bowC = nbow;
+      if (moved) { pos += MOT_DIRS[nd]; dir = nd; }
+      else ending = true;
+      s++;
     }
-    pA = pB; pB = pC; pC = pt;
-    nB = nC; nC = pos;
-    bowB = bowC; bowC = nbow;
-    if (moved) { pos += MOT_DIRS[nd]; dir = nd; }
-    else ending = true;
-    s++;
   }
   // Ring dots are open: the strokes stop at the ring instead of running into its hole.
   if (u_dot_ring) d = max(d, -dh);
   return min(d, dd);
 }
 
-GenOut motifOut(float d, float rnd, vec2 nearQ) { return genOut(0.0, 1.0, rnd, d); }
+GenOut motifOut(float d, float rnd, vec2 nearQ, float h) { return genOut(0.0, 1.0, rnd, d); }
+#define MOT_TAPS 1
+#define MOT_BLUR 0.0
+#define MOT_EXACT 1e9
 ` + MOT_REPEAT,
 }

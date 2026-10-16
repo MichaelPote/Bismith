@@ -3,11 +3,16 @@
 // every pixel re-derived its neighbours' links through nested helper calls; D3D's shader compiler (ANGLE on Windows,
 // so Chrome and Firefox there) inlines all of that and took minutes to compile it, hanging the browser.
 //
-// The hashes reproduce the GLSL hashI bit for bit (and the float maths in float32), so layouts are unchanged.
+// Route and maze hash each node like the GLSL hashI (layers/glsl/common.ts), in float32.
 //   Route: every node has at most one outgoing link (straight on, or a 45° turn from its block's direction) and accepts
 //          at most one incoming link (a fixed per-node priority among its neighbours), so traces are paths: no
 //          junctions, no crossings (crossing diagonals in one grid square: the square keeps one), a pad at each end.
 //   Maze:  independent links east / north and, by chance, diagonally; junctions allowed.
+//   Labyrinth: a perfect maze — one spanning tree over every node, grown from a random node (a growing tree:
+//          depth-first for long winding corridors, or from random frontier nodes for many short dead ends). It has
+//          no GLSL past, so it uses a sequential PRNG instead of the per-node hashes.
+
+import { rng } from './router'
 
 /** The 8 king moves, east then counter-clockwise. Bit d of a node's link mask: a trace from it toward KING[d]. */
 export const KING: [number, number][] = [
@@ -15,7 +20,7 @@ export const KING: [number, number][] = [
 ]
 
 export interface TraceLinkOptions {
-  mode: 'route' | 'maze'
+  mode: 'route' | 'maze' | 'labyrinth'
   nx: number
   ny: number
   wrap: boolean
@@ -28,6 +33,8 @@ export interface TraceLinkOptions {
   grouping: number
   block: number
   vias: number
+  /** Labyrinth: 0 grows depth-first (long corridors), 1 from random frontier nodes (short branches, many dead ends). */
+  branching?: number
 }
 
 export interface TraceLinks {
@@ -84,6 +91,20 @@ export function traceLinks(o: TraceLinkOptions): TraceLinks {
   const flags = new Uint8Array(n)
   const finish = (x: number, y: number, i: number, degree: number) => {
     flags[i] = (degree === 1 ? 1 : 0) | (degree >= 1 && h(x, y, 23) < vias ? 2 : 0)
+  }
+
+  if (o.mode === 'labyrinth') {
+    labyrinth(o, links, idx)
+    // Degree: own links plus the ones arriving from neighbours.
+    const deg = new Uint8Array(n)
+    for (let i = 0; i < n; i++)
+      for (let d = 0; d < 8; d++)
+        if (links[i] & (1 << d)) {
+          deg[i]++
+          deg[idx((i % nx) + KING[d][0], Math.floor(i / nx) + KING[d][1])]++
+        }
+    for (let i = 0; i < n; i++) finish(i % nx, Math.floor(i / nx), i, deg[i])
+    return { links, flags }
   }
 
   if (o.mode === 'maze') {
@@ -194,4 +215,142 @@ export function traceLinks(o: TraceLinkOptions): TraceLinks {
       finish(x, y, i, (linked ? 1 : 0) + (a >= 0 && link(x - KING[a][0], y - KING[a][1], a) ? 1 : 0))
     }
   return { links, flags }
+}
+
+/** KING index of a unit step, by (dy + 1) * 3 + dx + 1. */
+const KING_OF = [5, 6, 7, 4, -1, 0, 3, 2, 1]
+const kingOf = (dx: number, dy: number) => KING_OF[(dy + 1) * 3 + dx + 1]
+
+/**
+ * Labyrinth: a growing tree over all nodes. Each step extends the newest open node (or, with Branching, a random
+ * one) to an unvisited neighbour, weighted by Straightness (carry on in the corridor's direction), Horizontal bias and
+ * Diagonals; a diagonal is never laid across one already in its grid square. Writes links (bit d: toward KING[d]).
+ */
+function labyrinth(o: TraceLinkOptions, links: Uint8Array, idx: (x: number, y: number) => number): void {
+  const { nx, ny } = o
+  const n = nx * ny
+  const rand = rng(Math.floor(o.seed * 7919) + 101)
+  const diag = clamp01(o.diagonal)
+  const bias = clamp01(o.bias)
+  const straight = clamp01(o.straight)
+  const branching = clamp01(o.branching ?? 0)
+  // Per KING direction: straight ones share (1 − diagonals) by the horizontal bias, diagonals share the rest. A small
+  // floor keeps the straight ones possible, so the tree always reaches every node (diagonals alone reach only half).
+  const base = KING.map(([x, y]) => (x !== 0 && y !== 0 ? diag : 1e-3 + (1 - diag) * (y === 0 ? 2 * bias : 2 * (1 - bias))))
+  const visited = new Uint8Array(n)
+  const inDir = new Int8Array(n).fill(-1)
+  const active = new Int32Array(n)
+  const w = new Float64Array(8)
+  /** Is there a link between nodes i and j = i + KING[d] (either way)? */
+  const linked = (i: number, j: number, d: number) => i >= 0 && j >= 0 && ((links[i] & (1 << d)) !== 0 || (links[j] & (1 << ((d + 4) % 8))) !== 0)
+  /**
+   * Corridors with diagonals keep their walls: no link 45° off another at its node (a wedge of wall thinning to a
+   * point), a diagonal only alone at its node or carrying straight on through it (no X or V of diagonals meeting),
+   * and no diagonal beside a parallel one a node over (a wall pitch / √2 thin). With no diagonals none can happen.
+   */
+  const thinWall = (c: number, x: number, y: number, d: number): boolean => {
+    const diagonal = (d & 1) === 1
+    for (let e = 0; e < 8; e++) {
+      const turn = Math.min((e - d + 8) % 8, (d - e + 8) % 8)
+      if (turn !== 1 && !(diagonal && (e & 1) === 1 && turn !== 4)) continue
+      const back = (e + 4) % 8
+      if ((links[c] & (1 << e)) !== 0 || inDir[c] === back) return true
+    }
+    const [dx, dy] = KING[d]
+    if (!diagonal) return false
+    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (linked(idx(x + ox, y + oy), idx(x + ox + dx, y + oy + dy), d)) return true
+    return false
+  }
+  const grow = (top: number, strict: boolean) => {
+    while (top > 0) {
+      const pick = branching > 0 && rand() < branching ? Math.floor(rand() * top) : top - 1
+      const c = active[pick]
+      const x = c % nx
+      const y = Math.floor(c / nx)
+      let tot = 0
+      for (let d = 0; d < 8; d++) {
+        w[d] = 0
+        const [dx, dy] = KING[d]
+        const j = idx(x + dx, y + dy)
+        if (j < 0 || visited[j]) continue
+        if (dx !== 0 && dy !== 0) {
+          // The square's other diagonal, either way round.
+          const a = idx(x + dx, y)
+          const b = idx(x, y + dy)
+          if ((links[a] & (1 << kingOf(-dx, dy))) || (links[b] & (1 << kingOf(dx, -dy)))) continue
+        }
+        if (strict && thinWall(c, x, y, d)) continue
+        // Straightness: the chance of carrying straight on among four ways (0.25 = no preference).
+        const turn = inDir[c] < 0 ? 1 : d === inDir[c] ? straight : (1 - straight) / 3
+        w[d] = base[d] * (turn + 1e-4)
+        tot += w[d]
+      }
+      if (tot <= 0) {
+        // Dead end: retire the node (the last one moves into its slot).
+        active[pick] = active[--top]
+        continue
+      }
+      let r = rand() * tot
+      let d = 0
+      for (; d < 7; d++) if ((r -= w[d]) < 0) break
+      while (w[d] <= 0) d-- // rounding left r over at the end: the last open direction
+      const [dx, dy] = KING[d]
+      const j = idx(x + dx, y + dy)
+      links[c] |= 1 << d
+      visited[j] = 1
+      inDir[j] = d
+      active[top++] = j
+    }
+  }
+  const start = Math.min(n - 1, Math.floor(rand() * n))
+  visited[start] = 1
+  active[0] = start
+  grow(1, diag > 0)
+  // Nodes the wall rules walled off: each joins from a visited neighbour by a link keeping the rules where one exists
+  // (the strict growth carries on from it). The few that can't stay out — solid wall — rather than make a wedge.
+  if (diag > 0) {
+    /** A way to join node i keeping the rules: [from, direction], or null. */
+    const join = (i: number): [number, number] | null => {
+      const x = i % nx
+      const y = Math.floor(i / nx)
+      for (let d = 0; d < 8; d++) {
+        const [dx, dy] = KING[d]
+        const j = idx(x + dx, y + dy)
+        if (j < 0 || !visited[j]) continue
+        const back = (d + 4) % 8
+        const jx = j % nx
+        const jy = Math.floor(j / nx)
+        if (dx !== 0 && dy !== 0) {
+          // A diagonal only where it keeps the rules and crosses nothing.
+          const a = idx(jx - dx, jy)
+          const b = idx(jx, jy - dy)
+          if ((links[a] & (1 << kingOf(dx, -dy))) || (links[b] & (1 << kingOf(-dx, dy))) || thinWall(j, jx, jy, back)) continue
+          return [j, back]
+        }
+        if (!thinWall(j, jx, jy, back)) return [j, back]
+      }
+      return null
+    }
+    const attach = ([from, dir]: [number, number], i: number) => {
+      links[from] |= 1 << dir
+      visited[i] = 1
+      inDir[i] = dir
+      active[0] = i
+      grow(1, true)
+    }
+    let pending: number[] = []
+    for (let i = 0; i < n; i++) if (!visited[i]) pending.push(i)
+    for (let progress = true; progress && pending.length; ) {
+      progress = false
+      for (const i of pending) {
+        if (visited[i]) continue
+        const j = join(i)
+        if (j) {
+          attach(j, i)
+          progress = true
+        }
+      }
+      pending = pending.filter((i) => !visited[i])
+    }
+  }
 }

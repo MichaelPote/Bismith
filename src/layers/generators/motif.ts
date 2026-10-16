@@ -4,8 +4,8 @@
 // negative inside) so the common bevel / etch / emissive machinery applies; every lattice wraps when the
 // project is tileable.
 
-import { P } from '@/core/params'
-import type { LayerDef } from '../types'
+import { P, type ParamValues } from '@/core/params'
+import type { CpuTexture, LayerDef } from '../types'
 import { GLSL_MOT_SEED, glyphLayer, rosetteLayer } from './motifRadial'
 
 // ------------------------------------------------------------------------------------------------ truchet
@@ -13,13 +13,625 @@ import { GLSL_MOT_SEED, glyphLayer, rosetteLayer } from './motifRadial'
 const STYLES: [string, string][] = [
   ['arcs', 'Truchet arcs'],
   ['diagonal', 'Diagonal (10 PRINT)'],
-  ['maze', 'Maze walls'],
+  ['maze', 'Maze walls (random)'],
   ['rooms', 'Rooms (polyomino walls)'],
   ['meander', 'Greek key / meander'],
   ['circuit', 'Circuit traces'],
+  ['labyrinth', 'Labyrinth (perfect maze)'],
 ]
 
+const DRAW: [string, string, string][] = [
+  ['lines', 'Lines', 'the lines are the shape (raised wires, inlay)'],
+  ['grooves', 'Grooves', 'everything but the lines: the lines are cut into a solid surface (Rooms: slabs, each with its own random — per-feature height, random colour)'],
+  ['tone', 'Two-tone', 'Truchet arcs: every other region between the lines is filled (the classic two-colour Truchet), the lines are the gaps. Other styles: as Grooves'],
+  ['tone2', 'Two-tone, swapped', 'as Two-tone, the other regions filled'],
+]
+
+/** Density's label per style (it means something different in each). */
+const DENSITY_LABEL: Record<string, string> = { arcs: 'Tiles drawn', diagonal: 'Tiles drawn', maze: 'Walls', rooms: 'Room size', labyrinth: 'Perfection' }
+
+/** Cells across each style starts with (linked: they follow the style until set by hand). */
+const STYLE_CELLS: Record<string, number> = { arcs: 8, diagonal: 12, maze: 12, rooms: 8, meander: 15, circuit: 32, labyrinth: 16 }
+
 const isStyle = (...s: string[]) => (p: Record<string, unknown>) => s.includes(String(p.style))
+const isTone = (p: Record<string, unknown>) => p.style === 'arcs' && String(p.draw).startsWith('tone')
+const r1 = (v: number) => Math.round(v * 10) / 10
+
+// ---- CPU side (cpuData): the layouts that need the whole grid — the maze's, rooms' and labyrinth's walls with a
+// random per room (per cell for the maze and labyrinth), and the circuit's traces, chips and vias. Texture of
+// (cells + 2)² texels, cell c at c + 1 (the border cells of an untiled project included). Walls: R, G = the random
+// (16 bits), B = walls (bit 0 the cell's +x wall, bit 1 its +y wall). Circuit: see circuitTiles.
+
+/** The shaders' pcg hash (glsl/common.ts) in JS. */
+function pcg(v: number): number {
+  const s = (Math.imul(v, 747796405) + 2891336453) >>> 0
+  const w = Math.imul(((s >>> ((s >>> 28) + 4)) ^ s) >>> 0, 277803737) >>> 0
+  return ((w >>> 22) ^ w) >>> 0
+}
+const pcg3 = (x: number, y: number, z: number) => pcg((x ^ pcg((y ^ pcg(z >>> 0)) >>> 0)) >>> 0)
+const u2f = (h: number) => Math.fround(h) / 4294967296
+
+/** The shader's cell counts (mot_cellCount without the meander's rounding, which these styles don't use). */
+function cellCount(p: ParamValues, w: number, h: number): [number, number] {
+  const nx = Math.max(1, Math.round(Number(p.cells ?? 8)))
+  const ny = Number(p.cells_y ?? 0) > 0 ? Number(p.cells_y) : (nx * h) / w
+  return [nx, Math.max(1, Math.floor(ny + 0.5))]
+}
+
+const D4 = [[1, 0], [0, 1], [-1, 0], [0, -1]]
+const NODE_CELL = [[0, -1], [-1, 0], [-1, -1], [-1, -1]]
+const NODE_AXIS = [1, 0, 1, 0]
+
+/** A small seeded PRNG (mulberry32) for the CPU-side layouts. */
+function prng(seed: number): () => number {
+  let st = (seed * 2654435761 + 0x6d2b79f5) >>> 0
+  return () => {
+    st = (st + 0x6d2b79f5) >>> 0
+    let t = st
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** Union-find over n items. */
+function unionFind(n: number) {
+  const parent = new Int32Array(n).map((_, i) => i)
+  const find = (i: number): number => {
+    while (parent[i] !== i) i = parent[i] = parent[parent[i]]
+    return i
+  }
+  return { find, join: (a: number, b: number) => (parent[find(a)] = find(b)) }
+}
+
+/**
+ * Rooms: every cell links to one random neighbour (a 0.6 × Room size chance; beyond about 0.6 stubby dead-end walls
+ * appear); a wall stands between cells that aren't linked, unless it would be the only wall at either of its end
+ * nodes, so the walls close into a net of small polyominoes. Union-find joins the cells of each room, and Merge
+ * (0–3) then joins neighbouring rooms: each pass pairs rooms with a random neighbour (a room joins at most once a
+ * pass), the last pass with the fractional chance. Returns per padded cell the room's random and the walls between
+ * different rooms (bit 0 +x, bit 1 +y: no stubs inside a room).
+ */
+function roomCells(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): { rnd: Float32Array; walls: Uint8Array } {
+  const thr = Math.fround(Math.fround(0.6) * Math.fround(Number(p.density ?? 1)))
+  const ls = (seed + 3) >>> 0
+  const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x)
+  const linkCache = new Map<number, number>()
+  const link = (x: number, y: number) => {
+    x = wrap(x, nx)
+    y = wrap(y, ny)
+    const key = (y + 8) * (nx + 16) + x + 8
+    let v = linkCache.get(key)
+    if (v === undefined) {
+      const h = pcg3(x >>> 0, y >>> 0, ls)
+      v = u2f(h) < thr ? Math.floor(u2f(pcg(h)) * 4) : -1
+      linkCache.set(key, v)
+    }
+    return v
+  }
+  const linked = (x: number, y: number, axis: number) => link(x, y) === axis || link(x + D4[axis][0], y + D4[axis][1]) === axis + 2
+  const nodeOpen = (x: number, y: number, dir: number) => linked(x + NODE_CELL[dir][0], y + NODE_CELL[dir][1], NODE_AXIS[dir])
+  const lonely = (x: number, y: number, dir: number) => [1, 2, 3].every((k) => nodeOpen(x, y, (dir + k) % 4))
+  const wall = (x: number, y: number, axis: number) => {
+    if (linked(x, y, axis)) return false
+    const da = axis === 0 ? 1 : 0
+    return !lonely(x + (axis === 0 ? 1 : 0), y + (axis === 0 ? 0 : 1), da) && !lonely(x + 1, y + 1, da + 2)
+  }
+  const W = nx + 2
+  const H = ny + 2
+  const uf = unionFind(W * H)
+  // Cells -1 … n (untiled: the border cells too), or 0 … n − 1 wrapping round; the edges between them.
+  const lo = tile ? 0 : -1
+  const hiX = tile ? nx - 1 : nx
+  const hiY = tile ? ny - 1 : ny
+  const edges: [number, number, number][] = []   // cell, neighbour (padded indices), axis
+  for (let y = lo; y <= hiY; y++)
+    for (let x = lo; x <= hiX; x++)
+      for (let axis = 0; axis < 2; axis++) {
+        let bx = x + D4[axis][0]
+        let by = y + D4[axis][1]
+        if (tile) {
+          bx = wrap(bx, nx)
+          by = wrap(by, ny)
+        } else if (bx > hiX || by > hiY) continue
+        const a = (y + 1) * W + x + 1
+        const b = (by + 1) * W + bx + 1
+        edges.push([a, b, axis])
+        if (!wall(x, y, axis)) uf.join(a, b)
+      }
+  const merge = Math.min(3, Math.max(0, Number(p.merge ?? 1)))
+  const rand = prng(seed + 29)
+  for (let pass = 0; pass < Math.ceil(merge); pass++) {
+    const chance = Math.min(1, merge - pass)
+    for (let i = edges.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1))
+      ;[edges[i], edges[j]] = [edges[j], edges[i]]
+    }
+    const joined = new Set<number>()
+    for (const [a, b] of edges) {
+      const ra = uf.find(a)
+      const rb = uf.find(b)
+      if (ra === rb || joined.has(ra) || joined.has(rb) || rand() >= chance) continue
+      uf.join(ra, rb)
+      joined.add(uf.find(ra))
+    }
+  }
+  const walls = new Uint8Array(W * H)
+  for (const [a, b, axis] of edges) if (uf.find(a) !== uf.find(b)) walls[a] |= 1 << axis
+  const rnd = new Float32Array(W * H)
+  for (let i = 0; i < W * H; i++) rnd[i] = u2f(pcg3(uf.find(i), 7, (seed + 17) >>> 0))
+  return { rnd, walls }
+}
+
+/**
+ * Labyrinth: a perfect maze (one path between any two cells) grown from a random cell — mostly depth-first (long
+ * winding corridors), now and then from a random open cell (branches everywhere, no region left to one corridor) —
+ * wrapping round when tiling, else framed. Twist: chance each step turns; a straight run never passes 2 + 6 · (1 −
+ * twist) cells, so no corridor spans the texture. Density below 1 opens dead ends into loops (all of them at 0.5),
+ * below 0.5 also knocks out walls at random (half of them at 0); wall fragments of fewer than five segments left
+ * floating are then dropped. Returns the wall bits of the padded grid.
+ */
+function labyrinthWalls(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): Uint8Array {
+  const rand = prng(seed)
+  const twist = Math.min(1, Math.max(0, Number(p.twist ?? 0.5)))
+  const maxRun = 2 + Math.round(6 * (1 - twist))
+  const density = Math.min(1, Math.max(0, Number(p.density ?? 1)))
+  const braid = Math.min(1, 2 * (1 - density))
+  const knock = Math.max(0, 0.5 - density)
+  const n = nx * ny
+  const walls = new Uint8Array(n).fill(3)
+  const step = (c: number, d: number) => {
+    let x = (c % nx) + D4[d][0]
+    let y = Math.floor(c / nx) + D4[d][1]
+    if (tile) {
+      x = (x + nx) % nx
+      y = (y + ny) % ny
+    } else if (x < 0 || y < 0 || x >= nx || y >= ny) return -1
+    return y * nx + x
+  }
+  const shut = (c: number, d: number) => {
+    const b = step(c, d)
+    return b >= 0 && (d < 2 ? walls[c] & (1 << d) : walls[b] & (1 << (d - 2))) !== 0
+  }
+  // Open the wall between c and its neighbour in direction d (a cell holds its +x and +y walls).
+  const open = (c: number, d: number) => {
+    const b = step(c, d)
+    if (d < 2) walls[c] &= ~(1 << d)
+    else walls[b] &= ~(1 << (d - 2))
+  }
+  const seen = new Uint8Array(n)
+  const from = new Int8Array(n)
+  const run = new Uint8Array(n)
+  const active = [Math.floor(rand() * n)]
+  seen[active[0]] = 1
+  from[active[0]] = Math.floor(rand() * 4)
+  const free: number[] = []
+  while (active.length) {
+    const ai = rand() < 0.85 ? active.length - 1 : Math.floor(rand() * active.length)
+    const c = active[ai]
+    free.length = 0
+    for (let d = 0; d < 4; d++) {
+      const b = step(c, d)
+      if (b >= 0 && !seen[b]) free.push(d)
+    }
+    if (!free.length) {
+      active[ai] = active[active.length - 1]
+      active.pop()
+      continue
+    }
+    const straight = free.includes(from[c])
+    const turns = straight && run[c] >= maxRun && free.length > 1 ? free.filter((d) => d !== from[c]) : free
+    const d = straight && run[c] < maxRun && rand() >= twist ? from[c] : turns[Math.floor(rand() * turns.length)]
+    const b = step(c, d)
+    open(c, d)
+    seen[b] = 1
+    from[b] = d
+    run[b] = d === from[c] ? run[c] + 1 : 1
+    active.push(b)
+  }
+  if (braid > 0) {
+    for (let c = 0; c < n; c++) {
+      const closed: number[] = []
+      let sides = 0
+      for (let d = 0; d < 4; d++) {
+        if (step(c, d) < 0) continue
+        sides++
+        if (shut(c, d)) closed.push(d)
+      }
+      // A dead end has one open side: every other side with a neighbour is shut.
+      if (closed.length === sides - 1 && closed.length && rand() < braid) open(c, closed[Math.floor(rand() * closed.length)])
+    }
+  }
+  if (knock > 0) for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (shut(c, d) && rand() < knock) open(c, d)
+  if (density < 1) {
+    // Floating fragments: union-find over the lattice nodes the walls join (untiled, the frame is one big piece).
+    const NX = tile ? nx : nx + 1
+    const NY = tile ? ny : ny + 1
+    const node = (x: number, y: number) => (tile ? (y % ny) * nx + (x % nx) : y * NX + x)
+    const uf = unionFind(NX * NY)
+    if (!tile) {
+      for (let x = 0; x < NX - 1; x++) (uf.join(node(x, 0), node(x + 1, 0)), uf.join(node(x, NY - 1), node(x + 1, NY - 1)))
+      for (let y = 0; y < NY - 1; y++) (uf.join(node(0, y), node(0, y + 1)), uf.join(node(NX - 1, y), node(NX - 1, y + 1)))
+    }
+    const ends = (c: number, d: number): [number, number] => {
+      const x = c % nx
+      const y = Math.floor(c / nx)
+      return d === 0 ? [node(x + 1, y), node(x + 1, y + 1)] : [node(x, y + 1), node(x + 1, y + 1)]
+    }
+    for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (walls[c] & (1 << d)) uf.join(...ends(c, d))
+    const count = new Map<number, number>()
+    for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (walls[c] & (1 << d)) count.set(uf.find(ends(c, d)[0]), (count.get(uf.find(ends(c, d)[0])) ?? 0) + 1)
+    const frame = tile ? -1 : uf.find(node(0, 0))
+    for (let c = 0; c < n; c++)
+      for (let d = 0; d < 2; d++) {
+        if (!(walls[c] & (1 << d))) continue
+        const r = uf.find(ends(c, d)[0])
+        if (r !== frame && (count.get(r) ?? 0) < 5) walls[c] &= ~(1 << d)
+      }
+  }
+  // Padded. Untiled, the last column's +x and the last row's +y walls stay shut (no neighbour); the frame's other two
+  // sides are the +x walls of the column left of the maze and the +y walls of the row above it.
+  const W = nx + 2
+  const out = new Uint8Array(W * (ny + 2))
+  for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) out[(y + 1) * W + x + 1] = walls[y * nx + x]
+  if (!tile) {
+    for (let y = 0; y < ny; y++) out[(y + 1) * W] |= 1
+    for (let x = 0; x < nx; x++) out[x + 1] |= 2
+  }
+  return out
+}
+
+/**
+ * Maze walls: each lattice node grows a wall to a random neighbour (a Walls share of the nodes). With Drop
+ * fragments, union-find over the nodes gathers them into pieces and pieces of fewer than five walls are dropped.
+ * Returns them as cell walls (bit 0 the cell's +x wall, bit 1 its +y wall) of the padded grid.
+ */
+function mazeWalls(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): Uint8Array {
+  const density = Math.fround(Number(p.density ?? 1))
+  const prune = p.prune !== false
+  // Nodes −2 … n + 2 when untiled (beyond the padded grid's walls), 0 … n − 1 wrapping when tiled.
+  const lo = tile ? 0 : -2
+  const hiX = tile ? nx - 1 : nx + 2
+  const hiY = tile ? ny - 1 : ny + 2
+  const NW = hiX - lo + 1
+  const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x)
+  const node = (x: number, y: number) => (wrap(y, ny) - lo) * NW + wrap(x, nx) - lo
+  const inside = (x: number, y: number) => tile || (x >= lo && x <= hiX && y >= lo && y <= hiY)
+  const uf = unionFind(NW * (hiY - lo + 1))
+  const walls = new Map<string, [number, number, number, number]>()
+  for (let y = lo; y <= hiY; y++)
+    for (let x = lo; x <= hiX; x++) {
+      const h = hash3I(wrap(x, nx), wrap(y, ny), seed + 3)
+      const k = Math.floor(h[1] * 4)
+      if (!(h[0] < density) || k > 3) continue
+      const bx = x + D4[k][0]
+      const by = y + D4[k][1]
+      if (!inside(bx, by)) continue
+      const a = node(x, y)
+      const b = node(bx, by)
+      walls.set(a < b ? `${a},${b}` : `${b},${a}`, [x, y, bx, by])
+      uf.join(a, b)
+    }
+  const size = new Map<number, number>()
+  for (const [x, y] of walls.values()) size.set(uf.find(node(x, y)), (size.get(uf.find(node(x, y))) ?? 0) + 1)
+  const W = nx + 2
+  const out = new Uint8Array(W * (ny + 2))
+  const cellBit = (cx: number, cy: number, bit: number) => {
+    cx = wrap(cx, nx)
+    cy = wrap(cy, ny)
+    if (cx >= -1 && cy >= -1 && cx <= nx && cy <= ny) out[(cy + 1) * W + cx + 1] |= bit
+  }
+  for (const [x, y, bx, by] of walls.values()) {
+    if (prune && (size.get(uf.find(node(x, y))) ?? 0) < 5) continue
+    // Horizontal (a, b)–(a + 1, b): cell (a, b − 1)'s +y wall; vertical (a, b)–(a, b + 1): cell (a − 1, b)'s +x wall.
+    if (y === by) cellBit(Math.min(x, bx), y - 1, 2)
+    else cellBit(x - 1, Math.min(y, by), 1)
+  }
+  return out
+}
+
+/** GLSL's hashI / hash2I / hash3I (glsl/common.ts) on an integer cell, bit for bit. */
+const hashI = (x: number, y: number, seed: number) => u2f(pcg3(x >>> 0, y >>> 0, seed >>> 0))
+function hash3I(x: number, y: number, seed: number): [number, number, number] {
+  const h = pcg3(x >>> 0, y >>> 0, seed >>> 0)
+  const h2 = pcg(h)
+  return [u2f(h), u2f(h2), u2f(pcg(h2))]
+}
+/** The sides (bits R U L D) each bus direction wants on even / odd tiles (the shader's MOT_WANT). */
+const WANT = [15, 15, 5, 5, 10, 10, 6, 9, 12, 3]
+
+/**
+ * The circuit board. Tiles are centred on lattice nodes; a trace crosses a tile edge at its midpoint.
+ *
+ * - Bus regions: a coarse, tileable Voronoi gives each tile a bus direction (horizontal, vertical or one of the two
+ *   diagonals); an edge carries a trace when both its tiles want it (WANT) and a Trace density draw passes, so
+ *   traces run in parallel buses that bend together at 45°. Diagonal buses use one chamfer pair per tile,
+ *   alternating with tile parity, so their lines run every other diagonal (the straight buses' pitch at 45°).
+ *   Closed loops are then broken, at their junctions first so the runs stay whole; a bus wrapping round a tiled
+ *   texture is no loop on the board (a union-find with each tile's unwrapped offset from its root tells them apart).
+ * - No regions: routed traces — walks that never touch another trace (no junctions, no loops), mostly straight,
+ *   continuing across each edge with the Trace density chance, starting from the chip pins, until about 60 % of the
+ *   free board is covered.
+ * - Chips of S tiles sit in blocks of S + 2 + scatter tiles, at a random place at least a tile in; 85 % of their
+ *   outline sides get a pin edge. Empty board: value-noise blobs without traces. Wide traces: whole traces of six or
+ *   more tiles, not to a chip. Lone vias: on a 0.3 × Vias share of the free tiles outside the blobs.
+ *
+ * Per padded tile: R, G = the trace's random (16 bits: per connected trace, a chip with its traces); B = bit 0 the
+ * +x edge, bit 1 the +y edge, bit 2 wide, bit 3 a lone via, bits 4–6 the bus direction + 1, bit 7 chip; A = the
+ * tile's place in its chip (x | y << 4).
+ */
+function circuitTiles(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): Uint8Array {
+  const W = nx + 2
+  const H = ny + 2
+  const lo = tile ? 0 : -1
+  const hiX = tile ? nx - 1 : nx
+  const hiY = tile ? ny - 1 : ny
+  const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x)
+  const inside = (x: number, y: number) => tile || (x >= lo && x <= hiX && y >= lo && y <= hiY)
+  const idx = (x: number, y: number) => (wrap(y, ny) + 1) * W + wrap(x, nx) + 1
+  const f = Math.fround
+  // Chips.
+  const S = [Math.min(16, Math.max(1, Math.round(Number(p.chip_w ?? 2)))), Math.min(16, Math.max(1, Math.round(Number(p.chip_h ?? 2))))]
+  const sc = Math.min(32, Math.max(0, Math.round(Number(p.chip_scatter ?? 4))))
+  const place = new Uint8Array(W * H)   // the tile's place in its chip
+  const chips = f(Number(p.chips ?? 0))
+  const chipOf = (x: number, y: number): number => {
+    if (chips <= 0) return -1
+    const B = [S[0] + 2 + sc, S[1] + 2 + sc]
+    const m = [Math.floor(x / B[0]), Math.floor(y / B[1])]
+    const h = hash3I(m[0], m[1], seed + 71)
+    if (tile && ((m[0] + 1) * B[0] > nx || (m[1] + 1) * B[1] > ny)) return -1
+    if (h[0] >= chips) return -1
+    const ox = m[0] * B[0] + 1 + Math.min(Math.floor(f(h[1] * (sc + 1))), sc) - x
+    const oy = m[1] * B[1] + 1 + Math.min(Math.floor(f(h[2] * (sc + 1))), sc) - y
+    if (!(ox <= 0 && oy <= 0 && ox + S[0] > 0 && oy + S[1] > 0)) return -1
+    place[idx(x, y)] = -ox | (-oy << 4)
+    return (m[1] * 4096 + m[0]) & 0xffffff
+  }
+  const chip = new Int32Array(W * H).fill(-1)
+  for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) chip[idx(x, y)] = chipOf(wrap(x, nx), wrap(y, ny))
+  // Empty board: blobs of value noise over a coarse grid (about six tiles a cell), the given share of the tiles.
+  const empty = new Uint8Array(W * H)
+  const share = Math.min(0.9, Math.max(0, Number(p.empty ?? 0.25)))
+  const rand = prng(seed + 53)
+  if (share > 0) {
+    const cx = Math.max(2, Math.round(nx / 6))
+    const cy = Math.max(2, Math.round(ny / 6))
+    const g = Array.from({ length: (cx + 1) * (cy + 1) }, () => rand())
+    if (tile) for (let i = 0; i <= cx; i++) for (let j = 0; j <= cy; j++) g[j * (cx + 1) + i] = g[(j % cy) * (cx + 1) + (i % cx)]
+    const sm = (t: number) => t * t * (3 - 2 * t)
+    const val: [number, number][] = []
+    for (let y = lo; y <= hiY; y++)
+      for (let x = lo; x <= hiX; x++) {
+        const u = (Math.min(Math.max(x, 0), nx - 1) + 0.5) / nx * cx
+        const v = (Math.min(Math.max(y, 0), ny - 1) + 0.5) / ny * cy
+        const i = Math.floor(u)
+        const j = Math.floor(v)
+        const a = sm(u - i)
+        const b = sm(v - j)
+        const at = (di: number, dj: number) => g[Math.min(j + dj, cy) * (cx + 1) + Math.min(i + di, cx)]
+        val.push([idx(x, y), (at(0, 0) * (1 - a) + at(1, 0) * a) * (1 - b) + (at(0, 1) * (1 - a) + at(1, 1) * a) * b])
+      }
+    const sorted = val.map((v) => v[1]).sort((a, b) => a - b)
+    const thr = sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]
+    for (const [i, v] of val) if (v < thr && chip[i] < 0) empty[i] = 1
+  }
+  const out = new Uint8Array(W * H)
+  const setEdge = (x: number, y: number, d: number) => {
+    // d: 0 R, 1 U, 2 L, 3 D — stored on the tile whose +x / +y edge it is.
+    if (d < 2) out[idx(x, y)] |= 1 << d
+    else out[idx(x + D4[d][0], y + D4[d][1])] |= 1 << (d - 2)
+  }
+  const regions = Number(p.regions ?? 6)
+  const traces = f(Number(p.traces ?? 0.85))
+  const uf = unionFind(W * H)
+  // A chip is one node: traces between two of its pins would close a loop through it.
+  const chipRoot = new Map<number, number>()
+  for (let i = 0; i < W * H; i++) {
+    if (chip[i] < 0) continue
+    const r = chipRoot.get(chip[i])
+    if (r === undefined) chipRoot.set(chip[i], i)
+    else uf.join(i, r)
+  }
+  const dir = new Int8Array(W * H).fill(-1)
+  if (regions > 0) {
+    // Bus directions from the regions' Voronoi (the nearest site's random picks the direction), then the edges.
+    const bend = f(Number(p.bend ?? 0.5))
+    const cnt = [Math.max(1, Math.floor(nx / regions + 0.5)), Math.max(1, Math.floor(ny / regions + 0.5))]
+    const dirOf = (x: number, y: number) => {
+      const X = [((x + 0.5) / nx) * cnt[0], ((y + 0.5) / ny) * cnt[1]]
+      const ip = [Math.floor(X[0]), Math.floor(X[1])]
+      let best = 1e9
+      let rnd = 0
+      for (let j = -1; j <= 1; j++)
+        for (let i = -1; i <= 1; i++) {
+          const gx = tile ? (((ip[0] + i) % cnt[0]) + cnt[0]) % cnt[0] : ip[0] + i
+          const gy = tile ? (((ip[1] + j) % cnt[1]) + cnt[1]) % cnt[1] : ip[1] + j
+          const hh = pcg3(gx >>> 0, gy >>> 0, (seed + 31) >>> 0)
+          const rx = ip[0] + i + 0.5 + (u2f(hh) - 0.5) * 0.9 - X[0]
+          const ry = ip[1] + j + 0.5 + (u2f(pcg(hh)) - 0.5) * 0.9 - X[1]
+          const d = rx * rx + ry * ry
+          if (d < best) {
+            best = d
+            rnd = hashI(gx, gy, seed + 37)
+          }
+        }
+      if (rnd < bend) return rnd < 0.5 * bend ? 2 : 3
+      return rnd - bend < 0.5 * (1 - bend) ? 0 : 1
+    }
+    const wants = (dir: number, x: number, y: number, side: number) => ((WANT[(dir + 1) * 2 + ((x + y) & 1)] >> side) & 1) !== 0
+    for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) dir[idx(x, y)] = dirOf(wrap(x, nx), wrap(y, ny))
+    const live: [number, number, number, number, boolean][] = []   // x, y, side (0 R / 1 U), neighbour index, pin
+    for (let y = lo; y <= hiY; y++)
+      for (let x = lo; x <= hiX; x++)
+        for (let axis = 0; axis < 2; axis++) {
+          const bx = x + D4[axis][0]
+          const by = y + D4[axis][1]
+          if (!inside(bx, by)) continue
+          const a = idx(x, y)
+          const b = idx(bx, by)
+          const ca = chip[a] >= 0
+          const cb = chip[b] >= 0
+          if (ca && cb) continue
+          const h = hashI(wrap(x, nx), wrap(y, ny), seed + (axis === 0 ? 11 : 13))
+          const on = ca || cb ? h < 0.85 : wants(dir[a], x, y, axis) && wants(dir[b], bx, by, axis + 2) && h < traces
+          if (on && !empty[a] && !empty[b]) live.push([x, y, axis, b, ca || cb])
+        }
+    // Kept first: pins, then edges between tiles of at most two edges (the runs of a bus), then those at junctions,
+    // each group in a random order; an edge that would close a loop is dropped.
+    const degree = new Uint8Array(W * H)
+    for (const [x, y, , b] of live) (degree[idx(x, y)]++, degree[b]++)
+    for (let i = live.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1))
+      ;[live[i], live[j]] = [live[j], live[i]]
+    }
+    const rank = (e: (typeof live)[number]) => (e[4] ? 0 : degree[idx(e[0], e[1])] <= 2 && degree[e[3]] <= 2 ? 1 : 2)
+    live.sort((a, b) => rank(a) - rank(b))
+    const par = new Int32Array(W * H).map((_, i) => i)
+    const off = new Int32Array(2 * W * H)
+    const path: number[] = []
+    const root = (i: number): number => {
+      // Walk up, then point every node on the way at the root with its offset summed (iterative: no deep recursion).
+      path.length = 0
+      while (par[i] !== i) (path.push(i), (i = par[i]))
+      for (let k = path.length - 2; k >= 0; k--) {
+        const v = path[k]
+        const up = par[v]
+        off[2 * v] += off[2 * up]
+        off[2 * v + 1] += off[2 * up + 1]
+        par[v] = i
+      }
+      return i
+    }
+    // Chips are single nodes here too, each tile at its true offset (a chip never straddles the seam), so a loop
+    // through a chip counts as one.
+    for (let i = 0; i < W * H; i++) {
+      const r = chip[i] >= 0 ? chipRoot.get(chip[i])! : i
+      if (r === i) continue
+      par[i] = r
+      off[2 * i] = (i % W) - (r % W)
+      off[2 * i + 1] = Math.floor(i / W) - Math.floor(r / W)
+    }
+    for (const [x, y, axis, b] of live) {
+      const a = idx(x, y)
+      const ra = root(a)
+      const rb = root(b)
+      const sx = D4[axis][0]
+      const sy = D4[axis][1]
+      if (ra === rb) {
+        const wraps = off[2 * a] + sx !== off[2 * b] || off[2 * a + 1] + sy !== off[2 * b + 1]
+        if (!wraps) continue
+      } else {
+        par[ra] = rb
+        off[2 * ra] = off[2 * b] - sx - off[2 * a]
+        off[2 * ra + 1] = off[2 * b + 1] - sy - off[2 * a + 1]
+      }
+      uf.join(a, b)
+      setEdge(x, y, axis)
+    }
+  } else {
+    // Routed traces: no tile is used twice, so traces never meet.
+    const used = new Uint8Array(W * H)
+    for (let i = 0; i < W * H; i++) if (chip[i] >= 0 || empty[i]) used[i] = 1
+    let free = 0
+    for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) if (!used[idx(x, y)]) free++
+    let filled = 0
+    const walk = (x: number, y: number, d: number) => {
+      const start = idx(x, y)
+      used[start] = 1
+      filled++
+      for (let steps = 0; steps < 4 * (nx + ny) && rand() < traces; steps++) {
+        // Straight on mostly, else a turn either way; never back.
+        const turn = rand() < 0.5 ? 1 : 3
+        const order = rand() < 0.75 ? [d, (d + turn) % 4, (d + 4 - turn) % 4] : [(d + turn) % 4, d, (d + 4 - turn) % 4]
+        let moved = false
+        for (const e of order) {
+          const bx = x + D4[e][0]
+          const by = y + D4[e][1]
+          if (!inside(bx, by) || used[idx(bx, by)]) continue
+          setEdge(x, y, e)
+          uf.join(idx(x, y), idx(bx, by))
+          x = bx
+          y = by
+          d = e
+          used[idx(x, y)] = 1
+          filled++
+          moved = true
+          break
+        }
+        if (!moved) break
+      }
+    }
+    // From the chip pins outwards (85 % of the outline sides), then from random free tiles.
+    for (let y = lo; y <= hiY; y++)
+      for (let x = lo; x <= hiX; x++) {
+        if (chip[idx(x, y)] < 0) continue
+        for (let d = 0; d < 4; d++) {
+          const bx = x + D4[d][0]
+          const by = y + D4[d][1]
+          if (!inside(bx, by) || chip[idx(bx, by)] >= 0 || used[idx(bx, by)] || rand() >= 0.85) continue
+          setEdge(x, y, d)
+          uf.join(idx(x, y), idx(bx, by))
+          walk(bx, by, d)
+        }
+      }
+    for (let tries = 0; tries < 20 * free && filled < 0.6 * free; tries++) {
+      const x = lo + Math.floor(rand() * (hiX - lo + 1))
+      const y = lo + Math.floor(rand() * (hiY - lo + 1))
+      if (!used[idx(x, y)]) walk(x, y, Math.floor(rand() * 4))
+    }
+  }
+  // Lone vias (bit 3) on tiles without traces, outside the empty blobs.
+  const vias = Number(p.vias ?? 0.3) * 0.3
+  for (let y = lo; y <= hiY; y++)
+    for (let x = lo; x <= hiX; x++) {
+      const i = idx(x, y)
+      const left = out[idx(x - 1, y)] & 1
+      const down = out[idx(x, y - 1)] & 2
+      if (!(out[i] & 3) && !(inside(x - 1, y) && left) && !(inside(x, y - 1) && down) && chip[i] < 0 && !empty[i] && rand() < vias) out[i] |= 8
+    }
+  // Wide traces: whole connected pieces without a chip, at least six tiles long (no fat stubs).
+  const wide = Math.min(1, Math.max(0, Number(p.wide ?? 0.12)))
+  if (wide > 0) {
+    const pick = new Map<number, boolean>()
+    const tiles = new Map<number, number>()
+    for (let i = 0; i < W * H; i++) tiles.set(uf.find(i), (tiles.get(uf.find(i)) ?? 0) + 1)
+    for (const [r, k] of tiles) if (k < 6) pick.set(r, false)
+    for (let i = 0; i < W * H; i++) if (chip[i] >= 0) pick.set(uf.find(i), false)
+    for (let y = lo; y <= hiY; y++)
+      for (let x = lo; x <= hiX; x++) {
+        const i = idx(x, y)
+        const r = uf.find(i)
+        if (!pick.has(r)) pick.set(r, rand() < wide)
+        if (pick.get(r)) out[i] |= 4
+      }
+  }
+  const data = new Uint8Array(W * H * 4)
+  for (let i = 0; i < W * H; i++) {
+    const v = Math.min(65535, Math.floor(u2f(pcg3(uf.find(i), 5, seed)) * 65536))
+    data.set([v >> 8, v & 255, out[i] | ((dir[i] + 1) << 4) | (chip[i] >= 0 ? 128 : 0), place[i]], i * 4)
+  }
+  return data
+}
+
+export function truchetCells(p: ParamValues, ctx: { width: number; height: number; tileable: boolean; seed: number }): Record<string, CpuTexture> {
+  const style = String(p.style)
+  if (!['maze', 'rooms', 'labyrinth', 'circuit'].includes(style)) return { cells: { width: 1, height: 1, data: new Uint8Array(4) } }
+  const [nx, ny] = cellCount(p, ctx.width, ctx.height)
+  const seed = Math.abs(ctx.seed)
+  const W = nx + 2
+  const H = ny + 2
+  if (style === 'circuit') return { cells: { width: W, height: H, data: circuitTiles(p, nx, ny, ctx.tileable, seed) } }
+  // Walls (B) and a random per room — per cell for the maze and the labyrinth (R, G: 16 bits).
+  const data = new Uint8Array(W * H * 4)
+  const room = style === 'rooms' ? roomCells(p, nx, ny, ctx.tileable, seed) : null
+  const walls = room ? room.walls : style === 'maze' ? mazeWalls(p, nx, ny, ctx.tileable, seed) : labyrinthWalls(p, nx, ny, ctx.tileable, seed)
+  for (let i = 0; i < W * H; i++) {
+    const v = Math.min(65535, Math.floor((room ? room.rnd[i] : u2f(pcg3(i, 11, seed))) * 65536))
+    data.set([v >> 8, v & 255, walls[i], 255], i * 4)
+  }
+  return { cells: { width: W, height: H, data } }
+}
 
 export const truchetLayer: LayerDef = {
   type: 'truchet',
@@ -27,39 +639,126 @@ export const truchetLayer: LayerDef = {
   category: 'pattern',
   kind: 'generator',
   sdf: true,
-  description: 'Tile-based line networks: truchet arcs, 10-PRINT diagonals, maze walls, polyomino rooms, Greek-key meanders and circuit-board traces with pads, buses and chips.',
+  description: 'Tile-based line networks: truchet arcs (with crossings, over-under weave, two-tone fills), 10-PRINT diagonals, maze walls, polyomino rooms, Greek-key meanders and circuit-board traces with pads, buses and chips — drawn as raised lines or cut in as grooves.',
   params: [
     P.enum('style', 'Style', 'arcs', STYLES),
-    P.int('cells', 'Cells across', 8, 1, 256, { softMax: 64, hint: 'Grid cells across the width. Meanders round to a multiple of the key period when tiling' }),
-    P.int('cells_y', 'Cells down', 0, 0, 256, { softMax: 64, hint: '0 = follow the aspect ratio (square cells)' }),
-    P.float('width', 'Line width', 1, 0, 256, { softMax: 16, unit: 'px', step: 0.1, hint: 'Whole-pixel widths on whole-pixel cells give crisp lines with anti-aliasing off' }),
+    P.enum('draw', 'Draw', 'lines', DRAW, { hint: 'What the shape is: the lines, the surface between them, or (arcs) alternate regions' }),
+    P.int('cells', 'Cells across', 8, 1, 1024, { softMax: 128, hint: 'Grid cells across the width. Meanders round to a multiple of the key period when tiling' }),
+    P.int('cells_y', 'Cells down', 0, 0, 1024, { softMax: 128, hint: '0 = follow the aspect ratio (square cells)' }),
+    P.float('width', 'Line width', 1, 0, 256, {
+      softMax: 32,
+      unit: 'px',
+      step: 0.1,
+      hint: 'Grooves: the groove width. Two-tone: the gap between the filled regions. Whole-pixel widths on whole-pixel cells give crisp lines with anti-aliasing off',
+    }),
+    P.enum('caps', 'Caps', 'square', [['round', 'Round', 'round line ends and outer corners'], ['square', 'Square', 'square ends and mitred corners']], {
+      showIf: isStyle('maze', 'rooms', 'meander', 'labyrinth'),
+      hint: 'Line ends and corners of the lattice styles (maze, rooms, meander, labyrinth)',
+    }),
     P.float('offset_x', 'Offset X', 0, 0, 1, { step: 0.001, hint: 'Shift the lattice, fraction of a cell' }),
     P.float('offset_y', 'Offset Y', 0, 0, 1, { step: 0.001 }),
     P.float('density', 'Density', 1, 0, 1, {
       step: 0.001,
-      showIf: isStyle('arcs', 'diagonal', 'maze', 'rooms'),
-      hint: 'Arcs / diagonal: fraction of tiles drawn. Maze: fraction of grid nodes that grow a wall. Rooms: merging of cells into bigger rooms (1 = rooms of ~3 cells)',
+      showIf: (p) => isStyle('arcs', 'diagonal', 'maze', 'rooms', 'labyrinth')(p) && !isTone(p),
+      labelFor: (p) => DENSITY_LABEL[String(p.style)] ?? 'Density',
+      hint: 'Arcs / diagonal (Tiles drawn): share of the tiles that get their lines. Maze (Walls): share of the grid nodes that grow a wall. Rooms (Room size): how readily cells join into a room (1 = rooms of about three cells; Merge rooms for bigger ones). Labyrinth (Perfection): 1 = a perfect maze; lower opens dead ends into loops (all of them by 0.5), then knocks out walls (half of them at 0)',
     }),
-    P.int('key', 'Key size', 2, 1, 6, { showIf: isStyle('meander'), hint: 'Spiral turns of each key; the period is key + 1 cells' }),
-    P.bool('borders', 'Border lines', true, { showIf: isStyle('meander'), hint: 'The rail every key hangs from (also the next band’s top)' }),
-    P.bool('vertical', 'Vertical', false, { showIf: isStyle('meander'), hint: 'Run the bands down instead of across' }),
-    P.float('regions', 'Bus regions', 6, 0, 64, {
+    P.float('twist', 'Twist', 0.5, 0, 1, { step: 0.001, uniform: false, showIf: isStyle('labyrinth'), hint: 'Chance the labyrinth’s corridors turn at each cell (0 = long straight runs, 1 = winding)' }),
+    P.float('cross', 'Crossings', 0, 0, 1, {
+      step: 0.001,
+      showIf: isStyle('arcs', 'diagonal'),
+      hint: 'Share of tiles whose lines cross instead: a + of straight lines (arcs) or an X (diagonal). All crossings: a grid, or a weave with Over-under',
+    }),
+    P.float('weave', 'Over-under', 0, 0, 64, {
       softMax: 16,
+      unit: 'px',
       step: 0.1,
-      showIf: isStyle('circuit'),
-      hint: 'Size (cells) of regions whose traces run parallel — horizontal, vertical or diagonal buses that bend together. 0 = independent random traces',
+      showIf: (p) => isStyle('arcs', 'diagonal')(p) && Number(p.cross) > 0 && !isTone(p),
+      hint: 'At crossings the under strand breaks this far either side of the over strand, alternating like a weave or knotwork (0 = the lines simply cross; a fraction of a pixel = an unbroken weave, the strands only rising and sinking)',
     }),
-    P.float('traces', 'Trace density', 0.85, 0, 1, { step: 0.001, showIf: isStyle('circuit'), hint: 'Chance that a trace continues across each cell edge (lower = shorter traces, more pads)' }),
+    P.float('dip', 'Over-under depth', 0.6, 0, 1, {
+      step: 0.001,
+      showIf: (p) => isStyle('arcs', 'diagonal')(p) && Number(p.cross) > 0 && Number(p.weave) > 0 && !isTone(p),
+      hint: 'Height of the weave: the over strand rises to a crown at its crossing, the under strand sinks to its cut ends (0 = flat strands)',
+    }),
+    P.bool('prune', 'Drop fragments', true, {
+      uniform: false,
+      showIf: isStyle('maze'),
+      hint: 'Leave out wall pieces of fewer than five walls (floating dashes, small crosses), so the walls form a network',
+    }),
+    P.float('merge', 'Merge rooms', 1, 0, 3, {
+      step: 0.001,
+      uniform: false,
+      showIf: isStyle('rooms'),
+      hint: 'Joins neighbouring rooms into bigger, more varied ones: each whole step pairs every room with a neighbour, the fraction a share of them (0 = the plain polyomino net). Merged rooms have no stub walls inside',
+    }),
+    P.int('key', 'Key size', 2, 1, 12, {
+      showIf: isStyle('meander'),
+      hint: 'Spirals: cells the key spans (its first arm; it spirals in from there), period key + 1. Running key: turns in (and out), period 2·key + 2 cells along the band, 2·key + 2 across (+ 1 with Border lines)',
+    }),
+    P.enum('key_style', 'Key', 'running', [
+      ['spiral', 'Spirals on a rail', 'square spirals hanging from a rail (period key + 1)'],
+      ['running', 'Running key', 'one continuous line spiralling in and back out of every key — the classic Greek key (period 2·key + 2 cells along the band; across it 2·key + 2, + 1 with Border lines)'],
+    ], { showIf: isStyle('meander') }),
+    P.bool('borders', 'Border lines', true, { showIf: isStyle('meander'), hint: 'Spirals: the rail every key hangs from (also the next band’s top). Running key: a rail one cell below each band' }),
+    P.bool('vertical', 'Vertical', false, { showIf: isStyle('meander'), hint: 'Run the bands down instead of across' }),
+    P.float('regions', 'Bus regions', 6, 0, 256, {
+      softMax: 32,
+      step: 0.1,
+      uniform: false,
+      showIf: isStyle('circuit'),
+      hint: 'Size (cells) of regions whose traces run parallel — horizontal, vertical or diagonal buses that bend together. 0 = routed traces: wandering, never meeting, from the chips outwards',
+    }),
+    P.float('traces', 'Trace density', 0.85, 0, 1, { step: 0.001, uniform: false, showIf: isStyle('circuit'), hint: 'Chance that a trace continues across each cell edge (lower = shorter traces, more pads)' }),
     P.float('bend', 'Diagonals', 0.5, 0, 1, {
       step: 0.001,
       showIf: isStyle('circuit'),
       hint: 'With regions: share of diagonal buses. Without: chance a turn cuts the corner at 45° (else a right angle)',
     }),
-    P.float('pad', 'Pad radius', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1, showIf: isStyle('circuit'), hint: 'Round pads at trace ends and vias' }),
-    P.float('vias', 'Vias', 0.3, 0, 1, { step: 0.001, showIf: isStyle('circuit'), hint: 'Chance of a lone via in an empty cell' }),
-    P.float('chips', 'Chips', 0, 0, 1, { step: 0.001, showIf: isStyle('circuit'), hint: 'Chance of a 2×2-cell chip (with pins) in each 4×4 block' }),
+    P.float('empty', 'Empty board', 0.25, 0, 0.9, {
+      step: 0.001,
+      uniform: false,
+      showIf: isStyle('circuit'),
+      hint: 'Share of the board left without traces, in blobs a few tiles across (chips stay)',
+    }),
+    P.float('wide', 'Wide traces', 0.12, 0, 1, {
+      step: 0.001,
+      uniform: false,
+      showIf: isStyle('circuit'),
+      hint: 'Share of traces (whole connected traces, not those to chips) drawn at 2.5 × the width — power lines',
+    }),
+    P.float('junctions', 'Junctions', 0.2, 0, 1, {
+      step: 0.001,
+      showIf: (p) => p.style === 'circuit' && Number(p.regions) > 0,
+      hint: 'Where buses meet: chance a tile with three or four traces joins them (T or + junction); otherwise the odd trace stops in a pad short of the other, or the four turn in pairs — 0 = no merges, like a real board',
+    }),
+    P.float('pad', 'Pad radius', 1, 0, 64, { softMax: 16, unit: 'px', step: 0.1, showIf: isStyle('circuit'), hint: 'Round pads at trace ends and vias (follows the line width until set)' }),
+    P.float('vias', 'Vias', 0.3, 0, 1, { step: 0.001, uniform: false, showIf: isStyle('circuit'), hint: 'Lone vias: on 0.3 × this share of the cells without traces (outside the empty blobs)' }),
+    P.float('chips', 'Chips', 0, 0, 1, { step: 0.001, uniform: false, showIf: isStyle('circuit'), hint: 'Chance of a chip (with pins) in each block of chip size + 2 + scatter cells' }),
+    P.int('chip_w', 'Chip width', 2, 1, 16, { showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0, hint: 'Cells across each chip; a one-cell margin of traces runs round it' }),
+    P.int('chip_h', 'Chip height', 2, 1, 16, { showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0, hint: 'Cells down each chip' }),
+    P.enum('chip_style', 'Chip style', 'ic', [['plain', 'Plain', 'a slab, the traces running in under it'], ['ic', 'IC', 'square legs on every side (traces meet them), a notch at one end']], {
+      showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+    }),
+    P.int('chip_scatter', 'Chip scatter', 4, 0, 32, {
+      softMax: 8,
+      uniform: false,
+      showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+      hint: 'Extra cells in each chip’s block, the chip at a random place in it: sparser, irregular placement (0 = a regular grid)',
+    }),
     P.seed(),
   ],
+  // Lines read as rounded wires: the bevel spans half the line (at least 1 px) and pads are a line width in radius;
+  // each style starts at a cell count that suits it (circuits fine, arcs coarse) — until set by hand.
+  linkedDefaults: (p) => ({
+    bevel: r1(Math.max(1, 0.5 * Number(p.width))),
+    pad: r1(Math.max(1, Number(p.width))),
+    cells: STYLE_CELLS[String(p.style)] ?? 8,
+  }),
+  // Added in the editor: lines thick enough to read as raised wires at the texture's size (6 px at 512).
+  fresh: ({ width, height }) => ({ width: Math.max(1, Math.round(Math.min(width, height) / 85)) }),
+  textures: ['cells'],
+  cpuData: truchetCells,
   defaults: {
     h_on: true,
     h_amount: 0.4,
@@ -74,16 +773,23 @@ export const truchetLayer: LayerDef = {
     /* glsl */ `
 ivec2 mot_wrap(ivec2 c, ivec2 n) { return uTile ? imod(c, n) : c; }
 
+// Per-cell data from the CPU (truchetCells): cell c at texel c + 1; none (0) outside the texture.
+vec4 mot_cellData(ivec2 c, ivec2 n) {
+  ivec2 t = mot_wrap(c, n) + 1;
+  return any(lessThan(t, ivec2(0))) || any(greaterThanEqual(t, textureSize(t_cells, 0))) ? vec4(0.0) : texelFetch(t_cells, t, 0);
+}
+
 // Loop bounds read from a uniform (always 1 at run time): D3D's compiler can't unroll such loops, so each body is
 // compiled once instead of once per iteration — the style loops below took seconds to compile unrolled.
 int MOT_1;
 
-// Cells per axis (whole counts); rounded to a multiple of 'mult' (the meander period) when tiling.
-ivec2 mot_cellCount(int mult) {
+// Cells per axis (whole counts); rounded to a multiple of 'mult' per axis (the meander period) when tiling.
+ivec2 mot_cellCount(ivec2 mult) {
   float nx = float(max(u_cells, 1));
   float ny = u_cells_y > 0 ? float(u_cells_y) : nx * uRes.y / uRes.x;
   vec2 n = max(vec2(1.0), floor(vec2(nx, ny) + 0.5));
-  if (mult > 1 && uTile) n = max(vec2(float(mult)), floor(n / float(mult) + 0.5) * float(mult));
+  vec2 m = vec2(max(mult, ivec2(1)));
+  if (uTile) n = max(m, floor(n / m + 0.5) * m);
   return ivec2(n);
 }
 
@@ -96,191 +802,143 @@ float mot_quarterArc(vec2 p, vec2 c, float r, vec2 s) {
   return min(length(d - vec2(s.x * r, 0.0)), length(d - vec2(0.0, s.y * r)));
 }
 
-// Rooms: every cell links to one random neighbour (with probability density); walls sit on cell edges between
-// cells that are not directly linked, so rooms are small polyominoes. A wall that would be the only one at
-// either of its end nodes (a stub poking into a room that wraps around the node) is dropped, so the walls
-// form a closed net like a tiling of tetromino-ish rooms.
-int mot_link(ivec2 cw) {
-  vec2 h = hash2I(cw, MOT_SEED + 3.0);
-  return h.x < 0.6 * u_density ? int(h.y * 4.0) : -1;   // beyond ~0.6, stubby dead-end walls appear
-}
-// Cells a and a + D4[axis] (axis 0: +x, 1: +y) are linked.
-bool mot_linked(ivec2 a, int axis, ivec2 n) {
-  return mot_link(mot_wrap(a, n)) == axis || mot_link(mot_wrap(a + MOT_D4[axis], n)) == axis + 2;
-}
-// The edge leaving lattice node x in direction dir (0 +x, 1 +y, 2 −x, 3 −y) is open (its cells are linked): the
-// pair of cells either side of that edge, by table — one link test instead of four branches of them (D3D inlines
-// every call, so the branches multiplied the shader's size).
-const ivec2 MOT_NODE_CELL[4] = ivec2[4](ivec2(0, -1), ivec2(-1, 0), ivec2(-1, -1), ivec2(-1, -1));
-const int MOT_NODE_AXIS[4] = int[4](1, 0, 1, 0);
-bool mot_nodeOpen(ivec2 x, int dir, ivec2 n) {
-  return mot_linked(x + MOT_NODE_CELL[dir], MOT_NODE_AXIS[dir], n);
-}
-bool mot_lonely(ivec2 x, int dir, ivec2 n) {
-  for (int k = 1; k < 3 * MOT_1 + 1; k++) if (!mot_nodeOpen(x, (dir + k) % 4, n)) return false;
-  return true;
-}
-// The +x (axis 0) or +y (axis 1) wall of cell c (which spans lattice [c, c + 1]).
-bool mot_wall(ivec2 c, int axis, ivec2 n) {
-  if (mot_linked(c, axis, n)) return false;
-  int da = axis == 0 ? 1 : 0;
-  // Neither end node may be left with this wall alone (one copy of the check, looped over the two ends).
-  for (int e = 0; e < 2 * MOT_1; e++)
-    if (mot_lonely(e == 0 ? c + (axis == 0 ? ivec2(1, 0) : ivec2(0, 1)) : c + 1, da + 2 * e, n)) return false;
-  return true;
+// Line-centre distance to the axis-aligned segment a–b: round caps (sdSegment), or square ones (Caps: the line's
+// box, so ends are cut square and corners mitred), both measured to the centre line (the caller subtracts half the
+// width).
+float mot_hw;
+float mot_seg(vec2 p, vec2 a, vec2 b) {
+  return u_caps == 0 ? sdSegment(p, a, b) : sdBox(p - 0.5 * (a + b), 0.5 * abs(b - a) + mot_hw) + mot_hw;
 }
 
-// ---- circuit. Tiles are centred on lattice nodes; traces cross tile edges at their midpoints. Each tile has a
-// bus direction (-1 random, 0 horizontal, 1 vertical, 2 / 3 the two diagonals) from a coarse Voronoi region;
-// an edge carries a trace when both tiles want it (and a random draw passes). Directions and chip flags of the
-// 5×5 tiles around the pixel are cached once.
-int mot_dir[25];
-bool mot_chp[25];
-float mot_rr[25];   // per-bus (region) random, or per-tile without regions
-ivec2 mot_c0;
-int mot_idx(ivec2 c) { ivec2 d = clamp(c - mot_c0 + 2, ivec2(0), ivec2(4)); return d.y * 5 + d.x; }
+// ---- circuit: the board is laid out on the CPU (circuitTiles); each tile's data holds its +x / +y edges, wide and
+// via flags, bus direction, chip flag and place in its chip, and a random per trace.
 
-int mot_regionDir(ivec2 cw, ivec2 n, out float rr) {
-  rr = hashI(cw, MOT_SEED);
-  if (u_regions <= 0.0) return -1;
-  vec2 cnt = max(vec2(1.0), floor(vec2(n) / u_regions + 0.5));
-  ivec2 per = uTile ? ivec2(cnt) : NO_PERIOD;
-  vec2 x = (vec2(cw) + 0.5) / vec2(n) * cnt;
-  ivec2 ip = ivec2(floor(x));
-  float best = 1e9, rnd = 0.0;
-  for (int j = -MOT_1; j <= MOT_1; j++)
-  for (int i = -MOT_1; i <= MOT_1; i++) {
-    ivec2 g = imod(ip + ivec2(i, j), per);
-    vec2 r = vec2(ip + ivec2(i, j)) + 0.5 + (hash2I(g, MOT_SEED + 31.0) - 0.5) * 0.9 - x;
-    float d = dot(r, r);
-    if (d < best) { best = d; rnd = hashI(g, MOT_SEED + 37.0); }
-  }
-  rr = fract(rnd * 7.13);
-  if (rnd < u_bend) return rnd < 0.5 * u_bend ? 2 : 3;
-  return (rnd - u_bend) < 0.5 * (1.0 - u_bend) ? 0 : 1;
-}
-
-bool mot_chip(ivec2 cw, ivec2 n) {
-  if (u_chips <= 0.0) return false;
-  ivec2 m = ivec2(floor(vec2(cw) / 4.0));
-  ivec2 r = cw - m * 4;
-  if (r.x < 1 || r.x > 2 || r.y < 1 || r.y > 2) return false;
-  if (uTile && ((m.x + 1) * 4 > n.x || (m.y + 1) * 4 > n.y)) return false;   // partial block at the seam
-  return hashI(m, MOT_SEED + 71.0) < u_chips;
-}
-
-// Whether a tile with bus direction dir uses its edge on side (0 R, 1 U, 2 L, 3 D). Diagonal buses use one
-// chamfer pair per tile, alternating with tile parity, so their lines run every other diagonal (the same
-// 2-cell pitch as straight buses at 45°) and chain across tiles.
-bool mot_wants(int dir, ivec2 c, int side) {
-  if (dir < 0) return true;
-  if (dir == 0) return side == 0 || side == 2;
-  if (dir == 1) return side == 1 || side == 3;
-  bool even = ((c.x + c.y) & 1) == 0;
-  if (dir == 2) return even ? (side == 2 || side == 1) : (side == 0 || side == 3);
-  return even ? (side == 2 || side == 3) : (side == 0 || side == 1);
-}
-
-// Edge between tile a and its +x (axis 0) or +y (axis 1) neighbour.
-bool mot_edge(ivec2 a, int axis, ivec2 n) {
-  int ia = mot_idx(a), ib = mot_idx(a + MOT_D4[axis]);
-  bool ca = mot_chp[ia], cb = mot_chp[ib];
-  if (ca && cb) return false;
-  float h = hashI(mot_wrap(a, n), MOT_SEED + (axis == 0 ? 11.0 : 13.0));
-  if (ca || cb) return h < 0.85;   // chip pins
-  return mot_wants(mot_dir[ia], a, axis) && mot_wants(mot_dir[ib], a + MOT_D4[axis], axis + 2) && h < u_traces;
-}
-
-// Diagonal-bus pair: a chamfer when both ends are live, a stub ending in a pad mid-chamfer when one is.
-vec2 mot_pair(vec2 l, bool A, bool B, vec2 ea, vec2 eb) {
-  if (A && B) return vec2(sdSegment(l, ea, eb), 1e9);
-  if (!A && !B) return vec2(1e9);
-  vec2 m = 0.5 * (ea + eb);
-  return vec2(sdSegment(l, A ? ea : eb, m), length(l - m) - u_pad);
-}
-
-// Line-centre distance (x) and solid distance (y) of circuit tile c at offset l (px from the tile centre).
-vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n) {
+// Line-centre distance (x) and solid distance (y) of circuit tile c at offset l (px from the tile centre); rr: its
+// random. Each case only picks its segments (at most two: a0 → b0, a1 → b1) and pads (at most two: at p0, p1); one
+// loop then measures them, so every primitive is compiled once (D3D inlines each call site). Flags and edges are bit
+// masks, not arrays (D3D compiles dynamically indexed local arrays slowly).
+vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr) {
   ivec2 cw = mot_wrap(c, n);
   vec2 h = 0.5 * cs;
-  vec2 eR = vec2(h.x, 0.0), eL = vec2(-h.x, 0.0), eU = vec2(0.0, h.y), eD = vec2(0.0, -h.y);
-  // The four edges (R, U, L, D) through one copy of the edge test.
-  bool E[4];
-  for (int s = 0; s < 4 * MOT_1; s++) E[s] = mot_edge(s < 2 ? c : c - MOT_D4[s - 2], s & 1, n);
-  bool R = E[0], U = E[1], L = E[2], D = E[3];
-  float dl = 1e9, ds = 1e9;
-  int ci = mot_idx(c);
-  if (mot_chp[ci]) {
-    // Body: the 2×2-tile block inset by a third of a tile; pins run from each live edge to the body.
-    ivec2 r = cw - ivec2(floor(vec2(cw) / 4.0)) * 4;
-    vec2 bc = (1.5 - vec2(r)) * cs;
-    ds = sdBox(l - bc, max(cs - max(cs / 3.0, vec2(u_width)), vec2(0.5)));
-    if (R) dl = min(dl, sdSegment(l, eR, vec2(0.0)));
-    if (L) dl = min(dl, sdSegment(l, eL, vec2(0.0)));
-    if (U) dl = min(dl, sdSegment(l, eU, vec2(0.0)));
-    if (D) dl = min(dl, sdSegment(l, eD, vec2(0.0)));
-    return vec2(dl, ds);
-  }
+  vec2 eR = vec2(h.x, 0.0), eL = vec2(-h.x, 0.0), eU = vec2(0.0, h.y), eD = vec2(0.0, -h.y), O = vec2(0.0);
+  vec4 td = mot_cellData(c, n);
+  int t = int(td.b * 255.0 + 0.5);
+  rr = (floor(td.r * 255.0 + 0.5) * 256.0 + floor(td.g * 255.0 + 0.5) + 0.5) / 65536.0;
+  // R and U are the tile's own edges; L and D its −x / −y neighbours' +x / +y edges (one fetch, looped).
+  int e = t & 3;
+  for (int s = 0; s < 2 * MOT_1; s++) if (((int(mot_cellData(c - MOT_D4[s], n).b * 255.0 + 0.5) >> s) & 1) != 0) e |= 4 << s;
+  bool R = (e & 1) != 0, U = (e & 2) != 0, L = (e & 4) != 0, D = (e & 8) != 0;
+  vec2 a0 = O, b0 = O, a1 = O, b1 = O, p0 = O, p1 = O;
+  int on = 0;   // bit 0, 1: segment 0, 1 drawn; bit 2, 3: pad 0, 1
+  float ds = 1e9;
   int k = int(R) + int(L) + int(U) + int(D);
   vec3 hh = hash3I(cw, MOT_SEED + 5.0);
-  float pad = length(l) - u_pad;
-  int dir = mot_dir[ci];
-  if (k == 0) return vec2(1e9, hh.x < u_vias ? pad : 1e9);
-  if ((dir == 0 && !U && !D) || (dir == 1 && !R && !L)) {
+  bool junc = hh.x < u_junctions;
+  int dir = ((t >> 4) & 7) - 1;
+  bool chip = (t & 128) != 0;
+  if (chip) {
+    // Body: the chip's tiles inset by a third of a tile.
+    ivec2 S = clamp(ivec2(u_chip_w, u_chip_h), ivec2(1), ivec2(16));
+    int pl = int(td.a * 255.0 + 0.5);
+    ivec2 li = ivec2(pl & 15, pl >> 4);   // this tile's place in the chip
+    vec2 bc = (0.5 * vec2(S - 1) - vec2(li)) * cs;
+    vec2 bh = max(0.5 * vec2(S) * cs - max(cs / 3.0, vec2(u_width)), vec2(0.5));
+    ds = sdBox(l - bc, bh);
+    if (u_chip_style == 1) {
+      // IC: a notch in the body's −x end, and a leg on every tile side along the outline, from the body out to the
+      // tile edge (where a trace meets it) — wider than a trace, square.
+      ds = max(ds, 0.35 * min(bh.x, bh.y) - length(l - bc + vec2(bh.x, 0.0)));
+      // Per axis, the tile's sides on the outline: + or − (a chip one tile across: both, folded by |l|). The legs
+      // stand a little off the body (a gap of a fifth of the inset, at least 1 px) and are narrower than a tile.
+      float lw = min(max(hw, 0.14 * min(cs.x, cs.y)), 0.3 * min(cs.x, cs.y));
+      for (int ax = 0; ax < 2 * MOT_1; ax++) {
+        bool x = ax == 0;
+        int at = x ? li.x : li.y;
+        bool pp = at == (x ? S.x : S.y) - 1, pm = at == 0;
+        if (pp || pm) {
+          float sg = pp ? 1.0 : -1.0, lc = x ? l.x : l.y;
+          float body = (pp && pm ? 0.0 : sg * (x ? bc.x : bc.y)) + (x ? bh.x : bh.y), edge = x ? h.x : h.y;
+          body += min(max(0.2 * (edge - body), 1.0), 0.5 * (edge - body));
+          ds = min(ds, sdBox(vec2((pp && pm ? abs(lc) : sg * lc) - 0.5 * (edge + body), x ? l.y : l.x), vec2(0.5 * (edge - body), lw)));
+        }
+      }
+    } else {
+      // Plain: pins run from each live edge to the centre (under the body).
+      a0 = R ? eR : O; b0 = L ? eL : O; a1 = U ? eU : O; b1 = D ? eD : O;
+      on = int(R || L) | (int(U || D) << 1);
+    }
+  } else if (k == 0) {
+    on = (t & 8) != 0 ? 4 : 0;   // a lone via
+  } else if ((dir == 0 && !U && !D) || (dir == 1 && !R && !L)) {
     // Straight bus: through, or a trace end with a pad.
     bool a = dir == 0 ? R : U, b = dir == 0 ? L : D;
     vec2 ea = dir == 0 ? eR : eU, eb = dir == 0 ? eL : eD;
-    if (a && b) return vec2(sdSegment(l, ea, eb), 1e9);
-    return vec2(sdSegment(l, a ? ea : eb, vec2(0.0)), pad);
-  }
-  if (dir >= 2) {
-    // Diagonal bus: one chamfer per tile (see mot_wants); chained, they form 45° lines.
-    // Arguments chosen first, so each pair is one copy of mot_pair.
-    vec2 p1 = mot_pair(l, L, dir == 2 ? U : D, eL, dir == 2 ? eU : eD);
-    vec2 p2 = mot_pair(l, R, dir == 2 ? D : U, eR, dir == 2 ? eD : eU);
-    return min(p1, p2);
-  }
-  // Random traces (and any tile whose edges do not fit its bus).
-  if (k == 1) {
-    dl = sdSegment(l, R ? eR : L ? eL : U ? eU : eD, vec2(0.0));
-    ds = pad;
+    a0 = a ? ea : eb; b0 = a && b ? eb : O;
+    on = a && b ? 1 : 5;
+  } else if (dir >= 2) {
+    // Diagonal bus: one chamfer per tile (see circuitTiles); chained, they form 45° lines. Each pair is a chamfer when
+    // both its ends are live, a stub ending in a pad mid-chamfer when one is.
+    bool A0 = L, B0 = dir == 2 ? U : D, A1 = R, B1 = dir == 2 ? D : U;
+    vec2 f0 = dir == 2 ? eU : eD, f1 = dir == 2 ? eD : eU;
+    p0 = 0.5 * (eL + f0); p1 = 0.5 * (eR + f1);
+    a0 = A0 ? eL : f0; b0 = A0 && B0 ? f0 : p0;
+    a1 = A1 ? eR : f1; b1 = A1 && B1 ? f1 : p1;
+    on = int(A0 || B0) | (int(A1 || B1) << 1) | (int(A0 != B0) << 2) | (int(A1 != B1) << 3);
+  } else if (k == 1) {
+    // Random traces (and any tile whose edges do not fit its bus) from here on. One edge: a trace end with a pad.
+    a0 = R ? eR : L ? eL : U ? eU : eD;
+    on = 5;
   } else if (k == 2) {
-    if (R && L) dl = sdSegment(l, eR, eL);
-    else if (U && D) dl = sdSegment(l, eU, eD);
+    if (R && L) { a0 = eR; b0 = eL; on = 1; }
+    else if (U && D) { a0 = eU; b0 = eD; on = 1; }
     else {
+      // A turn: cut at 45°, or a right angle through the centre.
       vec2 a = R ? eR : eL, b = U ? eU : eD;
-      dl = hh.y < u_bend ? sdSegment(l, a, b) : min(sdSegment(l, a, vec2(0.0)), sdSegment(l, vec2(0.0), b));
+      bool cut = hh.y < u_bend;
+      a0 = a; b0 = cut ? b : O; b1 = b;
+      on = cut ? 1 : 3;
     }
   } else if (k == 3) {
     // The odd edge either tees into the through trace, or the corner pair is chamfered and the remaining edge
     // ends in a pad part-way in.
+    // Without a junction (Junctions), the odd edge stops in a pad short of the through trace instead of teeing.
     bool horiz = R && L;
-    vec2 a1 = horiz ? eR : eU, a2 = horiz ? eL : eD;
+    vec2 e1 = horiz ? eR : eU, e2 = horiz ? eL : eD;
     vec2 o = horiz ? (U ? eU : eD) : (R ? eR : eL);
-    if (hh.y < u_bend * 0.5) {
-      vec2 keep = hh.z < 0.5 ? a1 : a2, lone = hh.z < 0.5 ? a2 : a1;
-      dl = min(sdSegment(l, keep, o), sdSegment(l, lone, lone * 0.4));
-      ds = length(l - lone * 0.4) - u_pad;
-    } else {
-      dl = min(sdSegment(l, a1, a2), sdSegment(l, o, vec2(0.0)));
-    }
+    bool cut = hh.y < u_bend * 0.5, z = hh.z < 0.5;
+    bool tee = !cut && junc;
+    vec2 keep = z ? e1 : e2, lone = cut ? (z ? e2 : e1) : o;
+    a0 = cut ? keep : e1; b0 = cut ? o : e2; a1 = lone; b1 = tee ? O : lone * 0.4; p0 = lone * 0.4;
+    on = tee ? 3 : 7;
   } else {
-    if (hh.y < u_bend) {
-      dl = hh.z < 0.5 ? min(sdSegment(l, eR, eU), sdSegment(l, eL, eD)) : min(sdSegment(l, eR, eD), sdSegment(l, eL, eU));
-    } else {
-      dl = min(sdSegment(l, eR, eL), sdSegment(l, eU, eD));
-      ds = pad;
-    }
+    // A crossing: two chamfers, or straight through with a pad (a via) — always chamfers without a junction.
+    bool cut = hh.y < u_bend || !junc, z = hh.z < 0.5;
+    a0 = eR; b0 = cut ? (z ? eU : eD) : eL;
+    a1 = cut ? eL : eU; b1 = cut ? (z ? eD : eU) : eD;
+    on = cut ? 3 : 7;
   }
-  return vec2(dl, ds);
+  float dl = 1e9;
+  for (int q = 0; q < 2 * MOT_1; q++) {
+    if ((on & (1 << q)) != 0) dl = min(dl, sdSegment(l, q == 0 ? a0 : a1, q == 0 ? b0 : b1));
+    if ((on & (4 << q)) != 0) ds = min(ds, length(l - (q == 0 ? p0 : p1)) - u_pad);
+  }
+  // A wide trace (power line): 2.5 × the width, its pads grown as much.
+  float wx = (t & 4) != 0 && !chip ? max(1.5 * hw, 1.0) : 0.0;
+  return vec2(dl - wx, ds - wx);
 }
 
 GenOut gen(vec2 p) {
   MOT_1 = uRes.x > 0.0 ? 1 : 0;
   int style = u_style;
-  int key = clamp(u_key, 1, 6);
+  int key = clamp(u_key, 1, 12);
   int P = key + 1;
-  ivec2 n = mot_cellCount(style == 4 ? P : 1);
+  // Meander periods (along the band, across it): spirals key + 1 cells both ways; the running key 2·key + 2 along
+  // and across (+ 1 across with its rail).
+  bool running = style == 4 && u_key_style == 1;
+  ivec2 PP = running ? ivec2(2 * key + 2, 2 * key + 2 + int(u_borders)) : ivec2(P);
+  // Two-tone arcs colour each region by the parity of the lattice nodes it holds, so tiling needs even counts.
+  bool tone = style == 0 && u_draw >= 2;
+  ivec2 n = mot_cellCount(style == 4 ? (u_vertical ? PP.yx : PP) : ivec2(tone ? 2 : 1));
   // User space (y down), shifted by half the line width so a line on lattice line k covers [k·cell, k·cell + w):
   // whole-pixel cells and widths put every straight edge on a pixel boundary.
   vec2 u = vec2(p.x, uRes.y - p.y) - 0.5 * u_width - vec2(u_offset_x, u_offset_y) * uRes / vec2(n);
@@ -288,96 +946,150 @@ GenOut gen(vec2 p) {
   if (style == 4 && u_vertical) { u = u.yx; n = n.yx; res = res.yx; }
   vec2 cs = res / vec2(n);
   float hw = 0.5 * u_width;
+  mot_hw = hw;
   float best = 1e9, solid = 1e9;
   float rnd = 0.0;
 
+  float side = 0.0;   // two-tone: 1 in the filled regions
+  // Over-under: the Height factor of the nearest strand — plain strands at wBase; crossing strands one cosine from a
+  // crown of 1 at the over crossing, through wBase at the tile edge, down to the under crossing.
+  float wAmp = 0.45 * u_dip, wBase = 1.0 - wAmp;
+  float hgt = wBase;
   if (style <= 1) {
-    // Truchet arcs / diagonals: one random orientation bit per tile.
+    // Truchet arcs / diagonals: one random orientation bit per tile; a share of the tiles cross instead (+ or X).
     ivec2 c0 = ivec2(floor(u / cs));
     float m = min(cs.x, cs.y);
+    float dens = tone ? 1.0 : u_density;
+    float gap = tone ? 0.0 : u_weave;
+    int par0 = 0;
     for (int j = -MOT_1; j <= MOT_1; j++)
     for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       ivec2 cw = mot_wrap(c, n);
       vec3 h = hash3I(cw, MOT_SEED);
-      if (h.x >= u_density) continue;
+      // (An if around the body, not continue: ANGLE / D3D can miscompile continue in a loop.)
+      if (h.x < dens) {
+      bool crossing = h.x < dens * u_cross;   // h.x / dens is uniform over the drawn tiles
+      bool o = h.y < 0.5;
       vec2 l = u - vec2(c) * cs;
-      float d;
+      float da, db;   // the tile's two strands (crossings: ─ and │, or ╲ and ╱)
+      vec2 L = l * (m / cs);   // arcs: square frame (non-square cells squash the arcs)
+      float r = 0.5 * m;
       if (style == 0) {
-        vec2 L = l * (m / cs);   // square frame (non-square cells squash the arcs)
-        float r = 0.5 * m;
-        d = h.y < 0.5
-          ? min(mot_quarterArc(L, vec2(0.0), r, vec2(1.0)), mot_quarterArc(L, vec2(m), r, vec2(-1.0)))
-          : min(mot_quarterArc(L, vec2(m, 0.0), r, vec2(-1.0, 1.0)), mot_quarterArc(L, vec2(0.0, m), r, vec2(1.0, -1.0)));
+        // Arcs round two opposite corners: (0, 0) and (m, m), or (m, 0) and (0, m); each spans the quadrant inwards.
+        vec2 ca = o ? vec2(0.0) : vec2(m, 0.0), cb = vec2(m) - ca;
+        if (crossing) {
+          vec2 q = L - r;
+          da = length(vec2(max(abs(q.x) - r, 0.0), q.y));
+          db = length(vec2(q.x, max(abs(q.y) - r, 0.0)));
+        } else {
+          da = mot_quarterArc(L, ca, r, sign(r - ca));
+          db = mot_quarterArc(L, cb, r, sign(r - cb));
+        }
+        // Two-tone: every region holds lattice nodes of one parity — a corner quarter-disc its corner, the band
+        // between the arcs the other two corners, a crossing's quadrant its corner. The pixel's own tile decides.
+        if (i == 0 && j == 0) par0 = (cw.x + cw.y + (crossing ? int(L.x > r) + int(L.y > r) : int((length(L - ca) < r || length(L - cb) < r) != o))) & 1;
       } else {
-        d = h.y < 0.5 ? sdSegment(l, vec2(0.0), cs) : sdSegment(l, vec2(cs.x, 0.0), vec2(0.0, cs.y));
+        da = sdSegment(l, vec2(0.0), cs);
+        db = sdSegment(l, vec2(cs.x, 0.0), vec2(0.0, cs.y));
+        if (!crossing) { if (o) db = 1e9; else da = 1e9; }
       }
-      if (d < best) { best = d; rnd = h.z; }
+      float hO = wBase, hU = wBase;
+      bool woven = crossing && gap > 0.0;
+      if (woven) {
+        // Over-under: alternate tiles carry the other strand on top; the under strand stops short of it. In Height
+        // the over strand rises to a crown at the crossing and the under strand sinks towards its cut ends, both
+        // back to the plain height at the tile's edge.
+        bool aOver = ((cw.x + cw.y) & 1) == 0;
+        float ov = aOver ? da : db;
+        db = max(aOver ? db : da, 2.0 * hw + gap - ov);
+        da = ov;
+        float t = (style == 0 ? length(L - r) / r : length(l - 0.5 * cs) / (0.5 * length(cs)));   // 0 centre … 1 edge
+        float cw2 = wAmp * cos(1.5707963 * min(t, 1.0));
+        hO = wBase + cw2;
+        hU = wBase - cw2;
+      }
+      float d = min(da, db);
+      if (d < best) { best = d; rnd = h.z; hgt = db < da ? hU : hO; }
+      }
     }
-  } else if (style == 2) {
-    // Maze: walls on lattice lines; each node grows one wall towards a random neighbour.
+    side = float(par0 == u_draw - 2);
+  } else if (style == 2 || style == 3 || style == 6) {
+    // Maze / rooms / labyrinth, laid out on the CPU (truchetCells): the +x and +y walls of the 3×3 cells around the
+    // pixel (cell c spans lattice [c, c + 1]), and the random of the pixel's cell (per room for rooms).
     ivec2 c0 = ivec2(floor(u / cs));
-    for (int j = -MOT_1; j <= 2 * MOT_1; j++)
-    for (int i = -MOT_1; i <= 2 * MOT_1; i++) {
-      ivec2 c = c0 + ivec2(i, j);
-      vec3 h = hash3I(mot_wrap(c, n), MOT_SEED + 3.0);
-      if (h.x >= u_density) continue;
-      float d = sdSegment(u, vec2(c) * cs, vec2(c + MOT_D4[int(h.y * 4.0)]) * cs);
-      if (d < best) { best = d; rnd = h.z; }
-    }
-  } else if (style == 3) {
-    // Rooms: the +x and +y walls of the 3×3 cells around the pixel (cell c spans lattice [c, c + 1]).
-    ivec2 c0 = ivec2(floor(u / cs));
+    vec4 rd = vec4(0.0);
     for (int j = -MOT_1; j <= MOT_1; j++)
     for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       vec2 o = vec2(c + 1) * cs;
-      // Both walls through one copy of the wall test.
+      vec4 cd = mot_cellData(c, n);
+      if (i == 0 && j == 0) rd = cd;
+      int bits = int(cd.b * 255.0 + 0.5);
+      // Both walls through one segment call.
       for (int ax = 0; ax < 2 * MOT_1; ax++)
-        if (mot_wall(c, ax, n)) best = min(best, sdSegment(u, o, ax == 0 ? vec2(o.x, o.y - cs.y) : vec2(o.x - cs.x, o.y)));
+        if (((bits >> ax) & 1) == 1) best = min(best, mot_seg(u, o, ax == 0 ? vec2(o.x, o.y - cs.y) : vec2(o.x - cs.x, o.y)));
     }
-    rnd = hashI(mot_wrap(c0, n), MOT_SEED);
+    rnd = (floor(rd.x * 255.0 + 0.5) * 256.0 + floor(rd.y * 255.0 + 0.5) + 0.5) / 65536.0;
   } else if (style == 4) {
-    // Meander: a spiral key of 2·key moves (lengths key, key, key−1, key−1, … 1, 1) hangs from a rail every
-    // P = key + 1 cells; bands repeat every P cells down, so each rail is also the next band's top.
+    // Meander, in units of PP cells (y up from the band's bottom). Spirals: a key of 2·key moves (lengths key, key,
+    // key − 1, key − 1, … 1, 1) hangs from a rail along the bottom, bands repeating every key + 1 cells, so each rail
+    // is also the next band's top. Running key (one continuous line): from the unit's bottom-left corner it spirals
+    // in clockwise (up 2k + 1, right 2k + 1, down 2k, left 2k − 1, … 1), steps across, and spirals back out between
+    // its own turns (… 2k, 2k + 1) to leave along the bottom into the next unit's corner; with Border lines a rail
+    // runs one cell below. Every move, the step and the rail go through one segment call.
     vec2 g = u / cs;
-    ivec2 k0 = ivec2(floor(g / float(P)));
+    ivec2 k0 = ivec2(floor(g / vec2(PP)));
+    int nIn = running ? 2 * key + 2 : 2 * key, nOut = running ? 2 * key + 1 : 0;
     for (int j = -MOT_1; j <= MOT_1; j++)
     for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 k = k0 + ivec2(i, j);
-      vec2 lq = g - vec2(k * P);
-      lq.y = float(P) - lq.y;   // the key grows up from its rail (bottom of the band)
+      vec2 lq = g - vec2(k * PP);
+      lq.y = float(PP.y) - lq.y - (running && u_borders ? 1.0 : 0.0);   // the key grows up from the band's bottom
       vec2 lp = lq * cs;
-      float d = u_borders ? sdSegment(lp, vec2(0.0), vec2(float(P), 0.0) * cs) : 1e9;
-      vec2 pt = vec2(0.0);
-      for (int s = 0; s < 2 * key * MOT_1; s++) {
-        vec2 nx = pt + vec2(MOT_D4[(5 - s % 4) % 4]) * float(key - s / 2);   // up, right, down, left, …
-        d = min(d, sdSegment(lp, pt * cs, nx * cs));
-        pt = nx;
+      float d = 1e9;
+      vec2 pi = vec2(0.0), po = vec2(float(PP.x), 0.0);
+      for (int s = 0; s < (nIn + nOut + 2) * MOT_1; s++) {
+        vec2 a, b;
+        bool draw = true;
+        if (s < nIn) {
+          int len = running ? (s == 0 ? 2 * key + 1 : 2 * key + 2 - s) : key - s / 2;
+          a = pi; pi += vec2(MOT_D4[(5 - s % 4) % 4]) * float(len); b = pi;   // up, right, down, left, …
+        } else if (s < nIn + nOut) {
+          int m = s - nIn;
+          a = po; po += vec2(MOT_D4[(6 - m % 4) % 4]) * float(2 * key + 1 - m); b = po;   // left, up, right, …
+        } else if (s == nIn + nOut) {
+          a = pi; b = po; draw = running;   // the step between the in and out spirals
+        } else {
+          a = vec2(0.0, running ? -1.0 : 0.0); b = vec2(float(PP.x), a.y); draw = u_borders;   // the rail
+        }
+        if (draw) d = min(d, mot_seg(lp, a * cs, b * cs));
       }
-      if (d < best) { best = d; rnd = hashI(mot_wrap(k, max(n / P, ivec2(1))), MOT_SEED); }
+      if (d < best) { best = d; rnd = hashI(mot_wrap(k, max(n / PP, ivec2(1))), MOT_SEED); }
     }
   } else {
-    // Circuit: tiles centred on lattice nodes (traces run along lattice lines).
+    // Circuit: tiles centred on lattice nodes (traces run along lattice lines), laid out on the CPU.
     ivec2 c0 = ivec2(floor(u / cs + 0.5));
-    mot_c0 = c0;
-    for (int j = -2 * MOT_1; j <= 2 * MOT_1; j++)
-    for (int i = -2 * MOT_1; i <= 2 * MOT_1; i++) {
-      ivec2 cw = mot_wrap(c0 + ivec2(i, j), n);
-      int idx = (j + 2) * 5 + i + 2;
-      mot_dir[idx] = mot_regionDir(cw, n, mot_rr[idx]);
-      mot_chp[idx] = mot_chip(cw, n);
-    }
     for (int j = -MOT_1; j <= MOT_1; j++)
     for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
-      vec2 t = mot_circuitTile(c, u - vec2(c) * cs, cs, n);
-      if (min(t.x - hw, t.y) < min(best - hw, solid)) rnd = mot_rr[mot_idx(c)];
+      float rr;
+      vec2 t = mot_circuitTile(c, u - vec2(c) * cs, cs, n, hw, rr);
+      if (min(t.x - hw, t.y) < min(best - hw, solid)) rnd = rr;
       best = min(best, t.x);
       solid = min(solid, t.y);
     }
   }
-  return genOut(0.0, 1.0, rnd, min(best - hw, solid));
+  float sd = min(best - hw, solid);
+  if (tone) sd = (side > 0.5 ? -best : best) + hw;   // the filled regions, inset by half the line (the gap)
+  else if (u_draw >= 1) sd = -sd;                      // grooves: everything but the lines
+  sd = max(sd, -1e4);   // far from every line (grooves): deep inside, not below NO_SDF (which would opt out)
+  GenOut g = genOut(0.0, 1.0, rnd, sd);
+  // Over-under lines: Height reads the bevel × the strand's height (the bevel as the wrapper draws it, without
+  // Bevel aspect).
+  if (style <= 1 && u_draw == 0 && u_cross > 0.0 && u_weave > 0.0 && u_dip > 0.0)
+    g.hval = (u_bevel > 0.0 && u_profile != 0 ? profileCurve(u_profile, max(-sd, 0.0) / u_bevel) : 1.0) * hgt;
+  return g;
 }
 `,
 }

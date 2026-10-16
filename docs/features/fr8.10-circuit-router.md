@@ -20,6 +20,12 @@ the GPU:
   pads: it drops nodes from finished traces (the trace becomes two pieces, each ending in a pad one node short of the
   gap, pieces keep two links) and ends walks early where a pad fits — more, shorter, pad-ended traces at the cost of
   some density. Vias go on interior nodes.
+- **Horizontal bias** weights horizontal against vertical steps and starts. **Run alongside** favours steps beside
+  another trace, far more one running the same way, and queues the free nodes beside each new trace as the next
+  starts, so buses grow trace by trace and bend together. **Open areas** keeps rectangles of board (varied size per
+  *Open area size*, up to 3:1, wrapping) free of traces — footprints and mounting areas between routed clusters. A
+  diagonal step never crosses another over the same grid square, the walking trace's own included. **Pads where
+  crowded**: ends left without room for a full pad (flag 4) get one this fraction of the radius instead of ending bare.
 - **Shader**: reads each node's link (R) and flags (G) and draws crisp SDF segments, pads and vias; node centres
   snap to pixel centres so 1 px traces stay 1 px.
 - Other modes stay: *Route* (local paths, no junctions — per-node out / in priority) and *Maze* (independent links).
