@@ -157,6 +157,16 @@ export const SHAPING_PARAMS: ParamDef[] = [
   P.int('sh_steps', 'Posterize', 0, 0, 64, { softMax: 16, group: 'shaping', section: 'Value', hint: '0 = off' }),
   P.float('sh_cut', 'Cutoff', 0, 0, 1, { step: 0.001, group: 'shaping', section: 'Value', hint: 'Covers only where the shaped value ≥ cutoff (0 = off): sparse flecks from white noise, islands from clouds' }),
   P.float('sh_cut_soft', 'Cutoff softness', 0, 0, 0.5, { step: 0.001, group: 'shaping', section: 'Value', showIf: (p) => Number(p.sh_cut) > 0 }),
+  P.float('sh_ofs_z', 'Offset Z', 0, -64, 64, {
+    softMin: -1,
+    softMax: 1,
+    step: 0.001,
+    optimize: false,
+    group: 'shaping',
+    section: 'Value',
+    showIf: (p) => p.h_on === true,
+    hint: 'Raises (or, below 0, sinks) the whole height output by this much, in height units like Amount (1.0 = the project’s height depth): lifts one layer’s relief above another’s without squashing its range. Applies wherever the layer covers',
+  }),
 ]
 
 /**
@@ -467,8 +477,8 @@ ${sdf === true ? /* glsl */ `
     // A height profile of the generator's own (signed, genOutHeight) stands in for the value and carries its own extent:
     // it applies wherever it is non-zero, limited by the clips and opacity but not by the coverage.
     bool own = u_h_src == 0 && g.height > NO_SDF;
-    // Per-feature amplitude from a hash decorrelated from the colour random.
-    float v = (own ? g.height : srcValue(u_h_src, hval, g.rnd, shapeV)) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123));
+    // Per-feature amplitude from a hash decorrelated from the colour random; Offset Z shifts the whole output.
+    float v = (own ? g.height : srcValue(u_h_src, hval, g.rnd, shapeV)) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123)) + u_sh_ofs_z;
     float h = S.r;
     float nh = u_h_mode == 0 ? h + v : u_h_mode == 1 ? h - v : u_h_mode == 2 ? max(h, v)
              : u_h_mode == 3 ? min(h, v) : u_h_mode == 4 ? v : h * v;

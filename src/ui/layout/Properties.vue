@@ -14,6 +14,7 @@ import { layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta'
 import { useActions } from '@/ui/actions'
 import PanelCard from '@/ui/components/PanelCard.vue'
 import ParamList from '@/ui/components/ParamList.vue'
+import ShapingGraph from '@/ui/components/ShapingGraph.vue'
 import {
   IconArrowDown,
   IconArrowUp,
@@ -40,6 +41,7 @@ const act = useActions()
 const sel = computed(() => editor.selection)
 const layer = computed(() => (sel.value.kind === 'layer' && sel.value.id ? store.getLayer(sel.value.id) : undefined))
 const layerDef = computed(() => (layer.value ? getLayerDef(layer.value.type) : undefined))
+const layerDefs = computed(() => (layer.value ? layerParamDefs(layer.value.type) : []))
 const light = computed(() => (sel.value.kind === 'light' && sel.value.id ? store.getLight(sel.value.id) : undefined))
 const post = computed(() => (sel.value.kind === 'post' && sel.value.id ? store.getPost(sel.value.id) : undefined))
 const postDef = computed(() => (post.value ? getPostDef(post.value.type) : undefined))
@@ -190,7 +192,11 @@ const asValues = (o: object) => o as unknown as ParamValues
           :toggle="c.group.toggleKey ? Boolean(layer.params[c.group.toggleKey]) : null"
           @update:toggle="store.setLayerParam(layer.id, c.group.toggleKey!, $event)"
         >
-          <ParamList :defs="c.defs" :values="layer.params" @change="(k, v) => store.setLayerParam(layer!.id, k, v)" />
+          <ParamList :defs="c.defs" :values="layer.params" @change="(k, v) => store.setLayerParam(layer!.id, k, v)">
+            <template #section="{ section }">
+              <ShapingGraph v-if="c.group.id === 'shaping' && section === 'Value'" :defs="layerDefs" :values="layer.params" :sdf="layerDef.sdf === true" />
+            </template>
+          </ParamList>
         </PanelCard>
       </div>
     </template>

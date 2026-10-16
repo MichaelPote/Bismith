@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Renders a list of ParamDefs bound to a values record (label left / control right, Blender density). Labels carry a
 // tooltip (the hint, the options, the key and default); params joined by ParamDef.join share a row — Source · Mode
-// side by side, At 0 / At 1 as one ramp. A value missing from the record shows (and resets to) the default.
+// side by side, At 0 / At 1 as one ramp. A value missing from the record shows (and resets to) the default. The
+// `section` slot draws extras under a section heading (the Shaping › Value graph).
 import { computed } from 'vue'
 import type { Curve, Gradient, ParamDef, ParamValue, ParamValues } from '@/core/params'
 import NumberField from './NumberField.vue'
@@ -109,6 +110,7 @@ function tip(r: Row): Tip {
   <div class="plist">
     <template v-for="r in rows" :key="r.def.key">
       <div v-if="r.heading" class="sec cf-label">{{ r.heading }}</div>
+      <slot v-if="r.heading" name="section" :section="r.heading" />
       <div v-if="r.def.type === 'bool'" v-tip="tip(r)" class="row">
         <span />
         <CheckField :model-value="Boolean(value(r.def))" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
