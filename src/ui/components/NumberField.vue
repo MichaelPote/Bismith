@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Blender-style number field: drag to scrub (Shift = fine, Ctrl = whole numbers), click to type, arrows to step
-// (Ctrl = to the next whole number). Dragging stays within the soft range (softMin / softMax); typing and the arrows
-// go past it, up to the hard min / max. Double-click goes back to the value before the last change — again to return —
+// (Ctrl = to the next whole number). Dragging stops at the soft range (softMin / softMax) like a notch; a new drag
+// that starts at the soft max (or min) goes on to the hard max (or min), as do typing and the arrows. Double-click goes back to the value before the last change — again to return —
 // or, if the field hasn't been changed, to its default. The fill bar shows the value within its soft range.
 import { computed, nextTick, ref } from 'vue'
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-vue'
@@ -153,8 +153,14 @@ function onMove(e: PointerEvent): void {
   let v = startValue + dx * perPx
   if (e.ctrlKey || e.metaKey) v = Math.round(v)
   else if (!props.int) v = round(v, stepSize.value / 10)
-  // The soft range bounds a drag (widened to the start value when that is already outside it).
-  if (hasRange.value) v = Math.min(Math.max(v, Math.min(lo.value, startValue)), Math.max(hi.value, startValue))
+  // The soft range bounds a drag, like a notch: a drag that starts at (or past) the soft max may carry on up to the
+  // hard max, and one that starts at (or below) the soft min down to the hard min.
+  if (hasRange.value) {
+    const eps = Math.max(1e-9, (hi.value - lo.value) * 1e-6)
+    const low = startValue <= lo.value + eps ? (props.min ?? -Infinity) : lo.value
+    const high = startValue >= hi.value - eps ? (props.max ?? Infinity) : hi.value
+    v = Math.min(Math.max(v, low), high)
+  }
   set(v)
 }
 
