@@ -22,12 +22,12 @@ describe('cracks', () => {
     const small = freshParams('cracks', { width: 64, height: 64 })
     const mid = freshParams('cracks', { width: 512, height: 512 })
     const big = freshParams('cracks', { width: 2048, height: 2048 })
-    expect(mid).toMatchObject({ scale: 5, width: 2.5, sub_width: 1.25, zigzag: 1.25, bevel: 2 })
+    expect(mid).toMatchObject({ scale: 5, width: 2.5, sub_width: 1.25, zigzag: 0.6, bevel: 2 })
     expect(Number(big.width)).toBe(10)
-    expect(Number(big.zigzag)).toBe(5)
+    expect(Number(big.zigzag)).toBe(2.4)
     expect(small.scale).toBe(3)
     expect(Number(small.width)).toBe(1)
-    expect(Number(small.sub)).toBeLessThan(0.7)
+    expect(Number(small.sub)).toBeLessThan(Number(cracksLayer.params.find((d) => d.key === 'sub')!.default))
   })
 
   it('keeps the warp style order the shader reads (bend 0, squeeze 1)', () => {

@@ -36,9 +36,11 @@ crust.
   from its row neighbours at the midline) minus every disc of the rows in front; rows are walked front to
   back with a running union, giving an exact-enough SDF of the visible part. Dome / tilt shading. (Later: pointed
   arches, irregularity, size variation, random lapping of overlapping row neighbours, keel — see the reference.)
-- **Cracks** — main power-Voronoi crack network (warp, zig-zag, pixel roughness, a width per border segment) plus a
-  finer Voronoi network where each border segment (cell pair) is kept with a probability, so partial cracks end
-  cleanly at junctions; fine segments taper away from the main cracks and each plate draws its own (T-junctions).
+- **Cracks** — main power-Voronoi crack network (warp, zig-zag, pixel roughness, a width per border segment, bowed
+  pillowy sides, rounded plate corners so cracks flare into wedges at the junctions, depth by width) plus a finer
+  Voronoi network where each border segment (cell pair) is kept with a probability, so partial cracks end cleanly at
+  junctions; fine segments taper away from the main cracks (or form a faint hairline web) and each plate draws its
+  own (T-junctions); shattered patches of shards hanging off the main cracks; a depth halo at heavy junctions.
 
 ## Checklist
 - [x] Marble: streaks / network / cells styles, tile-safe angle, warp + detail, vein width / softness in px,
@@ -53,6 +55,11 @@ crust.
       knots, horizontal / vertical, no-planks mode; outputs wood / plank SDF / grain only
 - [x] Scales: columns, rows (auto), radius, up / down, outline, dome, tilt; outputs scales / SDF
 - [x] Cracks (optional extra): main + partial fine networks, jaggies, warp; outputs plates / SDF
+- [x] Cracks fidelity (crazed glaze / dried slip): rounded plate corners (junction wedges), bowed sides, widths that
+      flare at junctions and set the crack's depth, a faint fine hairline web (Fine darkness), shattered patches,
+      depth halo, plate roughness, smooth domes. Crazing look: scale 8, size_var 0.9, width 1.6, width_var 1,
+      bulge 0.06, depth_var 0.5, zigzag 0.3, jag 0.12, warp 0.1 / 2, fine 0.7 × 1.8 at 0.8 px, Taper 0,
+      tone 0.6, fillet 0.08, shatter 0.25 × 5; Height: bevel 1.5 smooth, dome 0.08, rough 0.15, halo 0.6
 - [x] Cracks quality pass: non-folding Bend / Squeeze warps with true-px widths, zig-zag, width variation, tapering
       fine branches ending at the main cracks (connected only, shallower grooves of their own depth), plate dome / curl /
       tilt in Height, Plates output writes the shape mask, editor defaults sized to the texture
@@ -71,7 +78,7 @@ All five are category `pattern`, tileable, and use only `org_`-prefixed GLSL hel
 | `caustics` | mask (cells, off by default) | brightness: rims 1, glow → dark cell centres (net); bright blobs, dark cracks (blobs); Height: optional rounded dome per cell (`hval`) | per cell | diffuse (lava ramp), height **subtract** (blobs: **add**) 0.35, emissive ×0.6 |
 | `wood` | output | grain (1 = light wood, 0 = dark lines / gaps) × plank-edge bevel | per board | diffuse (oak ramp, jitter 0.2), height 0.3 (per-board variation 0.25), bevel 1 px smooth |
 | `scales` | output | dome / tilt shading × edge bevel, outline = 0 | per scale | diffuse (green-grey, jitter 0.15), height 0.5 (per-scale variation 0.3), bevel 2 px smooth, domain warp 2.5 px |
-| `cracks` | yes (both outputs) | 1 on plates × bevel, 0 in cracks (fine cracks too); Height: plate surface (dome, tilt) less the fine grooves, × bevel | per main plate (× fine with `sub_vary`) | diffuse (mud ramp, jitter 0.15), height 0.3, variation 0.3, bevel 2 px smooth |
+| `cracks` | yes (both outputs) | 1 on plates × bevel, the cracks sunk by their depth (fine cracks by their tone); Height: plate surface (dome, tilt, halo, roughness) less the fine grooves, × the same | per main plate (× fine with `sub_vary`) | diffuse (mud ramp, jitter 0.15), height 0.3, variation 0.3, bevel 2 px smooth |
 
 ### marble
 | Param | Default | Notes |
@@ -216,20 +223,27 @@ pixel crosses a column (cold D3D11 compile ≈ 0.65 s).
 ### cracks
 | Param | Default | Notes |
 | --- | --- | --- |
-| `output` | plates | plates (value 1 on the plates × the bevel of the combined shape, 0 in the cracks; the plate outline goes to the shape mask, `genOutShaded`) · shape (plate SDF → register, the cracks show what is below) |
-| `scale`, `jitter`, `size_var` | 5, 0.9, 0.3 | main plates across (0.5…256); jitter; power weights (main network only, 0…2: above 1 small plates get squeezed out) |
-| `width`, `width_var` | 2.5 px, 0.5 | main crack width (0…64 px); spread of widths — one random per border segment (few wide, most narrower; both plates agree on it) × a noise along the cracks |
-| `zigzag` | 1.25 px | Jaggedness (0…64, slider 16): a domain displacement of the cracks' course by bilinear value noise (2 octaves, lattice ~5× the amplitude, ≥ 4 px) — straight runs with sharp kinks |
+| `output` | plates | plates (painted by the layer, `genOutOwn`: value 1 on the plates × its own Shape bevel — `org_edgeProfile`, so no Bevel aspect and no bevel round a combined shape-mask mode — the cracks sunk by their depth; the plate outline goes to the shape mask) · shape (plate SDF → register, the cracks show what is below) |
+| `scale`, `jitter`, `size_var` | 5, 0.9, 0.5 | main plates across (0.5…256); jitter; power weights (main network only, 0…2: above 1 small plates get squeezed out) |
+| `width`, `width_var` | 2.5 px, 0.8 | main crack width (0…64 px); spread of widths — one random per border segment (0.55–1.45; both plates agree on it), blended between the two nearest borders where they swap (no step at a junction), × a noise along the cracks, × a flare towards the junctions where wide cracks meet (`1 + 1.5·width_var·exp(−second border distance / 0.15 plate)` × smoothstep(0.7, 1.3) of the two widths against the mean, off where the two borders' normals oppose: thin slivers). The fine cracks and shards follow the same noise (whole stretches of the fine network dark, others faint hairlines) × a mild per-segment spread (0.5–1.5) |
+| `fillet` | 0.05 | Junction rounding: each plate's corners round off with a circular fillet (`crk_round`, exact elsewhere) of this share of a plate × the meeting cracks' widths against the mean (0.5–1.5: thin cracks meet in tight corners); the band is laid round the rounded plate, so the gap between three plates is a dark wedge with concave sides. Fine cells (share of a fine cell), shards and fine–main joins alike (a fine segment dropped by Connected only gives up its rounding) |
+| `bulge` | 0.08 | each border bows in a half sine between its ends (up to this share of a plate, a signed random per cell pair), continuing as a gentle S along long borders, flattened towards the junctions (second-border distance) and faded with the distance from the border (no seam on the plate's skeleton); a pixel carried across the border belongs to the neighbouring plate (its random, offset, normal) |
+| `depth_var` | 0.5 | Depth by width: a crack's depth k = mix(1, clamp(0.2 + 0.8·(half width + what the rounding opens) / (0.75·width)), depth_var) — narrow stretches shallow and light, wide ones and junction wedges at the ramp's bottom; value and Height = 1 − k·(1 − bevel × coverage) |
+| `zigzag` | 0.6 px | Jaggedness (0…64, slider 16): a domain displacement of the cracks' course by bilinear value noise (2 octaves, lattice ~5× the amplitude, ≥ 4 px) — straight runs with sharp kinks |
 | `jag` | 0.25 px | Edge roughness: a ~2 px value noise added to the crack distance; above half the width cracks break into dashes |
-| `warp`, `warp_scale`, `warp_mode` | 0.15, 1, bend | bend in plate sizes; bends per plate; style: **bend** (8 steps along the curl of the field: plates keep their areas, high values swirl), **squeeze** (8 steps along the field: plates bunch up and spread) |
-| `sub`, `sub_scale`, `sub_width` | 0.7, 2.5, 1.25 px | fraction of fine segments kept; fine plates per main plate (1…16); width where they leave a main crack |
-| `sub_taper` | 0.7 | fine segments narrow with the distance from the main cracks to nothing at their own reach (0.1–0.6 plate, mostly short, ÷ taper); under 1 px they fade instead of staying a half-dark line. 0 = even width |
-| `sub_depth` | 0.55 | Height: the fine cracks are grooves of their own, this share of the main cracks' depth × their taper strength, with shoulders the bevel's width (≥ 1 px); colour still draws them dark (value 1 − their anti-aliased coverage). Not in the shape mask |
-| `sub_connect` | on | the nearest segment is followed to both ends (its line to the cell's next border, from the 5×5 sites kept in an array): dropped when its crack-ward end neither reaches the main crack (its border taken as straight) nor meets a present segment heading on towards it, or when it runs within ~30° beside a main crack (doubling it); an inner dead end tapers to a point |
+| `warp`, `warp_scale`, `warp_mode` | 0.2, 0.8, bend | bend in plate sizes; bends per plate (the field is a 3-octave Perlin fBm, gain 0.38, from half this frequency: flowing meanders without a single visible period or a corrugated ripple; shards are laid out unwarped, the warp being coarse against them); style: **bend** (8 steps along the curl of the field: plates keep their areas, high values swirl), **squeeze** (8 steps along the field: plates bunch up and spread) |
+| `sub`, `sub_scale`, `sub_width` | 0.55, 2.5, 1.25 px | fraction of fine segments kept; fine plates per main plate (1…16); width where they leave a main crack. The fine plane warps by 0.7 × Warp per fine plate |
+| `sub_taper` | 0.7 | fine segments narrow with the distance from the main cracks to nothing at their own reach (`crk_reach`: 0.12–0.87 plate, mostly short, ÷ taper); under 1 px they fade instead of staying a half-dark line. 0 = even width |
+| `sub_tone` | 1 | Fine darkness (colour only): the fine ink is coverage × (0.2 + 0.55 × strength) × this — low values leave a faint grey hairline web |
+| `sub_depth` | 0.55 | Height: the fine cracks are grooves of their own, this share of the main cracks' depth × their strength, a rounded V out to shoulders the bevel's width (≥ 1 px); colour draws them by Fine darkness. Not in the shape mask |
+| `sub_connect` | on | the nearest segment is followed to both ends (its line to the cell's next border, from the 5×5 sites kept in an array): dropped when its crack-ward end neither reaches the main crack (its border taken as straight) nor meets a present segment heading on towards it, when it runs within ~40° beside a main crack, its middle within 0.3 plate (doubling it, or boxing in a corner), or when it is under 8 px long (specks); an inner dead end tapers to a point along its whole length (with Taper 0 too) |
 | `sub_shape` | off | on: fine cracks cut the plates like the main ones (in the SDF: full depth, shape mask, Shape output) |
 | `sub_cross` | off | on: one fine network over the texture, crossing the main cracks; off: each main plate keys its own segments, so fine cracks end at the main ones |
 | `sub_vary` | off | on: each fine plate its own random; off: one per main plate — the fine network is partial, so per-fine-plate colour or height would change across missing cracks |
-| `dome`, `dome_edge`, `tilt` | 0.35, 0.5, 0.3 | Height only (`GenOut.hval`): > 0 the edges fall away, < 0 they curl up into a lip, over the outer `dome_edge` of t = border distance / (border distance + distance to the site), both measured in the warped plane (screen-px distances carry per-quad derivative steps); each plate tilts its own way by a random share |
+| `shatter`, `shatter_scale` | 0, 5 | Shatter: this share of the fine plates (one random per fine plate × main plate; the fine cells are computed even with Fine cracks 0) breaks into shards — a second pass through `crk_fineCracks` (one copy, a 2-pass loop) with `shatter_scale` × the fine cells, jitter 1, 85 % of segments, untapered, unconnected, half width max(0.5·width, 0.75) px — dark and full width within 0.25 of a fine plate of its site, fading out by 0.5 (the band narrowed by the rest of its width) and before the fine border, × 0.7–1 by nearness to a main crack: a compact jagged cluster, never cut along the border. The pass runs only in a shattered plate's fade |
+| `halo` | 0.3 | Depth halo (colour × 1 − 0.45·halo, Height × 1 − 0.6·halo): broad pools round heavy junctions (flare² × exp(−distance to the vertex, |(nearest, second border distance)|, / 0.3 plate)) plus a little along wide stretches |
+| `rough` | 0.3 | Height: a 3-octave Perlin noise (8 per plate) on the plate surface |
+| `dome`, `dome_edge`, `tilt` | 0.35, 0.5, 0.3 | Height only (`GenOut.hval`): > 0 the edges fall away, < 0 they curl up into a lip, over the outer `dome_edge` of t = border distance / (border distance + distance to the site), the border distance a soft minimum over the plate's borders (log-sum-exp, 0.12 plate; no creases along the skeleton) in the warped plane; each plate tilts its own way by a random share. Colour darkens by 0.3 × the fall |
 
 Widths are true screen px under the Bend / Squeeze warps: each border's distance is divided by the warp's stretch across
 it (`dFdx` / `dFdy` of the warped point, taken before the zig-zag, whose kinks are too fine for quad derivatives).
