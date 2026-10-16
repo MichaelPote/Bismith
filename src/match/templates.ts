@@ -14,10 +14,11 @@
 import type { ParamValues } from '@/core/params'
 import type { Layer, MaterialBase, Project, RenderSettings } from '@/core/project'
 import { createLayer, createLight, createPostFilter, createProject, reliefOnly } from '@/core/serialize'
-import { getLayerDef } from '@/layers/registry'
+import { freshParams, getLayerDef } from '@/layers/registry'
 import { DEFAULT_BEVEL_CURVE } from '@/layers/commonParams'
 import { hexToRgb, linearToOklab, rgbToHex, srgbToLinear1, type RGB } from '@/core/color'
 import type { Analysis } from './analyze'
+import { BRICKS_PLAIN, VORONOI_PLAIN } from '@/layers/generators/patterns'
 
 export interface TemplateContext {
   /** Palette id for the final snap ('quake', 'doom', … or '' for none). */
@@ -216,7 +217,7 @@ function lumps(a: Analysis, px = 6, amount = 0.4, faces = true, seed = 31): Laye
 /** Scattered small pits that also kill the glint inside them. */
 function pits(a: Analysis, faces = true, seed = 33): Layer {
   return L('noise', 'Pits', {
-    noise: 'worley', fractal: 'none', scale: across(a, 5), seed, sh_invert: true, sh_cut: 0.94, sh_cut_soft: 0.04,
+    noise: 'worley', fractal: 'none', w_even: false, w_profile: 'linear', scale: across(a, 5), seed, sh_invert: true, sh_cut: 0.94, sh_cut_soft: 0.04,
     h_on: true, h_mode: 'subtract', h_amount: 0.25, dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'flat', s_a: 0.2, s_b: 0.2,
     ...(faces ? ON_FACES : {}),
   })
@@ -247,7 +248,7 @@ function dressedRelief(a: Analysis, type: 'bricks' | 'voronoi', shape: ParamValu
       h_on: true, h_amount: edge, r_on: true, r_mode: 'replace', r_src: 'flat', r_a: 0.6, r_b: 0.6, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.6, s_b: 0.6,
     }),
     L('voronoi', 'Chips', {
-      output: 'facets', scale: across(a, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: 19, sm_on: false,
+      output: 'facets', facet_fit: false, scale: across(a, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: 19, sm_on: false,
       h_on: true, h_mode: 'min', h_amount: 1.3, dif_on: false, m_hmode: 'below', m_hlevel: r2(0.8 * (pillow + edge)), m_hsoft: 0.08,
     }),
     L(type, 'Block heights', { ...flat, h_on: true, h_amount: 0.4, h_var: 1 }),
@@ -308,6 +309,7 @@ function stone(a: Analysis): Look {
 
 /** A masonry template: courses of bricks or blocks as dressed stone. */
 function masonry(a: Analysis, ctx: TemplateContext, name: string, shape: ParamValues, radius = 2): Project {
+  shape = { ...BRICKS_PLAIN, ...shape }
   const vertical = shape.vertical === true
   const span = vertical ? a.width : a.height
   const lengthPx = (vertical ? a.height : a.width) / Number(shape.columns)
@@ -342,7 +344,7 @@ function stains(a: Analysis, opts: { ledges?: boolean; seed?: number; blisters?:
     ...(rust
       ? [
           L('drips', 'Rust trails', {
-            output: 'stain', ...src, width: 1.4, width_var: 0.6, start: 1, fade: 1, hard: true, sh_cut: 0.72, sh_cut_soft: 0.05, h_on: false,
+            output: 'stain', ...src, width: 1.4, width_var: 0.6, str_var: 0, start: 1, fade: 1, hard: true, sh_cut: 0.72, sh_cut_soft: 0.05, h_on: false,
             dif_on: true, dif_grad: ramp(mix('#6a2c14', rust, 0.35), mix('#a84a22', rust, 0.35)),
           }),
           ...(opts.blisters
@@ -460,7 +462,7 @@ export const TEMPLATES: Template[] = [
     requires: ['voronoi'],
     build: (a, ctx) => {
       const cell = Math.max(6, a.periodX || a.periodY || 13)
-      const shape = { output: 'cells', scale: across(a, cell), jitter: 0.85, gap: 1, round: 2, warp: 1.5, seed: 4, aa: false }
+      const shape = { ...VORONOI_PLAIN, output: 'cells', scale: across(a, cell), jitter: 0.85, gap: 1, round: 2, warp: 1.5, seed: 4, aa: false }
       return base(a, ctx, 'Cobbles', { relief: dressedRelief(a, 'voronoi', shape, cell, cell), paint: stonePaint(a, 'voronoi', shape, 2) }, stone(a))
     },
   },
@@ -531,7 +533,7 @@ export const TEMPLATES: Template[] = [
       return base(a, ctx, 'Carved', {
         relief: [
           L('bricks', 'Grooves', {
-            columns, rows, ...phase(a), stagger: 0.5, mortar: 1, round: 1, len_var: 0.6, row_jitter: 0.3, dw_amount: 0.6, dw_scale: 6, seed: 3, bevel: 0.6, profile: 'linear', aa: false,
+            ...BRICKS_PLAIN, columns, rows, ...phase(a), stagger: 0.5, mortar: 1, round: 1, len_var: 0.6, row_jitter: 0.3, dw_amount: 0.6, dw_scale: 6, seed: 3, bevel: 0.6, profile: 'linear', aa: false,
             sh_invert: true, h_on: true, h_mode: 'subtract', h_amount: 1, h_var: 0.3, dif_on: false, r_on: true, r_mode: 'replace', r_src: 'flat', r_a: 0.5, r_b: 0.5, s_on: true, s_src: 'flat', s_a: 0.25, s_b: 0.25,
           }),
           L('noise', 'Relief mask', { ...reliefNoise, h_on: true, h_mode: 'multiply', h_amount: 1, dif_on: false }),
@@ -603,6 +605,8 @@ export const TEMPLATES: Template[] = [
           L('noise', 'Metal', { noise: 'value', fractal: 'fbm', scale: across(a, 12), octaves: 4, seed: 8, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0.2, 0.8) }),
           L('panels', 'Plates', {
             depth: 3, min_size: size, max_size: size, split_var: 0, snap: size, gap: 1, levels: 1, frame_chance: 0, detail_chance: 0,
+            // A regular grid of plain plates at the reference's period: no pinwheel, cut corners, or thinner border seam.
+            root: 'tile', pinwheel: 0, cut_chance: 0, edge_seam: 1,
             rivets: 'edges', rivet_chance: 1, rivet_radius: 0.5, rivet_inset: 3, rivet_spacing: 4.5, rivet_height: 0.3,
             bevel: 2, profile: 'linear', aa: false, h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: ramp(pick(a, 0), pick(a, 0.6), pick(a, 1)), dif_opacity: 0.6,
           }),
@@ -644,11 +648,14 @@ export const TEMPLATES: Template[] = [
       // Dent spacing from the measured periods (dents repeat at about that pitch), else 7 px.
       const periods = [a.periodX, a.periodY].filter((v) => v > 0)
       const spacing = periods.length ? r2(clamp((1.3 * periods.reduce((x, y) => x + y, 0)) / periods.length, 4, 14)) : 7
-      const hammer = { centres: Math.max(1, Math.round((a.width * a.height) / 2048)), weight_var: 0.5, ring: r2(spacing * 0.85), spacing, jitter: 0.7, size: 1.1, shape: 4, seed: 3 }
+      const hammer = {
+        centres: Math.max(1, Math.round((a.width * a.height) / 2048)), weight_var: 0.5, ring: r2(spacing * 0.85), spacing,
+        jitter: 0.12, wobble: 0.3, size_var: 0.2, depth_var: 0.2, tilt: 0.5, overlap: 0.6, size: 1.1, shape: 4, seed: 3,
+      }
       const patina = greenest(a)
       return base(a, ctx, 'Hammered', {
         relief: [
-          L('hammered', 'Hammer', { ...hammer, h_on: true, h_amount: 0.2, dif_on: false, r_on: true, r_mode: 'replace', r_src: 'flat', r_a: 0.55, r_b: 0.55, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.3, s_b: 0.3 }),
+          L('hammered', 'Hammer', { ...hammer, h_on: true, h_amount: 0.4, dif_on: false, r_on: true, r_mode: 'replace', r_src: 'flat', r_a: 0.55, r_b: 0.55, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.3, s_b: 0.3 }),
           L('blur', 'Soften', { radius: 0.5, ...HEIGHT_ONLY }),
         ],
         paint: [
@@ -782,7 +789,8 @@ TEMPLATES.push(
     build: (a, ctx) => {
       // One panel layout (tied): the panels with their height and colour, and their lights.
       const layout = {
-        depth: 7, min_size: 4, max_size: 24, split: 0.75, split_var: 0.8, snap: 2, gap: 1, levels: 4, height_var: 0.6,
+        // Depth 5: pinwheel splits make five panels a level, so this keeps some big plates among the small ones.
+        depth: 5, min_size: 4, max_size: 24, split: 0.75, split_var: 0.8, snap: 2, gap: 1, levels: 4, height_var: 0.6,
         frame_chance: 0.3, frame_inset: 2, frame_style: 'recess', rivets: 'corners', rivet_chance: 0.3, rivet_radius: 0.5, rivet_inset: 1.5,
         detail_chance: 0.5, det_size: 0.7, vent_pitch: 2, vent_slot: 1, light_size: 2, seed: 9, aa: false,
       }
@@ -836,6 +844,8 @@ TEMPLATES.push(
           L('pipes', 'Pipes', {
             orient: horizontal ? 'horizontal' : 'vertical', count: period ? Math.max(1, Math.round(span / period)) : 3, diameter: period ? Math.max(3, period * 0.8) : 8,
             clamps: 2, bevel: 2, profile: 'round', aa: false, h_on: true, h_amount: 0.8, dif_on: true, dif_src: 'value', dif_grad: ramp(pick(a, 0.2), pick(a, 0.7), pick(a, 1)),
+            // A reference's pipe bank: even pipes in the flat 0..1 relief, clamp rings at their own place per run.
+            scale: 'unit', dia_var: 0, jitter: 0, joints: 0, clamp_foot: 0, clamp_rel: false, clamp_jitter: 1, clamp_seeded: false,
           }),
           grime(a, 1.5),
         ],
@@ -854,6 +864,8 @@ TEMPLATES.push(
           L('noise', 'Brushed', { noise: 'value', fractal: 'fbm', ...streaks(a, false, a.width * 0.4, 2), octaves: 2, seed: 7, sh_lo: 0.32, sh_hi: 0.68, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0.2, 0.8) }),
           L('trim', 'Bands', {
             mirror: true, div_count: a.periodX ? Math.max(0, Math.round(a.width / a.periodX)) : 0, elem: 'rivet', elem_count: a.periodX ? Math.max(1, Math.round(a.width / a.periodX)) : 8,
+            // Plates at the reference's period, one rivet per period: regular, counted (not by pitch).
+            div_var: 0, elem_layout: 'even', elem_pitch: 0,
             bevel: 1, profile: 'linear', aa: false, h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: paletteRamp(a, 0, 1),
           }),
           grime(a, 1),
@@ -961,6 +973,9 @@ TEMPLATES.push(
         paint: [
           L('scales', 'Scales', {
             columns: a.periodX ? Math.max(1, Math.round(a.width / a.periodX)) : 2, rows: 0, outline: 1, dome: 0.6,
+            // Regular rows, as the reference's measured period has them (Irregularity, Edge wobble and the row curve would
+            // blur the match).
+            jitter: 0, size_var: 0, wobble: 0, dw_amount: 0,
             bevel: 2, profile: 'round', aa: false, h_on: true, h_amount: 0.5, dif_on: true, dif_grad: paletteRamp(a, 0, 1), dif_jitter: 0.15,
           }),
           speckle(0.15),
@@ -978,7 +993,9 @@ TEMPLATES.push(
         relief: [lumps(a, 6, 0.2, false)],
         paint: [
           L('cracks', 'Plates', {
-            scale: 4, width: 1.25, sub: 0.4, h_on: true, h_amount: 0.3, dif_on: true, dif_grad: paletteRamp(a, 0, 1), dif_jitter: 0.15,
+            // The editor's size-dependent defaults (crack widths, zig-zag, bevel; fewer fine cracks on small textures).
+            ...freshParams('cracks', { width: a.width, height: a.height }),
+            scale: 4, sub: 0.4, h_on: true, h_amount: 0.3, dif_on: true, dif_grad: paletteRamp(a, 0, 1), dif_jitter: 0.15,
             e_on: a.glow > 0.01, e_color: pick(a, 1), e_intensity: 0.4, e_src: 'value', sh_invert: a.glow > 0.01,
           }),
           L('noise', 'Grain', { noise: 'value', fractal: 'fbm', scale: across(a, 3), octaves: 3, seed: 23, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.35, dif_grad: ramp('#000000', '#ffffff') }),
@@ -995,7 +1012,7 @@ TEMPLATES.push(
         paint: [
           L('noise', 'Board', { noise: 'value', fractal: 'fbm', scale: across(a, 10), octaves: 3, seed: 8, h_on: false, dif_on: true, dif_grad: ramp(pick(a, 0), pick(a, 0.25)) }),
           L('truchet', 'Traces', {
-            style: 'circuit', cells: a.periodX ? Math.max(4, Math.round(a.width / a.periodX)) : 16, width: 1, regions: 6, pad: 1, vias: 0.3,
+            style: 'circuit', cells: a.periodX ? Math.max(4, Math.round(a.width / a.periodX)) : 16, width: 1, regions: 6, pad: 1, vias: 0.3, empty: 0.1, wide: 0,
             bevel: 0.5, aa: false, h_on: true, h_amount: 0.3, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 1)), e_on: a.glow > 0.005, e_src: 'flat', e_color: pick(a, 1), e_intensity: 0.4,
             s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.5, s_b: 0.5,
           }),
@@ -1027,7 +1044,7 @@ TEMPLATES.push(
         paint: [
           L('noise', 'Surround', { noise: 'value', fractal: 'fbm', scale: across(a, 10), octaves: 3, seed: 8, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0, 0.4) }),
           L('rosette', 'Disc', {
-            output: 'glow', radius: Math.min(a.width, a.height) * 0.42, rings: 2, star: 0, h_on: true, h_amount: 0.3,
+            output: 'glow', radius: Math.min(a.width, a.height) * 0.42, rings: 2, star: 0, hub: 0, dots: 0, h_on: true, h_amount: 0.3,
             dif_on: true, dif_src: 'value', dif_grad: paletteRamp(a, 0.2, 1), e_on: a.glow > 0.005, e_src: 'value', e_color: pick(a, 1), e_intensity: 0.8,
           }),
         ],

@@ -6,6 +6,7 @@
 import { P, type ParamValues } from '@/core/params'
 import { HEIGHT_ONLY, L, ON_FACES, across, clamp, crisp, gradient, lerp, num, r2, shade } from './parts'
 import type { RecipeContext, RecipeDef, RecipeLayer } from './types'
+import { BRICKS_PLAIN, VORONOI_PLAIN } from '@/layers/generators/patterns'
 
 const STONES = gradient('#33260f', '#45330f', '#323232', '#3a2a10', '#2c2c3a', '#4a3814', '#363636')
 
@@ -62,7 +63,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
     relief(
       'chips',
       L('voronoi', 'Chips', {
-        output: 'facets', scale: across(ctx, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: seed + 13, sm_on: false,
+        output: 'facets', facet_fit: false, scale: across(ctx, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: seed + 13, sm_on: false,
         h_on: true, h_mode: 'min', h_amount: r2(lerp(2.2, 0.8, chips)), dif_on: false, m_hmode: 'below', m_hlevel: r2(0.8 * (pillow + edge)), m_hsoft: 0.08,
       }, chips > 0),
     ),
@@ -77,7 +78,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
     relief(
       'pits',
       L('noise', 'Pits', {
-        noise: 'worley', fractal: 'none', scale: across(ctx, 5), seed: seed + 27, sh_invert: true, sh_cut: 0.94, sh_cut_soft: 0.04,
+        noise: 'worley', fractal: 'none', w_even: false, w_profile: 'linear', scale: across(ctx, 5), seed: seed + 27, sh_invert: true, sh_cut: 0.94, sh_cut_soft: 0.04,
         h_on: true, h_mode: 'subtract', h_amount: r2(0.5 * rough), dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'flat', s_a: 0.2, s_b: 0.2, ...ON_FACES,
       }, rough > 0),
     ),
@@ -127,7 +128,7 @@ export const dressedStone: RecipeDef = {
     const cols = Math.max(1, Math.round(num(m.columns, 4)))
     const rows = Math.max(1, Math.round(num(m.rows, 8)))
     const shape = {
-      columns: cols, rows, stagger: num(m.stagger, 0.5), mortar: num(m.joint, 0.5), round: 1.5, aa: false, seed: num(m.seed, 6),
+      ...BRICKS_PLAIN, columns: cols, rows, stagger: num(m.stagger, 0.5), mortar: num(m.joint, 0.5), round: 1.5, aa: false, seed: num(m.seed, 6),
       pos_jitter: r2(1.5 * v), rot_jitter: r2(4 * v), len_var: r2(0.15 + 0.5 * v), row_var: r2(0.6 * v), row_jitter: r2(0.5 * v), dw_amount: r2(0.3 + v), dw_scale: 6,
     }
     const a = ctx.width / cols
@@ -151,7 +152,7 @@ export const cobblestones: RecipeDef = {
   build(m, ctx) {
     const size = num(m.size, 13)
     const v = num(m.irregular, 0.6)
-    const shape = { output: 'cells', scale: across(ctx, size), jitter: r2(lerp(0.5, 1, v)), gap: num(m.joint, 1), round: 2, warp: r2(2.5 * v), seed: num(m.seed, 4), aa: false }
+    const shape = { ...VORONOI_PLAIN, output: 'cells', scale: across(ctx, size), jitter: r2(lerp(0.5, 1, v)), gap: num(m.joint, 1), round: 2, warp: r2(2.5 * v), seed: num(m.seed, 4), aa: false }
     return stoneLayers('voronoi', shape, m, ctx, size, size)
   },
 }

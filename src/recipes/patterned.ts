@@ -41,7 +41,7 @@ export const stripes: RecipeDef = {
     } else if (pattern === 'chevron' || pattern === 'zigzag') {
       type = 'bands'
       const lanes = Math.max(1, Math.round((count * ctx.height) / ctx.width))
-      shape = { mode: pattern, count: Math.max(1, Math.round(count / 2)), rows: lanes, width: r2((ctx.height / lanes) * duty), margin_top: 0, margin_bottom: 0, angle: num(m.angle, 45), run: 0, orient: '0' }
+      shape = { mode: pattern, count: Math.max(1, Math.round(count / 2)), rows: lanes, width: r2((ctx.height / lanes) * duty), margin_top: 0, margin_bottom: 0, rail: 0, keep_angle: false, h_var: 0, angle: num(m.angle, 45), run: 0, orient: '0' }
     } else {
       shape = { mode: 'shape', count, angle: pattern === 'straight' ? num(m.angle, 0) : num(m.angle, 45), duty, offset: 0 }
     }

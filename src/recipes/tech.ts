@@ -4,6 +4,7 @@
 import { P, type Gradient, type ParamValues } from '@/core/params'
 import { L, across, clamp, crisp, gradient, lerp, num, r2, shade } from './parts'
 import type { RecipeDef, RecipeLayer } from './types'
+import { BRICKS_REGULAR } from '@/layers/generators/patterns'
 
 const rustRamp = (hex: string) => shade(hex, 0.6)
 
@@ -49,19 +50,21 @@ export const grate: RecipeDef = {
     const v: ParamValues = {
       mode: m.mode ?? 'slots', cols, rows, orient: horiz ? 'horizontal' : 'vertical', length: r2(Math.max(1, cell * num(m.fill, 0.8))), width: num(m.width, 3), ends: m.ends ?? 'square',
       stagger: num(m.stagger, 0), louver: 0.8, margin: frame, field_level: 0.6, aa: false, seed,
+      // A square frame (the border seam and tabs are drawn to it) and true 45° pointed / angled ends.
+      round: 0, outer: 0, tip: 0.5,
     }
     const hole = String(m.hole ?? '#050505')
     const metal = m.metal ?? gradient('#2c2a28', '#4a4846')
     const frameCol = m.frame_colour ?? gradient('#55524e', '#7c7975')
     const bolt = { radius: 1.2, x: r2(Math.min(0.45, (frame / 2 + 0.5) / (ctx.width / 2))), y: r2(Math.min(0.45, (frame / 2 + 0.5) / (ctx.height / 2))), rep_x: 2, rep_y: 2, rep_mirror: true, aa: false, sm_on: false, seed: seed + 5 }
     const tabs = Math.max(0, Math.round(num(m.tabs, 0)))
-    const tab = { shape: m.tab_shape ?? 'trapezoid', place: 'border', edges: horiz ? 'sides' : 'ends', count: Math.max(1, tabs), length: num(m.tab_length, 8), depth: num(m.tab_depth, 4), cut: 1, thickness: 1.5, inset: 0, aa: false, seed: seed + 7 }
+    const tab = { shape: m.tab_shape ?? 'trapezoid', place: 'border', edges: horiz ? 'sides' : 'ends', distribute: 'count', count: Math.max(1, tabs), length: num(m.tab_length, 8), depth: num(m.tab_depth, 4), cut: 1, thickness: 1.5, inset: 0, aa: false, seed: seed + 7 }
     // The openings are painted black only in a core one pixel in, so the slot walls keep the metal colour and show the
     // light: lit on the walls facing it (bottom / right under a top-left light), dark on the others.
     const core = { ...v, width: r2(Math.max(0.5, num(m.width, 3) - 1)), length: r2(Math.max(0.5, Number(v.length) - 1)) }
     const out: RecipeLayer[] = [
       { role: 'frame', stack: 'relief', layer: L('vents', 'Frame', { ...v, output: 'frame', bevel: 0.75, profile: 'linear', sm_on: false, h_on: true, h_amount: 0.25, dif_on: false, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.35, s_b: 0.35 }, frame > 0) },
-      { role: 'seam', stack: 'relief', layer: L('bricks', 'Border seam', { columns: 1, rows: 1, stagger: 0, mortar: 1, round: 0, aa: false, seed: seed + 6, bevel: 0.75, profile: 'linear', sm_on: false, h_on: true, h_amount: 0.2, dif_on: false }, frame > 0 && m.seam !== false) },
+      { role: 'seam', stack: 'relief', layer: L('bricks', 'Border seam', { ...BRICKS_REGULAR, columns: 1, rows: 1, stagger: 0, mortar: 1, round: 0, aa: false, seed: seed + 6, bevel: 0.75, profile: 'linear', sm_on: false, h_on: true, h_amount: 0.2, dif_on: false }, frame > 0 && m.seam !== false) },
       { role: 'tabs', stack: 'relief', layer: L('tabs', 'Edge tabs', { ...tab, bevel: 0.5, profile: 'linear', sm_on: false, h_on: true, h_mode: 'subtract', h_amount: 0.2, dif_on: false }, tabs > 0 && frame > 0) },
       { role: 'slots', stack: 'relief', layer: L('vents', 'Slot walls', { ...v, output: 'slots', bevel: 1, profile: 'linear', sdf_op: 'replace', h_on: true, h_mode: 'subtract', h_amount: 0.35, dif_on: false }) },
       { role: 'bolts', stack: 'relief', layer: L('ellipse', 'Bolts', { ...bolt, bevel: 1, profile: 'round', h_on: true, h_amount: 0.2, dif_on: false }, m.bolts === true && frame > 0) },
@@ -116,9 +119,10 @@ export const metalPlate: RecipeDef = {
     const rivets = String(m.rivets ?? 'none')
     const rn = rivets === 'grid' ? Math.max(1, Math.round(num(m.rivet_count, 4))) : 2
     const riv = { radius: 1.1, x: rivets === 'grid' ? 0.5 : 0.12, y: rivets === 'grid' ? 0.5 : 0.12, rep_x: rn * Math.max(1, seams), rep_y: rivets === 'grid' ? Math.max(1, Math.round((rn * ctx.height) / ctx.width)) : 2, rep_mirror: rivets !== 'grid', aa: false, sm_on: false, seed: seed + 6 }
-    const tp = { style: tread === 'none' ? 'lozenge' : tread, count_x: tc, count_y: Math.max(1, Math.round((tc * ctx.height) / ctx.width)), layout: 'checker', angle: 45, length: 0.8, width: 0.26, aa: false, seed: seed + 7 }
+    // Each tread style brings its own arrangement and proportions (the treadplate's style-linked defaults).
+    const tp = { style: tread === 'none' ? 'lozenge' : tread, count_x: tc, count_y: Math.max(1, Math.round((tc * ctx.height) / ctx.width)), aa: false, seed: seed + 7 }
     const out: RecipeLayer[] = [
-      { role: 'seams', stack: 'relief', layer: L('bricks', 'Plates', { columns: Math.max(1, seams), rows: 1, stagger: 0, mortar: 1, round: 0, aa: false, seed: seed + 8, bevel: 1, profile: 'custom', bevel_curve: crisp(), sdf_op: 'replace', h_on: true, h_amount: 0.25, dif_on: false }, seams > 0) },
+      { role: 'seams', stack: 'relief', layer: L('bricks', 'Plates', { ...BRICKS_REGULAR, columns: Math.max(1, seams), rows: 1, stagger: 0, mortar: 1, round: 0, aa: false, seed: seed + 8, bevel: 1, profile: 'custom', bevel_curve: crisp(), sdf_op: 'replace', h_on: true, h_amount: 0.25, dif_on: false }, seams > 0) },
       { role: 'tread', stack: 'relief', layer: L('treadplate', 'Tread', { ...tp, bevel: 0.75, profile: 'linear', sm_on: false, h_on: true, h_amount: 0.22, dif_on: false, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.25, s_b: 0.25 }, tread !== 'none') },
       { role: 'rivets', stack: 'relief', layer: L('ellipse', 'Rivets', { ...riv, bevel: 1, profile: 'round', h_on: true, h_amount: 0.2, dif_on: false }, rivets !== 'none') },
       { role: 'dents', stack: 'relief', layer: L('noise', 'Dents', { noise: 'perlin', fractal: 'fbm', scale: across(ctx, 12), octaves: 2, seed: seed + 9, h_on: true, h_amount: 0.06, dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'value', s_a: 0.3, s_b: 1 }) },
@@ -127,7 +131,7 @@ export const metalPlate: RecipeDef = {
         role: 'rust', stack: 'paint',
         layer: L('noise', 'Rust', { noise: 'perlin', fractal: 'fbm', scale: across(ctx, 14), octaves: 4, seed: seed + 2, sh_cut: r2(lerp(0.85, 0.45, rust)), sh_cut_soft: 0.12, h_on: false, dif_on: true, dif_opacity: 0.85, dif_grad: rustRamp(String(m.rust_colour ?? '#5a3418')) }, rust > 0),
       },
-      { role: 'tread-colour', stack: 'paint', layer: L('treadplate', 'Tread highlights', { ...tp, bevel: 1, profile: 'linear', sm_on: false, h_on: false, dif_on: true, dif_blend: 'screen', dif_opacity: 0.4, dif_src: 'value', dif_grad: gradient('#000000', '#7a6a58') }, tread !== 'none') },
+      { role: 'tread-colour', stack: 'paint', layer: L('treadplate', 'Tread highlights', { ...tp, bevel: 1, profile: 'linear', crown: 0, crest: 0, sm_on: false, h_on: false, r_on: false, s_on: false, dif_on: true, dif_blend: 'screen', dif_opacity: 0.55, dif_src: 'value', dif_grad: gradient('#000000', '#7a6a58') }, tread !== 'none') },
       {
         role: 'scratches', stack: 'paint',
         layer: L('scratches', 'Scratches', { density: r2(4 + 30 * num(m.scratches, 0.2)), len_min: 3, len_max: 12, thickness: 1, taper: 0.6, angle: 15, angle_jitter: 50, fade: 0.6, hard: true, seed: seed + 3, h_on: false, dif_on: true, dif_blend: 'screen', dif_opacity: 0.45, dif_grad: gradient('#000000', '#6a625a') }, num(m.scratches, 0.2) > 0),
@@ -236,6 +240,8 @@ export const circuit: RecipeDef = {
     const tr = {
       cells: Math.max(2, Math.round(num(m.cells, 32))), angle: num(m.angle, 45), density: num(m.density, 0.7), diagonal: num(m.diagonal, 0.45), bias: num(m.bias, 0.5), mode: m.mode ?? 'fill', directions: m.directions ?? '8', hug: num(m.hug, 0.6), seeds: 3, seed_length: 160, max_length: 80, min_length: 3, gap: 0, fill: 1, pins: num(m.pins, 0.15), straight: num(m.straight, 0.8), grouping: num(m.grouping, 0.75), block: Math.max(1, Math.round(num(m.block, 5))), width: w,
       pads: num(m.pads, 0.9), pad_size: r2(w + 0.5), pad_shape: 'round', vias: num(m.vias, 0.08), via_size: r2(w + 1), aa: false, seed,
+      // Pixel-art traces: one width, a ring as wide as the trace, crowded ends bare, short route pieces kept.
+      via_ring: w, wide: 0, tight_pads: 0, min_links: 2,
     }
     const trace = String(m.trace ?? '#e020e0')
     return [

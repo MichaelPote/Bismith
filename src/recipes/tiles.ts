@@ -4,6 +4,7 @@
 import { P, type ParamValues } from '@/core/params'
 import { L, ON_FACES, across, clamp, gradient, num, r2, shade } from './parts'
 import type { RecipeDef, RecipeLayer } from './types'
+import { BRICKS_REGULAR, HEX_PLAIN } from '@/layers/generators/patterns'
 
 export const tiles: RecipeDef = {
   id: 'tiles',
@@ -47,7 +48,7 @@ export const tiles: RecipeDef = {
     let shape: ParamValues
     if (pattern === 'hex') {
       type = 'hex'
-      shape = { scale: across(ctx, size * 1.15), orient: 'flat', gap: joint, round: num(m.corner, 1.5), seed }
+      shape = { ...HEX_PLAIN, scale: across(ctx, size * 1.15), orient: 'flat', gap: joint, round: num(m.corner, 1.5), seed }
     } else if (pattern === 'fan' || pattern === 'rings') {
       // Setts in arcs: courses from the fan's point (rosette's centre) to its rim, one sett deep each.
       type = 'setts'
@@ -62,7 +63,7 @@ export const tiles: RecipeDef = {
       shape = { mode: 'plus', scale: across(ctx, size * 5), gap: joint, round: num(m.corner, 1.5), seed }
     } else if (pattern === 'bond') {
       type = 'bricks'
-      shape = { columns: Math.max(1, Math.round(ctx.width / (size * 2))), rows: Math.max(1, Math.round(ctx.height / size)), stagger: 0.5, mortar: joint, round: num(m.corner, 1.5), seed }
+      shape = { ...BRICKS_REGULAR, columns: Math.max(1, Math.round(ctx.width / (size * 2))), rows: Math.max(1, Math.round(ctx.height / size)), stagger: 0.5, mortar: joint, round: num(m.corner, 1.5), seed }
     } else {
       const mode = pattern === 'diagonal' ? 'squares' : pattern
       // Diagonal bond: squares stretched 2:1 into bricks, half-offset rows, turned 45°.
@@ -73,6 +74,9 @@ export const tiles: RecipeDef = {
       if (pattern === 'diamonds') shape.mode = 'squares'
     }
     shape.aa = false
+    // Level tiles: the macros (Height variation, Surface roughness) give the relief, so no tilt, crown or per-tile height
+    // of the layer's own; tumbling blocks laid as rhombus tiles, each face with its own joint.
+    if (type === 'tessellation') Object.assign(shape, { tilt: 0, crown: 0, h_var: 0, ...(pattern === 'rhombille' ? { block_j: 1, block_iso: 0 } : {}) })
     const edge = num(m.edge, 0.5)
     const raise = num(m.raise, 0)
     const rough = num(m.rough, 0.15)

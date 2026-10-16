@@ -136,16 +136,16 @@ export const wood: RecipeDef = {
 export const marble: RecipeDef = {
   id: 'marble',
   label: 'Marble',
-  description: 'Veined stone: streaks, a vein network or cells over clouded colour; optionally cut into tiles.',
+  description: 'Veined stone: flowing ridged veins, streaks, a vein network or cells over clouded colour; optionally cut into tiles.',
   groups: [
     { id: 'veins', label: 'Veins' },
     { id: 'colour', label: 'Colour' },
   ],
   params: [
-    P.enum('style', 'Style', 'network', [['streaks', 'Streaks'], ['network', 'Network'], ['cells', 'Cells']], { group: 'veins' }),
-    P.float('veins', 'Veins', 3, 0.5, 16, { group: 'veins', step: 0.1 }),
-    P.float('width', 'Vein width', 1, 0.25, 6, { group: 'veins', unit: 'px', step: 0.05 }),
-    P.float('warp', 'Warp', 0.5, 0, 2, { group: 'veins', step: 0.01 }),
+    P.enum('style', 'Style', 'ridges', [['ridges', 'Ridges'], ['streaks', 'Streaks'], ['network', 'Network'], ['cells', 'Cells']], { group: 'veins' }),
+    P.float('veins', 'Veins', 2.5, 0.5, 16, { group: 'veins', step: 0.1 }),
+    P.float('width', 'Vein width', 1.6, 0.25, 8, { group: 'veins', unit: 'px', step: 0.05 }),
+    P.float('warp', 'Warp', 0.3, 0, 2, { group: 'veins', step: 0.01 }),
     P.float('cloud', 'Clouding', 0.4, 0, 1, { group: 'veins', step: 0.01 }),
     P.int('tiles', 'Tiles across', 0, 0, 16, { group: 'veins', hint: '0 = one slab' }),
     P.gradient('colours', 'Stone colours', gradient('#0a120a', '#1a2a18', '#2a3a26'), { group: 'colour' }),
@@ -154,7 +154,9 @@ export const marble: RecipeDef = {
   ],
   build(m, ctx) {
     const tiles = Math.max(0, Math.round(num(m.tiles, 0)))
-    const mb = { style: m.style ?? 'network', veins: num(m.veins, 3), angle: 30, stretch: 1, levels: 1, warp: num(m.warp, 0.5), warp_scale: 3, detail: 5, width: num(m.width, 1), soft: 1, width_var: 0.5, breakup: 0.3, fine: 0.45, fine_scale: 3, tiles, tile_rot: 90, cloud: num(m.cloud, 0.4), seed: num(m.seed, 101) }
+    // The macros; everything else is the generator's own defaults (Stretch along the veins only suits ridges / streaks).
+    const style = String(m.style ?? 'ridges')
+    const mb = { style, veins: num(m.veins, 2.5), warp: num(m.warp, 0.3), width: num(m.width, 1.6), tiles, tile_rot: 90, cloud: num(m.cloud, 0.4), seed: num(m.seed, 101), ...(style === 'ridges' || style === 'streaks' ? {} : { stretch: 1 }) }
     const base = (m.colours ?? gradient('#0a120a', '#2a3a26')) as { stops: { pos: number; color: string }[] }
     const grad = { stops: [...base.stops.map((s) => ({ pos: r2(s.pos * 0.7), color: s.color })), { pos: 1, color: String(m.vein ?? '#4a6a40') }] }
     return [

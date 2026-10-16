@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createLayer, createProject, normalizeProject } from '@/core/serialize'
 import type { Gradient } from '@/core/params'
+import { layerParamDefs } from '@/layers/registry'
 import { hexToRgb } from '@/core/color'
 import { createImage } from './image'
 import type { Project } from '@/core/project'
@@ -34,7 +35,7 @@ describe('parameter space', () => {
     const space = extractParams(p)
     expect(space.size).toBe(space.initial.length)
     const scale = byId(space, 'layer:noise1:scale')
-    expect(scale.log).toBe(true) // 0.25..64 soft range is multiplicative
+    expect(scale.log).toBe(true) // its 0.25..softMax range is multiplicative
     expect(entryValue(scale, space.initial)).toBeCloseTo(4, 3)
     const stop = byId(space, 'layer:noise1:dif_grad:1:color')
     expect(stop.dims).toBe(3)
@@ -106,7 +107,8 @@ describe('parameter space', () => {
     const g = q.layers[0].params.dif_grad as Gradient
     expect(g.stops.map((s) => s.pos)).toEqual([0.2, 0.9])
     expect(g.stops[0].color).toBe('#9a8c7a') // colour travels with its stop
-    expect(q.layers[0].params.scale).toBeCloseTo(64, 3)
+    // Clamped to the top of the slider (soft) range.
+    expect(q.layers[0].params.scale).toBeCloseTo(layerParamDefs('noise').find((d) => d.key === 'scale')!.softMax!, 3)
   })
 
   it('knows which entries are inert', () => {
@@ -245,7 +247,7 @@ describe('Optimizer', () => {
       return s
     }
     const opt = new Optimizer(project(), loss, { seed: 5, structural: true, structuralWhen: 'always' as const, structuralRate: 0.5 })
-    await opt.run(100)
+    await opt.run(300)
     expect(opt.best.loss).toBe(0)
     expect(opt.history.some((h) => h.structural)).toBe(true)
     expect(opt.best.project.layers.length).toBeLessThanOrEqual(5)

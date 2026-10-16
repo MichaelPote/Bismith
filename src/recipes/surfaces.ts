@@ -3,6 +3,7 @@
 import { P, type ParamValues } from '@/core/params'
 import { L, ON_FACES, across, clamp, gradient, num, r2, shade, streaks } from './parts'
 import type { RecipeDef, RecipeLayer } from './types'
+import { BRICKS_REGULAR } from '@/layers/generators/patterns'
 
 export const concrete: RecipeDef = {
   id: 'concrete',
@@ -60,8 +61,9 @@ export const concrete: RecipeDef = {
     const dark = String(m.dark ?? '#151515')
     const colours = m.colours ?? gradient('#3a3a3a', '#545454')
     const mottle = { noise: 'perlin', fractal: 'fbm', scale: across(ctx, num(m.mottle_size, 28)), octaves: 4, seed: seed + 1 }
-    const smear = { noise: 'perlin', fractal: 'ridged', scale: across(ctx, num(m.mottle_size, 28) * 1.4), octaves: 3, warp: 0.5, seed: seed + 2, sh_lo: 0.72, sh_hi: 0.96 }
-    const shape = { columns: Math.max(1, px), rows: py, stagger: 0, mortar: num(m.seam, 1), round: 0.5, aa: false, seed: seed + 3 }
+    // Classic ridged crests (no offset, hierarchy or crease, raw levels): Levels keep only the thin bright crest lines.
+    const smear = { noise: 'perlin', fractal: 'ridged', scale: across(ctx, num(m.mottle_size, 28) * 1.4), octaves: 3, warp: 0.5, ridge: 0, hier: 0, crease: 0, even: false, seed: seed + 2, sh_lo: 0.72, sh_hi: 0.96 }
+    const shape = { ...BRICKS_REGULAR, columns: Math.max(1, px), rows: py, stagger: 0, mortar: num(m.seam, 1), round: 0.5, aa: false, seed: seed + 3 }
     // Two repeat cells per panel, mirrored: the inset (fraction of the panel) is twice that of a cell.
     const inset = num(m.bolt_inset, 0.22)
     const bolt = { radius: num(m.bolt_size, 1.1), x: r2(2 * inset), y: r2(2 * inset * Math.min(1, pw / ph)), rep_x: Math.max(1, px) * 2, rep_y: py * 2, rep_mirror: true, aa: false, sm_on: false, seed: seed + 4 }
@@ -76,7 +78,7 @@ export const concrete: RecipeDef = {
       { role: 'smear-relief', stack: 'relief', layer: L('noise', 'Smear relief', { ...smear, h_on: true, h_mode: 'subtract', h_amount: r2(0.15 * smudge), dif_on: false }, smudge > 0) },
       {
         role: 'pits', stack: 'relief',
-        layer: L('noise', 'Pits', { noise: 'worley', fractal: 'none', scale: across(ctx, 4), seed: seed + 5, sh_invert: true, sh_cut: 0.95, sh_cut_soft: 0.03, h_on: true, h_mode: 'subtract', h_amount: r2(0.35 * num(m.pits, 0.2)), dif_on: false, ...(panels ? ON_FACES : {}) }, num(m.pits, 0.2) > 0),
+        layer: L('noise', 'Pits', { noise: 'worley', fractal: 'none', w_even: false, w_profile: 'linear', scale: across(ctx, 4), seed: seed + 5, sh_invert: true, sh_cut: 0.95, sh_cut_soft: 0.03, h_on: true, h_mode: 'subtract', h_amount: r2(0.35 * num(m.pits, 0.2)), dif_on: false, ...(panels ? ON_FACES : {}) }, num(m.pits, 0.2) > 0),
       },
       // A bevelled dip: its lower lip faces the light from above and catches a highlight.
       { role: 'bolts', stack: 'relief', layer: L('ellipse', 'Bolt holes', { ...bolt, bevel: r2(num(m.bolt_size, 1.1) * 0.5), profile: 'linear', h_on: true, h_mode: 'subtract', h_amount: 0.6, dif_on: false, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.5, s_b: 0.5 }, bolts) },
@@ -122,7 +124,7 @@ function formwork(m: Record<string, unknown>, ctx: { width: number; height: numb
   const tone = num(m.form_tone, 0.3)
   const ties = String(m.ties ?? 'none')
   const tsz = num(m.tie_size, 1.5)
-  const sheet = { columns: nx, rows: ny, stagger: 0, mortar: 0, round: 0, aa: false, seed: seed + 20 }
+  const sheet = { ...BRICKS_REGULAR, columns: nx, rows: ny, stagger: 0, mortar: 0, round: 0, aa: false, seed: seed + 20 }
   const tie = { radius: tsz, x: 0.5, y: 0.5, rep_x: nx * Math.max(1, Math.round(num(m.ties_x, 2))), rep_y: ny * Math.max(1, Math.round(num(m.ties_y, 2))), aa: false, sm_on: false, seed: seed + 21 }
   const seamShape: { type: string; p: ParamValues } = boards
     ? { type: 'stripes', p: { mode: 'shape', count: nx, angle: 90, duty: r2(Math.min(0.5, 1 / (ctx.width / nx))), offset: 0, aa: false, seed: seed + 22 } }

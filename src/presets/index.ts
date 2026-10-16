@@ -47,7 +47,7 @@ function riveted(): Project {
         h_on: true, h_amount: 0.9, dif_on: true, dif_grad: ramp('#4a423b', '#a39684'), r_on: true, r_src: 'flat', r_b: 0.3,
       }),
       L('scratches', 'Scratches', {
-        density: 10, len_min: 3, len_max: 10, thickness: 0.6, angle: 20, angle_jitter: 70, hard: true,
+        density: 10, len_min: 3, len_max: 10, thickness: 0.6, angle: 20, angle_jitter: 70, hard: true, clump: 0.3, breakup: 0.2,
         dif_on: true, dif_blend: 'screen', dif_opacity: 0.35, dif_grad: ramp('#000000', '#8c8070'), r_on: true, r_mode: 'min', r_a: 0.6, r_b: 0.25,
       }),
       L('cavity', 'Grime & wear', { radius: 2, wear_amount: 0.55, wear_color: '#9a8c78', dirt_amount: 0.75, dirt_color: '#14100c', noise_scale: 10 }),
@@ -82,7 +82,7 @@ function stoneBricks(): Project {
         h_on: true, h_amount: 0.25, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.55, dif_grad: ramp('#000000', '#ffffff'),
       }),
       L('noise', 'Pits', {
-        noise: 'cells', fractal: 'none', scale: 10, sh_lo: 0.0, sh_hi: 0.25, sh_invert: true, m_clip: 'inside',
+        noise: 'cells', fractal: 'none', w_even: false, w_profile: 'linear', scale: 10, sh_lo: 0.0, sh_hi: 0.25, sh_invert: true, m_clip: 'inside',
         h_on: true, h_mode: 'subtract', h_amount: 0.25, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.4, dif_grad: ramp('#ffffff', '#5a4a3a'),
       }),
       L('cavity', 'Grime & wear', { radius: 2.5, wear_amount: 0.4, wear_color: '#a89780', dirt_amount: 0.8, dirt_color: '#120e0b', noise_scale: 8 }),
@@ -299,7 +299,7 @@ function emberGem(): Project {
       }),
       L('polygon', 'Gem', {
         sides: 6, radius: 19, rotation: 30, round: 1, bevel: 12, profile: 'round',
-        h_on: true, h_mode: 'add', h_amount: 0.7, dif_on: true, dif_grad: ramp('#692205', '#e25c0a'),
+        h_on: true, h_mode: 'add', h_amount: 0.7, dif_on: true, dif_src: 'value', dif_grad: ramp('#692205', '#e25c0a'),
         r_on: true, r_src: 'flat', r_b: 0.08, e_on: true, e_src: 'value', e_color: '#f66e10', e_intensity: 1.6,
       }),
     ],
