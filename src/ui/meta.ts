@@ -102,7 +102,7 @@ const TYPE_ICON: Record<string, Component> = {
   traces: IconRoute,
   tabs: IconBorderCorners,
   vents: IconGridPattern,
-  panels: IconLayoutBoard,
+  greebles: IconLayoutBoard,
   trim: IconFrame,
   treadplate: IconGridDots,
   scales: IconCircles,

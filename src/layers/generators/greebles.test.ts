@@ -1,27 +1,29 @@
-// Machine panels (FR7.2d): the CPU side — plain defaults, editor defaults sized to the texture, the pinwheel root's
+// Greebles (FR7.2d): the CPU side — plain defaults, editor defaults sized to the texture, the pinwheel root's
 // table and the param table the shader reads.
 
 import { describe, expect, it } from 'vitest'
 import { ensureBuiltins } from '@/render/builtins'
 import { createLayer, freshParams, layerParamDefs } from '../registry'
-import { panelsLayer, WINDMILL } from './greeblePanels'
+import { greeblesLayer, WINDMILL } from './greebles'
 
-describe('panels', () => {
+describe('greebles', () => {
   ensureBuiltins()
 
   it('has the full look as its plain defaults (a 128 px texture), with the editor only scaling the sizes', () => {
-    const plain = createLayer('panels').params
+    const plain = createLayer('greebles').params
     expect(plain).toMatchObject({
       mask: 'plates', root: 'pinwheel', depth: 16, cluster: 0.45, pinwheel: 0.3, seam_taper: 0.5, frame_style: 'mixed',
       rivets: 'mixed', det_holes: true, det_ribs: true, det_pipes: true, hero: 0.6, small_parts: 0.5, light_style: 'mixed',
+      // The machine-panel look: straight seams, no 45° cuts, only the final panels drawn, a backing plate in the cut corners.
+      jog: 0, diag: 0, seamless: 1, fill: 'backing', beams: 0,
     })
     // At 128 px the editor's sizes are the plain ones.
-    const at128 = freshParams('panels', { width: 128, height: 128 })
+    const at128 = freshParams('greebles', { width: 128, height: 128 })
     for (const [k, v] of Object.entries(at128)) if (!['r_src', 's_src'].includes(k)) expect(plain[k], k).toEqual(v)
   })
 
   it('sizes a new layer to the texture', () => {
-    const at = (n: number) => freshParams('panels', { width: n, height: n })
+    const at = (n: number) => freshParams('greebles', { width: n, height: n })
     const big = at(512)
     expect(big).toMatchObject({ min_size: 28, max_size: 160, gap: 3, rivet_radius: 3, vent_pitch: 8, vent_slot: 4 })
     expect(Number(at(2048).max_size)).toBe(640)
@@ -36,7 +38,7 @@ describe('panels', () => {
       for (const k of ['frame_min', 'rivet_min', 'det_min']) expect(Number(p[k]), `${n}: ${k}`).toBeGreaterThan(Number(p.min_size))
     }
     // Only known params, within their hard limits.
-    const defs = new Map(layerParamDefs('panels').map((d) => [d.key, d]))
+    const defs = new Map(layerParamDefs('greebles').map((d) => [d.key, d]))
     for (const [k, v] of Object.entries(big)) {
       const d = defs.get(k)
       expect(d, k).toBeDefined()
@@ -68,17 +70,17 @@ describe('panels', () => {
   })
 
   it('uses every param it declares, and marks pixel lengths for supersampling', () => {
-    for (const d of panelsLayer.params) if (d.key !== 'seed') expect(panelsLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true)
-    const px = ['min_size', 'max_size', 'snap', 'gap', 'round', 'frame_inset', 'frame_width', 'frame_min', 'rivet_min', 'det_min', 'rivet_radius', 'rivet_inset', 'rivet_spacing', 'vent_pitch', 'vent_slot', 'light_size', 'light_rim', 'recess_wall', 'pipe_min']
-    for (const k of px) expect(panelsLayer.params.find((d) => d.key === k)!.unit, k).toBe('px')
+    for (const d of greeblesLayer.params) if (d.key !== 'seed') expect(greeblesLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true)
+    const px = ['min_size', 'max_size', 'snap', 'gap', 'round', 'frame_inset', 'frame_width', 'frame_min', 'rivet_min', 'det_min', 'rivet_radius', 'rivet_inset', 'rivet_spacing', 'vent_pitch', 'vent_slot', 'light_size', 'light_rim', 'recess_wall', 'pipe_min', 'shape_min', 'beam_width', 'jog', 'jog_space']
+    for (const k of px) expect(greeblesLayer.params.find((d) => d.key === k)!.unit, k).toBe('px')
   })
 
   it('writes the plate tops to the shape mask from the relief, unless told None', () => {
-    const relief = createLayer('panels').params
-    expect(panelsLayer.writesMask!(relief)).toBe(true)
-    expect(panelsLayer.writesMask!({ ...relief, mask: 'none' })).toBe(false)
-    expect(panelsLayer.writesMask!({ ...relief, mask: 'none', output: 'rivets' })).toBe(true)
-    expect(panelsLayer.glsl).toMatch(/u_mask == 0\) return genOut\([^;]*NO_SDF\)/)
-    expect(panelsLayer.glsl).toMatch(/max\(dP, -dHole\)/)
+    const relief = createLayer('greebles').params
+    expect(greeblesLayer.writesMask!(relief)).toBe(true)
+    expect(greeblesLayer.writesMask!({ ...relief, mask: 'none' })).toBe(false)
+    expect(greeblesLayer.writesMask!({ ...relief, mask: 'none', output: 'rivets' })).toBe(true)
+    expect(greeblesLayer.glsl).toMatch(/u_mask == 0\) return genOut\([^;]*NO_SDF\)/)
+    expect(greeblesLayer.glsl).toMatch(/max\(dP, -dHole\)/)
   })
 })

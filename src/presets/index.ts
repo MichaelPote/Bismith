@@ -132,6 +132,42 @@ function cobbles(): Project {
   })
 }
 
+function techPlates(): Project {
+  return createProject({
+    name: 'Tech plates',
+    width: 256,
+    height: 256,
+    tileable: true,
+    heightDepth: 3,
+    base: { color: '#4a4a44', roughness: 0.6, specular: 0.4, height: 0, opacity: 1 },
+    layers: [
+      // Interlocking plates: seams that jog at 45°, corners cut, cut-offs filled with plates of their own, raised centres.
+      L('greebles', 'Plates', {
+        root: 'pinwheel', pinwheel: 0.25, edge_seam: 0.5, min_size: 28, max_size: 120, split: 0.7, cluster: 0.5, split_var: 0.9, diag: 0.08,
+        gap: 2, seam_taper: 0, seam_max: 0, bevel: 3, profile: 'linear', round: 0,
+        jog: 8, jog_space: 72, jog_chance: 0.6, jog_layers: 2,
+        cut_chance: 0.7, cut_size: 0.4, cut_var: 0.5, shape_chance: 0.15, shape_min: 60, fill: 'plates',
+        frame_chance: 0.75, frame_style: 'raise', frame_inset: 7, frame_min: 34, rivets: 'none',
+        detail_chance: 0.2, det_min: 44, det_light: false, det_pipes: false, vent_pitch: 4, vent_slot: 2,
+        levels: 4, height_var: 0.35, bulge: 0, inset_depth: 0.22,
+        h_on: true, h_amount: 0.7, dif_on: true, dif_src: 'value', dif_jitter: 0.1, dif_grad: ramp('#151512', '#4e4c40', '#8a8770', '#c4c1a8'),
+      }),
+      L('noise', 'Mottle', {
+        noise: 'value', fractal: 'fbm', scale: 24, octaves: 5, h_on: true, h_amount: 0.02,
+        dif_on: true, dif_blend: 'overlay', dif_opacity: 0.25, dif_grad: ramp('#000000', '#ffffff'),
+      }),
+      L('cavity', 'Grime & wear', { radius: 2, wear_amount: 0.5, wear_color: '#d4d0b8', dirt_amount: 0.7, dirt_color: '#0e0d0a', noise_scale: 14 }),
+    ],
+    lighting: {
+      sky: { enabled: true, zenith: '#a2a8ae', horizon: '#a8a396', intensity: 0.3 },
+      ambient: { color: '#ffffff', intensity: 0.03 },
+      lights: [sun({ azimuth: 315, elevation: 35, angle: 1.5, intensity: 1.4, color: '#fff6e6' })],
+    },
+    render: { ...defaultRender(), maxSamples: 64, bounces: 1, jitter: false },
+    post: [post('tonemap', { operator: 'aces', exposure: 0.3 })],
+  })
+}
+
 function techPanel(): Project {
   return createProject({
     name: 'Tech panel',
@@ -377,6 +413,7 @@ export const PRESETS: Preset[] = ([
   { id: 'bricks', name: 'Stone bricks', group: 'Quake-style', build: stoneBricks },
   { id: 'cobbles', name: 'Cobblestones', group: 'Quake-style', build: cobbles },
   { id: 'tech', name: 'Tech panel', group: 'Quake-style', build: techPanel },
+  { id: 'plates', name: 'Tech plates', group: 'Quake-style', build: techPlates },
   { id: 'button', name: 'Forged button', group: 'UI surfaces', build: forgedButton },
   { id: 'well', name: 'Sunken well', group: 'UI surfaces', build: sunkenWell },
   { id: 'panel', name: 'Bevelled panel', group: 'UI surfaces', build: bevelledPanel },

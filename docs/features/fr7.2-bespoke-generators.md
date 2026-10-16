@@ -10,7 +10,7 @@ Motifs the generic layers can't express, found by surveying two reference textur
 | [FR7.2a Organic](fr7.2a-organic-generators.md) | `generators/organic.ts` | marble, caustics (lava/slime/water), wood, scales |
 | [FR7.2b Geometric](fr7.2b-geometric-generators.md) | `generators/geometric.ts` | tessellation (rhombille, herringbone, basketweave, crosses, octagons…), treadplate, weave, bands |
 | [FR7.2c Motif](fr7.2c-motif-generators.md) | `generators/motif.ts`, `filters/symmetry.ts` | truchet / maze / circuit, symmetry (kaleidoscope filter), rosette, glyph |
-| [FR7.2d Greebles](fr7.2d-greeble-generators.md) | `generators/greeble.ts` | panels (recursive subdivision), vents, pipes, trim |
+| [FR7.2d Greebles](fr7.2d-greeble-generators.md) | `generators/greeble.ts` | greebles (recursive subdivision, octilinear plates), vents, pipes, trim |
 
 Shared additions made for them: `NO_SDF` visible to generators, `int imod(int,int)`, and common **Offset X/Y**
 params on every generator (pattern phase alignment for matching).

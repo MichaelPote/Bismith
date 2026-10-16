@@ -1,9 +1,9 @@
-# FR7.2d — Tech / greeble generators: panels, vents, pipes, trim
+# FR7.2d — Tech / greeble generators: greebles, vents, pipes, trim
 
-**Status:** done. There are four generator types: `panels`, `vents`, `pipes` and `trim`, all in category `pattern`.
+**Status:** done. There are four generator types: `greebles`, `vents`, `pipes` and `trim`, all in category `pattern`.
 - `src/layers/generators/greeble.ts` exports `GREEBLE_LAYERS`, which is already registered.
 - `greebleCommon.ts` holds the shared `grb_` GLSL helpers.
-- `greeblePanels.ts` holds `panels`.
+- `greebles.ts` holds `greebles` (formerly `panels`).
 - `greebleVents.ts` holds `vents` and `pipes`.
 - `greebleTrim.ts` holds `trim`.
 
@@ -35,7 +35,7 @@ Why not a single SDF output? The wrapper replaces `value` with the bevel profile
 
 ## Plan / checklist
 - [x] Shared helpers `grb_cov`, `grb_rise` (layer profile with coverage fallback), `grb_box/rbox`, `grb_rand`, `grb_snapC` (pixel-snapped centres), `grb_dome`.
-- [x] **panels**:
+- [x] **greebles** (formerly `panels`):
   - bounded iterative kd-descent: a split, axis and cut per node are hashed from the node's path id; cuts snap to a grid
   - min/max size, split chance, cut bias, cut randomness, layout offset
   - seams on the left/top of each panel (crisp whole-px)
@@ -68,7 +68,7 @@ Why not a single SDF output? The wrapper replaces `value` with the bevel profile
     - laid out evenly along the tile or within each block
     - 1–64 rows, row spacing, stagger; hole depth, head turn, missing share
   - six outputs; the relief can also write the Shape Mask (`mask_shape`)
-- [x] Typecheck, smoke (`--only panels,vents,pipes,trim`, 64 px and 32 px).
+- [x] Typecheck, smoke (`--only greebles,vents,pipes,trim`, 64 px and 32 px).
 - [x] Robustness: 16×16, 256×16 and non-tiling 48×40 renders of every output.
 - [x] Tiling check: 2×2 repeats.
 - [x] Reference recreations (see below).
@@ -85,7 +85,38 @@ Defaults:
 - `bevel` 1 px, `profile` linear (pipes: 2 px round)
 - diffuse = value through a dark→metal ramp
 
-### `panels` — Machine panels
+### `greebles` — Greebles
+(Called *Panels*, type `panels`, until it grew the octilinear outlines; old projects' `panels` layers are not migrated.)
+
+A recursive kd-style subdivision into panels, with machine details on them. Beyond rectangular machine panels it draws
+octilinear "tech plate" patterns:
+- **Seam jogs** (`jog` group): every cut line steps aside and back in bumps with 45° sides, in up to three layers of
+  stretches (Jog spacing fitted to the tile, then half and a quarter of it; amplitude halving), a finer bump kept off a
+  coarser one's sides so lines stay octilinear (`grb_jog`, one bump per stretch per layer, O(1)). The jog is capped at a
+  fifth of Min panel so parallel cuts never cross. Plates measure their distance from the jogging lines themselves (each
+  cut on the way down adds its line's distance, 45° stretches at their true distance), so bevels, seams and inset frames
+  follow the jogs; root, pinwheel and 45° cuts stay straight.
+- **Diagonal cuts** (`diag`): a split may run at 45° (along x + y or x − y, corner pieces with legs of at least twice the
+  min panel). Cells are octagons: x, y, x + y and x − y bounds, tightened to a box with four corner cuts (`grb_octBox`)
+  for every decision; 45° lines repeat round the torus every gcd of the sides.
+- **Nested pieces** (`seamless`): every piece that splits stands on its parent with its own bevel and outline, its
+  parts on it, so the seams between them are only as deep as it stands; Seamless splits is the chance a piece skips that
+  and keeps its parent's height. 1 (the default) = only the final panels draw, all down to the floor.
+- **Plate outlines** (`outline` group): each outside corner cut at 45° by chance (Cut corners, legs a share of the
+  shorter adjacent edge, so 0.5 makes diamonds); Shaped panels: L, T (funnel), Z (step), cross or U (notch), their inside
+  corners filled at 45° — a polygon built from a corner table (`GRB_SH_V`), measured in one loop. Fill says what shows
+  where the plate leaves its panel: the floor, a backing plate, or **plates of their own** a seam away from the plate,
+  following its outline — panels interlock (cut corners then need legs that leave a wedge past the seam). Empty panels:
+  a share left out.
+- **Beams** (`beams` group): up to 8 straps (strap · rails · grooved) laid over everything, at 45° or level, endless (lines
+  that wrap round the tile) or segments up to the tile's short side; they follow the relief under them (negative height
+  sinks channels).
+
+The *Tech plates* preset shows the octilinear look (jogs, cut corners, fill plates, raised centres).
+
+Compile time (D3D11, cold): ~3.2 s against ~1.8 s for the old Panels, measured side by side. Plate, fill/backing and
+raised-centre bevels share one profile evaluation (`grb_rise3`); beams use a plain smooth ramp.
+
 Like vents and trim, the relief **writes a shape to the shape mask** (`mask`, *Shape for the mask*, default plate tops;
 `none` leaves the mask alone; `writesMask` tells the Clip-to labels): plates, panels, seams, frames, rivets, details or
 lights, through `genOutOwn` — later layers clip to it (grime in the seams: *Outside the shape mask*), chip or bevel from
@@ -107,13 +138,15 @@ to the texture: `k` = mean side / 128, so 512 px gets 4× them (min/max 28/160 p
 
 | Param | Default | Notes |
 | --- | --- | --- |
-| output | relief | relief · panels · seams · frames · rivets · details · lights |
-| mask | plates | relief only: none · plates (plate tops) · panels · seams · frames · rivets · details · lights (see above) |
+| output | relief | relief · panels · seams · frames · rivets · details · lights · beams |
+| mask | plates | relief only: none · plates (plate tops) · panels · seams · frames · rivets · details · lights · beams (see above) |
 | root | pinwheel | tile (cut in two, or as a pinwheel by `pinwheel`) · pinwheel (the first split always a pinwheel, its centre panel within the middle 30–70 % each way so no root seam spans more than 70 % of the tile; cuts below it that would land within two seams + two bevels of a root seam move off it, or go the other way — measured: no interior seam over 67 % of the tile at 512 px) · windmill ("Interlocked": the 15 pieces of the windmill tiling whose squares sit on the lattice (1, 2), (−2, 1) of a 5 × 5 grid, repeating every 5 cells both ways, grid lines jittered per seed — no border seam; `WINDMILL` in the source, tested to cover the torus once with no grid line uncrossed) |
 | depth | 16 | max split levels (≤ 24; a uniform-bounded loop). It stops the splits before Max panel does |
 | min_size / max_size | 7 / 40 px | no child side below min; sides above max are always cut (while min and depth allow) |
 | split | 0.65 | chance to cut a panel that is between the min and max sizes |
 | cluster | 0.45 | regions decide together: the split chance moves by ±1.5·cluster with a "busyness" inherited down the tree (re-drawn mostly in the first 4 levels), capped at max(split, 0.85) so busy zones keep some variety — busy zones of small panels next to calm plates |
+| diag | 0 | chance a split runs at 45° (see above) |
+| seamless | 1 | chance a splitting piece draws no bevel / outline of its own and keeps its parent's height (see above) |
 | pinwheel | 0.3 | chance a node splits into five (four arms winding round a centre, either sense) instead of two; needs room for three panels each way |
 | aspect | 1 | height ÷ width of min and max (geometric mean kept): > 1 tall panels / columns, < 1 wide panels / rows. Unlike the bias it also stretches the forced (max-size) cuts |
 | bias | 0 | optional cuts: −1 vertical (columns) … +1 horizontal (rows); 0 = cut across the longer side |
@@ -123,8 +156,11 @@ to the texture: `k` = mean side / 128, so 512 px gets 4× them (min/max 28/160 p
 | edge_seam | 0.34 | the tile-border seam as a share of `gap` (whole px; 0 = border panels meet with only their bevels) — thin keeps tiled copies from showing a grid of wide seams |
 | seam_max | 0.12 | no seam wider than this share of its panel's shorter side (≥ 1 px): thin seams in busy zones |
 | seam_taper | 0.5 | each level of cuts narrows its seams by this fraction, whole px, ≥ 1 px (level 0 = the first cuts and the tile edge keep `gap`) |
-| cut_chance, cut_size | 0.35, 0.2 | share of panels with cut corners — one, two opposite or all four chamfered (45°), or one notched (its inner corner rounded by min(Corner rounding, leg / 2); an inset frame steps round it with a rectangle), legs `cut_size` × the shorter side (none under 6 px or under Corner rounding + 2); a backing plate at half the plateau shows in the cut, frames follow it, rivets and details keep clear (`grb_corner`, one evaluation per pixel) |
-| round | 0.5 px | corner rounding |
+| jog, jog_space, jog_chance, jog_layers | 0 px, 24 px, 0.6, 3 | seam jogs (see above): max bump, coarsest stretch, chance per stretch, layers |
+| cut_chance, cut_size, cut_var | 0.2, 0.25, 0.5 | share of outside corners cut at 45°, each on its own; leg = size × the shorter adjacent edge × (1 − var·rand), whole px, none under 2 px (with Fill › Plates: under 1.41 seam + 1.5 bevel + 2). Rivets and details keep clear |
+| shape_chance, shape_kind, shape_min, fillet | 0.15, mixed, 20 px, 0.35 | shaped panels (L · T · Z · cross · U · mixed), arms ≥ a quarter of the short side; inside corners filled at 45° (leg share). Frame, rivets and details go on the larger part |
+| fill, backing, empty | backing, 0.5, 0 | floor · backing plate (`backing` × the panel's height) · plates (own level, a seam away). Empty: share of panels left out |
+| round | 0.5 px | corner rounding (rounds the meeting of the cell's two nearest edges) |
 | levels / height_var / min_level | 4 / 0.35 / 0.25 | per-panel plateau levels, evenly from 0.75 down to `0.75·max(1 − var, min_level)` |
 | bulge, bulge_spread | 0.12, 0.7 | a pillow over each panel rising over the outer `mix(0.3, 1, spread)` of each half-width — 0 a cushion with a flat top, 1 a full dome — in proportion to its plateau (`bulge` on the top level), and on raised / recessed centres too; negative dishes, −0.75 down to the floor |
 | inset_depth | 0.25 | groove, recess and light-housing depth, raised-frame rise (relief) |
@@ -139,6 +175,10 @@ to the texture: `k` = mean side / 128, so 512 px gets 4× them (min/max 28/160 p
 | hero, small_parts | 0.6, 0.5 | hero parts: share of the panels ≥ 2.5 × `det_min` whose detail fills 0.9 of the panel, centred, unpaired: a recessed grille, recessed perforation, light panel or pipe run — only among the kinds switched on. Small parts: share of the panels below `det_min` that get one bolt or one short slot (1 px walls, a flat floor; off while the detail Chance is 0) |
 | vent_pitch, vent_slot | 2 px, 1 px | slot pitch and width; the perforation uses them as hole pitch and diameter |
 | light_style, light_size, light_rel, light_len, light_rim, light_dome | mixed, 1.5 px, 0.3, 3, 1 px, 0.35 | lens (centred, size × length) · row of round lamps · strip · light panel (fills the detail area) · mixed; rows and strips run along a random long edge. Size at least `light_rel` × the area's short side (half that for a row's lamps, so rows hold several). Housing width; lens dome height (0 = flat lens sunk in the housing) |
+| beams, beam_dir, beam_width, beam_var, beam_len, beam_height, beam_style | 0, diagonal, 6 px, 0.3, 1, 0.3, strap | count; diagonal (rising or falling) · rising · falling · level · mixed; width and its variation; length as a share of the short side (1 = endless); height (negative = channel); strap · rails · grooved |
+
+Inset frames on jogging plates inset from the panel's straight box with its corner cuts (an inset of every jog turns the
+small ones to spikes), kept half the inset inside the jogging edges.
 
 ### `vents` — Vents & grilles
 The relief writes the shape mask by **Shape for the mask** (`mask`): the plate (metal, frame and fasteners, openings
@@ -259,7 +299,7 @@ The project files are in the session scratchpad: `…/scratchpad/greeble/rec/*.j
   - Rivets mirror exactly: the near-edge margin is whole px on both sides.
   - Whole-px params with `aa: false` give crisp 1 px features.
 - **Tiling.**
-  - `panels` subdivides the whole tile and wraps the pixel into it. The tile border is always a seam, so use `offset_x/y` to move it.
+  - `greebles` subdivides the whole tile and wraps the pixel into it. The tile border is always a seam, so use `offset_x/y` to move it.
   - `vents` wraps its lattice when `margin = 0`. With a margin it is one framed panel per tile.
   - `pipes`, `trim` dividers and elements use whole counts per tile.
   - With stagger, use an even row count.

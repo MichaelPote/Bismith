@@ -596,17 +596,17 @@ export const TEMPLATES: Template[] = [
     id: 'riveted',
     label: 'Riveted plates',
     tags: ['metal', 'plate', 'panel', 'base', 'iron'],
-    requires: ['panels', 'drips'],
+    requires: ['greebles', 'drips'],
     build: (a, ctx) => {
       const size = Math.max(8, a.periodX || a.periodY || Math.min(a.width, a.height) / 2)
       return base(a, ctx, 'Riveted plates', {
         relief: [dents(a)],
         paint: [
           L('noise', 'Metal', { noise: 'value', fractal: 'fbm', scale: across(a, 12), octaves: 4, seed: 8, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0.2, 0.8) }),
-          L('panels', 'Plates', {
+          L('greebles', 'Plates', {
             depth: 3, min_size: size, max_size: size, split_var: 0, snap: size, gap: 1, levels: 1, frame_chance: 0, detail_chance: 0,
             // A regular grid of plain plates at the reference's period: no pinwheel, cut corners, or thinner border seam.
-            root: 'tile', pinwheel: 0, cut_chance: 0, edge_seam: 1,
+            root: 'tile', pinwheel: 0, cut_chance: 0, shape_chance: 0, edge_seam: 1,
             rivets: 'edges', rivet_chance: 1, rivet_radius: 0.5, rivet_inset: 3, rivet_spacing: 4.5, rivet_height: 0.3,
             bevel: 2, profile: 'linear', aa: false, h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: ramp(pick(a, 0), pick(a, 0.6), pick(a, 1)), dif_opacity: 0.6,
           }),
@@ -785,7 +785,7 @@ TEMPLATES.push(
     id: 'greeble',
     label: 'Tech greebles (machinery panels)',
     tags: ['tech', 'panel', 'machine', 'comp'],
-    requires: ['panels'],
+    requires: ['greebles'],
     build: (a, ctx) => {
       // One panel layout (tied): the panels with their height and colour, and their lights.
       const layout = {
@@ -798,9 +798,9 @@ TEMPLATES.push(
         relief: [dents(a, 0.06)],
         paint: [
           L('noise', 'Grime', { noise: 'value', fractal: 'fbm', scale: across(a, 5), octaves: 4, seed: 8, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0, 0.6) }),
-          L('panels', 'Panels', { ...layout, bevel: 1, profile: 'linear', h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: paletteRamp(a, 0, 1), dif_jitter: 0.3 }),
+          L('greebles', 'Panels', { ...layout, bevel: 1, profile: 'linear', h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: paletteRamp(a, 0, 1), dif_jitter: 0.3 }),
           ...(a.glow > 0.005
-            ? [L('panels', 'Lights', { ...layout, output: 'lights', sm_on: false, bevel: 0, profile: 'flat', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 1)), e_on: true, e_src: 'flat', e_intensity: 1.2, e_color: pick(a, 1) })]
+            ? [L('greebles', 'Lights', { ...layout, output: 'lights', sm_on: false, bevel: 0, profile: 'flat', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 1)), e_on: true, e_src: 'flat', e_intensity: 1.2, e_color: pick(a, 1) })]
             : []),
           speckle(0.12),
         ],

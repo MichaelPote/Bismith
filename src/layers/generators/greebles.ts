@@ -1,6 +1,7 @@
-// Panels (FR7.2d): recursive kd-style subdivision of the tile into machine panels, with seams, per-panel
-// height steps, inset frames, rivets and small details (vent slots, lights, recesses, perforations). See
-// greebleCommon.ts for the relief / SDF output convention.
+// Greebles (FR7.2d): recursive kd-style subdivision of the tile into machine panels, with seams, per-panel
+// height steps, octilinear outlines (corners cut at 45°, L / T / Z / cross / U shapes with filleted inside corners),
+// inset frames, rivets, small details (vent slots, lights, recesses, perforations, pipes) and 45° beams laid over the
+// lot. See greebleCommon.ts for the relief / SDF output convention.
 
 import { P, gradient } from '@/core/params'
 import type { LayerDef } from '../types'
@@ -11,6 +12,9 @@ const hasRivets = (p: Record<string, unknown>) => p.rivets !== 'none'
 const hasDetails = (p: Record<string, unknown>) => Number(p.detail_chance) > 0
 const hasSlots = (p: Record<string, unknown>) => hasDetails(p) && (Boolean(p.det_vents) || Boolean(p.det_holes))
 const hasLight = (p: Record<string, unknown>) => hasDetails(p) && Boolean(p.det_light)
+const hasShapes = (p: Record<string, unknown>) => Number(p.shape_chance) > 0
+const hasJogs = (p: Record<string, unknown>) => Number(p.jog) > 0
+const hasBeams = (p: Record<string, unknown>) => Number(p.beams) > 0
 const isRelief = (p: Record<string, unknown>) => (p.output ?? 'relief') === 'relief'
 const MIN_HINT = 'Panels smaller than this get none, so small panels stay plain — measured as the square root of the area, so a long narrow strip still counts (0 = any that fit)'
 
@@ -27,16 +31,16 @@ const WINDMILL_RECTS = [
 ]
 export const WINDMILL = { cells: WINDMILL_CELLS, rects: WINDMILL_RECTS }
 
-export const panelsLayer: LayerDef = {
-  type: 'panels',
-  label: 'Machine panels',
+export const greeblesLayer: LayerDef = {
+  type: 'greebles',
+  label: 'Greebles',
   category: 'pattern',
   kind: 'generator',
   sdf: true,
   // The relief writes the shape mask unless Shape for the mask is None; the shape outputs always do.
   writesMask: (p) => !isRelief(p) || (p.mask ?? 'none') !== 'none',
   description:
-    'Recursive rectangular subdivision into machine panels: seams, per-panel height steps, inset frames, rivets, vents, lights, recesses and perforations. Tileable.',
+    'Machine greebles: a recursive subdivision into panels with seams and per-panel heights, octilinear outlines (corners cut at 45°, L, T, Z, cross and U shapes), inset frames, rivets, vents, lights, recesses, perforations and pipes, and 45° beams laid over them. Tileable.',
   params: [
     P.enum('output', 'Output', 'relief', [
       ['relief', 'Relief (all, value)'],
@@ -46,6 +50,7 @@ export const panelsLayer: LayerDef = {
       ['rivets', 'Rivets (shape)'],
       ['details', 'Details (shape)'],
       ['lights', 'Lights (shape)'],
+      ['beams', 'Beams (shape)'],
     ], { hint: 'Relief composes every element into one height value (uses the Edge bevel). The shape outputs give one element class as a shape — stack copies with the same seed for separate materials' }),
     P.enum('mask', 'Shape for the mask', 'plates', [
       ['none', 'None', 'the relief leaves the shape mask as it was'],
@@ -56,9 +61,10 @@ export const panelsLayer: LayerDef = {
       ['rivets', 'Rivets'],
       ['details', 'Details', 'vent slots, holes, recesses and light housings'],
       ['lights', 'Lights', 'the lenses'],
+      ['beams', 'Beams'],
     ], {
       showIf: isRelief,
-      hint: 'What the relief hands to the shape mask (Mask card › Use shape mask), for later layers to clip to (grime in the seams, paint on the plates only, glow in the lenses) or chip and bevel from — no second Panels layer needed',
+      hint: 'What the relief hands to the shape mask (Mask card › Use shape mask), for later layers to clip to (grime in the seams, paint on the plates only, glow in the lenses) or chip and bevel from — no second Greebles layer needed',
     }),
     P.enum('root', 'Layout', 'pinwheel', [
       ['tile', 'Whole tile', 'the tile is the first panel, cut in two (or as a pinwheel, by Pinwheel splits); its border is a seam (Offset moves it)'],
@@ -70,6 +76,8 @@ export const panelsLayer: LayerDef = {
     P.int('max_size', 'Max panel', 40, 1, 8192, { softMax: 512, unit: 'px', hint: 'Sides longer than this are always cut (while Min panel and Depth allow)' }),
     P.float('split', 'Split chance', 0.65, 0, 1, { step: 0.001, hint: 'Chance to cut a panel that is between min and max size' }),
     P.float('cluster', 'Clustering', 0.45, 0, 1, { step: 0.001, hint: 'Regions decide together: busy zones of small panels next to calm, big plates. 0 = every panel decides alone. It works between Min and Max panel, so a Max panel near Min leaves it little to do' }),
+    P.float('diag', 'Diagonal cuts', 0, 0, 1, { step: 0.001, hint: 'Chance a split runs at 45° instead of across or down: triangles, trapezoids and cut-off corners that split on in turn' }),
+    P.float('seamless', 'Seamless splits', 1, 0, 1, { step: 0.001, hint: 'Every piece that splits stands on its parent with its own bevel and outline, its parts on it (the seams between them as deep as it stands): this is the chance a piece skips that and keeps its parent’s height, its parts carrying on. 1 = only the final panels draw, all down to the floor' }),
     P.float('pinwheel', 'Pinwheel splits', 0.3, 0, 1, { step: 0.001, hint: 'Chance a panel splits into five as a pinwheel (four round a centre) instead of in two, so seams stop at each other instead of running edge to edge' }),
     P.float('aspect', 'Panel aspect', 1, 0.05, 20, { softMin: 0.125, softMax: 8, step: 0.01, hint: 'Height ÷ width of the min and max panel (their geometric mean stays): above 1 tall panels and columns, below 1 wide panels and rows' }),
     P.float('bias', 'Cut bias', 0, -1, 1, { step: 0.001, hint: 'Optional cuts: −1 = vertical cuts (columns), +1 = horizontal cuts (rows), 0 = cut across the longer side. Sides above Max panel are cut anyway (Panel aspect stretches the max)' }),
@@ -79,8 +87,6 @@ export const panelsLayer: LayerDef = {
     P.float('seam_taper', 'Seam taper', 0.5, 0, 1, { step: 0.001, hint: 'Main seams wide, fine ones thin: each level of cuts narrows its seams by this fraction (to 1 px). 0 = every seam is Seam wide' }),
     P.float('edge_seam', 'Tile-edge seam', 0.34, 0, 1, { step: 0.001, showIf: (p) => p.root !== 'windmill', hint: 'The seam along the tile border as a share of Seam (whole px): low values keep tiled copies from showing a grid of wide seams at the tile size. 0 = the border panels meet with only their bevels' }),
     P.float('seam_max', 'Seam limit', 0.12, 0, 0.5, { step: 0.001, hint: 'No seam wider than this share of the shorter side of its panel (at least 1 px): the small panels of busy zones get thin seams instead of a waffle grid. 0 = no limit' }),
-    P.float('cut_chance', 'Cut corners', 0.35, 0, 1, { step: 0.001, hint: 'Share of the panels with cut corners: one, two opposite or all four chamfered, or one notched out — the floor shows in the cut' }),
-    P.float('cut_size', 'Cut size', 0.2, 0.05, 0.5, { step: 0.001, showIf: (p) => Number(p.cut_chance) > 0, hint: 'Chamfer leg or notch side, as a share of the panel’s shorter side' }),
     P.float('round', 'Corner rounding', 0.5, 0, 128, { softMax: 24, unit: 'px', step: 0.1 }),
     P.int('levels', 'Height levels', 4, 1, 16, { hint: 'Distinct per-panel heights (relief)' }),
     P.float('height_var', 'Height variation', 0.35, 0, 1, { step: 0.001, hint: 'How far the lowest panel level sits below the highest: 1 = down at the seam floor unless Lowest level holds it up (relief)' }),
@@ -91,6 +97,33 @@ export const panelsLayer: LayerDef = {
     P.float('offset_x', 'Offset X', 0, 0, 1, { step: 0.001, hint: 'Shift the layout (fraction of the width) so the tile edge is not a seam' }),
     P.float('offset_y', 'Offset Y', 0, 0, 1, { step: 0.001 }),
     P.seed(),
+
+    P.float('jog', 'Size', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.5, group: 'jogs', hint: 'Seam lines step aside and back in bumps with 45° sides, at up to Layers scales (each finer layer half as far): borders that look intricate. 0 = straight seams. Kept below a fifth of Min panel' }),
+    P.float('jog_space', 'Spacing', 24, 8, 2048, { softMax: 256, unit: 'px', group: 'jogs', showIf: hasJogs, hint: 'Length of line that holds at most one bump of the coarsest layer (each finer layer half of it)' }),
+    P.float('jog_chance', 'Chance', 0.6, 0, 1, { step: 0.001, group: 'jogs', showIf: hasJogs, hint: 'Chance each stretch of line has a bump' }),
+    P.int('jog_layers', 'Layers', 3, 1, 3, { group: 'jogs', showIf: hasJogs, hint: 'Bumps at this many scales, the finer ones kept off the coarser ones’ slopes' }),
+
+    P.float('cut_chance', 'Cut corners', 0.2, 0, 1, { step: 0.001, group: 'outline', hint: 'Share of the plates’ outside corners cut off at 45°, each corner on its own: all four make an octagon, two side by side an arrow' }),
+    P.float('cut_size', 'Cut size', 0.25, 0.05, 0.5, { step: 0.001, group: 'outline', showIf: (p) => Number(p.cut_chance) > 0, hint: 'Chamfer leg as a share of the shorter of the corner’s two edges: 0.5 meets the next chamfer at mid-edge (a diamond)' }),
+    P.float('cut_var', 'Cut variation', 0.5, 0, 1, { step: 0.001, group: 'outline', showIf: (p) => Number(p.cut_chance) > 0, hint: 'Each chamfer its own size, down to (1 − this) × Cut size' }),
+    P.float('shape_chance', 'Shaped panels', 0.15, 0, 1, { step: 0.001, group: 'outline', hint: 'Share of the panels (from Min panel) whose plate is an L, T, Z, cross or U instead of the whole panel; the floor or backing shows in the rest' }),
+    P.enum('shape_kind', 'Shapes', 'mixed', [
+      ['l', 'L', 'an arm along two sides'],
+      ['t', 'T', 'a bar along one side on a stem: a funnel'],
+      ['z', 'Step', 'two overlapping blocks in opposite corners'],
+      ['cross', 'Cross', 'a bar each way'],
+      ['u', 'Notch', 'one side notched in the middle'],
+      ['mixed', 'Mixed', 'each panel one of the five'],
+    ], { group: 'outline', showIf: hasShapes }),
+    P.int('shape_min', 'Min panel', 20, 0, 2048, { softMax: 128, unit: 'px', group: 'outline', showIf: hasShapes, hint: MIN_HINT }),
+    P.float('fillet', 'Inside corners', 0.35, 0, 0.5, { step: 0.001, group: 'outline', showIf: hasShapes, hint: 'The inside corners of shaped plates filled at 45°: leg as a share of the shorter of the corner’s two edges (0 = square)' }),
+    P.float('empty', 'Empty panels', 0, 0, 1, { step: 0.001, group: 'outline', hint: 'Share of the panels left out: only their backing (or the floor) shows' }),
+    P.enum('fill', 'Fill', 'backing', [
+      ['floor', 'Floor', 'the seam floor shows'],
+      ['backing', 'Backing plate', 'a lower plate under the plate (Backing height)'],
+      ['plates', 'Plates', 'plates of their own, a seam away from the plate and following its outline — the panels interlock'],
+    ], { group: 'outline', hint: 'What fills a panel where its plate leaves it: cut corners, the cut-away parts of shaped panels, empty panels' }),
+    P.float('backing', 'Backing height', 0.5, 0, 1, { step: 0.001, group: 'outline', showIf: (p) => (p.fill ?? 'backing') === 'backing', hint: 'As a share of the panel’s height' }),
 
     P.float('frame_chance', 'Chance', 0.35, 0, 1, { step: 0.001, group: 'frame', hint: 'Fraction of panels with an inset frame (panels too small for the inset get none)' }),
     P.int('frame_min', 'Min panel', 16, 0, 2048, { softMax: 128, unit: 'px', group: 'frame', showIf: hasFrame, hint: MIN_HINT }),
@@ -157,11 +190,32 @@ export const panelsLayer: LayerDef = {
     P.float('light_len', 'Light length', 3, 1, 64, { softMax: 8, step: 0.1, group: 'details', showIf: (p) => hasLight(p) && ['lens', 'mixed'].includes(String(p.light_style ?? 'lens')), hint: 'One lens: long side ÷ short side (it stays inside the detail area)' }),
     P.float('light_rim', 'Housing', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.5, group: 'details', showIf: hasLight, hint: 'Width of the recessed housing round the lens' }),
     P.float('light_dome', 'Lens dome', 0.35, 0, 1, { step: 0.001, group: 'details', showIf: hasLight, hint: 'The lens bulges up out of its housing like a glass cover (relief); 0 = a flat lens sunk in the housing' }),
+
+    P.int('beams', 'Count', 0, 0, 8, { group: 'beams', hint: 'Long straps laid over everything, straight across the tile (they wrap round, so they tile) — at 45° or level' }),
+    P.enum('beam_dir', 'Direction', 'diagonal', [
+      ['diagonal', 'Diagonal', 'each beam rising or falling at 45°'],
+      ['rising', 'Rising', 'all at 45°, up to the right'],
+      ['falling', 'Falling', 'all at 45°, down to the right'],
+      ['straight', 'Level', 'each beam horizontal or vertical'],
+      ['mixed', 'Mixed', 'each beam any of the four'],
+    ], { group: 'beams', showIf: hasBeams }),
+    P.float('beam_width', 'Width', 6, 1, 512, { softMax: 32, unit: 'px', step: 0.5, group: 'beams', showIf: hasBeams }),
+    P.float('beam_var', 'Width variation', 0.3, 0, 1, { step: 0.001, group: 'beams', showIf: hasBeams, hint: 'Each beam its own width, down to (1 − this) × Width' }),
+    P.float('beam_len', 'Length', 1, 0.05, 1, { step: 0.001, group: 'beams', showIf: hasBeams, hint: 'As a share of the tile’s shorter side (each beam 60–100 % of it); 1 = endless' }),
+    P.float('beam_height', 'Height', 0.3, -1, 1, { step: 0.001, group: 'beams', showIf: hasBeams, hint: 'How far a beam stands up from what it lies on — it follows the relief under it; negative sinks a channel instead (relief)' }),
+    P.enum('beam_style', 'Style', 'strap', [
+      ['strap', 'Strap', 'a flat band with bevelled sides'],
+      ['rails', 'Rails', 'two thin bars along the band’s edges'],
+      ['grooved', 'Grooved', 'a band with a groove down its middle'],
+    ], { group: 'beams', showIf: hasBeams }),
   ],
   groups: [
+    { id: 'jogs', label: 'Seam jogs', collapsed: true },
+    { id: 'outline', label: 'Plate outlines', collapsed: true },
     { id: 'frame', label: 'Inset frame', collapsed: true },
     { id: 'rivets', label: 'Rivets', collapsed: true },
     { id: 'details', label: 'Details', collapsed: true },
+    { id: 'beams', label: 'Beams', collapsed: true },
   ],
   defaults: {
     h_on: true,
@@ -203,13 +257,102 @@ export const panelsLayer: LayerDef = {
       vent_slot: half(k, 1),
       light_size: half(1.5 * k, 1),
       light_rim: px(0.5 * k),
+      shape_min: px(Math.max(20, 20 * k)),
+      beam_width: px(6 * k, 2),
+      jog_space: px(24 * k, 8),
     }
   },
   glsl:
     GRB_GLSL +
     /* glsl */ `
-// gap: the widths of the seams along the cell's left and top edges (Seam taper narrows them with the level of the cut).
-struct GrbCell { vec2 lo; vec2 hi; uint id; vec2 gap; };
+// A panel's cell: its cuts as straight lines — lo..hi across and down, dlo..dhi along x + y (.x) and x − y (.y) for
+// 45° cuts — and gap, the seam widths along its left, top, lower-left (x + y) and upper-left (x − y) edges. Its true edges
+// jog (Seam jogs): dA / dA2, the nearest and next-nearest distances in from them to the plate (seams taken off), dL the
+// distance out to the nearest seam line on its side. vb / hb: the surface the hierarchy above it leaves (each split
+// piece stands on its parent with its own bevel, unless seamless) and that surface's height; jr: how far its edges jog.
+struct GrbCell { vec2 lo; vec2 hi; vec2 dlo; vec2 dhi; uint id; vec4 gap; float dA; float dA2; float dL; float vb; float hb; float jr; };
+
+// Four randoms 0..1 (8 bits each) from one hash: key k of a feature id.
+vec4 grb_rand4(uint id, uint k) {
+  uint h = pcg(id + k * 0x9E3779B9u);
+  return vec4(uvec4(h, h >> 8u, h >> 16u, h >> 24u) & 255u) / 256.0;
+}
+
+// Component i (0..3) of v, without indexing (D3D compiles a dynamic index into a slow indexable temporary).
+float grb_pick(vec4 v, int i) { return dot(v, vec4(equal(ivec4(i), ivec4(0, 1, 2, 3)))); }
+
+// Keep the two smallest distances.
+void grb_min2(float d, inout float m1, inout float m2) {
+  m2 = min(m2, max(d, m1));
+  m1 = min(m1, d);
+}
+
+// Distance from p to the segment a..b.
+float grb_seg(vec2 p, vec2 a, vec2 b) {
+  vec2 e = b - a, w = p - a;
+  return length(w - e * clamp(dot(w, e) / max(dot(e, e), 1e-6), 0.0, 1.0));
+}
+
+// A cut line's jogs at (t along it, u across it from the cut; period: the tile along it): its offset at t (x), and the
+// distance from (t, u) to the nearest of its 45° sides (y; the flat stretches are measured straight across). Up to Jog
+// layers of stretches — Jog spacing fitted to the period, then a half and a quarter of it — each by chance holds one bump
+// of up to ±a (half, a quarter in the finer layers; whole px, at least 3) with 45° sides and a flat top at least as long
+// as it is tall, unless it would overlap a coarser bump's sides: the line stays octilinear.
+vec2 grb_jog(float t, float u, float period, uint id, float a) {
+  float f = 0.0;
+  float n = max(floor(period / max(u_jog_space, 8.0) + 0.5), 1.0);
+  float S = period / n;
+  vec4 r0 = vec4(1e9), r1 = vec4(-1e9);   // the coarser bumps' sides: starts and ends
+  vec4 bt0 = vec4(0.0), bt1 = vec4(0.0), bh = vec4(0.0), bv = vec4(0.0);   // each layer's bump: sides, signed height, value at t
+  for (int l = 0; l < u_jog_layers; l++) {
+    float k = floor(t / S);
+    vec4 rj = grb_rand4(id ^ (uint(k - n * floor(k / n)) * 0x9E3779B9u), uint(l + 1) * 0x632BE5ABu);
+    float ah = floor(min(a, 0.25 * S) * mix(0.35, 1.0, rj.x) + 0.5);
+    float w = 2.0 * ah + floor(rj.y * max(S - 4.0 * ah, 0.0) * 0.8);
+    float t0 = floor(k * S + rj.z * max(S - w - ah, 0.0)), t1 = t0 + w;
+    bool hit = any(bvec4(vec4(lessThan(vec4(t0), r1)) * vec4(lessThan(r0, vec4(t1 + ah)))));
+    if (rj.w < u_jog_chance && ah >= 3.0 && !hit) {
+      // (The sign: the low bit of the width's byte.)
+      float h = fract(rj.y * 128.0) < 0.5 ? -ah : ah;
+      float b = sign(h) * (clamp(t - t0, 0.0, ah) - clamp(t - t1, 0.0, ah));
+      f += b;
+      vec4 m = vec4(equal(ivec4(l), ivec4(0, 1, 2, 3)));
+      bt0 += m * t0;
+      bt1 += m * t1;
+      bh += m * h;
+      bv += m * b;
+      if (l == 0) { r0.xy = vec2(t0, t1); r1.xy = vec2(t0, t1) + ah; }
+      else { r0.zw = vec2(t0, t1); r1.zw = vec2(t0, t1) + ah; }
+    }
+    S *= 0.5;
+    n *= 2.0;
+    a *= 0.5;
+  }
+  // The 45° sides, each standing on what the other layers make of the line here.
+  float ds = 1e9;
+  for (int l = 0; l < u_jog_layers; l++) {
+    float h = grb_pick(bh, l);
+    if (h != 0.0) {
+      float base = f - grb_pick(bv, l), t0 = grb_pick(bt0, l), t1 = grb_pick(bt1, l), ah = abs(h);
+      ds = min(ds, min(grb_seg(vec2(t, u), vec2(t0, base), vec2(t0 + ah, base + h)), grb_seg(vec2(t, u), vec2(t1, base + h), vec2(t1 + ah, base))));
+    }
+  }
+  return vec2(f, ds);
+}
+
+// The bounding box (xy low, zw high) of the octagon lo..hi, x + y in dlo.x..dhi.x, x − y in dlo.y..dhi.y, and its corner
+// cuts as legs k (x bottom-left, y bottom-right, z top-left, w top-right).
+vec4 grb_octBox(vec2 lo, vec2 hi, vec2 dlo, vec2 dhi, out vec4 k) {
+  for (int i = 0; i < 2; i++) {
+    lo.x = max(lo.x, max(dlo.x - hi.y, dlo.y + lo.y));
+    hi.x = min(hi.x, min(dhi.x - lo.y, dhi.y + hi.y));
+    lo.y = max(lo.y, max(dlo.x - hi.x, lo.x - dhi.y));
+    hi.y = min(hi.y, min(dhi.x - lo.x, hi.x - dlo.y));
+  }
+  vec2 s = max(hi - lo, vec2(0.0));
+  k = clamp(vec4(dlo.x - (lo.x + lo.y), (hi.x - lo.y) - dhi.y, dlo.y - (lo.x - hi.y), (hi.x + hi.y) - dhi.x), 0.0, min(s.x, s.y));
+  return vec4(lo, hi);
+}
 
 const int GRB_WM_CELL[25] = int[25](${WINDMILL_CELLS.join(', ')});
 const vec4 GRB_WM_RECT[15] = vec4[15](${WINDMILL_RECTS.map((r) => `vec4(${r.map((v) => v.toFixed(1)).join(', ')})`).join(', ')});
@@ -263,9 +406,12 @@ vec2 grb_wmLine(vec2 j, vec2 cw, uint id) {
 
 // Bounded iterative descent of the kd-tree: every node's decisions hash only its path id, so each pixel
 // walks the same tree. The root is the whole tile (its border is a seam; offset moves it) or one piece of the pinwheel.
-// The loop count is a uniform, so D3D keeps one copy of the body.
+// Cuts run across or down (jogging: Seam jogs) or at 45° (Diagonal cuts); the cell's box is tightened to its 45° sides
+// for every decision. On the way down, each piece that splits stands on its parent with its own bevel (unless seamless):
+// the surface it leaves is the leaf's base. The loop count is a uniform, so D3D keeps one copy of the body.
 GrbCell grb_panelAt(vec2 q) {
   vec2 lo = vec2(0.0), hi = uRes;
+  vec2 dlo = vec2(-1e9), dhi = vec2(1e9);
   uint id = pcg(uint(uSeed) + 0x51ED27u);
   if (u_root == 2) {
     // The cell of the 5 × 5 grid (whole-px lines floor(j·size/5 + 0.5)) holding q; per seed a shift by whole cells and
@@ -294,50 +440,95 @@ GrbCell grb_panelAt(vec2 q) {
   vec2 ak = vec2(1.0 / ar, ar);
   vec2 mn = float(max(u_min_size, 1)) * ak;
   vec2 mx = float(max(u_max_size, 1)) * ak;
-  // Levels of the cuts that made the left and top edges (0 = the tile edge), and whether they are still the tile edge.
-  vec2 lv = vec2(0.0);
-  bvec2 edge = bvec2(u_root != 2);
+  // Seam widths along the left, top and low 45° edges: the tile border's (Tile-edge seam), or a windmill piece's.
+  vec4 gap = vec4(u_gap);
+  if (u_root != 2 && u_edge_seam < 1.0) gap.xy = vec2(floor(u_gap * u_edge_seam + 0.5));
+  // Distances in to the plate: from the root's edges, then from every cut on the way down.
+  float dA = 1e9, dA2 = 1e9;
+  grb_min2(q.x - lo.x - gap.x, dA, dA2);
+  grb_min2(hi.x - q.x, dA, dA2);
+  grb_min2(q.y - lo.y, dA, dA2);
+  grb_min2(hi.y - gap.y - q.y, dA, dA2);
+  float dL = min(q.x - lo.x, hi.y - q.y);
   vec4 rl = vec4(-1e9);   // the root pinwheel's seam lines: x1, x2, y1, y2
   float sg = float(max(u_snap, 1));
   // Clustering: how busy this region is, inherited down the tree and re-drawn (partly) near the top.
   float busy = 0.5;
   int nd = min(u_depth, 24);
+  // A 45° cut leaves corner pieces with legs of at least twice the min panel.
+  float md = 2.0 * sqrt(mn.x * mn.y);
+  // Jogs stay small against the min panel, so parallel cuts never cross.
+  float jA = min(u_jog, 0.2 * min(mn.x, mn.y));
+  // The hierarchy's surface: its value here and the height of the piece it is on (the floor at the root).
+  float vb = 0.0, hb = 0.0;
+  int levels = max(u_levels, 1);
+  float lowest = max(1.0 - u_height_var, u_min_level);
   for (int d = 0; d < nd; d++) {
-    vec2 sz = hi - lo;
+    vec4 kk;
+    vec4 bb = grb_octBox(lo, hi, dlo, dhi, kk);
+    vec2 sz = bb.zw - bb.xy;
+    // Extents along x + y and x − y.
+    vec2 de = vec2(min(dhi.x, bb.z + bb.w) - max(dlo.x, bb.x + bb.y), min(dhi.y, bb.z - bb.y) - max(dlo.y, bb.x - bb.w));
     bool canX = sz.x >= 2.0 * mn.x - 1e-3;
     bool canY = sz.y >= 2.0 * mn.y - 1e-3;
-    if (!canX && !canY) break;
+    bvec2 canD = greaterThanEqual(de, vec2(2.0 * md));
+    if (!canX && !canY && !any(canD)) break;
     bool mustX = canX && sz.x > mx.x + 1e-3;
     bool mustY = canY && sz.y > mx.y + 1e-3;
     busy = mix(busy, grb_rand(id, 13u), d < 4 ? 0.6 : 0.15);
     // (Capped below 1 unless Split chance is: busy zones still stop some panels early, not all at Min panel.)
     float ps = clamp(u_split + (busy - 0.5) * 3.0 * u_cluster, 0.0, max(u_split, 0.85));
     if (!mustX && !mustY && grb_rand(id, 1u) >= ps) break;
+    // This piece splits: its own plate (all but the root), as it stands before the cut.
+    float dN = dA, dN2 = dA2;
+    vec2 rn = grb_rand4(id, 19u).xy;
+    bool drawn = d > 0 && rn.x >= u_seamless;
+    float hN = 0.75 * mix(1.0, lowest, levels > 1 ? floor(rn.y * float(levels)) / float(levels - 1) : 0.0);
+    float bN = min(u_bevel, max(0.2 * min(sz.x, sz.y), 0.5));
+    // Seam width of this split's cuts: narrower the deeper (Seam taper), no wider than Seam limit of the piece.
+    float sw = grb_seamW(float(d));
+    if (u_seam_max > 0.0) sw = min(sw, max(floor(u_seam_max * min(sz.x, sz.y) + 0.5), min(u_gap, 1.0)));
+    bool diag = any(canD) && grb_rand(id, 18u) < u_diag && !(d == 0 && u_root == 1);
     // A pinwheel: two cuts each way, four panels round a centre one (needs room for three panels each way).
-    bool pin = (grb_rand(id, 16u) < u_pinwheel || (d == 0 && u_root == 1)) && sz.x >= 3.0 * mn.x - 1e-3 && sz.y >= 3.0 * mn.y - 1e-3;
+    bool pin = !diag && (grb_rand(id, 16u) < u_pinwheel || (d == 0 && u_root == 1)) && sz.x >= 3.0 * mn.x - 1e-3 && sz.y >= 3.0 * mn.y - 1e-3;
     // The Pinwheel layout's root keeps its centre panel within the middle 30–70 % each way, so none of its seams spans
     // more than 70 % of the tile.
     bool rootPin = pin && d == 0 && u_root == 1;
     float t = 0.5 + (grb_rand(id, 3u) - 0.5) * u_split_var;
     float t2 = 0.5 + (grb_rand(id, 4u) - 0.5) * u_split_var;
-    vec2 a0 = rootPin ? lo + 0.3 * sz - mn : lo;
-    vec2 a1 = rootPin ? lo + 0.45 * sz + mn : hi - (pin ? mn : vec2(0.0));
+    vec2 a0 = rootPin ? lo + 0.3 * sz - mn : bb.xy;
+    vec2 a1 = rootPin ? lo + 0.45 * sz + mn : bb.zw - (pin ? mn : vec2(0.0));
     vec2 c1 = grb_cutPos(a0, a1, vec2(t, pin ? t2 : t), mn);
     if (rl.x > -1e8) c1 = grb_offLines(c1, rl, a0 + mn, a1 - mn, sg);
     float cx = c1.x, cy = c1.y;
     vec2 c2 = vec2(-1.0);
     if (pin) {
       vec2 b0 = rootPin ? lo + 0.55 * sz - mn : c1;
-      vec2 b1 = rootPin ? lo + 0.7 * sz + mn : hi;
+      vec2 b1 = rootPin ? lo + 0.7 * sz + mn : bb.zw;
       c2 = grb_cutPos(b0, b1, 0.5 + (vec2(grb_rand(id, 5u), grb_rand(id, 6u)) - 0.5) * u_split_var, mn);
       if (rl.x > -1e8) c2 = grb_offLines(c2, rl, b0 + mn, b1 - mn, sg);
       // No room for the pinwheel: cut in two instead.
       pin = cx >= 0.0 && cy >= 0.0 && all(greaterThanEqual(c2 - c1, mn - 1e-3));
       if (pin && rootPin) rl = vec4(cx, c2.x, cy, c2.y);
     }
-    vec2 nlo = lo, nhi = hi;
+    vec2 nlo = lo, nhi = hi, ndlo = dlo, ndhi = dhi;
     uint ck;
-    if (pin) {
+    if (diag) {
+      // A 45° cut along x + y (or x − y: by chance, or where only that has room), at least md in from either end; its
+      // seam lies above it.
+      bool ax = canD.x && (!canD.y || grb_rand(id, 20u) < 0.5);
+      float e0 = ax ? max(dlo.x, bb.x + bb.y) : max(dlo.y, bb.x - bb.w);
+      float e1 = e0 + (ax ? de.x : de.y);
+      float c = mix(e0 + md, e1 - md, 0.5 + (grb_rand(id, 24u) - 0.5) * u_split_var);
+      c = clamp(floor(c / sg + 0.5) * sg, ceil(e0 + md), floor(e1 - md));
+      float s = ((ax ? q.x + q.y : q.x - q.y) - c) * 0.70710678;
+      bool upper = s >= 0.0;
+      if (ax) { if (upper) ndlo.x = c; else ndhi.x = c; }
+      else { if (upper) ndlo.y = c; else ndhi.y = c; }
+      if (upper) { if (ax) gap.z = sw; else gap.w = sw; dL = min(dL, s); }
+      grb_min2(upper ? s - sw : -s, dA, dA2);
+      ck = upper ? 0x2545F491u : 0x9E3779B1u;
+    } else if (pin) {
       float x2 = c2.x, y2 = c2.y;
       // Children 0..3 wind round the centre (4); the mirror image swaps the sense of the winding.
       bool mir = grb_rand(id, 17u) < 0.5;
@@ -348,6 +539,11 @@ GrbCell grb_panelAt(vec2 q) {
       vec4 r = ch == 4 ? vec4(cx, cy, x2, y2)
              : !mir ? (ch == 0 ? vec4(lo.x, lo.y, x2, cy) : ch == 1 ? vec4(x2, lo.y, hi.x, y2) : ch == 2 ? vec4(cx, y2, hi.x, hi.y) : vec4(lo.x, cy, cx, hi.y))
                     : (ch == 0 ? vec4(cx, lo.y, hi.x, cy) : ch == 1 ? vec4(lo.x, lo.y, cx, y2) : ch == 2 ? vec4(lo.x, y2, x2, hi.y) : vec4(x2, cy, hi.x, hi.y));
+      // Its new edges (straight): the seams along the left and top.
+      if (r.x != lo.x) { gap.x = sw; grb_min2(q.x - r.x - sw, dA, dA2); dL = min(dL, q.x - r.x); }
+      if (r.z != hi.x) grb_min2(r.z - q.x, dA, dA2);
+      if (r.y != lo.y) grb_min2(q.y - r.y, dA, dA2);
+      if (r.w != hi.y) { gap.y = sw; grb_min2(r.w - sw - q.y, dA, dA2); dL = min(dL, r.w - q.y); }
       nlo = r.xy;
       nhi = r.zw;
       ck = 0x1000193u * uint(ch + 1) + 0x7F4A7C15u;
@@ -365,42 +561,100 @@ GrbCell grb_panelAt(vec2 q) {
       // (Below a root pinwheel, a cut dropped for lying on its seams goes the other way if it can.)
       if (c < 0.0 && rl.x > -1e8 && (cutY ? canX && cx >= 0.0 : canY && cy >= 0.0)) { cutY = !cutY; c = cutY ? cy : cx; }
       if (c < 0.0) break;
-      bool upper = (cutY ? q.y : q.x) >= c;
+      // The cut line jogs (measured to its 45° sides as segments, so their corners stay crisp); its seam lies right of it
+      // (x) or below it (y: GL y up).
+      float qu = (cutY ? q.y : q.x) - c;
+      vec2 jg = jA > 0.0 ? grb_jog(cutY ? q.x : q.y, qu, cutY ? uRes.x : uRes.y, id, jA) : vec2(0.0, 1e9);
+      float s = qu - jg.x;
+      float dl = min(abs(s), jg.y);
+      bool upper = s >= 0.0;
+      bool seam = cutY != upper;
       if (cutY) { if (upper) nlo.y = c; else nhi.y = c; }
       else { if (upper) nlo.x = c; else nhi.x = c; }
+      if (seam) { if (cutY) gap.y = sw; else gap.x = sw; dL = min(dL, dl); }
+      grb_min2(seam ? dl - sw : dl, dA, dA2);
       ck = upper ? 0x68E31DA4u : 0xB5297A4Du;
     }
-    // The seam of a cut lies in the cell right of it (x) or below it (y: GL y up).
-    if (nlo.x != lo.x) { lv.x = float(d); edge.x = false; }
-    if (nhi.y != hi.y) { lv.y = float(d); edge.y = false; }
+    // The piece that split, on its parent: its rise (corners rounded by Corner rounding) carries the surface to its height.
+    if (drawn) {
+      float rr = u_round;
+      float dr = dN < rr && dN2 < rr ? rr - length(vec2(rr - dN, rr - dN2)) : dN;
+      vb += (hN - hb) * grb_rise(-dr, bN);
+      hb = hN;
+    }
     lo = nlo;
     hi = nhi;
+    dlo = ndlo;
+    dhi = ndhi;
     id = pcg(id ^ ck);
   }
-  vec2 gap = vec2(grb_seamW(lv.x), grb_seamW(lv.y));
-  if (u_edge_seam < 1.0) {
-    float eg = floor(u_gap * u_edge_seam + 0.5);
-    gap = vec2(edge.x ? eg : gap.x, edge.y ? eg : gap.y);
-  }
-  if (u_seam_max > 0.0) gap = min(gap, vec2(max(floor(u_seam_max * min(hi.x - lo.x, hi.y - lo.y) + 0.5), min(u_gap, 1.0))));
-  return GrbCell(lo, hi, id, gap);
+  return GrbCell(lo, hi, dlo, dhi, id, gap, dA, dA2, dL, vb, hb, (2.0 - exp2(1.0 - float(u_jog_layers))) * jA);
 }
 
-// A panel's cut corners at point p (centre c, half-size hb): chamfered (45°, legs cs) or notched (a cs × cs bite) — the
-// distance of the cut-away part, positive outside it (so the panel is max(box, this)); -1e4 where p's corner is uncut.
-// ty: 0 one corner, 1 two opposite, 2 all four chamfered, 3 one notched; c0: the first corner (bit 0 right, bit 1 top).
-// .y: the same for the cut grown by ins (a frame's inner shape: a rectangle round a notch, not a rounded offset).
-vec2 grb_corner(vec2 p, vec2 c, vec2 hb, int ty, int c0, float cs, float r, float ins) {
-  vec2 pc = p - c;
-  int qi = (pc.x >= 0.0 ? 1 : 0) + (pc.y >= 0.0 ? 2 : 0);
-  if (ty < 0 || !(ty == 2 || qi == c0 || (ty == 1 && qi == 3 - c0))) return vec2(-1e4);
-  vec2 a = abs(pc);
-  // The notch: a box round the corner, its inner corner rounded by r (the plate gets a fillet there).
-  vec2 w = abs(a - hb) - vec2(cs - r);
-  vec2 wi = w - ins;
-  vec2 dn = vec2(length(max(w, 0.0)) + min(max(w.x, w.y), 0.0), length(max(wi, 0.0)) + min(max(wi.x, wi.y), 0.0)) - r;
-  float dc = (a.x + a.y - (hb.x + hb.y - cs)) * 0.70710678;
-  return ty == 3 ? -dn : vec2(dc, dc + ins);
+// 1, read from a uniform: loops bounded by it are not unrolled by D3D (one copy of the body; see ORG_1).
+#define GRB_1 (uRes.x > 0.0 ? 1 : 0)
+
+// Bevel rises (grb_rise) of three distances over one width, through one copy of the profile.
+vec3 grb_rise3(vec3 d, float w) {
+  vec3 r = vec3(0.0);
+  for (int i = 0; i < 3 * GRB_1; i++) r += grb_rise(i == 0 ? d.x : i == 1 ? d.y : d.z, w) * vec3(equal(ivec3(i), ivec3(0, 1, 2)));
+  return r;
+}
+
+// Plate outlines, anticlockwise: each corner as x + 4 y, indices into the panel's stops (0, x1, x2, 1 across and down) —
+// box, L, T, Z (step), cross, U (notch). GRB_SH_MAIN: per outline two candidate parts (x0, y0, x1, y1 as stop indices),
+// the larger of which carries the frame, rivets and details.
+const int GRB_SH_OFF[7] = int[7](0, 4, 10, 18, 26, 38, 46);
+const int GRB_SH_V[46] = int[46](
+  0, 3, 15, 12,
+  0, 3, 7, 5, 13, 12,
+  1, 2, 6, 7, 15, 12, 4, 5,
+  1, 3, 11, 10, 14, 12, 4, 5,
+  1, 2, 6, 7, 11, 10, 14, 13, 9, 8, 4, 5,
+  0, 3, 15, 14, 6, 5, 13, 12);
+const ivec4 GRB_SH_MAIN[12] = ivec4[12](
+  ivec4(0, 0, 3, 3), ivec4(0, 0, 3, 3), ivec4(0, 0, 1, 3), ivec4(0, 0, 3, 1), ivec4(0, 1, 3, 3), ivec4(0, 1, 3, 3),
+  ivec4(0, 1, 2, 3), ivec4(1, 0, 3, 2), ivec4(0, 1, 3, 2), ivec4(1, 0, 2, 3), ivec4(0, 0, 3, 1), ivec4(0, 0, 3, 1));
+
+// A stop point of the outline in px: unit coordinates u (turned: tf.x swaps the axes, tf.y / tf.z mirror x / y) over
+// the panel lo..hi, whole px from lo (1 lands on hi).
+vec2 grb_stop(vec2 u, bvec3 tf, vec2 lo, vec2 hi) {
+  if (tf.x) u = u.yx;
+  if (tf.y) u.x = 1.0 - u.x;
+  if (tf.z) u.y = 1.0 - u.y;
+  return mix(lo + floor(u * (hi - lo) + 0.5), hi, step(0.9995, u));
+}
+
+// The 45° cuts across the corners of the box lo..hi, legs k (x bottom-left, y bottom-right, z top-left, w top-right;
+// 0 = none): the distance out past the nearest (-1e4 where none).
+float grb_corners(vec2 p, vec2 lo, vec2 hi, vec4 k) {
+  vec2 pc = p - 0.5 * (lo + hi), h = 0.5 * (hi - lo);
+  vec4 dc = (vec4(-pc.x, pc.x, -pc.x, pc.x) + vec4(-pc.y, -pc.y, pc.y, pc.y) - (h.x + h.y) + k) * 0.70710678;
+  dc = mix(vec4(-1e4), dc, step(0.5, k));
+  return max(max(dc.x, dc.y), max(dc.z, dc.w));
+}
+
+// One polygon edge a → b for the distance (d2: nearest squared) and the even-odd inside test (s).
+void grb_edge(vec2 p, vec2 a, vec2 b, inout float d2, inout float s) {
+  vec2 e = b - a, w = p - a;
+  vec2 c = w - e * clamp(dot(w, e) / max(dot(e, e), 1e-6), 0.0, 1.0);
+  d2 = min(d2, dot(c, c));
+  bvec3 k = bvec3(p.y >= a.y, p.y < b.y, e.x * w.y > e.y * w.x);
+  if (all(k) || all(not(k))) s = -s;
+}
+
+// Beams: each Direction's first direction (0 rising, 1 falling, 2 horizontal, 3 vertical) and how many follow it; each
+// direction's normal.
+const ivec2 GRB_BEAM_DIR[5] = ivec2[5](ivec2(0, 2), ivec2(0, 1), ivec2(1, 1), ivec2(2, 2), ivec2(0, 4));
+const vec2 GRB_BEAM_N[4] = vec2[4](vec2(1.0, -1.0), vec2(1.0), vec2(0.0, 1.0), vec2(1.0, 0.0));
+
+// Greatest common divisor of the tile's sides: the period of 45° lines that tile.
+float grb_gcd(vec2 r) {
+  int a = int(r.x + 0.5), b = int(r.y + 0.5);
+  for (int i = 0; i < 24 * GRB_1; i++) {
+    if (b != 0) { int t = a % b; a = b; b = t; }
+  }
+  return float(max(a, 1));
 }
 
 // Rivet centre distance from a panel edge: the near-edge margin is whole px, so rivets mirror exactly.
@@ -414,25 +668,112 @@ GenOut gen(vec2 p) {
   uint id = cell.id;
   float rnd = grb_rand(id, 7u);
 
-  // Panel = cell minus the seam along its left and top (GL: high y) edges, so whole-px seams are crisp.
-  vec2 plo = vec2(cell.lo.x + cell.gap.x, cell.lo.y);
-  vec2 phi = vec2(cell.hi.x, cell.hi.y - cell.gap.y);
+  // Panel: the cell's box from its cuts as straight lines, less the seams along its left, top (GL: high y) and low 45°
+  // edges (pb; pk: its corner cuts where 45° cuts bound it) — for sizes, shapes and details. The plate itself is measured
+  // from the cell's true, jogging edges: dCell, its corners rounded by Corner rounding.
+  const float R2 = 1.41421356;
+  vec2 clo = vec2(cell.lo.x + cell.gap.x, cell.lo.y), chi = vec2(cell.hi.x, cell.hi.y - cell.gap.y);
+  vec4 pk;
+  vec4 pb = grb_octBox(clo, chi, cell.dlo + cell.gap.zw * R2, cell.dhi, pk);
+  bool diagCell = any(greaterThan(pk, vec4(0.5)));
+  vec2 plo = pb.xy, phi = pb.zw;
   vec2 psz = max(phi - plo, vec2(0.0));
-  float side = min(psz.x, psz.y);
-  float area = sqrt(psz.x * psz.y);   // what the Min panel gates compare
-  float dP = grb_rbox(q, plo, phi, u_round);
-  // In the seam, the neighbouring panels reach the cell's left / top edge.
-  if (dP > 0.0) dP = min(dP, max(min(q.x - cell.lo.x, cell.hi.y - q.y), 0.0));
-  // Cut corners: chamfered or notched, a backing plate showing in the cut.
-  vec2 pcen = 0.5 * (plo + phi), phb = 0.5 * psz;
-  // A cut needs legs of at least 6 px and longer than the Corner rounding (else it reads as a chip, or vanishes).
-  float cs = floor(u_cut_size * side + 0.5);
-  int cty = grb_rand(id, 34u) < u_cut_chance && cs >= max(6.0, u_round + 2.0) ? int(floor(grb_rand(id, 35u) * 3.999)) : -1;
-  int cc0 = int(floor(grb_rand(id, 36u) * 3.999));
-  vec2 dCs = grb_corner(q, pcen, phb, cty, cc0, cs, min(u_round, 0.5 * cs), u_frame_inset);
-  float dC = dCs.x;
-  float dP0 = dP;
-  dP = max(dP, dC);
+  // The box inside a 45°-cut cell: less half the corner cuts on each side (what sizes are measured on). The frame, rivets
+  // and details go in it less the jogs' reach.
+  vec2 ilo0 = plo + 0.5 * vec2(max(pk.x, pk.z), max(pk.x, pk.y)), ihi0 = phi - 0.5 * vec2(max(pk.y, pk.w), max(pk.z, pk.w));
+  vec2 isz = max(ihi0 - ilo0, vec2(0.0));
+  float side = min(isz.x, isz.y);
+  float area = sqrt(isz.x * isz.y);   // what the Min panel gates compare
+  float rnd0 = grb_rand(id, 50u);
+  bool none = rnd0 < u_empty;         // an empty panel: only its backing shows
+  float rc0 = u_round;
+  float dCell = -(cell.dA < rc0 && cell.dA2 < rc0 ? rc0 - length(vec2(rc0 - cell.dA, rc0 - cell.dA2)) : cell.dA);
+
+  // ---- the plate's outline: the panel, or (Shaped panels) an L, T, Z, cross or U inside it; outside corners cut at 45°
+  // by chance (Cut corners), inside ones filled at 45° (Inside corners). One polygon, measured in one loop.
+  // Shaped arms are at least a quarter of the panel's short side: that must leave room for two bevels and some top.
+  int shp = 0;
+  if (!none && !diagCell && (rnd0 - u_empty) / max(1.0 - u_empty, 1e-3) < u_shape_chance && area >= float(u_shape_min)
+      && 0.25 * side >= max(2.0 * u_bevel + 3.0, 5.0))
+    shp = u_shape_kind == 5 ? 1 + int(floor(grb_rand(id, 51u) * 4.999)) : 1 + u_shape_kind;
+  vec4 r4 = vec4(grb_rand(id, 52u), grb_rand(id, 53u), grb_rand(id, 54u), grb_rand(id, 55u));
+  vec4 xs = vec4(0.0, 0.5, 0.5, 1.0), ys = xs;
+  if (shp == 1) { xs.y = mix(0.35, 0.6, r4.x); ys.y = mix(0.35, 0.6, r4.y); }
+  else if (shp == 2) {
+    float a = mix(0.3, 0.5, r4.x), c = mix(0.5 * a + 0.12, 0.88 - 0.5 * a, r4.z);
+    xs.yz = vec2(c - 0.5 * a, c + 0.5 * a);
+    ys.y = 1.0 - mix(0.35, 0.6, r4.y);
+  } else if (shp == 3) {
+    vec2 a = mix(vec2(0.6), vec2(0.75), r4.xy);
+    xs.yz = vec2(1.0 - a.x, a.x);
+    ys.yz = vec2(1.0 - a.y, a.y);
+  } else if (shp == 4) {
+    vec2 a = mix(vec2(0.3), vec2(0.5), r4.xy), c = mix(vec2(0.4), vec2(0.6), r4.zw);
+    xs.yz = c.x + vec2(-0.5, 0.5) * a.x;
+    ys.yz = c.y + vec2(-0.5, 0.5) * a.y;
+  } else if (shp == 5) {
+    xs.yz = vec2(mix(0.25, 0.4, r4.x), 1.0 - mix(0.25, 0.4, r4.z));
+    ys.y = mix(0.35, 0.55, r4.y);
+  }
+  bvec3 tf = bvec3(grb_rand(id, 56u) < 0.5, grb_rand(id, 57u) < 0.5, grb_rand(id, 58u) < 0.5);
+  if (shp == 0) tf = bvec3(false);
+  float ori = (tf.x != tf.y) != tf.z ? -1.0 : 1.0;   // mirrored once or thrice: clockwise
+  // Corner rounding: the outline is built that much smaller and grown back, rounding every outside corner.
+  float rr0 = clamp(u_round, 0.0, max(0.5 * side - 0.5, 0.0));
+  vec2 olo = plo + rr0, ohi = phi - rr0;
+  int s0 = GRB_SH_OFF[shp], nv = GRB_SH_OFF[shp + 1] - s0;
+  float pd2 = 1e8, ps = 1.0, kmax = 0.0;
+  // (A wedge needs room past its seam for its bevels to meet in a ridge at least.)
+  float kWedge = ceil(1.4143 * max(max(cell.gap.x, cell.gap.y), max(cell.gap.z, cell.gap.w)) + 1.5 * min(u_bevel, 0.2 * side) + 2.0);
+  // A plain panel: its corners cut by chance (legs by quadrant: bit 0 right, bit 1 top), unless the cell has 45° sides
+  // of its own.
+  vec4 kq = vec4(0.0);
+  if (shp == 0 && !diagCell) {
+    vec4 rc = grb_rand4(id, 60u), rs = grb_rand4(id, 61u);
+    kq = min(floor(u_cut_size * side * (1.0 - u_cut_var * rs) + 0.5), vec4(floor(0.5 * side))) * (1.0 - step(vec4(u_cut_chance), rc));
+    kq *= step(vec4(u_fill == 2 ? kWedge : 2.0), kq);
+    kmax = max(max(kq.x, kq.y), max(kq.z, kq.w));
+  }
+  vec2 w1 = vec2(0.0), w2 = vec2(0.0), A1 = vec2(0.0), B1 = vec2(0.0);
+  // A shaped plate: a sliding window over its corners — corner j comes in, corner j - 1 gets its legs, the edges of corner
+  // j - 2 are measured.
+  for (int j = -2; j <= 12 * GRB_1; j++) {
+    if (shp > 0 && j <= nv) {
+      int code = GRB_SH_V[s0 + (j + nv) % nv];
+      vec2 w3 = grb_stop(vec2(grb_pick(xs, code % 4), grb_pick(ys, code / 4)), tf, olo, ohi);
+      if (j >= 0) {
+        vec2 ein = w2 - w1, eout = w3 - w2;
+        float lin = length(ein), lout = length(eout), S = min(lin, lout);
+        float cr = (ein.x * eout.y - ein.y * eout.x) * ori;
+        uint vi = uint((j - 1 + nv) % nv);
+        float k = cr > 0.0
+          ? (grb_rand(id, 60u + vi) < u_cut_chance ? u_cut_size * S * (1.0 - u_cut_var * grb_rand(id, 80u + vi)) : 0.0)
+          : cr < 0.0 ? u_fillet * S : 0.0;
+        k = min(floor(k + 0.5), floor(0.5 * S));
+        // (Too short to read as a cut — or, with Fill › Plates, to leave a wedge past the seam.)
+        if (k < (u_fill == 2 && cr > 0.0 ? kWedge : 2.0)) k = 0.0;
+        if (cr > 0.0) kmax = max(kmax, k);
+        vec2 A2 = w2 - k * ein / max(lin, 1e-3), B2 = w2 + k * eout / max(lout, 1e-3);
+        if (j >= 1) {
+          grb_edge(q, A1, B1, pd2, ps);
+          grb_edge(q, B1, A2, pd2, ps);
+        }
+        A1 = A2;
+        B1 = B2;
+      }
+      w1 = w2;
+      w2 = w3;
+    }
+  }
+  // The plate: the cell, with its corner cuts or as its shape (both cut by the cell's jogging edges).
+  float dRect = dCell;
+  float dPoly = none ? 1e4 : max(dCell, shp > 0 ? ps * sqrt(pd2) - rr0 : grb_corners(q, pb.xy, pb.zw, kq));
+  if (shp > 0) kq = vec4(kmax);
+  float dP = dPoly;
+  // An empty panel: the plates are the neighbours, beyond the cell's edges.
+  if (none) dP = max(cell.dA, 0.5);
+  // In the seam, the neighbouring panel starts at the seam line.
+  if (dP > 0.0) dP = min(dP, max(cell.dL, 0.0));
 
   int levels = max(u_levels, 1);
   float lvl = levels > 1 ? floor(grb_rand(id, 8u) * float(levels)) / float(levels - 1) : 0.0;
@@ -447,24 +788,60 @@ GenOut gen(vec2 p) {
   vec2 cg = 1.0 - min((1.0 - abs(pu)) / bw, 1.0);
   vec2 pw = 1.0 - cg * cg;
   float P = 0.75 * mix(1.0, lowest, lvl) * (1.0 + u_bulge / 0.75 * pw.x * pw.y);
-  // A panel's bevel is at most a fifth of its shorter side, so the small panels of busy zones keep flat tops.
-  float bev = min(u_bevel, max(0.2 * side, 0.5));
-  float v = P * grb_rise(dP, bev);
-  // In a cut corner a lower backing plate shows (half the plateau), not the black seam floor.
-  if (cty >= 0) v = max(v, 0.5 * P * grb_cov(max(dP0, -dC + 1.0)));
+  // A panel's bevel is at most a fifth of its shorter side (of a shaped plate's arms; 0.4 of the box inside a 45°-cut
+  // cell, whose corners reach past it), so the small panels of busy zones keep flat tops.
+  float bev = min(u_bevel, max((shp > 0 ? 0.06 : diagCell ? 0.4 : 0.2) * side, 0.5));
+  // The plate stands on the surface the pieces above it leave (cell.vb, at height cell.hb: the floor unless they draw).
+  // Where it leaves the panel (cut corners, shapes, empty panels): that surface, a lower backing plate, or plates of
+  // their own a seam away from it (at their own level), which then count as plates for the shape outputs. (Their rises
+  // are taken after the frame, with a raised or recessed centre's: one bevel profile in the shader, not three.)
+  float dPl = dP;
+  float dFill = max(dRect, max(cell.gap.x, cell.gap.y) - dPoly);
+  float lf = levels > 1 ? floor(grb_rand(id, 59u) * float(levels)) / float(levels - 1) : 0.0;
+  if (u_fill == 2) dP = min(dP, dFill);
+  float v = 0.0;               // what the frame adds; the plate joins it after
+  float dIr = 1e4, fc = 0.0;   // a raised (fc > 0) or recessed centre: its outline and rise
+
+  // A shaped plate's frame, rivets and details go on its larger part.
+  if (shp > 0) {
+    // (Compared in unit space, scaled by the panel turned with the outline.)
+    ivec4 m1 = GRB_SH_MAIN[2 * shp], m2 = GRB_SH_MAIN[2 * shp + 1];
+    vec4 u1 = vec4(grb_pick(xs, m1.x), grb_pick(ys, m1.y), grb_pick(xs, m1.z), grb_pick(ys, m1.w));
+    vec4 u2 = vec4(grb_pick(xs, m2.x), grb_pick(ys, m2.y), grb_pick(xs, m2.z), grb_pick(ys, m2.w));
+    vec2 tz = tf.x ? psz.yx : psz;
+    vec2 e1 = (u1.zw - u1.xy) * tz, e2 = (u2.zw - u2.xy) * tz;
+    vec4 um = e2.x * e2.y > e1.x * e1.y ? u2 : u1;
+    vec2 ma = grb_stop(um.xy, tf, plo, phi), mb = grb_stop(um.zw, tf, plo, phi);
+    plo = min(ma, mb);
+    phi = max(ma, mb);
+    psz = phi - plo;
+    side = min(psz.x, psz.y);
+    area = sqrt(psz.x * psz.y);
+  }
+  else {
+    plo = ilo0 + min(vec2(cell.jr), 0.25 * isz);
+    phi = ihi0 - min(vec2(cell.jr), 0.25 * isz);
+    psz = phi - plo;
+  }
+  vec2 pcen = 0.5 * (plo + phi), phb = 0.5 * psz;
   float dSunk = 1e4;   // everything sunk into the plate (the Plate tops shape leaves it out)
 
   // ---- inset frame
   float dF = 1e4;
   vec4 kn = vec4(1e4, 1e4, -1e4, -1e4);   // a hatch's hinge barrels: centre offset (folded) and half-size, from the panel centre
   float keep = 0.0;   // the details stay this far inside the panel: clear of its frame line and rivets
-  if (grb_rand(id, 9u) < u_frame_chance && area >= float(u_frame_min)) {
+  if (!none && grb_rand(id, 9u) < u_frame_chance && area >= float(u_frame_min)) {
     vec2 ilo = plo + u_frame_inset, ihi = phi - u_frame_inset;
     int fs = u_frame_style == 5 ? int(floor(grb_rand(id, 14u) * 4.999)) : u_frame_style;
     // An inner rectangle too narrow for the frame to read (a line pair closer than 4 px) gets none.
     float fmin = fs <= 1 || fs == 4 ? 2.0 * u_frame_width + 4.0 : 6.0;
     if (all(greaterThan(ihi - ilo, vec2(fmin)))) {
-      float dI = max(grb_rbox(q, ilo, ihi, max(u_round - u_frame_inset, 0.0)), dCs.y);
+      // The plate's outline grown in: a shape's, or the panel's straight box with its corner cuts (an inset of every jog
+      // would turn the little ones to spikes) kept half the inset inside the jogging edges.
+      float fi = u_frame_inset;
+      vec2 fl = pb.xy + fi, fh = pb.zw - fi;
+      float dI = shp > 0 ? dPoly + fi
+               : max(max(grb_rbox(q, fl, fh, max(u_round - fi, 0.0)), grb_corners(q, fl, fh, max(max(kq, pk) - 0.586 * fi, 0.0))), dPoly + 0.5 * fi);
       keep = ceil(u_frame_inset + (fs <= 1 || fs == 4 ? u_frame_width : bev)) + 1.0;
       if (fs <= 1 || fs == 4) {
         // A line just inside the inner rectangle: starts on its edge, whole px wide. A hatch: a groove line with two
@@ -498,17 +875,22 @@ GenOut gen(vec2 p) {
         vec2 iu = clamp((q - pcen) / max(0.5 * (ihi - ilo), vec2(1e-3)), -1.0, 1.0);
         vec2 ig = 1.0 - min((1.0 - abs(iu)) / bw, 1.0);
         float ib = 1.0 + u_bulge / 0.75 * (1.0 - ig.x * ig.x) * (1.0 - ig.y * ig.y);
-        v += (fs == 2 ? -1.0 : 1.0) * u_inset_depth * ib * grb_rise(dI, bev);
+        fc = (fs == 2 ? -1.0 : 1.0) * u_inset_depth * ib;
+        dIr = dI;
       }
       if (fs == 2) dSunk = dF;
     }
   }
 
+  vec3 r3 = grb_rise3(vec3(dPl, u_fill == 2 ? dFill : dRect, dIr), bev);
+  v += cell.vb + (P - cell.hb) * (u_fill == 1 ? max(r3.x, u_backing * r3.y) : r3.x) + fc * r3.z;
+  if (u_fill == 2) v += (0.75 * mix(1.0, lowest, lf) - cell.hb) * r3.y;
+
   // ---- rivets: two rows (or columns) at least a rivet's width apart; an axis too short for that gets one line down
   // its middle (a strap), a panel short both ways none.
   float dR = 1e4;
   float rr = u_rivet_radius;
-  if (u_rivets > 0 && grb_rand(id, 10u) < u_rivet_chance && area >= float(u_rivet_min)) {
+  if (!none && u_rivets > 0 && grb_rand(id, 10u) < u_rivet_chance && area >= float(u_rivet_min)) {
     float D = 2.0 * rr;
     float m = grb_rivetM(u_rivet_inset, D);
     vec2 a = plo + m, b = phi - m;   // rectangle of rivet centres
@@ -533,14 +915,11 @@ GenOut gen(vec2 p) {
         rc = useRow ? rowC : colC;
       }
       dR = length(q - rc) - rr;
-      // (None in a cut corner — its quadrant's corner cut, and the rivet within the cut plus a rivet's width.)
-      if (cty >= 0) {
-        vec2 rp = rc - pcen;
-        int rq = (rp.x >= 0.0 ? 1 : 0) + (rp.y >= 0.0 ? 2 : 0);
-        vec2 dc = phb - abs(rp);
-        bool inCut = cty == 3 ? all(lessThan(dc, vec2(cs + rr + 1.0))) : dc.x + dc.y < cs + 1.5 * (rr + 1.0);
-        if ((cty == 2 || rq == cc0 || (cty == 1 && rq == 3 - cc0)) && inCut) dR = 1e4;
-      }
+      // (None in a cut corner: its quadrant's chamfer, and the rivet within it plus a rivet's width.)
+      vec2 rp = rc - pcen;
+      float kr = grb_pick(kq, (rp.x >= 0.0 ? 1 : 0) + (rp.y >= 0.0 ? 2 : 0));
+      vec2 dcr = phb - abs(rp);
+      if (kr > 0.0 && dcr.x + dcr.y < kr + 1.5 * (rr + 1.0)) dR = 1e4;
       // (Nor on a hinge.)
       vec2 kd = abs(abs(rc - pcen) - abs(kn.xy)) - kn.zw;
       if (max(kd.x, kd.y) < rr + 1.0) dR = 1e4;
@@ -556,12 +935,12 @@ GenOut gen(vec2 p) {
   float dHole = 1e4;   // through-holes (slots, perforation): left out of every plate shape
   int nk = (u_det_vents ? 1 : 0) + (u_det_light ? 1 : 0) + (u_det_recess ? 1 : 0) + (u_det_holes ? 1 : 0) + (u_det_ribs ? 1 : 0) + (u_det_pipes ? 1 : 0);
   bool big = area >= float(u_det_min);
-  bool hasDet = nk > 0 && grb_rand(id, 11u) < u_detail_chance;
-  bool smallP = !big && u_detail_chance > 0.0 && grb_rand(id, 32u) < u_small_parts;
+  bool hasDet = !none && nk > 0 && grb_rand(id, 11u) < u_detail_chance;
+  bool smallP = !none && !big && u_detail_chance > 0.0 && grb_rand(id, 32u) < u_small_parts;
   bool hero = big && hasDet && area >= 2.5 * float(u_det_min) && grb_rand(id, 38u) < u_hero
            && (u_det_vents || u_det_holes || u_det_light || u_det_pipes);
   if ((hasDet && big) || smallP) {
-    if (cty >= 0) keep = max(keep, (cty == 3 ? cs : ceil(0.5 * cs)) + 2.0);
+    if (kmax > 0.0) keep = max(keep, ceil(0.5 * kmax) + 2.0);
     float m0 = min(ceil(bev) + 2.0, floor(0.25 * side));
     vec2 flo = plo + max(keep, m0), fhi = phi - max(keep, m0);
     vec2 fsz = max(fhi - flo, vec2(0.0));
@@ -759,6 +1138,47 @@ GenOut gen(vec2 p) {
     }
   }
 
+  // ---- beams: long straps across everything, along lines that wrap round the tile (45° lines repeat every gcd of the
+  // sides), or segments of up to the tile's short side (measured to the nearest copy). They follow the relief under
+  // them: added on top (or, at a negative height, sunk in).
+  float dBm = 1e4, bPerp = 0.0, bW = 1.0;
+  if (u_beams > 0) {
+    float g = grb_gcd(uRes);
+    float nb = float(u_beams);
+    for (int i = 0; i < u_beams; i++) {
+      uint b = pcg(uint(uSeed) * 0x2C1B3C6Du + uint(i) * 0x85EBCA6Bu + 0x5BD1E995u);
+      // The direction, 0 rising, 1 falling, 2 horizontal, 3 vertical: Direction gives the first and how many to pick from.
+      ivec2 dr = GRB_BEAM_DIR[u_beam_dir];
+      int dir = dr.x + int(grb_rand(b, 1u) * (float(dr.y) - 0.001));
+      vec2 n = GRB_BEAM_N[dir];
+      float sc = 1.0 / length(n);
+      float per = dir < 2 ? g : dir == 2 ? uRes.y : uRes.x;
+      float c = floor((float(i) + grb_rand(b, 2u)) / nb * per);
+      float w = max(u_beam_width * (1.0 - u_beam_var * grb_rand(b, 3u)), 1.0);
+      float u = dot(n, q) - c;
+      float perp = (u - per * floor(u / per + 0.5)) * sc;
+      float d = abs(perp) - 0.5 * w;
+      if (u_beam_len < 1.0) {
+        vec2 p0 = vec2(grb_rand(b, 4u), grb_rand(b, 5u)) * uRes;
+        vec2 C = p0 - n * (dot(n, p0) - c) / dot(n, n);
+        vec2 dq = q - C;
+        dq -= uRes * floor(dq / uRes + 0.5);
+        float h = 0.5 * u_beam_len * min(uRes.x, uRes.y) * mix(0.6, 1.0, grb_rand(b, 6u));
+        perp = dot(dq, n) * sc;
+        d = max(abs(perp) - 0.5 * w, abs(dot(dq, vec2(-n.y, n.x))) * sc - h);
+      }
+      if (d < dBm) { dBm = d; bPerp = perp; bW = w; }
+    }
+    // Rails: two bars a quarter of the width along the edges; grooved: a fifth-wide groove down the middle.
+    float rw = max(1.0, floor(0.25 * bW + 0.5));
+    float dBe = u_beam_style == 1 ? abs(dBm + 0.5 * rw) - 0.5 * rw : dBm;
+    float bb = min(u_bevel, u_beam_style == 1 ? 0.5 * rw : 0.3 * bW);
+    // (A plain smooth ramp, not the Edge profile: each profile call site costs D3D compile time.)
+    v += u_beam_height * (bb > 0.0 ? smoothstep(0.0, 1.0, -dBe / bb) : grb_cov(dBe));
+    if (u_beam_style == 2) v -= 0.6 * u_beam_height * grb_cov(abs(bPerp) - 0.5 * max(1.0, floor(0.2 * bW + 0.5))) * grb_cov(dBm);
+    dBm = dBe;
+  }
+
   if (u_output == 0) {
     // The stack is scaled so its peak fits under 1 — the top plateau with its bulge plus the highest thing that can stand
     // on it (a raised frame, with rivets, a pipe or ribs on it; a rivet or bolt; a lens dome) — so every level, dome and
@@ -769,14 +1189,14 @@ GenOut gen(vec2 p) {
     float bolt = u_small_parts > 0.0 ? u_rivet_height : 0.0;
     float onRaise = raise + max(riv && u_rivet_inset + u_rivet_radius > u_frame_inset ? u_rivet_height : 0.0, ribs);
     float lens = u_det_light && u_detail_chance > 0.0 ? u_light_dome - 0.4 * u_inset_depth : 0.0;
-    float peak = 0.75 + max(u_bulge, 0.0) + max(max(onRaise, riv ? u_rivet_height : bolt), max(lens, ribs));
+    float peak = 0.75 + max(u_bulge, 0.0) + max(max(onRaise, riv ? u_rivet_height : bolt), max(lens, ribs)) + (u_beams > 0 ? max(u_beam_height, 0.0) : 0.0);
     v = clamp(v / max(peak, 1.0), 0.0, 1.0);
     if (u_mask == 0) return genOut(v, 1.0, rnd, NO_SDF);
     float dm = u_mask == 1 ? max(max(dP, -dHole), -dSunk) : u_mask == 2 ? dP : u_mask == 3 ? -dP : u_mask == 4 ? dF
-             : u_mask == 5 ? dR : u_mask == 6 ? dD : dL;
+             : u_mask == 5 ? dR : u_mask == 6 ? dD : u_mask == 7 ? dL : dBm;
     return genOutOwn(v, 1.0, rnd, dm);
   }
-  float d = u_output == 1 ? dP : u_output == 2 ? -dP : u_output == 3 ? dF : u_output == 4 ? dR : u_output == 5 ? dD : dL;
+  float d = u_output == 1 ? dP : u_output == 2 ? -dP : u_output == 3 ? dF : u_output == 4 ? dR : u_output == 5 ? dD : u_output == 6 ? dL : dBm;
   return genOut(0.0, 1.0, rnd, d);
 }
 `,
