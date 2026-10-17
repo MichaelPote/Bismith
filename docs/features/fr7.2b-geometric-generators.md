@@ -1,4 +1,4 @@
-# FR7.2b — Geometric generators: tessellation, tread plate, weave, bands
+# FR7.2b — Geometric generators: tiles, tread plate, weave, bands
 
 **Status:** done — four generator types in the *pattern* category, registered through `GEOMETRIC_LAYERS`
 (`src/layers/generators/geometric.ts`). Typecheck clean, smoke clean, visually checked against references
@@ -9,7 +9,7 @@ chain-link fences).
 | --- | --- |
 | `geometric.ts` | `GEOMETRIC_LAYERS` (add-menu order) |
 | `geometricCommon.ts` | shared GLSL (`geoGlsl(nv)`): seamless rotated frame, period-index wrapping, exact polygon tiles with mitred inset + convex rounding; `orientParam`, `rndModeParam` |
-| `geometricTessellation.ts` | `tessellation` (12 lattices) |
+| `geometricTiles.ts` | `tiles` (12 lattices, checkerboards; tiles or tones) |
 | `geometricSurface.ts` | `treadplate`, `weave` |
 | `geometricBands.ts` | `bands` |
 
@@ -33,9 +33,11 @@ zig-zags, trapezoid panels). All are SDF generators (distance in px, negative in
 
 ## Checklist
 - [x] Shared frame + polygon toolkit (`geometricCommon.ts`)
-- [x] `tessellation`: squares/offset squares, diamonds (argyle), rhombille (cube faces as classes), herringbone,
-      basketweave, interlocking crosses / stretched hexes / bow ties (one family), plus (Greek cross) pentominoes,
-      octagon + square, triangles, hopscotch (Pythagorean), pinwheel, Cairo pentagons
+- [x] `tiles` (was Tessellation; the Checker pattern layer folded in): squares/offset squares and checkerboards,
+      diamonds (argyle), rhombille (cube faces as classes), herringbone, basketweave, interlocking crosses / stretched
+      hexes / bow ties (one family), plus (Greek cross) pentominoes, octagon + square, triangles, hopscotch
+      (Pythagorean), pinwheel, Cairo pentagons
+- [x] Tones output: each tile kind its own tone as a value (a soft two-tone checker), blurred by Softness
 - [x] Rotation in 45° steps, aspect stretch, gap, corner rounding, per-tile / per-kind random
 - [x] Odd gaps shift the lattice half a pixel → 1 px grout stays crisp with `aa: false`
 - [x] `treadplate`: lozenge (vesica), capsule, 5-bar groups, studs, teardrops, diamonds; checker / row / column /
@@ -58,10 +60,11 @@ Common to all four: the shape params (`sdf_op`, `bevel`, `profile`, `aa`), shapi
 `orient` = 0°…315° in 45° steps (bands: Horizontal / Vertical / flipped and the four diagonals). `rnd_mode`: per feature / per kind
 (`(kind + .5) / kinds`) / kind + random (`(kind + .15 + .7·hash) / kinds`).
 
-### `tessellation`
+### `tiles`
 | Param | Default | Notes |
 | --- | --- | --- |
-| `mode` | rhombille | squares, diamonds, rhombille, herringbone, basketweave, cross, plus, octagon, triangles, hopscotch, pinwheel, cairo |
+| `mode` | rhombille | squares (and checkerboards), diamonds, rhombille, herringbone, basketweave, cross, plus, octagon, triangles, hopscotch, pinwheel, cairo |
+| `output` | tiles | Tiles: bevelled shapes, `rnd` per tile / kind. Tones (value): no shape (`NO_SDF`; Edge keeps only Anti-alias) — each tile's tone by its kind, kind / (kinds − 1), joints `joint_tone`; Diffuse › Source follows (random / value, linked). Hand-laid and size variation are off (they would open joints); tilt / crown / block relief are Height-of-shape controls and hidden |
 | `scale` | 7 | pattern **repeats** across the width (whole when tiling). One repeat = 1 square / 1 diamond pair / 1 cube column pair (2 hexes) / 2n×2n herringbone or basket block / cross pair (4×2 units) / 5 plus tiles / 1 octagon / 2 triangle rows / (a²+1) hopscotch block / 1 pinwheel / 2×2 Cairo cells |
 | `aspect` | 1 | vertical stretch of the repeat (row count re-rounded when tiling) |
 | `orient` | 0° | 45° frames tile over gcd(W,H) |
@@ -70,6 +73,10 @@ Common to all four: the shape params (`sdf_op`, `bevel`, `profile`, `aa`), shapi
 | `fit` | on | Keep tile shape: when tiling, the count across may move off `scale` (log error of the rows' fit + 0.35 × that of the count, over counts 0.6–1.6 × scale and the one that gives a single row band) so tiles keep their natural shape × `aspect` — regular cubes / triangles, and Aspect holds at low counts (plus at scale 1, aspect 2 → 2 across, 1 down). Off: exactly `scale` across, rows rounded |
 | `ratio` | 2 | herringbone brick length / basket bricks per block / hopscotch big-square side (2–12) |
 | `stagger` | 0 | squares: alternate row offset (rows made even) |
+| `split` | 0 | squares: chance a cell splits into 2 × 2 small squares (where `split_rule` allows) — mixed big and small tiles, small checkerboards inside big ones. Shape 1 of the squares tiling is a quarter cell: a whole cell is valid where its cell doesn't split, a quarter (four anchors to a cell) where it does |
+| `split_rule`, `split_every`, `split_run`, `split_x`, `split_y` | any, 4, 2, 0, 0 | which cells may split: any, column bands, row bands (counted from the top) or where they cross; a band is `split_run` cells wide every `split_every` cells, shifted by `split_x` / `split_y`. Decided on the wrapped cell, so it tiles; band rules make the counts multiples of `split_every` (× 2 with a checker) when tiling |
+| `split_kinds` | both | split squares' kinds: checker × size (1, 2 big light / dark; 3, 4 small) or size only (1 big, 2 small — each its own wide band of an 8-stop ramp). Tones keep the checker parity either way |
+| (checkerboard) | | squares whose kinds show — Tones, a kind filter, Random value per kind or kind + random with Kind contrast > 0 — keep even counts across and down when tiling (an odd checker can't repeat) |
 | `plateau` | 0.25 | cross: 0 diamonds · 0.25 stretched hexes · 0.5 half-offset square columns · >0.5 bow ties |
 | `step` | 0.6 | cross: shoulder in the slanted sides (0 straight → 1 right-angled arms). Interlocking-hex reference ≈ 0.69 |
 | `cut` | 0.293 | octagon corner cut (0.293 = regular) |
@@ -78,6 +85,9 @@ Common to all four: the shape params (`sdf_op`, `bevel`, `profile`, `aa`), shapi
 | `block_j` | 0 | rhombille: joints inside a block as a share of the gap (the faces' edges at the block centre are pushed out by (1 − j) × gap/2 before the inset). Below 1 a block is one unit: one id for missing / hand-laid / tilt / crown / tone, one Per-feature variation (applied in `hval`, `feat` 0, when Height reads Pattern). At 0 (and every kind drawn) the block is one hexagon: no seam in its coverage, bevel or shape mask; the face comes from the pixel's place (top above both upper edges, then left / right), its colour blending into the face across over ±½ px |
 | `crease` | 0.25 | solid blocks (block_j 0): the edges between the faces dip by this share of the height over the Bevel width (Height › Pattern, × (1 − c · (1 − bevel(distance to the nearest face edge))) — 0 = a sharp arris, 1 = down to the joint |
 | `block_iso` | 0.5 | rhombille: the side faces slope from the edge they share with the top (β = 0) to the bottom corner (β = \|x\| − 3y = 1), down by 0.5 × this (the bottom rim stays lit) and meet in a ridge — raised boxes with convex arrises |
+| `soft` | 1.5 px | Tones: blur. Every tile within half of it weighs in with its tone (smoothstep ramps; a 1 px linear ramp at 0 for anti-aliasing, a step without `aa`). Rectangles (squares, bricks, pinwheel) blur as a product of 1D ramps across their box, mixed towards the distance ramp as the rounding passes half the blur — the separable blur of a grid, so four squares' corners stay crossed and the weights sum to 1. Other tiles use their distance; where weights overlap (> 1) they share out. Rhombille, triangles and Cairo try their neighbourhood (18 hexes / 3×3 triangles of each kind / 3×3 Cairo anchors per kind), not only the tile found directly, so the blur sees the tile across each edge |
+| `vary` | 0.3 | Tones: each tile's tone moves towards the middle of the ramp by up to 0.45 × this of the step between kinds (a middle kind either way), so kinds never cross |
+| `joint_tone` | 1 | Tones: the joints' (and undrawn tiles') value |
 | `laid`, `laid_turn` | 0 px (new layers 0.75 px × size/512), = shift | hand-laid: a random shift (disc) and turn about the tile's box centre (a solid block's centre) that moves its corners ≤ `laid_turn` px (angle = px / box half-diagonal, so long tiles turn less); the turn follows the shift (linked default) until set by hand. Whatever exceeds the joint's room (gap/2 + size variation) shrinks the tile, so it never leaves its footprint (the one-tile modes stay exact) |
 | `size_var` | 0 px | each tile shrinks by a random 0…this (its distance + s): uneven joints, handmade tiles |
 | `tilt` | 0.5 | Height: a random lean per tile over its box, low side down by ≤ 0.75 × tilt of its own height (never into the joint) |
@@ -92,7 +102,7 @@ square texture), joints inside blocks 0 (crease 0.25), block relief 0.5; height 
 height variation 0.3, tilt 0.5, crown 0.3; diffuse by `rnd` (3-tone stone ramp, light → dark, so by kind the cubes'
 tops are lightest and their right faces darkest under the default top-left light). A layer added in the editor
 (`fresh`) sizes its gap (2 px) and bevel (3 px) to the texture (at 512 px; by the short side, ≥ 1 px) and is hand-laid
-by 0.75 px there (shift and turn), so each seed lays the blocks differently. The Tiles recipe sets its tiles level
+by 0.75 px there (shift and turn), so each seed lays the blocks differently. The Tiles recipe (FR8.6) sets its tiles level
 (no tilt, crown or per-tile height of their own — its macros make the relief) and tumbling blocks as rhombi with
 joints. The main loop has no `continue` (ANGLE's D3D11 path has miscompiled it).
 
@@ -195,10 +205,10 @@ Checked on a contact sheet (ref | render, palette Quake, ACES).
 
 | Reference | Layer setup | Match |
 | --- | --- | --- |
-| Tumbling-block cubes (two) | `tessellation` rhombille, scale 3 / 2, aspect 1.5, gap 2, linear bevel 1, height 0.3 over grain | geometry exact (tall cubes, Y junctions); relief a little heavier than the ref's drawn grooves |
-| Interlocking hexes (two) | `tessellation` cross, scale 1, plateau 0.25, step 0.69, gap 2; the second uses a stepped colour ramp on a 5 px linear bevel for the orange/white rims | outline shape essentially identical; rim widths slightly heavier |
-| Herringbone | `tessellation` herringbone, scale 1, ratio 2, gap 2 | exact layout (32×16 bricks); mirror via orient 90/270 |
-| Diagonal diamonds | `tessellation` diamonds, scale 2, aspect 0.5, gap 1 | layout right; one diagonal family fades under 315° light |
+| Tumbling-block cubes (two) | `tiles` rhombille, scale 3 / 2, aspect 1.5, gap 2, linear bevel 1, height 0.3 over grain | geometry exact (tall cubes, Y junctions); relief a little heavier than the ref's drawn grooves |
+| Interlocking hexes (two) | `tiles` cross, scale 1, plateau 0.25, step 0.69, gap 2; the second uses a stepped colour ramp on a 5 px linear bevel for the orange/white rims | outline shape essentially identical; rim widths slightly heavier |
+| Herringbone | `tiles` herringbone, scale 1, ratio 2, gap 2 | exact layout (32×16 bricks); mirror via orient 90/270 |
+| Diagonal diamonds | `tiles` diamonds, scale 2, aspect 0.5, gap 1 | layout right; one diagonal family fades under 315° light |
 | Tread plate (two) | `treadplate` 8×12, rows layout, offset rows, angle 40, length 0.95, width 0.3 | good density and orientation |
 | Strap grate | `weave` lattice, 45°, 6×6, width 0.52, run on 1, stud 3 | straps, holes and rivets match; under-strips read slightly tile-like |
 | Chain-link | `weave` plain, 45°, 11×6 on 128×64, width 0.22 | very close |
@@ -215,7 +225,7 @@ Checked on a contact sheet (ref | render, palette Quake, ACES).
   diagonal repeat is at most 22.6 px and shapes can be strongly stretched; prefer straight frames on trims.
   Treadplate checker alternation / offset rows and weave repeats round counts to even / repeat multiples.
   Bands: counts are whole; diagonal bars with zero margins snap the slope so each lane advances whole repeats.
-- **Pixel alignment.** Tessellation shifts the lattice by `fract(gap/2)` px, so both edges of an odd gap land on
+- **Pixel alignment.** Tiles shifts the lattice by `fract(gap/2)` px, so both edges of an odd gap land on
   pixel boundaries (1 px grout is crisp with `aa: false`). Bands put lane edges / horizontal band edges on whole
   px when width and margins are whole.
 - **Distance quality.** Inside distances are exact (bevels are true). Several modes evaluate only the tile that
@@ -244,16 +254,45 @@ Checked on a contact sheet (ref | render, palette Quake, ACES).
   their random modulo gcd(count, repeats advanced × rows) — the stripes the torus actually tells apart. Every helper
   has one call site in a uniform-bounded loop: cold D3D11 compile 1.96 s → 1.3 s (1.0 s before Z pieces were fitted to their neighbours; each Z piece takes six
   steps of the flat loop — three draw it and its neighbours from one hash chain each, three are its segments).
-- **Compile time.** Tessellation's modes are data: `tess_shape(k)` builds a mode's shape k and gives its anchor
-  count, and `tess_anchor(k, a)` gives each anchor's position, kind and key parts (key = `geo_wrapCell(cell) ×
-  mul + add`; `geo_keyI` lattices are split into those parts). The tile under the pixel, for the modes that find
-  it directly, comes from `tess_pick`. `gen()` runs every shape and anchor through **one** flat loop with a single
-  `geo_finish` and one tile try (the kind filter, missing tiles and uneven joints inline, around a single
-  `geo_sdPoly`), bounded by `TESS_1` (1, read from a uniform) so D3D can't unroll it. Each mode used
-  to have its own function with nested loops of tries, and D3D inlines every call: a cold D3D11 compile took ~20 s.
-  It then took 1.9 s, with output pixel-identical (36 variants: every mode, kinds, ratios, rotations, non-tiling);
-  2.3 s with the per-tile controls (hand-laid, size variation, tilt / crown / block relief / crease through `hval`, Keep tile
-  shape's small count search).
+- **Carved cracks and worn tiles by stacking** (used for a set of hand-painted floor recreations; no extra generator
+  code). The Tiles generator's own SDF combines with the shape mask, so a crack network can be *carved* into the tiles:
+  the Cracks generator writes its shards to the mask; a Tiles copy with *Missing tiles* = the cracked share is unioned
+  in (the whole tiles); optionally a second copy pushed off-centre by a large *Hand-laid shift* (which also shrinks it
+  inside its footprint) is smooth-unioned in as each partly cracked tile's crack-free core, leaving cracks in a band
+  along one edge that taper out; then the main Tiles layer *smooth-intersects* the mask (small k: a V-notch where a
+  crack leaves the edge). Every copy has the same seed, so the missing-tile picks nest; *Tiles drawn* restricts cracking
+  to one kind. Shards take the main layer's (thin) bevel; a flat-height `max` floor over the tile footprint (a mask
+  from a hidden copy) keeps the cracks a shallow V, and a wider outer bevel is multiplied in afterwards from an
+  uncracked copy (`h_mode` multiply). A copy restored into the mask before Chips keeps chips on the outline. Crack
+  floors are painted by a Tiles copy clipped outside the shape within the footprint mask (each tile's own colour),
+  shaded darker. Per-kind passes (rims, specks) use the Tones output of a hidden copy as a named mask (the checker
+  parity). Rims are a Tiles copy's bevel value (`dif_src` value) cut into a band by its ramp and multiplied in.
+  Tile edges with bevelled chips: put the plain outline in the shape mask, then draw the relief with Chips' *Chipped
+  shape* output (its bevel and profile apply to the chipped outline, so each flake is bevelled like the edge); shaping
+  levels on that pass reshape the bevel (High 0.4: full height in 40 % of the bevel width — a crisp edge; a second,
+  crisp pass masked to one kind gives dark tiles a hard edge while light ones keep a soft roll). Per-tile height and
+  tilt come from a Tiles copy with Bevel 0 multiplied in. A fine domain warp on the tiles serrates a shaded bevel;
+  keep it slow and small.
+- **Compile time.** The tile shapes are data: one table (`TILE_V`, generated from `SHAPES` in TypeScript) holds every
+  tiling's shapes, each vertex linear in the tiling's own params (v = a + t.x·b + t.y·c: octagon cut, ratio n,
+  plateau and signed shoulder, centre square, Cairo's e), so `tile_shape(k)` is one loop over the table with no branch
+  per tiling. Every coefficient is a multiple of 1/6 within ±2, so a vertex's six pack into one int (5 bits each,
+  decoded exactly). `tile_anchor(k, a)` gives each anchor's position, kind and key parts (key = `geo_wrapCell(cell)
+  × mul + add`; `geo_keyI` lattices are split into those parts; plus tiles share hopscotch's lattice with a = 2,
+  pinwheel the squares' cells). The tile under the pixel, for the modes that find it directly, comes from `tile_pick`
+  (rhombille's nearest hex from its two rectangular sub-lattices, rounded per axis — not an 18-candidate search).
+  `gen()` runs every shape and anchor through **one** flat loop with a single `geo_finish` and one tile try (the kind
+  filter, missing tiles, uneven joints and the Tones weights inline, around a single `geo_sdPoly`), bounded by
+  `GEO_1` (1, read from a uniform) so D3D can't unroll it; the solid-block face search and the derivatives Height
+  needs run only when used. Cold D3D11 compile: ~20 s with a function per mode → 1.9 s as one loop → 2.4 s with the
+  per-tile controls → **1.55 s** for Tiles (Tones included; 1.7 s with split squares): the shape table took ~0.6 s off, the
+  single-pass `geo_finish` and anchor merges ~0.2 s. Output pixel-identical to Tessellation over 30 variants (every
+  mode, kinds, ratios, rotations, non-tiling), but for 1/255 in a few pixels of the parametric shapes (float rounding
+  of the table) and checkerboards' even counts. Render cost per layer is unchanged within noise — but a table of three
+  `vec2`s per vertex cost ~20 % more per pixel (D3D copies dynamically indexed constant arrays per pixel), hence
+  the packing. Shared `geoGlsl` loops run to `geo_n` (not unrolled to `GEO_NV`), `geo_gcd` is uniform-bounded and
+  `geo_finish` is one in-place pass: Setts' compile went 1.1 → 0.35 s, the other geometric generators unchanged
+  (their output identical).
 
 ## Recommended shared changes (not made — outside this family's files)
 - Move `geo_sdPoly` + mitred inset into `glsl/sdf.ts` (`sdPolygon(n)`), and `geo_frame` / `geo_wrapCell`

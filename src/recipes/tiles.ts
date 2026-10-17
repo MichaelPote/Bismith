@@ -44,7 +44,7 @@ export const tiles: RecipeDef = {
     const joint = num(m.joint, 2)
     const pattern = String(m.pattern ?? 'squares')
     // The pattern every copy shares (relief tile, per-tile heights, per-tile colour).
-    let type = 'tessellation'
+    let type = 'tiles'
     let shape: ParamValues
     if (pattern === 'hex') {
       type = 'hex'
@@ -76,7 +76,7 @@ export const tiles: RecipeDef = {
     shape.aa = false
     // Level tiles: the macros (Height variation, Surface roughness) give the relief, so no tilt, crown or per-tile height
     // of the layer's own; tumbling blocks laid as rhombus tiles, each face with its own joint.
-    if (type === 'tessellation') Object.assign(shape, { tilt: 0, crown: 0, h_var: 0, ...(pattern === 'rhombille' ? { block_j: 1, block_iso: 0 } : {}) })
+    if (type === 'tiles') Object.assign(shape, { tilt: 0, crown: 0, h_var: 0, ...(pattern === 'rhombille' ? { block_j: 1, block_iso: 0 } : {}) })
     const edge = num(m.edge, 0.5)
     const raise = num(m.raise, 0)
     const rough = num(m.rough, 0.15)

@@ -179,6 +179,11 @@ function counts(a: Analysis, fallbackX: number, fallbackY: number, divX = 1): [n
   return [cx, cy]
 }
 
+/** A Tiles layer of cx × cy squares (exact counts: no fitting to the tile shape). */
+function squares(a: Analysis, cx: number, cy: number): ParamValues {
+  return { mode: 'squares', scale: cx, aspect: (cx * a.height) / (a.width * cy), fit: false, tilt: 0, crown: 0, h_var: 0, laid: 0 }
+}
+
 /** Pattern offsets that put the strongest measured lines on the pattern's cell edges. */
 function phase(a: Analysis): ParamValues {
   return { ofs_x: a.periodX ? a.phaseX : 0, ofs_y: a.periodY ? a.phaseY : 0 }
@@ -676,13 +681,13 @@ export const TEMPLATES: Template[] = [
     id: 'tiles',
     label: 'Floor tiles',
     tags: ['tile', 'floor', 'marble'],
-    requires: ['checker'],
+    requires: ['tiles'],
     build: (a, ctx) => {
       const [count_x, count_y] = counts(a, 32, 32)
       return base(a, ctx, 'Tiles', {
         relief: [lumps(a, 12, 0.12, false)],
         paint: [
-          L('checker', 'Tiles', { mode: 'shape', count_x, count_y, ...phase(a), gap: 1, bevel: 1.5, profile: 'round', aa: false, h_on: true, h_amount: 0.3, dif_on: true, dif_src: 'random', dif_grad: paletteRamp(a, 0.2, 1) }),
+          L('tiles', 'Tiles', { ...squares(a, count_x, count_y), ...phase(a), gap: 1, bevel: 1.5, profile: 'round', aa: false, rnd_mode: 'random', h_on: true, h_amount: 0.3, dif_on: true, dif_src: 'random', dif_grad: paletteRamp(a, 0.2, 1) }),
           L('noise', 'Veins', { noise: 'perlin', fractal: 'turbulence', scale: 3, octaves: 5, warp: 0.6, seed: 11, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.45, dif_grad: ramp('#000000', '#ffffff') }),
           grime(a, 1.5),
         ],
@@ -693,13 +698,13 @@ export const TEMPLATES: Template[] = [
     id: 'checker2',
     label: 'Two-tone alternating tiles',
     tags: ['tile', 'floor', 'marble'],
-    requires: ['checker'],
+    requires: ['tiles', 'grid'],
     build: (a, ctx) => {
       const [count_x, count_y] = counts(a, 32, 32)
       return base(a, ctx, 'Two-tone tiles', {
         relief: [lumps(a, 12, 0.1, false)],
         paint: [
-          L('checker', 'Tones', { mode: 'value', count_x, count_y, ...phase(a), h_on: false, dif_on: true, dif_grad: ramp(pick(a, 0.15), pick(a, 0.85)) }),
+          L('tiles', 'Tones', { ...squares(a, count_x, count_y), output: 'value', gap: 0, ...phase(a), h_on: false, dif_on: true, dif_grad: ramp(pick(a, 0.15), pick(a, 0.85)) }),
           L('grid', 'Joints', { count_x, count_y, ...phase(a), width: 1, bevel: 1, aa: false, h_on: true, h_mode: 'subtract', h_amount: 0.4, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 0.5)), dif_opacity: 0.6 }),
           L('noise', 'Veins', { noise: 'perlin', fractal: 'ridged', scale: 3, octaves: 5, warp: 0.8, seed: 11, h_on: false, dif_on: true, dif_blend: 'screen', dif_opacity: 0.5, dif_grad: ramp('#000000', pick(a, 1)) }),
           grime(a, 1.5),
@@ -898,14 +903,14 @@ TEMPLATES.push(
     id: 'marbletiles',
     label: 'Marble tiles',
     tags: ['marble', 'tile', 'floor'],
-    requires: ['marble', 'checker'],
+    requires: ['marble', 'tiles', 'grid'],
     build: (a, ctx) => {
       const [cx, cy] = counts(a, 32, 32)
       return base(a, ctx, 'Marble tiles', {
         relief: [lumps(a, 16, 0.08, false)],
         paint: [
           L('marble', 'Marble', { style: 'streaks', veins: 3, warp: 0.6, tiles: cx, tile_rot: 90, dif_on: true, dif_grad: paletteRamp(a, 0.1, 1), h_on: false }),
-          L('checker', 'Tone', { mode: 'value', count_x: cx, count_y: cy, ...phase(a), h_on: false, dif_on: true, dif_blend: 'multiply', dif_grad: ramp('#ffffff', pick(a, 0.35)), dif_opacity: 0.8 }),
+          L('tiles', 'Tone', { ...squares(a, cx, cy), output: 'value', gap: 0, ...phase(a), h_on: false, dif_on: true, dif_blend: 'multiply', dif_grad: ramp('#ffffff', pick(a, 0.35)), dif_opacity: 0.8 }),
           L('grid', 'Joints', { count_x: cx, count_y: cy, ...phase(a), width: 1, bevel: 1, aa: false, h_on: true, h_mode: 'subtract', h_amount: 0.3, dif_on: true, dif_src: 'flat', dif_grad: ramp(pick(a, 0.4)), dif_opacity: 0.5 }),
         ],
       }, { ...GLOSSY, render: { ...GLOSSY.render, ao: 0.8, aoRadius: 3 } })

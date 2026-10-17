@@ -10,7 +10,7 @@ of controls each, fitted and tuned against real references rather than left to t
 | Lump | Generators inside |
 | ---- | ----------------- |
 | Concrete | noise mottle / smears / streaks / pits, Bricks panels, Ellipse bolt holes, Drips stains, cavity |
-| Tiles | Tessellation (squares, diamonds, diagonal bond, herringbone, basketweave, rhombille), Hex, Bricks |
+| Tiles | Tiles (squares, diamonds, diagonal bond, herringbone, basketweave, rhombille), Hex, Bricks |
 | Stripes | Stripes, Bands (chevrons, zig-zag), Checker; grunge, scratches |
 | Metal plate | noise, rust patches, Scratches, Treadplate, Bricks seams, Ellipse rivets |
 | Grate & vents | Vents (relief / frame / slots), Ellipse bolts |

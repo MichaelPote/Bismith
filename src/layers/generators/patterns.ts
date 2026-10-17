@@ -1,4 +1,4 @@
-// Structured pattern layers (FR2.4): bricks, hex tiles, Voronoi cells, checker, grid lines, stripes.
+// Structured pattern layers (FR2.4): bricks, hex tiles, Voronoi cells, grid lines, stripes (checkerboards: Tiles).
 // Cell-based patterns are SDF generators: they return the distance (px, negative inside) to the edge of the
 // feature under the pixel plus a per-feature random, so the common shape params can bevel them and the
 // channel outputs can vary them per brick / cell / tile. Every lattice wraps its indices when the project is
@@ -1220,111 +1220,6 @@ GenOut gen(vec2 p) {
 `,
 }
 
-// ------------------------------------------------------------------------------------------------ checker
-
-export const checkerLayer: LayerDef = {
-  type: 'checker',
-  label: 'Checker',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Checkerboard, as a two-tone value or as bevelled squares.',
-  params: [
-    P.enum('mode', 'Output', 'value', [['value', 'Two-tone value'], ['shape', 'Squares (shape)'], ['tiles', 'Both tones as tiles (shape)']], { hint: 'Squares: the light squares are a shape for bevels. Both tones: every square is a bevelled tile, its tone (light / dark, varied by Tone variation) in the per-feature random — Diffuse › Source Random paints the two tones. Two-tone value: 0 / 1 for a colour ramp' }),
-    P.int('count_x', 'Count X', 8, 1, 512, { softMax: 32, hint: 'Squares across (rounded up to even when tiling)' }),
-    P.int('count_y', 'Count Y', 8, 1, 512, { softMax: 32, hint: 'Squares down (rounded up to even when tiling)' }),
-    P.float('gap', 'Gap', 0, 0, 256, { softMax: 64, unit: 'px', step: 0.1, hint: 'Shrinks the squares (the light ones in Two-tone), leaving a gap along their left and top — like Grid lines and Bricks’ mortar, so whole-pixel sizes stay crisp and a Grid of the same count lines up with it' }),
-    P.float('round', 'Corner rounding', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1 }),
-    P.float('size_jitter', 'Size jitter', 0, 0, 128, { softMax: 32, unit: 'px', step: 0.1, section: 'Irregularity', hint: 'Shrinks each square by a random amount up to this (about its own centre): uneven, hand-cut squares' }),
-    P.float('pos_jitter', 'Position jitter', 0, 0, 64, { softMax: 16, unit: 'px', step: 0.05, section: 'Irregularity', hint: 'Random shift per square within its cell — with the turn, kept within half the gap plus the square’s size jitter, so neighbours never touch' }),
-    P.float('rot_jitter', 'Rotation jitter', 0, 0, 30, { softMax: 10, unit: '°', step: 0.1, section: 'Irregularity', hint: 'Random turn per square: hand-laid tiles (kept within the gap, as for Position jitter)' }),
-    P.float('soft', 'Softness', 1.5, 0, 256, { softMax: 32, unit: 'px', step: 0.1, showIf: (p) => p.mode !== 'shape', hint: 'Blurs the checker over this many px — a smooth 2D blur, so corners where four squares meet stay crossed, not mitred, and the slopes have no creases (0 = crisp edges)' }),
-    P.float('vary', 'Tone variation', 0.3, 0, 1, { step: 0.001, showIf: (p) => p.mode !== 'shape', hint: 'Each square shifts its tone by its own random amount, towards the middle of the ramp (at 1 up to 0.45 of it, so light and dark never cross): worn, unevenly fired or dyed squares' }),
-    P.seed(),
-  ],
-  // The shape modes have the whole Edge and Shape mask; Two-tone keeps Anti-alias (its crisp edges use it).
-  sdfShowIf: (p, key) => p.mode === 'shape' || p.mode === 'tiles' || key === 'aa',
-  // Diffuse: bevelled squares are painted flat by their shape (the bevel only in Height, so no dark frame round each
-  // square); both tones as tiles carry their tone in the per-feature random.
-  linkedDefaults: (p) => ({ dif_src: p.mode === 'tiles' ? 'random' : p.mode === 'shape' ? 'shape' : 'value' }),
-  // A checker added in the editor: a smooth bevel sized to the squares (for the shape modes).
-  fresh: ({ width }) => ({ bevel: r1(clamp((width / 8) * 0.15, 1, 32)) }),
-  defaults: {
-    profile: 'smooth',
-    dif_on: true,
-    dif_grad: gradient('#2c2a27', '#b3aa9a'),
-    bevel: 2,
-  },
-  glsl:
-    PAT_GLSL +
-    /* glsl */ `
-GenOut gen(vec2 p) {
-  ivec2 n = ivec2(u_count_x, u_count_y);
-  if (uTile) n += n & ivec2(1);   // a checker only repeats with even counts
-  vec2 cs = uRes / vec2(n);
-  ivec2 c0 = ivec2(floor(p / cs));
-  float best = 1e9;
-  float rnd = 0.0;
-  // Two-tone with Softness or Tone variation: each square's blurred coverage (light ones: their rounded box, blurred as
-  // a product of 1D ramps where the rounding is smaller than the blur — no mitred corners) weights its own tone.
-  bool blend = u_mode == 0 && (u_soft > 0.0 || u_vary > 0.0);
-  float sb = max(u_soft, 1.0);
-  float kr = u_soft > 0.0 ? clamp(2.0 * u_round / u_soft, 0.0, 1.0) : 1.0;
-  float vary = 0.45 * u_vary;
-  float won = 0.0, von = 0.0, woff = 0.0, voff = 0.0;
-  bool tiles = u_mode == 2;
-  for (int j = -1; j <= 1; j++)
-  for (int i = -1; i <= 1; i++) {
-    ivec2 c = c0 + ivec2(i, j);
-    ivec2 cw = uTile ? imod(c, n) : c;
-    float h = hashI(cw, uSeed);
-    // "On" squares: the top-left square and every other one. Both tones as tiles: every square is a shape.
-    bool on = ((c.x + n.y - 1 - c.y) & 1) == 0;
-    bool sq = on || tiles;
-    if (sq || blend) {
-      vec2 ctr = (vec2(c) + 0.5) * cs;
-      vec2 hs = 0.5 * cs;
-      vec2 q = p - ctr;
-      if (sq) {
-        ctr += vec2(0.5, -0.5) * u_gap;   // gap along the left / top: pixel aligned
-        float inset = 0.5 * u_size_jitter * hashI(cw, uSeed + 41.0);
-        hs = max(hs - 0.5 * u_gap - inset, vec2(0.0));
-        if (u_pos_jitter > 0.0 || u_rot_jitter > 0.0) {
-          // Shift and turn, scaled down together where the corners would sweep past the square's share of the gap
-          // (half of it plus its own size inset), so neighbours never touch.
-          vec2 off = (hash2I(cw, uSeed + 71.0) - 0.5) * 2.0 * u_pos_jitter;
-          float a = (hashI(cw, uSeed + 73.0) - 0.5) * 2.0 * radians(u_rot_jitter);
-          float sweep = length(off) + abs(a) * length(hs);
-          float f = min(1.0, (0.5 * u_gap + inset) / max(sweep, 1e-4));
-          ctr += off * f;
-          a *= f;
-          q = mat2(cos(a), -sin(a), sin(a), cos(a)) * (p - ctr);
-        } else q = p - ctr;
-      }
-      vec2 e = abs(q) - hs;
-      float d = sq ? sdRoundBox(q, hs, vec4(u_round)) : max(e.x, e.y);
-      // A tile's random is its tone: light ones high, dark ones low, varied by Tone variation.
-      if (sq && d < best) { best = d; rnd = tiles ? (on ? 1.0 - vary * h : vary * h) : h; }
-      if (blend) {
-        // Softness: smoothstep ramps (no creases where a blur starts and stops); a plain 1 px ramp for anti-aliasing.
-        vec3 rw = clamp(0.5 - vec3(e, d) / sb, 0.0, 1.0);
-        if (u_soft > 0.0) rw = rw * rw * (3.0 - 2.0 * rw);
-        float w = mix(rw.x * rw.y, rw.z, on ? kr : 0.0);
-        if (u_soft <= 0.0 && !u_aa) w = d <= 0.0 ? 1.0 : 0.0;
-        if (on) { won += w; von += w * (1.0 - vary * h); }
-        else { woff += w; voff += w * vary * h; }
-      }
-    }
-  }
-  if (u_mode >= 1) return genOut(0.0, 1.0, rnd, best);
-  float v = u_aa ? clamp(0.5 - best, 0.0, 1.0) : (best <= 0.0 ? 1.0 : 0.0);
-  // The dark tone fills what the light squares leave, from the dark squares around.
-  if (blend) v = min(von, 1.0) + max(1.0 - won, 0.0) * voff / max(woff, 1e-4);
-  return genOut(v, 1.0, hashI(uTile ? imod(c0, n) : c0, uSeed), ${NO_SDF});
-}
-`,
-}
-
 // ------------------------------------------------------------------------------------------------ grid lines
 
 export const gridLayer: LayerDef = {
@@ -1571,7 +1466,6 @@ export const PATTERN_LAYERS: LayerDef[] = [
   bricksLayer,
   hexLayer,
   voronoiLayer,
-  checkerLayer,
   gridLayer,
   stripesLayer,
   gradientLayer,

@@ -1,7 +1,9 @@
 # FR2.4 — Pattern layers: bricks, Voronoi, clouds…
 
-**Status:** done — nine generator types in `src/layers/generators/patterns.ts` (cell / SDF patterns) and
-`src/layers/generators/patternsFill.ts` (clouds, gradient, scratches), registered in `generators/index.ts`.
+**Status:** done — eight generator types in `src/layers/generators/patterns.ts` (cell / SDF patterns) and
+`src/layers/generators/patternsFill.ts` (clouds, gradient, scratches), registered in `generators/index.ts`. The
+Checker layer has been folded into **Tiles** (FR7.2b, `geometricTiles.ts`): Squares, with the Tones output for a
+two-tone value (softness, tone variation) and the tile kinds for bevelled checker squares.
 
 ## Goal
 Structured patterns that make up most game surfaces, all tileable and all exposing a per-feature random and an
@@ -14,7 +16,7 @@ edge distance so they can be bevelled and varied per cell.
   distance, crackle), gap (px) → cell SDF for bevelled cobbles / flagstones.
 - **Clouds:** classic fBm clouds with warp, contrast and coverage.
 - **Gradient:** linear / radial / angular / diamond with angle, centre, repeat — UI shading.
-- **Stripes**, **Checker**, **Grid lines**, **Hex tiles**, **Scratches** (random short segments).
+- **Stripes**, **Checker** (now Tiles › Squares), **Grid lines**, **Hex tiles**, **Scratches** (random short segments).
 
 ## Checklist
 - [x] Bricks (+ length variation, edge jitter, wobble, wobble scale / variation, stone shape, straight creases, smallest piece, chipped corners with broken outline, face relief / crown / tilt, mortar level, joint variation)
@@ -22,7 +24,7 @@ edge distance so they can be bevelled and varied per cell.
 - [x] Clouds
 - [x] Gradient (linear / radial / angular / diamond, clamp / repeat / mirror)
 - [x] Stripes (shape SDF or soft-square / sine / triangle / saw value; width variation, spacing jitter, missing stripes, saw softness)
-- [x] Checker (two-tone value, bevelled squares or both tones as tiles; softness, tone variation, size / position / rotation jitter)
+- [x] Checker — moved to Tiles (FR7.2b)
 - [x] Grid lines (corner rounding, spacing jitter, width variation)
 - [x] Hex tiles (pointy / flat top; grout level, size / position / rotation jitter, wobble, chips with broken outline, round bevel corners, face relief / crown / tilt)
 - [x] Scratches
@@ -34,7 +36,6 @@ edge distance so they can be bevelled and varied per cell.
 | `bricks` | pattern | yes | Layout: columns, rows, stagger, mortar px, joint_var, round px, mortar_level, vertical · Irregularity: row_jitter, len_var, row_var, min_size, size_jitter px, pos_jitter px, rot_jitter °, shape_var, crease, close, wobble px, wobble_var, wobble_scale · Relief: chips, chip_size (share of the brick height), chip_depth, chip_break, chip_dust, face, crown, face_tilt · seed | height (round bevel 2 px) + diffuse by per-brick random |
 | `hex` | pattern | yes | scale, orient (pointy/flat), gap px, round px, round_bevel, grout_level · Irregularity: size_jitter px, pos_jitter px, rot_jitter °, wobble px · Relief: chips, chip_size, chip_depth, chip_break, chip_dust, face, crown, face_tilt · seed | height (smooth bevel) + diffuse by per-tile random |
 | `voronoi` | pattern | cells only | output (cells/f1/f2/edges/crackle/facets), tilt + facet_fit (facets), scale, jitter, metric, gap px, crack_var (crackle), round px, min_cell px, min_bevel, round_bevel, warp px, warp_scale · cells: grout_level, size_var, size_jitter px, pos_jitter px, rot_jitter °, face, crown, face_tilt · seed | height (round bevel 3 px) + diffuse by per-cell random; crackle: Height › Mode Subtract (linked default) |
-| `checker` | pattern | shape / tiles modes | mode (value/shape/tiles), count_x, count_y, gap px, round px · Irregularity: size_jitter px, pos_jitter px, rot_jitter ° · value: soft px, vary · seed | diffuse two-tone; shape: Diffuse › Source Shape, tiles: Source Random (linked defaults) |
 | `grid` | pattern | yes | count_x, count_y (0 = none), width px, offset_x, offset_y, round px, snap · Irregularity: jitter, width_var · seed | height subtract (seams) + dark diffuse |
 | `stripes` | pattern | shape mode | mode (shape/square/sine/triangle/saw), count, angle, duty, soft px + soft_profile (square, saw), fit_bevel (shape), offset · shape/square: width_var, jitter, skip · seed | height (round bevel); shape: Diffuse › Source Shape (linked default) |
 | `gradient` | pattern | no | style (linear/radial/angular/diamond/square), angle, cx, cy, length px (0 = fit), stretch, round, turns (angular ramps), twist, repeat (clamp/repeat/mirror), shift, fit, wrap (wrap/single), seam px, falloff (linear/smooth/round/cove), aa, seed | diffuse ramp, bottom → top |
@@ -43,7 +44,7 @@ edge distance so they can be bevelled and varied per cell.
 
 `rnd` is per brick / hex / cell / square / panel / stripe / scratch (gradient: per repeat band; clouds: the
 noise value). Non-SDF output modes return `sdf <= NO_SDF`, so value and mask pass straight through, and their
-Shape mask / Edge controls are hidden (`sdfShowIf`: checker and stripes in shape mode, Voronoi in cells).
+Shape mask / Edge controls are hidden (`sdfShowIf`: stripes in shape mode, Voronoi in cells).
 
 **Defaults.** The plain defaults are the finished looks:
 - Bricks: 12 courses, mortar level 0.2, straight creases and Close gaps (for dry stone), wobble varying per brick
@@ -55,13 +56,12 @@ Shape mask / Edge controls are hidden (`sdfShowIf`: checker and stripes in shape
 - Voronoi: cell size variation 0.5, 2° rotation jitter, round bevel corners, smallest bevel 0.5, grout level 0.2, face
   relief 0.35, crown 0.3, face tilt 0.35, per-feature variation 0.3; soft facets with a 3 px edge; crackle variation
   0.6 at scale 0.6, crack darkness 0.7.
-- Checker: softness 1.5 px (no 1 px cliff in Height), tone variation 0.3, smooth profile. Grid: whole-pixel lines,
-  smooth profile. Stripes: Fit the bevel, smooth profile, smooth softness 3 px.
+- Grid: whole-pixel lines, smooth profile. Stripes: Fit the bevel, smooth profile, smooth softness 3 px.
 
 A layer added in the editor (`fresh`) also gets the values that depend on the texture size: bricks about 3:1 (4
 columns, an even row count from the aspect), a round bevel of 0.2 of a course, edge jitter and wobble in proportion
 to the courses; hex a short bevel (0.06 of a tile); Voronoi cobbles with bevel, gap, corner rounding, warp, size jitter
-and Smallest cell sized to the cells; checker a bevel of 0.15 of a square; grid 5 px lines with a 1.8 px bevel at
+and Smallest cell sized to the cells; grid 5 px lines with a 1.8 px bevel at
 512 px; stripes a bevel of a quarter of a stripe.
 
 Recipes and templates that stack copies of one shape and build their own relief (stone walls, cobbles, tiles, panels,
@@ -180,15 +180,14 @@ the bisector function's gradient before its `f / |∇f|` estimate (exact across 
 two sites tie are no border.
 
 ## Notes and constraints
-- **Pixel alignment.** Periodic features start at a cell / period edge and extend by their width (mortar and
-  checker gap along the left/top of each cell, grid lines from each cell edge right/down, a stripe covers phase
+- **Pixel alignment.** Periodic features start at a cell / period edge and extend by their width (mortar along
+  the left/top of each cell, grid lines from each cell edge right/down, a stripe covers phase
   `[0, duty)`). With whole-pixel cell sizes and widths every edge lands on a pixel boundary, so 1 px mortar,
   1 px grid lines and 2 px-period stripes stay crisp with `aa: false`. Wave stripes peak a quarter period in,
   so a 2 px period alternates per pixel.
 - **Tiling.** Every lattice wraps its indices (and hashes wrapped indices) when the project is tileable.
   - Bricks: columns / rows are whole counts; with a stagger, use an **even row count** (alternate rows are
     counted from the top, so an odd count puts two unshifted rows together at the seam).
-  - Checker: counts are rounded **up to even** when tiling (an odd checker cannot repeat).
   - Hex: a hex lattice only repeats with whole counts and an **even row count** (odd rows are offset half a
     cell). Regular hexes rarely fit a square texture exactly, so when tiling the layer searches whole counts
     near the requested scale and takes the most regular fit (the count may differ by 1–2; a few % stretch).
@@ -211,26 +210,14 @@ two sites tie are no border.
   depth. Grid *Corner rounding* rounds the panels (a rounded box's corner distance where both lines are within the
   radius). Stripe widths vary both ways, (1 ± var) × Width, kept between a pixel plus the bevels and the period less
   that; *Missing stripes* drops stripes by chance (gaps of several periods).
-- **Checker tone.** With *Softness* or *Tone variation*, each square's blurred coverage weights its own tone: light
-  squares as a product of 1D ramps (a true box blur — crossed corners, no mitre creases) blended towards their
-  rounded-box ramp where Corner rounding is at least half the softness; the dark tone fills what the light squares
-  leave, averaged over the dark squares around. Tone variation moves each square up to 0.45 of the ramp towards the
-  middle, so light and dark never cross. Squares' *Size jitter* shrinks each about its centre. The gap runs along
-  each square's left and top like Grid lines and mortar, so a Grid of the same count lines up with it.
 - **Sawtooth softness.** The saw rises over the period less *Softness* px and drops back over Softness px; *Softness
-  profile › Smooth* eases soft-square edges and the saw's drop. Checker Softness is always smooth (smoothstep ramps
-  multiplied per axis).
+  profile › Smooth* eases soft-square edges and the saw's drop.
 - **Fit the bevel** (stripes, shape mode): each stripe's bevel at most a third of its width (its inside distance
   stretched to match), on the stripe grown by half of it — Height reads that as a profile of its own (`genOutHeight`),
   while colour, coverage and the shape mask stop at the stripe's Width, the bevel's half height. Jittered stripes that
   run into each other merge into one span (the intervals' union), one flat plank.
-- **Diffuse by shape.** Shape stripes and bevelled checker squares default to Diffuse › Source Shape
+- **Diffuse by shape.** Shape stripes default to Diffuse › Source Shape
   (`linkedDefaults`): painted flat, the bevel in Height only, so the ramp's dark end no longer frames every edge.
-- **Checker jitter** is scaled down together (shift and turn) wherever the corners would sweep past half the gap plus
-  the square's own size inset, so neighbours never touch. Two-tone keeps Anti-alias visible (`sdfShowIf` with a key).
-- **Checker tiles and jitter.** *Both tones as tiles* makes every square a shape and hands its tone (light near 1, dark
-  near 0, each moved by Tone variation) out as the per-feature random, with Diffuse › Source Random as its linked
-  default. *Position* / *Rotation jitter* move each square (the light ones, or all as tiles) in its cell.
 - **Thin features keep their depth.** Moved or varied grid lines (and, with *Whole-pixel lines*, the plain lattice
   where the count doesn't divide the size) start and end on whole pixels and have whole-pixel widths; a varied line
   thinner than its bevels gets a narrower bevel, at most 0.375 (w − 1) and half a pixel, so every line reaches the
@@ -242,7 +229,7 @@ two sites tie are no border.
   can move a stripe a quarter period into its neighbours' slots (they may merge).
 - **Compile time.** The pattern layers' fBm goes through `pat_fbm` (identical to the library's Perlin fBm, its
   octave loop bounded by a uniform so D3D keeps it rolled); cold D3D11 compiles: bricks ≈ 1.25 s, hex ≈ 0.8 s,
-  Voronoi ≈ 1.7 s, checker / grid / stripes ≈ 0.4 s. Shader loops avoid `continue` (ANGLE / D3D11 can miscompile it). After round 3: bricks ≈ 1.4 s, hex ≈ 0.95 s,
+  Voronoi ≈ 1.7 s, checker (since moved to Tiles) / grid / stripes ≈ 0.4 s. Shader loops avoid `continue` (ANGLE / D3D11 can miscompile it). After round 3: bricks ≈ 1.4 s, hex ≈ 0.95 s,
   Voronoi ≈ 1.75 s. After round 5: bricks ≈ 1.5 s, hex ≈ 0.95 s, Voronoi ≈ 2.1 s (most of it the two 5 × 5 site
   loops with their inlined cell points; rolling or merging loops further gained nothing measurable). Round 8: bricks ≈ 1.4 s (its 3 × 5
   search one rolled loop, gap closing in one line), hex ≈ 0.95 s (edge loop rolled), Voronoi ≈ 2.1 s (one noise for

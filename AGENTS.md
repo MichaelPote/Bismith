@@ -1,8 +1,8 @@
 # Notes for agents working on Bismith
 
 Architecture and feature docs live in `docs/` (start with `docs/architecture.md`). To judge a generator's look, render
-test sheets of it (`docs/gensheet.md`) and have a critic subagent review them (`docs/generator-critic.md`). Below: gotchas
-that have cost time before.
+test sheets of it (`docs/gensheet.md`) and have a critic subagent review them (`docs/generator-critic.md`). Shader
+compile-time and miscompile tips: `docs/shader-compilation.md`. Below: gotchas that have cost time before.
 
 ## This repo is public
 
@@ -54,8 +54,10 @@ doesn't.)
   (`ORG_1`, `MOT_1`) stop D3D from unrolling. Measure cold compiles with `npx tsx tools/compile-time.ts <types…>`:
   Tessellation went ~20 s → 1.9 s, Truchet 5.4 → 2.1 s, Marble 2.2 → 0.8 s and Cracks 1.5 → 0.8 s, output
   unchanged. For a generator with many modes, describe each mode as data (shapes, anchors) and run them all through
-  one loop (`geometricTessellation.ts`). Don't time while
+  one loop (`geometricTiles.ts`), and keep such tables small — a big `const` array costs per-pixel time too (check
+  with `tools/render-cost.ts`). Don't time while
   another GPU job (e.g. the studio starting) runs. Batch compiles run in parallel (`engine.precompile([...])`).
+  More, with sources: `docs/shader-compilation.md`.
 - **Never set three's `renderer.outputColorSpace`** (nor `gl.drawingBufferColorSpace`). The setter assigns
   `gl.drawingBufferColorSpace`, and Firefox (seen with Windows HDR) then colour-manages the viewport canvas — even
   for `'srgb'`, the default — so the viewport's hues drift from the Match panes and exports (reds toward orange).

@@ -4,9 +4,9 @@
 import { describe, expect, it } from 'vitest'
 import { ensureBuiltins } from '@/render/builtins'
 import { createLayer, freshParams, layerParamDefs, linkedChanges } from '../registry'
-import { bricksLayer, checkerLayer, gridLayer, hexLayer, stripesLayer, voronoiLayer } from './patterns'
+import { bricksLayer, gridLayer, hexLayer, stripesLayer, voronoiLayer } from './patterns'
 
-const LAYERS = [bricksLayer, hexLayer, voronoiLayer, checkerLayer, gridLayer, stripesLayer]
+const LAYERS = [bricksLayer, hexLayer, voronoiLayer, gridLayer, stripesLayer]
 
 describe('pattern layers', () => {
   ensureBuiltins()
@@ -30,7 +30,6 @@ describe('pattern layers', () => {
     expect(createLayer('bricks').params).toMatchObject({ rows: 12, mortar_level: 0.2, crease: true, close: true, chips: 0.4, chip_dust: 0.45, face: 0.35, face_tilt: 0.5, h_var: 0.3, len_var: 0.25, min_size: 0.5 })
     expect(createLayer('hex').params).toMatchObject({ round_bevel: true, grout_level: 0.2, crown: 1.2, chips: 0.3, chip_size: 0.25 })
     expect(createLayer('voronoi').params).toMatchObject({ size_var: 0.5, round_bevel: true, min_bevel: 0.5, grout_level: 0.2, facet_fit: true, crack_var: 0.6, crack_scale: 0.6, crack_tone: 0.7, h_mode: 'add' })
-    expect(createLayer('checker').params).toMatchObject({ soft: 1.5, vary: 0.3, profile: 'smooth', dif_src: 'value' })
     expect(createLayer('grid').params).toMatchObject({ snap: true, profile: 'smooth' })
     expect(createLayer('stripes').params).toMatchObject({ fit_bevel: true, soft: 3, soft_profile: 'smooth', profile: 'smooth' })
   })
@@ -59,7 +58,6 @@ describe('pattern layers', () => {
       expect(small, type).toBeGreaterThanOrEqual(1)
       expect(big, type).toBeGreaterThan(small)
     }
-    expect(Number(freshParams('checker', { width: 512, height: 512 }).bevel)).toBeGreaterThan(1)
     // Grid lines: grooves, not ink lines — 5 px with a 1.8 px bevel (a flat floor) at 512, thinner on small textures.
     expect(freshParams('grid', { width: 512, height: 512 })).toMatchObject({ width: 5, bevel: 1.8 })
     expect(Number(freshParams('grid', { width: 64, height: 64 }).width)).toBe(1)
@@ -72,23 +70,12 @@ describe('pattern layers', () => {
     expect(linkedChanges('voronoi', crackle, 'output', 'cells').h_mode).toBe('add')
   })
 
-  it('paints checker tiles by their tone (the random) and switches back', () => {
-    const tiles = createLayer('checker', { mode: 'tiles' }).params
-    expect(tiles.dif_src).toBe('random')
-    expect(linkedChanges('checker', tiles, 'mode', 'value').dif_src).toBe('value')
-    expect(checkerLayer.sdfShowIf!({ mode: 'tiles' })).toBe(true)
-    // Bevelled squares and shape stripes are painted by their shape, so their bevels don't frame them in dark.
-    expect(createLayer('checker', { mode: 'shape' }).params.dif_src).toBe('shape')
+  it('paint shape stripes by their shape, so their bevels don’t frame them in dark', () => {
     expect(createLayer('stripes', { mode: 'shape' }).params.dif_src).toBe('shape')
     expect(createLayer('stripes', { mode: 'sine' }).params.dif_src).toBe('value')
-    // Two-tone value keeps Anti-alias but not the Bevel.
-    expect(checkerLayer.sdfShowIf!({ mode: 'value' }, 'aa')).toBe(true)
-    expect(checkerLayer.sdfShowIf!({ mode: 'value' }, 'bevel')).toBe(false)
   })
 
   it('offer the Shape Mask and Edge only for the outputs that have a shape', () => {
-    expect(checkerLayer.sdfShowIf!({ mode: 'value' })).toBe(false)
-    expect(checkerLayer.sdfShowIf!({ mode: 'shape' })).toBe(true)
     expect(stripesLayer.sdfShowIf!({ mode: 'sine' })).toBe(false)
     expect(stripesLayer.sdfShowIf!({ mode: 'shape' })).toBe(true)
     expect(voronoiLayer.sdfShowIf!({ output: 'facets' })).toBe(false)

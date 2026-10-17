@@ -36,7 +36,7 @@ describe('column / row spacing', () => {
   })
 
   it('leaves plane-filling tilings and grids with their own steps alone', () => {
-    for (const type of ['bricks', 'checker', 'treadplate', 'stamp', 'drips']) {
+    for (const type of ['bricks', 'tiles', 'treadplate', 'stamp', 'drips']) {
       expect(layerParamDefs(type).some((d) => d.key === 'col_sp'), type).toBe(false)
     }
   })

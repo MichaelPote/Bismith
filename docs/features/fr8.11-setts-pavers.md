@@ -20,9 +20,9 @@ Small paving stones laid in concentric arcs.
 
 ## Tiles lump
 - *Fan setts* / *Ring setts*: Tile size = the sett, Fans across, Irregularity; courses = rim radius / sett size.
-- *Bone pavers*: the Tessellation *cross* tiles (hex topology in half-offset columns) with plateau 0.6 (wide ends, a
+- *Bone pavers*: the Tiles *cross* tiles (hex topology in half-offset columns) with plateau 0.6 (wide ends, a
   waist) and step 0.3 (the stepped waist), rows 1.35× tall. Tile size = the paver's width.
-- *Plus pavers*: the Tessellation *plus* pentominoes. Tile size = an arm.
+- *Plus pavers*: the Tiles *plus* pentominoes. Tile size = an arm.
 
 Lesson: the colour fit can wash out joints on fine, busy patterns (it matches the histogram, and a uniform mid grey
 scores well); seed the sett and joint colours from the reference instead.

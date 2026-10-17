@@ -36,8 +36,10 @@ export const stripes: RecipeDef = {
     let type = 'stripes'
     let shape: ParamValues
     if (pattern === 'checker') {
-      type = 'checker'
-      shape = { mode: 'shape', count_x: Math.max(1, Math.round(count * 2)), count_y: Math.max(1, Math.round((count * 2 * ctx.height) / ctx.width)), gap: 0 }
+      // The first colour's squares of a checkerboard as the shape (even counts when tiling).
+      type = 'tiles'
+      const cx = Math.max(1, Math.round(count * 2)), cy = Math.max(1, Math.round((count * 2 * ctx.height) / ctx.width))
+      shape = { mode: 'squares', scale: cx, aspect: (cx * ctx.height) / (ctx.width * cy), fit: false, only: '1', gap: 0, round: 0, tilt: 0, crown: 0, h_var: 0, laid: 0 }
     } else if (pattern === 'chevron' || pattern === 'zigzag') {
       type = 'bands'
       const lanes = Math.max(1, Math.round((count * ctx.height) / ctx.width))

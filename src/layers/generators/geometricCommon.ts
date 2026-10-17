@@ -37,6 +37,7 @@ export const rndModeParam = (labels: [string, string, string], hint: string): Pa
  */
 export const geoGlsl = (nv = 16) => /* glsl */ `
 #define GEO_NV ${nv}
+#define GEO_1 int(uRes.x > 0.0)   // 1, from a uniform: a loop bound D3D can't unroll (no ?: — ANGLE rewrites a loop whose condition has one)
 const float GEO_C[8] = float[8](1.0, 0.70710678, 0.0, -0.70710678, -1.0, -0.70710678, 0.0, 0.70710678);
 const float GEO_S[8] = float[8](0.0, 0.70710678, 1.0, 0.70710678, 0.0, -0.70710678, -1.0, -0.70710678);
 
@@ -50,7 +51,7 @@ ivec2 geo_AB;      // W/g, H/g (diagonal frames)
 
 int geo_gcd(int a, int b) {
   a = abs(a); b = abs(b);
-  for (int i = 0; i < 40; i++) { if (b == 0) break; int t = a % b; a = b; b = t; }
+  for (int i = 0; i < 40 * GEO_1; i++) { if (b == 0) break; int t = a % b; a = b; b = t; }
   return max(a, 1);
 }
 
@@ -119,40 +120,33 @@ void geo_begin() { geo_n = 0; }
 void geo_addPx(vec2 v) { if (geo_n < GEO_NV) { geo_V[geo_n] = v; geo_n++; } }
 void geo_add(vec2 u) { geo_addPx(u * geo_s); }
 
-float geo_area() {
-  float a = 0.0;
-  for (int i = 0; i < GEO_NV; i++) {
-    if (i >= geo_n) break;
-    vec2 v = geo_V[i], w = geo_V[i + 1 < geo_n ? i + 1 : 0];
-    a += v.x * w.y - v.y * w.x;
-  }
-  return 0.5 * a;
-}
-
 // Inset the working polygon (CCW) by geo_in with mitred corners; record its bounding box. A polygon whose
-// inset collapses (area flips) is marked unusable.
+// inset collapses (area flips) is marked unusable. One pass, in place (D3D compiles every loop and local array): the
+// vertices before and the first one kept as they were, both areas (doubled) summed edge by edge on the way.
 void geo_finish() {
-  vec2 O[GEO_NV];
-  float a0 = geo_area();
-  for (int i = 0; i < GEO_NV; i++) {
-    if (i >= geo_n) break;
-    vec2 a = geo_V[i == 0 ? geo_n - 1 : i - 1], b = geo_V[i], c = geo_V[i + 1 < geo_n ? i + 1 : 0];
+  vec2 first = geo_V[0], a = geo_V[max(geo_n - 1, 0)], prev = vec2(0.0), o0 = vec2(0.0);
+  float a0 = 0.0, a1 = 0.0;
+  vec2 lo = vec2(1e9), hi = vec2(-1e9);
+  for (int i = 0; i < geo_n; i++) {
+    vec2 b = geo_V[i], c = i + 1 < geo_n ? geo_V[i + 1] : first;
     vec2 e1 = b - a, e2 = c - b;
     e1 /= max(length(e1), 1e-6);
     e2 /= max(length(e2), 1e-6);
     vec2 n1 = vec2(-e1.y, e1.x), n2 = vec2(-e2.y, e2.x);
-    O[i] = b + geo_in * (n1 + n2) / max(1.0 + dot(n1, n2), 0.05);
+    vec2 o = b + geo_in * (n1 + n2) / max(1.0 + dot(n1, n2), 0.05);
+    a0 += a.x * b.y - a.y * b.x;
+    if (i == 0) o0 = o;
+    else a1 += prev.x * o.y - prev.y * o.x;
+    geo_V[i] = o;
+    lo = min(lo, o);
+    hi = max(hi, o);
+    prev = o;
+    a = b;
   }
-  vec2 lo = vec2(1e9), hi = vec2(-1e9);
-  for (int i = 0; i < GEO_NV; i++) {
-    if (i >= geo_n) break;
-    geo_V[i] = O[i];
-    lo = min(lo, O[i]);
-    hi = max(hi, O[i]);
-  }
+  a1 += prev.x * o0.y - prev.y * o0.x;
   geo_bbC = 0.5 * (lo + hi);
   geo_bbH = 0.5 * (hi - lo);
-  geo_ok = geo_n >= 3 && geo_area() > 1e-3 && (a0 > 0.0);
+  geo_ok = geo_n >= 3 && a1 > 2e-3 && a0 > 0.0;
 }
 
 void geo_rect(vec2 lo, vec2 hi) {
@@ -165,8 +159,7 @@ void geo_rect(vec2 lo, vec2 hi) {
 float geo_sdPoly(vec2 p) {
   float d = dot(p - geo_V[0], p - geo_V[0]);
   float s = 1.0;
-  for (int i = 0; i < GEO_NV; i++) {
-    if (i >= geo_n) break;
+  for (int i = 0; i < geo_n; i++) {
     vec2 vi = geo_V[i], vj = geo_V[i == 0 ? geo_n - 1 : i - 1];
     vec2 e = vj - vi, w = p - vi;
     vec2 b = w - e * clamp(dot(w, e) / max(dot(e, e), 1e-12), 0.0, 1.0);

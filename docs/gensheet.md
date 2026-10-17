@@ -71,4 +71,6 @@ Render the same spec into a new folder after each change and compare like for li
 
 - `npx tsx tools/compile-time.ts <types…>`: cold shader compile time per generator on D3D11 (all generators with no
   arguments). Don't time while other GPU jobs run.
+- `npx tsx tools/render-cost.ts <type[:mode[:{json}]]…>`: per-pixel cost per layer (2048², 32 copies, best of four
+  interleaved rounds); compare versions within one run. See docs/shader-compilation.md.
 - `npx tsx tools/previews.ts`: regenerates the preset thumbnails after a generator's look changes.
