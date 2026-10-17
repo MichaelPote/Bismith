@@ -92,7 +92,7 @@ Hand-authored in the studio (kept with the references in the private repo). What
 - *Yellow sandstone, broken ashlar:* course 64, Block length 3.6, Splits 0.4 at two levels, Through stones 0.25,
   Smallest piece 26, scars 110 px at depth 3.2, faint joints (depth 0.15) and open gaps; paint is a few noise layers:
   broad ochre zones, mottling, cream blotches with grainy edges (Perlin fBm, gain 0.78, cutoff), a fine grain, joints
-  multiplied light brown with white-noise grit limited to Outside Shape, the Gaps output dark green-black. Render AO
+  multiplied light brown with white-noise grit limited to Shape with Invert, the Gaps output dark green-black. Render AO
   0.7 darkens the scar creases as in the reference; more AO darkened everything.
 - *Rust-red small random ashlar:* course 26, small scars, Height 5 (deeper relief cast shadow outlines round every
   stone), orange lichen as fine fBm specks.

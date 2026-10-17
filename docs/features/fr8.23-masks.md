@@ -46,8 +46,9 @@ The named-mask pre-pass goes away — a mask no longer reaches layers above its 
 
 ### Limiting (Mask card › *Limit to*)
 - An expression of up to four terms, read left to right, no brackets: the first is a mask; each further row adds one
-  with **∪** (or), **∩** (and) or **−** (minus). *Outside* inverts the whole result. Labelled on the card the way the
-  Shape Mask is today: *Inside Shape − Opening*, *Outside Moss ∪ Wet*.
+  with **∪** (or), **∩** (and) or **−** (minus; *Except* on the card). *Invert* (was *Outside* in this plan) turns the
+  whole result inside out. Labelled on the card the way the Shape Mask is today: *Inside Shape − Opening*, *Outside
+  Moss ∪ Wet*.
 - Terms combine with `sdfCombine` (min / max / max(a, −b)), so the result is still a distance and keeps a feature
   random (from the winning term).
 - Anything needing brackets, or shared by many layers, is a mask of its own: write it once, limit to it.
@@ -291,7 +292,12 @@ Where the build differs from the design above, or adds to it:
 - **UI**: mask-name params are `mask: 'read' | 'write'` (ParamDef, UI only) and drawn as `MaskField` — a dropdown of
   the masks there are (read: written above the layer; write: all, and Shape) with None and *New mask…*; the inspector
   fills `maskChoices` per layer and notes what a read mask holds here ("Shape here: Panel − Vent") or that nothing above
-  writes it. Each Limit to operator sits in one row with its mask. The Masks view (`0`) has a picker and an inline
+  writes it. In the layer list, a mask lane left of the icons draws a line from each layer with a Limit to (and each
+  material with a limit, from its row) up to the layers that wrote what it reads — horizontal from the icon, a
+  rounded turn, up, a rounded turn into the writer's icon; one colour per mask in the order they appear, links to one
+  writer's mask sharing a lane, overlapping spans in separate lanes, a closed material's members drawn on its row
+  (`maskLinks` in masks.ts; `Outliner.vue` measures the rows). Between Limit to's mask fields, And / Or / Except (∩ ∪ −) are toggle buttons (`segmented`, the following masks'
+  fields unlabelled: `bare`). The Masks view (`0`) has a picker and an inline
   rename (`renameMask` in recipes/index.ts: writes, limits, sources, material limits and recipe macros). The Height
   mask's field is *Height* (it said *Limit to* too). The cursor readout shows the viewed mask's distance (it read the
   old register slot).

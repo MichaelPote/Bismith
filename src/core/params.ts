@@ -81,6 +81,10 @@ export interface ParamDef {
    */
   mask?: 'read' | 'write'
   maskChoices?: string[]
+  /** UI only, enums: a row of toggle buttons, one per option (Limit to's And / Or / Except), instead of a dropdown. */
+  segmented?: boolean
+  /** UI only: no visible label — the row continues the one above (the masks after the first in Limit to). */
+  bare?: boolean
   hint?: string
   /** UI only: the label for the current values, when the param means something different per mode (e.g. per style). */
   labelFor?: (p: ParamValues) => string

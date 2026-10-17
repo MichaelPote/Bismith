@@ -4,7 +4,7 @@ import { createProject } from '@/core/serialize'
 import type { Layer } from '@/core/project'
 import type { ParamValues } from '@/core/params'
 import { createLayer } from './registry'
-import { foldLimit, layerLimit, limitLabel, limitParams, limitTo, maskChain, maskChainLabel, maskWriteKind, masksAbove, planMasks, sanitizeLimit } from './masks'
+import { foldLimit, layerLimit, limitLabel, limitParams, limitTo, maskChain, maskChainLabel, maskLinks, maskWriteKind, masksAbove, planMasks, sanitizeLimit } from './masks'
 import { getLayerDef } from './registry'
 
 ensureBuiltins()
@@ -154,5 +154,23 @@ describe('Mask area', () => {
     const shape = createLayer('rect')
     const area = createLayer('surfacemask', { select: 'features' })
     expect(planMasks(project([shape, area])).layers.get(area.id)!.source).toMatchObject({ mask: 'Shape', version: 1 })
+  })
+})
+
+describe('mask links (the outliner lane)', () => {
+  it('links each limited layer to the writers of what it reads, and a material’s limit from the material', () => {
+    const panel = createLayer('rect', {}, 'Panel')
+    const vent = createLayer('ellipse', { mk_op: 'subtract' }, 'Vent')
+    const moss = createLayer('noise', { mk_target: 'Moss' }, 'Moss')
+    const grime = createLayer('noise', limitTo(['Shape', '∩', 'Moss']), 'Grime')
+    const late = createLayer('rect', {}, 'Late')
+    const p = project([panel, vent, moss, grime, late])
+    expect(maskLinks(p).map((l) => [l.reader, l.writer, l.mask])).toEqual([
+      [grime.id, panel.id, 'Shape'],
+      [grime.id, vent.id, 'Shape'],
+      [grime.id, moss.id, 'Moss'],
+    ])
+    p.materials = [{ id: 'm1', recipe: 'tiles', name: 'M', params: {}, members: { x: late.id }, limit: { terms: [{ mask: 'Moss', op: 'and' }], outside: false } }]
+    expect(maskLinks(p).filter((l) => l.reader === 'material:m1').map((l) => l.writer)).toEqual([moss.id])
   })
 })

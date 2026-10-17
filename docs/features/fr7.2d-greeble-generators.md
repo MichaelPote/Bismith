@@ -137,7 +137,7 @@ smooth ramp.
 
 Like vents and trim, the relief **writes a shape to its mask** (`mask`, *Shape for the mask*, default plate tops;
 `none` leaves the mask alone; `maskWrite` tells the mask analysis): plates, panels, seams, frames, rivets, details or
-lights, through `genOutOwn` — later layers are limited to it (grime in the seams: *Outside* Shape), chip or bevel from
+lights, through `genOutOwn` — later layers are limited to it (grime in the seams: Shape with *Invert*), chip or bevel from
 it, while the relief value stays the layer's own. *Plate tops* leaves out everything sunk into the plates (slots, holes,
 recesses, housing rings, groove lines, recessed centres) and keeps what stands on them (lenses, hinge knuckles, pipes,
 ribs); *Panels* only the seams.

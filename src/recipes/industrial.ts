@@ -221,7 +221,7 @@ export const paint: RecipeDef = {
 export const cutout: RecipeDef = {
   id: 'cutout',
   label: 'Cut-out',
-  description: 'An opening that writes a mask (Opening, and Opening frame for its frame ring), added at the top of the stack so the materials below can use it: limit the material in front to outside Opening ∪ Opening frame and the one behind to inside Opening (each material’s Mask card). A recessed step at its edge and an optional raised frame around it.',
+  description: 'An opening that writes a mask (Opening, and Opening frame for its frame ring), added at the top of the stack so the materials below can use it: limit the material in front to Opening Or Opening frame with Invert, and the one behind to Opening (each material’s Mask card). A recessed step at its edge and an optional raised frame around it.',
   first: true,
   groups: [
     { id: 'shape', label: 'Opening' },
@@ -234,7 +234,7 @@ export const cutout: RecipeDef = {
     P.float('width', 'Width', 0.5, 0.01, 1.5, { group: 'shape', step: 0.001, hint: 'Fraction of the texture width' }),
     P.float('height', 'Height', 0.4, 0.01, 1.5, { group: 'shape', step: 0.001, hint: 'Fraction of the texture height' }),
     P.float('corner', 'Corner radius', 8, 0, 512, { group: 'shape', softMax: 64, unit: 'px', step: 0.5, showIf: (p) => (p.shape ?? 'rect') === 'rect' }),
-    P.text('mask', 'Mask', 'Opening', { group: 'shape', mask: 'write', hint: 'The mask the opening writes (its frame ring writes the same name + " frame"): limit the material behind to inside it, the one in front to outside it and its frame' }),
+    P.text('mask', 'Mask', 'Opening', { group: 'shape', mask: 'write', hint: 'The mask the opening writes (its frame ring writes the same name + " frame"): limit the material behind to it, the one in front to it Or its frame with Invert' }),
     P.float('depth', 'Recess', 1, 0, 8, { group: 'edge', softMax: 3, step: 0.01, hint: 'How far the opening sits below the surface (a step that catches the light and casts a shadow)' }),
     P.float('rim', 'Edge bevel', 1, 0, 64, { group: 'edge', softMax: 8, unit: 'px', step: 0.1 }),
     P.float('frame', 'Frame width', 0, 0, 128, { group: 'edge', softMax: 16, unit: 'px', step: 0.5, hint: 'A raised frame around the opening (0 = none)' }),

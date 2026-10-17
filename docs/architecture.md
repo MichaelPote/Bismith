@@ -217,7 +217,7 @@ The common generator wrapper then:
    GLSL): a cross-section through one feature — outside, the bevel's rise, full, the fall, outside (a plain
    0 → 1 → 0 sweep on layers without a shape) — with the dashed unshaped value behind it. With Height on, Height ›
    Amount and Offset are mirrored under the graph (the same params), so the curve's strength is set beside it.
-4. **Limit.** Multiply coverage by its *Limit to* — up to four masks by name with ∪ ∩ −, and Outside (`lim_*`),
+4. **Limit.** Multiply coverage by its *Limit to* — up to four masks by name with ∪ ∩ −, and Invert (`lim_*`),
    intersected with its material's limit — and/or a soft height range of the current surface (`above | below level`).
    This is how dirt collects only in crevices.
 5. **Channel outputs.** Each enabled output maps the value into a channel and blends it in, weighted by

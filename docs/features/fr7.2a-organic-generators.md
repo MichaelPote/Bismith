@@ -251,7 +251,7 @@ Editor defaults (`fresh`) scale `width`, `sub_width`, `zigzag` and `bevel` (2 px
 plates and fewer, longer fine cracks at ≤ 128 px; the match template takes them too.
 
 Glowing cracks (lava crust): a second `cracks` layer with the same params and seed, Shaping →
-Invert on, diffuse off, emissive on (value = 1 in the cracks), or later layers limited to *Outside* the Shape mask.
+Invert on, diffuse off, emissive on (value = 1 in the cracks), or later layers limited to the Shape mask with *Invert*.
 
 ## Notes and constraints
 - **Tiling.** Every lattice / noise uses whole cell counts per axis (`cellsFor`) and wraps its hashes. Marble

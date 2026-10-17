@@ -36,7 +36,7 @@ export function maskWriteKind(def: LayerDef | undefined, params: ParamValues): '
   return target === SHAPE_MASK ? false : 'coverage'
 }
 
-/** A layer's own Limit to expression (lim_1 … lim_4, Outside), or null for none. */
+/** A layer's own Limit to expression (lim_1 … lim_4, Invert), or null for none. */
 export function layerLimit(params: ParamValues): LimitExpr | null {
   const terms: LimitExpr['terms'] = []
   for (let n = 1; n <= MAX_LIMIT_TERMS; n++) {
@@ -128,16 +128,45 @@ const OP_SYMBOL: Record<string, string> = {
  * replaced everything before it). Empty: nothing has written it yet.
  */
 export function maskChain(p: Project, layerId: string, mask: string): MaskWriter[] {
+  return maskWriters(p, layerId, mask).map((l) => ({ name: l.name, op: String(l.params.mk_op ?? 'replace') }))
+}
+
+/** The layers whose writes `mask` holds when `layerId` runs, in stack order (see maskChain). */
+export function maskWriters(p: Project, layerId: string, mask: string): Layer[] {
   const list = running(p)
-  const chain: MaskWriter[] = []
+  const chain: Layer[] = []
   const at = p.layers.findIndex((l) => l.id === layerId)
   for (const l of list.filter((l) => p.layers.indexOf(l) < at).reverse()) {
     if (maskTarget(l.params) !== mask || !maskWriteKind(getLayerDef(l.type), l.params)) continue
-    const op = String(l.params.mk_op ?? 'replace')
-    chain.unshift({ name: l.name, op })
-    if (op === 'replace') break
+    chain.unshift(l)
+    if (String(l.params.mk_op ?? 'replace') === 'replace') break
   }
   return chain
+}
+
+/** A line of the outliner's mask lane: `reader` is limited to `mask`, which `writer` wrote (layer ids). */
+export interface MaskLink {
+  reader: string
+  writer: string
+  mask: string
+}
+
+/**
+ * Who limits to whom (the outliner's mask lane): for every layer with a Limit to, and every material with a limit (as
+ * its first member), each mask it names back to the layers that wrote what it reads there.
+ */
+export function maskLinks(p: Project): MaskLink[] {
+  const links: MaskLink[] = []
+  // `at`: the layer whose place in the stack decides what the mask holds.
+  const add = (reader: string, at: string, e: LimitExpr | null | undefined) => {
+    for (const t of e?.terms ?? []) for (const w of maskWriters(p, at, t.mask)) links.push({ reader, writer: w.id, mask: t.mask })
+  }
+  for (const l of p.layers) add(l.id, l.id, layerLimit(l.params))
+  for (const m of p.materials ?? []) {
+    const first = p.layers.find((l) => Object.values(m.members).includes(l.id))
+    if (first) add(`material:${m.id}`, first.id, m.limit)
+  }
+  return links
 }
 
 /** The chain as a short expression, "Panel − Vent" (the last three writers at most). */
@@ -185,7 +214,7 @@ export interface LayerMasks {
   input: MaskRef | null
   /** The version it writes; slot −1 when no later layer reads it (no copy). */
   write: (MaskRef & { kind: 'shape' | 'coverage' }) | null
-  /** Its limit, flattened (Outside folded in); null = none. */
+  /** Its limit, flattened (Invert folded in); null = none. */
   limit: LimitTerm[] | null
   /** Its source mask (edge filters, Mask area), or null. */
   source: MaskRef | null
@@ -200,7 +229,7 @@ export interface MaskPlan {
 }
 
 /**
- * Terms of a left-to-right expression with Outside folded in by De Morgan, so the combine never inverts a partial result:
+ * Terms of a left-to-right expression with Invert (`outside`) folded in by De Morgan, so the combine never inverts a partial result:
  * ¬(X ∪ C) = ¬X ∩ ¬C, ¬(X ∩ C) = ¬X ∪ ¬C, ¬(X − C) = ¬X ∪ C.
  */
 function flatten(e: LimitExpr, group: 0 | 1): { mask: string; op: LimitOp | 'first'; neg: boolean; group: 0 | 1 }[] {

@@ -3,7 +3,7 @@
 // is applied first and the bottom row last, over everything) · Lights · Post. A smart material is one collapsible row
 // holding its member layers. The Diffuse and Height columns (headed on the Base row) show which channels each layer
 // affects; clicking one flips the same tick as the inspector.
-import { computed, nextTick, ref, watch, type Component } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore, type SelectionKind } from '@/stores/editor'
 import { useActions } from '@/ui/actions'
@@ -28,6 +28,7 @@ import {
   IconSun,
 } from '@tabler/icons-vue'
 import { RECIPES } from '@/recipes'
+import { SHAPE_MASK, maskLinks } from '@/layers/masks'
 import { supersampleFactor } from '@/core/supersample'
 import { vTip, type Tip } from '@/ui/tooltip'
 import { vPick } from '@/ui/eyedropper'
@@ -105,6 +106,110 @@ function toggleExpanded(id: string): void {
 }
 /** Rows under a unit: a free layer's own row, or an open material's members. */
 const rowsOf = (u: LayerUnit): Layer[] => (u.material ? (expanded.value.has(u.material.id) ? u.layers : []) : [u.layer])
+
+// ---------------------------------------------------------------- mask lane (FR8.23)
+// Left of the icons, a line from each layer with a Limit to up to the layers that wrote the masks it reads: horizontal
+// from the reader's icon, a rounded turn up, straight up, a rounded turn into the writer's icon. Links to one writer's
+// mask share a lane (a trunk with a branch per reader); overlapping trunks take separate lanes, shorter ones inner.
+
+/** The rows shown, top to bottom: a material's row (`material:<id>`), then its members' when it is open. */
+const visibleRows = computed(() =>
+  units.value.flatMap((u) => (u.material ? [`material:${u.material.id}`, ...rowsOf(u).map((l) => l.id)] : [u.layer.id])),
+)
+/** The row a layer is drawn on: its own, or its material's while that is closed. */
+const rowOfLayer = computed(() => {
+  const m = new Map<string, string>()
+  for (const u of units.value) {
+    if (!u.material) m.set(u.layer.id, u.layer.id)
+    else for (const l of u.layers) m.set(l.id, expanded.value.has(u.material.id) ? l.id : `material:${u.material.id}`)
+  }
+  return m
+})
+
+const LANE_STEP = 7
+const MASK_HUES = ['#5fb3c4', '#b48ad8', '#7cc37a', '#d6c25a', '#e07d8c', '#7f9fe0']
+/** Line colours: Shape in ember, the other masks drawn from the palette in the order they first appear in the list. */
+const maskHues = computed(() => {
+  const m = new Map<string, string>([[SHAPE_MASK, '#d98a3a']])
+  for (const t of [...laneTrunks.value].sort((a, b) => a.lo - b.lo)) if (!m.has(t.mask)) m.set(t.mask, MASK_HUES[(m.size - 1) % MASK_HUES.length])
+  return m
+})
+
+/** Trunks: one per (writer row, mask), with its readers' rows and its lane (0 = innermost). */
+const laneTrunks = computed(() => {
+  const order = new Map(visibleRows.value.map((id, i) => [id, i]))
+  const rowOf = (id: string) => (id.startsWith('material:') ? id : rowOfLayer.value.get(id))
+  const trunks = new Map<string, { writer: string; mask: string; readers: Set<string>; lo: number; hi: number; lane: number }>()
+  for (const l of maskLinks(store.project)) {
+    const r = rowOf(l.reader)
+    const w = rowOf(l.writer)
+    if (!r || !w || r === w || !order.has(r) || !order.has(w)) continue
+    const key = `${w}\u0000${l.mask}`
+    let t = trunks.get(key)
+    if (!t) trunks.set(key, (t = { writer: w, mask: l.mask, readers: new Set(), lo: order.get(w)!, hi: order.get(w)!, lane: 0 }))
+    t.readers.add(r)
+    t.hi = Math.max(t.hi, order.get(r)!)
+  }
+  // Shorter spans first, each into the innermost lane none of the already placed spans it overlaps uses.
+  const list = [...trunks.values()].sort((a, b) => a.hi - a.lo - (b.hi - b.lo))
+  const placed: typeof list = []
+  for (const t of list) {
+    while (placed.some((o) => o.lane === t.lane && o.lo < t.hi && t.lo < o.hi)) t.lane++
+    placed.push(t)
+  }
+  return list
+})
+const lanes = computed(() => (laneTrunks.value.length ? Math.max(...laneTrunks.value.map((t) => t.lane)) + 1 : 0))
+/** Width of the lane column (0 without links): rows move right by it. */
+const laneWidth = computed(() => (lanes.value ? 6 + lanes.value * LANE_STEP : 0))
+
+/** Measured row centres and icon left edges, in the list's coordinates. */
+const listEl = ref<HTMLElement | null>(null)
+const rowPos = ref(new Map<string, { y: number; x: number }>())
+function measureRows(): void {
+  const list = listEl.value
+  if (!list) return
+  const box = list.getBoundingClientRect()
+  const pos = new Map<string, { y: number; x: number }>()
+  for (const el of list.querySelectorAll<HTMLElement>('[data-row]')) {
+    const r = el.getBoundingClientRect()
+    // The icon's left edge — or, on a material's row, its disclosure chevron's.
+    const icon = el.querySelector(':scope > .disclose, :scope > svg')?.getBoundingClientRect()
+    pos.set(el.dataset.row!, { y: r.top + r.height / 2 - box.top, x: (icon?.left ?? r.left + 14) - box.left })
+  }
+  rowPos.value = pos
+}
+watch([visibleRows, laneWidth, laneTrunks], () => measureRows(), { flush: 'post' })
+let rowObserver: ResizeObserver | null = null
+onMounted(() => {
+  measureRows()
+  rowObserver = new ResizeObserver(() => measureRows())
+  if (listEl.value) rowObserver.observe(listEl.value)
+})
+onBeforeUnmount(() => rowObserver?.disconnect())
+
+/** The lane's paths: per reader, from its icon round into its trunk's lane, up, and round into the writer's icon. */
+const lanePaths = computed(() => {
+  const out: { d: string; colour: string; key: string; dim: boolean }[] = []
+  const R = 4
+  for (const t of laneTrunks.value) {
+    const w = rowPos.value.get(t.writer)
+    if (!w) continue
+    const x = laneWidth.value - 5 - t.lane * LANE_STEP
+    for (const reader of t.readers) {
+      const r = rowPos.value.get(reader)
+      if (!r) continue
+      const layer = store.project.layers.find((l) => l.id === reader)
+      out.push({
+        key: `${t.writer}:${t.mask}:${reader}`,
+        colour: maskHues.value.get(t.mask) ?? MASK_HUES[0],
+        dim: layer ? !layer.enabled : false,
+        d: `M${r.x - 3} ${r.y}H${x + R}Q${x} ${r.y} ${x} ${r.y - R}V${w.y + R}Q${x} ${w.y} ${x + R} ${w.y}H${w.x - 3}`,
+      })
+    }
+  }
+  return out
+})
 
 // Selecting a member (from the viewport, after a delete …) opens its material.
 watch(
@@ -291,7 +396,11 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
         <span class="grow" />
         <DropMenu v-tip:right="'Add a layer or smart material'" :items="addLayerItems" placement="right" layout="tiles" trigger-class="fk add" aria-label="Add layer"><span class="fk-face"><IconPlus :size="13" /></span></DropMenu>
       </div>
-      <div class="list" @dragleave.self="dropAt = null">
+      <div ref="listEl" class="list" :style="{ '--lane': `${laneWidth}px` }" @dragleave.self="dropAt = null">
+        <!-- Mask lane: who is limited to whose mask (FR8.23) -->
+        <svg v-if="lanePaths.length" class="lane" aria-hidden="true">
+          <path v-for="p in lanePaths" :key="p.key" :d="p.d" :stroke="p.colour" :class="{ dim: p.dim }" />
+        </svg>
         <!-- Base material: under every layer; heads the Diffuse / Height columns -->
         <div class="row base" :class="{ sel: isSel('base') }" @click="editor.select('base')">
           <span v-pick="() => store.project.base.color" class="swatch" :style="{ background: store.project.base.color }" />
@@ -313,6 +422,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
           <!-- Smart material: one collapsible row -->
           <div
             v-if="u.material"
+            :data-row="`material:${u.material.id}`"
             class="row mat"
             :class="{ sel: isSel('material', u.material.id), contains: containsSel(u), off: !materialShown(u.material) }"
             draggable="true"
@@ -365,6 +475,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
           <div
             v-for="(layer, li) in rowsOf(u)"
             :key="layer.id"
+            :data-row="layer.id"
             class="row"
             :class="{
               member: !!u.material,
@@ -574,8 +685,30 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
   flex: none;
 }
 .list {
+  position: relative;
   display: flex;
   flex-direction: column;
+}
+/* The mask lane (FR8.23): lines from layers with a Limit to up to the layers that wrote their masks, left of the
+   icons. Rows move right by its width (--lane). */
+.lane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+.lane path {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+.lane path.dim {
+  opacity: 0.35;
 }
 .unit {
   position: relative;
@@ -587,7 +720,7 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
   gap: 8px;
   height: 30px;
   width: 100%;
-  padding: 0 4px 0 14px;
+  padding: 0 4px 0 calc(14px + var(--lane, 0px));
   border: 0;
   background: transparent;
   color: var(--text);
@@ -632,19 +765,19 @@ const isDrop = (list: string, index: number) => dropAt.value?.list === list && d
   padding-left: 10px;
 }
 .row.mat {
-  padding-left: 1px;
+  padding-left: calc(1px + var(--lane, 0px));
 }
 .row.mat .name {
   font-weight: 500;
 }
 /* Members sit under their material, on a guide line. */
 .row.member {
-  padding-left: 28px;
+  padding-left: calc(28px + var(--lane, 0px));
 }
 .row.member::after {
   content: '';
   position: absolute;
-  left: 7px;
+  left: calc(7px + var(--lane, 0px));
   top: 0;
   bottom: 0;
   width: 1px;

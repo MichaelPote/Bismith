@@ -255,7 +255,7 @@ const asValues = (o: object) => o as unknown as ParamValues
           <ParamList :defs="c.defs" :values="material.params" @change="(k, v) => store.setMaterialParam(material!.id, k, v)" />
         </PanelCard>
         <PanelCard title="Mask" storage-key="material:mask">
-          <p class="hint">Limit every layer of this material to masks written by layers above it (e.g. a Cut-out's opening), on top of each layer's own Limit to. Cutting a hole: the material in front outside the mask, the one behind inside it — otherwise the hidden one's glow and relief show through.</p>
+          <p class="hint">Limit every layer of this material to masks written by layers above it (e.g. a Cut-out's opening), on top of each layer's own Limit to. Cutting a hole: the material in front limited to the mask with Invert, the one behind to the mask — otherwise the hidden one's glow and relief show through.</p>
           <ParamList :defs="materialLimitDefs" :values="materialLimit" @change="setMaterialLimit" />
         </PanelCard>
       </div>

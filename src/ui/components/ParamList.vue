@@ -182,8 +182,28 @@ function tip(r: Row): Tip {
         <span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>
         <CurveField :model-value="value(r.def) as Curve" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
       </div>
+      <div v-else-if="r.def.type === 'enum' && r.def.segmented" class="row">
+        <span v-if="r.def.bare" />
+        <label v-else v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
+        <div class="segs" role="radiogroup" :aria-label="labelOf(r.def)">
+          <button
+            v-for="o in r.def.options ?? []"
+            :key="o.value"
+            v-tip="o.hint ? { title: o.label, body: o.hint } : undefined"
+            type="button"
+            role="radio"
+            class="cf-toggle seg"
+            :class="{ on: value(r.def) === o.value }"
+            :aria-checked="value(r.def) === o.value"
+            @click="set(r.def.key, o.value), emit('commit')"
+          >
+            {{ o.label }}
+          </button>
+        </div>
+      </div>
       <div v-else-if="r.def.type === 'text' && r.def.mask" class="row">
-        <label v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
+        <span v-if="r.def.bare" />
+        <label v-else v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
         <MaskField :model-value="String(value(r.def) ?? '')" :choices="r.def.maskChoices ?? []" :kind="r.def.mask" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
       </div>
       <div v-else-if="r.def.type === 'text'" class="row wide">
@@ -268,6 +288,16 @@ function tip(r: Row): Tip {
 }
 .row.wide {
   align-items: start;
+}
+/* A segmented choice (ParamDef.segmented): toggle buttons side by side, like the texture-size presets. */
+.segs {
+  display: flex;
+  gap: 2px;
+}
+.seg {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 11px;
 }
 .row.wide .lbl {
   padding-top: 3px;

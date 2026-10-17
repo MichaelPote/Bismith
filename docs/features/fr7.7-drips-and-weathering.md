@@ -195,7 +195,7 @@ Peeling paint giving way to the rust beneath, as a **mask** rather than domes (`
     the floor steps down at the edge, then sinks deeper towards the middle over half the radius, broadly uneven (mid
     lobe noise) as well as rough — and the value (for the rust ramp) darkens with it.
 - **Outputs**: the distance goes to the mask in *Write to* (`sdf: 'mask'`: no bevel card; Shape by default, Normal),
-  so the layers after it are limited to it for the rust beneath and to *Outside* it for the paint. **Height** is the peel, signed
+  so the layers after it are limited to it for the rust beneath and to it with *Invert* for the paint. **Height** is the peel, signed
   (`genOutHeight`): outside, the paint lifts towards the torn edge by *Lift*, steepening as it curls (cubic over *Lift
   width*); at the edge it falls to *Depth* below the surface onto a rough floor — both × the Height amount, added to the
   relief beneath (which shows through the hole). Coverage is the hole; the value its floor's roughness (0.6–1), for a

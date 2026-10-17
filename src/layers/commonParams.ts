@@ -129,14 +129,14 @@ export const MASK_WRITE_PARAMS: ParamDef[] = [
 export const MAX_LIMIT_TERMS = 4
 
 export const LIMIT_OPS: [string, string, string][] = [
-  ['and', '∩ and', 'only where both are'],
-  ['or', '∪ or', 'where either is'],
-  ['minus', '− minus', 'cut this mask out of the ones before'],
+  ['and', 'And', 'only where both are (intersection)'],
+  ['or', 'Or', 'where either is (union)'],
+  ['minus', 'Except', 'leave out where the next mask is: cut it out of the ones before'],
 ]
 
 /**
  * Mask card › Limit to (FR8.23), for generators and filters: up to four masks by name, read left to right (lim_1, then
- * lim_op2 lim_2 …), Outside inverting the result. Not uploaded: the pipeline combines the masks into one limit.
+ * lim_op2 lim_2 …), Invert turning the result inside out. Not uploaded: the pipeline combines the masks into one limit.
  */
 export const LIMIT_PARAMS: ParamDef[] = [
   ...Array.from({ length: MAX_LIMIT_TERMS }, (_, i): ParamDef[] => {
@@ -146,16 +146,17 @@ export const LIMIT_PARAMS: ParamDef[] = [
       group: 'mask',
       section: 'Limit to',
       mask: 'read',
+      bare: i > 0,
       showIf: shown,
       hint: i === 0
-        ? 'Draw this layer only where a mask is (or, with Outside, isn\'t): a mask written by a layer above, by name — Shape is the one shape layers write. Empty = anywhere'
+        ? 'Draw this layer only where a mask is (or, with Invert, isn\'t): a mask written by a layer above, by name — Shape is the one shape layers write. Empty = anywhere'
         : 'One more mask, joined to the ones before by the operator',
     })
     if (i === 0) return [name]
-    // The operator and the mask in one row: "∪ or · Wet".
-    return [P.enum(`lim_op${n}`, 'Then', 'and', LIMIT_OPS, { group: 'mask', section: 'Limit to', uniform: false, showIf: shown, join: { with: `lim_${n}`, as: 'pair', label: 'Then' } }), name]
+    // Between two masks: And / Or / Except buttons, then the next mask's field.
+    return [P.enum(`lim_op${n}`, 'Join', 'and', LIMIT_OPS, { group: 'mask', section: 'Limit to', uniform: false, showIf: shown, segmented: true, bare: true, hint: 'How the next mask joins the ones before' }), name]
   }).flat(),
-  P.bool('lim_out', 'Outside', false, {
+  P.bool('lim_out', 'Invert', false, {
     group: 'mask',
     section: 'Limit to',
     uniform: false,
@@ -185,15 +186,28 @@ export const SDF_PARAMS: ParamDef[] = [
  * < 0 inside) with screen-space gradient g — 0 at the edge rising to 1 a bevel in. Bevel aspect a makes left / right
  * bevels Bevel / √a and top / bottom ones Bevel · √a; an edge with unit normal n gets the width the bevel has across it
  * in that stretched space, √((nx·Wx)² + (ny·Wy)²). 1 everywhere for a flat profile or no bevel (coverage anti-aliases).
+ *
+ * Taken from the distance's own direction, the width jumps where that direction does — on the mitre where two edges
+ * meet at a corner, a visible step in the bevel. The exact bevel is the distance in the stretched space: the least,
+ * over the edges, of each one's distance ÷ its width. A generator that knows the straight edges meeting at its convex
+ * corners passes each as bevelLine(distance, its normal) and takes their max with bevelLine(d, gradient) (all negative
+ * inside, so max = the least depth): the edge terms agree with the gradient's on either side of the mitre, so the bevel is
+ * continuous and its mitre leans towards the narrower bevel. That goes to GenOut.bdist.
  */
 export const GLSL_BEVEL = /* glsl */ `
 vec2 bevelWidths() { float r = sqrt(max(u_bevel_aspect, 1e-3)); return u_bevel * vec2(1.0 / r, r); }
+// The bevel's width across an edge with screen normal n (any length; screen axes, either sign).
+float bevelWidth(vec2 n) {
+  float nn = dot(n, n);
+  vec2 n2 = nn > 1e-12 ? n * n / nn : vec2(0.5);
+  vec2 W = bevelWidths();
+  return max(sqrt(dot(n2, W * W)), 1e-4);
+}
+// A distance d (px, negative inside) across an edge with screen normal n, in px of Bevel: the same share of a bevel in.
+float bevelLine(float d, vec2 n) { return d * u_bevel / bevelWidth(n); }
 float bevelAt(float d, vec2 g) {
   if (u_bevel <= 0.0 || u_profile == 0) return 1.0;
-  float gg = dot(g, g);
-  vec2 n2 = gg > 1e-12 ? g * g / gg : vec2(0.5);
-  vec2 W = bevelWidths();
-  return profileCurve(u_profile, max(-d, 0.0) / max(sqrt(dot(n2, W * W)), 1e-4));
+  return profileCurve(u_profile, max(-d, 0.0) / bevelWidth(g));
 }
 `
 

@@ -15,7 +15,7 @@ needed the means to express that.
   resets albedo, opacity and emission colour to the base (one pass), so even filters there cannot leak colour.
   Height modes compose freely inside it: *Bricks* then a *Noise* in **Multiply** mode flattens the bricks wherever
   the noise is low; grain added after the multiply stays everywhere. The paint stack then sees the finished relief —
-  height masks, cavity dirt, and the masks it wrote (a paint layer limited to *Outside* the relief's bricks paints only
+  height masks, cavity dirt, and the masks it wrote (a paint layer limited to the relief's bricks with *Invert* paints only
   the mortar, weighted by the same noise that drives the relief). Outliner: Paint above Relief above Base material,
   drag between them; Properties hides colour outputs on relief layers; solo preview indexes the evaluation order
   (`stackOrder()`); the optimiser sees relief layers' params.
