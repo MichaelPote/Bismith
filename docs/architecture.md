@@ -478,3 +478,4 @@ docs/
 | 8.20  | [Project previews](features/fr8.20-project-previews.md) |
 | 8.21  | [Grass](features/fr8.21-grass.md) |
 | 8.22  | [Stone blocks (rock-faced ashlar)](features/fr8.22-stone-blocks.md) |
+| 8.23  | [One mask system (planned)](features/fr8.23-masks.md) |
