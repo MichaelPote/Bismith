@@ -90,8 +90,8 @@ export const trimLayer: LayerDef = {
   category: 'pattern',
   kind: 'generator',
   sdf: true,
-  // The relief writes the Shape Mask only when it is given a shape for it (mask_shape); the shape outputs always do.
-  writesMask: (p) => p.output !== 'relief' || p.mask_shape !== 'none',
+  // The relief writes its shape to the mask only when it is given one (mask_shape); the shape outputs always do.
+  maskWrite: (p) => (p.output !== 'relief' || p.mask_shape !== 'none' ? 'shape' : false),
   description: 'Moulding / trim strip: stacked profiled bands (bead, cove, ogee, groove, step…), dividers and a row of rivets, bolts, screws, slots or holes; one strip across the texture, several stacked, or a band with a gap round it. Tileable.',
   params: [
     P.enum('output', 'Output', 'relief', [

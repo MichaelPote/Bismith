@@ -26,13 +26,13 @@ describe('vents & pipes', () => {
     expect(Number(strip.cols)).toBeGreaterThanOrEqual(1)
   })
 
-  it('writes the shape mask from its relief by default, not when told None', () => {
+  it('writes the Shape mask from its relief by default, not when told None', () => {
     for (const def of [ventsLayer, pipesLayer]) {
       const relief = createLayer(def.type).params
       expect(relief.mask, def.type).toBe(def.type === 'vents' ? 'plate' : 'all')
-      expect(def.writesMask!(relief), def.type).toBe(true)
-      expect(def.writesMask!({ ...relief, mask: 'none' }), def.type).toBe(false)
-      expect(def.writesMask!({ ...relief, mask: 'none', output: def.type === 'vents' ? 'slots' : 'pipes' }), def.type).toBe(true)
+      expect(def.maskWrite!(relief), def.type).toBe('shape')
+      expect(def.maskWrite!({ ...relief, mask: 'none' }), def.type).toBe(false)
+      expect(def.maskWrite!({ ...relief, mask: 'none', output: def.type === 'vents' ? 'slots' : 'pipes' }), def.type).toBe('shape')
     }
   })
 

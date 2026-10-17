@@ -6,6 +6,7 @@ import { L, across, clamp, gradient, lerp, num, r2, shade } from './parts'
 /** A colour scaled towards black. */
 const shadeHex = (hex: string, k: number) => shade(hex, k).stops[0].color
 import type { RecipeDef, RecipeLayer } from './types'
+import { SHAPE_MASK, limitTo } from '@/layers/masks'
 
 const drawn = (p: Record<string, unknown>) => p.layout === 'drawn'
 const random = (p: Record<string, unknown>) => (p.layout ?? 'random') === 'random'
@@ -110,7 +111,7 @@ export const pipes: RecipeDef = {
       // Coverage writes the pipes' outline to the shape register: the layers after clip to it (glass: the tubes only).
       {
         role: 'metal', stack: 'paint',
-        layer: L('pipework', glass ? 'Glass tubes' : 'Pipe metal', { ...shape, output: glass ? 'tubes' : 'cover', sdf_op: 'replace', bevel: 0, profile: 'flat', aa: true, h_on: false, dif_on: !glass, dif_src: 'random', dif_grad: metal }),
+        layer: L('pipework', glass ? 'Glass tubes' : 'Pipe metal', { ...shape, output: glass ? 'tubes' : 'cover', mk_op: 'replace', bevel: 0, profile: 'flat', aa: true, h_on: false, dif_on: !glass, dif_src: 'random', dif_grad: metal }),
       },
       {
         // Polished metal mirrors its surroundings: bright sky towards the light, a dark band past the middle, the
@@ -128,7 +129,7 @@ export const pipes: RecipeDef = {
         // Mottled weathering (rust, verdigris, chips, grime): dark to the weathering colour, rougher where it is.
         role: 'rust', stack: 'paint',
         layer: L('noise', finish === 'copper' ? 'Verdigris' : finish === 'painted' ? 'Chips' : 'Pipe rust', {
-          noise: 'perlin', fractal: 'fbm', scale: across(ctx, radius * 1.2), octaves: 5, warp: 0.8, seed: seed + 1, m_clip: 'inside', sh_lo: r2(lerp(0.74, 0.4, weather)), sh_hi: r2(lerp(0.74, 0.4, weather) + 0.3), sh_cut: 0.02, sh_cut_soft: 0.02,
+          noise: 'perlin', fractal: 'fbm', scale: across(ctx, radius * 1.2), octaves: 5, warp: 0.8, seed: seed + 1, ...limitTo(SHAPE_MASK), sh_lo: r2(lerp(0.74, 0.4, weather)), sh_hi: r2(lerp(0.74, 0.4, weather) + 0.3), sh_cut: 0.02, sh_cut_soft: 0.02,
           h_on: false, dif_on: true, dif_src: 'value', dif_opacity: 0.9, dif_grad: gradient(shadeHex(wc, 0.45), shadeHex(wc, 0.8), wc), r_on: true, r_mode: 'replace', r_src: 'flat', r_a: f.weatherRough, r_b: f.weatherRough, s_on: true, s_mode: 'multiply', s_src: 'flat', s_a: 0.4, s_b: 0.4,
         }, !glass && weather > 0),
       },
@@ -143,14 +144,14 @@ export const pipes: RecipeDef = {
       },
       { role: 'fittings', stack: 'paint', layer: L('pipework', 'Fittings', { ...shape, output: 'fittings', sh_cut: 0.5, h_on: false, dif_on: true, dif_src: 'random', dif_opacity: glass ? 1 : r2(fr), dif_grad: fitColour }, glass || fr > 0) },
       { role: 'grime', stack: 'paint', layer: L('pipework', 'Grime underneath', { ...shape, output: 'underside', h_on: false, dif_on: true, dif_src: 'value', dif_blend: 'multiply', dif_opacity: r2(grime * (glass ? 0.3 : 1)), dif_grad: gradient('#ffffff', '#ffffff', '#4a3c30') }, grime > 0) },
-      { role: 'grain', stack: 'paint', layer: L('noise', 'Pipe grain', { noise: 'white', seed: seed + 2, m_clip: 'inside', h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.08, dif_grad: gradient('#000000', '#ffffff') }, !glass) },
+      { role: 'grain', stack: 'paint', layer: L('noise', 'Pipe grain', { noise: 'white', seed: seed + 2, ...limitTo(SHAPE_MASK), h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.08, dif_grad: gradient('#000000', '#ffffff') }, !glass) },
       {
         // Trails from the pipes' lower edges (ledges in the height), down the wall only.
         role: 'trails', stack: 'paint',
         layer: L('drips', 'Rust trails', {
           output: 'stain', cols: Math.ceil(ctx.width / 3), rows: Math.ceil(ctx.height / 3), density: r2(lerp(0.15, 0.6, trails)), relief: 1, ledge: 1, ledge_reach: 3, ledge_soft: 0.3, relief_len: 0.2,
           len_min: r2(radius * 1.5), len_max: r2(radius * 8), width: r2(Math.max(1, radius * 0.35)), width_var: 0.6, wobble: 0.3, head: 0, start: 0.8, fade: 1.2, hard: false, seed: seed + 3,
-          m_clip: 'outside', h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: r2(0.4 + 0.6 * trails), dif_grad: gradient('#ffffff', wc),
+          ...limitTo(SHAPE_MASK, { outside: true }), h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: r2(0.4 + 0.6 * trails), dif_grad: gradient('#ffffff', wc),
         }, trails > 0),
       },
     ]
@@ -217,12 +218,11 @@ export const paint: RecipeDef = {
   },
 }
 
-const MASKS: [string, string][] = [['1', 'Mask 1'], ['2', 'Mask 2'], ['3', 'Mask 3'], ['4', 'Mask 4']]
-
 export const cutout: RecipeDef = {
   id: 'cutout',
   label: 'Cut-out',
-  description: 'An opening that writes a named mask: set the material in front to "outside" the mask and the one behind to "inside" (each material’s Mask card). A recessed step at its edge and an optional raised frame around it.',
+  description: 'An opening that writes a mask (Opening, and Opening frame for its frame ring), added at the top of the stack so the materials below can use it: limit the material in front to outside Opening ∪ Opening frame and the one behind to inside Opening (each material’s Mask card). A recessed step at its edge and an optional raised frame around it.',
+  first: true,
   groups: [
     { id: 'shape', label: 'Opening' },
     { id: 'edge', label: 'Edge' },
@@ -234,8 +234,8 @@ export const cutout: RecipeDef = {
     P.float('width', 'Width', 0.5, 0.01, 1.5, { group: 'shape', step: 0.001, hint: 'Fraction of the texture width' }),
     P.float('height', 'Height', 0.4, 0.01, 1.5, { group: 'shape', step: 0.001, hint: 'Fraction of the texture height' }),
     P.float('corner', 'Corner radius', 8, 0, 512, { group: 'shape', softMax: 64, unit: 'px', step: 0.5, showIf: (p) => (p.shape ?? 'rect') === 'rect' }),
-    P.enum('mask', 'Writes mask', '1', MASKS, { group: 'shape' }),
-    P.float('depth', 'Recess', 1, 0, 8, { group: 'edge', softMax: 3, step: 0.01, hint: 'How far the opening sits below the surface (a step that catches the light and casts a shadow). Add the cut-out after the materials it cuts' }),
+    P.text('mask', 'Mask', 'Opening', { group: 'shape', hint: 'The mask the opening writes (its frame ring writes the same name + " frame"): limit the material behind to inside it, the one in front to outside it and its frame' }),
+    P.float('depth', 'Recess', 1, 0, 8, { group: 'edge', softMax: 3, step: 0.01, hint: 'How far the opening sits below the surface (a step that catches the light and casts a shadow)' }),
     P.float('rim', 'Edge bevel', 1, 0, 64, { group: 'edge', softMax: 8, unit: 'px', step: 0.1 }),
     P.float('frame', 'Frame width', 0, 0, 128, { group: 'edge', softMax: 16, unit: 'px', step: 0.5, hint: 'A raised frame around the opening (0 = none)' }),
     P.float('frame_height', 'Frame height', 0.6, 0, 4, { group: 'edge', step: 0.01, showIf: (p) => Number(p.frame ?? 0) > 0 }),
@@ -257,13 +257,14 @@ export const cutout: RecipeDef = {
     const frame = num(m.frame, 0)
     const depth = num(m.depth, 1)
     const off = { dif_on: false, h_on: false }
+    const mask = String(m.mask ?? '').trim() || 'Opening'
     return [
-      { role: 'opening', stack: 'relief', layer: L(type, 'Opening (mask)', { ...shape(0), sm_on: false, bevel: 0, profile: 'flat', aa: true, ...off, mk_write: String(m.mask ?? '1'), mk_mode: 'replace' }) },
-      { role: 'recess', stack: 'relief', layer: L(type, 'Recess', { ...shape(0), sm_on: false, bevel: r2(Math.max(0.5, num(m.rim, 1))), profile: 'smooth', aa: true, dif_on: false, h_on: true, h_mode: 'subtract', h_amount: r2(depth) }, depth > 0) },
-      { role: 'frame', stack: 'relief', layer: L(type, 'Frame', { ...shape(frame), outline: r2(frame), sm_on: false, bevel: r2(Math.min(2, frame / 2)), profile: 'round', aa: true, dif_on: false, h_on: true, h_mode: 'add', h_amount: r2(num(m.frame_height, 0.6)) }, frame > 0) },
+      { role: 'opening', stack: 'relief', layer: L(type, 'Opening (mask)', { ...shape(0), bevel: 0, profile: 'flat', aa: true, ...off, mk_target: mask, mk_op: 'replace' }) },
+      { role: 'recess', stack: 'relief', layer: L(type, 'Recess', { ...shape(0), mk_target: '', bevel: r2(Math.max(0.5, num(m.rim, 1))), profile: 'smooth', aa: true, dif_on: false, h_on: true, h_mode: 'subtract', h_amount: r2(depth) }, depth > 0) },
+      { role: 'frame', stack: 'relief', layer: L(type, 'Frame', { ...shape(frame), outline: r2(frame), mk_target: `${mask} frame`, mk_op: 'replace', bevel: r2(Math.min(2, frame / 2)), profile: 'round', aa: true, dif_on: false, h_on: true, h_mode: 'add', h_amount: r2(num(m.frame_height, 0.6)) }, frame > 0) },
       {
         role: 'frame-colour', stack: 'paint',
-        layer: L(type, 'Frame colour', { ...shape(frame), outline: r2(frame), sm_on: false, bevel: 0, profile: 'flat', aa: true, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(String(m.frame_colour ?? '#6a6a66')), s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.5, s_b: 0.5 }, frame > 0),
+        layer: L(type, 'Frame colour', { ...shape(frame), outline: r2(frame), mk_target: '', bevel: 0, profile: 'flat', aa: true, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(String(m.frame_colour ?? '#6a6a66')), s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.5, s_b: 0.5 }, frame > 0),
       },
     ]
   },

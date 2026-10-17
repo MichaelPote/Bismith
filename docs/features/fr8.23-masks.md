@@ -1,7 +1,7 @@
 # FR8.23 — One mask system
 
-**Status:** planned — replaces the Shape Mask (the shape register) and the four named masks (FR8.13) with named masks,
-as many as a project needs, each carrying a distance and a per-feature random
+**Status:** in progress — phases 1–3 done (named masks, slot plan, Limit to expressions, material limits; renders of
+every preset, recipe and template unchanged); Mask area (4), UI (5) and the docs pass (6) to come
 
 ## Problem
 - **Copies of one layer.** A look often needs the same layout applied at several places in the stack: a stone wall
@@ -244,6 +244,30 @@ output is regenerated, not converted.
 - **Mask area** (was Crevices & high spots) writes a mask named after the layer by default.
 - Renaming a mask (from the Masks view) renames every reference; duplicating layers keeps names (both copies write the
   same mask, as both wrote the Shape Mask before).
+
+## As built (phases 1–3)
+Where the build differs from the design above, or adds to it:
+- **Limit to is flat params** (`lim_1`…`lim_4`, `lim_op2`…`lim_op4`, `lim_out`), not a new param type: sanitising,
+  cloning, the optimiser and the panel handle them unchanged. `layerLimit` / `limitParams` / `limitTo` convert. A
+  material's limit is a `LimitExpr` on `SmartMaterial.limit`; unpacking folds it into the members' own (`foldLimit`).
+- **Write to** is `mk_target` (text), `mk_op`, `mk_smooth`, `mk_feather`. A shape layer in a mode without a shape
+  (Stone blocks' joints) writes its coverage — into any named mask but the Shape mask, which it leaves alone
+  (`maskWriteKind`). Hooks: `LayerDef.maskWrite` (what a type writes), `readsMask` (reads `maskIn()` in its shader:
+  Chips, Tabs, Glass), `maskSource` (edge filters). `readsState` is gone with the pre-pass.
+- **The feature random** a mask stores is `GenOut.fid` — rnd can be tinted for colour and `feat` zeroed where a
+  generator varies heights itself; `genOut*` set `fid = rnd` (`genOutSmooth` −1, no features); Bricks-family shapes
+  set it to the brick's own random.
+- **Cut-out**: a material's members sit together in the stack, so the whole Cut-out goes to the top (`RecipeDef.first`).
+  Its opening writes *Opening* and its frame ring *Opening frame*; the material in front is limited to outside
+  *Opening ∪ Opening frame*, the one behind to inside *Opening*, so neither paints over the frame.
+- **Edges** take one mask by name (`source: 'mask'`, `source_mask`), not an expression yet. **Symmetry** no longer
+  folds masks (only colour, height and the other channels).
+- **Masks view**: one view (`0`) with a mask picker; features are tinted by their random. `maskData(name)` on the
+  headless API reads a mask back.
+- **Cost**: cold compiles the same or faster (the named-mask code is gone), per-pixel cost no worse — lower for most
+  layers, which no longer read and pass the four masks through every pass.
+- **Private files** were converted once by `private/tools/convert_masks.py` (which the private authoring helper also
+  applies); the app has no migration.
 
 ## Phases
 Each phase ends with `npm test`, `vue-tsc` and `npx tsx tools/smoke.ts` green.

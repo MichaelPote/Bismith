@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { createProject, normalizeProject } from '@/core/serialize'
 import type { Project } from '@/core/project'
 import { layerParamDefs } from '@/layers/registry'
-import { RECIPES, addMaterial, deleteMaterial, materialOf, pruneMaterials, setMacro, setMaterialMask, unpackMaterial } from './index'
+import { RECIPES, addMaterial, deleteMaterial, materialOf, pruneMaterials, setMacro, setMaterialLimit, unpackMaterial } from './index'
+import { layerLimit, planMasks } from '@/layers/masks'
 
 const blank = (): Project => createProject({ width: 64, height: 64, layers: [] })
 const byRole = (p: Project, role: string) => {
@@ -97,28 +98,40 @@ describe('macro that switches generator', () => {
     expect(p.layers.find((l) => l.id === m.members['tile-colour'])!.type).toBe('hex')
   })
 
-  it('clips every member to a named mask, through macro rebuilds and a save', () => {
+  it('limits every member to masks, through macro rebuilds, a save and unpacking', () => {
     const p = createProject({ width: 64, height: 64, layers: [] })
     const m = addMaterial(p, 'tiles')
-    setMaterialMask(p, m, '2', true)
+    const limit = { terms: [{ mask: 'Opening', op: 'and' as const }], outside: true }
+    setMaterialLimit(m, limit)
     const members = () => Object.values(m.members).map((id) => p.layers.find((l) => l.id === id)!)
-    for (const l of members()) expect([l.params.mk_use, l.params.mk_invert]).toEqual(['2', true])
-    // A macro that rebuilds members (another generator type) keeps the mask on them.
+    // The pipeline adds it to each member's own limit (group 1 when the member has one of its own).
+    for (const l of members().filter((l) => l.enabled)) {
+      const own = layerLimit(l.params)
+      const terms = planMasks(p).layers.get(l.id)!.limit!
+      expect(terms.at(-1)).toMatchObject({ ref: { mask: 'Opening' }, neg: true, group: own ? 1 : 0 })
+    }
+    // A macro that rebuilds members (another generator type) keeps it: it stays on the material.
     setMacro(p, m, 'pattern', 'hex')
-    for (const l of members()) expect([l.params.mk_use, l.params.mk_invert]).toEqual(['2', true])
-    expect(normalizeProject(JSON.parse(JSON.stringify(p))).materials![0].mask).toEqual({ use: '2', invert: true })
-    setMaterialMask(p, m, 'none', false)
-    expect(m.mask).toBeUndefined()
-    for (const l of members()) expect(l.params.mk_use).toBe('none')
+    expect(m.limit).toEqual(limit)
+    expect(normalizeProject(JSON.parse(JSON.stringify(p))).materials![0].limit).toEqual(limit)
+    // Unpacked, it moves onto the members.
+    const ids = Object.values(m.members)
+    unpackMaterial(p, m.id)
+    for (const id of ids) expect(layerLimit(p.layers.find((l) => l.id === id)!.params)!.terms.at(-1)).toMatchObject({ mask: 'Opening' })
+    setMaterialLimit(m, null)
+    expect(m.limit).toBeUndefined()
   })
 
-  it('cut-out writes its mask from a shape with every output off', () => {
+  it('cut-out goes on top and writes its opening (and frame ring) from shapes with every output off', () => {
     const p = createProject({ width: 64, height: 64, layers: [] })
-    const m = addMaterial(p, 'cutout')
+    addMaterial(p, 'tiles')
+    const m = addMaterial(p, 'cutout', { frame: 4 })
     const opening = p.layers.find((l) => l.id === m.members.opening)!
-    expect(opening.params.mk_write).toBe('1')
+    expect(p.layers[0].id).toBe(opening.id)
+    expect(opening.params.mk_target).toBe('Opening')
     expect([opening.params.dif_on, opening.params.h_on]).toEqual([false, false])
-    setMacro(p, m, 'mask', '3')
-    expect(opening.params.mk_write).toBe('3')
+    expect(p.layers.find((l) => l.id === m.members.frame)!.params.mk_target).toBe('Opening frame')
+    setMacro(p, m, 'mask', 'Hatch')
+    expect(p.layers.find((l) => l.id === m.members.opening)!.params.mk_target).toBe('Hatch')
   })
 })

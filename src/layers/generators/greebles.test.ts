@@ -75,11 +75,11 @@ describe('greebles', () => {
     for (const k of px) expect(greeblesLayer.params.find((d) => d.key === k)!.unit, k).toBe('px')
   })
 
-  it('writes the plate tops to the shape mask from the relief, unless told None', () => {
+  it('writes the plate tops to the Shape mask from the relief, unless told None', () => {
     const relief = createLayer('greebles').params
-    expect(greeblesLayer.writesMask!(relief)).toBe(true)
-    expect(greeblesLayer.writesMask!({ ...relief, mask: 'none' })).toBe(false)
-    expect(greeblesLayer.writesMask!({ ...relief, mask: 'none', output: 'rivets' })).toBe(true)
+    expect(greeblesLayer.maskWrite!(relief)).toBe('shape')
+    expect(greeblesLayer.maskWrite!({ ...relief, mask: 'none' })).toBe(false)
+    expect(greeblesLayer.maskWrite!({ ...relief, mask: 'none', output: 'rivets' })).toBe('shape')
     expect(greeblesLayer.glsl).toMatch(/u_mask == 0\) return genOut\([^;]*NO_SDF\)/)
     expect(greeblesLayer.glsl).toMatch(/max\(dP, -dHole\)/)
   })

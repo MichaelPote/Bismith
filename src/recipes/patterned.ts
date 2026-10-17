@@ -4,6 +4,7 @@
 import { P, type ParamValues } from '@/core/params'
 import { L, across, gradient, num, r2, shade } from './parts'
 import type { RecipeDef, RecipeLayer } from './types'
+import { SHAPE_MASK, limitTo } from '@/layers/masks'
 
 export const stripes: RecipeDef = {
   id: 'stripes',
@@ -53,17 +54,17 @@ export const stripes: RecipeDef = {
     const mot = num(m.mottle, 0.3)
     const edge = num(m.edge, 0.4)
     const out: RecipeLayer[] = [
-      { role: 'stripe', stack: 'relief', layer: L(type, 'Stripe relief', { ...shape, bevel: 1, profile: 'linear', sdf_op: 'replace', h_on: true, h_amount: r2(0.2 * edge), dif_on: false }, edge > 0) },
+      { role: 'stripe', stack: 'relief', layer: L(type, 'Stripe relief', { ...shape, bevel: 1, profile: 'linear', mk_op: 'replace', h_on: true, h_amount: r2(0.2 * edge), dif_on: false }, edge > 0) },
       { role: 'base', stack: 'paint', layer: L('noise', 'Second colour', { noise: 'value', fractal: 'fbm', scale: across(ctx, 2.5), octaves: 2, seed: seed + 1, sh_lo: r2(0.5 - 0.5 * mot), sh_hi: r2(0.5 + 0.5 * mot), h_on: false, dif_on: true, dif_grad: b }) },
-      { role: 'stripe-colour', stack: 'paint', layer: L(type, 'Stripes', { ...shape, bevel: 0, profile: 'flat', sdf_op: 'replace', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: { stops: [{ pos: 0, color: (a as { stops: { color: string }[] }).stops[1]?.color ?? '#d49a28' }] } }) },
-      { role: 'stripe-mottle', stack: 'paint', layer: L('noise', 'First colour', { noise: 'value', fractal: 'fbm', scale: across(ctx, 2.5), octaves: 2, seed: seed + 2, m_clip: 'inside', sh_lo: r2(0.5 - 0.5 * mot), sh_hi: r2(0.5 + 0.5 * mot), h_on: false, dif_on: true, dif_grad: a }) },
+      { role: 'stripe-colour', stack: 'paint', layer: L(type, 'Stripes', { ...shape, bevel: 0, profile: 'flat', mk_op: 'replace', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: { stops: [{ pos: 0, color: (a as { stops: { color: string }[] }).stops[1]?.color ?? '#d49a28' }] } }) },
+      { role: 'stripe-mottle', stack: 'paint', layer: L('noise', 'First colour', { noise: 'value', fractal: 'fbm', scale: across(ctx, 2.5), octaves: 2, seed: seed + 2, ...limitTo(SHAPE_MASK), sh_lo: r2(0.5 - 0.5 * mot), sh_hi: r2(0.5 + 0.5 * mot), h_on: false, dif_on: true, dif_grad: a }) },
       {
         role: 'specks', stack: 'paint',
         layer: L('noise', 'Grunge specks', { noise: 'white', seed: seed + 3, sh_cut: r2(1 - 0.25 * num(m.specks, 0.2)), sh_cut_soft: 0.02, h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.8, dif_grad: gradient('#ffffff', '#3a3028') }, num(m.specks, 0.2) > 0),
       },
       {
         role: 'scratches', stack: 'paint',
-        layer: L('scratches', 'Scratches', { density: r2(2 + 16 * num(m.scratches, 0.15)), len_min: 2, len_max: 8, thickness: 1, taper: 0.5, angle: 20, angle_jitter: 60, fade: 0.5, hard: true, seed: seed + 4, m_clip: 'inside', h_on: false, dif_on: true, dif_opacity: 0.7, dif_grad: shade((b as { stops: { color: string }[] }).stops[0]?.color ?? '#1c1814', 1) }, num(m.scratches, 0.15) > 0),
+        layer: L('scratches', 'Scratches', { density: r2(2 + 16 * num(m.scratches, 0.15)), len_min: 2, len_max: 8, thickness: 1, taper: 0.5, angle: 20, angle_jitter: 60, fade: 0.5, hard: true, seed: seed + 4, ...limitTo(SHAPE_MASK), h_on: false, dif_on: true, dif_opacity: 0.7, dif_grad: shade((b as { stops: { color: string }[] }).stops[0]?.color ?? '#1c1814', 1) }, num(m.scratches, 0.15) > 0),
       },
       { role: 'grime', stack: 'paint', layer: L('cavity', 'Dirt', { radius: 1.5, threshold: 0.05, sensitivity: 0.8, wear_amount: 0.2, wear_color: '#c8a050', dirt_amount: r2(num(m.dirt, 0.15)), dirt_color: '#14100c', noise_scale: 8 }) },
     ]

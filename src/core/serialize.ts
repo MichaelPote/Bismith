@@ -2,6 +2,7 @@
 
 import { ensureBuiltins } from '@/render/builtins'
 import { getLayerDef, layerParamDefs, sanitizeLayer, createLayer as registryCreateLayer } from '@/layers/registry'
+import { sanitizeLimit } from '@/layers/masks'
 import { createPostFilter as registryCreatePost, getPostDef, sanitizePostFilter } from '@/render/post/registry'
 import { LIGHT_DEFS, createLight } from './lights'
 import { sanitizeParams } from './params'
@@ -125,7 +126,7 @@ export function normalizeProject(input: unknown): Project {
       name: str(m.name, m.recipe),
       params: m.params && typeof m.params === 'object' ? JSON.parse(JSON.stringify(m.params)) : {},
       members: Object.fromEntries(Object.entries(m.members ?? {}).filter(([, id]) => typeof id === 'string' && layerIds.has(id as string))) as Record<string, string>,
-      ...(m.mask && ['1', '2', '3', '4'].includes(String(m.mask.use)) ? { mask: { use: String(m.mask.use), invert: m.mask.invert === true } } : {}),
+      ...(sanitizeLimit(m.limit) ? { limit: sanitizeLimit(m.limit) } : {}),
       ...(m.enabled === false ? { enabled: false } : {}),
     }))
     .filter((m: SmartMaterial) => Object.keys(m.members).length > 0)

@@ -210,7 +210,7 @@ GenOut gen(vec2 p) {
     if (d < best) { best = d; bestRnd = hashI(id, uSeed); bestIn = ins; }
   }
   // In the Shape mask's combine modes the wrapper bevels the combined shape.
-  if (u_sm_on && u_sdf_op != 0) return genOut(0.0, 1.0, bestRnd, best);
+  if (maskOp() > 1) return genOut(0.0, 1.0, bestRnd, best);
   // Dome: the Profile over max(Bevel, Dome × half-width) in, blended towards the straight ridge by Crest.
   float B = max(u_bevel, u_crown * bestIn);
   float x = B > 0.0 ? clamp(-best / B, 0.0, 1.0) : 1.0;
@@ -345,7 +345,7 @@ GenOut gen(vec2 p) {
   // The layer paints its own relief while it draws its own shape (Shape mask off or Normal); in the combine modes the
   // wrapper bevels the combined shape. Ends that run on under the crossing strand close their gap, and slivers of
   // under-runs under 2 px long are left out (they would alias into hairlines).
-  bool own = !u_sm_on || u_sdf_op == 0;
+  bool own = maskOp() <= 1;
   float gapEnd = u_gap * (1.0 - u_run_on);
   float best = 1e9, bestRnd = 0.0;
   int bestDir = 0, bestLine = 0, bestLo = 0, bestHi = 0;

@@ -601,7 +601,7 @@ export const causticsLayer: LayerDef = {
   // default: a value pattern shouldn't replace the shape mask unless asked.
   sdf: 'mask',
   defaults: {
-    sm_on: false,
+    mk_target: '',
     dif_on: true,
     dif_grad: gradient('#1c0400', '#4f0b00', '#9c2400', '#e05a00', '#ffa21a', '#ffe08a'),
     h_on: true,

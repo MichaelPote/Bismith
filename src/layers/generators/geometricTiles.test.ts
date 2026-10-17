@@ -90,7 +90,7 @@ describe('tiles', () => {
     expect(linkedChanges('tiles', tones, 'output', 'tiles').dif_src).toBe('random')
   })
 
-  it('has a shape only as tiles: tones keep Anti-alias but not the Bevel or Shape Mask', () => {
+  it('has a shape only as tiles: tones keep Anti-alias but not the Bevel or a shape to write', () => {
     expect(tilesLayer.sdfShowIf!({ output: 'tiles' })).toBe(true)
     expect(tilesLayer.sdfShowIf!({ output: 'value' })).toBe(false)
     expect(tilesLayer.sdfShowIf!({ output: 'value' }, 'aa')).toBe(true)

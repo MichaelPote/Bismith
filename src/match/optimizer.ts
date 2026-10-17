@@ -564,7 +564,7 @@ export const DEFAULT_LIBRARY: LayerTemplate[] = [
     type: 'voronoi',
     name: 'Chipped edges',
     stack: 'relief',
-    params: { output: 'facets', scale: 6, jitter: 1, tilt: 1.4, facet_fit: false, sm_on: false, m_hmode: 'below', m_hlevel: 0.6, m_hsoft: 0.1, h_on: true, h_mode: 'min', h_amount: 1.2, dif_on: false },
+    params: { output: 'facets', scale: 6, jitter: 1, tilt: 1.4, facet_fit: false, mk_target: '', m_hmode: 'below', m_hlevel: 0.6, m_hsoft: 0.1, h_on: true, h_mode: 'min', h_amount: 1.2, dif_on: false },
   },
 ]
 

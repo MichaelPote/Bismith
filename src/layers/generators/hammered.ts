@@ -7,13 +7,13 @@
 // of displaced metal; the surface is the smooth maximum of the dents' depths (overlapping dents meet in creases, rounded
 // by Crease softness). A dent belongs to the region its centre lies in, so dents cross region edges whole; Edge overlap
 // lets them run on past it, thinning out. Height's Per-feature variation varies each dent's depth (hval).
-// Writing the Shape Mask, the dents are discs (Shape mask size × their radius).
+// Writing a mask (Mask › Write to), the dents are discs (Mask size × their radius).
 
 import { P, type ParamValues } from '@/core/params'
 import type { LayerDef } from '../types'
 
-/** Whether the dents' discs go to the Shape Mask or a named mask (else the layer leaves the shapes alone). */
-const writesShape = (p: ParamValues) => p.sm_on === true || (p.mk_write ?? 'none') !== 'none'
+/** Whether the dents' discs go to a mask (else the layer leaves the masks alone). */
+const writesShape = (p: ParamValues) => String(p.mk_target ?? '').trim() !== ''
 
 /** Keys only layers from after the quality pass have (stored files keep every param). */
 const NEW_KEYS = ['region_var', 'wobble', 'course_var', 'size_var', 'depth_var', 'tilt', 'stretch', 'crease', 'rim', 'overlap', 'mask_r']
@@ -60,13 +60,12 @@ export const hammeredLayer: LayerDef = {
     }),
     P.seed(),
   ],
-  // The dents as discs, for the Shape Mask (opt-in: a hammered sheet usually works inside a plate's shape) and named-mask
-  // writes; the generator shapes its own value.
+  // The dents as discs, for a mask (opt-in: a hammered sheet usually works inside a plate's shape); the generator shapes
+  // its own value.
   sdf: 'mask',
-  writesMask: (p) => p.sm_on === true,
   migrate: migrateHammered,
   defaults: {
-    sm_on: false,
+    mk_target: '',
     h_on: true,
     h_amount: 1.4,
     dif_on: true,
@@ -223,7 +222,7 @@ void hmSmax(inout float m, inout float S, float d, float k) {
 GenOut gen(vec2 p) {
   float ringW0 = max(u_ring, 0.5);
   float sp0 = max(u_spacing, 0.5);
-  bool wantSdf = u_sm_on || u_mk_write > 0;
+  bool wantSdf = uMaskKind != 0;
   // Region variation scales a region's dents by up to 2^±(rv / 2).
   float sMax = exp2(0.5 * u_region_var);
   // Stretch lengthens the dents: along the course (> 1) or across it (< 1), the other axis keeping its width.

@@ -429,7 +429,7 @@ GenOut motifOut(float d, float rnd, vec2 nearQ, float h) {
   GenOut o = genOut(0.0, 1.0, rnd, d);
   // Sculpted: Height › Pattern takes the elements' own sections. Combined with the shape mask (Union, Subtract…)
   // the drawn shape isn't the rosette's alone, so the Edge bevel stays.
-  if (u_relief == 1 && (!u_sm_on || u_sdf_op == 0)) o.hval = h;
+  if (u_relief == 1 && maskOp() <= 1) o.hval = h;
   return o;
 }
 // Glow softness: the glow averaged over a Vogel disc of taps (a blur), one copy of the repeat in the loop.

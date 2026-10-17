@@ -98,7 +98,7 @@ function grid(rows: Rgba8[][], gap = 8): Rgba8 {
 }
 
 /** Shared params listed in the settings (the shape and channel controls a reviewer should know exist). */
-const SHARED_SHOWN = ['sm_on', 'sdf_op', 'bevel', 'profile', 'bevel_aspect', 'aa', 'sh_invert', 'sh_lo', 'sh_hi', 'sh_gamma', 'dif_jitter', 'h_amount', 'h_var', 'h_mode', 'm_clip', 'warp_amount', 'dw_amount', 'dw_scale']
+const SHARED_SHOWN = ['mk_target', 'mk_op', 'bevel', 'profile', 'bevel_aspect', 'aa', 'sh_invert', 'sh_lo', 'sh_hi', 'sh_gamma', 'dif_jitter', 'h_amount', 'h_var', 'h_mode', 'lim_1', 'lim_out', 'warp_amount', 'dw_amount', 'dw_scale']
 
 const png = (url: string) => decodePng(Buffer.from(url.split(',')[1], 'base64'))
 const fmt = (v: unknown) => (typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : JSON.stringify(v))

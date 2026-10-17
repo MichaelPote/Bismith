@@ -4,6 +4,7 @@ import { defineStore } from 'pinia'
 import { markRaw, ref, shallowRef } from 'vue'
 import type { Engine, EngineStats } from '@/render/engine'
 import type { ChannelView } from '@/render/display'
+import { SHAPE_MASK } from '@/core/project'
 
 /** 'base' is the Base row of the layer list: the project panel, highlighted on that row. */
 export type SelectionKind = 'project' | 'base' | 'layer' | 'light' | 'post' | 'material'
@@ -30,6 +31,8 @@ export const useEditorStore = defineStore('editor', () => {
   const selection = ref<Selection>({ kind: 'project' })
   const workspace = ref<Workspace>('create')
   const channel = ref<ChannelView>('final')
+  /** The mask the Masks view shows (FR8.23). */
+  const viewMask = ref(SHAPE_MASK)
   const tile = ref(false)
   const grid = ref(false)
   const checker = ref(true)
@@ -93,6 +96,7 @@ export const useEditorStore = defineStore('editor', () => {
     selection,
     workspace,
     channel,
+    viewMask,
     tile,
     grid,
     checker,

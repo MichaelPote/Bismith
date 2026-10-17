@@ -14,6 +14,7 @@ import SelectField from '@/ui/components/SelectField.vue'
 import { vTip } from '@/ui/tooltip'
 import { vPick } from '@/ui/eyedropper'
 import { layerParamDefs } from '@/layers/registry'
+import { masksAbove } from '@/layers/masks'
 import { linearToSrgb1, rgbToHex } from '@/core/color'
 
 const store = useProjectStore()
@@ -43,6 +44,7 @@ function pushView(): void {
     transform: { zoom: editor.zoom, offsetX: editor.offsetX, offsetY: editor.offsetY },
     options: { tile: editor.tile, grid: editor.grid, checker: editor.checker },
     previewUpTo: previewUpTo.value,
+    mask: editor.viewMask,
   })
 }
 
@@ -200,10 +202,16 @@ const shapeTarget = computed<{ kind: 'layer' | 'material'; id: string } | null>(
 })
 
 const CHANNEL_OPTIONS = CHANNEL_VIEWS.map((c) => ({ value: c.id, label: `${c.label} · ${c.key.toUpperCase()}` }))
+/** The masks the Masks view can show: every mask the stack writes (FR8.23). */
+const MASK_OPTIONS = computed(() => {
+  const names = masksAbove(store.project)
+  if (!names.includes(editor.viewMask)) names.push(editor.viewMask)
+  return names.map((n) => ({ value: n, label: n }))
+})
 
 /** Channel key labels for a narrow viewport (the tooltip keeps the full name). */
 const SHORT: Record<string, string> = {
-  final: 'Fin', diffuse: 'Dif', height: 'Hgt', roughness: 'Rgh', specular: 'Spc', normal: 'Nrm', ao: 'AO', emissive: 'Emi', opacity: 'Opa', register: 'Shp', masks: 'Msk',
+  final: 'Fin', diffuse: 'Dif', height: 'Hgt', roughness: 'Rgh', specular: 'Spc', normal: 'Nrm', ao: 'AO', emissive: 'Emi', opacity: 'Opa', masks: 'Msk',
 }
 
 /** Viewport overlays: toggle keys that latch, with a pilot lamp. */
@@ -361,7 +369,7 @@ watch(
   { deep: true },
 )
 watch(
-  () => [editor.channel, editor.zoom, editor.offsetX, editor.offsetY, editor.tile, editor.grid, editor.checker, previewUpTo.value],
+  () => [editor.channel, editor.viewMask, editor.zoom, editor.offsetX, editor.offsetY, editor.tile, editor.grid, editor.checker, previewUpTo.value],
   pushView,
 )
 watch(() => editor.fitRequest, fit)
@@ -426,6 +434,7 @@ watch(
         </button>
       </div>
       <SelectField class="ch-select" :model-value="editor.channel" :options="CHANNEL_OPTIONS" label="Channel" @update:model-value="editor.channel = $event as typeof editor.channel" />
+      <SelectField v-if="editor.channel === 'masks'" class="mask-select" :model-value="editor.viewMask" :options="MASK_OPTIONS" label="Mask" @update:model-value="editor.viewMask = String($event)" />
       <div class="tools">
         <button
           v-for="t in toggles"
@@ -600,6 +609,11 @@ watch(
 .ch-select {
   display: none;
   width: 150px;
+  flex: none;
+}
+/* Which mask the Masks view shows. */
+.mask-select {
+  width: 130px;
   flex: none;
 }
 @container (max-width: 720px) {

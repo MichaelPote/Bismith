@@ -113,14 +113,14 @@ export const wood: RecipeDef = {
     const wear = {
       grain: w.direction, chips: r2(chips), corners: r2(Math.min(1, 1.5 * chips)), chip_size: r2(Math.max(1, Math.min(12, 0.06 * across))), chip_var: 0.6, chip_depth: 0.8,
       splits, interior: r2(0.25 * splits), split_len: r2(Math.max(4, 0.35 * along)), split_width: r2(Math.max(1, across / 64)), split_space: r2(Math.max(3, across / 10)),
-      split_wobble: r2(Math.max(0.5, across / 96)), nicks: 0, seed: num(m.seed, 91) + 2, sm_on: false, bevel: 1, profile: 'linear',
+      split_wobble: r2(Math.max(0.5, across / 96)), nicks: 0, seed: num(m.seed, 91) + 2, mk_target: '', bevel: 1, profile: 'linear',
     }
     return [
-      { role: 'relief', stack: 'relief', layer: L('wood', 'Board relief', { ...w, output: 'shape', bevel: 0.75, profile: 'custom', sdf_op: 'replace', h_on: true, h_amount: 0.2, dif_on: false }, m.planks !== false) },
-      { role: 'grain-relief', stack: 'relief', layer: L('wood', 'Grain relief', { ...w, output: 'grain', sm_on: false, h_on: true, h_amount: 0.06, dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'value', s_a: 0.4, s_b: 1 }) },
+      { role: 'relief', stack: 'relief', layer: L('wood', 'Board relief', { ...w, output: 'shape', bevel: 0.75, profile: 'custom', mk_op: 'replace', h_on: true, h_amount: 0.2, dif_on: false }, m.planks !== false) },
+      { role: 'grain-relief', stack: 'relief', layer: L('wood', 'Grain relief', { ...w, output: 'grain', mk_target: '', h_on: true, h_amount: 0.06, dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'value', s_a: 0.4, s_b: 1 }) },
       // Carves the chips and splits out of the board relief (both wear layers read the boards' shape mask, untouched).
       { role: 'wear-relief', stack: 'relief', layer: L('chips', 'Chips & splits', { ...wear, h_on: true, h_mode: 'multiply', h_amount: 1, dif_on: false }, chips > 0 || splits > 0) },
-      { role: 'wood', stack: 'paint', layer: L('wood', 'Wood', { ...w, output: 'wood', sm_on: false, h_on: false, dif_on: true, dif_grad: m.colours ?? gradient('#2a1a0e', '#6a4a30'), dif_jitter: r2(num(m.variety, 0.2)) }) },
+      { role: 'wood', stack: 'paint', layer: L('wood', 'Wood', { ...w, output: 'wood', mk_target: '', h_on: false, dif_on: true, dif_grad: m.colours ?? gradient('#2a1a0e', '#6a4a30'), dif_jitter: r2(num(m.variety, 0.2)) }) },
       {
         role: 'streaks', stack: 'paint',
         layer: L('noise', 'Streaks', {
@@ -160,7 +160,7 @@ export const marble: RecipeDef = {
     const base = (m.colours ?? gradient('#0a120a', '#2a3a26')) as { stops: { pos: number; color: string }[] }
     const grad = { stops: [...base.stops.map((s) => ({ pos: r2(s.pos * 0.7), color: s.color })), { pos: 1, color: String(m.vein ?? '#4a6a40') }] }
     return [
-      { role: 'joints', stack: 'relief', layer: L('grid', 'Joints', { count_x: Math.max(1, tiles), count_y: Math.max(1, Math.round((tiles * ctx.height) / ctx.width)), width: 1, aa: false, bevel: 0.5, profile: 'linear', sdf_op: 'replace', h_on: true, h_mode: 'subtract', h_amount: 0.25, dif_on: false }, tiles > 0) },
+      { role: 'joints', stack: 'relief', layer: L('grid', 'Joints', { count_x: Math.max(1, tiles), count_y: Math.max(1, Math.round((tiles * ctx.height) / ctx.width)), width: 1, aa: false, bevel: 0.5, profile: 'linear', mk_op: 'replace', h_on: true, h_mode: 'subtract', h_amount: 0.25, dif_on: false }, tiles > 0) },
       { role: 'marble', stack: 'paint', layer: L('marble', 'Marble', { ...mb, h_on: false, dif_on: true, dif_grad: grad, r_on: true, r_a: 0.3, r_b: 0.5 }) },
       { role: 'speckle', stack: 'paint', layer: L('noise', 'Speckle', { noise: 'white', seed: num(m.seed, 101) + 1, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.1, dif_grad: gradient('#000000', '#ffffff') }) },
     ]
@@ -203,7 +203,7 @@ export const rock: RecipeDef = {
       seed: num(m.seed, 11), angle: num(m.angle, -60), cross: 0, fold: 0, size, elong: 1.15, bedding: num(m.bedding, 0.6), jitter: 1,
       merge: r2(0.5 * variety), size_var: variety, warp: 0.15, jag: 0.3, heights: 1, coherence: 0.3, tilt: num(m.tilt, 1), dip: 0, bulge: 0,
       lean: 0.6, scarp: 1.5, weather: num(m.weather, 0.5), detail: size >= 14 ? 3 : 2, facets: num(m.facets, 0.35), zones: 0.8, rough: 0.04,
-      rough_scale: 4, steps: num(m.steps, 0.8), step_px: 2, joint: 0, sm_on: false, style: 'fractured',
+      rough_scale: 4, steps: num(m.steps, 0.8), step_px: 2, joint: 0, mk_target: '', style: 'fractured',
     }
     const colours = (m.colours as ReturnType<typeof gradient> | undefined) ?? gradient('#3a2a1c', '#7a6248', '#b89a78')
     const dark = shade(colours.stops[0]?.color ?? '#3a2a1c', 0.6).stops[0].color

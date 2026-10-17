@@ -10,7 +10,7 @@ describe('marble / caustics params', () => {
 
   it('defaults to the current look', () => {
     expect(createLayer('marble').params).toMatchObject({ style: 'ridges', stretch: 6, cull: 0.7, filter: true, fine_style: 'same', relief: 0.12, h_mode: 'subtract' })
-    expect(createLayer('caustics').params).toMatchObject({ dome: 0.8, cell_h: 0.4, rim_round: 1, octave2_nest: 1, sm_on: false })
+    expect(createLayer('caustics').params).toMatchObject({ dome: 0.8, cell_h: 0.4, rim_round: 1, octave2_nest: 1, mk_target: '' })
     expect(layerParamDefs('marble').some((d) => d.key === 'look')).toBe(false)
   })
 

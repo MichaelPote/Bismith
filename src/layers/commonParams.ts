@@ -13,9 +13,9 @@ const SRC: [string, string, string][] = [
 
 const SRC_HINT = 'What drives this output'
 
-// The shape register is "Shape Mask" in the UI: one running shape (a signed distance) that shape layers write and
-// later layers clip to. Writing is a toggle (sm_on, like Diffuse); the mode is how the layer's shape combines with
-// what is there. Option order matters: the index + 1 is sdfCombine's op (0 = not written).
+// Masks (FR8.23): named, each a signed distance plus the random of the feature there. A layer writes one (Mask › Write
+// to, shape layers default to the Shape mask) and is limited by an expression of them (Limit to). The mode is how the
+// layer's shape or coverage combines with what the mask held. Option order matters: the index + 1 is sdfCombine's op.
 export const SDF_OPS: [string, string][] = [
   ['replace', 'Normal'],
   ['union', 'Union'],
@@ -68,7 +68,8 @@ export const BLEND_MODES: [string, string][] = [
   ['softlight', 'Soft light'],
 ]
 
-const isSmooth = (p: Record<string, unknown>) => String(p.sdf_op).startsWith('smooth')
+const isSmooth = (p: Record<string, unknown>) => String(p.mk_op).startsWith('smooth')
+const writes = (p: Record<string, unknown>) => String(p.mk_target ?? '').trim() !== ''
 
 /** The Source dropdown of a channel output, drawn in one row with its blend mode. */
 const source = (key: string, group: string, mode: string, modeLabel = 'Mode'): ParamDef =>
@@ -87,32 +88,80 @@ const HEIGHT_MODES: [string, string, string][] = [
 ]
 const LEVEL_MODES: [string, string][] = [['replace', 'Replace'], ['multiply', 'Multiply'], ['add', 'Add'], ['min', 'Min'], ['max', 'Max']]
 
-/** Mask card › Shape mask: whether and how the layer's shape goes to the register (shape layers only). */
-export const SDF_MASK_PARAMS: ParamDef[] = [
-  P.bool('sm_on', 'Use shape mask', true, {
+/**
+ * Mask card › Write to (FR8.23): the mask this layer writes and how. Shape layers write their shape (a distance, and the
+ * random of each feature) and default to the Shape mask; other generators write their coverage when given a mask.
+ */
+export const MASK_WRITE_PARAMS: ParamDef[] = [
+  P.text('mk_target', 'Write to', '', {
     group: 'mask',
-    section: 'Shape mask',
-    hint: 'The shape mask is one running shape that shape layers build up down the stack. Ticked, this layer merges its shape into it (by the Mode) and draws the merged shape; later layers can clip to it (Clip to, below) or bevel from it. Unticked, the layer draws only its own shape and leaves the shape mask as it was',
+    section: 'Write to',
+    hint: 'The mask this layer writes, by name: a shape layer its shape (and which feature is where), any other layer where it covers. Later layers can be limited to it (Limit to), bevel or etch along it, or read its features (Mask area). Shape layers write the Shape mask unless told otherwise; empty = none',
   }),
-  P.enum('sdf_op', 'Mode', 'replace', SDF_OPS, {
+  P.enum('mk_op', 'Mode', 'replace', SDF_OPS, {
     group: 'mask',
-    section: 'Shape mask',
-    showIf: (p) => p.sm_on !== false,
-    hint: 'Normal: this shape replaces the shape mask. Union: adds to it. Subtract: cuts this shape out of it. Intersection: keeps only the overlap. Smooth: blended with a rounded fillet. In every mode the layer itself draws the combined shape',
+    section: 'Write to',
+    showIf: writes,
+    hint: 'Normal: this layer replaces what the mask held. Union: adds to it. Subtract: cuts this layer out of it. Intersection: keeps only the overlap. Smooth: blended with a rounded fillet. A shape layer draws the combined shape in every mode',
   }),
-  P.float('sdf_k', 'Smoothness', 4, 0, 256, {
+  P.float('mk_smooth', 'Smoothness', 4, 0, 256, {
     softMax: 32,
     unit: 'px',
     step: 0.1,
     group: 'mask',
-    section: 'Shape mask',
-    showIf: (p) => p.sm_on !== false && isSmooth(p),
-    hint: 'How wide the rounded fillet is where this shape meets the shape mask (the smooth modes)',
+    section: 'Write to',
+    showIf: (p) => writes(p) && isSmooth(p),
+    hint: 'How wide the rounded fillet is where this layer meets what the mask held (the smooth modes)',
+  }),
+  P.float('mk_feather', 'Feather', 0, 0, 1024, {
+    softMax: 32,
+    unit: 'px',
+    step: 0.1,
+    group: 'mask',
+    section: 'Write to',
+    showIf: writes,
+    hint: 'Soft edge of the written mask: a ramp this wide across a shape\'s outline (shape layers). Other layers soften with Shaping › Cutoff softness',
+  }),
+]
+
+/** Most masks a Limit to expression combines. */
+export const MAX_LIMIT_TERMS = 4
+
+export const LIMIT_OPS: [string, string, string][] = [
+  ['and', '∩ and', 'only where both are'],
+  ['or', '∪ or', 'where either is'],
+  ['minus', '− minus', 'cut this mask out of the ones before'],
+]
+
+/**
+ * Mask card › Limit to (FR8.23), for generators and filters: up to four masks by name, read left to right (lim_1, then
+ * lim_op2 lim_2 …), Outside inverting the result. Not uploaded: the pipeline combines the masks into one limit.
+ */
+export const LIMIT_PARAMS: ParamDef[] = [
+  ...Array.from({ length: MAX_LIMIT_TERMS }, (_, i): ParamDef[] => {
+    const n = i + 1
+    const shown = (p: Record<string, unknown>) => i === 0 || String(p[`lim_${i}`] ?? '').trim() !== ''
+    const name = P.text(`lim_${n}`, i === 0 ? 'Limit to' : `Mask ${n}`, '', {
+      group: 'mask',
+      section: 'Limit to',
+      showIf: shown,
+      hint: i === 0
+        ? 'Draw this layer only where a mask is (or, with Outside, isn\'t): a mask written by a layer above, by name — Shape is the one shape layers write. Empty = anywhere'
+        : 'One more mask, joined to the ones before by the operator',
+    })
+    if (i === 0) return [name]
+    return [P.enum(`lim_op${n}`, 'Then', 'and', LIMIT_OPS, { group: 'mask', section: 'Limit to', uniform: false, showIf: shown }), name]
+  }).flat(),
+  P.bool('lim_out', 'Outside', false, {
+    group: 'mask',
+    section: 'Limit to',
+    uniform: false,
+    showIf: (p) => String(p.lim_1 ?? '').trim() !== '',
+    hint: 'Use the masks the other way round: only where they are not — grout between the tiles, a hole cut through',
   }),
 ]
 
 export const SDF_PARAMS: ParamDef[] = [
-  ...SDF_MASK_PARAMS,
   P.float('bevel', 'Bevel', 3, 0, 1024, { softMax: 64, unit: 'px', step: 0.1, group: 'shaping', section: 'Edge' }),
   P.enum('profile', 'Profile', 'round', PROFILES, { group: 'shaping', section: 'Edge' }),
   { ...bevelCurveParam('shaping'), section: 'Edge' },
@@ -195,64 +244,14 @@ export const WARP_PHASE_PARAM: ParamDef = P.float('phase', 'Warp phase', 0, -100
   hint: 'Animates the domain warp: 0 → 1 is one seamless loop; it repeats beyond 1',
 })
 
-const MASK_CHANNELS: [string, string][] = [['none', 'None'], ['1', 'Mask 1'], ['2', 'Mask 2'], ['3', 'Mask 3'], ['4', 'Mask 4']]
-
-/** Named masks (FR8.13), read side: clip a layer (or filter) to one of the four mask channels. */
-export const MASK_USE_PARAMS: ParamDef[] = [
-  P.enum('mk_use', 'Masked by', 'none', MASK_CHANNELS, {
-    group: 'mask',
-    section: 'Named masks',
-    hint: 'Limit this layer to where one of the four named masks is set. A named mask is recorded by any layer\'s Write to mask, wherever that layer sits in the stack',
-  }),
-  P.bool('mk_invert', 'Outside the mask', false, {
-    group: 'mask',
-    section: 'Named masks',
-    showIf: (p) => (p.mk_use ?? 'none') !== 'none',
-    hint: 'Use the mask the other way round: only where it is not set — cut a hole',
-  }),
-]
-
 export const MASK_PARAMS: ParamDef[] = [
   P.float('opacity', 'Strength', 1, 0, 1, {
     step: 0.001,
     group: 'mask',
     hint: 'How much of this layer shows: it scales everything the layer writes (colour, height, roughness, specular, glow) at once — 1 = full, 0.5 = half way from what was beneath, 0 = no effect. Not the Opacity output, which writes the texture\'s alpha',
   }),
-  P.enum('m_clip', 'Clip to', 'none', [
-    ['none', 'None', 'anywhere: the shape mask doesn\'t limit this layer'],
-    ['inside', 'Inside the shape mask', 'only where the shape mask is — grime on the tiles'],
-    ['outside', 'Outside the shape mask', 'only where it isn\'t — grout between the tiles'],
-  ], {
-    group: 'mask',
-    section: 'Shape mask',
-    hint: 'Limit this layer to where the shape mask is, or isn\'t. The shape mask is the shape the shape layers before this one built up (their Use shape mask)',
-  }),
-  ...MASK_USE_PARAMS,
-  P.enum('mk_write', 'Write to mask', 'none', MASK_CHANNELS, {
-    group: 'mask',
-    section: 'Named masks',
-    hint: 'Record where this layer covers in a named mask, for other layers or whole materials to be limited by (Masked by). Masks are worked out before everything else — their writers in stack order, over the base only — so a layer can use a mask written further down the stack. Layers that read the surface beneath (Drips, Crevices & high spots) write theirs where they sit instead: only the layers after them see it',
-  }),
-  P.enum('mk_mode', 'Combine', 'replace', [
-    ['replace', 'Replace', 'the mask becomes where this layer covers'],
-    ['add', 'Add (union)', 'set where either this layer covers or the mask already was'],
-    ['subtract', 'Subtract', 'clear the mask where this layer covers'],
-    ['intersect', 'Intersect', 'keep the mask only where this layer covers too'],
-  ], {
-    group: 'mask',
-    section: 'Named masks',
-    showIf: (p) => (p.mk_write ?? 'none') !== 'none',
-    hint: 'How this layer\'s coverage goes into the named mask, over what layers earlier in the stack wrote there',
-  }),
-  P.float('mk_feather', 'Feather', 0, 0, 1024, {
-    softMax: 32,
-    unit: 'px',
-    step: 0.1,
-    group: 'mask',
-    section: 'Named masks',
-    showIf: (p) => (p.mk_write ?? 'none') !== 'none',
-    hint: 'Soft edge of the written mask: a ramp this wide across a shape\'s outline (shape layers). Noise-type layers soften with Shaping › Cutoff softness',
-  }),
+  ...LIMIT_PARAMS,
+  ...MASK_WRITE_PARAMS,
   P.enum('m_hmode', 'Limit to', 'none', [
     ['none', 'Anywhere', 'the height doesn\'t limit this layer'],
     ['above', 'Above the level', 'only where the surface stands higher — wear, highlights, dust on the tops'],
@@ -346,15 +345,6 @@ export const FILTER_GROUPS: GroupDef[] = [
   { id: 'mask', label: 'Mask', collapsed: true },
 ]
 
-/** The clip factor of a named mask for the current layer (1 = unmasked). Needs u_mk_use / u_mk_invert. */
-export const GLSL_NAMED_MASK = /* glsl */ `
-float namedMask(vec4 M) {
-  if (u_mk_use <= 0) return 1.0;
-  float v = clamp(M[u_mk_use - 1], 0.0, 1.0);
-  return u_mk_invert ? 1.0 - v : v;
-}
-`
-
 /** GLSL for the generator wrapper's use of the common params (declared automatically from the defs above). */
 export const GLSL_GENERATOR_MAIN = (sdf: boolean | 'mask') => /* glsl */ `
 
@@ -368,15 +358,23 @@ float shapeValue(float v) {
 // shapeV: inside the layer's shape (Source › Shape), 1 for layers without one.
 float srcValue(int src, float value, float rnd, float shapeV) { return src == 1 ? 1.0 : src == 2 ? rnd : src == 3 ? shapeV : value; }
 
-${GLSL_NAMED_MASK}
-uniform bool uWriteMasks;
+// A mask texel (distance, feature random, feature flag) after this layer's write: c is its own distance s combined with
+// the mask's by op; the feature comes from whichever side c follows (the earlier contents where this layer cuts).
+// fid < 0: no features here.
+vec4 maskTexel(int op, float c, float s, float fid, vec4 prev) {
+  bool fresh = op <= 1 || (op != 3 && op != 6 && abs(c - s) <= abs(c - prev.x));
+  return fresh ? vec4(c, max(fid, 0.0), fid >= 0.0 ? 1.0 : 0.0, 0.0) : vec4(c, prev.yzw);
+}
+
 void main() {
   ivec2 ip = ivec2(gl_FragCoord.xy);
   vec4 A = texelFetch(tAlbedo, ip, 0);
   vec4 S = texelFetch(tSurface, ip, 0);
   vec4 E = texelFetch(tEmissive, ip, 0);
-  vec4 M = texelFetch(tMasks, ip, 0);
-  float prevReg = S.a;
+  // The mask before this layer: the one it writes, or the Shape mask. Pixels it doesn't write keep it.
+  vec4 maskPrev = texelFetch(tMaskIn, ip, 0);
+  vec4 maskOut = maskPrev;
+  float prevReg = maskPrev.x;
   gPhase = u_phase;
 
   vec2 pp = gl_FragCoord.xy - vec2(u_ofs_x, -u_ofs_y);
@@ -388,35 +386,34 @@ void main() {
   GenOut g = gen(pp);
   float value = g.value;
   float cov = g.mask;
-  // What a named-mask write records: the coverage, or for a shape with Feather a soft ramp across its outline.
-  float covW = -1.0;
   float shapeV = 1.0;
 ${sdf === true ? /* glsl */ `
-  // Shape Mask (the register): written when ticked; the mode's index + 1 is the sdfCombine op. The combined distance and
-  // its screen-space gradient (Bevel aspect) are taken before branching: derivatives need uniform control flow.
-  int op = u_sm_on ? u_sdf_op + 1 : 0;
-  float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_sdf_k);
+  // Writing its shape (Mask › Write to), the layer combines it with the mask by the Mode (index + 1 = sdfCombine op) and
+  // draws the combined shape. The combined distance and its screen-space gradient (Bevel aspect) are taken before
+  // branching: derivatives need uniform control flow.
+  int op = uMaskKind == 1 ? u_mk_op + 1 : 0;
+  float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_mk_smooth);
   vec2 dGrad = vec2(dFdx(d), dFdy(d));
   if (g.sdf > NO_SDF) {
-    if (op != 0) S.a = d;
+    if (op != 0) {
+      maskOut = maskTexel(op, d, g.sdf, g.fid, maskPrev);
+      // Feather stores a soft ramp across the outline instead of the distance (its coverage reads back the same way).
+      if (u_mk_feather > 0.0) maskOut.x = clamp(d / u_mk_feather, -0.5, 0.5);
+    }
     shapeV = coverage(d, u_aa);
-    float covD = u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : coverage(d, u_aa);
     // The bevel: from the generator's own bevel distance (GenOut.bdist) while the drawn shape is its own (not combined
-    // with the shape mask), else from the combined distance with the aspect taken from its direction.
+    // with the mask), else from the combined distance with the aspect taken from its direction.
     float bev = g.bdist > NO_SDF && op <= 1 ? ((u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, max(-g.bdist, 0.0) / u_bevel) : 1.0)
                                             : bevelAt(d, dGrad);
     if (g.own == 1) {
-      // genOutOwn: the generator painted its own value and coverage; the shape only goes to the masks.
-      covW = covD;
+      // genOutOwn: the generator painted its own value and coverage; the shape only goes to the mask.
     } else if (g.own == 2) {
-      // genOutShaded: the generator's pattern × the bevel of the combined shape (so another shape mode — Intersection
-      // with a chipped shape mask — bevels round it too); the coverage stays the generator's.
+      // genOutShaded: the generator's pattern × the bevel of the combined shape (so another mode — Intersection with a
+      // chipped Shape mask — bevels round it too); the coverage stays the generator's.
       float e = bev * coverage(d, u_aa);
       value *= e;
       if (g.hval >= 0.0) g.hval *= e;
-      covW = covD;
     } else {
-      covW = cov * covD;
       cov *= coverage(d, u_aa);
       // The coverage now carries the shape's anti-aliasing, so Source › Shape is 1 wherever the layer paints — taking
       // the coverage twice put the ramp's middle (often its darkest) on every edge pixel, a dark 1 px outline.
@@ -428,12 +425,15 @@ ${sdf === true ? /* glsl */ `
   }
 ` : ''}${sdf === 'mask' ? /* glsl */ `
   if (g.sdf > NO_SDF) {
-    // A shape for the Shape Mask and named masks only: the generator shapes its own value and coverage around it.
-    int op = u_sm_on ? u_sdf_op + 1 : 0;
-    float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_sdf_k);
-    if (op != 0) S.a = d;
+    // A shape for the mask only: the generator shapes its own value and coverage around it.
+    int op = uMaskKind == 1 ? u_mk_op + 1 : 0;
+    float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_mk_smooth);
+    if (op != 0) {
+      maskOut = maskTexel(op, d, g.sdf, g.fid, maskPrev);
+      // Feather stores a soft ramp across the outline instead of the distance (its coverage reads back the same way).
+      if (u_mk_feather > 0.0) maskOut.x = clamp(d / u_mk_feather, -0.5, 0.5);
+    }
     shapeV = clamp(0.5 - d, 0.0, 1.0);
-    covW = u_mk_feather > 0.0 ? clamp(0.5 - d / u_mk_feather, 0.0, 1.0) : clamp(0.5 - d, 0.0, 1.0);
   }
 ` : ''}
   value = shapeValue(value);
@@ -442,20 +442,21 @@ ${sdf === true ? /* glsl */ `
   float cutK = 1.0;
   if (u_sh_cut > 0.0) cutK = u_sh_cut_soft > 0.0 ? smoothstep(u_sh_cut - u_sh_cut_soft, u_sh_cut + u_sh_cut_soft, value) : step(u_sh_cut, value);
   cov *= cutK;
-  covW = covW < 0.0 ? cov : covW * cutK;
 
-  // Everything else that limits the layer: opacity, the shape-mask clip, the height mask, a named mask.
-  float k = u_opacity;
-  if (u_m_clip == 1) k *= clamp(0.5 - prevReg, 0.0, 1.0);
-  if (u_m_clip == 2) k *= 1.0 - clamp(0.5 - prevReg, 0.0, 1.0);
+  // Everything else that limits the layer: opacity, Limit to, the height mask.
+  float k = u_opacity * limitAt(ip);
   if (u_m_hmode != 0) {
     float s = max(u_m_hsoft, 1e-4);
     float hm = smoothstep(u_m_hlevel - s, u_m_hlevel + s, S.r);
     k *= u_m_hmode == 1 ? hm : 1.0 - hm;
   }
-  k *= namedMask(M);
   float m = cov * k;
-  float mw = covW * k;
+  // Writing its coverage (layers without a shape): as a distance-like value that reads back as the coverage.
+  if (uMaskKind == 2) {
+    int cop = u_mk_op + 1;
+    float s = 0.5 - m;
+    maskOut = maskTexel(cop, cop <= 1 ? s : sdfCombine(cop, prevReg, s, u_mk_smooth), s, g.fid, maskPrev);
+  }
 
   if (u_dif_on) {
     float v = srcValue(u_dif_src, value, g.rnd, shapeV);
@@ -503,16 +504,9 @@ ${sdf === true ? /* glsl */ `
     E.rgb = mix(E.rgb, ne, m);
   }
 
-  if (uWriteMasks && u_mk_write > 0) {
-    // The layer's final coverage (after its own clips) into the named mask (in the masks pre-pass only).
-    int c = u_mk_write - 1;
-    float o = M[c];
-    M[c] = u_mk_mode == 0 ? mw : u_mk_mode == 1 ? max(o, mw) : u_mk_mode == 2 ? o * (1.0 - mw) : min(o, mw);
-  }
-
   oAlbedo = A;
   oSurface = S;
   oEmissive = E;
-  oMasks = M;
+  oMask = maskOut;
 }
 `

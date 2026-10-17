@@ -35,8 +35,8 @@ export const tabsLayer: LayerDef = {
   category: 'shape',
   kind: 'generator',
   sdf: true,
-  // Along the shape mask it reads what earlier layers wrote, so its named-mask writes happen in place.
-  readsState: true,
+  // Along the mask's edges: it reads the mask before it (the one it writes, or Shape).
+  readsMask: true,
   description: 'Small details with diagonal cuts — trapezoid tabs, notches, chevrons, bow-ties, slits, chamfered plates, scallops — along the edges of the shape mask or the texture, on a grid or scattered.',
   params: [
     P.enum('shape', 'Shape', 'trapezoid', [
@@ -218,9 +218,8 @@ GenOut gen(vec2 p) {
   if (place == 3) {
     ivec2 ic = ivec2(gl_FragCoord.xy);
     vec2 fc = gl_FragCoord.xy;
-    float d0 = fetchT(tSurface, ic).a;
-    vec2 g = 0.5 * vec2(fetchT(tSurface, ic + ivec2(1, 0)).a - fetchT(tSurface, ic - ivec2(1, 0)).a,
-                        fetchT(tSurface, ic + ivec2(0, 1)).a - fetchT(tSurface, ic - ivec2(0, 1)).a);
+    float d0 = maskIn(ic);
+    vec2 g = 0.5 * vec2(maskIn(ic + ivec2(1, 0)) - maskIn(ic - ivec2(1, 0)), maskIn(ic + ivec2(0, 1)) - maskIn(ic - ivec2(0, 1)));
     if (d0 > 5e3) place = 0;  // nothing in the shape mask: the texture is the shape, its edges the edges
     else {
       // The wrapper's offset and domain warp, carried into the frame (the elements move and wobble, the sides stay).
@@ -235,7 +234,7 @@ GenOut gen(vec2 p) {
       vec2 n = g / max(gl, 1e-6);
       vec2 e = fc - d0 * n;
       // In the band the elements reach, on a clean gradient (not a corner's or a ridge's), whose foot is on the edge.
-      bool ok = v0 >= vlo && v0 <= vhi && abs(gl - 1.0) < 0.1 && abs(sampleT(tSurface, e).a) < 0.25;
+      bool ok = v0 >= vlo && v0 <= vhi && abs(gl - 1.0) < 0.1 && abs(sampleT(tMaskIn, e).x) < 0.25;
       // The side's class (by the way it faces) and direction: down left / right sides, rightward along top / bottom.
       bool vert = abs(n.x) + 1e-3 >= abs(n.y);
       int cls = vert ? (n.x < 0.0 ? 0 : 1) : (n.y > 0.0 ? 2 : 3);
@@ -251,7 +250,7 @@ GenOut gen(vec2 p) {
         if (!ok) break;
         float s = lo + st;
         vec2 x = e + (dir == 0 ? s : -s) * t;
-        bool on = abs(sampleT(tSurface, x).a) < TB_EPS && (uTile || (x.x >= 0.0 && x.y >= 0.0 && x.x <= uRes.x && x.y <= uRes.y));
+        bool on = abs(sampleT(tMaskIn, x).x) < TB_EPS && (uTile || (x.x >= 0.0 && x.y >= 0.0 && x.x <= uRes.x && x.y <= uRes.y));
         if (on) lo = s; else refine = true;
         if (refine) st *= 0.5;
         if (!refine && lo >= cap) { endless = true; found = true; break; }

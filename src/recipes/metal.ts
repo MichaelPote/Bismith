@@ -148,7 +148,7 @@ export const stains: RecipeDef = {
     return [
       { role: 'water', stack: 'paint', layer: L('drips', 'Water stain', { output: 'stain', ...src, width: num(m.width, 3), width_var: 0.5, str_var: 0.3, start: 0.7, fade: 0.9, hard: false, ...waterFlow, h_on: false, dif_on: true, dif_blend: 'multiply', dif_grad: gradient('#ffffff', `#${[wv, Math.round(wv * 0.85), Math.round(wv * 0.7)].map((v) => v.toString(16).padStart(2, '0')).join('')}`) }, water > 0) },
       { role: 'rust', stack: 'paint', layer: L('drips', 'Rust trails', { output: 'stain', ...src, width: r2(num(m.width, 3) * 0.45), width_var: 0.6, str_var: 0, start: 1, fade: 1, hard: true, ...rustFlow, sh_cut: r2(lerp(0.9, 0.6, rust)), sh_cut_soft: 0.05, h_on: false, dif_on: true, dif_grad: shade(rc, 0.7) }, rust > 0) },
-      { role: 'blisters', stack: 'paint', layer: L('drips', 'Blisters', { output: 'source', ...src, ...cells, blister: r2(0.6 + 2.4 * num(m.blisters, 0)), ledge_mix: ledges ? 0.6 : 0, hard: true, sm_on: false, h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: shade(rc, 0.55) }, num(m.blisters, 0) > 0) },
+      { role: 'blisters', stack: 'paint', layer: L('drips', 'Blisters', { output: 'source', ...src, ...cells, blister: r2(0.6 + 2.4 * num(m.blisters, 0)), ledge_mix: ledges ? 0.6 : 0, hard: true, mk_target: '', h_on: true, h_amount: 0.6, dif_on: true, dif_src: 'value', dif_grad: shade(rc, 0.55) }, num(m.blisters, 0) > 0) },
     ]
   },
 }

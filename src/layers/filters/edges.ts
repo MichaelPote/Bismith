@@ -1,10 +1,10 @@
 // Distance-based filters: bevel and etch. The edge comes from a thresholded channel (jump-flood signed
-// distance, gpu/jfa.ts) or directly from the shape register written by SDF layers (exact).
+// distance, gpu/jfa.ts) or a mask (FR8.23): read directly where only shape layers wrote it (exact), else by jump flood.
 
 import { P } from '@/core/params'
 import { PROFILES, bevelCurveParam } from '../commonParams'
 import type { LayerDef } from '../types'
-import { GLSL_SOURCE_DIST, SMOOTH_PARAM, SOURCE_PARAMS, sourceDistance } from './shared'
+import { GLSL_SOURCE_DIST, SMOOTH_PARAM, SOURCE_PARAMS, edgeMaskSource, sourceDistance } from './shared'
 
 const BEVEL_APPLY = /* glsl */ `
 ${GLSL_SOURCE_DIST}
@@ -13,7 +13,7 @@ void main() {
   vec4 A = texelFetch(tAlbedo, ip, 0);
   vec4 S = texelFetch(tSurface, ip, 0);
   vec4 E = texelFetch(tEmissive, ip, 0);
-  float d = sourceDist(ip, S, u_invert);
+  float d = sourceDist(ip);
   float w = max(u_width, 0.0);
   // o = where the slope starts (its outer foot) relative to the edge: inner 0, outer w, both w/2.
   float o = u_direction == 0 ? 0.0 : u_direction == 1 ? w : 0.5 * w;
@@ -36,7 +36,8 @@ export const bevelLayer: LayerDef = {
   label: 'Bevel',
   category: 'filter',
   kind: 'filter',
-  description: 'Raises (or sinks) a thresholded area or the shape mask with a profiled bevel along its edge.',
+  description: 'Raises (or sinks) a thresholded area or a mask with a profiled bevel along its edge.',
+  maskSource: edgeMaskSource,
   params: [
     ...SOURCE_PARAMS,
     SMOOTH_PARAM,
@@ -60,9 +61,10 @@ export const bevelLayer: LayerDef = {
   run(ctx, layer) {
     const p = layer.params
     const w = Math.max(0, Number(p.width ?? 0))
-    const tDist = sourceDistance(ctx, p, w + 2, Boolean(p.invert))
-    const mat = ctx.mrtMaterial('apply', BEVEL_APPLY, { tDist: { value: null } })
-    mat.uniforms.tDist.value = tDist ?? ctx.surface
+    const src = sourceDistance(ctx, p, w + 2, Boolean(p.invert))
+    const mat = ctx.mrtMaterial('apply', BEVEL_APPLY, { tDist: { value: null }, uDistSign: { value: 1 } })
+    mat.uniforms.tDist.value = src.texture
+    mat.uniforms.uDistSign.value = src.sign
     ctx.runMRT(mat)
   },
 }
@@ -74,7 +76,7 @@ void main() {
   vec4 A = texelFetch(tAlbedo, ip, 0);
   vec4 S = texelFetch(tSurface, ip, 0);
   vec4 E = texelFetch(tEmissive, ip, 0);
-  float d = sourceDist(ip, S, false);
+  float d = sourceDist(ip);
   float hw = max(u_width, 0.0) * 0.5;
   float ad = abs(d + u_offset);
   // Softness 0: a crisp band (1 px anti-aliased edge); 1: a V-shaped groove reaching hw + .5 from its centre.
@@ -96,6 +98,7 @@ export const etchLayer: LayerDef = {
   category: 'filter',
   kind: 'filter',
   description: 'Cuts a groove along an edge: panel seams, engraved outlines (optionally darkened, glossed or glowing).',
+  maskSource: edgeMaskSource,
   params: [
     ...SOURCE_PARAMS,
     SMOOTH_PARAM,
@@ -121,9 +124,10 @@ export const etchLayer: LayerDef = {
   run(ctx, layer) {
     const p = layer.params
     const reach = Math.max(0, Number(p.width ?? 0)) * 0.5 + Math.abs(Number(p.offset ?? 0)) + 2
-    const tDist = sourceDistance(ctx, p, reach)
-    const mat = ctx.mrtMaterial('apply', ETCH_APPLY, { tDist: { value: null } })
-    mat.uniforms.tDist.value = tDist ?? ctx.surface
+    const src = sourceDistance(ctx, p, reach)
+    const mat = ctx.mrtMaterial('apply', ETCH_APPLY, { tDist: { value: null }, uDistSign: { value: 1 } })
+    mat.uniforms.tDist.value = src.texture
+    mat.uniforms.uDistSign.value = src.sign
     ctx.runMRT(mat)
   },
 }

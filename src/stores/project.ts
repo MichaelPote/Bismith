@@ -3,9 +3,9 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef, watch } from 'vue'
 import type { ParamValue } from '@/core/params'
-import type { Layer, LayerUnit, Light, LightType, PostFilter, Project, SmartMaterial } from '@/core/project'
+import type { Layer, LayerUnit, LimitExpr, Light, LightType, PostFilter, Project, SmartMaterial } from '@/core/project'
 import { flattenUnits, layerUnits } from '@/core/project'
-import { addMaterial as recipeAdd, deleteMaterial as recipeDelete, pruneMaterials, setMacro, setMaterialMask as recipeMask, unpackMaterial as recipeUnpack } from '@/recipes'
+import { addMaterial as recipeAdd, deleteMaterial as recipeDelete, pruneMaterials, setMacro, setMaterialLimit as recipeLimit, unpackMaterial as recipeUnpack } from '@/recipes'
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize'
 import { freshParams, linkedChanges } from '@/layers/registry'
 import { newId } from '@/core/ids'
@@ -238,9 +238,9 @@ export const useProjectStore = defineStore('project', () => {
     if (m) setMacro(project.value, m, key, value)
   }
 
-  function setMaterialMask(id: string, use: string, invert: boolean): void {
+  function setMaterialLimit(id: string, limit: LimitExpr | null): void {
     const m = getMaterial(id)
-    if (m) recipeMask(project.value, m, use, invert)
+    if (m) recipeLimit(m, limit)
   }
 
   /** Show or hide a whole smart material (its members keep their own on/off states). */
@@ -368,7 +368,7 @@ export const useProjectStore = defineStore('project', () => {
     getMaterial,
     addMaterial,
     setMaterialParam,
-    setMaterialMask,
+    setMaterialLimit,
     setMaterialEnabled,
     renameMaterial,
     unpackMaterial,

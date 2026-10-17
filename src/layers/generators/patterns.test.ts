@@ -75,7 +75,7 @@ describe('pattern layers', () => {
     expect(createLayer('stripes', { mode: 'sine' }).params.dif_src).toBe('value')
   })
 
-  it('offer the Shape Mask and Edge only for the outputs that have a shape', () => {
+  it('offer their shape and Edge only for the outputs that have a shape', () => {
     expect(stripesLayer.sdfShowIf!({ mode: 'sine' })).toBe(false)
     expect(stripesLayer.sdfShowIf!({ mode: 'shape' })).toBe(true)
     expect(voronoiLayer.sdfShowIf!({ output: 'facets' })).toBe(false)

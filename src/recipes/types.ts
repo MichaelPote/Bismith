@@ -37,6 +37,11 @@ export interface RecipeDef {
    * looks (lava, water); see fitTones.
    */
   fit?: 'all' | 'lightness' | 'none' | 'tones'
+  /**
+   * Added at the top of the stack, wherever the editor would insert it: it writes masks the materials below it are
+   * limited to (masks reach only the layers after their writer, FR8.23).
+   */
+  first?: boolean
   /** Render settings the look relies on, raised (never lowered; shadows only switched on) when the material is added. */
   render?: Partial<Pick<RenderSettings, 'ao' | 'aoRadius' | 'specularTint' | 'shadows'>>
 }

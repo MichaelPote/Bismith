@@ -49,7 +49,7 @@ export const cableLayer: LayerDef = {
   ],
   // The outline goes to the Shape Mask, by Union (a trim laid over earlier shapes adds to them).
   sdf: 'mask',
-  defaults: { sdf_op: 'union', h_on: true, h_amount: 0.6, dif_on: true },
+  defaults: { mk_op: 'union', h_on: true, h_amount: 0.6, dif_on: true },
   // Plain defaults: a three-strand laid rope with fibres round a core, set a third into the surface, slightly uneven,
   // sized for 512 px. Added in the editor, its sizes follow the texture.
   fresh: ({ width, height }) => {

@@ -1,30 +1,33 @@
-// Drips' blisters: a shape for the Shape Mask only (no bevel card), shown for the Sources output, and old Sources
-// layers keep their size.
+// Drips' blisters: a shape for the mask only (no Edge card), written by the Sources output, and old Sources layers
+// keep their size.
 import { describe, expect, it } from 'vitest'
 import type { ParamValues } from '@/core/params'
 import { ensureBuiltins } from '@/render/builtins'
 import { createLayer, freshParams, getLayerDef, layerGroups, layerParamDefs, linkedChanges, sanitizeLayer } from '@/layers/registry'
+import { maskWriteKind } from '@/layers/masks'
 
 ensureBuiltins()
 const def = (key: string) => layerParamDefs('drips').find((p) => p.key === key)!
 
 describe('drips blisters', () => {
-  it('writes the Shape Mask without the bevel params', () => {
+  it('writes the Shape mask without the bevel params', () => {
     const keys = layerParamDefs('drips').map((p) => p.key)
-    expect(keys).toEqual(expect.arrayContaining(['sm_on', 'sdf_op', 'sdf_k']))
+    expect(keys).toEqual(expect.arrayContaining(['mk_target', 'mk_op', 'mk_smooth']))
     expect(keys).not.toContain('bevel')
-    expect(def('sm_on').group).toBe('mask')
+    expect(def('mk_target').group).toBe('mask')
+    expect(def('mk_target').default).toBe('Shape')
     expect(layerGroups(getLayerDef('drips')!).map((g) => g.id)).not.toContain('shape')
   })
 
-  it('shows the Shape Mask only for Sources', () => {
+  it('writes its blisters as a shape from Sources; stains only their coverage, and not into Shape', () => {
     const stains = createLayer('drips').params
     const sources = createLayer('drips', { output: 'source' }).params
-    expect(def('sm_on').showIf!(stains)).toBe(false)
-    expect(def('sm_on').showIf!(sources)).toBe(true)
-    expect(def('sdf_op').showIf!(sources)).toBe(true)
-    expect(def('sdf_k').showIf!({ ...sources, sdf_op: 'smooth-union' })).toBe(true)
-    expect(def('sdf_k').showIf!({ ...sources, sdf_op: 'union' })).toBe(false)
+    const drips = getLayerDef('drips')
+    expect(maskWriteKind(drips, sources)).toBe('shape')
+    expect(maskWriteKind(drips, stains)).toBe(false)
+    expect(maskWriteKind(drips, { ...stains, mk_target: 'Wet' })).toBe('coverage')
+    expect(def('mk_smooth').showIf!({ ...sources, mk_op: 'smooth-union' })).toBe(true)
+    expect(def('mk_smooth').showIf!({ ...sources, mk_op: 'union' })).toBe(false)
   })
 
   it('takes an old Sources head size as the blister radius', () => {

@@ -25,12 +25,13 @@ doesn't.)
   Vite / Vitest and `vue-tsc` accept it, so tests and typechecks stay green while every `tsx` tool crashes on
   import. Parenthesise the operand — `1 << (out[i])` (see `src/layers/generators/traceLinks.ts`) — or don't name
   the variable `out`. (`i < out.length` and other single `<` are fine.)
-- **"Shape Mask" in the UI is the shape *register* in code.** The running signed-distance shape that shape layers
-  write and later layers clip to: `S.a` / `prevReg` in the material shaders, params `sm_on` (write toggle),
-  `sdf_op` (mode: Normal = `replace`, Union, Subtract, Intersection, smooth variants — the option index + 1 is the
-  `sdfCombine` op, so keep their order), `sdf_k`, and `m_clip` (*Clip to shape mask*). Old projects with
-  `sdf_op: 'none'` migrate to `sm_on: false` (`migrateParams` in `src/layers/registry.ts`). The four numbered
-  *named masks* (`mk_*` params, `tMasks`) are a separate feature (docs/features/fr8.13-named-masks.md).
+- **Masks are named and follow the stack** (docs/features/fr8.23-masks.md). A layer writes one (*Write to*:
+  `mk_target`, '' = none; shape layers default to `Shape`) with `mk_op` (Normal = `replace`, Union, Subtract,
+  Intersection, smooth variants — the option index + 1 is the `sdfCombine` op, so keep their order) and `mk_smooth`,
+  and is limited by *Limit to* (`lim_1`…`lim_4`, `lim_op2`…, `lim_out`). Masks reach only the layers after their
+  writer. Each mask texel is (distance, the feature's random `GenOut.fid`, feature flag); in shaders `maskIn()` is the
+  mask before the layer (its target's, or Shape), `maskOp()` how its shape combines, `limitAt()` its limit. Which
+  versions get a slot texture is planned per evaluation (`planMasks` in `src/layers/masks.ts`).
 - **Pixel units and supersampling.** Supersampling renders the stack at k× and scales params by their declared
   unit (`src/core/supersample.ts`): lengths need `unit: 'px'` (× k), and a count per pixel area (features per N×N
   px) needs `perArea: true` (÷ k²) — otherwise raising the supersampling changes the texture (Scratches gained k² ×
@@ -39,8 +40,8 @@ doesn't.)
   instance); Height's *Per-feature variation* hashes it with `fract(rnd · 61.37)`. A generator without features that
   passes a continuous value as `rnd` (smooth noise, clouds) must use `genOutSmooth`, which switches that variation
   off — with `genOut` the hash turns into dozens of terraces along the pattern's contours.
-- **The shape mask is read at a distance, not only by its sign.** Bevel and Etch on the shape mask read the
-  register's distance out to their width, so an SDF generator's distance must stay exact (at least continuous) past
+- **A mask is read at a distance, not only by its sign.** Bevel and Etch on a mask only shapes wrote read its
+  distance out to their width, so an SDF generator's distance must stay exact (at least continuous) past
   its edge. A shortcut such as "far instances return their bounding circle's `r − bound`" jumps below the true
   distance where it kicks in and draws a ring there; prune against the nearest distance found so far instead
   (`MOT_REPEAT` in `motifRadial.ts`). Grids of separate objects take `spacingParams()` (Column / Row spacing) and lay

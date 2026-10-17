@@ -56,27 +56,27 @@ export const grate: RecipeDef = {
     const hole = String(m.hole ?? '#050505')
     const metal = m.metal ?? gradient('#2c2a28', '#4a4846')
     const frameCol = m.frame_colour ?? gradient('#55524e', '#7c7975')
-    const bolt = { radius: 1.2, x: r2(Math.min(0.45, (frame / 2 + 0.5) / (ctx.width / 2))), y: r2(Math.min(0.45, (frame / 2 + 0.5) / (ctx.height / 2))), rep_x: 2, rep_y: 2, rep_mirror: true, aa: false, sm_on: false, seed: seed + 5 }
+    const bolt = { radius: 1.2, x: r2(Math.min(0.45, (frame / 2 + 0.5) / (ctx.width / 2))), y: r2(Math.min(0.45, (frame / 2 + 0.5) / (ctx.height / 2))), rep_x: 2, rep_y: 2, rep_mirror: true, aa: false, mk_target: '', seed: seed + 5 }
     const tabs = Math.max(0, Math.round(num(m.tabs, 0)))
     const tab = { shape: m.tab_shape ?? 'trapezoid', place: 'border', edges: horiz ? 'sides' : 'ends', distribute: 'count', count: Math.max(1, tabs), length: num(m.tab_length, 8), depth: num(m.tab_depth, 4), cut: 1, thickness: 1.5, inset: 0, aa: false, seed: seed + 7 }
     // The openings are painted black only in a core one pixel in, so the slot walls keep the metal colour and show the
     // light: lit on the walls facing it (bottom / right under a top-left light), dark on the others.
     const core = { ...v, width: r2(Math.max(0.5, num(m.width, 3) - 1)), length: r2(Math.max(0.5, Number(v.length) - 1)) }
     const out: RecipeLayer[] = [
-      { role: 'frame', stack: 'relief', layer: L('vents', 'Frame', { ...v, output: 'frame', bevel: 0.75, profile: 'linear', sm_on: false, h_on: true, h_amount: 0.25, dif_on: false, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.35, s_b: 0.35 }, frame > 0) },
-      { role: 'seam', stack: 'relief', layer: L('bricks', 'Border seam', { ...BRICKS_REGULAR, columns: 1, rows: 1, stagger: 0, mortar: 1, round: 0, aa: false, seed: seed + 6, bevel: 0.75, profile: 'linear', sm_on: false, h_on: true, h_amount: 0.2, dif_on: false }, frame > 0 && m.seam !== false) },
-      { role: 'tabs', stack: 'relief', layer: L('tabs', 'Edge tabs', { ...tab, bevel: 0.5, profile: 'linear', sm_on: false, h_on: true, h_mode: 'subtract', h_amount: 0.2, dif_on: false }, tabs > 0 && frame > 0) },
-      { role: 'slots', stack: 'relief', layer: L('vents', 'Slot walls', { ...v, output: 'slots', bevel: 1, profile: 'linear', sdf_op: 'replace', h_on: true, h_mode: 'subtract', h_amount: 0.35, dif_on: false }) },
+      { role: 'frame', stack: 'relief', layer: L('vents', 'Frame', { ...v, output: 'frame', bevel: 0.75, profile: 'linear', mk_target: '', h_on: true, h_amount: 0.25, dif_on: false, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.35, s_b: 0.35 }, frame > 0) },
+      { role: 'seam', stack: 'relief', layer: L('bricks', 'Border seam', { ...BRICKS_REGULAR, columns: 1, rows: 1, stagger: 0, mortar: 1, round: 0, aa: false, seed: seed + 6, bevel: 0.75, profile: 'linear', mk_target: '', h_on: true, h_amount: 0.2, dif_on: false }, frame > 0 && m.seam !== false) },
+      { role: 'tabs', stack: 'relief', layer: L('tabs', 'Edge tabs', { ...tab, bevel: 0.5, profile: 'linear', mk_target: '', h_on: true, h_mode: 'subtract', h_amount: 0.2, dif_on: false }, tabs > 0 && frame > 0) },
+      { role: 'slots', stack: 'relief', layer: L('vents', 'Slot walls', { ...v, output: 'slots', bevel: 1, profile: 'linear', mk_op: 'replace', h_on: true, h_mode: 'subtract', h_amount: 0.35, dif_on: false }) },
       { role: 'bolts', stack: 'relief', layer: L('ellipse', 'Bolts', { ...bolt, bevel: 1, profile: 'round', h_on: true, h_amount: 0.2, dif_on: false }, m.bolts === true && frame > 0) },
       // Fine grain, not blotches (a colour fit stretches broad mottle into patches).
       { role: 'plate', stack: 'paint', layer: L('noise', 'Plate', { noise: 'value', fractal: 'fbm', scale: across(ctx, 2.5), octaves: 2, seed: seed + 1, sh_lo: 0.15, sh_hi: 0.85, h_on: false, dif_on: true, dif_grad: metal }) },
-      { role: 'frame-colour', stack: 'paint', layer: L('vents', 'Frame colour', { ...v, output: 'frame', bevel: 0, profile: 'flat', sm_on: false, h_on: false, dif_on: true, dif_src: 'value', dif_grad: frameCol }, frame > 0) },
-      { role: 'tab-colour', stack: 'paint', layer: L('tabs', 'Tab shade', { ...tab, sm_on: false, h_on: false, dif_on: true, dif_src: 'flat', dif_blend: 'multiply', dif_opacity: 0.6, dif_grad: gradient('#6a6a6a') }, tabs > 0 && frame > 0) },
+      { role: 'frame-colour', stack: 'paint', layer: L('vents', 'Frame colour', { ...v, output: 'frame', bevel: 0, profile: 'flat', mk_target: '', h_on: false, dif_on: true, dif_src: 'value', dif_grad: frameCol }, frame > 0) },
+      { role: 'tab-colour', stack: 'paint', layer: L('tabs', 'Tab shade', { ...tab, mk_target: '', h_on: false, dif_on: true, dif_src: 'flat', dif_blend: 'multiply', dif_opacity: 0.6, dif_grad: gradient('#6a6a6a') }, tabs > 0 && frame > 0) },
       { role: 'bolt-colour', stack: 'paint', layer: L('ellipse', 'Bolt colour', { ...bolt, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient('#8a8784') }, m.bolts === true && frame > 0) },
       { role: 'speckle', stack: 'paint', layer: L('noise', 'Speckle', { noise: 'white', seed: seed + 2, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.12, dif_grad: gradient('#000000', '#ffffff') }) },
       { role: 'grime', stack: 'paint', layer: L('cavity', 'Dirt', { radius: 1.5, threshold: 0.05, sensitivity: 0.8, wear_amount: 0.15, wear_color: '#9a9690', dirt_amount: r2(num(m.dirt, 0.4)), dirt_color: '#0c0b0a', noise_scale: 8 }) },
       // Last, so the openings stay black whatever the grime does around them.
-      { role: 'holes', stack: 'paint', layer: L('vents', 'Openings', { ...core, output: 'slots', bevel: 0, profile: 'flat', sm_on: false, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(hole) }) },
+      { role: 'holes', stack: 'paint', layer: L('vents', 'Openings', { ...core, output: 'slots', bevel: 0, profile: 'flat', mk_target: '', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(hole) }) },
     ]
     return out
   },
@@ -118,12 +118,12 @@ export const metalPlate: RecipeDef = {
     const seams = Math.max(0, Math.round(num(m.seams, 0)))
     const rivets = String(m.rivets ?? 'none')
     const rn = rivets === 'grid' ? Math.max(1, Math.round(num(m.rivet_count, 4))) : 2
-    const riv = { radius: 1.1, x: rivets === 'grid' ? 0.5 : 0.12, y: rivets === 'grid' ? 0.5 : 0.12, rep_x: rn * Math.max(1, seams), rep_y: rivets === 'grid' ? Math.max(1, Math.round((rn * ctx.height) / ctx.width)) : 2, rep_mirror: rivets !== 'grid', aa: false, sm_on: false, seed: seed + 6 }
+    const riv = { radius: 1.1, x: rivets === 'grid' ? 0.5 : 0.12, y: rivets === 'grid' ? 0.5 : 0.12, rep_x: rn * Math.max(1, seams), rep_y: rivets === 'grid' ? Math.max(1, Math.round((rn * ctx.height) / ctx.width)) : 2, rep_mirror: rivets !== 'grid', aa: false, mk_target: '', seed: seed + 6 }
     // Each tread style brings its own arrangement and proportions (the treadplate's style-linked defaults).
     const tp = { style: tread === 'none' ? 'lozenge' : tread, count_x: tc, count_y: Math.max(1, Math.round((tc * ctx.height) / ctx.width)), aa: false, seed: seed + 7 }
     const out: RecipeLayer[] = [
-      { role: 'seams', stack: 'relief', layer: L('bricks', 'Plates', { ...BRICKS_REGULAR, columns: Math.max(1, seams), rows: 1, stagger: 0, mortar: 1, round: 0, aa: false, seed: seed + 8, bevel: 1, profile: 'custom', bevel_curve: crisp(), sdf_op: 'replace', h_on: true, h_amount: 0.25, dif_on: false }, seams > 0) },
-      { role: 'tread', stack: 'relief', layer: L('treadplate', 'Tread', { ...tp, bevel: 0.75, profile: 'linear', sm_on: false, h_on: true, h_amount: 0.22, dif_on: false, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.25, s_b: 0.25 }, tread !== 'none') },
+      { role: 'seams', stack: 'relief', layer: L('bricks', 'Plates', { ...BRICKS_REGULAR, columns: Math.max(1, seams), rows: 1, stagger: 0, mortar: 1, round: 0, aa: false, seed: seed + 8, bevel: 1, profile: 'custom', bevel_curve: crisp(), mk_op: 'replace', h_on: true, h_amount: 0.25, dif_on: false }, seams > 0) },
+      { role: 'tread', stack: 'relief', layer: L('treadplate', 'Tread', { ...tp, bevel: 0.75, profile: 'linear', mk_target: '', h_on: true, h_amount: 0.22, dif_on: false, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.25, s_b: 0.25 }, tread !== 'none') },
       { role: 'rivets', stack: 'relief', layer: L('ellipse', 'Rivets', { ...riv, bevel: 1, profile: 'round', h_on: true, h_amount: 0.2, dif_on: false }, rivets !== 'none') },
       { role: 'dents', stack: 'relief', layer: L('noise', 'Dents', { noise: 'perlin', fractal: 'fbm', scale: across(ctx, 12), octaves: 2, seed: seed + 9, h_on: true, h_amount: 0.06, dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'value', s_a: 0.3, s_b: 1 }) },
       { role: 'metal', stack: 'paint', layer: L('noise', 'Metal', { noise: 'value', fractal: 'fbm', scale: across(ctx, num(m.grain, 3) * 3), octaves: 4, seed: seed + 1, sh_lo: r2(0.5 - 0.5 * mot), sh_hi: r2(0.5 + 0.5 * mot), h_on: false, dif_on: true, dif_grad: metal }) },
@@ -131,7 +131,7 @@ export const metalPlate: RecipeDef = {
         role: 'rust', stack: 'paint',
         layer: L('noise', 'Rust', { noise: 'perlin', fractal: 'fbm', scale: across(ctx, 14), octaves: 4, seed: seed + 2, sh_cut: r2(lerp(0.85, 0.45, rust)), sh_cut_soft: 0.12, h_on: false, dif_on: true, dif_opacity: 0.85, dif_grad: rustRamp(String(m.rust_colour ?? '#5a3418')) }, rust > 0),
       },
-      { role: 'tread-colour', stack: 'paint', layer: L('treadplate', 'Tread highlights', { ...tp, bevel: 1, profile: 'linear', crown: 0, crest: 0, sm_on: false, h_on: false, r_on: false, s_on: false, dif_on: true, dif_blend: 'screen', dif_opacity: 0.55, dif_src: 'value', dif_grad: gradient('#000000', '#7a6a58') }, tread !== 'none') },
+      { role: 'tread-colour', stack: 'paint', layer: L('treadplate', 'Tread highlights', { ...tp, bevel: 1, profile: 'linear', crown: 0, crest: 0, mk_target: '', h_on: false, r_on: false, s_on: false, dif_on: true, dif_blend: 'screen', dif_opacity: 0.55, dif_src: 'value', dif_grad: gradient('#000000', '#7a6a58') }, tread !== 'none') },
       {
         role: 'scratches', stack: 'paint',
         layer: L('scratches', 'Scratches', { density: r2(4 + 30 * num(m.scratches, 0.2)), len_min: 3, len_max: 12, thickness: 1, taper: 0.6, angle: 15, angle_jitter: 50, fade: 0.6, hard: true, seed: seed + 3, h_on: false, dif_on: true, dif_blend: 'screen', dif_opacity: 0.45, dif_grad: gradient('#000000', '#6a625a') }, num(m.scratches, 0.2) > 0),
@@ -191,14 +191,14 @@ export const lightPanel: RecipeDef = {
     const glowGrad = (m.glow ?? gradient('#9a5a08', '#f8e070')) as Gradient
     const glow = { dif_on: true, dif_src: 'value', dif_grad: glowGrad, e_on: num(m.intensity, 0.35) > 0, e_src: 'value', e_color: glowGrad.stops.at(-1)?.color ?? '#f8e070', e_intensity: r2(num(m.intensity, 0.35)) }
     const out: RecipeLayer[] = [
-      { role: 'housing', stack: 'relief', layer: L('rect', 'Housings', { ...house, bevel: 1, profile: 'linear', sm_on: false, h_on: true, h_mode: 'subtract', h_amount: 0.2, dif_on: false }) },
+      { role: 'housing', stack: 'relief', layer: L('rect', 'Housings', { ...house, bevel: 1, profile: 'linear', mk_target: '', h_on: true, h_mode: 'subtract', h_amount: 0.2, dif_on: false }) },
     ]
-    for (let i = 0; i < 4; i++) out.push({ role: `tube-${i}`, stack: 'relief', layer: L('rect', `Tube ${i + 1}`, { ...tubeAt(i), bevel: r2(tube / 2), profile: 'round', sm_on: false, h_on: true, h_amount: 0.15, dif_on: false }, i < k) })
+    for (let i = 0; i < 4; i++) out.push({ role: `tube-${i}`, stack: 'relief', layer: L('rect', `Tube ${i + 1}`, { ...tubeAt(i), bevel: r2(tube / 2), profile: 'round', mk_target: '', h_on: true, h_amount: 0.15, dif_on: false }, i < k) })
     out.push(
       { role: 'panel', stack: 'paint', layer: L('noise', 'Panel', { noise: 'value', fractal: 'fbm', scale: across(ctx, 6), octaves: 3, seed: seed + 3, h_on: false, dif_on: true, dif_grad: m.panel ?? gradient('#141210', '#2c2620') }) },
-      { role: 'housing-colour', stack: 'paint', layer: L('rect', 'Housing colour', { ...house, sm_on: false, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(String(m.housing ?? '#060504')) }) },
+      { role: 'housing-colour', stack: 'paint', layer: L('rect', 'Housing colour', { ...house, mk_target: '', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(String(m.housing ?? '#060504')) }) },
     )
-    for (let i = 0; i < 4; i++) out.push({ role: `tube-colour-${i}`, stack: 'paint', layer: L('rect', `Tube ${i + 1} glow`, { ...tubeAt(i), bevel: r2(tube / 2), profile: 'round', sm_on: false, h_on: false, ...glow }, i < k) })
+    for (let i = 0; i < 4; i++) out.push({ role: `tube-colour-${i}`, stack: 'paint', layer: L('rect', `Tube ${i + 1} glow`, { ...tubeAt(i), bevel: r2(tube / 2), profile: 'round', mk_target: '', h_on: false, ...glow }, i < k) })
     out.push({ role: 'speckle', stack: 'paint', layer: L('noise', 'Speckle', { noise: 'white', seed: seed + 4, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.12, dif_grad: gradient('#000000', '#ffffff') }) })
     return out
   },
@@ -245,9 +245,9 @@ export const circuit: RecipeDef = {
     }
     const trace = String(m.trace ?? '#e020e0')
     return [
-      { role: 'relief', stack: 'relief', layer: L('traces', 'Trace relief', { ...tr, bevel: 0.5, profile: 'linear', sdf_op: 'replace', h_on: true, h_amount: 0.12, dif_on: false, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.4, s_b: 0.4 }) },
+      { role: 'relief', stack: 'relief', layer: L('traces', 'Trace relief', { ...tr, bevel: 0.5, profile: 'linear', mk_op: 'replace', h_on: true, h_amount: 0.12, dif_on: false, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.4, s_b: 0.4 }) },
       { role: 'board', stack: 'paint', layer: L('noise', 'Board', { noise: 'value', fractal: 'fbm', scale: across(ctx, 3), octaves: 2, seed: seed + 1, h_on: false, dif_on: true, dif_grad: m.board ?? gradient('#120612', '#240e24') }) },
-      { role: 'traces', stack: 'paint', layer: L('traces', 'Traces', { ...tr, sm_on: false, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(trace), e_on: num(m.glow, 0.3) > 0, e_src: 'flat', e_color: trace, e_intensity: r2(num(m.glow, 0.3)) }) },
+      { role: 'traces', stack: 'paint', layer: L('traces', 'Traces', { ...tr, mk_target: '', h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(trace), e_on: num(m.glow, 0.3) > 0, e_src: 'flat', e_color: trace, e_intensity: r2(num(m.glow, 0.3)) }) },
       { role: 'speckle', stack: 'paint', layer: L('noise', 'Speckle', { noise: 'white', seed: seed + 2, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.1, dif_grad: gradient('#000000', '#ffffff') }) },
     ]
   },

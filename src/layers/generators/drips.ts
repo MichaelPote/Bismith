@@ -231,8 +231,6 @@ void main() {
 
 export const dripsLayer: LayerDef = {
   type: 'drips',
-  // Relief-driven drips read the heights below: a mask they write is written in place.
-  readsState: true,
   label: 'Drips',
   category: 'pattern',
   kind: 'generator',

@@ -37,8 +37,8 @@ describe('stone blocks', () => {
     }
   })
 
-  it('puts only the relief’s stones in the Shape Mask', () => {
-    // (The shape mask's writers and the Shape card follow sdfShowIf; the masks return no distance in the shader.)
+  it('puts only the relief’s stones in the Shape mask', () => {
+    // (A shape write and the Edge card follow sdfShowIf; the other outputs return no distance in the shader.)
     const def = stoneBlocksLayer
     expect(def.sdfShowIf!({ output: 'relief' })).toBe(true)
     for (const output of ['joints', 'scars', 'gaps']) expect(def.sdfShowIf!({ output }), output).toBe(false)

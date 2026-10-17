@@ -699,15 +699,15 @@ export const scratchesLayer: LayerDef = {
     P.float('mask_min', 'Mask strength', 0, 0, 1, {
       step: 0.001,
       group: 'mask',
-      section: 'Shape mask',
-      showIf: (p) => p.sm_on === true,
-      hint: 'Only scratches at least this strong (Strength jitter) go to the shape mask: faint scuffs left out of what later layers clip to (rust in the deep cuts only)',
+      section: 'Write to',
+      showIf: (p) => String(p.mk_target ?? '').trim() !== '',
+      hint: 'Only scratches at least this strong (Strength jitter) go to the mask: faint scuffs left out of what later layers are limited to (rust in the deep cuts only)',
     }),
     P.bool('hard', 'Hard edges', false, { hint: 'No anti-aliasing (pixel art)' }),
     P.seed(),
   ],
-  // The scratches' outline (a signed distance to the nearest one) goes to the Shape Mask when it's ticked: later layers
-  // clip to the scratches (rust in them) or, in Subtract mode, to what's around them (paint that skips them).
+  // The scratches' outline (a signed distance to the nearest one) goes to a mask when given one: later layers are limited
+  // to the scratches (rust in them) or, in Subtract mode, to what's around them (paint that skips them).
   sdf: 'mask',
   // Added in the editor: lengths, density and widths sized to the texture (the plain defaults suit about 128 px).
   fresh: ({ width, height }) => {
@@ -719,7 +719,7 @@ export const scratchesLayer: LayerDef = {
     }
   },
   defaults: {
-    sm_on: false,
+    mk_target: '',
     dif_on: true,
     dif_opacity: 0.8,
     dif_grad: gradient('#8f8a82', '#d9d4cb'),
@@ -901,7 +901,7 @@ GenOut gen(vec2 p) {
   // scratch's cut.
   float hval = cov > 0.0 ? clamp(hv / cov, 0.0, 1.0) : 0.0;
   float height = u_burr > 0.0 || u_heap > 0.0 ? hv - lip * (1.0 - cov) : NO_SDF;
-  return GenOut(val, cov, rnd, sd, 1.0, height, 0, hval, NO_SDF);
+  return GenOut(val, cov, rnd, sd, 1.0, height, 0, hval, NO_SDF, rnd);
 }
 `,
 }

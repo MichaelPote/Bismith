@@ -104,7 +104,7 @@ export const ventsLayer: LayerDef = {
     { id: 'frame', label: 'Frame' },
     { id: 'wear', label: 'Wear' },
   ],
-  writesMask: (p) => (p.output ?? 'relief') !== 'relief' || (p.mask ?? 'plate') !== 'none',
+  maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'plate') !== 'none' ? 'shape' : false),
   defaults: {
     h_on: true,
     h_amount: 1,
@@ -447,7 +447,7 @@ export const pipesLayer: LayerDef = {
     { id: 'joints', label: 'Joints' },
     { id: 'clamps', label: 'Clamps' },
   ],
-  writesMask: (p) => (p.output ?? 'relief') !== 'relief' || (p.mask ?? 'all') !== 'none',
+  maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'all') !== 'none' ? 'shape' : false),
   defaults: {
     h_on: true,
     h_amount: 0.5,

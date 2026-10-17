@@ -4,6 +4,7 @@ import { P, type ParamValues } from '@/core/params'
 import { L, ON_FACES, across, clamp, gradient, num, r2, shade, streaks } from './parts'
 import type { RecipeDef, RecipeLayer } from './types'
 import { BRICKS_REGULAR } from '@/layers/generators/patterns'
+import { SHAPE_MASK, limitTo } from '@/layers/masks'
 
 export const concrete: RecipeDef = {
   id: 'concrete',
@@ -66,13 +67,13 @@ export const concrete: RecipeDef = {
     const shape = { ...BRICKS_REGULAR, columns: Math.max(1, px), rows: py, stagger: 0, mortar: num(m.seam, 1), round: 0.5, aa: false, seed: seed + 3 }
     // Two repeat cells per panel, mirrored: the inset (fraction of the panel) is twice that of a cell.
     const inset = num(m.bolt_inset, 0.22)
-    const bolt = { radius: num(m.bolt_size, 1.1), x: r2(2 * inset), y: r2(2 * inset * Math.min(1, pw / ph)), rep_x: Math.max(1, px) * 2, rep_y: py * 2, rep_mirror: true, aa: false, sm_on: false, seed: seed + 4 }
+    const bolt = { radius: num(m.bolt_size, 1.1), x: r2(2 * inset), y: r2(2 * inset * Math.min(1, pw / ph)), rep_x: Math.max(1, px) * 2, rep_y: py * 2, rep_mirror: true, aa: false, mk_target: '', seed: seed + 4 }
     const bolts = m.bolts === true
     const out: RecipeLayer[] = [
       {
         role: 'panels', stack: 'relief',
         // Two levels: the face, a 1 px step lit along the top / left, the thin seam below.
-        layer: L('bricks', 'Panels', { ...shape, bevel: r2(clamp(0.5 + num(m.bevel, 0.5), 0.5, Math.min(pw, ph) / 4)), profile: 'linear', sdf_op: 'replace', h_on: true, h_amount: 0.4, dif_on: false }, panels),
+        layer: L('bricks', 'Panels', { ...shape, bevel: r2(clamp(0.5 + num(m.bevel, 0.5), 0.5, Math.min(pw, ph) / 4)), profile: 'linear', mk_op: 'replace', h_on: true, h_amount: 0.4, dif_on: false }, panels),
       },
       { role: 'lumps', stack: 'relief', layer: L('noise', 'Lumps', { ...mottle, octaves: 3, h_on: true, h_amount: r2(0.25 * num(m.rough, 0.25)), dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'value', s_a: 0.3, s_b: 1 }, num(m.rough, 0.25) > 0) },
       { role: 'smear-relief', stack: 'relief', layer: L('noise', 'Smear relief', { ...smear, h_on: true, h_mode: 'subtract', h_amount: r2(0.15 * smudge), dif_on: false }, smudge > 0) },
@@ -90,13 +91,13 @@ export const concrete: RecipeDef = {
         layer: L('noise', 'Streaks', { noise: 'value', fractal: 'fbm', ...streaks(ctx, true, ctx.height * 0.5, 2), octaves: 2, seed: seed + 7, sh_lo: 0.35, sh_hi: 0.75, h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: r2(streak), dif_grad: gradient('#ffffff', '#6a6a6a') }, streak > 0),
       },
       { role: 'speckle', stack: 'paint', layer: L('noise', 'Speckle', { noise: 'white', seed: seed + 8, h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: r2(num(m.speckle, 0.05)), dif_grad: gradient('#000000', '#ffffff') }, num(m.speckle, 0.05) > 0) },
-      { role: 'seams', stack: 'paint', layer: L('noise', 'Seams', { noise: 'white', seed: seed + 9, m_clip: 'outside', h_on: false, dif_on: true, dif_grad: shade(dark, 0.7) }, panels) },
+      { role: 'seams', stack: 'paint', layer: L('noise', 'Seams', { noise: 'white', seed: seed + 9, ...limitTo(SHAPE_MASK, { outside: true }), h_on: false, dif_on: true, dif_grad: shade(dark, 0.7) }, panels) },
       // Dark core only — the lit lower lip stays the concrete colour.
       { role: 'bolt-paint', stack: 'paint', layer: L('ellipse', 'Bolt hole colour', { ...bolt, radius: r2(num(m.bolt_size, 1.1) * 0.7), h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient(dark) }, bolts) },
       {
         role: 'halo', stack: 'paint',
         // A ring that starts a pixel in: the lit edge stays bright, the band behind it darkens.
-        layer: L('bricks', 'Edge halo', { ...shape, bevel: num(m.halo_width, 3), profile: 'custom', bevel_curve: { points: [{ x: 0, y: 1 }, { x: 0.3, y: 0 }, { x: 1, y: 1 }] }, sm_on: false, h_on: false, dif_on: true, dif_src: 'value', dif_blend: 'multiply', dif_opacity: r2(num(m.halo, 0.4)), dif_grad: gradient('#707070', '#ffffff') }, panels && num(m.halo, 0.4) > 0),
+        layer: L('bricks', 'Edge halo', { ...shape, bevel: num(m.halo_width, 3), profile: 'custom', bevel_curve: { points: [{ x: 0, y: 1 }, { x: 0.3, y: 0 }, { x: 1, y: 1 }] }, mk_target: '', h_on: false, dif_on: true, dif_src: 'value', dif_blend: 'multiply', dif_opacity: r2(num(m.halo, 0.4)), dif_grad: gradient('#707070', '#ffffff') }, panels && num(m.halo, 0.4) > 0),
       },
       {
         role: 'stains', stack: 'paint',
@@ -125,13 +126,13 @@ function formwork(m: Record<string, unknown>, ctx: { width: number; height: numb
   const ties = String(m.ties ?? 'none')
   const tsz = num(m.tie_size, 1.5)
   const sheet = { ...BRICKS_REGULAR, columns: nx, rows: ny, stagger: 0, mortar: 0, round: 0, aa: false, seed: seed + 20 }
-  const tie = { radius: tsz, x: 0.5, y: 0.5, rep_x: nx * Math.max(1, Math.round(num(m.ties_x, 2))), rep_y: ny * Math.max(1, Math.round(num(m.ties_y, 2))), aa: false, sm_on: false, seed: seed + 21 }
+  const tie = { radius: tsz, x: 0.5, y: 0.5, rep_x: nx * Math.max(1, Math.round(num(m.ties_x, 2))), rep_y: ny * Math.max(1, Math.round(num(m.ties_y, 2))), aa: false, mk_target: '', seed: seed + 21 }
   const seamShape: { type: string; p: ParamValues } = boards
     ? { type: 'stripes', p: { mode: 'shape', count: nx, angle: 90, duty: r2(Math.min(0.5, 1 / (ctx.width / nx))), offset: 0, aa: false, seed: seed + 22 } }
     : { type: 'grid', p: { count_x: nx, count_y: ny, width: 1, aa: false, seed: seed + 22 } }
   const tieOn = on && ties !== 'none'
   return [
-    { role: 'form-seams', stack: 'relief', layer: L(seamShape.type, 'Formwork seams', { ...seamShape.p, bevel: 0.5, profile: 'linear', sm_on: false, h_on: true, h_mode: 'subtract', h_amount: r2(0.12 * seams), dif_on: false }, on && seams > 0) },
+    { role: 'form-seams', stack: 'relief', layer: L(seamShape.type, 'Formwork seams', { ...seamShape.p, bevel: 0.5, profile: 'linear', mk_target: '', h_on: true, h_mode: 'subtract', h_amount: r2(0.12 * seams), dif_on: false }, on && seams > 0) },
     {
       role: 'ties', stack: 'relief',
       layer: L('ellipse', 'Tie holes', {
@@ -140,12 +141,12 @@ function formwork(m: Record<string, unknown>, ctx: { width: number; height: numb
       }, tieOn),
     },
     { role: 'tie-groove', stack: 'relief', layer: L('ellipse', 'Plug groove', { ...tie, radius: r2(tsz + 0.5), outline: 0.75, bevel: 0.5, profile: 'linear', h_on: true, h_mode: 'subtract', h_amount: 0.15, dif_on: false }, tieOn && ties === 'plugged') },
-    { role: 'form-tone', stack: 'paint', layer: L('bricks', 'Sheet tone', { ...sheet, bevel: 0, profile: 'flat', sm_on: false, h_on: false, dif_on: true, dif_src: 'random', dif_blend: 'multiply', dif_opacity: r2(tone), dif_grad: gradient('#9a9a9a', '#ffffff') }, on && tone > 0) },
+    { role: 'form-tone', stack: 'paint', layer: L('bricks', 'Sheet tone', { ...sheet, bevel: 0, profile: 'flat', mk_target: '', h_on: false, dif_on: true, dif_src: 'random', dif_blend: 'multiply', dif_opacity: r2(tone), dif_grad: gradient('#9a9a9a', '#ffffff') }, on && tone > 0) },
     {
       role: 'form-grain', stack: 'paint',
       layer: L('noise', 'Board grain', { noise: 'value', fractal: 'fbm', ...streaks(ctx, true, ctx.height * 0.4, 2), octaves: 2, seed: seed + 23, sh_lo: 0.3, sh_hi: 0.7, h_on: false, dif_on: true, dif_blend: 'multiply', dif_opacity: r2(0.6 * num(m.form_grain, 0.3)), dif_grad: gradient('#8a8a8a', '#ffffff') }, boards && num(m.form_grain, 0.3) > 0),
     },
-    { role: 'seam-colour', stack: 'paint', layer: L(seamShape.type, 'Seam colour', { ...seamShape.p, sm_on: false, h_on: false, dif_on: true, dif_src: 'flat', dif_blend: 'multiply', dif_opacity: r2(0.6 * seams), dif_grad: gradient('#707070') }, on && seams > 0) },
+    { role: 'seam-colour', stack: 'paint', layer: L(seamShape.type, 'Seam colour', { ...seamShape.p, mk_target: '', h_on: false, dif_on: true, dif_src: 'flat', dif_blend: 'multiply', dif_opacity: r2(0.6 * seams), dif_grad: gradient('#707070') }, on && seams > 0) },
     {
       role: 'tie-colour', stack: 'paint',
       layer: L('ellipse', 'Tie hole colour', { ...tie, radius: ties === 'plugged' ? tsz : r2(tsz * 0.7), h_on: false, dif_on: true, dif_src: 'flat', dif_blend: ties === 'plugged' ? 'multiply' : 'normal', dif_grad: gradient(ties === 'plugged' ? '#c8c8c8' : dark) }, tieOn),

@@ -9,6 +9,7 @@ import { addMaterial } from '@/recipes'
 import { TEMPLATES } from '@/match/templates'
 import { schemeAnalysis } from '@/match/schemes'
 import { PRESET_PREVIEWS } from './previews'
+import { SHAPE_MASK, limitTo } from '@/layers/masks'
 
 export interface Preset {
   id: string
@@ -78,11 +79,11 @@ function stoneBricks(): Project {
         dif_on: true, dif_src: 'random', dif_grad: ramp('#4f463d', '#6e6152', '#857561'), dif_jitter: 0.25,
       }),
       L('noise', 'Stone grain', {
-        noise: 'perlin', fractal: 'fbm', scale: 8, octaves: 4, m_clip: 'inside',
+        noise: 'perlin', fractal: 'fbm', scale: 8, octaves: 4, ...limitTo(SHAPE_MASK),
         h_on: true, h_amount: 0.25, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.55, dif_grad: ramp('#000000', '#ffffff'),
       }),
       L('noise', 'Pits', {
-        noise: 'cells', fractal: 'none', w_even: false, w_profile: 'linear', scale: 10, sh_lo: 0.0, sh_hi: 0.25, sh_invert: true, m_clip: 'inside',
+        noise: 'cells', fractal: 'none', w_even: false, w_profile: 'linear', scale: 10, sh_lo: 0.0, sh_hi: 0.25, sh_invert: true, ...limitTo(SHAPE_MASK),
         h_on: true, h_mode: 'subtract', h_amount: 0.25, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.4, dif_grad: ramp('#ffffff', '#5a4a3a'),
       }),
       L('cavity', 'Grime & wear', { radius: 2.5, wear_amount: 0.4, wear_color: '#a89780', dirt_amount: 0.8, dirt_color: '#120e0b', noise_scale: 8 }),
@@ -113,7 +114,7 @@ function cobbles(): Project {
         r_on: true, r_src: 'random', r_a: 0.55, r_b: 0.8,
       }),
       L('noise', 'Grain', {
-        noise: 'perlin', fractal: 'fbm', scale: 10, octaves: 3, m_clip: 'inside',
+        noise: 'perlin', fractal: 'fbm', scale: 10, octaves: 3, ...limitTo(SHAPE_MASK),
         h_on: true, h_amount: 0.15, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.45, dif_grad: ramp('#000000', '#ffffff'),
       }),
       L('noise', 'Moss', {
@@ -187,7 +188,7 @@ function techPanel(): Project {
         h_on: true, h_mode: 'subtract', h_amount: 0.5, dif_on: true, dif_src: 'flat', dif_grad: ramp('#202326'),
       }),
       L('stripes', 'Vent slats', {
-        count: 16, angle: 0, duty: 0.5, m_clip: 'inside', bevel: 0.5, aa: false,
+        count: 16, angle: 0, duty: 0.5, ...limitTo(SHAPE_MASK), bevel: 0.5, aa: false,
         h_on: true, h_mode: 'add', h_amount: 0.35, dif_on: true, dif_src: 'value', dif_grad: ramp('#202326', '#4a4e53'),
       }),
       L('rect', 'Light strip', {
@@ -235,11 +236,11 @@ function forgedButton(): Project {
         h_on: true, h_mode: 'max', h_amount: 1, dif_on: true, dif_grad: ramp('#24282c', '#3a4046'), r_on: true, r_src: 'flat', r_b: 0.45,
       }),
       L('noise', 'Face grain', {
-        noise: 'value', fractal: 'fbm', scale: 24, stretch: 6, octaves: 3, m_clip: 'inside',
+        noise: 'value', fractal: 'fbm', scale: 24, stretch: 6, octaves: 3, ...limitTo(SHAPE_MASK),
         h_on: true, h_amount: 0.02, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.15, dif_grad: ramp('#000000', '#ffffff'),
       }),
       L('rect', 'Underlight', {
-        size_mode: 'size', width: 110, height: 3, y: 0.78, radius: 1.5, bevel: 1, profile: 'round', sm_on: false,
+        size_mode: 'size', width: 110, height: 3, y: 0.78, radius: 1.5, bevel: 1, profile: 'round', mk_target: '',
         h_on: true, h_amount: 0.12, dif_on: true, dif_src: 'flat', dif_grad: ramp('#ff9019'),
         e_on: true, e_src: 'flat', e_color: '#f66e10', e_intensity: 7,
       }),
@@ -269,7 +270,7 @@ function sunkenWell(): Project {
         sh_invert: true, h_on: true, h_mode: 'subtract', h_src: 'flat', h_amount: 0.6, dif_on: true, dif_src: 'flat', dif_grad: ramp('#1a1d20'),
       }),
       L('rect', 'Well rim', {
-        size_mode: 'inset', inset_x: 12, inset_y: 12, radius: 12, corners: 'tl', corner_style: 'chamfer', outline: 1.5, bevel: 0.75, profile: 'round', sm_on: false,
+        size_mode: 'inset', inset_x: 12, inset_y: 12, radius: 12, corners: 'tl', corner_style: 'chamfer', outline: 1.5, bevel: 0.75, profile: 'round', mk_target: '',
         h_on: true, h_amount: 0.15, dif_on: true, dif_src: 'flat', dif_grad: ramp('#4a5259'),
       }),
     ],
@@ -302,11 +303,11 @@ function bevelledPanel(): Project {
       }),
       L('noise', 'Brushing', { noise: 'value', fractal: 'fbm', scale: 16, stretch: 10, octaves: 4, h_on: true, h_amount: 0.01, dif_on: true, dif_blend: 'overlay', dif_opacity: 0.18, dif_grad: ramp('#000000', '#ffffff'), r_on: true, r_a: 0.4, r_b: 0.65 }),
       L('cross', 'Screws', {
-        size: 3, arm: 1.2, x: 0.07, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, rotation: 20, rep_rot: 40, sm_on: false,
+        size: 3, arm: 1.2, x: 0.07, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, rotation: 20, rep_rot: 40, mk_target: '',
         bevel: 0.5, h_on: true, h_mode: 'subtract', h_amount: 0.3, dif_on: true, dif_src: 'flat', dif_grad: ramp('#101214'),
       }),
       L('ellipse', 'Screw heads', {
-        radius: 5, x: 0.07, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, sm_on: false, outline: 1.5, bevel: 1, profile: 'round',
+        radius: 5, x: 0.07, y: 0.12, rep_x: 2, rep_y: 2, rep_mirror: true, mk_target: '', outline: 1.5, bevel: 1, profile: 'round',
         h_on: true, h_amount: 0.25, dif_on: true, dif_src: 'flat', dif_grad: ramp('#6b757d'), r_on: true, r_src: 'flat', r_b: 0.3,
       }),
     ],
@@ -446,7 +447,7 @@ function sandstoneAshlar(): Project {
         dif_grad: ramp('#ffffff', '#b09060'),
       }),
       L('noise', 'Joint grit', {
-        noise: 'white', block: 1, sh_cut: 0.55, m_clip: 'outside', dif_on: true, dif_opacity: 0.7,
+        noise: 'white', block: 1, sh_cut: 0.55, ...limitTo(SHAPE_MASK, { outside: true }), dif_on: true, dif_opacity: 0.7,
         dif_grad: ramp('#6a4c22', '#9a7a44'), seed: 21,
       }),
       L('stone_blocks', 'Gaps', {
@@ -547,8 +548,8 @@ function lichenSandstone(): Project {
         dif_on: true, dif_grad: ramp('#efe2c6', '#f8efdc'), seed: 9,
       }),
       L('cracks', 'Cracks', {
-        scale: 6, width: 0.7, width_var: 0.9, zigzag: 2, warp: 0.1, sub: 0.25, sub_width: 0.5, sm_on: false,
-        bevel: 0, halo: 0, m_clip: 'inside', dif_on: true, dif_blend: 'multiply', dif_opacity: 0.6,
+        scale: 6, width: 0.7, width_var: 0.9, zigzag: 2, warp: 0.1, sub: 0.25, sub_width: 0.5, mk_target: '',
+        bevel: 0, halo: 0, ...limitTo(SHAPE_MASK), dif_on: true, dif_blend: 'multiply', dif_opacity: 0.6,
         dif_grad: ramp('#5a4a3a', '#ffffff'), h_on: false, seed: 13,
       }),
       L('stone_blocks', 'Joints', {
@@ -593,7 +594,7 @@ function mossySlate(): Project {
       }),
       L('cracks', 'Cracks', {
         scale: 8, width: 1.5, width_var: 0.9, zigzag: 3, warp: 0.1, sub: 0.85, sub_width: 1, sub_scale: 3,
-        sm_on: false, bevel: 0, halo: 0, dif_on: true, dif_blend: 'multiply', dif_grad: ramp('#141410', '#ffffff'),
+        mk_target: '', bevel: 0, halo: 0, dif_on: true, dif_blend: 'multiply', dif_grad: ramp('#141410', '#ffffff'),
         h_on: false, s_on: true, s_mode: 'multiply', s_a: 0, s_b: 1, seed: 19,
       }),
       L('noise', 'Moss', {
@@ -603,10 +604,10 @@ function mossySlate(): Project {
       L('stone_blocks', 'Joint moss', {
         ...wall,
         output: 'joints', reach: 10, patch: 0.55, h_on: false, dif_src: 'value', dif_blend: 'normal',
-        dif_opacity: 0.6, dif_grad: ramp('#3a3a1e', '#4e5226'), mk_write: '1',
+        dif_opacity: 0.6, dif_grad: ramp('#3a3a1e', '#4e5226'), mk_target: 'Moss',
       }),
       L('noise', 'Green flecks', {
-        noise: 'white', block: 2, sh_cut: 0.86, dif_on: true, dif_grad: ramp('#6ac81a', '#9af030'), mk_use: '1',
+        noise: 'white', block: 2, sh_cut: 0.86, dif_on: true, dif_grad: ramp('#6ac81a', '#9af030'), ...limitTo('Moss'),
         seed: 23,
       }),
     ],
@@ -644,18 +645,18 @@ function frostedStone(): Project {
         dif_opacity: 0.8, dif_grad: ramp('#606a70', '#ffffff'), seed: 3,
       }),
       L('cracks', 'Cracks', {
-        scale: 10, width: 0.6, width_var: 0.9, zigzag: 2, warp: 0.1, sub: 0.5, sub_width: 0.4, sm_on: false,
+        scale: 10, width: 0.6, width_var: 0.9, zigzag: 2, warp: 0.1, sub: 0.5, sub_width: 0.4, mk_target: '',
         bevel: 0, halo: 0, dif_on: true, dif_blend: 'multiply', dif_opacity: 0.45,
         dif_grad: ramp('#4a5258', '#ffffff'), h_on: false, seed: 31,
       }),
       L('noise', 'Moss clusters', {
         noise: 'perlin', fractal: 'fbm', scale: 7, octaves: 6, gain: 0.7, sh_cut: 0.58, sh_cut_soft: 0.06,
-        dif_on: true, dif_blend: 'multiply', dif_opacity: 0.35, dif_grad: ramp('#c8c8a8', '#909070'), mk_write: '2',
+        dif_on: true, dif_blend: 'multiply', dif_opacity: 0.35, dif_grad: ramp('#c8c8a8', '#909070'), mk_target: 'Moss',
         seed: 5,
       }),
       L('noise', 'Moss specks', {
         noise: 'perlin', fractal: 'fbm', scale: 140, octaves: 3, gain: 0.6, sh_cut: 0.56, sh_cut_soft: 0.03,
-        mk_use: '2', dif_on: true, dif_grad: ramp('#3a3a20', '#5e5c36'), seed: 6,
+        ...limitTo('Moss'), dif_on: true, dif_grad: ramp('#3a3a20', '#5e5c36'), seed: 6,
       }),
       L('stone_blocks', 'Joints', {
         ...wall,

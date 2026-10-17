@@ -236,7 +236,7 @@ GenOut gen(vec2 p) {
     float n = org_fbm(p / uRes, vec2(u_relief_scale), 4, u_patch_seed * 131.0 + 29.0);
     hv = hv * (1.0 - 0.5 * u_relief) + u_relief * 1.2 * (n - 0.2);
   }
-  return GenOut(clamp(v, 0.0, 1.0), mask, rnd, 0.0, 1.0, NO_SDF, 0, clamp(hv, 0.0, 1.0), NO_SDF);
+  return GenOut(clamp(v, 0.0, 1.0), mask, rnd, 0.0, 1.0, NO_SDF, 0, clamp(hv, 0.0, 1.0), NO_SDF, rnd);
 }
 `,
 }

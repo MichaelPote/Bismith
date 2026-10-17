@@ -26,7 +26,7 @@ export const chipsLayer: LayerDef = {
   category: 'shape',
   kind: 'generator',
   sdf: true,
-  readsState: true,
+  readsMask: true,
   description: 'Damage to the shape mask: chips knocked off its edges and corners, splits along the grain from the edges that cross it, nicks across it.',
   params: [
     P.enum('output', 'Output', 'carve', [
@@ -74,18 +74,18 @@ export const chipsLayer: LayerDef = {
 // 1, read from a uniform: loops bounded by it are not unrolled by D3D (see ORG_1 in organicShared).
 #define CH_1 (uRes.x > 0.0 ? 1 : 0)
 
-// The Shape Mask's distance at a pixel; with nothing written yet the whole texture is inside.
+// The distance of the mask it damages (the one it writes, or Shape) at a pixel; with nothing written yet the whole
+// texture is inside.
 float ch_reg(vec2 s) {
-  float d = fetchT(tSurface, ivec2(floor(s))).a;
+  float d = maskIn(ivec2(floor(s)));
   return d > 5e3 ? -1e4 : d;
 }
 
 // Distance and outward normal (central differences; zero where the field is flat, e.g. no shape at all).
 vec3 ch_regN(vec2 s) {
   ivec2 c = ivec2(floor(s));
-  float d = fetchT(tSurface, c).a;
-  vec2 g = vec2(fetchT(tSurface, c + ivec2(1, 0)).a - fetchT(tSurface, c - ivec2(1, 0)).a,
-                fetchT(tSurface, c + ivec2(0, 1)).a - fetchT(tSurface, c - ivec2(0, 1)).a);
+  float d = maskIn(c);
+  vec2 g = vec2(maskIn(c + ivec2(1, 0)) - maskIn(c - ivec2(1, 0)), maskIn(c + ivec2(0, 1)) - maskIn(c - ivec2(0, 1)));
   if (d > 5e3) return vec3(-1e4, 0.0, 0.0);
   return vec3(d, dot(g, g) > 1e-6 ? normalize(g) : vec2(0.0));
 }

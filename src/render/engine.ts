@@ -3,7 +3,7 @@
 // the stages that a change invalidates.
 
 import * as THREE from 'three'
-import { hiddenByMaterial, type Project } from '@/core/project'
+import { SHAPE_MASK, hiddenByMaterial, type Project } from '@/core/project'
 import { Gpu } from '@/gpu/context'
 import { GLSL_COMMON } from '@/layers/glsl/common'
 import { MaterialPipeline } from './materialPipeline'
@@ -53,6 +53,8 @@ export interface EngineView {
   options: DisplayOptions
   /** Evaluate the stack only up to this layer index (inclusive); null = all. */
   previewUpTo: number | null
+  /** The mask the Masks view shows (FR8.23). */
+  mask: string
 }
 
 export interface ImageData32 {
@@ -74,6 +76,7 @@ export class Engine {
     transform: { zoom: 1, offsetX: 0, offsetY: 0 },
     options: { tile: false, grid: true, checker: true },
     previewUpTo: null,
+    mask: SHAPE_MASK,
   }
   private canvasSize: [number, number] = [1, 1]
   private materialKey = ''
@@ -336,7 +339,6 @@ export class Engine {
       case 'normal':
         return this.material.normalTex
       case 'roughness':
-      case 'register':
         return this.material.surface
       case 'emissive':
       case 'specular':
@@ -344,7 +346,7 @@ export class Engine {
       case 'ao':
         return this.tracer.aoTexture
       case 'masks':
-        return this.material.masks
+        return this.material.maskTexture(this.view.mask)
     }
   }
 

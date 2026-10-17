@@ -24,24 +24,33 @@ export interface LayerDef {
   /**
    * Generator produces a signed distance (px, negative inside) in GenOut.sdf. The wrapper then adds the
    * shape params (SDF operator, bevel, profile, anti-alias) and derives mask + value from the distance.
-   * A gen() may return sdf <= NO_SDF (-9e4) to opt out per-pixel (value/mask pass through, register untouched).
-   * 'mask': the distance only goes to the Shape Mask (the register) and named-mask writes — the generator shapes its
-   * own value and coverage around it (Drips' blisters: a lifted lip outside the edge, a pit inside), so there is no
-   * Shape (bevel) card.
+   * A gen() may return sdf <= NO_SDF (-9e4) to opt out per-pixel (value/mask pass through, the mask it writes keeps
+   * what was there).
+   * 'mask': the distance only goes to the mask the layer writes (Mask › Write to) — the generator shapes its own value
+   * and coverage around it (Drips' blisters: a lifted lip outside the edge, a pit inside), so there is no Edge card.
    */
   sdf?: boolean | 'mask'
   /**
-   * When the Shape Mask params apply (default: always) — e.g. only one of a generator's outputs has a shape. Called
-   * with a `key` it decides that one Edge / Shape Mask control (a value mode may keep Anti-alias but hide Bevel);
-   * without one, whether the layer has a shape at all (shapeMask.ts).
+   * When the shape params apply (default: always) — e.g. only one of a generator's outputs has a shape. Called with a
+   * `key` it decides that one Edge control (a value mode may keep Anti-alias but hide Bevel); without one, whether the
+   * layer has a shape at all.
    */
   sdfShowIf?: (params: ParamValues, key?: string) => boolean
   /**
-   * Whether the layer actually writes the Shape Mask with these params, when that differs from `sdfShowIf` (default:
-   * `sdfShowIf`) — e.g. a relief output that shows the Edge controls but writes the register only when told what to
-   * write. Used for the Clip to labels (shapeMask.ts).
+   * What the layer writes into its mask (Mask › Write to) with these params: its shape (a signed distance), its
+   * coverage, or nothing (false). Default: SDF layers their shape wherever `sdfShowIf` gives them one (else nothing),
+   * other generators their coverage — e.g. a relief output that has Edge controls but writes its shape only when told
+   * which part to write (masks.ts).
    */
-  writesMask?: (params: ParamValues) => boolean
+  maskWrite?: (params: ParamValues) => 'shape' | 'coverage' | false
+  /**
+   * Reads the mask before it in its own shader (`maskIn()`: its write target's, or the Shape mask when it writes none)
+   * — Chips damages the shape there, Tabs sit on its outline, Glass refracts inside it. Other layers read masks only
+   * through Limit to.
+   */
+  readsMask?: boolean
+  /** The mask a layer reads as its source with these params (`maskSrc()`; edge filters, Mask area), or null. */
+  maskSource?: (params: ParamValues) => string | null
   /**
    * Filters: a single MRT pass. GLSL defining `void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip)`
    * (note: `filter` is a reserved word in GLSL ES 3.00).
@@ -73,12 +82,6 @@ export interface LayerDef {
    * changing old ones.
    */
   fresh?: (texture: { width: number; height: number }) => ParamValues
-  /**
-   * Generators that read the state earlier layers left (heights, colours — e.g. crevice masks, ledge drips): their
-   * named-mask writes happen where they sit in the stack, not in the masks-first pre-pass (which only sees the base),
-   * so only the layers after them can use those masks.
-   */
-  readsState?: boolean
   /**
    * Defaults that follow other params (Drips: Height on for the Sources output). A new layer takes them unless given
    * them; changing a param moves any still at its old default to the new one (`linkedChanges`), so a value set by

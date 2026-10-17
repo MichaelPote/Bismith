@@ -87,6 +87,11 @@ export interface BismithHeadless {
   getProject(): Project | null
   render(opts?: { samples?: number }): HeadlessRenderResult
   renderMaps(kinds?: MapKind[]): Record<string, string>
+  /**
+   * A mask as the last render left it (FR8.23), at the render's size (supersampled), rows bottom-to-top: per texel its
+   * distance (px), random and feature flag. Null when nothing writes it.
+   */
+  maskData(name: string): { width: number; height: number; distance: number[]; random: number[]; feature: number[] } | null
   /** Render the current project and score it against a reference. */
   compare(target: TargetInput, opts?: CompareOptions): Promise<HeadlessCompareResult>
   /** Run a whole optimisation in-page; the current project becomes the best one. */
@@ -205,6 +210,15 @@ export function installHeadless(engine: Engine): BismithHeadless {
         errors: engine.stats.errors,
       }
     },
+    maskData(name) {
+      const tex = engine.material.maskTexture(name)
+      if (!tex) return null
+      const { width, height } = engine.material.size
+      const d = engine.gpu.readTexture(tex, width, height)
+      const pick = (c: number) => Array.from({ length: width * height }, (_, i) => d[i * 4 + c])
+      return { width, height, distance: pick(0), random: pick(1), feature: pick(2) }
+    },
+
     renderMaps(kinds = ['diffuse', 'height', 'roughness', 'specular', 'ao', 'normal-gl', 'emissive', 'opacity']) {
       const out: Record<string, string> = {}
       for (const k of kinds) {

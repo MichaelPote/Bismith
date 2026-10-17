@@ -4,7 +4,7 @@
 import * as THREE from 'three'
 import type { Gpu } from '@/gpu/context'
 
-export type ChannelView = 'final' | 'diffuse' | 'height' | 'roughness' | 'specular' | 'normal' | 'ao' | 'emissive' | 'opacity' | 'register' | 'masks'
+export type ChannelView = 'final' | 'diffuse' | 'height' | 'roughness' | 'specular' | 'normal' | 'ao' | 'emissive' | 'opacity' | 'masks'
 
 export const CHANNEL_VIEWS: { id: ChannelView; label: string; key: string }[] = [
   { id: 'final', label: 'Final', key: '1' },
@@ -16,12 +16,11 @@ export const CHANNEL_VIEWS: { id: ChannelView; label: string; key: string }[] = 
   { id: 'ao', label: 'AO', key: '7' },
   { id: 'emissive', label: 'Emissive', key: '8' },
   { id: 'opacity', label: 'Opacity', key: '9' },
-  { id: 'register', label: 'Shape Mask', key: '0' },
-  { id: 'masks', label: 'Named masks', key: 'm' },
+  { id: 'masks', label: 'Masks', key: '0' },
 ]
 
 const MODE: Record<ChannelView, number> = {
-  final: 0, diffuse: 1, height: 2, roughness: 3, normal: 4, emissive: 5, opacity: 6, register: 7, specular: 8, ao: 9, masks: 10,
+  final: 0, diffuse: 1, height: 2, roughness: 3, normal: 4, emissive: 5, opacity: 6, masks: 7, specular: 8, ao: 9,
 }
 
 export interface ViewTransform {
@@ -74,17 +73,13 @@ void main() {
   else if (uMode == 5) { col = v.rgb / (1.0 + luma(v.rgb)); }
   else if (uMode == 6 || uMode == 8) { col = vec3(v.a); encode = false; }
   else if (uMode == 9) { col = vec3(v.r); encode = false; }
-  else if (uMode == 10) {
-    // Named masks: 1 red, 2 green, 3 blue, 4 amber.
-    col = v.r * vec3(0.95, 0.3, 0.25) + v.g * vec3(0.3, 0.9, 0.35) + v.b * vec3(0.3, 0.5, 1.0) + v.a * vec3(1.0, 0.8, 0.15);
-    col = mix(vec3(0.1), col, clamp(max(max(v.r, v.g), max(v.b, v.a)), 0.0, 1.0));
-    encode = false;
-  }
   else {
-    float d = v.a;
+    // A mask (FR8.23): distance bands, inside orange — or, where there are features, each its own hue (by its random).
+    float d = v.x;
     if (d > 5000.0) col = vec3(0.12);
     else {
-      vec3 inside = vec3(0.96, 0.43, 0.06), outside = vec3(0.49, 0.66, 0.69);
+      vec3 hue = clamp(abs(mod(v.y * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+      vec3 inside = v.z > 0.5 ? mix(vec3(0.96, 0.43, 0.06), hue, 0.55) : vec3(0.96, 0.43, 0.06), outside = vec3(0.49, 0.66, 0.69);
       col = (d < 0.0 ? inside : outside) * (0.35 + 0.25 * cos(d * 0.8));
       col *= 1.0 - exp(-abs(d) * 0.6) * 0.8;
       col = mix(col, vec3(1.0), 1.0 - smoothstep(0.0, 1.0, abs(d)));

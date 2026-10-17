@@ -50,9 +50,9 @@ describe('wood', () => {
 describe('scales', () => {
   ensureBuiltins()
 
-  it('starts lapped, irregular and tilted, writing its outline to the shape mask', () => {
+  it('starts lapped, irregular and tilted, writing its outline to the Shape mask', () => {
     const p = createLayer('scales').params
-    expect(p).toMatchObject({ edges: 'lapped', sm_on: true, profile: 'smooth' })
+    expect(p).toMatchObject({ edges: 'lapped', mk_target: 'Shape', profile: 'smooth' })
     for (const k of ['jitter', 'wobble', 'size_var', 'tilt', 'lip', 'growth']) expect(Number(p[k]), k).toBeGreaterThan(0)
   })
 

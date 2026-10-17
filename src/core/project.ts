@@ -35,11 +35,26 @@ export interface SmartMaterial {
   params: ParamValues
   /** Role → member layer id. */
   members: Record<string, string>
-  /** Named mask (FR8.13) every member is clipped to: channel '1'..'4', inside or outside (cut a hole). */
-  mask?: { use: string; invert: boolean }
+  /**
+   * Masks every member is limited to (FR8.23), on top of each member's own Limit to: terms read left to right, `outside`
+   * inverting the whole — the material in front outside an opening, the one behind inside it.
+   */
+  limit?: LimitExpr
   /** false hides the whole material (its members keep their own on/off states). Absent = shown. */
   enabled?: boolean
 }
+
+/** How one more mask joins a limit: or (union), and (intersection), minus (cut out). */
+export type LimitOp = 'or' | 'and' | 'minus'
+
+/** A limit expression (Mask › Limit to): masks by name read left to right; `outside` inverts the result. */
+export interface LimitExpr {
+  terms: { mask: string; op: LimitOp }[]
+  outside: boolean
+}
+
+/** The mask shape layers write by default (FR8.23); later layers limit to it, bevel from it, read its features. */
+export const SHAPE_MASK = 'Shape'
 
 /** Ids of the layers hidden because their smart material is. */
 export function hiddenByMaterial(p: Pick<Project, 'materials'>): Set<string> {

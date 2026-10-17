@@ -1,8 +1,7 @@
 // Crevices & high spots (FR8.13): a mask read from the surface the layers before it built — crevices (lower than the
-// surface around them), high spots (higher), both, or slopes — written to a named mask so the layers after it (or a
-// whole material) can clip to it: grime and moss in the joints, wear and highlights on the edges. Like the Drips'
-// relief drive and the Cavity filter, but as a reusable mask. It reads earlier state, so it writes its mask where it
-// sits (readsState): only the layers after it see the mask.
+// surface around them), high spots (higher), both, or slopes — written to a mask (Mask › Write to) so the layers after
+// it (or a whole material) can be limited to it: grime and moss in the joints, wear and highlights on the edges. Like the
+// Drips' relief drive and the Cavity filter, but as a reusable mask.
 
 import { P } from '@/core/params'
 import type { LayerDef } from '../types'
@@ -12,9 +11,8 @@ export const surfaceMaskLayer: LayerDef = {
   label: 'Crevices & high spots',
   category: 'pattern',
   kind: 'generator',
-  readsState: true,
   description:
-    'A mask from the surface so far: crevices (lower than around them), high spots, both, or slopes. Writes Mask 1 by default for the layers after it — or paint with it directly (grime in crevices, wear on edges).',
+    'A mask from the surface so far: crevices (lower than around them), high spots, both, or slopes. Writes the Crevices mask by default for the layers after it — or paint with it directly (grime in crevices, wear on edges).',
   params: [
     P.enum('find', 'Find', 'crevices', [['crevices', 'Crevices'], ['high', 'High spots'], ['both', 'Both'], ['slopes', 'Slopes']]),
     P.float('radius', 'Radius', 3, 0.5, 64, { softMax: 16, unit: 'px', step: 0.1, hint: 'How far around each pixel the surface is compared: small = fine cracks and joints, large = broad dips and rises' }),
@@ -23,7 +21,7 @@ export const surfaceMaskLayer: LayerDef = {
     P.float('level', 'Level', 0.1, 0, 1, { step: 0.001, hint: 'Ignore anything weaker than this' }),
     P.float('softness', 'Softness', 0.5, 0, 1, { step: 0.001, hint: 'How gradually the mask rises above the level (0 = hard edge)' }),
   ],
-  defaults: { mk_write: '1', dif_on: false, h_on: false },
+  defaults: { mk_target: 'Crevices', dif_on: false, h_on: false },
   glsl: /* glsl */ `
 float sm_h(vec2 px) { return sampleT(tSurface, px).r * uDepth; }
 

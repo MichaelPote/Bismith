@@ -5,15 +5,16 @@ import type { LayerCategory, LayerChannels, LayerDef } from './types'
 import {
   FILTER_GROUPS,
   GENERATOR_GROUPS,
+  LIMIT_PARAMS,
   MASK_PARAMS,
-  MASK_USE_PARAMS,
+  MASK_WRITE_PARAMS,
   OUTPUT_PARAMS,
   PHASE_PARAM,
-  SDF_MASK_PARAMS,
   SDF_PARAMS,
   SHAPING_PARAMS,
   WARP_PHASE_PARAM,
 } from './commonParams'
+import { SHAPE_MASK } from '@/core/project'
 
 const defs = new Map<string, LayerDef>()
 const fullParams = new Map<string, ParamDef[]>()
@@ -37,13 +38,22 @@ export function registerLayer(def: LayerDef): void {
     const seedAt = own.findIndex((p) => p.key === 'seed')
     const pattern = hasPhase || !def.noise ? own : seedAt < 0 ? [...own, PHASE_PARAM] : [...own.slice(0, seedAt), PHASE_PARAM, ...own.slice(seedAt)]
     const shaping = hasPhase || def.noise ? SHAPING_PARAMS : [...SHAPING_PARAMS, WARP_PHASE_PARAM]
-    let shape = def.sdf === 'mask' ? SDF_MASK_PARAMS : def.sdf ? SDF_PARAMS : []
+    let shape = def.sdf === true ? SDF_PARAMS : []
     const when = def.sdfShowIf
     if (when) shape = shape.map((p) => ({ ...p, showIf: (v: ParamValues) => when(v, p.key) && (!p.showIf || p.showIf(v)) }))
-    all = [...pattern, ...shape, ...shaping, ...MASK_PARAMS, ...OUTPUT_PARAMS]
+    // Write to (FR8.23): shape layers write the Shape mask unless told otherwise; other generators (and shape layers in a
+    // mode without a shape) write their coverage when given a mask (masks.ts maskWriteKind).
+    const writeKeys = new Set(MASK_WRITE_PARAMS.map((p) => p.key))
+    const writable = (v: ParamValues) => !def.maskWrite || def.maskWrite({ ...v, mk_target: SHAPE_MASK }) !== false
+    const mask = MASK_PARAMS.map((p) => {
+      if (!writeKeys.has(p.key)) return p
+      const q = p.key === 'mk_target' && def.sdf ? { ...p, default: SHAPE_MASK } : p
+      return { ...q, showIf: (v: ParamValues) => writable(v) && (!q.showIf || q.showIf(v)) }
+    })
+    all = [...pattern, ...shape, ...shaping, ...mask, ...OUTPUT_PARAMS]
   } else {
-    // Filters: their own params, then the named-mask clip (FR8.13).
-    all = [...own, ...MASK_USE_PARAMS]
+    // Filters: their own params, then Limit to (FR8.23).
+    all = [...own, ...LIMIT_PARAMS]
   }
   if (def.defaults) {
     all = all.map((p) => (p.key in def.defaults! ? { ...p, default: def.defaults![p.key] } : p))
@@ -84,14 +94,10 @@ export function layerChannels(type: string): LayerChannels {
   return def.kind === 'generator' ? GENERATOR_CHANNELS : (def.channels ?? {})
 }
 
-/**
- * Params from before the Shape Mask toggle: "Ignore register" was an operator (sdf_op 'none'); it is now the
- * unticked Shape Mask (sm_on false) with the mode left at Normal.
- */
+/** Params stored before a change to a type's params, rewritten by the type (LayerDef.migrate). */
 export function migrateParams(params: ParamValues, type?: string): ParamValues {
-  const p = params.sdf_op === 'none' ? { ...params, sdf_op: 'replace', sm_on: false } : params
   const def = type ? defs.get(type) : undefined
-  return def?.migrate ? def.migrate(p) : p
+  return def?.migrate ? def.migrate(params) : params
 }
 
 /**

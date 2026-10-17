@@ -1,4 +1,4 @@
-// Glass (FR8.12): turns the area inside the shape register into glass over what is already painted — the background
+// Glass (FR8.12): turns the area inside the Shape mask into glass over what is already painted — the background
 // refracted through the surface (its slope from the height), carried mostly as transmitted light (not shaded by the
 // glass surface), tinted more where the path through the glass is longer (towards the rims), Fresnel-darkened rims,
 // an inner glint where light focuses on the far side, and a smooth, reflective surface for the lights' highlights.
@@ -12,6 +12,7 @@ export const glassLayer: LayerDef = {
   label: 'Glass',
   category: 'filter',
   kind: 'filter',
+  readsMask: true,
   description: 'Glass over the layers below, inside the current shape (e.g. pipework tubes): refraction from the height, tint, Fresnel rims, an inner glint, glossy highlights.',
   params: [
     P.float('refraction', 'Refraction', 4, 0, 128, { softMax: 16, unit: 'px', step: 0.1, hint: 'How far the background is bent at the steepest slope: magnified in the middle, squeezed towards the rims' }),
@@ -27,7 +28,7 @@ export const glassLayer: LayerDef = {
   ],
   filterGlsl: /* glsl */ `
 void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
-  float m = clamp(0.5 - S.a, 0.0, 1.0);
+  float m = clamp(0.5 - maskIn(ip), 0.0, 1.0);
   if (m <= 0.0) return;
   // Surface normal from the height (px per px).
   float hl = fetchT(tSurface, ip - ivec2(1, 0)).r, hr = fetchT(tSurface, ip + ivec2(1, 0)).r;

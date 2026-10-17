@@ -1,5 +1,5 @@
 // Symmetry / kaleidoscope filter (FR7.2c, docs/features/fr7.2c-motif-generators.md): re-maps the whole
-// accumulated material state (albedo + opacity, height / roughness / shape register, emissive) through a
+// accumulated material state (albedo + opacity, height / roughness, emissive; not the masks) through a
 // symmetry fold, so earlier noise and shapes become ornaments. The fold is applied per cell of an N×M grid
 // (optionally staggered / mirrored per cell) around a configurable centre; the source is read at the folded
 // position with nearest (pixel-art) or bilinear sampling, wrapping when the project is tileable.
@@ -27,7 +27,7 @@ export const symmetryLayer: LayerDef = {
   label: 'Symmetry',
   category: 'filter',
   kind: 'filter',
-  description: 'Kaleidoscope: folds every channel below (including the shape mask) through mirror, rotational or kaleidoscope symmetry, per cell of a grid — turns noise and shapes into medallions and ornaments.',
+  description: 'Kaleidoscope: folds every channel below through mirror, rotational or kaleidoscope symmetry, per cell of a grid — turns noise and shapes into medallions and ornaments.',
   params: [
     P.enum('mode', 'Symmetry', 'square8', MODES),
     P.int('n', 'Folds', 6, 2, 12, { showIf: polar, hint: 'Rotational order (n copies around the centre)' }),

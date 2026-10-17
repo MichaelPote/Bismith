@@ -1,7 +1,7 @@
 // Jump-flood signed distance field (docs/features/fr2.5-filter-layers.md).
 //
-// A mask is derived from the current material state (height / opacity / diffuse luminance or a named mask above a
-// threshold, or the sign of the shape register). Boundary texels seed the flood with a sub-pixel estimate of where the
+// A mask is derived from the current material state (height / opacity / diffuse luminance above a threshold) or a mask
+// texture (FR8.23: its coverage, clamp(0.5 − distance), above the threshold). Boundary texels seed the flood with a sub-pixel estimate of where the
 // iso-line crosses between them and their opposite-mask 4-neighbours (linear interpolation of the source
 // value, combined into the perpendicular foot when the edge crosses on both axes), so the result is smooth on
 // diagonals and exact (±0.5 px) on hard pixel steps. ~log2(size) flood passes then find each texel's nearest
@@ -25,21 +25,22 @@ export const DISTANCE_SOURCE = {
   height: 0,
   opacity: 1,
   luminance: 2,
-  shape: 3,
-  /** Named masks 1–4: mask1 + (n − 1). */
-  mask1: 4,
+  /** A mask texture (`mask`). */
+  mask: 3,
   custom: 8,
 } as const
 
 export interface DistanceFieldOptions {
-  /** 0 height, 1 opacity, 2 diffuse luminance (perceptual, sRGB), 3 shape register sign, 4–7 named masks 1–4, 8 custom (`custom`). */
+  /** 0 height, 1 opacity, 2 diffuse luminance (perceptual, sRGB), 3 a mask's coverage (`mask`), 8 custom (`custom`). */
   source: number
+  /** Source 3: the mask texture (distance in .x). */
+  mask?: THREE.Texture
   /**
    * Source 8: GLSL defining `float jfaCustom(ivec2 c)`, > 0 inside — continuous across the edge for a sub-pixel
    * boundary. It may use the layer's u_<param> uniforms and the state textures. Materials are cached per `name`.
    */
   custom?: string
-  /** Inside = value above this (ignored for the shape register, which is inside where < 0; 0.5 halves a mask's edge). */
+  /** Inside = value above this (0.5 halves a mask's edge). */
   threshold: number
   /** Swap inside and outside. */
   invert?: boolean
@@ -63,6 +64,7 @@ export const GLSL_JFA_SOURCE = /* glsl */ `
 uniform int uJfaSource;
 uniform float uJfaThreshold;
 uniform bool uJfaInvert;
+uniform sampler2D tJfaMask;
 
 float jfaValue(ivec2 c) {
   float v;
@@ -72,8 +74,7 @@ float jfaValue(ivec2 c) {
   if (uJfaSource == 0) v = fetchT(tSurface, c).r - uJfaThreshold;
   else if (uJfaSource == 1) v = fetchT(tAlbedo, c).a - uJfaThreshold;
   else if (uJfaSource == 2) v = luma(linearToSrgb(fetchT(tAlbedo, c).rgb)) - uJfaThreshold;
-  else if (uJfaSource == 3) v = -fetchT(tSurface, c).a;
-  else v = fetchT(tMasks, c)[uJfaSource - ${DISTANCE_SOURCE.mask1}] - uJfaThreshold;
+  else v = clamp(0.5 - fetchT(tJfaMask, c).x, 0.0, 1.0) - uJfaThreshold;
   return uJfaInvert ? -v : v;
 }
 `
@@ -213,12 +214,14 @@ function setSource(mat: THREE.RawShaderMaterial, opts: DistanceFieldOptions): vo
   u.uJfaSource.value = opts.source
   u.uJfaThreshold.value = opts.threshold
   u.uJfaInvert.value = Boolean(opts.invert)
+  u.tJfaMask.value = opts.mask ?? null
 }
 
 const sourceUniforms = () => ({
   uJfaSource: { value: 0 },
   uJfaThreshold: { value: 0 },
   uJfaInvert: { value: false },
+  tJfaMask: { value: null as THREE.Texture | null },
 })
 
 /**

@@ -4,7 +4,8 @@ import { computed } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
 import { getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry'
-import { shapeMaskChain, shapeMaskLabel } from '@/layers/shapeMask'
+import { layerLimit, limitParams, maskChain, maskChainLabel } from '@/layers/masks'
+import { LIMIT_PARAMS } from '@/layers/commonParams'
 import { getPostDef } from '@/render/post/registry'
 import { LIGHT_DEFS } from '@/core/lights'
 import { BASE_DEFS, PROJECT_DEFS, RENDER_DEFS } from '@/core/settingsDefs'
@@ -64,17 +65,13 @@ const materialCards = computed(() => {
 })
 const layerMaterial = computed(() => (layer.value ? (store.project.materials ?? []).find((m) => Object.values(m.members).includes(layer.value!.id)) : undefined))
 
-// A material's named mask (FR8.13): the same controls as a layer's, applied to every member.
-const MATERIAL_MASK_DEFS: ParamDef[] = [
-  P.enum('use', 'Masked by', 'none', [['none', 'None'], ['1', 'Mask 1'], ['2', 'Mask 2'], ['3', 'Mask 3'], ['4', 'Mask 4']], { hint: 'Clip every layer of this material to a named mask ("Write to mask" on any layer)' }),
-  P.bool('invert', 'Outside the mask', false, { showIf: (p) => p.use !== 'none', hint: 'Cut a hole: the material is kept only where the mask is not set' }),
-]
-const materialMask = computed<ParamValues>(() => ({ use: material.value?.mask?.use ?? 'none', invert: material.value?.mask?.invert ?? false }))
-function setMaterialMask(key: string, value: ParamValue): void {
+// A material's limit (FR8.23): the same controls as a layer's Limit to, applied to every member on top of its own.
+const MATERIAL_LIMIT_DEFS: ParamDef[] = LIMIT_PARAMS.map((d) => ({ ...d, group: undefined, section: undefined }))
+const materialLimit = computed<ParamValues>(() => limitParams(material.value?.limit ?? null))
+function setMaterialLimit(key: string, value: ParamValue): void {
   const m = material.value
   if (!m) return
-  const next = { ...materialMask.value, [key]: value }
-  store.setMaterialMask(m.id, String(next.use), next.invert === true)
+  store.setMaterialLimit(m.id, layerLimit({ ...materialLimit.value, [key]: value }))
 }
 
 function unpackMaterial(): void {
@@ -85,19 +82,25 @@ function unpackMaterial(): void {
   editor.select(first ? 'layer' : 'project', first)
 }
 
-/** Mask › Shape mask › Clip to: name what the shape mask holds here — "Inside Bricks", "Outside Panel − Vent". */
-function withClipNames(d: ParamDef, layerId: string): ParamDef {
-  const chain = shapeMaskChain(store.project, layerId)
-  const what = chain.length ? shapeMaskLabel(chain) : 'the shape mask (empty here)'
-  const label = (v: string) => (v === 'inside' ? `Inside ${what}` : v === 'outside' ? `Outside ${what}` : undefined)
-  return { ...d, options: d.options?.map((o) => ({ ...o, label: label(o.value) ?? o.label })) }
+/** Mask › Limit to and edge sources: say what a named mask holds here — "Shape here: Panel − Vent" — or that it's empty. */
+function withMaskNote(d: ParamDef, layerId: string): ParamDef {
+  return {
+    ...d,
+    note: (p) => {
+      const name = String(p[d.key] ?? '').trim()
+      if (!name) return undefined
+      const chain = maskChain(store.project, layerId, name)
+      return chain.length ? `${name} here: ${maskChainLabel(chain)}` : `No layer above writes ${name}: empty here`
+    },
+  }
 }
+const MASK_NAME_KEYS = new Set(['lim_1', 'lim_2', 'lim_3', 'lim_4', 'source_mask'])
 
 const layerCards = computed(() => {
   const l = layer.value
   const def = layerDef.value
   if (!l || !def) return []
-  const defs = layerParamDefs(l.type).map((d) => (d.key === 'm_clip' ? withClipNames(d, l.id) : d))
+  const defs = layerParamDefs(l.type).map((d) => (MASK_NAME_KEYS.has(d.key) ? withMaskNote(d, l.id) : d))
   const shown = (d: ParamDef) => !d.showIf || d.showIf(l.params)
   return layerGroups(def)
     .map((g) => ({
@@ -240,8 +243,8 @@ const asValues = (o: object) => o as unknown as ParamValues
           <ParamList :defs="c.defs" :values="material.params" @change="(k, v) => store.setMaterialParam(material!.id, k, v)" />
         </PanelCard>
         <PanelCard title="Mask" storage-key="material:mask">
-          <p class="hint">Clip this material to a mask written by any layer (e.g. a Cut-out). Cutting a hole: the material in front outside the mask, the one behind inside it — otherwise the hidden one's glow and relief show through.</p>
-          <ParamList :defs="MATERIAL_MASK_DEFS" :values="materialMask" @change="setMaterialMask" />
+          <p class="hint">Limit every layer of this material to masks written by layers above it (e.g. a Cut-out's opening), on top of each layer's own Limit to. Cutting a hole: the material in front outside the mask, the one behind inside it — otherwise the hidden one's glow and relief show through.</p>
+          <ParamList :defs="MATERIAL_LIMIT_DEFS" :values="materialLimit" @change="setMaterialLimit" />
         </PanelCard>
       </div>
     </template>

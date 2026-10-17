@@ -1,9 +1,10 @@
 // Hammered (FR7.7): the CPU side — the courses sized to the texture, old files' px jitter converted to a share of the
-// spacing, the Shape Mask opt-in, and every param reaching the shader.
+// spacing, the mask opt-in, and every param reaching the shader.
 
 import { describe, expect, it } from 'vitest'
 import { ensureBuiltins } from '@/render/builtins'
 import { createLayer, freshParams, layerParamDefs, sanitizeLayer } from '../registry'
+import { maskWriteKind } from '../masks'
 import { hammeredLayer } from './hammered'
 
 describe('hammered', () => {
@@ -40,13 +41,13 @@ describe('hammered', () => {
     expect(createLayer('hammered', { jitter: 0.3, wobble: 0.5 }).params.jitter).toBe(0.3)
   })
 
-  it('writes the shape mask only when asked, and shows the mask size then', () => {
-    expect(hammeredLayer.writesMask!(createLayer('hammered').params)).toBe(false)
-    expect(hammeredLayer.writesMask!({ ...createLayer('hammered').params, sm_on: true })).toBe(true)
+  it('writes a mask only when asked, and shows the mask size then', () => {
+    expect(maskWriteKind(hammeredLayer, createLayer('hammered').params)).toBe(false)
+    expect(maskWriteKind(hammeredLayer, { ...createLayer('hammered').params, mk_target: 'Shape' })).toBe('shape')
     const show = def('mask_r').showIf!
-    expect(show({ sm_on: false, mk_write: 'none' })).toBe(false)
-    expect(show({ sm_on: true, mk_write: 'none' })).toBe(true)
-    expect(show({ sm_on: false, mk_write: '2' })).toBe(true)
+    expect(show({ mk_target: '' })).toBe(false)
+    expect(show({ mk_target: 'Shape' })).toBe(true)
+    expect(show({ mk_target: 'Dents' })).toBe(true)
   })
 
   it('declares px lengths for supersampling and uses every param in the shader', () => {

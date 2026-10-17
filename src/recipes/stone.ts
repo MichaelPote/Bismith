@@ -7,6 +7,7 @@ import { P, type ParamValues } from '@/core/params'
 import { HEIGHT_ONLY, L, ON_FACES, across, clamp, crisp, gradient, lerp, num, r2, shade } from './parts'
 import type { RecipeContext, RecipeDef, RecipeLayer } from './types'
 import { BRICKS_PLAIN, VORONOI_PLAIN } from '@/layers/generators/patterns'
+import { SHAPE_MASK, limitTo } from '@/layers/masks'
 
 const STONES = gradient('#33260f', '#45330f', '#323232', '#3a2a10', '#2c2c3a', '#4a3814', '#363636')
 
@@ -44,7 +45,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
   const chips = num(m.chips, 0.6)
   const rough = num(m.rough, 0.5)
   const glint = num(m.glints, 0.6)
-  const flat = { ...shape, bevel: 0, profile: 'flat', sm_on: false, dif_on: false }
+  const flat = { ...shape, bevel: 0, profile: 'flat', mk_target: '', dif_on: false }
   const stones = m.stone_colours ?? STONES
   const joint = String(m.joint_colour ?? '#16110a')
   const relief = (role: string, layer: ReturnType<typeof L>): RecipeLayer => ({ role, stack: 'relief', layer })
@@ -55,7 +56,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
     relief(
       'edges',
       L(type, 'Edges', {
-        ...shape, bevel: r2(clamp(blockMin * 0.6, 2, 12)), profile: 'custom', bevel_curve: crisp(), sdf_op: 'replace', dif_on: false,
+        ...shape, bevel: r2(clamp(blockMin * 0.6, 2, 12)), profile: 'custom', bevel_curve: crisp(), mk_op: 'replace', dif_on: false,
         h_on: true, h_amount: r2(Math.max(0.05, edge)), r_on: true, r_mode: 'replace', r_src: 'flat', r_a: 0.6, r_b: 0.6,
         s_on: true, s_mode: 'replace', s_src: 'flat', s_a: r2(glint), s_b: r2(glint),
       }),
@@ -63,7 +64,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
     relief(
       'chips',
       L('voronoi', 'Chips', {
-        output: 'facets', facet_fit: false, scale: across(ctx, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: seed + 13, sm_on: false,
+        output: 'facets', facet_fit: false, scale: across(ctx, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: seed + 13, mk_target: '',
         h_on: true, h_mode: 'min', h_amount: r2(lerp(2.2, 0.8, chips)), dif_on: false, m_hmode: 'below', m_hlevel: r2(0.8 * (pillow + edge)), m_hsoft: 0.08,
       }, chips > 0),
     ),
@@ -82,11 +83,11 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
         h_on: true, h_mode: 'subtract', h_amount: r2(0.5 * rough), dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'flat', s_a: 0.2, s_b: 0.2, ...ON_FACES,
       }, rough > 0),
     ),
-    paint('joints', L('noise', 'Joints', { noise: 'white', seed: seed + 1, m_clip: 'outside', h_on: false, dif_on: true, dif_grad: shade(joint, 0.6) })),
-    paint('stone-noise', L('noise', 'Stone noise', { noise: 'value', fractal: 'fbm', scale: across(ctx, 7), octaves: 3, seed: seed + 6, m_clip: 'inside', h_on: false, dif_on: true, dif_grad: stones })),
+    paint('joints', L('noise', 'Joints', { noise: 'white', seed: seed + 1, ...limitTo(SHAPE_MASK, { outside: true }), h_on: false, dif_on: true, dif_grad: shade(joint, 0.6) })),
+    paint('stone-noise', L('noise', 'Stone noise', { noise: 'value', fractal: 'fbm', scale: across(ctx, 7), octaves: 3, seed: seed + 6, ...limitTo(SHAPE_MASK), h_on: false, dif_on: true, dif_grad: stones })),
     paint(
       'stone-colour',
-      L(type, 'Stone colour', { ...shape, bevel: 0, profile: 'flat', sm_on: false, h_on: false, m_clip: 'inside', dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.6)), dif_grad: stones }),
+      L(type, 'Stone colour', { ...shape, bevel: 0, profile: 'flat', mk_target: '', h_on: false, ...limitTo(SHAPE_MASK), dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.6)), dif_grad: stones }),
     ),
     paint(
       'moss',
@@ -97,7 +98,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
     ),
     paint(
       'speckle',
-      L('noise', 'Speckle', { noise: 'white', seed: seed + 9, m_clip: 'inside', h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: r2(num(m.speckle, 0.2)), dif_grad: gradient('#000000', '#ffffff') }, num(m.speckle, 0.2) > 0),
+      L('noise', 'Speckle', { noise: 'white', seed: seed + 9, ...limitTo(SHAPE_MASK), h_on: false, dif_on: true, dif_blend: 'overlay', dif_opacity: r2(num(m.speckle, 0.2)), dif_grad: gradient('#000000', '#ffffff') }, num(m.speckle, 0.2) > 0),
     ),
     paint(
       'grime',

@@ -1,5 +1,7 @@
 // Stage 1 + 2 of the pipeline (docs/architecture.md §2): evaluate the layer stack into the material state
-// (albedo · surface · emissive, ping-ponged MRT) and derive normals from height.
+// (albedo · surface · emissive, ping-ponged MRT) and derive normals from height. Masks (FR8.23, layers/masks.ts) live
+// in slot textures beside the state: a layer writes its mask's new version through the fourth output, which is copied
+// into a slot when a later layer reads it.
 
 import * as THREE from 'three'
 import { hiddenByMaterial, type Layer, type Project } from '@/core/project'
@@ -9,7 +11,8 @@ import { createUniforms, declareUniforms, mixSeed, updateUniforms } from '@/gpu/
 import { GLSL_COMMON } from '@/layers/glsl/common'
 import { GLSL_NOISE } from '@/layers/glsl/noise'
 import { GLSL_SDF } from '@/layers/glsl/sdf'
-import { GLSL_BEVEL, GLSL_GENERATOR_MAIN, GLSL_NAMED_MASK, bevelCurveDefine, bevelCurveImpl } from '@/layers/commonParams'
+import { GLSL_BEVEL, GLSL_GENERATOR_MAIN, bevelCurveDefine, bevelCurveImpl } from '@/layers/commonParams'
+import { planMasks, type LayerMasks, type MaskPlan, type MaskRef } from '@/layers/masks'
 import { getLayerDef, layerParamDefs } from '@/layers/registry'
 import type { LayerDef } from '@/layers/types'
 
@@ -18,23 +21,37 @@ const STATE_DECLS = /* glsl */ `
 uniform sampler2D tAlbedo;
 uniform sampler2D tSurface;
 uniform sampler2D tEmissive;
-uniform sampler2D tMasks;
+// The current layer's masks (FR8.23): the mask before it (its target's, or the Shape mask), its source mask, and its
+// limit (a distance in .x; uLimit 0 = no limit, ±1 the sign it is read with). Mask texels: distance, random, feature.
+uniform sampler2D tMaskIn;
+uniform sampler2D tMaskSrc;
+uniform sampler2D tLimit;
+uniform float uLimit;
 uniform float uSeed;
 uniform float uDepth;
 `
 
-// Named masks (FR8.13) ride along as a fourth attachment: four mask channels, written by generators.
+/** Reading the current layer's masks (after GLSL_COMMON: fetchT wraps on tileable projects). */
+const GLSL_MASKS = /* glsl */ `
+float maskIn(ivec2 c) { return fetchT(tMaskIn, c).x; }
+float maskSrc(ivec2 c) { return fetchT(tMaskSrc, c).x; }
+// How much the layer's limit lets through at a texel (1 = no limit).
+float limitAt(ivec2 c) { return uLimit == 0.0 ? 1.0 : clamp(0.5 - uLimit * texelFetch(tLimit, c, 0).x, 0.0, 1.0); }
+`
+
+// The fourth attachment carries the mask a generator writes (its target's new version), copied into a slot after the
+// pass when a later layer reads it; other passes leave zeros.
 const MRT_OUTS = /* glsl */ `
 layout(location = 0) out vec4 oAlbedo;
 layout(location = 1) out vec4 oSurface;
 layout(location = 2) out vec4 oEmissive;
-layout(location = 3) out vec4 oMasks;
+layout(location = 3) out vec4 oMask;
 `
 
-/** An MRT pass body that doesn't write the masks gets them passed through (filters never change them). */
-function withMaskPassThrough(body: string): string {
-  if (body.includes('oMasks')) return body
-  return body.replace(/void\s+main\s*\(\s*\)/, 'void mainBody()') + '\nvoid main() { mainBody(); oMasks = texelFetch(tMasks, ivec2(gl_FragCoord.xy), 0); }\n'
+/** An MRT pass body that doesn't write the mask output gets zeros there (filters never write masks). */
+function withMaskOut(body: string): string {
+  if (body.includes('oMask')) return body
+  return body.replace(/void\s+main\s*\(\s*\)/, 'void mainBody()') + '\nvoid main() { mainBody(); oMask = vec4(0.0); }\n'
 }
 
 const GENOUT = /* glsl */ `
@@ -42,32 +59,43 @@ const GENOUT = /* glsl */ `
 const float NO_SDF = -9e4;
 // height: a signed height profile of the generator's own (× the Height amount), or NO_SDF for none (see genOutHeight).
 // own (SDF layers): 0 the wrapper draws the shape (value = bevel, coverage = inside); 1 the generator painted its value
-// and coverage itself, sdf only goes to the Shape Mask and named masks (genOutOwn); 2 the generator's value × the
-// shape's bevel, its own coverage (genOutShaded).
+// and coverage itself, sdf only goes to the mask it writes (genOutOwn); 2 the generator's value × the shape's bevel,
+// its own coverage (genOutShaded).
 // hval: what Height › Pattern reads instead of the value (0..1, shaped like it; < 0 = the value) — Wood's grain is
 // shallower in Height than in colour.
 // bdist: the distance the bevel is measured in, Bevel aspect already applied (px of Bevel; NO_SDF = the shape's own
 // distance, the aspect taken from its direction) — exact on boxes, whose bevels then meet in a clean mitre.
-struct GenOut { float value; float mask; float rnd; float sdf; float feat; float height; int own; float hval; float bdist; };
-GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 0, -1.0, NO_SDF); }
+// fid: the feature's own random (0..1), which the mask it writes records (FR8.23) — rnd may be tinted or blended for
+// colour, and feat zeroed where a generator varies heights itself; −1 for patterns without features.
+struct GenOut { float value; float mask; float rnd; float sdf; float feat; float height; int own; float hval; float bdist; float fid; };
+GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 0, -1.0, NO_SDF, rnd); }
 // Patterns without features (smooth noise, clouds): rnd is a continuous value there, so per-feature variation has
 // nothing to vary — fract(rnd · k) would turn it into terraces along the pattern's contours.
-GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0, NO_SDF, 0, -1.0, NO_SDF); }
+GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0, NO_SDF, 0, -1.0, NO_SDF, -1.0); }
 // With its own height profile, signed (below the surface < 0): Height › Pattern adds it instead of the value, wherever it
 // is non-zero — not limited by the coverage, so it can reach past what the other outputs paint (a lip round a hole).
-GenOut genOutHeight(float value, float mask, float rnd, float sdf, float height) { return GenOut(value, mask, rnd, sdf, 1.0, height, 0, -1.0, NO_SDF); }
-// An SDF layer's output that paints its own value and coverage (chips' carve) but still hands its shape to the Shape
-// Mask: the wrapper writes sdf to the register (by the Mode) and named masks only.
-GenOut genOutOwn(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 1, -1.0, NO_SDF); }
+GenOut genOutHeight(float value, float mask, float rnd, float sdf, float height) { return GenOut(value, mask, rnd, sdf, 1.0, height, 0, -1.0, NO_SDF, rnd); }
+// An SDF layer's output that paints its own value and coverage (chips' carve) but still hands its shape to its mask:
+// the wrapper writes sdf there (by the Mode) and nowhere else.
+GenOut genOutOwn(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 1, -1.0, NO_SDF, rnd); }
 // A pattern on a shape (Wood's grain on its planks): the wrapper multiplies the value (and hval) by the bevel of the
-// combined shape — Bevel, Profile, Bevel aspect, the Shape Mask mode — and keeps the generator's coverage.
-GenOut genOutShaded(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 2, -1.0, NO_SDF); }
+// combined shape — Bevel, Profile, Bevel aspect, the mask's Mode — and keeps the generator's coverage.
+GenOut genOutShaded(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 2, -1.0, NO_SDF, rnd); }
+
+// What the layer writes into its mask (Mask › Write to, FR8.23): 0 nothing, 1 its shape (a distance), 2 its coverage.
+uniform int uMaskKind;
+// How its shape combines with the mask: 0 it writes no shape, else the sdfCombine op (1 replaces, 2 union …).
+int maskOp() { return uMaskKind == 1 ? u_mk_op + 1 : 0; }
 `
 
 /** Everything a GLSL snippet in the material stage can rely on. */
-export const MATERIAL_PRELUDE = STATE_DECLS + GLSL_COMMON + GLSL_NOISE + GLSL_SDF
+export const MATERIAL_PRELUDE = STATE_DECLS + GLSL_COMMON + GLSL_MASKS + GLSL_NOISE + GLSL_SDF
 
-export const SHAPE_REGISTER_EMPTY = 1e4
+/** An empty mask's distance: outside everywhere, far from any edge. */
+export const MASK_EMPTY = 1e4
+
+/** Masks a combined limit reads at most: a layer's own four terms and its material's four. */
+const MAX_LIMIT_INPUTS = 8
 
 export interface FilterContext {
   gpu: Gpu
@@ -79,6 +107,11 @@ export interface FilterContext {
   readonly albedo: THREE.Texture
   readonly surface: THREE.Texture
   readonly emissive: THREE.Texture
+  /**
+   * The layer's source mask (LayerDef.maskSource), or null: its texture (distance in .x) and whether the distance is
+   * exact (only shapes wrote it) — else find one by jump flood from its coverage, clamp(0.5 − x).
+   */
+  readonly maskSource: { texture: THREE.Texture; exact: boolean } | null
   /** The layer's combined seed (uSeed). */
   seed: number
   /**
@@ -113,6 +146,20 @@ export class MaterialPipeline {
   /** A comment in generator shaders (measuring cold compiles: a new salt defeats the browser's and driver's caches). */
   private salt = ''
   private scratchTargets = new Map<string, THREE.WebGLRenderTarget>()
+  /** Mask slot textures (FR8.23), as many as the last plan needed; `emptyMask` holds MASK_EMPTY everywhere. */
+  private slots: THREE.WebGLRenderTarget[] = []
+  private emptyMask: THREE.WebGLRenderTarget | null = null
+  private maskPlan: MaskPlan | null = null
+  /** The masks of the layer being run, bound by setCommon. */
+  private cur: { input: THREE.Texture | null; source: THREE.Texture | null; limit: THREE.Texture | null; limitSign: number } = {
+    input: null,
+    source: null,
+    limit: null,
+    limitSign: 0,
+  }
+  private copyTexMat: THREE.RawShaderMaterial | null = null
+  private fillMat: THREE.RawShaderMaterial | null = null
+  private limitMat: THREE.RawShaderMaterial | null = null
   private clearMat: THREE.RawShaderMaterial
   private normalMat: THREE.RawShaderMaterial
   private reduceMat: THREE.RawShaderMaterial
@@ -131,13 +178,11 @@ export class MaterialPipeline {
       uniform vec4 uBaseAlbedo;
       uniform vec4 uBaseSurface;
       uniform float uBaseSpecular;
-      uniform sampler2D tInitMasks;
-      uniform bool uInitMasks;
       void main() {
         oAlbedo = uBaseAlbedo;
         oSurface = uBaseSurface;
         oEmissive = vec4(0.0, 0.0, 0.0, uBaseSpecular);
-        oMasks = uInitMasks ? texelFetch(tInitMasks, ivec2(gl_FragCoord.xy), 0) : vec4(0.0);
+        oMask = vec4(0.0);
       }`,
       {
         uRes: { value: new THREE.Vector2() },
@@ -145,8 +190,6 @@ export class MaterialPipeline {
         uBaseAlbedo: { value: new THREE.Vector4() },
         uBaseSurface: { value: new THREE.Vector4() },
         uBaseSpecular: { value: 0.5 },
-        tInitMasks: { value: null },
-        uInitMasks: { value: false },
       },
     )
     this.normalMat = gpu.material(
@@ -199,8 +242,18 @@ export class MaterialPipeline {
   get emissive(): THREE.Texture | null {
     return this.state?.read.textures[2] ?? null
   }
-  get masks(): THREE.Texture | null {
-    return this.state?.read.textures[3] ?? null
+  /** A mask's texture as the stack left it (the Masks view), or null when nothing writes it. */
+  maskTexture(name: string): THREE.Texture | null {
+    const r = this.maskPlan?.final.get(name)
+    return r ? this.refTexture(r) : null
+  }
+  /** The size the stack renders at (the project's, × the supersampling). */
+  get size(): { width: number; height: number } {
+    return { width: this.width, height: this.height }
+  }
+  /** Names of the masks the last evaluation wrote. */
+  maskNames(): string[] {
+    return [...(this.maskPlan?.final.keys() ?? [])]
   }
   get normalTex(): THREE.Texture | null {
     return this.normal?.texture ?? null
@@ -215,7 +268,10 @@ export class MaterialPipeline {
       tAlbedo: { value: null },
       tSurface: { value: null },
       tEmissive: { value: null },
-      tMasks: { value: null },
+      tMaskIn: { value: null },
+      tMaskSrc: { value: null },
+      tLimit: { value: null },
+      uLimit: { value: 0 },
     }
   }
 
@@ -225,6 +281,10 @@ export class MaterialPipeline {
     this.normal?.dispose()
     for (const t of this.scratchTargets.values()) t.dispose()
     this.scratchTargets.clear()
+    for (const t of this.slots) t.dispose()
+    this.slots = []
+    this.emptyMask?.dispose()
+    this.emptyMask = null
     this.state = new PingPong(this.gpu, w, h, { count: 4 })
     this.normal = this.gpu.target(w, h)
     this.width = w
@@ -240,7 +300,126 @@ export class MaterialPipeline {
     if (u.tAlbedo) u.tAlbedo.value = this.state!.read.textures[0]
     if (u.tSurface) u.tSurface.value = this.state!.read.textures[1]
     if (u.tEmissive) u.tEmissive.value = this.state!.read.textures[2]
-    if (u.tMasks) u.tMasks.value = this.state!.read.textures[3]
+    const empty = this.emptyMask!.texture
+    if (u.tMaskIn) u.tMaskIn.value = this.cur.input ?? empty
+    if (u.tMaskSrc) u.tMaskSrc.value = this.cur.source ?? empty
+    if (u.tLimit) u.tLimit.value = this.cur.limit ?? empty
+    if (u.uLimit) u.uLimit.value = this.cur.limitSign
+  }
+
+  // ---------------------------------------------------------------------------------------------- masks (FR8.23)
+
+  /** Slot targets for `n` slots, and the empty mask (filled once per size). */
+  private ensureMaskTargets(n: number): void {
+    while (this.slots.length < n) this.slots.push(this.gpu.target(this.width, this.height))
+    if (!this.emptyMask) {
+      this.emptyMask = this.gpu.target(this.width, this.height)
+      if (!this.fillMat) {
+        this.fillMat = this.gpu.material('uniform vec4 uValue;\nout vec4 oColor;\nvoid main() { oColor = uValue; }\n', {
+          uValue: { value: new THREE.Vector4() },
+        })
+      }
+      ;(this.fillMat.uniforms.uValue.value as THREE.Vector4).set(MASK_EMPTY, 0, 0, 0)
+      this.gpu.run(this.fillMat, this.emptyMask)
+    }
+  }
+
+  /** The texture holding a mask version (the empty mask before anything wrote it). */
+  private refTexture(r: MaskRef): THREE.Texture {
+    return r.slot >= 0 ? this.slots[r.slot].texture : this.emptyMask!.texture
+  }
+
+  /** Copy a texture into a target (a written mask version into its slot). */
+  private copyInto(src: THREE.Texture, target: THREE.WebGLRenderTarget): void {
+    if (!this.copyTexMat) {
+      this.copyTexMat = this.gpu.material('uniform sampler2D tSrc;\nout vec4 oColor;\nvoid main() { oColor = texelFetch(tSrc, ivec2(gl_FragCoord.xy), 0); }\n', {
+        tSrc: { value: null },
+      })
+    }
+    this.copyTexMat.uniforms.tSrc.value = src
+    this.gpu.run(this.copyTexMat, target)
+  }
+
+  /**
+   * Bind a layer's masks for its passes: its input and source, and its limit — one mask read with a sign, or several
+   * combined by a small pass into a scratch target (so generator shaders keep one limit input, whatever the expression).
+   */
+  private bindMasks(plan: LayerMasks | undefined): void {
+    this.cur = { input: null, source: null, limit: null, limitSign: 0 }
+    if (!plan) return
+    if (plan.input) this.cur.input = this.refTexture(plan.input)
+    if (plan.source) this.cur.source = this.refTexture(plan.source)
+    const terms = plan.limit
+    if (!terms) return
+    if (terms.length === 1) {
+      this.cur.limit = this.refTexture(terms[0].ref)
+      this.cur.limitSign = terms[0].neg ? -1 : 1
+      return
+    }
+    const n = Math.min(terms.length, MAX_LIMIT_INPUTS)
+    if (!this.limitMat) {
+      const fetches = Array.from({ length: MAX_LIMIT_INPUTS }, (_, i) => `  d[${i}] = texelFetch(tTerm${i}, c, 0).x;`).join('\n')
+      this.limitMat = this.gpu.material(
+        Array.from({ length: MAX_LIMIT_INPUTS }, (_, i) => `uniform sampler2D tTerm${i};`).join('\n') +
+          /* glsl */ `
+uniform int uOps[${MAX_LIMIT_INPUTS}];
+uniform float uSigns[${MAX_LIMIT_INPUTS}];
+uniform int uGroups[${MAX_LIMIT_INPUTS}];
+uniform int uCount;
+out vec4 oColor;
+// A limit expression in distance terms (masks.ts LimitTerm): op 0 first, 1 or (min), 2 and (max), 3 minus; group 0 the
+// layer's own expression, group 1 its material's, intersected.
+void main() {
+  ivec2 c = ivec2(gl_FragCoord.xy);
+  float d[${MAX_LIMIT_INPUTS}];
+${fetches}
+  float acc0 = ${MASK_EMPTY.toFixed(1)}, acc1 = -${MASK_EMPTY.toFixed(1)};
+  for (int i = 0; i < ${MAX_LIMIT_INPUTS}; i++) {
+    if (i < uCount) {
+      float v = uSigns[i] * d[i];
+      float a = uGroups[i] == 0 ? acc0 : acc1;
+      int op = uOps[i];
+      a = op == 0 ? v : op == 1 ? min(a, v) : op == 2 ? max(a, v) : max(a, -v);
+      if (uGroups[i] == 0) acc0 = a; else acc1 = a;
+    }
+  }
+  oColor = vec4(max(acc0, acc1), 0.0, 0.0, 0.0);
+}
+`,
+        {
+          ...Object.fromEntries(Array.from({ length: MAX_LIMIT_INPUTS }, (_, i) => [`tTerm${i}`, { value: null }])),
+          uOps: { value: new Int32Array(MAX_LIMIT_INPUTS) },
+          uSigns: { value: new Float32Array(MAX_LIMIT_INPUTS) },
+          uGroups: { value: new Int32Array(MAX_LIMIT_INPUTS) },
+          uCount: { value: 0 },
+        },
+      )
+    }
+    const u = this.limitMat.uniforms
+    const OPS = { first: 0, or: 1, and: 2, minus: 3 } as const
+    for (let i = 0; i < MAX_LIMIT_INPUTS; i++) {
+      const t = terms[i]
+      u[`tTerm${i}`].value = t ? this.refTexture(t.ref) : this.emptyMask!.texture
+      ;(u.uOps.value as Int32Array)[i] = t ? OPS[t.op] : 0
+      ;(u.uSigns.value as Float32Array)[i] = t?.neg ? -1 : 1
+      ;(u.uGroups.value as Int32Array)[i] = t?.group ?? 0
+    }
+    u.uCount.value = n
+    const target = this.scratch('limit')
+    this.gpu.run(this.limitMat, target)
+    this.cur.limit = target.texture
+    this.cur.limitSign = 1
+  }
+
+  /** A float RGBA scratch target of the texture size, cached by name. */
+  private scratch(name: string): THREE.WebGLRenderTarget {
+    const k = `${name}:${this.width}x${this.height}`
+    let t = this.scratchTargets.get(k)
+    if (!t) {
+      t = this.gpu.target(this.width, this.height)
+      this.scratchTargets.set(k, t)
+    }
+    return t
   }
 
   private blank: THREE.DataTexture | null = null
@@ -330,7 +509,7 @@ export class MaterialPipeline {
         (def.glsl ?? '') +
         GLSL_GENERATOR_MAIN(def.sdf === 'mask' ? 'mask' : Boolean(def.sdf))
       const tex = Object.fromEntries((def.textures ?? []).map((t) => [`t_${t}`, { value: this.blankTexture() }]))
-      mat = this.gpu.material(frag, { ...this.commonUniforms(), ...createUniforms(defs), ...tex, uWriteMasks: { value: false } })
+      mat = this.gpu.material(frag, { ...this.commonUniforms(), ...createUniforms(defs), ...tex, uMaskKind: { value: 0 } })
       this.materials.set(key, mat)
     }
     return mat
@@ -344,7 +523,7 @@ export class MaterialPipeline {
       const k = `flt:${layer.type}:${key}`
       let mat = self.materials.get(k)
       if (!mat) {
-        const full = outs === MRT_OUTS ? withMaskPassThrough(body) : body
+        const full = outs === MRT_OUTS ? withMaskOut(body) : body
         mat = self.gpu.material(bevelCurveDefine(defs) + MATERIAL_PRELUDE + outs + declareUniforms(defs) + bevelCurveImpl(defs) + full, {
           ...self.commonUniforms(),
           ...createUniforms(defs),
@@ -369,6 +548,10 @@ export class MaterialPipeline {
       },
       get emissive() {
         return self.state!.read.textures[2]
+      },
+      get maskSource() {
+        const r = self.maskPlan?.layers.get(layer.id)?.source
+        return r ? { texture: self.refTexture(r), exact: r.exact } : null
       },
       seed,
       mrtMaterial: (key, body, extra) => build(key, body, MRT_OUTS, extra),
@@ -408,92 +591,64 @@ export class MaterialPipeline {
     const base = project.base
     const lin = hexToLinear(base.color)
     const cu = this.clearMat.uniforms
-    const clear = (initMasks: boolean) => {
-      ;(cu.uRes.value as THREE.Vector2).set(this.width, this.height)
-      ;(cu.uBaseAlbedo.value as THREE.Vector4).set(lin[0], lin[1], lin[2], base.opacity)
-      ;(cu.uBaseSurface.value as THREE.Vector4).set(base.height, base.roughness, 0, SHAPE_REGISTER_EMPTY)
-      cu.uBaseSpecular.value = base.specular
-      cu.uInitMasks.value = initMasks
-      cu.tInitMasks.value = state.read.textures[3]
-      this.gpu.run(this.clearMat, state.write)
-      state.swap()
-    }
+    ;(cu.uRes.value as THREE.Vector2).set(this.width, this.height)
+    ;(cu.uBaseAlbedo.value as THREE.Vector4).set(lin[0], lin[1], lin[2], base.opacity)
+    ;(cu.uBaseSurface.value as THREE.Vector4).set(base.height, base.roughness, 0, 0)
+    cu.uBaseSpecular.value = base.specular
+    this.gpu.run(this.clearMat, state.write)
+    state.swap()
 
-    // Named masks (FR8.13) first: every layer that writes one runs, in stack order, on a scratch evaluation; the
-    // masks it leaves are where the real evaluation starts — so a mask applies wherever its writer sits.
-    const order = project.layers
+    // Masks (FR8.23): which versions later layers read, and a slot for each while they do.
+    const plan = planMasks(project, upTo)
+    this.maskPlan = plan
+    this.ensureMaskTargets(plan.slots)
+
     const hidden = hiddenByMaterial(project)
-    const on = (l: Layer) => l.enabled && !hidden.has(l.id)
-    // (Layers that read earlier state — readsState — write their masks in place instead.)
-    const writers = order.filter((l, i) => {
-      const def = getLayerDef(l.type)
-      return i <= upTo && on(l) && String(l.params.mk_write ?? 'none') !== 'none' && def?.kind === 'generator' && !def.readsState
-    })
-    clear(false)
-    if (writers.length) {
-      for (const layer of writers) {
-        const def = getLayerDef(layer.type)!
-        const seed = mixSeed(Number(layer.params.seed ?? 0), project.seed)
-        try {
-          const mat = this.generatorMaterial(def)
-          updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params)
-          this.bindTextures(def, layer, project, seed, mat)
-          this.setCommon(mat, project, seed)
-          mat.uniforms.uWriteMasks.value = true
-          this.gpu.run(mat, state.write)
-          mat.uniforms.uWriteMasks.value = false
-          state.swap()
-        } catch {
-          // Reported when the layer runs in the evaluation proper.
-        }
-      }
-      clear(true)
-    }
-
-    order.forEach((layer, index) => {
-      if (index > upTo || !on(layer)) return
+    project.layers.forEach((layer, index) => {
+      if (index > upTo || !layer.enabled || hidden.has(layer.id)) return
       const def = getLayerDef(layer.type)
       if (!def) {
         this.errors.set(layer.id, `Unknown layer type "${layer.type}"`)
         return
       }
       const seed = mixSeed(Number(layer.params.seed ?? 0), project.seed)
+      const masks = plan.layers.get(layer.id)
       this.onBeforeLayer?.(layer.id)
       try {
+        this.bindMasks(masks)
         if (def.kind === 'generator') {
           const mat = this.generatorMaterial(def)
           updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params)
           this.bindTextures(def, layer, project, seed, mat)
           this.setCommon(mat, project, seed)
-          // Masks are written in the pre-pass, except by layers that read earlier state: those write in place.
-          mat.uniforms.uWriteMasks.value = def.readsState === true
+          const w = masks?.write
+          mat.uniforms.uMaskKind.value = w ? (w.kind === 'shape' ? 1 : 2) : 0
           this.gpu.run(mat, state.write)
-          mat.uniforms.uWriteMasks.value = false
           this.compiled.add(def.type)
           state.swap()
+          // The new version of its mask, kept while a later layer reads it.
+          if (w && w.slot >= 0) this.copyInto(state.read.textures[3], this.slots[w.slot])
         } else if (def.run) {
-          // Multi-pass filters: masked, they run on the whole state and are blended back by the mask after.
-          const masked = String(layer.params.mk_use ?? 'none') !== 'none'
-          if (masked) this.snapshot(project)
+          // Multi-pass filters: limited, they run on the whole state and are blended back by the limit after.
+          const limited = Boolean(masks?.limit)
+          if (limited) this.snapshot(project)
           def.run(this.filterContext(project, layer, seed), layer)
-          if (masked) this.blendMasked(project, layer, seed)
+          if (limited) this.blendLimited(project, layer, seed)
         } else if (def.filterGlsl) {
           const ctx = this.filterContext(project, layer, seed)
           const mat = ctx.mrtMaterial(
             'main',
             def.filterGlsl +
-              GLSL_NAMED_MASK +
               /* glsl */ `
             void main() {
               ivec2 ip = ivec2(gl_FragCoord.xy);
               vec4 A = texelFetch(tAlbedo, ip, 0);
               vec4 S = texelFetch(tSurface, ip, 0);
               vec4 E = texelFetch(tEmissive, ip, 0);
-              vec4 M = texelFetch(tMasks, ip, 0);
               vec4 A0 = A, S0 = S, E0 = E;
               applyFilter(A, S, E, ip);
-              float k = namedMask(M);
-              oAlbedo = mix(A0, A, k); oSurface = mix(S0, S, k); oEmissive = mix(E0, E, k); oMasks = M;
+              float k = limitAt(ip);
+              oAlbedo = mix(A0, A, k); oSurface = mix(S0, S, k); oEmissive = mix(E0, E, k); oMask = vec4(0.0);
             }`,
           )
           ctx.runMRT(mat)
@@ -502,6 +657,7 @@ export class MaterialPipeline {
         this.errors.set(layer.id, e instanceof Error ? e.message : String(e))
       }
     })
+    this.bindMasks(undefined)
 
     // Normals (xyz) + world height in px (w).
     this.onBeforeLayer?.('normals')
@@ -513,7 +669,7 @@ export class MaterialPipeline {
   private snapshotTarget: THREE.WebGLRenderTarget | null = null
   private copyMat: THREE.RawShaderMaterial | null = null
 
-  /** Copy the current state aside (before a masked multi-pass filter). */
+  /** Copy the current state aside (before a limited multi-pass filter). */
   private snapshot(project: Project): void {
     if (!this.snapshotTarget || this.snapshotTarget.width !== this.width || this.snapshotTarget.height !== this.height) {
       this.snapshotTarget?.dispose()
@@ -524,7 +680,7 @@ export class MaterialPipeline {
         STATE_DECLS + GLSL_COMMON + MRT_OUTS + /* glsl */ `
         void main() {
           ivec2 c = ivec2(gl_FragCoord.xy);
-          oAlbedo = texelFetch(tAlbedo, c, 0); oSurface = texelFetch(tSurface, c, 0); oEmissive = texelFetch(tEmissive, c, 0); oMasks = texelFetch(tMasks, c, 0);
+          oAlbedo = texelFetch(tAlbedo, c, 0); oSurface = texelFetch(tSurface, c, 0); oEmissive = texelFetch(tEmissive, c, 0); oMask = vec4(0.0);
         }`,
         this.commonUniforms(),
       )
@@ -533,33 +689,29 @@ export class MaterialPipeline {
     this.gpu.run(this.copyMat, this.snapshotTarget)
   }
 
-  /** Blend a masked multi-pass filter's result with the state before it, by the layer's named mask. */
-  private blendMasked(project: Project, layer: Layer, seed: number): void {
+  /** Blend a limited multi-pass filter's result with the state before it, by the layer's limit. */
+  private blendLimited(project: Project, layer: Layer, seed: number): void {
     const ctx = this.filterContext(project, layer, seed)
     const mat = ctx.mrtMaterial(
-      'mask-blend',
-      GLSL_NAMED_MASK +
-        /* glsl */ `
+      'limit-blend',
+      /* glsl */ `
       uniform sampler2D tPrevA;
       uniform sampler2D tPrevS;
       uniform sampler2D tPrevE;
-      uniform sampler2D tPrevM;
       void main() {
         ivec2 c = ivec2(gl_FragCoord.xy);
-        vec4 M = texelFetch(tPrevM, c, 0);
-        float k = namedMask(M);
+        float k = limitAt(c);
         oAlbedo = mix(texelFetch(tPrevA, c, 0), texelFetch(tAlbedo, c, 0), k);
         oSurface = mix(texelFetch(tPrevS, c, 0), texelFetch(tSurface, c, 0), k);
         oEmissive = mix(texelFetch(tPrevE, c, 0), texelFetch(tEmissive, c, 0), k);
-        oMasks = M;
+        oMask = vec4(0.0);
       }`,
-      { tPrevA: { value: null }, tPrevS: { value: null }, tPrevE: { value: null }, tPrevM: { value: null } },
+      { tPrevA: { value: null }, tPrevS: { value: null }, tPrevE: { value: null } },
     )
     const t = this.snapshotTarget!.textures
     mat.uniforms.tPrevA.value = t[0]
     mat.uniforms.tPrevS.value = t[1]
     mat.uniforms.tPrevE.value = t[2]
-    mat.uniforms.tPrevM.value = t[3]
     ctx.runMRT(mat)
   }
 

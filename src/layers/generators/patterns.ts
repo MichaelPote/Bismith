@@ -220,7 +220,7 @@ void pat_setBevelDist(float bd) {
 
 // The distance the wrapper draws: the layer's shape combined with the Shape Mask by the Mode (when ticked).
 float pat_drawnDist(float sdf) {
-  return u_sm_on ? sdfCombine(u_sdf_op + 1, texelFetch(tSurface, ivec2(gl_FragCoord.xy), 0).a, sdf, u_sdf_k) : sdf;
+  return maskOp() > 0 ? sdfCombine(maskOp(), maskIn(ivec2(gl_FragCoord.xy)), sdf, u_mk_smooth) : sdf;
 }
 
 // A feature shape's result. With face relief on, Height reads hv × the bevel (genOutShaded with GenOut.hval) and the
@@ -240,6 +240,7 @@ GenOut pat_out(float rnd, float sdf, float drawn, float hv, bool faced) {
   }
   o.feat *= pat_js;
   o.bdist = pat_bd;
+  o.fid = rnd;
   return o;
 }
 
@@ -254,7 +255,7 @@ GenOut pat_bedOut(float rnd, float sdf, float drawn, float hv, float level, floa
   hv = mix(1.0, hv, pat_js);
   // The bevel as the wrapper draws it (bevelAt, one profileCurve call): from the generator's bevel distance while the
   // shape is its own, else from the drawn distance with Bevel aspect taken from its direction.
-  bool own = pat_bd > NO_SDF && (!u_sm_on || u_sdf_op == 0);
+  bool own = pat_bd > NO_SDF && maskOp() <= 1;
   float gg = dot(dg, dg);
   vec2 n2 = gg > 1e-12 ? dg * dg / gg : vec2(0.5);
   vec2 W = bevelWidths();
@@ -269,6 +270,7 @@ GenOut pat_bedOut(float rnd, float sdf, float drawn, float hv, float level, floa
   // A chip that goes down to the bed shows the colour beneath there too (a crisp edge) — no ghost of the outline.
   float through = 1.0 - smoothstep(0.96 - lv, 1.0 - lv, pat_hollow);
   GenOut o = genOutHeight(0.0, pat_cov * through, mix(rnd, 1.0, pat_tint), sdf, mix(bed, max(hv * var, bed), bev * cov));
+  o.fid = rnd;
   o.feat = 0.0;   // the variation is in the profile already, and must not move the bed
   o.bdist = pat_bd;
   return o;

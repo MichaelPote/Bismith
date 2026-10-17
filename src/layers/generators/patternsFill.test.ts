@@ -1,5 +1,5 @@
 // Clouds, Gradient and Scratches (FR2.4): the CPU side — defaults, editor defaults sized to the texture, the clouds'
-// measured coverage, the Shape Mask on scratches, and option orders the shaders rely on.
+// measured coverage, the mask on scratches, and option orders the shaders rely on.
 
 import { describe, expect, it } from 'vitest'
 import { ensureBuiltins } from '@/render/builtins'
@@ -51,12 +51,12 @@ describe('fill patterns', () => {
     expect(gradientLayer.glsl).toContain('profileCurve(u_falloff + 1, v)')
   })
 
-  it('lets scratches write the Shape Mask, off by default', () => {
+  it('lets scratches write a mask, off by default', () => {
     expect(scratchesLayer.sdf).toBe('mask')
     const p = createLayer('scratches').params
-    // Adding scratches never replaces a shape mask built below them; ticked, they start in Normal mode.
-    expect([p.sm_on, p.sdf_op]).toEqual([false, 'replace'])
-    expect(def('scratches', 'sm_on')?.group).toBe('mask')
+    // Adding scratches never replaces a Shape mask built above them; given a mask, they start in Normal mode.
+    expect([p.mk_target, p.mk_op]).toEqual(['', 'replace'])
+    expect(def('scratches', 'mk_target')?.group).toBe('mask')
     // A mask-only shape: no Edge (bevel) controls.
     expect(def('scratches', 'bevel')).toBeUndefined()
     expect(layerGroups(scratchesLayer).some((g) => g.id === 'shape')).toBe(false)

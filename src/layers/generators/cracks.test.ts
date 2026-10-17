@@ -12,9 +12,9 @@ describe('cracks', () => {
 
   it('loads an old sparse layer with the current behaviour (an unknown warp style falls back to Bend)', () => {
     const p = normalizeProject({ layers: [{ type: 'cracks', params: { output: 'plates', scale: 5, width: 0.8, warp: 0.6, warp_mode: 'fold' } }] }).layers[0].params
-    expect(p).toMatchObject({ scale: 5, width: 0.8, warp: 0.6, warp_mode: 'bend', sm_on: true, sub_connect: true, sub_shape: false })
+    expect(p).toMatchObject({ scale: 5, width: 0.8, warp: 0.6, warp_mode: 'bend', mk_target: 'Shape', sub_connect: true, sub_shape: false })
     const fresh = createLayer('cracks', freshParams('cracks', { width: 512, height: 512 })).params
-    expect(fresh).toMatchObject({ warp_mode: 'bend', sm_on: true, sub_taper: 0.7, dome: 0.35, bevel: 2 })
+    expect(fresh).toMatchObject({ warp_mode: 'bend', mk_target: 'Shape', sub_taper: 0.7, dome: 0.35, bevel: 2 })
     expect(normalizeProject({ layers: [{ type: 'cracks', params: fresh }] }).layers[0].params).toEqual(fresh)
   })
 

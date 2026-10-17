@@ -181,20 +181,19 @@ describe('supersampling', () => {
 })
 
 describe('shape mask (the register)', () => {
-  it('turns the old "Ignore register" operator into an unticked Shape Mask, on create and on load', async () => {
+  it('writes the Shape mask from shape layers by default; old mask keys drop on load (FR8.23)', async () => {
     const { createLayer } = await import('./serialize')
-    const { getLayerDef, layerGroups } = await import('@/layers/registry')
-    const made = createLayer('rect', { sdf_op: 'none' })
-    expect([made.params.sm_on, made.params.sdf_op]).toEqual([false, 'replace'])
-    const p = createProject({ width: 32, height: 32, layers: [] })
-    p.layers.push({ ...createLayer('rect'), params: { ...createLayer('rect').params, sdf_op: 'none', sm_on: undefined as never } })
-    const loaded = normalizeProject(JSON.parse(JSON.stringify(p)))
-    expect([loaded.layers[0].params.sm_on, loaded.layers[0].params.sdf_op]).toEqual([false, 'replace'])
-    // A new shape writes by default, in Normal mode; "Use shape mask" sits in the Mask card, on shape layers only.
-    expect([createLayer('rect').params.sm_on, createLayer('rect').params.sdf_op]).toEqual([true, 'replace'])
     const { layerParamDefs } = await import('@/layers/registry')
-    expect(layerParamDefs('rect').find((d) => d.key === 'sm_on')?.group).toBe('mask')
-    expect(layerParamDefs('noise').some((d) => d.key === 'sm_on')).toBe(false)
-    expect(layerGroups(getLayerDef('rect')!).some((g) => g.id === 'shapemask')).toBe(false)
+    // Shape layers write the Shape mask in Normal mode; other generators write none until given one.
+    expect([createLayer('rect').params.mk_target, createLayer('rect').params.mk_op]).toEqual(['Shape', 'replace'])
+    expect(createLayer('noise').params.mk_target).toBe('')
+    expect(layerParamDefs('rect').find((d) => d.key === 'mk_target')?.group).toBe('mask')
+    expect(layerParamDefs('noise').find((d) => d.key === 'lim_1')?.group).toBe('mask')
+    // No migration (nothing released): an old file loads, its old keys gone and the new ones at their defaults.
+    const p = createProject({ width: 32, height: 32, layers: [] })
+    p.layers.push({ ...createLayer('rect'), params: { ...createLayer('rect').params, sm_on: false, m_clip: 'inside', mk_write: '2' } as never })
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(p))).layers[0].params
+    expect(['sm_on', 'm_clip', 'mk_write'].filter((k) => k in loaded)).toEqual([])
+    expect([loaded.mk_target, loaded.lim_1]).toEqual(['Shape', ''])
   })
 })

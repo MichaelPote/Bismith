@@ -2,7 +2,8 @@
 
 import { defaultParams, sanitizeParams, type ParamValue, type ParamValues } from '@/core/params'
 import { newId } from '@/core/ids'
-import type { Layer, Project, SmartMaterial } from '@/core/project'
+import type { Layer, LimitExpr, Project, SmartMaterial } from '@/core/project'
+import { foldLimit, layerLimit, limitParams } from '@/layers/masks'
 import { cobblestones, dressedStone } from './stone'
 import { brushedMetal, hammeredMetal, stains } from './metal'
 import { concrete } from './surfaces'
@@ -50,7 +51,7 @@ export function addMaterial(p: Project, recipeId: string, overrides: ParamValues
   const built = def.build(params, ctxOf(p))
   const block = [...built.filter((b) => b.stack === 'relief'), ...built.filter((b) => b.stack !== 'relief')]
   for (const { role, layer } of block) members[role] = layer.id
-  const i = at === undefined ? p.layers.length : Math.max(0, Math.min(p.layers.length, at))
+  const i = def.first ? 0 : at === undefined ? p.layers.length : Math.max(0, Math.min(p.layers.length, at))
   p.layers.splice(i, 0, ...block.map((b) => b.layer))
   if (def.render) {
     const r = def.render
@@ -102,28 +103,17 @@ export function setMacro(p: Project, m: SmartMaterial, key: string, value: Param
     }
   }
   m.params = next
-  // A rebuilt member starts from the recipe: keep the material's mask on it.
-  if (m.mask) applyMaterialMask(p, m)
   return written
 }
 
-/** Write the material's named mask to every member (FR8.13). */
-function applyMaterialMask(p: Project, m: SmartMaterial): void {
-  for (const id of Object.values(m.members)) {
-    const layer = findLayer(p, id)
-    if (!layer) continue
-    layer.params.mk_use = m.mask?.use ?? 'none'
-    layer.params.mk_invert = m.mask?.invert ?? false
-  }
-}
-
 /**
- * Clip a whole material to a named mask (FR8.13): `use` '1'..'4' (or 'none'), inside or — `invert` — outside, e.g.
- * a wall with a hole cut where an earlier shape wrote the mask. Kept on the material, so rebuilt members keep it.
+ * Limit a whole material to masks (FR8.23), on top of each member's own Limit to — e.g. a wall outside an opening an
+ * earlier shape wrote, the material behind it inside. Kept on the material (the pipeline applies it), so members a
+ * macro rebuilds keep it.
  */
-export function setMaterialMask(p: Project, m: SmartMaterial, use: string, invert: boolean): void {
-  m.mask = ['1', '2', '3', '4'].includes(use) ? { use, invert } : undefined
-  applyMaterialMask(p, m)
+export function setMaterialLimit(m: SmartMaterial, limit: LimitExpr | null): void {
+  if (limit?.terms.length) m.limit = limit
+  else delete m.limit
 }
 
 /** The material a layer belongs to, if any. */
@@ -134,9 +124,12 @@ export function materialOf(p: Project, layerId: string): SmartMaterial | undefin
 /** Drop the material record; its layers stay as ordinary layers (switched off if the material was hidden). */
 export function unpackMaterial(p: Project, id: string): void {
   const m = (p.materials ?? []).find((x) => x.id === id)
-  if (m?.enabled === false) for (const lid of Object.values(m.members)) {
+  for (const lid of Object.values(m?.members ?? {})) {
     const l = findLayer(p, lid)
-    if (l) l.enabled = false
+    if (!l) continue
+    if (m!.enabled === false) l.enabled = false
+    // The material's limit moves onto its members.
+    if (m!.limit) Object.assign(l.params, limitParams(foldLimit(layerLimit(l.params), m!.limit)))
   }
   p.materials = (p.materials ?? []).filter((x) => x.id !== id)
 }

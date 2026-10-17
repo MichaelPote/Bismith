@@ -523,7 +523,7 @@ GenOut gen(vec2 p) {
   }
   // Rails lower than the bands: the level × the bevel (genOutShaded-style), with the coverage drawn here.
   if (u_rail > 0.0 && u_rail_h < 1.0 && mode != 2)
-    return GenOut(rail ? u_rail_h : 1.0, coverage(d, u_aa), rnd, d, 1.0, NO_SDF, 2, -1.0, bd);
+    return GenOut(rail ? u_rail_h : 1.0, coverage(d, u_aa), rnd, d, 1.0, NO_SDF, 2, -1.0, bd, rnd);
   GenOut o = genOut(0.0, 1.0, rnd, d);
   o.bdist = bd;
   return o;

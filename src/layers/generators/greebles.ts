@@ -39,8 +39,8 @@ export const greeblesLayer: LayerDef = {
   category: 'pattern',
   kind: 'generator',
   sdf: true,
-  // The relief writes the shape mask unless Shape for the mask is None; the shape outputs always do.
-  writesMask: (p) => !isRelief(p) || (p.mask ?? 'none') !== 'none',
+  // The relief writes its shape to the mask unless Shape for the mask is None; the shape outputs always do.
+  maskWrite: (p) => (!isRelief(p) || (p.mask ?? 'none') !== 'none' ? 'shape' : false),
   description:
     'Machine greebles: a recursive subdivision into panels, each piece at any level maybe bordered or edged with strips (pipe runs, grilles, lamps) before it splits again; cut lines that step at 45° into trapezoids and diamonds; octilinear plate outlines; rivets, vents, lights, recesses, perforations and pipes on the final plates; and 45° beams laid over them. Tileable.',
   params: [

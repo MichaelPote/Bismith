@@ -3,41 +3,44 @@
 
 import * as THREE from 'three'
 import { P, type ParamDef, type ParamValues } from '@/core/params'
-import { jumpFlood } from '@/gpu/jfa'
+import { SHAPE_MASK } from '@/core/project'
+import { DISTANCE_SOURCE, jumpFlood } from '@/gpu/jfa'
 import type { FilterContext } from '@/render/materialPipeline'
 
-/** Mask sources for distance-based filters; order matches DISTANCE_SOURCE in gpu/jfa.ts. */
+/** Sources for distance-based filters; order matches DISTANCE_SOURCE in gpu/jfa.ts. */
 export const DISTANCE_SOURCES: [string, string][] = [
   ['height', 'Height above threshold'],
   ['opacity', 'Opacity above threshold'],
   ['luminance', 'Luminance above threshold'],
-  ['shape', 'Shape mask (exact)'],
-  ['mask1', 'Mask 1'],
-  ['mask2', 'Mask 2'],
-  ['mask3', 'Mask 3'],
-  ['mask4', 'Mask 4'],
+  ['mask', 'A mask'],
 ]
 
 /** Contour relaxation for thresholded (jump-flood) sources; see DistanceFieldOptions.relax. */
 export const SMOOTH_PARAM: ParamDef = P.float('smooth', 'Edge smoothing', 3, 0, 6, {
   unit: 'px',
   step: 0.01,
-  showIf: (p) => p.source !== 'shape',
-  hint: 'Fits the thresholded edge to a smooth line (keeps corners): hides faceting on wide bevels. 0 = follow pixel steps exactly',
+  hint: 'Fits the thresholded edge to a smooth line (keeps corners): hides faceting on wide bevels. 0 = follow pixel steps exactly. Masks only shape layers wrote are exact and need none',
 })
 
 export const SOURCE_PARAMS: ParamDef[] = [
   P.enum('source', 'Source', 'height', DISTANCE_SOURCES, {
-    hint: 'What defines the edge: a channel or one of the four named masks, above the threshold (its distance found by jump flood), or the shape mask written by shape layers (exact)',
+    hint: 'What defines the edge: a channel above the threshold (its distance found by jump flood), or a mask written by a layer above — exact where only shape layers wrote it',
+  }),
+  P.text('source_mask', 'Mask', SHAPE_MASK, {
+    showIf: (p) => p.source === 'mask',
+    hint: 'The mask whose edge this follows, by name (Shape: the one shape layers write)',
   }),
   P.float('threshold', 'Threshold', 0.5, -16, 16, {
     softMin: 0,
     softMax: 1,
     step: 0.001,
-    showIf: (p) => p.source !== 'shape',
+    showIf: (p) => p.source !== 'mask',
     hint: 'Inside = source value above this',
   }),
 ]
+
+/** LayerDef.maskSource of the edge filters: the mask they follow. */
+export const edgeMaskSource = (p: ParamValues): string | null => (p.source === 'mask' ? String(p.source_mask ?? '').trim() || SHAPE_MASK : null)
 
 /** Gaussian σ for a blur "radius" (the kernel reaches ~1.5 × radius, i.e. 3σ). */
 export const radiusToSigma = (radius: number) => Math.max(radius, 0) * 0.5
@@ -100,26 +103,28 @@ export function sourceIndex(params: ParamValues): number {
 }
 
 /**
- * Signed distance (px, negative inside) of the layer's `source`/`threshold` mask: a jump-flood field in a
- * scratch target, or null when the source is the shape register (read `S.a` directly — it is exact).
+ * Signed distance (px, negative inside) of the layer's source: a jump-flood field in a scratch target — or, for a mask
+ * only shape layers wrote, the mask itself (its distance is exact), read with `sign` −1 when inverted.
  */
-export function sourceDistance(ctx: FilterContext, params: ParamValues, maxDistance: number, invert = false): THREE.Texture | null {
+export function sourceDistance(ctx: FilterContext, params: ParamValues, maxDistance: number, invert = false): { texture: THREE.Texture; sign: number } {
   const source = sourceIndex(params)
-  if (source === 3) return null
-  return jumpFlood(ctx, {
+  const mask = source === DISTANCE_SOURCE.mask ? ctx.maskSource : null
+  if (mask?.exact) return { texture: mask.texture, sign: invert ? -1 : 1 }
+  const field = jumpFlood(ctx, {
     source,
-    threshold: Number(params.threshold ?? 0.5),
+    // A mask's coverage is clamp(0.5 − its distance): its edge where that is a half.
+    threshold: mask ? 0.5 : Number(params.threshold ?? 0.5),
+    mask: mask?.texture,
     invert,
     maxDistance,
     relax: Number(params.smooth ?? 0),
-  }).texture
+  })
+  return { texture: field.texture, sign: 1 }
 }
 
-/** GLSL: the signed distance at a texel from `tDist` or the shape register (u_source == 3). */
+/** GLSL: the signed distance at a texel from `tDist` (× uDistSign). */
 export const GLSL_SOURCE_DIST = /* glsl */ `
 uniform sampler2D tDist;
-float sourceDist(ivec2 ip, vec4 S, bool invert) {
-  if (u_source == 3) return invert ? -S.a : S.a;
-  return texelFetch(tDist, ip, 0).r;
-}
+uniform float uDistSign;
+float sourceDist(ivec2 ip) { return uDistSign * texelFetch(tDist, ip, 0).r; }
 `

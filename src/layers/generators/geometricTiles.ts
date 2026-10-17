@@ -810,8 +810,8 @@ GenOut gen(vec2 p) {
   float iso = mode == 2 ? clamp(u_block_iso, 0.0, 1.0) : 0.0;
   float crease = tile_hex ? clamp(u_crease, 0.0, 1.0) : 0.0;
   if (u_tilt > 0.0 || u_crown > 0.0 || iso > 0.0 || blkVar || crease > 0.0) {
-    int op = u_sm_on ? u_sdf_op + 1 : 0;
-    float dc = op == 0 ? D : sdfCombine(op, texelFetch(tSurface, ivec2(gl_FragCoord.xy), 0).a, D, u_sdf_k);
+    int op = maskOp();
+    float dc = op == 0 ? D : sdfCombine(op, maskIn(ivec2(gl_FragCoord.xy)), D, u_mk_smooth);
     vec2 dg = vec2(dFdx(dc), dFdy(dc));
     vec3 ht = hash3I(tile_bid, uSeed + 503.0);
     float ta = TAU * ht.x;

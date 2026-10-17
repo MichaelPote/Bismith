@@ -24,9 +24,9 @@ describe('cable', () => {
     expect(Number(strip.count)).toBeGreaterThan(Number(big.count))
   })
 
-  it('is a laid rope out of the box that writes the Shape Mask by Union', () => {
+  it('is a laid rope out of the box that writes the Shape mask by Union', () => {
     const plain = createLayer('cable').params
-    expect(plain).toMatchObject({ sm_on: true, sdf_op: 'union', strands: 3, sink: 0.35, core: 0.6, irregular: 0.5 })
+    expect(plain).toMatchObject({ mk_target: 'Shape', mk_op: 'union', strands: 3, sink: 0.35, core: 0.6, irregular: 0.5 })
     // The plain sizes are the editor's at 512 px.
     const fresh = freshParams('cable', { width: 512, height: 512 })
     for (const k of ['radius', 'thickness', 'count', 'yarns']) expect(plain[k], k).toBe(fresh[k])
