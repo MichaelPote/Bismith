@@ -5,7 +5,7 @@ import { P, type ParamValues } from '@/core/params'
 import { L, ON_FACES, across, clamp, gradient, num, r2, shade } from './parts'
 import type { RecipeDef, RecipeLayer } from './types'
 import { BRICKS_REGULAR, HEX_PLAIN } from '@/layers/generators/patterns'
-import { SHAPE_MASK, limitTo } from '@/layers/masks'
+import { SHAPE_MASK, fromMask, limitTo } from '@/layers/masks'
 
 export const tiles: RecipeDef = {
   id: 'tiles',
@@ -93,13 +93,14 @@ export const tiles: RecipeDef = {
       {
         role: 'raise', stack: 'relief',
         // A 1 px ridge a couple of pixels inside each edge.
-        layer: L(type, 'Raised border', { ...shape, bevel: r2(clamp(size * 0.15, 2, 5)), profile: 'custom', bevel_curve: { points: [{ x: 0, y: 0 }, { x: 0.3, y: 0 }, { x: 0.45, y: 1 }, { x: 0.6, y: 0 }, { x: 1, y: 0 }] }, mk_target: '', h_on: true, h_amount: r2(0.25 * raise), dif_on: false }, raise > 0),
+        // The tiles from the Shape mask the first layer wrote (Mask area), not another copy of the pattern.
+        layer: L('surfacemask', 'Raised border', { ...fromMask(SHAPE_MASK, shape), bevel: r2(clamp(size * 0.15, 2, 5)), profile: 'custom', bevel_curve: { points: [{ x: 0, y: 0 }, { x: 0.3, y: 0 }, { x: 0.45, y: 1 }, { x: 0.6, y: 0 }, { x: 1, y: 0 }] }, h_on: true, h_amount: r2(0.25 * raise), dif_on: false }, raise > 0),
       },
-      { role: 'heights', stack: 'relief', layer: L(type, 'Tile heights', { ...shape, bevel: 0, profile: 'flat', mk_target: '', h_on: true, h_amount: r2(0.15 * num(m.heights, 0.1)), h_var: 1, dif_on: false }, num(m.heights, 0.1) > 0) },
+      { role: 'heights', stack: 'relief', layer: L('surfacemask', 'Tile heights', { ...fromMask(SHAPE_MASK, shape), h_on: true, h_amount: r2(0.15 * num(m.heights, 0.1)), h_var: 1, dif_on: false }, num(m.heights, 0.1) > 0) },
       { role: 'lumps', stack: 'relief', layer: L('noise', 'Lumps', { noise: 'perlin', fractal: 'fbm', scale: across(ctx, clamp(size * 0.6, 4, 16)), octaves: 2, seed: seed + 1, h_on: true, h_amount: r2(0.1 * rough), dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'value', s_a: 0.2, s_b: 1, ...ON_FACES }, rough > 0) },
       { role: 'grout', stack: 'paint', layer: L('noise', 'Grout', { noise: 'white', seed: seed + 2, ...limitTo(SHAPE_MASK, { outside: true }), h_on: false, dif_on: true, dif_grad: shade(grout, 0.65) }) },
       { role: 'mottle', stack: 'paint', layer: L('noise', 'Mottle', { noise: 'value', fractal: 'fbm', scale: across(ctx, clamp(size * 0.5, 3, 24)), octaves: 3, seed: seed + 3, ...limitTo(SHAPE_MASK), sh_lo: r2(0.5 - 0.5 * num(m.mottle, 0.15)), sh_hi: r2(0.5 + 0.5 * num(m.mottle, 0.15)), h_on: false, dif_on: true, dif_grad: colours }) },
-      { role: 'tile-colour', stack: 'paint', layer: L(type, 'Tile colour', { ...shape, bevel: 0, profile: 'flat', mk_target: '', ...limitTo(SHAPE_MASK), h_on: false, dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.15)), dif_grad: colours }, num(m.variety, 0.15) > 0) },
+      { role: 'tile-colour', stack: 'paint', layer: L('surfacemask', 'Tile colour', { ...fromMask(SHAPE_MASK, shape), h_on: false, dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.15)), dif_grad: colours }, num(m.variety, 0.15) > 0) },
       { role: 'grain', stack: 'paint', layer: L('noise', 'Colour grain', { noise: 'white', seed: seed + 5, ...limitTo(SHAPE_MASK), h_on: false, dif_on: true, dif_opacity: r2(0.5 * num(m.grain, 0.4)), dif_grad: colours }, num(m.grain, 0.4) > 0) },
       {
         role: 'flecks', stack: 'paint',

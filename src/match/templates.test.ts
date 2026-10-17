@@ -28,13 +28,15 @@ describe('emulation templates', () => {
     })
   }
 
-  it('ties the copies of one pattern across the stacks', () => {
+  it('lays the stones out once: one Bricks layer, the rest read them from the Shape mask', () => {
     const p = TEMPLATES.find((t) => t.id === 'bricks')!.build(analysis, { palette: 'quake' })
-    const space = extractParams(p, { enums: true })
-    const columns = space.entries.filter((e) => e.key === 'columns')
-    // Pillow, Edges, Block heights (relief) and Stone colour (paint): one entry.
+    expect(p.layers.filter((l) => l.type === 'bricks').map((l) => l.name)).toEqual(['Stones'])
+    const readers = p.layers.filter((l) => l.type === 'surfacemask' && l.params.select === 'features' && l.params.src_mask === 'Shape')
+    expect(readers.map((l) => l.name)).toEqual(['Pillow', 'Edges', 'Block heights', 'Stone colour'])
+    // Nothing to tie: the layout is one entry of its own.
+    const columns = extractParams(p, { enums: true }).entries.filter((e) => e.key === 'columns')
     expect(columns).toHaveLength(1)
-    expect(columns[0].tied).toHaveLength(3)
+    expect(columns[0].tied ?? []).toHaveLength(0)
   })
 
   it('ties the five Rock copies of the rock face', () => {

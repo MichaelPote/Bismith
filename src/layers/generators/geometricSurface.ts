@@ -2,10 +2,10 @@
 // teardrops, diamonds) and woven strands (plain / twill / basket / satin / herringbone weaves, chain-link-style meshes
 // on a 45° frame).
 //
-// Both paint their own relief (genOutShaded) while the layer draws its own shape (Shape mask off or Normal): the
+// Both paint their own relief (genOutShaded) while the layer draws its own shape (no mask written, or Normal): the
 // Profile applied over a distance that can reach across a whole lozenge (Dome) blended towards a ridge (Crest); for
 // weaves, floats that arch down to a floor where they dive, flanks that rest on the strands beneath and lower
-// under-runs. In the Shape mask's combine modes they hand the wrapper their exact distance (its plain bevel).
+// under-runs. In the mask's combine modes they hand the wrapper their exact distance (its plain bevel).
 
 import { P, gradient, type ParamValues } from '@/core/params'
 import type { LayerDef } from '../types'
@@ -14,7 +14,7 @@ import { geoGlsl, orientParam } from './geometricCommon'
 /**
  * GLSL: the layer's own value v (0..1) on its exact shape d — genOutShaded with a bevel distance where the wrapper's
  * profile peaks (its bevel factor is then a constant, divided out) and the shape's own coverage. Only while the layer
- * draws its own shape (Shape mask off or Normal), where the wrapper takes GenOut.bdist.
+ * draws its own shape (no mask written, or Normal), where the wrapper takes GenOut.bdist.
  */
 const SURF_OWN = /* glsl */ `
 // Where the profile peaks (Ridge: half way); p1 = the profile there (the caller evaluates it with its own profile
@@ -77,7 +77,7 @@ export const treadplateLayer: LayerDef = {
     P.float('width', 'Width', 0.15, 0.02, 1, { step: 0.001, hint: 'Fraction of the cell (bars: of the bar spacing; studs: diameter)' }),
     P.float('crown', 'Dome', 1, 0, 1, {
       step: 0.001,
-      hint: 'How far in the bevel reaches: 0 = flat tops with only the Bevel at the edges, 1 = domed all the way to the spine; the Profile shapes the dome (Round: steep sides, rounded top). Works without a Bevel too. (Bevel aspect applies only in the Shape mask’s combine modes)',
+      hint: 'How far in the bevel reaches: 0 = flat tops with only the Bevel at the edges, 1 = domed all the way to the spine; the Profile shapes the dome (Round: steep sides, rounded top). Works without a Bevel too. (Bevel aspect applies only in the mask’s combine modes: Union, Subtract …)',
     }),
     P.float('crest', 'Crest', 0.5, 0, 1, {
       step: 0.001,
@@ -209,7 +209,7 @@ GenOut gen(vec2 p) {
     else { d = tp_rhombus(q, vec2(hl, hw)); ins = hl * hw / max(length(vec2(hl, hw)), 1e-3); }
     if (d < best) { best = d; bestRnd = hashI(id, uSeed); bestIn = ins; }
   }
-  // In the Shape mask's combine modes the wrapper bevels the combined shape.
+  // In the mask's combine modes the wrapper bevels the combined shape.
   if (maskOp() > 1) return genOut(0.0, 1.0, bestRnd, best);
   // Dome: the Profile over max(Bevel, Dome × half-width) in, blended towards the straight ridge by Crest.
   float B = max(u_bevel, u_crown * bestIn);
@@ -342,7 +342,7 @@ GenOut gen(vec2 p) {
   wv_nS = ivec2(geo_k + 0.5) * R;
   vec2 sp = geo_cs / float(R);           // strand pitch (px)
   ivec2 c = ivec2(floor(geo_f / sp));
-  // The layer paints its own relief while it draws its own shape (Shape mask off or Normal); in the combine modes the
+  // The layer paints its own relief while it draws its own shape (no mask written, or Normal); in the combine modes the
   // wrapper bevels the combined shape. Ends that run on under the crossing strand close their gap, and slivers of
   // under-runs under 2 px long are left out (they would alias into hairlines).
   bool own = maskOp() <= 1;

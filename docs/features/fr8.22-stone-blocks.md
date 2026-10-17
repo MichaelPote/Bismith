@@ -13,8 +13,8 @@ with cracks and mossy joints, and pale frosted stone with moss speckle. Bricks a
 Bricks has no splits or faces, Rock's blocks are Voronoi cells, not dressed rectangles.
 
 ## Stone blocks (`stone_blocks`, `generators/stoneBlocks.ts`)
-A pattern-category SDF generator (`genOutOwn`: it paints its own value; the Relief output hands its stones to the Shape
-Mask).
+A pattern-category SDF generator (`genOutOwn`: it paints its own value; the Relief output hands its stones to the mask it
+writes, Shape by default).
 
 ### Layout
 - **Courses.** Rows of nominal height *Course height* (whole rows down the texture when tiling), each row edge jittered
@@ -74,15 +74,15 @@ Mask).
 - **Value:** `0.5 + 0.5·tanh(v / 2)`: linear over the usual range, deep scars and gaps rounded off rather than clipped.
 
 ### Outputs
-- **Relief** — the height (and colour by height or per stone); puts the stones in the Shape Mask.
+- **Relief** — the height (and colour by height or per stone); puts the stones in the mask it writes (Shape by default).
 - **Joints** — 1 in the joints and gaps, fading over *Joint reach*; *Patchiness* breaks it into patches about three
   blocks across (moss along some joints).
 - **Scars** — how deep the scars cut (0 on the original face): paler fresh breaks, or shaded hollows.
 - **Gaps** — the open gaps alone, to paint dark.
 
-The masks return no distance (`NO_SDF`), so they don't write the Shape Mask, hide the Shape card (`sdfShowIf`), and a
-*Write to mask* records what they paint — a joint-moss mask that a speckle layer is *Masked by* (green flecks along the
-joints). With a distance, the named mask recorded the stones.
+The masks return no distance (`NO_SDF`), so they hide the Shape card (`sdfShowIf`) and leave the Shape mask alone;
+*Write to* another mask records what they paint as coverage — a joint-moss mask that a speckle layer is *Limited to*
+(green flecks along the joints). With a distance (Relief), the mask it writes holds the stones.
 
 ### Random value
 Per stone, per block (pieces split from one block share it), or per course.
@@ -92,17 +92,17 @@ Hand-authored in the studio (kept with the references in the private repo). What
 - *Yellow sandstone, broken ashlar:* course 64, Block length 3.6, Splits 0.4 at two levels, Through stones 0.25,
   Smallest piece 26, scars 110 px at depth 3.2, faint joints (depth 0.15) and open gaps; paint is a few noise layers:
   broad ochre zones, mottling, cream blotches with grainy edges (Perlin fBm, gain 0.78, cutoff), a fine grain, joints
-  multiplied light brown with white-noise grit outside the Shape Mask, the Gaps output dark green-black. Render AO
+  multiplied light brown with white-noise grit limited to Outside Shape, the Gaps output dark green-black. Render AO
   0.7 darkens the scar creases as in the reference; more AO darkened everything.
 - *Rust-red small random ashlar:* course 26, small scars, Height 5 (deeper relief cast shadow outlines round every
   stone), orange lichen as fine fBm specks.
 - *Long sandstone with lichen:* course 64, length 4.2, few splits, shallow scars; overlapping fBm patches of grey, rust,
-  dark lichen and pale crust with soft cutoffs; hairline Cracks clipped inside the stones.
+  dark lichen and pale crust with soft cutoffs; hairline Cracks limited to the stones.
 - *Dark wet slate:* course 125, one split level, dense small scars and roughness under a sheen; a Cracks layer on top
   that also multiplies the specular to 0 (otherwise the sky's reflection washed the dark cracks out); Joints with
-  Joint reach 10 and Patchiness 0.55 written to a named mask, bright green white-noise flecks masked by it.
+  Joint reach 10 and Patchiness 0.55 written to a mask, bright green white-noise flecks limited to it.
 - *Pale frosted stone:* course 80 with 12 px scars at depth 2.5 (a fine crumpled relief), a Perlin overlay, hairline
-  Cracks, moss as clusters (a named mask) filled with fine specks.
+  Cracks, moss as clusters (a mask of their own) filled with fine specks.
 
 ## Starters (New project wizard)
 Each recreation is also a Starter in the *Nature* group (`presets/index.ts`), at 512 px as tuned: *Sandstone ashlar*,

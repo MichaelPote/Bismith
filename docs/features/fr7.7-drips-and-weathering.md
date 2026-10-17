@@ -94,11 +94,11 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
     angle). From Dent shape 2.5 to 5 Depth variation drops to 0.3× (punches strike to much the same depth, so their
     floors don't step into each other — set Dent size below 1 to leave metal between them), and above shape 4 a burr of
     displaced metal rises round them (up to +0.35 Rim at 10). Crease softness maps through a square root (kc =
-    0.3·√crease), so the first tenth of the slider already rounds the creases. The Shape-mask discs are joined with a 2
+    0.3·√crease), so the first tenth of the slider already rounds the creases. The mask discs are joined with a 2
     px fillet, so pinholes between nearly touching dents close.
-  - **Shape Mask** (`sdf: 'mask'`, opt-in — `writesMask` — so stored projects keep their register): the dents as discs
-    of *Shape mask size* × their radius, moving from the dent's centre (1 = whole dents) to its tilted deepest point
-    (lower = round its floor), also for named-mask writes.
+  - **Mask** (`sdf: 'mask'`, opt-in — *Write to* is empty by default, so adding dents never replaces the Shape mask):
+    the dents as discs of *Mask size* × their radius, moving from the dent's centre (1 = whole dents) to its tilted
+    deepest point (lower = round its floor).
   - **Defaults**: the plain defaults are the look at 512 px (planished bowls, Tilt 1 — off-centre floors — meeting in
     crisp creases, in wandering courses round 4 centres); `fresh` sizes the courses to the texture — about 21 across,
     but on small textures fewer, larger dents (5 courses across at 64 px, none closer than 14 px below 300 px), fewer
@@ -174,7 +174,7 @@ models water running down a wall instead (`dr_runnels` in `drips.ts`):
     Drips from 0 unless they ask.
 
 ## Blisters (Sources output)
-Peeling paint giving way to the rust beneath, as a **shape mask** rather than domes (`dr_blisters` in `drips.ts`):
+Peeling paint giving way to the rust beneath, as a **mask** rather than domes (`dr_blisters` in `drips.ts`):
 - **Where**: a ragged hole at each drip source (the stains' own placement, `dr_source`, so the same seed lines them
   up; *Relief drive* moves them onto ledges as before) smooth-unioned with bands along **every ledge** — the pixels the
   ledge test (*Ledge threshold / reach / softness*) accepts, flooded into an exact distance field before the layer runs
@@ -194,14 +194,14 @@ Peeling paint giving way to the rust beneath, as a **shape mask** rather than do
     (the cell-scale lobe noise), so no two stretches peel alike; the flaps vary the lift's width as well as its height;
     the floor steps down at the edge, then sinks deeper towards the middle over half the radius, broadly uneven (mid
     lobe noise) as well as rough — and the value (for the rust ramp) darkens with it.
-- **Outputs**: the distance goes to the **Shape Mask** (`sdf: 'mask'`: no bevel card; Mask › *Use shape mask* on by default, Normal), so
-  the layers after it clip the rust beneath *inside* and the paint *outside*. **Height** is the peel, signed
+- **Outputs**: the distance goes to the mask in *Write to* (`sdf: 'mask'`: no bevel card; Shape by default, Normal),
+  so the layers after it are limited to it for the rust beneath and to *Outside* it for the paint. **Height** is the peel, signed
   (`genOutHeight`): outside, the paint lifts towards the torn edge by *Lift*, steepening as it curls (cubic over *Lift
   width*); at the edge it falls to *Depth* below the surface onto a rough floor — both × the Height amount, added to the
   relief beneath (which shows through the hole). Coverage is the hole; the value its floor's roughness (0.6–1), for a
   diffuse ramp to shade the rust by. *Hard edges* steps the edge and the drop at whole pixels.
 - Old Sources layers without a radius take their head size as it (`migrate`); the Water & rust stains material's
-  *Blisters* macro and the rusty-panel template build them without writing the shape mask (`sm_on: false`), with
+  *Blisters* macro and the rusty-panel template build them without writing a mask (`mk_target: ''`), with
   ledge blisters only when they start at ledges.
 - **Height** turns on with the Sources output (and off again with Stains) unless set by hand (`linkedDefaults`).
 - Compile cost (D3D11, cold, `tools/compile-time.ts`): one flat cell loop serves both outputs (each picks its cell
@@ -229,11 +229,11 @@ Caution: the Noise generator's default has height on (0.25) — set it deliberat
 - [x] Hammered generator: weighted-Voronoi regions with arc boundaries, concentric dent rings, dent shape
 - [x] Hammered quality pass: smooth union of dishes (size, depth, tilt, stretch, rim per dent), wandering courses,
       region variation, whole dents across region edges, later passes over earlier edges, seamless tiling with one
-      centre, shape mask, small textures with fewer, larger dents, the improved look as the plain defaults
+      centre, mask, small textures with fewer, larger dents, the improved look as the plain defaults
 - [x] Relief/paint mixing settled (paint may add colour-coupled relief)
 - [x] Runnels style: wandering wash, tide marks, dry patches, braided runnels, elliptical beads; editor default; Style
       macro on the stains material
-- [x] Blisters as a shape mask: sources + flooded ledges grown by one radius, ragged edges, lift-and-drop peel height
+- [x] Blisters as a mask: sources + flooded ledges grown by one radius, ragged edges, lift-and-drop peel height
 - [x] Drips from: one slider grid → ledges (old Relief drive = its first half),
       whole-cell ledge search, crossfaded so the drip count grows steadily, ledge-spaced sources, both outputs
 - [x] Drips quality pass: seep width, fan-out, taper past it, shape variation, feather, streaks, softness, strength

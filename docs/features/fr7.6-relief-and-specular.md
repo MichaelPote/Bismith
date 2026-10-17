@@ -11,11 +11,11 @@ needed the means to express that.
 
 ## Design
 - **Relief stack** (`project.relief`, evaluated before `project.layers` = the paint stack). Relief layers shape the
-  surface — height, roughness, specular, the shape register — and never colour it: after the stack the pipeline
+  surface — height, roughness, specular, masks — and never colour it: after the stack the pipeline
   resets albedo, opacity and emission colour to the base (one pass), so even filters there cannot leak colour.
   Height modes compose freely inside it: *Bricks* then a *Noise* in **Multiply** mode flattens the bricks wherever
   the noise is low; grain added after the multiply stays everywhere. The paint stack then sees the finished relief —
-  height masks, cavity dirt, and the shape register (a paint layer clipped *outside* the relief's bricks paints only
+  height masks, cavity dirt, and the masks it wrote (a paint layer limited to *Outside* the relief's bricks paints only
   the mortar, weighted by the same noise that drives the relief). Outliner: Paint above Relief above Base material,
   drag between them; Properties hides colour outputs on relief layers; solo preview indexes the evaluation order
   (`stackOrder()`); the optimiser sees relief layers' params.
@@ -36,7 +36,7 @@ needed the means to express that.
 - **Domain warp** (`dw_amount` px, `dw_scale`; Shaping group of every generator): displaces the *whole* generated
   pattern by smooth noise. Unlike Bricks' wobble (which perturbs each brick's outline independently, so joints get
   wide and narrow), neighbouring features move together: joints wander but keep their width. The warped shape lands
-  in the shape register, so clipped paint layers follow.
+  in the mask the layer writes, so paint layers limited to it follow.
 - **Ambient occlusion** (`render.ao` strength, `render.aoRadius` px): a horizon-based pass over the height field
   (16 directions × 8 steps, distance-faded) computed whenever the tracer is configured; surface lighting at the
   primary hit × AO^strength (emission excluded). Works with cast shadows off — creases where blocks touch go dark.

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 // The centre view: owns the Engine, the canvas, zoom/pan, channel views and light gizmos.
-import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
 import { afterPaint } from '@/ui/actions'
 import { Engine } from '@/render/engine'
 import { GpuError } from '@/gpu/context'
 import { CHANNEL_VIEWS } from '@/render/display'
-import { IconBackground, IconBolt, IconGrid4x4, IconMaximize, IconRepeat, IconStack2 } from '@tabler/icons-vue'
+import { IconBackground, IconBolt, IconGrid4x4, IconMaximize, IconPencil, IconRepeat, IconStack2 } from '@tabler/icons-vue'
 import ShapeEditor from '@/ui/components/ShapeEditor.vue'
 import { getRecipe } from '@/recipes'
 import SelectField from '@/ui/components/SelectField.vue'
@@ -130,7 +130,8 @@ function probeCursor(): void {
     r: v.surface[1],
     hex: rgbToHex(srgb as [number, number, number]),
     e: Math.max(v.emissive[0], v.emissive[1], v.emissive[2]),
-    sdf: v.surface[3],
+    // The viewed mask's distance here (FR8.23; Shape unless the Masks view picks another).
+    sdf: engine.material.probeMask(editor.viewMask, c.x * k + (k >> 1), c.y * k + (k >> 1))?.[0] ?? 1e4,
   }
 }
 
@@ -202,6 +203,25 @@ const shapeTarget = computed<{ kind: 'layer' | 'material'; id: string } | null>(
 })
 
 const CHANNEL_OPTIONS = CHANNEL_VIEWS.map((c) => ({ value: c.id, label: `${c.label} · ${c.key.toUpperCase()}` }))
+/** Rename the viewed mask everywhere it is named (FR8.23): an inline name field in place of the picker. */
+const renaming = ref(false)
+const renameDraft = ref('')
+const renameInput = ref<HTMLInputElement | null>(null)
+async function startRename(): Promise<void> {
+  renameDraft.value = editor.viewMask
+  renaming.value = true
+  await nextTick()
+  renameInput.value?.select()
+}
+function finishRename(keep: boolean): void {
+  if (!renaming.value) return
+  renaming.value = false
+  const name = renameDraft.value.trim()
+  if (!keep || !name || name === editor.viewMask) return
+  store.renameMask(editor.viewMask, name)
+  editor.viewMask = name
+}
+
 /** The masks the Masks view can show: every mask the stack writes (FR8.23). */
 const MASK_OPTIONS = computed(() => {
   const names = masksAbove(store.project)
@@ -434,7 +454,23 @@ watch(
         </button>
       </div>
       <SelectField class="ch-select" :model-value="editor.channel" :options="CHANNEL_OPTIONS" label="Channel" @update:model-value="editor.channel = $event as typeof editor.channel" />
-      <SelectField v-if="editor.channel === 'masks'" class="mask-select" :model-value="editor.viewMask" :options="MASK_OPTIONS" label="Mask" @update:model-value="editor.viewMask = String($event)" />
+      <template v-if="editor.channel === 'masks'">
+        <input
+          v-if="renaming"
+          ref="renameInput"
+          v-model="renameDraft"
+          class="mask-rename"
+          spellcheck="false"
+          aria-label="Rename mask"
+          @keydown.enter.prevent="finishRename(true)"
+          @keydown.escape.prevent="finishRename(false)"
+          @blur="finishRename(true)"
+        />
+        <SelectField v-else class="mask-select" :model-value="editor.viewMask" :options="MASK_OPTIONS" label="Mask" @update:model-value="editor.viewMask = String($event)" />
+        <button v-tip:bottom="'Rename this mask everywhere it is named'" type="button" class="cf-toggle toggle" aria-label="Rename mask" @click="startRename">
+          <IconPencil :size="14" />
+        </button>
+      </template>
       <div class="tools">
         <button
           v-for="t in toggles"
@@ -462,7 +498,7 @@ watch(
         <template v-if="probe">
           · <span class="sw" :style="{ background: probe.hex }" /> <span class="hi">{{ probe.hex }}</span> · h <span class="hi">{{ probe.h.toFixed(3) }}</span> · r
           <span class="hi">{{ probe.r.toFixed(2) }}</span><template v-if="probe.e > 0"> · e <span class="hi">{{ probe.e.toFixed(2) }}</span></template
-          ><template v-if="probe.sdf < 5000"> · sdf <span class="hi">{{ probe.sdf.toFixed(1) }}</span></template>
+          ><template v-if="probe.sdf < 5000"> · {{ editor.viewMask }} <span class="hi">{{ probe.sdf.toFixed(1) }}</span></template>
         </template>
       </div>
       <div v-else-if="stats">height <span class="hi">{{ stats.heightMin.toFixed(2) }} … {{ stats.heightMax.toFixed(2) }} px</span></div>
@@ -611,10 +647,22 @@ watch(
   width: 150px;
   flex: none;
 }
-/* Which mask the Masks view shows. */
-.mask-select {
+/* Which mask the Masks view shows, and its rename field. */
+.mask-select,
+.mask-rename {
   width: 130px;
   flex: none;
+}
+.mask-rename {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-field);
+  background: var(--raised);
+  color: var(--text-hi);
+  font-size: 12px;
+  box-shadow: var(--halo);
+  outline: none;
 }
 @container (max-width: 720px) {
   .channels {

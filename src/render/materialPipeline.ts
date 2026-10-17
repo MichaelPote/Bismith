@@ -771,6 +771,16 @@ ${fetches}
     return { albedo: read(0), surface: read(1), emissive: read(2) }
   }
 
+  /** A mask's texel (distance, feature random, feature flag) as the stack left it, at x, y (user space: y down). */
+  probeMask(name: string, x: number, y: number): Float32Array | null {
+    const r = this.maskPlan?.final.get(name)
+    if (!r || x < 0 || y < 0 || x >= this.width || y >= this.height) return null
+    if (r.slot < 0) return Float32Array.of(MASK_EMPTY, 0, 0, 0)
+    const buf = new Float32Array(4)
+    this.gpu.renderer.readRenderTargetPixels(this.slots[r.slot], x, this.height - 1 - y, 1, 1, buf)
+    return buf
+  }
+
   readNormal(): Float32Array {
     return this.gpu.readTexture(this.normal!.texture, this.width, this.height)
   }

@@ -62,7 +62,7 @@ const spanParam = (smooth?: [string, string]): ParamDef =>
     ['off', 'Bevel width', 'the bevel is Edge › Bevel wide'],
     ['middle', 'To the middle', 'the bevel rises from the edge all the way to the middle, whatever the shape’s size — roofs, pyramids, rods, lenses (Edge › Profile still shapes the rise)'],
     ...(smooth ? [['smooth', smooth[0], smooth[1]] as [string, string, string]] : []),
-  ], { hint: 'How far in the bevel reaches. The spans to the middle need a Bevel above 0 and apply with the Shape mask off or in Normal mode' })
+  ], { hint: 'How far in the bevel reaches. The spans to the middle need a Bevel above 0 and apply with no mask written or in Mask › Mode Normal' })
 
 // Before the type's GLSL: what a shape may set while it measures itself.
 const SHAPE_PRE = /* glsl */ `

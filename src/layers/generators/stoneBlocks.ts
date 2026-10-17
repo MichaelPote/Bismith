@@ -3,7 +3,7 @@
 // (random and broken ashlar). Each piece has its own height (a few set back), a slight tilt, a pitched margin falling to
 // the joint, and a face knocked about by conchoidal flake scars: shallow bowls at two sizes whose rims meet in crisp
 // ridges, between flat patches of the original face. Joints are thin; here and there one opens into a dark gap at a
-// corner. Joints, gaps and scars are outputs of their own, for paint; the relief puts the stones in the Shape Mask.
+// corner. Joints, gaps and scars are outputs of their own, for paint; the relief puts the stones in the mask it writes.
 
 import { P, gradient } from '@/core/params'
 import type { LayerDef } from '../types'
@@ -24,7 +24,7 @@ export const stoneBlocksLayer: LayerDef = {
       ['joints', 'Joints', '1 in the joints and open gaps, fading over the Joint reach onto the faces: dirt, damp and moss along the joints'],
       ['scars', 'Scars', 'how deep the flake scars cut into each face (0 on the untouched face): paint the fresh, paler breaks or the shaded hollows'],
       ['gaps', 'Gaps', '1 in the open gaps only: paint them dark, damp or mossy apart from the joints'],
-    ], { hint: 'Every output comes from the same wall (same settings, same seed). Relief puts the stones in the Shape Mask; the masks don’t, so Write to mask records what they paint' }),
+    ], { hint: 'Every output comes from the same wall (same settings, same seed). Relief puts the stones in the mask it writes; the others write what they paint — to any mask but Shape, which they leave as it was' }),
     P.float('course', 'Course height', 40, 4, 512, { softMax: 128, unit: 'px', step: 0.1, hint: 'Height of a course before any splits (whole courses down the texture when tiling)' }),
     P.float('row_var', 'Course variation', 0.4, 0, 1, { step: 0.001, hint: 'How much the courses differ in height' }),
     P.float('length', 'Block length', 3.2, 0.5, 8, { softMax: 5, step: 0.01, hint: 'Block length ÷ course height, before splits' }),
@@ -343,7 +343,7 @@ GenOut gen(vec2 p) {
     val = gp;
     cov = gp;
   }
-  // Only the relief hands its stones to the Shape Mask; the masks opt out, so a named-mask write records what they paint.
+  // Only the relief hands its stones to the mask; the other outputs write their coverage (any mask but Shape).
   return genOutOwn(clamp(val, 0.0, 1.0), cov, rnd, u_output == 0 ? sd : ${ORG_NO_SDF});
 }
 `,

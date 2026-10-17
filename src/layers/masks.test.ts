@@ -139,3 +139,20 @@ describe('mask plan', () => {
     expect(plan.layers.get(chips.id)!.write).toBeNull()
   })
 })
+
+describe('Mask area', () => {
+  it('writes the feature shape from Inside, coverage from everything else (and from Inside with Breakup)', () => {
+    const def = getLayerDef('surfacemask')
+    const at = (p: ParamValues) => maskWriteKind(def, { ...createLayer('surfacemask').params, mk_target: 'M', ...p })
+    expect(at({})).toBe('coverage')
+    expect(at({ select: 'features' })).toBe('shape')
+    expect(at({ select: 'features', bk_amount: 0.5 })).toBe('coverage')
+    expect(at({ select: 'features', area: 'gradient' })).toBe('coverage')
+    expect(def!.maskSource!({ select: 'features', src_mask: 'Opening' })).toBe('Opening')
+    expect(def!.maskSource!({ select: 'surface' })).toBeNull()
+    // Reading features plans a source for the layer.
+    const shape = createLayer('rect')
+    const area = createLayer('surfacemask', { select: 'features' })
+    expect(planMasks(project([shape, area])).layers.get(area.id)!.source).toMatchObject({ mask: 'Shape', version: 1 })
+  })
+})

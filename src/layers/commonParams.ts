@@ -96,6 +96,7 @@ export const MASK_WRITE_PARAMS: ParamDef[] = [
   P.text('mk_target', 'Write to', '', {
     group: 'mask',
     section: 'Write to',
+    mask: 'write',
     hint: 'The mask this layer writes, by name: a shape layer its shape (and which feature is where), any other layer where it covers. Later layers can be limited to it (Limit to), bevel or etch along it, or read its features (Mask area). Shape layers write the Shape mask unless told otherwise; empty = none',
   }),
   P.enum('mk_op', 'Mode', 'replace', SDF_OPS, {
@@ -144,13 +145,15 @@ export const LIMIT_PARAMS: ParamDef[] = [
     const name = P.text(`lim_${n}`, i === 0 ? 'Limit to' : `Mask ${n}`, '', {
       group: 'mask',
       section: 'Limit to',
+      mask: 'read',
       showIf: shown,
       hint: i === 0
         ? 'Draw this layer only where a mask is (or, with Outside, isn\'t): a mask written by a layer above, by name — Shape is the one shape layers write. Empty = anywhere'
         : 'One more mask, joined to the ones before by the operator',
     })
     if (i === 0) return [name]
-    return [P.enum(`lim_op${n}`, 'Then', 'and', LIMIT_OPS, { group: 'mask', section: 'Limit to', uniform: false, showIf: shown }), name]
+    // The operator and the mask in one row: "∪ or · Wet".
+    return [P.enum(`lim_op${n}`, 'Then', 'and', LIMIT_OPS, { group: 'mask', section: 'Limit to', uniform: false, showIf: shown, join: { with: `lim_${n}`, as: 'pair', label: 'Then' } }), name]
   }).flat(),
   P.bool('lim_out', 'Outside', false, {
     group: 'mask',
@@ -252,7 +255,7 @@ export const MASK_PARAMS: ParamDef[] = [
   }),
   ...LIMIT_PARAMS,
   ...MASK_WRITE_PARAMS,
-  P.enum('m_hmode', 'Limit to', 'none', [
+  P.enum('m_hmode', 'Height', 'none', [
     ['none', 'Anywhere', 'the height doesn\'t limit this layer'],
     ['above', 'Above the level', 'only where the surface stands higher — wear, highlights, dust on the tops'],
     ['below', 'Below the level', 'only where it lies lower — dirt, water, moss in the hollows and joints'],

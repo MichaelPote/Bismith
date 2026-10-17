@@ -5,17 +5,18 @@
 ## Tabs & notches (`tabs` generator)
 Small greeble details with diagonal cuts: trapezoid tabs (45° sides by default; Diagonal cut 0 = square, negative =
 dovetail), notches, chevrons, bow-ties, diagonal slits, chamfered plates and half-round scallops. A crisp SDF for
-small relief (a lit 1–2 px chamfer, cut in by default and shaded a little darker) and colour; it writes the shape mask.
+small relief (a lit 1–2 px chamfer, cut in by default and shaded a little darker) and colour; it writes the Shape mask
+by default.
 
 **Placement**
-- *Along the shape mask's edges* (default): each pixel takes the nearest edge of the shape mask below (distance and
-  normal from the register), follows it both ways to where it stops being straight — a corner, a gap, the texture's
-  border — and spreads that side's elements evenly over it, *into* the shape or *out* of it. Exact distances read ~0
+- *Along the mask's edges* (default): each pixel takes the nearest edge of the mask before it (the one the layer
+  writes, or Shape; distance and normal from the mask), follows it both ways to where it stops being straight — a
+  corner, a gap, the texture's border — and spreads that side's elements evenly over it, *into* the shape or *out* of
+  it. Exact distances read ~0
   all along a straight side, so a tight threshold finds its ends (1 px steps, then bisection); curved edges never stay
   straight long enough to hold one. Elements keep clear of the side's corners (their shape's own clearance plus
   *Corner clearance*); short sides get fewer or none. Edges filter sides by the way they face. With nothing in the
-  shape mask, the texture's edges are used. It reads earlier state (`readsState`), so its named-mask writes happen in
-  place.
+  mask, the texture's edges are used (`readsMask`).
 - *Along the texture edges* (left + right, top + bottom, all, one).
 - *Grid* (Column / Row spacing round the centre, cells from `repGrid` — those whose element can reach the pixel) and
   *Scattered* (density, jitter); both take Rotation and Random rotation.
@@ -52,9 +53,9 @@ pads and vias grown by as much. Pads & vias card: round, square or octagon pads,
 always shows, never two linked side by side, absorbed by a pad they sit on. Drill holes cut through everything.
 *Pad height* and *Pad dome* lift pads and vias above the traces and round them into solder domes (a drilled one domes
 over its ring, peaking mid-ring); with either above 0 Height › Pattern takes the relief from the layer's own shapes
-(`genOutHeight`), at 0 from the combined shape mask like other shape layers. The node search widens with the largest
+(`genOutHeight`), at 0 from the combined mask like other shape layers. The node search widens with the largest
 feature, and the distance is capped where the search stops being sure, so it stays continuous for Bevel / Etch on the
-shape mask. Defaults: a routed board — 4 px domed traces on an ~11 px pitch, raised domed pads on every end, drilled
+mask. Defaults: a routed board — 4 px domed traces on an ~11 px pitch, raised domed pads on every end, drilled
 vias; added in the editor the px sizes follow the texture (2 px pitch and 1 px traces at 64 px).
 
 ## Vents: pointed / angled slot ends

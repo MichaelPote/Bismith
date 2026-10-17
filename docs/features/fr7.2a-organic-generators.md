@@ -49,7 +49,7 @@ crust.
       (tileable at any snapped angle), width from flow, halo, fine-vein style / width / clustering, cloud scale
 - [x] Caustics: net / blobs modes, power-Voronoi size variation, roundness, soft warp, rim width / softness,
       glow reach / level / falloff, second octave; default height = rims sunk (blobs domed)
-- [x] Caustics quality pass: stretch, warp detail, second-octave scale, rounded relief, Shape Mask of the cells,
+- [x] Caustics quality pass: stretch, warp detail, second-octave scale, rounded relief, the cells as a mask,
       height mode following the mode
 - [x] Wood: planks + joints + stagger + width variation, fine grain, ring figure with cathedral arches,
       knots, horizontal / vertical, no-planks mode; outputs wood / plank SDF / grain only
@@ -62,7 +62,7 @@ crust.
       tone 0.6, fillet 0.08, shatter 0.25 × 5; Height: bevel 1.5 smooth, dome 0.08, rough 0.15, halo 0.6
 - [x] Cracks quality pass: non-folding Bend / Squeeze warps with true-px widths, zig-zag, width variation, tapering
       fine branches ending at the main cracks (connected only, shallower grooves of their own depth), plate dome / curl /
-      tilt in Height, Plates output writes the shape mask, editor defaults sized to the texture
+      tilt in Height, Plates output writes the Shape mask, editor defaults sized to the texture
 - [x] Tileable (checked with 2×2 tiled renders at 64², 96×40, 80×48), non-square (256×32 trims) and tiny
       (16×16) sizes, non-tiling projects
 - [x] Smoke test clean; typecheck clean for these files
@@ -143,16 +143,15 @@ metric, a border normal, a per-segment random and a second soft minimum, without
 exact — no straight cuts where a stretched cell outran them.
 
 The height mode follows the mode (`linkedDefaults`): **Subtract** for the net (rims sink, cells bulge), **Add** for
-blobs, unless set. The cells inside the rim cores / cracks (`½·rim − border distance`) go to the **Shape Mask**
-(`sdf: 'mask'`) when *Use shape mask* is ticked — off by default, as a value pattern shouldn't replace the shape mask
-unless asked; its distance is continuous (the rim width varies only by smooth noise). Both octaves run in one loop, and
-all their noise through one call site (warp x / y and rim variation at p, the warp one px right / up): cold D3D11
-compile ~0.7 s.
+blobs, unless set. The cells inside the rim cores / cracks (`½·rim − border distance`) go to the mask named in
+*Write to* (`sdf: 'mask'`) — none by default, as a value pattern shouldn't replace the Shape mask unless asked; its
+distance is continuous (the rim width varies only by smooth noise). Both octaves run in one loop, and all their noise
+through one call site (warp x / y and rim variation at p, the warp one px right / up): cold D3D11 compile ~0.7 s.
 
 ### wood
 | Param | Default | Notes |
 | --- | --- | --- |
-| `output` | wood | wood (grain × plank bevel, gaps = 0; the plank outline still goes to the register, `genOutShaded`) · shape (plank SDF → register) · grain (no gaps / edges) |
+| `output` | wood | wood (grain × plank bevel, gaps = 0; the plank outline still goes to the mask it writes, `genOutShaded`) · shape (plank SDF → mask) · grain (no gaps / edges) |
 | `planks` | on | off = one continuous piece (no boards; rings fold into arches with `figure`) |
 | `direction` | vertical | vertical · horizontal |
 | `count` | 4 | planks across |
@@ -175,13 +174,13 @@ compile ~0.7 s.
 
 The Shape group's `bevel` / `profile` / `aa` shade plank edges in the `wood` output too (the layer reads them
 itself). Two-layer recipe for exact bevels: `wood` (`output: shape`, height on) then `wood` (`output: grain`,
-same seed and plank params, diffuse on, height off, `m_clip: inside`); the gaps then show whatever is below
+same seed and plank params, diffuse on, height off, *Limit to* Shape: `lim_1: 'Shape'`); the gaps then show whatever is below
 (the project base colour, or a dark fill layer).
 
 ### scales
 | Param | Default | Notes |
 | --- | --- | --- |
-| `output` | scales | scales (shading with bevelled rims and outlines; the outline goes to the register too) · shape (visible-scale SDF → register) |
+| `output` | scales | scales (shading with bevelled rims and outlines; the outline goes to the mask too) · shape (visible-scale SDF → mask) |
 | `columns` | 4 | scales per row |
 | `rows` | 0 (auto) | auto = row spacing equals the scale's length (radius × aspect: classic fish scale); rounded up to even when tiling |
 | `radius` | 0.5 | × column width, up to 1.5 (0.5 = neighbours touch); clamped to 4 row heights |
@@ -224,7 +223,7 @@ pixel crosses a column (cold D3D11 compile ≈ 0.65 s).
 ### cracks
 | Param | Default | Notes |
 | --- | --- | --- |
-| `output` | plates | plates (painted by the layer, `genOutOwn`: value 1 on the plates × its own Shape bevel — `org_edgeProfile`, so no Bevel aspect and no bevel round a combined shape-mask mode — the cracks sunk by their depth; the plate outline goes to the shape mask) · shape (plate SDF → register, the cracks show what is below) |
+| `output` | plates | plates (painted by the layer, `genOutOwn`: value 1 on the plates × its own Shape bevel — `org_edgeProfile`, so no Bevel aspect and no bevel round a combined mask mode — the cracks sunk by their depth; the plate outline goes to the mask it writes) · shape (plate SDF → mask, the cracks show what is below) |
 | `scale`, `jitter`, `size_var` | 5, 0.9, 0.5 | main plates across (0.5…256); jitter; power weights (main network only, 0…2: above 1 small plates get squeezed out) |
 | `width`, `width_var` | 2.5 px, 0.8 | main crack width (0…64 px); spread of widths — one random per border segment (0.55–1.45; both plates agree on it), blended between the two nearest borders where they swap (no step at a junction), × a noise along the cracks, × a flare towards the junctions where wide cracks meet (`1 + 1.5·width_var·exp(−second border distance / 0.15 plate)` × smoothstep(0.7, 1.3) of the two widths against the mean, off where the two borders' normals oppose: thin slivers). The fine cracks and shards follow the same noise (whole stretches of the fine network dark, others faint hairlines) × a mild per-segment spread (0.5–1.5) |
 | `fillet` | 0.05 | Junction rounding: each plate's corners round off with a circular fillet (`crk_round`, exact elsewhere) of this share of a plate × the meeting cracks' widths against the mean (0.5–1.5: thin cracks meet in tight corners); the band is laid round the rounded plate, so the gap between three plates is a dark wedge with concave sides. Fine cells (share of a fine cell), shards and fine–main joins alike (a fine segment dropped by Connected only gives up its rounding) |
@@ -236,9 +235,9 @@ pixel crosses a column (cold D3D11 compile ≈ 0.65 s).
 | `sub`, `sub_scale`, `sub_width` | 0.55, 2.5, 1.25 px | fraction of fine segments kept; fine plates per main plate (1…16); width where they leave a main crack. The fine plane warps by 0.7 × Warp per fine plate |
 | `sub_taper` | 0.7 | fine segments narrow with the distance from the main cracks to nothing at their own reach (`crk_reach`: 0.12–0.87 plate, mostly short, ÷ taper); under 1 px they fade instead of staying a half-dark line. 0 = even width |
 | `sub_tone` | 1 | Fine darkness (colour only): the fine ink is coverage × (0.2 + 0.55 × strength) × this — low values leave a faint grey hairline web |
-| `sub_depth` | 0.55 | Height: the fine cracks are grooves of their own, this share of the main cracks' depth × their strength, a rounded V out to shoulders the bevel's width (≥ 1 px); colour draws them by Fine darkness. Not in the shape mask |
+| `sub_depth` | 0.55 | Height: the fine cracks are grooves of their own, this share of the main cracks' depth × their strength, a rounded V out to shoulders the bevel's width (≥ 1 px); colour draws them by Fine darkness. Not in the mask |
 | `sub_connect` | on | the nearest segment is followed to both ends (its line to the cell's next border, from the 5×5 sites kept in an array): dropped when its crack-ward end neither reaches the main crack (its border taken as straight) nor meets a present segment heading on towards it, when it runs within ~40° beside a main crack, its middle within 0.3 plate (doubling it, or boxing in a corner), or when it is under 8 px long (specks); an inner dead end tapers to a point along its whole length (with Taper 0 too) |
-| `sub_shape` | off | on: fine cracks cut the plates like the main ones (in the SDF: full depth, shape mask, Shape output) |
+| `sub_shape` | off | on: fine cracks cut the plates like the main ones (in the SDF: full depth, the mask, Shape output) |
 | `sub_cross` | off | on: one fine network over the texture, crossing the main cracks; off: each main plate keys its own segments, so fine cracks end at the main ones |
 | `sub_vary` | off | on: each fine plate its own random; off: one per main plate — the fine network is partial, so per-fine-plate colour or height would change across missing cracks |
 | `shatter`, `shatter_scale` | 0, 5 | Shatter: this share of the fine plates (one random per fine plate × main plate; the fine cells are computed even with Fine cracks 0) breaks into shards — a second pass through `crk_fineCracks` (one copy, a 2-pass loop) with `shatter_scale` × the fine cells, jitter 1, 85 % of segments, untapered, unconnected, half width max(0.5·width, 0.75) px — dark and full width within 0.25 of a fine plate of its site, fading out by 0.5 (the band narrowed by the rest of its width) and before the fine border, × 0.7–1 by nearness to a main crack: a compact jagged cluster, never cut along the border. The pass runs only in a shattered plate's fade |
@@ -252,7 +251,7 @@ Editor defaults (`fresh`) scale `width`, `sub_width`, `zigzag` and `bevel` (2 px
 plates and fewer, longer fine cracks at ≤ 128 px; the match template takes them too.
 
 Glowing cracks (lava crust): a second `cracks` layer with the same params and seed, Shaping →
-Invert on, diffuse off, emissive on (value = 1 in the cracks), or later layers clipped *outside* the shape mask.
+Invert on, diffuse off, emissive on (value = 1 in the cracks), or later layers limited to *Outside* the Shape mask.
 
 ## Notes and constraints
 - **Tiling.** Every lattice / noise uses whole cell counts per axis (`cellsFor`) and wraps its hashes. Marble
@@ -262,8 +261,8 @@ Invert on, diffuse off, emissive on (value = 1 in the cracks), or later layers c
   by 4 radii) and wraps. Scales force an even row count. Verified with 2×2 tiled renders.
 - **Combined outputs.** The generator wrapper replaces an SDF pixel's value with the bevel profile, so wood,
   scales and cracks fold their own value × `org_edgeProfile(d)` × coverage into a NO_SDF pixel by default (no
-  register write) and offer an SDF output for the register. See *Recommended shared change* below. (Since then
-  wood and scales return their pattern with `genOutShaded`: the wrapper applies the bevel and writes the register.
+  mask write) and offer an SDF output for the mask. See *Recommended shared change* below. (Since then
+  wood and scales return their pattern with `genOutShaded`: the wrapper applies the bevel and writes the mask.
   So does cracks' Plates output, with its plate surface as `hval`.)
 - **Derivatives.** Wood fades growth rings that crowd closer than ~2 px with `dFdx/dFdy` of the ring field
   (anti-moiré); called in uniform control flow.
@@ -299,5 +298,5 @@ exposure (lit renders darken the cores) — liquids look best with emissive from
 ### Recommended shared change
 Let SDF generators keep their own value: e.g. a `LayerDef.sdfValue?: 'profile' | 'pattern' | 'multiply'` (or a
 common `sdf_value` param) so the wrapper computes `value = pattern × profile` instead of replacing it. Then
-wood / scales / cracks could write the register *and* carry grain / shading in one layer, and the combined
+wood / scales / cracks could write a mask *and* carry grain / shading in one layer, and the combined
 outputs here would become unnecessary.

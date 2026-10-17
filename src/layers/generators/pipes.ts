@@ -2,8 +2,8 @@
 // flanges — as true cylinders: the value is the surface height (the light shades them round and they cast shadows).
 // The network is built on the CPU (pipesGeometry.ts) from drawn polylines or a random tileable layout and handed over
 // as a primitive list; the shader keeps the highest surface over each pixel. Surface height is normalised to 4 × the
-// pipe radius (value 1); Coverage writes the pipes' outline to the shape register (signed distance) so later layers
-// can clip to them.
+// pipe radius (value 1); Coverage writes the pipes' outline to its mask (signed distance) so later layers
+// can be limited to them.
 
 import { P } from '@/core/params'
 import type { ParamValues } from '@/core/params'
@@ -77,7 +77,7 @@ export const pipeworkLayer: LayerDef = {
   description: 'Pipe runs on a wall: straight lengths, rounded elbows, tees and crossings, collars and bolted flanges — round, lit, shadow-casting. Drawn runs or a random tileable layout.',
   params: [
     P.enum('output', 'Output', 'height', [['height', 'Surface height'], ['cover', 'Coverage'], ['fittings', 'Fittings'], ['underside', 'Underside'], ['tubes', 'Tubes only'], ['facing', 'Facing the light'], ['liquid', 'Liquid']], {
-      hint: 'Surface height: the round pipes (for relief; 1 = 4 × the pipe radius). Coverage: the pipes\' outline (writes the shape mask, so later layers can clip to the pipes). Fittings: 1 on collars and flanges. Underside: 0 on top of a pipe → 1 underneath (rust, grime). Tubes only: the outline of the tubes without their fittings (writes the shape mask — e.g. glass tubes with metal collars). Facing the light: across each pipe, 1 on the side towards the top-left → 0 away (reflection bands on chrome). Liquid: 1 below each run\'s liquid surface (Liquid level)',
+      hint: 'Surface height: the round pipes (for relief; 1 = 4 × the pipe radius). Coverage: the pipes\' outline (writes its mask, so later layers can be limited to the pipes). Fittings: 1 on collars and flanges. Underside: 0 on top of a pipe → 1 underneath (rust, grime). Tubes only: the outline of the tubes without their fittings (writes its mask — e.g. glass tubes with metal collars). Facing the light: across each pipe, 1 on the side towards the top-left → 0 away (reflection bands on chrome). Liquid: 1 below each run\'s liquid surface (Liquid level)',
     }),
     P.enum('layout', 'Layout', 'random', [['random', 'Random (tileable)'], ['drawn', 'Drawn runs']]),
     P.bitmap('points', 'Runs', '0,24 40,24 40,48 64,48 | 20,0 20,24', 'lines', {

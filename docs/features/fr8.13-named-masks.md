@@ -1,6 +1,8 @@
 # FR8.13 — Named masks and cut-outs
 
-**Status:** done — four mask channels; per-layer, per-filter and per-material clipping; Cut-out lump; Masks view
+**Status:** superseded by [FR8.23](fr8.23-masks.md) — the Shape Mask and these four numbered masks became one system
+of named masks that follow the stack (no pre-pass), and Crevices & high spots became Mask area. Kept as the record of
+the original design.
 
 ## Naming
 In the UI the shape register is the **Shape Mask** (code keeps `register`, `sdf_op`, `m_clip`), the first section of the

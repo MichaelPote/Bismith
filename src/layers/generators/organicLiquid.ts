@@ -1,5 +1,5 @@
 // Organic value generators (FR7.2a): veined marble and liquid caustics. Both output a plain value (veins /
-// bright rims = 1) for the colour ramp; caustics can also hand its cells to the shape mask.
+// bright rims = 1) for the colour ramp; caustics can also hand its cells to a mask.
 
 import { P, gradient } from '@/core/params'
 import type { LayerDef } from '../types'
@@ -597,8 +597,8 @@ export const causticsLayer: LayerDef = {
     P.float('dome_var', 'Dome variation', 0.6, 0, 1, { step: 0.001, showIf: (p) => Number(p.dome) > 0, hint: 'Each cell’s dome its own shape: flat-topped pillows to peaked mounds (Cell height variation sets their heights)' }),
     P.seed(),
   ],
-  // The cells (inside the rims / cracks) go to the Shape Mask when ticked — e.g. a crust only on the blobs. Off by
-  // default: a value pattern shouldn't replace the shape mask unless asked.
+  // The cells (inside the rims / cracks) go to a mask when it writes one — e.g. a crust only on the blobs. None by
+  // default: a value pattern shouldn't replace the Shape mask unless asked.
   sdf: 'mask',
   defaults: {
     mk_target: '',
@@ -792,7 +792,7 @@ GenOut gen(vec2 p) {
       v = vo;
       h = ho;
       rnd = c.z;
-      // The cells inside the rim cores (net) / cracks (blobs), for the Shape Mask.
+      // The cells inside the rim cores (net) / cracks (blobs), for its mask.
       sdf = 0.5 * rim * rw - c.x / gsc;
       sd0 = mix(clamp(dg / R, 0.0, 1.0), clamp(1.0 - c.w, 0.0, 1.0), u_round);
     } else {

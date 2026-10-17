@@ -4,7 +4,7 @@
 // multi-level height value (0..1) from all of the layer's elements — using the layer's own Shape params
 // (bevel width + profile, anti-alias) for the main edges — and opts out of SDF handling (NO_SDF). The other
 // outputs return the signed distance of one element class (panels, rivets, slots, clamps…) so the common
-// bevel / profile / SDF-combine / clip params apply to it. Stacking several instances of the same layer with
+// bevel / profile / mask-combine / limit params apply to it. Stacking several instances of the same layer with
 // the same seed and different outputs gives one layout with several materials (e.g. relief → height,
 // rivets → brass diffuse, lights → emissive).
 

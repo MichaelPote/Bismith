@@ -9,7 +9,7 @@ files. Typecheck, lint and smoke tests pass. Checked by eye against the referenc
 Make the motifs that the generic layers cannot: line networks (circuit boards, mazes, Greek keys), radial
 ornaments (teleporter discs, light fittings, medallions), procedural emblems and runes, and a kaleidoscope that
 turns earlier noise and shapes into carpet and medallion ornament. Every generator is an SDF generator, so bevel,
-etch, emissive and the shape register work as they do for the other shapes. Everything wraps when the project is
+etch, emissive and masks work as they do for the other shapes. Everything wraps when the project is
 tileable, works on non-square and small textures, and keeps 1–2 px lines crisp with anti-aliasing off.
 
 References: circuit boards, polyomino line nets, carpets, medallion panels, teleporters (heptagrams, glowing
@@ -34,7 +34,7 @@ discs), sigils, a light fitting, a winged emblem with runes, and other ornamente
 - **`symmetry`** is a single MRT pass (`filterGlsl`). It folds the pixel position per cell of an N×M grid (with
   stagger and optional mirroring of alternate cells) about a centre you can set, then reads every channel at the
   folded position. Reads are nearest (`fetchT`, exact pixel mirrors) or bilinear (`sampleT`) and wrap or clamp by
-  tiling. The shape register is folded too, and scaled by the zoom.
+  tiling. Masks are not folded (they stay as their writers drew them).
 - **`rosette`** is a union of radial elements: hub disc, concentric rings (graded widths), spokes or rays
   (trapezoids, optional taper, alternate lengths), a star, petals (vesica or ellipse, solid or outlined) and a bead
   ring (solid or rings). The star can be filled, outlined, or drawn as star-polygon lines {n/k} with mitred sharp
@@ -88,7 +88,8 @@ circuit out on the CPU took their per-pixel link tests, region Voronoi and chip 
 - [x] `symmetry`: mirror X / Y / XY, ╲ and ╱ diagonal mirrors, 8-fold square (D4), rotational n (2–12),
   kaleidoscope n (2–12), repeat-only
 - [x] `symmetry`: N×M cells, stagger, mirrored alternate cells, centre, angle, other-side, nearest / bilinear,
-  shared source, zoom, source offset, medallion radius + softness, opacity; register folded and rescaled
+  shared source, zoom, source offset, medallion radius + softness, opacity; register folded and rescaled (masks no
+  longer folded since FR8.23)
 - [x] `rosette`: hub, rings, spokes / rays (taper ±), star (filled / outline / {n/k} lines, sharp tips), petals,
   bead rings (solid / ring, overlapping), outputs shape / glow / radial, repeat grid
 - [x] `glyph`: strokes (walks, diagonals, straightness, curves, end dots / rings), blocks, mirror, per-instance
@@ -100,7 +101,7 @@ circuit out on the CPU took their per-pixel link tests, region Voronoi and chip 
   outlines, glow / radial → Emissive; glyph stroke ends (round / square / flat), width variation, calligraphy
   (broad nib), block gaps. Glow early-out ring fixed
 - [x] Exact distance and spacing: the repeat's fixed early-out (`r − bound` past bound + 4 px) left rings in a
-  Bevel / Etch reading the shape mask wherever bound circles reached past their cells; now pruned against the
+  Bevel / Etch reading the Shape mask wherever bound circles reached past their cells; now pruned against the
   nearest distance (exact). Column / Row spacing on rosette, glyph (and the shapes, vents, tabs). Glyph `dot_chance`
 - [x] Quality pass, second round: rosette sculpted relief with per-element heights, fillet, hub clearance, star
   offset, glow softness, fresh star tips into the inner ring; glyph pen ends (free ends, nib not mirrored), mitre
@@ -186,14 +187,14 @@ Element fractions are relative to `radius`. The default is a medallion: two ring
 an 8-point {8/3} star whose tips end in the inner ring and a hub, sculpted in layers (rings highest, hub, beads, the
 star lower). `rnd` is per instance; a single rosette has no randomness (the seed drives the repeat's jitter and dropout).
 
-**Sculpted relief** (`relief` sculpted, shape output, shape mask off or Normal): Height › Pattern takes the
+**Sculpted relief** (`relief` sculpted, shape output, writing no mask or in Normal mode): Height › Pattern takes the
 elements' own sections instead of the Edge bevel. Each element leaves its distance, its depth at full height and
 its kind in a slot (hub, rings, spokes, star, petals, beads), and one loop makes the union, the height and the
 nearest element's height and section: the height is the highest element at the point, its own height (`*_h`, 0..1)
 × a dome √(x(2 − x)) (lines, beads, hub, petal and star outlines) or a ridge x (rays, solid petals, filled stars:
 faceted along the spine), x = depth inside / its depth at full height (half its line width, its radius, the half
 width where the point is along a ray, the petal's half width, the star's inradius). Fillets get the union's depth
-at the nearest element's height and section. Combined with the shape mask (Union, Subtract…) the drawn shape isn't
+at the nearest element's height and section. Combined with the mask it writes (Union, Subtract…) the drawn shape isn't
 the rosette's alone, so the Edge bevel applies.
 
 Added in the editor (`fresh`), the rosette fills 80 % of the texture's short side, its line widths 3.5 % of the
@@ -266,9 +267,8 @@ Full projects (existing layers plus these; post = tonemap, then palette `doom` o
   edge come round the other side.
 - **Symmetry exactness.** With nearest sampling, mirror, quad and square8 modes on whole-pixel cells are exactly
   pixel-symmetric (verified: zero differing pixels). Rotation-only folds show seams by nature, wherever
-  non-matching wedge edges meet. Folding the shape register keeps mirror distances exact on the source side. Near
-  fold lines the mirrored copy can be closer than the stored distance, so it slightly overestimates there. That is
-  harmless for bevels.
+  non-matching wedge edges meet. Masks are not folded (FR8.23): a Bevel or Etch on a mask after the symmetry follows
+  the unfolded shape.
 - **Polar elements.** Spokes, petals and beads are evaluated in a sector fold. Petals also evaluate the ±1 sector
   copies, and beads as many as their radius needs (up to ±4), so overlapping rings and long petals stay exact.
   `{n/k}` lines with `star_sharp` are bands along the chord lines, clipped by the polygram outline grown by half
@@ -283,7 +283,7 @@ Full projects (existing layers plus these; post = tonemap, then palette `doom` o
 - **Exact distance.** The repeat measures an instance only when its bounding circle's lower bound `r − bound` could
   beat the nearest distance so far, visiting the nearest instances first, so the minimum is exact: a pruned
   instance can't be nearer. The old early-out used `r − bound` for every instance past bound + 4 px, which jumps
-  below the true distance there; anything reading the distance further out (Bevel and Etch on the shape mask, the
+  below the true distance there; anything reading the distance further out (Bevel and Etch on the mask, the
   glow) drew a ring at that radius round every instance — for repeats whose circles reach past their cells, across
   the neighbours too. `MOT_EXACT` (per layer) says how far out the output needs the exact distance: everywhere for
   the shape, the glow width for the glow (its value is 0 beyond), nowhere for radial (which only reads the nearest

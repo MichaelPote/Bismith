@@ -5,7 +5,7 @@
 // neighbours: plateaus, ledges and shelves instead of cliffs everywhere. Finer generations of blocks (facets) are added
 // on top at falling strength: chipped, crumpled faces. The surface is the upper envelope of the mesas, with weathered
 // shoulders, rills and laminae; the creases where two meet are the joints, which can open into cracks, and the blocks
-// between them go to the Shape Mask. Scarps and crevices are outputs of their own, for paint.
+// between them go to the mask it writes. Scarps and crevices are outputs of their own, for paint.
 
 import { P, gradient, type ParamValues } from '@/core/params'
 import type { LayerDef } from '../types'
@@ -68,7 +68,7 @@ export const rockLayer: LayerDef = {
       ['scarps', 'Scarps', '1 on the scarps — the slopes a block runs out over its lower neighbours — 0 on the faces: paint the shaded, weathered faces, or dust and scree on them'],
       ['crevices', 'Crevices', '1 in the creases where blocks meet (the joints and the foot of every scarp), fading over the Crevice reach: moss, dirt and damp in the cracks'],
       ['streaks', 'Streaks', 'rain streaks running down each block from its top edge, fading as they go: water stains, lime or rust washed down the faces'],
-    ], { hint: 'Every output comes from the same rock (same settings, same seed) and puts its blocks in the Shape Mask' }),
+    ], { hint: 'Every output comes from the same rock (same settings, same seed) and puts its blocks in the mask it writes' }),
     P.enum('style', 'Style', 'default', [
       ['default', 'Default', 'the generator’s defaults: gently folded strata of tilted blocks'],
       ['fractured', 'Fractured face', 'steep strata broken into tilted blocks of many sizes, with finer fractures (the wizard’s Rock face)'],
@@ -137,7 +137,7 @@ export const rockLayer: LayerDef = {
     P.float('lam_space', 'Lamina spacing', 3, 1, 64, { softMax: 12, unit: 'px', step: 0.05, section: 'Surface', showIf: (p) => Number(p.laminae) > 0, hint: 'Rounded so each bed holds a whole number of laminae' }),
 
     P.float('joint', 'Joint width', 0.6, 0, 32, { softMax: 6, unit: 'px', step: 0.05, section: 'Joints', hint: 'Open cracks along the joints between blocks (the creases where two blocks meet)' }),
-    P.float('joint_open', 'Open joints', 0.35, 0, 1, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0, hint: 'Share of the joints that open into cracks, each along its whole length; the rest stay closed — only a step or a crease, no bevel, and the blocks either side are one piece in the Shape Mask' }),
+    P.float('joint_open', 'Open joints', 0.35, 0, 1, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0, hint: 'Share of the joints that open into cracks, each along its whole length; the rest stay closed — only a step or a crease, no bevel, and the blocks either side are one piece in the mask' }),
     P.float('joint_cross', 'Cross-joint width', 1.6, 0, 2, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0, hint: 'Width of the joints across the bedding (block ends) relative to those along it: below 1, wide bedding cracks and thin cross cracks (slate); above 1, the other way (columns)' }),
     P.float('joint_facets', 'Facet joints', 0, 0, 1, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0 && Number(p.detail) > 1, hint: 'Share of the borders between the first level of facets that crack too — hairlines, thinner and shallower than the joints; each cracks along its whole length or not at all' }),
     P.float('facet_break', 'Facet joint breakup', 0, 0, 1, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0 && Number(p.joint_facets) > 0 && Number(p.detail) > 1, hint: 'Facet cracks fade in and out along their length (noise about half a block across): partial, hairline cracks inside the stones rather than whole straight ones' }),
@@ -217,7 +217,7 @@ ivec3 rk_basis(int a, int ks, int kU, int nv) {
 
 // A joint between the two highest blocks a and b, d px from their crease: (crack coverage, signed distance — negative
 // on the blocks). Each joint (pair of blocks) is open with probability keep, by its own share of the width; a closed
-// one doesn't part the blocks (far inside: no bevel, one piece in the Shape Mask). Without cracks (width 0) every crease
+// one doesn't part the blocks (far inside: no bevel, one piece in the mask). Without cracks (width 0) every crease
 // outlines its blocks.
 vec2 rk_joint(float d, ivec2 a, ivec2 b, float width, float keep, float seed) {
   if (width <= 0.0) return vec2(0.0, -d);
@@ -782,7 +782,7 @@ GenOut gen(vec2 p) {
       // (The fBm sits around 0.5 ± 0.15: the cut sweeps that, from a few gaps to a few fragments left.)
       float cut = 0.33 + 0.3 * u_facet_break;
       float fc = smoothstep(cut - 0.05, cut + 0.05, fb);
-      // The crack's distance shrinks too, to nothing (its crevice glow and Shape Mask taper to a point, not cut off).
+      // The crack's distance shrinks too, to nothing (its crevice glow and mask taper to a point, not cut off).
       jk = vec2(jk.x * fc, jk.y - (1.0 - fc) * (0.5 * min(0.6 * u_joint, T / 24.0) + 3.0 * max(u_crev_reach, 0.5) + 1.0));
     }
     // Hairline facet cracks sink only 60 % as deep as the joints.

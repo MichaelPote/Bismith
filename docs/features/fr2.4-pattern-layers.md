@@ -44,7 +44,7 @@ edge distance so they can be bevelled and varied per cell.
 
 `rnd` is per brick / hex / cell / square / panel / stripe / scratch (gradient: per repeat band; clouds: the
 noise value). Non-SDF output modes return `sdf <= NO_SDF`, so value and mask pass straight through, and their
-Shape mask / Edge controls are hidden (`sdfShowIf`: stripes in shape mode, Voronoi in cells).
+Edge controls are hidden and they write no shape (`sdfShowIf`: stripes in shape mode, Voronoi in cells).
 
 **Defaults.** The plain defaults are the finished looks:
 - Bricks: 12 courses, mortar level 0.2, straight creases and Close gaps (for dry stone), wobble varying per brick
@@ -77,7 +77,7 @@ the joint. *Crown* falls away from the middle by the depth in from the outline (
 down to half at the edge). *Face tilt* leans
 each feature a random way, its low side at 1 down to 0.4. Both go to Height only: the generator returns `genOutShaded` with the face in `GenOut.hval`, so the
 wrapper multiplies it by the bevel of the drawn shape while Diffuse keeps the plain bevel; the coverage it returns is
-the wrapper's own (the shape combined with the Shape Mask by the Mode, `pat_drawnDist`). With all relief at 0 the
+the wrapper's own (the shape combined with the mask it writes, by the Mode, `pat_drawnDist`). With all relief at 0 the
 layer returns plain `genOut`. *Chips* (bricks, hex) are angular pieces — bricks:
 one per corner and two V bites along the long sides; hex: one per corner — by chance *Chipped corners*, sized as a
 share of the feature (so they scale with it): the piece beyond a kinked cut (`pat_notch`: on the corner's side of
@@ -103,7 +103,7 @@ rounding only to the rounding's depth, then sharpen into mitre lines. With this 
 whose every contour has corners of the rounding radius — the depth at which the cell inset by it, then rounded,
 passes through the pixel (per edge pair, a quadratic for the inset corner's position, solved in closed form). It goes
 to the wrapper as `GenOut.bdist` with Bevel aspect applied (`pat_setBevelDist`), so it applies while the shape is the
-layer's own (Shape mask Normal or off).
+layer's own (writing no mask, or in Normal mode).
 
 **Joint variation** (bricks, FR8.22). Each brick gets a share of the joint, `1 − joint_var × hash`: it scales the mortar
 the brick carries (its left and top joints), and for the nearest brick its bevel (handed to the wrapper as the bevel
@@ -214,7 +214,7 @@ two sites tie are no border.
   profile › Smooth* eases soft-square edges and the saw's drop.
 - **Fit the bevel** (stripes, shape mode): each stripe's bevel at most a third of its width (its inside distance
   stretched to match), on the stripe grown by half of it — Height reads that as a profile of its own (`genOutHeight`),
-  while colour, coverage and the shape mask stop at the stripe's Width, the bevel's half height. Jittered stripes that
+  while colour, coverage and the mask it writes stop at the stripe's Width, the bevel's half height. Jittered stripes that
   run into each other merge into one span (the intervals' union), one flat plank.
 - **Diffuse by shape.** Shape stripes default to Diffuse › Source Shape
   (`linkedDefaults`): painted flat, the bevel in Height only, so the ramp's dark end no longer frames every edge.
@@ -259,10 +259,10 @@ two sites tie are no border.
     Shaping's value controls. *Exit heap* (also `genOutHeight`): a crescent ridge bowed round each end, sized per
     scratch (a fifth none) and by strength and width. *Shallow hairlines* scales a cut's depth and coverage by its
     width under 1 px (thin ends fade out, no dashes), so fine brushing reads as a sheen.
-  - *Shape Mask* (`sdf: 'mask'`): the signed distance to the nearest scratch (exact within the 3 × 3 cells, snapped off
-    ±0.5 px with Hard edges; gaps of the breakup pushed outside) goes to the register when *Use shape mask* is ticked
-    — off by default, so adding scratches never replaces a shape mask built below them. Normal / Union: later layers
-    clip inside the scratches (rust, bare metal); Subtract: a panel's shape mask loses them (paint that skips the
+  - *Mask* (`sdf: 'mask'`): the signed distance to the nearest scratch (exact within the 3 × 3 cells, snapped off
+    ±0.5 px with Hard edges; gaps of the breakup pushed outside) goes to the mask named in *Write to* — none by
+    default, so adding scratches never replaces the Shape mask built above them. Normal / Union: later layers limited
+    to it stay inside the scratches (rust, bare metal); Subtract: a panel's mask loses them (paint that skips the
     scratches). *Mask strength* leaves the faint ones out.
   - The cell loop has no `continue`: D3D11 miscompiled one there (scratches thinned and cut off at cell borders).
   - The plain defaults suit about 128 px; the editor's new layer (`fresh`) sizes density, lengths, thickness, wobble

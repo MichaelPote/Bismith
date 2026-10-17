@@ -18,7 +18,7 @@ float readback, used by the material pipeline, path tracer, post stack and displ
 
 ## Checklist
 - [x] Renderer + full-screen pass helper
-- [x] Float / half-float / MRT target helpers with wrap modes — RGBA32F everywhere (simpler readback, exact SDF register) rather than half float
+- [x] Float / half-float / MRT target helpers with wrap modes — RGBA32F everywhere (simpler readback, exact SDF masks) rather than half float
 - [x] Shader chunk composition + per-type cache
 - [x] Float readback helper
 - [x] WebGL2 / float-render capability check + error UI

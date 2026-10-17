@@ -1,7 +1,7 @@
 # FR8.23 — One mask system
 
-**Status:** in progress — phases 1–3 done (named masks, slot plan, Limit to expressions, material limits; renders of
-every preset, recipe and template unchanged); Mask area (4), UI (5) and the docs pass (6) to come
+**Status:** done — named masks with a slot plan, Limit to expressions and material limits (phases 1–3); Mask area
+(4); mask-name fields, the Masks view picker and rename (5); docs (6)
 
 ## Problem
 - **Copies of one layer.** A look often needs the same layout applied at several places in the stack: a stone wall
@@ -268,6 +268,33 @@ Where the build differs from the design above, or adds to it:
   layers, which no longer read and pass the four masks through every pass.
 - **Private files** were converted once by `private/tools/convert_masks.py` (which the private authoring helper also
   applies); the app has no migration.
+
+## As built (phases 4–6)
+- **Mask area** keeps the type id `surfacemask`. Beyond the design: Slopes and Facing measure the slope across half the
+  Radius (bilinear samples), so surface grain doesn't speckle them; defaults Radius 6 px, Full at slope 0.2, Level
+  0.2. Gradient's march counts a sample up to 0.75 px past the outline as inside, so a ray along an edge skims past
+  one-pixel notches instead of stopping in them. The band (*A band at the edge*) is solid with its inner end fading
+  over *Band softness* (default half the Width), measured from the mask's outline — a bevel inside it is part of the
+  band. In feature modes Breakup is shifted by each feature's random and pulls between 0.4× and 1.6× as hard per
+  feature, so every brick frays its own way and by its own amount. Crevices' Radius defaults to 8 px. Inside starts
+  with a flat Edge; surface modes are featureless (`genOutSmooth`). Three critic rounds on a bricks sheet scored
+  6.6, 7.6 and 8.4; left open: Shaping's Cutoff is a hard 0/1 step unless *Cutoff softness* is raised (shared by every
+  generator, hard on purpose for pixel-art flecks), so a frayed selection's edge is aliased at softness 0, and a
+  Breakup size close to a narrow band's width dithers it into dots.
+- **Content**: `fromMask(mask, layout)` (masks.ts) gives a Mask area › Inside layer, passing on the layout layer's
+  Anti-alias. The stone templates and recipes lay the stones out once (a *Stones* Bricks or Voronoi layer writing
+  Shape, outputs off) and read them for Pillow, Edges, Stone heights and Stone colour; the Tiles recipe's raised
+  border, heights and colour read the Tiles layer's Shape mask. Copies of non-shape patterns (noise, Rock's outputs,
+  caustics) stay copies: a mask carries a shape and a feature random, not their values. Renders against the copies:
+  Tiles the same; the stone walls the same at a glance, sub-pixel bevel and edge detail different (Mask area bevels
+  from the stored distance, Bricks' copies from their own mitred bevel distance).
+- **UI**: mask-name params are `mask: 'read' | 'write'` (ParamDef, UI only) and drawn as `MaskField` — a dropdown of
+  the masks there are (read: written above the layer; write: all, and Shape) with None and *New mask…*; the inspector
+  fills `maskChoices` per layer and notes what a read mask holds here ("Shape here: Panel − Vent") or that nothing above
+  writes it. Each Limit to operator sits in one row with its mask. The Masks view (`0`) has a picker and an inline
+  rename (`renameMask` in recipes/index.ts: writes, limits, sources, material limits and recipe macros). The Height
+  mask's field is *Height* (it said *Limit to* too). The cursor readout shows the viewed mask's distance (it read the
+  old register slot).
 
 ## Phases
 Each phase ends with `npm test`, `vue-tsc` and `npx tsx tools/smoke.ts` green.

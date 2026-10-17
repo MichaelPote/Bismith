@@ -5,7 +5,7 @@ import { computed, ref, shallowRef, watch } from 'vue'
 import type { ParamValue } from '@/core/params'
 import type { Layer, LayerUnit, LimitExpr, Light, LightType, PostFilter, Project, SmartMaterial } from '@/core/project'
 import { flattenUnits, layerUnits } from '@/core/project'
-import { addMaterial as recipeAdd, deleteMaterial as recipeDelete, pruneMaterials, setMacro, setMaterialLimit as recipeLimit, unpackMaterial as recipeUnpack } from '@/recipes'
+import { addMaterial as recipeAdd, deleteMaterial as recipeDelete, pruneMaterials, renameMask as recipeRenameMask, setMacro, setMaterialLimit as recipeLimit, unpackMaterial as recipeUnpack } from '@/recipes'
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize'
 import { freshParams, linkedChanges } from '@/layers/registry'
 import { newId } from '@/core/ids'
@@ -243,6 +243,11 @@ export const useProjectStore = defineStore('project', () => {
     if (m) recipeLimit(m, limit)
   }
 
+  /** Rename a mask wherever it is named (FR8.23). */
+  function renameMask(from: string, to: string): number {
+    return recipeRenameMask(project.value, from, to)
+  }
+
   /** Show or hide a whole smart material (its members keep their own on/off states). */
   function setMaterialEnabled(id: string, enabled: boolean): void {
     const m = getMaterial(id)
@@ -369,6 +374,7 @@ export const useProjectStore = defineStore('project', () => {
     addMaterial,
     setMaterialParam,
     setMaterialLimit,
+    renameMask,
     setMaterialEnabled,
     renameMaterial,
     unpackMaterial,

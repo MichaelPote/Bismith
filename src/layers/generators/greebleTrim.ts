@@ -102,7 +102,7 @@ export const trimLayer: LayerDef = {
       ['band', 'One band (shape)'],
       ['strip', 'Strip material (shape)'],
     ], { hint: 'Relief composes bands, dividers and elements into one height value. Shapes give one element class as an SDF. Strip material: the strips less their holes and seams' }),
-    P.enum('mask_shape', 'Shape mask', 'strip', [
+    P.enum('mask_shape', 'Shape for the mask', 'strip', [
       ['none', 'None (left as it was)'],
       ['strip', 'Strip material'],
       ['blocks', 'Blocks'],
@@ -111,7 +111,7 @@ export const trimLayer: LayerDef = {
       ['band', 'One band'],
     ], {
       showIf: (p) => p.output === 'relief',
-      hint: 'The shape the relief hands to the Shape Mask (Mask card), for later layers to clip to or bevel from: Strip material is the strips less their holes and seams (chip their edges, dirt in the cuts); Rivets / slots, a band or the dividers let one layer’s colour or roughness land on just those — no second Trim layer needed',
+      hint: 'The shape the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to or bevel from: Strip material is the strips less their holes and seams (chip their edges, dirt in the cuts); Rivets / slots, a band or the dividers let one layer’s colour or roughness land on just those — no second Trim layer needed',
     }),
     P.enum('orient', 'Direction', 'horizontal', ORIENT),
     P.bool('mirror', 'Mirror', true, { hint: 'Bands run from both edges to the centre line' }),

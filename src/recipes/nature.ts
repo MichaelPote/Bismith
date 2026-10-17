@@ -118,7 +118,7 @@ export const wood: RecipeDef = {
     return [
       { role: 'relief', stack: 'relief', layer: L('wood', 'Board relief', { ...w, output: 'shape', bevel: 0.75, profile: 'custom', mk_op: 'replace', h_on: true, h_amount: 0.2, dif_on: false }, m.planks !== false) },
       { role: 'grain-relief', stack: 'relief', layer: L('wood', 'Grain relief', { ...w, output: 'grain', mk_target: '', h_on: true, h_amount: 0.06, dif_on: false, s_on: true, s_mode: 'multiply', s_src: 'value', s_a: 0.4, s_b: 1 }) },
-      // Carves the chips and splits out of the board relief (both wear layers read the boards' shape mask, untouched).
+      // Carves the chips and splits out of the board relief (both wear layers read the Shape mask the boards wrote, untouched).
       { role: 'wear-relief', stack: 'relief', layer: L('chips', 'Chips & splits', { ...wear, h_on: true, h_mode: 'multiply', h_amount: 1, dif_on: false }, chips > 0 || splits > 0) },
       { role: 'wood', stack: 'paint', layer: L('wood', 'Wood', { ...w, output: 'wood', mk_target: '', h_on: false, dif_on: true, dif_grad: m.colours ?? gradient('#2a1a0e', '#6a4a30'), dif_jitter: r2(num(m.variety, 0.2)) }) },
       {

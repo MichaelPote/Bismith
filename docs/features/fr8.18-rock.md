@@ -13,7 +13,8 @@ cliff (colour and displacement), and a lava crust. Earlier rock recreations were
 mottle and Cracks; they got the colour but never the form.
 
 ## Rock (`rock`, `generators/rock.ts`)
-A pattern-category SDF generator (`genOutOwn`: it paints its own value and hands its blocks to the Shape Mask).
+A pattern-category SDF generator (`genOutOwn`: it paints its own value and hands its blocks to the mask it writes, Shape
+by default).
 
 ### Layout
 - **Strata frame.** Within 45° of horizontal, `u = (x − s·y) / W` runs along the bedding and `v = (y + t·x) / H` across
@@ -283,7 +284,7 @@ rubble and Cobbles (Brown cobbles) — generated from the recreations, not retyp
 | Pillow stones | size 12, bedding 0.8, dome 1, weathering 5, corner rounding 3, no merging, 2 px joints; light Streaks (lime drips, Screen), sparse dark ledge drips (Drips, relief-driven), cavity dirt |
 | Thin beds with lichen | size 11, elongation 2, bedding 0.5, merge 0.5, bed relief 0.6, lean −0.6, roughness 0.15; per-facet tone overlay, crevices dark, lichen speckle |
 | Dark fractured rock | angle −60°, size 30, tilt 1, 3 levels, zones 1; per-facet black / tan multiply, scarps and crevices near black; Height 10 |
-| Grey blocks / rock with moss | size 20–22, bedding 0.15–0.3, tilt 0.8–1; moss: Scarps (Above ledges) ∪ Crevices ∩ a noise breakup → named mask 1; Worley noise (scale 70, two octaves, dark → light green) masked by it, as leafy clumps |
+| Grey blocks / rock with moss | size 20–22, bedding 0.15–0.3, tilt 0.8–1; moss: Scarps (Above ledges) ∪ Crevices ∩ a noise breakup → a named mask; Worley noise (scale 70, two octaves, dark → light green) limited to it, as leafy clumps |
 | Brown cobbles | size 17, elongation 1.3, bedding 0.2, dome 0.9, weathering 2, corner rounding 3, 2 px joints filled dark |
 | Cobbles in mud | size 11, elongation 1.3, dome 0.8, weathering 2, 2.5 px joints filled with mud (a Crevices copy), faint speckle |
 | Dark flaky strata | angle −8°, size 10, elongation 3, bed relief 0.5, lean −0.5, tilt 0.8, 3 levels; scarps painted brown |
@@ -307,7 +308,7 @@ light cast them best. Colour comes as much from geometry as from paint: dark rec
 - [x] Facet levels (square, offset, less bedded, soft, faded under 8 px), fracture zones, roughness, tanh relief
 - [x] Rills, laminae, pits
 - [x] Joints with width variation (per joint and along it), open share, cross-joint width, facet joints along the facet
-      borders (with breakup), long fractures on a lattice basis, sub-pixel fade; Shape Mask
+      borders (with breakup), long fractures on a lattice basis, sub-pixel fade; Shape mask
 - [x] Corner rounding (rounded-box form), bed relief, pitch, stagger (running bond), scarp steps
 - [x] Proud blocks; editor defaults that read as rock (recreations keep every param explicit); Style presets
 - [x] Outputs: Relief, Scarps (facing), Crevices (reach, patches), Streaks; per-bed / per-facet randoms

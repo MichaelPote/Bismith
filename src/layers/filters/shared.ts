@@ -27,6 +27,7 @@ export const SOURCE_PARAMS: ParamDef[] = [
     hint: 'What defines the edge: a channel above the threshold (its distance found by jump flood), or a mask written by a layer above — exact where only shape layers wrote it',
   }),
   P.text('source_mask', 'Mask', SHAPE_MASK, {
+    mask: 'read',
     showIf: (p) => p.source === 'mask',
     hint: 'The mask whose edge this follows, by name (Shape: the one shape layers write)',
   }),

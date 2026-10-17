@@ -3,7 +3,7 @@
 // diffuse blend a drip stains whatever the layers beneath painted, in proportion to its strength.
 // Output "Sources" gives the blisters the rust bleeds from instead (same seed → same places): ragged holes in the paint at
 // the origins, and along the ledges below raised features, that grow with the Blister radius from specks to patches
-// that merge into whole areas. Their outline goes to the Shape Mask (clip the rust beneath inside it, the paint outside);
+// that merge into whole areas. Their outline goes to the mask it writes (limit the rust beneath to inside it, the paint to outside);
 // their height is the peel — the paint lifts towards the torn edge, steepening as it curls, then falls into the hole,
 // below the surface. Wraps on tileable projects.
 //
@@ -234,10 +234,10 @@ export const dripsLayer: LayerDef = {
   label: 'Drips',
   category: 'pattern',
   kind: 'generator',
-  description: 'Water, rust or blood stains running down from scattered sources, staining what is beneath; or the sources themselves: blisters of peeling paint (a shape mask, with a lifted, torn edge).',
+  description: 'Water, rust or blood stains running down from scattered sources, staining what is beneath; or the sources themselves: blisters of peeling paint (a mask, with a lifted, torn edge).',
   params: [
     P.enum('output', 'Output', 'stain', [['stain', 'Stains (trails)'], ['source', 'Sources (blisters)']], {
-      hint: 'Sources: ragged blisters of peeling paint at the drip origins and along ledges — a Shape Mask for the rust beneath, with the paint lifting at the torn edge and a hole below the surface as height',
+      hint: 'Sources: ragged blisters of peeling paint at the drip origins and along ledges — a mask for the rust beneath, with the paint lifting at the torn edge and a hole below the surface as height',
     }),
     P.enum('style', 'Style', 'streak', [
       ['streak', 'Streak (pixel)', 'a narrow trail, tapering and fading — crisp at 1 px'],
@@ -307,7 +307,7 @@ export const dripsLayer: LayerDef = {
     P.seed(),
   ],
   groups: [{ id: 'relief', label: 'Relief' }],
-  // Sources: the blisters' outline goes to the Shape Mask; Drips shapes the peel itself.
+  // Sources: the blisters' outline goes to its mask; Drips shapes the peel itself.
   sdf: 'mask',
   sdfShowIf: sources,
   textures: ['ledges', 'cells', 'flow'],

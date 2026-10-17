@@ -8,7 +8,7 @@ accumulated channels rather than generating new content.
 
 ## Plan
 - `src/gpu/jfa.ts` — jump-flood signed distance field from a thresholded source (height / opacity /
-  luminance / named mask / shape register), wrap-aware (toroidal distance) on tileable projects.
+  luminance / a mask's coverage), wrap-aware (toroidal distance) on tileable projects.
 - **Blur:** separable Gaussian, radius px, channel toggles.
 - **Bevel:** source + threshold → distance → profile × depth; inner / outer / both; add / max / replace.
 - **Etch:** grooves along the source's boundary (width, depth, softness) with optional diffuse darkening.
@@ -47,9 +47,9 @@ Lengths are px; heights are unitless (1.0 = `heightDepth` px).
 
 - **`blur`** (filter) — `radius` (σ = radius / 2, kernel ≈ 1.5 × radius), toggles `diffuse`, `height`,
   `roughness`, `emissive`, `opacity` (when opacity is blurred, colour is alpha-weighted so cut-outs don't
-  bleed). Two MRT passes through the state ping-pong; shape register and metallic pass through.
-- **`bevel`** (filter) — `source` (`height` | `opacity` | `luminance` | `shape` | `mask1`–`mask4`),
-  `threshold`, `smooth` (edge smoothing, JFA sources only), `invert`, `width`, `profile` (shared `PROFILES`), `depth`,
+  bleed). Two MRT passes through the state ping-pong; metallic passes through (filters never change masks).
+- **`bevel`** (filter) — `source` (`height` | `opacity` | `luminance` | `mask`), `source_mask` (a mask by name,
+  Shape by default), `threshold`, `smooth` (edge smoothing, JFA sources only), `invert`, `width`, `profile` (shared `PROFILES`), `depth`,
   `direction` (`inner` | `outer` | `both`), `combine` (`add` | `max` | `min` | `replace`).
   The bevel value b goes 0 (outside / slope foot) → 1 (plateau); `depth × b` is combined with the height
   inside the bevelled region only (inside the edge for inner, within the skirt for outer/both), so `max`,
@@ -64,7 +64,7 @@ Lengths are px; heights are unitless (1.0 = `heightDepth` px).
   `wear_noise` (breakup); Cavity dirt `dirt_amount`, `dirt_color`, `dirt_rough`, `dirt_noise`;
   Breakup `noise_scale`, `noise_octaves`, `seed`. Curvature = (h − blur(h)) × heightDepth.
 - **`warp`** (filter) — `strength` (≈ largest displacement), `scale` (cells), `octaves`, `nearest`
-  (no interpolation: crisp pixel art), `seed`. All channels incl. the shape register move together.
+  (no interpolation: crisp pixel art), `seed`. All channels move together (masks don't: they stay as written).
 - **`levels`** (adjust) — `in_lo`, `in_hi`, `gamma` (pow(x, gamma), same convention as generator shaping),
   `out_lo`, `out_hi`, `invert`, `clamp`.
 - **`hsv`** (adjust) — `hue` (°), `saturation` (−1 = grey), `brightness`, `contrast`, Colourise group
@@ -84,11 +84,11 @@ Lengths are px; heights are unitless (1.0 = `heightDepth` px).
   flat-profile edge — only locates the iso-line to ~±0.4 px; the per-seed error projects radially and shows
   as faint facets on wide bevels of curves. The relax pass fits a line (PCA of the seeds within the radius)
   and moves each seed onto it, fading out where the neighbourhood is not line-like, so corners stay sharp.
-  Measured on a 24 px linear bevel of a circle + rotated rect: mean error vs the exact shape-register bevel
+  Measured on a 24 px linear bevel of a circle + rotated rect: mean error vs the exact shape-mask bevel
   < 1/255 of the ramp, visually indistinguishable at 3–4 px. Set 0 to follow pixel steps exactly.
-- **Shape register source** is exact (no JFA) and is the best choice for edges built from SDF layers.
-- **Named mask sources** (`mask1`–`mask4`, FR8.13) threshold the mask's coverage (0.5 = the middle of an
-  anti-aliased or feathered edge) and flood it like the channel sources: the edge of a mask built from several
-  layers, or one kept apart from the shape register, can be bevelled or etched anywhere in the stack.
+- **Mask source** (`source: 'mask'` + `source_mask`, FR8.23) is exact (no JFA) when only shape layers wrote that
+  mask — the best choice for edges built from SDF layers. A mask other layers wrote too is thresholded at its
+  coverage (0.5 = the middle of an anti-aliased or feathered edge) and flooded like the channel sources. A mask
+  reaches only the layers after its writer, so the filter must come after it in the stack.
 - Verified headlessly (128², tileable and not, 160×96 non-square): seam continuity of every filter matches
   the base content's, JFA vs exact-SDF bevel agree, all types pass `tools/smoke.ts`.

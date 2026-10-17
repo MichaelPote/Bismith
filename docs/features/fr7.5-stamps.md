@@ -6,7 +6,7 @@
 Some texture motifs are *drawn*, not grown: a crate's winged skull, a stencilled "03", a logo burned into a
 switch, a lightning-bolt channel routed through a door, a rope moulding. Procedural motifs only approximate these,
 and that approximation is what made optimiser results look aimless. These generators take deliberate, hand-authored
-input and still behave like every other shape: they are SDFs (bevel, profile, shape register, clipping) and they
+input and still behave like every other shape: they are SDFs (bevel, profile, masks, Limit to) and they
 light through the path tracer.
 
 ## Design
@@ -24,7 +24,7 @@ light through the path tracer.
   bevels follow the pixel outline — exact at any width: the CPU (`cpuData`) lays out the bitmap (≤ 128 × 128, mirror
   applied) with a margin of empty cells and stores per cell the nearest cell of the other state (jump flooding, +1
   pass), and the shader takes the nearest of the candidates in the 3×3 cells round the pixel (9 lookups; outside the
-  margin, from its edge — continuous, so the Shape Mask can be bevelled from outside). Placement by centre (0..1),
+  margin, from its edge — continuous, so its mask can be bevelled from outside). Placement by centre (0..1),
   pixel size, quarter turns, free *Angle*, mirror (draw the left half; odd = shared centre column); *Grow* offsets the
   outline, *Outline* keeps an inner stroke, *Join diagonals* halves the cells first and, wherever two cells touch
   only at a corner (the other two of their 2 × 2 empty), fills the two empty half-cells at that corner — add only, so
@@ -142,8 +142,8 @@ light through the path tracer.
     when tiling.
   - *Rows*: parallel cables evenly spaced round Position, each shifted by *Row shift* of a turn; *Alternate twist*
     mirrors every other one (herringbone). Rows closer than a cable's height are resolved like crossing strands.
-  - The outline (union of the tubes' footprints above the bed) is the layer's shape for the Shape Mask
-    (`sdf: 'mask'`), written by Union.
+  - The outline (union of the tubes' footprints above the bed) is the layer's shape for its mask (Shape by
+    default; `sdf: 'mask'`), written by Union.
   - Defaults: a three-strand laid rope, a third sunk, with a core, fibres and some unevenness, sized for 512 px; added
     in the editor (`fresh`) its radius, tube, turns and yarn count follow the texture.
 - **Cutoff** (shaping, all generators): coverage only where the shaped value ≥ cutoff (optional softness) — sparse
@@ -187,6 +187,6 @@ light through the path tracer.
   round beyond Smooth 1; diagonals into bar corners (z, M); compact stroke J; stepped full-font comma and semicolon
 - [x] Cable: helix tubes, strands, loop, back depth, front-over-back resolution
 - [x] Cable quality pass: anti-aliased crossings, swept-tube heights, sink, core, irregularity, fibres, rows, angle
-  (tile-snapped), sag, cut ends, Shape Mask outline, editor rope defaults
+  (tile-snapped), sag, cut ends, mask outline, editor rope defaults
 - [x] Shaping cutoff
 - [ ] UI: a pixel editor for Stamp bitmaps (today a monospace textarea) and on-canvas vertex editing for Path

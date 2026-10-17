@@ -1,5 +1,5 @@
 // Fill-style pattern layers (FR2.4): fBm clouds, gradients (UI shading) and random scratches (metal wear).
-// Clouds and gradients are value generators (no SDF); scratches also hand their outline to the Shape Mask
+// Clouds and gradients are value generators (no SDF); scratches also hand their outline to a mask
 // (sdf: 'mask'). See patterns.ts for the cell-based SDF patterns.
 
 import { P, gradient, type ParamValues } from '@/core/params'
@@ -661,7 +661,7 @@ export const scratchesLayer: LayerDef = {
   label: 'Scratches',
   category: 'pattern',
   kind: 'generator',
-  description: 'Random scratches and gouges — metal wear, scuffs, scored stone: tapered, broken up, wobbly or swept, in clumps, V- or U-cut with a raised burr. Coverage masks the outputs; the outline can go to the Shape Mask.',
+  description: 'Random scratches and gouges — metal wear, scuffs, scored stone: tapered, broken up, wobbly or swept, in clumps, V- or U-cut with a raised burr. Coverage masks the outputs; the outline can go to a mask.',
   params: [
     P.float('density', 'Density', 24, 0, 1024, { softMax: 256, step: 0.1, perArea: true, section: 'Layout', hint: 'Scratches per 64×64 px (long, dense ones saturate at the Density limit). Brushed metal: 150+ with Density limit 256, 100–400 px long, under 0.6 px wide with Shallow hairlines, Angle jitter 1–3°, Clumping 0, Breakup under 0.2, a low Height amount' }),
     P.int('cap', 'Density limit', 64, 1, 256, {

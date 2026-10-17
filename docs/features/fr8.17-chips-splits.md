@@ -6,14 +6,15 @@
 Worn, hand-painted wood: boards whose ends are sawn a little crooked, chipped at the corners and split along the grain
 from the ends inward; slabs crazed with long cracks, short breaks across the grain and the stepped ends of fibre
 strips. The damage had to be reusable — the same chips knock the corners off stone setts or panels — so it is a
-generator of its own that works on the **Shape Mask** (the shape register), not a feature of the wood.
+generator of its own that works on a **mask** (the Shape mask by default), not a feature of the wood.
 
 ## Chips & splits (`chips`, `generators/chips.ts`)
-A shape-category SDF generator that reads the register (`readsState`) and takes damage out of it. With nothing in the
-register the whole texture counts as one piece (only the splits in the open and the nicks apply).
+A shape-category SDF generator that reads the mask before it (`readsMask`: its *Write to* mask, or Shape when it writes
+none) and takes damage out of it. With nothing in the mask the whole texture counts as one piece (only the splits in
+the open and the nicks apply).
 
 - **Chips** — one spot per cell of 2.5 chip sizes; a spot within a chip size of the edge moves onto it along the
-  field's normal (central differences on the register), and an angular flake is cut around it: five half-planes at
+  field's normal (central differences on the mask), and an angular flake is cut around it: five half-planes at
   uneven angles, stretched along the edge, clipped to the spot's side of the edge so a chip never reaches across a gap
   into the neighbouring piece. *Corners* adds chance where the distance bends beside the spot (0 on a straight edge,
   ~0.4 at a right angle). *Depth* < 1 leaves a shallow flake with a floor.
@@ -22,7 +23,7 @@ register the whole texture counts as one piece (only the splits in the open and 
   opens and running inward, thin, narrowing late; a spot inside, away from such edges, may hold a split *in the open*,
   tapered at both ends. Splits run straight between knots ~0.4 lengths apart with a gentle deflection (*Wobble*) at
   each — wood splits along straight lines. **Merging**: a split from an edge may veer gently into the split in the next
-  lane and end on it — only when that split really is there where this one ends (its cell is evaluated, register and
+  lane and end on it — only when that split really is there where this one ends (its cell is evaluated, mask and
   all) and runs within 0.8 lanes — so two splits join into one (a Y) instead of crossing.
 - **Nicks** — short cracks across the grain inside the shape, zigzagging a little (*Nick length*, *Nick width*).
 - **Length jitter** — how much shorter than *Length* (or *Nick length*) each may be: 0 all full length, 1 anywhere from
@@ -36,13 +37,13 @@ register the whole texture counts as one piece (only the splits in the open and 
   split shoulders were as wide as the shape's own bevel).
 
 Every feature is a cut `c` (px, > 0 inside it) and a depth `f`. Two outputs, both writing the chipped shape to the
-register when *Use shape mask* is on:
+mask in *Write to* (Shape by default):
 
 - **Carve what is below** (default) — value = how much of the surface is left (1 untouched … 0 cut away), covering only
   the damage, inside the original shape. Height › Multiply carves it out of whatever relief is below; Diffuse ›
   Multiply darkens it. Chip walls follow the layer's Bevel / Profile; splits and nicks use thin-line coverage (a pixel
   box filter, ≤ the width when under a pixel) so hairlines fade instead of flickering. Uses `genOutOwn`.
-- **Chipped shape (SDF)** — the register minus the cuts; a part-depth cut sinks `(1 − f) × bevel` instead of reaching
+- **Chipped shape (SDF)** — the mask minus the cuts; a part-depth cut sinks `(1 − f) × bevel` instead of reaching
   the edge, so the bevel gives it a floor. Drawn with the layer's bevel, the bevel wraps round each split: board ends
   break into rounded fingers.
 
@@ -59,26 +60,26 @@ split for a merge is evaluated only when the pixel lies on a merging split. Cold
 ### Following the shape (round 2)
 - **Split starts** were found by dividing the distance at a split's spot by the edge normal's grain component. On a
   wobbly end the normal tilts, the division overshoots, and splits started tens of px off the edge — inside the next
-  board. They now step along the grain by the distance (sphere tracing on the register, ≤ 8 fetches) until on the edge,
+  board. They now step along the grain by the distance (sphere tracing on the mask, ≤ 8 fetches) until on the edge,
   so they open exactly where the (wobbly, chipped) end is.
 - **Carve eats the bevel**: the carve value is the bevel on the chipped shape over the bevel on the original
   (`bevelAt(d') · coverage(d') / bevelAt(reg) · coverage(reg)`) with this layer's Bevel / Profile / aspect — give it
   those of the layer that drew the relief and Height › Multiply leaves that relief exactly, its bevel following every
   chip and split (before, chip walls had their own profile and the plank bevel ran straight past them). Splits' and
   nicks' distances are scaled so the bevel spans the split Bevel (narrowing with the crack); hairlines keep their
-  thin-line coverage. The chipped shape also goes to the Shape Mask, as before, for later clips.
+  thin-line coverage. The chipped shape also goes to the mask it writes, as before, for later limits.
 - **Bevel aspect** (Shaping › Edge, every SDF layer): left / right bevels Bevel / √aspect, top / bottom Bevel · √aspect —
   the two trade around Bevel (their geometric mean), so both axes move; an edge at an angle gets the stretched width
   across it, √((nx·Wx)² + (ny·Wy)²). The wrapper takes the
   combined distance and its screen-space gradient before branching (`bevelAt(d, grad)`, `GLSL_BEVEL`); a generator
   can give an exact bevel distance (`GenOut.bdist`) — Wood's boxes in a stretched space, so a wide end bevel meets the
   side bevel in a clean crease instead of a step along the 45° diagonal. Wood's grain now reaches the wrapper through
-  `genOutShaded`, which applies the bevel (with aspect, and the combined shape for other Shape Mask modes).
+  `genOutShaded`, which applies the bevel (with aspect, and the combined shape for the other mask modes).
 
 ## `genOutOwn`
 `GenOut` gained `own`: an SDF generator that paints its own value and coverage but still has a shape. The wrapper
-writes the distance to the register (by the Mode) and named masks and leaves value and coverage alone. Wood's `wood`
-output now uses it, so a single Wood layer puts its plank outline in the Shape Mask for Chips & splits and clips
+writes the distance to the mask in *Write to* (by the Mode) and leaves value and coverage alone. Wood's `wood`
+output now uses it, so a single Wood layer puts its plank outline in the Shape mask for Chips & splits and limits
 (`sdfShowIf` hides the shape params for Grain only and for one slab, which have no outline).
 
 ## Wood
@@ -159,7 +160,7 @@ output now uses it, so a single Wood layer puts its plank outline in the Shape M
 - **Source › Shape** (every generator output): with Roughness › Pattern, Wood's roughness followed the full-contrast
   grain, so every dark grain line was near-mirror and the rest matte — pinpoint glints in the troughs, and raising
   roughness only dulled it. *Shape* is the inside of the layer's own shape (the distance the wrapper combines, before
-  the register write: `coverage(d)`; for `sdf: 'mask'` layers `clamp(0.5 − d)`; 1 for layers without a shape), so At 0
+  the mask write: `coverage(d)`; for `sdf: 'mask'` layers `clamp(0.5 − d)`; 1 for layers without a shape), so At 0
   sets the gaps and At 1 the boards and the grain is ignored. On a project with a 4.9 key light, Roughness › Shape at
   0.9 (gaps) / 0.35 (boards) gives the broad sheen along the grain ridges that the hand-painted reference has. (A
   "highlight hold" that keeps rough highlights bright was considered and left out: the dullness came from the
@@ -172,9 +173,9 @@ output now uses it, so a single Wood layer puts its plank outline in the Shape M
 
 ## Wood smart material
 New *Wear* group: **Chips** and **Splits** macros (0.3 / 0.4). They build a *Chips & splits* relief layer (Carve, Height
-multiply, after the board and grain relief) and a *Chip shading* paint layer (Carve, Diffuse multiply), both with the
-shape mask unticked so each reads the board outlines; sizes follow the boards (chips 6 % of a board's width, splits a
-third of its length). Materials added before keep their layers.
+multiply, after the board and grain relief) and a *Chip shading* paint layer (Carve, Diffuse multiply), both writing no
+mask so each reads the boards' outlines from the Shape mask; sizes follow the boards (chips 6 % of a board's width,
+splits a third of its length). Materials added before keep their layers.
 
 ## Specular tint default
 `render.specularTint` defaults to 1: glints take the surface's hue, which reads as the material; white glints look
@@ -183,7 +184,7 @@ like a clear coat. Projects that set it keep it; files without it now get tinted
 ## Checklist
 - [x] Chips & splits generator: chips (corners, depth, one-sided), splits from edges and in the open, nicks
 - [x] Gentle knotted deflection; merging into the neighbouring split
-- [x] Carve and Chipped shape outputs; `genOutOwn`; Wood's output writes the register
+- [x] Carve and Chipped shape outputs; `genOutOwn`; Wood's output writes the register (now its mask)
 - [x] Wood end wobble, softness, grain depth (`GenOut.hval`), Gap X · Y
 - [x] Wood smart material Chips / Splits
 - [x] Specular tint default 1

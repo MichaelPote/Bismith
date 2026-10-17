@@ -54,7 +54,8 @@ small (64 px) and a large texture, and a column with the generator over a busy c
 - `<name>/<i>.png` and `<name>/<i>.height.png`: each column at full size. Look at these, not only the downscaled sheet.
 - `<name>.md`: each column's label and the params it sets, then every parameter of the generator with its plain
   default, new-layer value and column-1 value where they differ, its hard range, slider range and tooltip, and the
-  shared controls (Edge, Shape mask, Value shaping, Height) as column 1 has them. Render errors are listed here too.
+  shared controls (Edge, Mask › Write to and Limit to, Value shaping, Height) as column 1 has them. Render errors are
+  listed here too.
 
 Height maps are stretched to 0..255 per image, so compare relief within one image, or judge it from the render.
 

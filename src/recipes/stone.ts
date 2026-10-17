@@ -1,5 +1,6 @@
 // Stone recipes: dressed / rubble walls (Bricks) and cobblestones (Voronoi cells), from the stone-wall
-// work (FR7.6): relief = flat Pillow blurred into a dome → crisp Edges (custom curve) → faceted Chips in the edge zone →
+// work (FR7.6): one pattern layer lays the stones out in the Shape mask, and Mask area layers read them from there
+// (FR8.23): relief = flat Pillow blurred into a dome → crisp Edges (custom curve) → faceted Chips in the edge zone →
 // per-stone Heights → Lumps (driving the glints) → Pits; paint = dark joints, multi-hue noise under per-stone colour,
 // moss in the hollows, colour speckle, dirt and edge wear.
 
@@ -7,7 +8,7 @@ import { P, type ParamValues } from '@/core/params'
 import { HEIGHT_ONLY, L, ON_FACES, across, clamp, crisp, gradient, lerp, num, r2, shade } from './parts'
 import type { RecipeContext, RecipeDef, RecipeLayer } from './types'
 import { BRICKS_PLAIN, VORONOI_PLAIN } from '@/layers/generators/patterns'
-import { SHAPE_MASK, limitTo } from '@/layers/masks'
+import { SHAPE_MASK, fromMask, limitTo } from '@/layers/masks'
 
 const STONES = gradient('#33260f', '#45330f', '#323232', '#3a2a10', '#2c2c3a', '#4a3814', '#363636')
 
@@ -37,7 +38,7 @@ const SHARED = [
   P.seed('seed', 'Seed', 6, { group: 'layout' }),
 ]
 
-/** The dressed-stone relief and stone paint around a pattern (`shape` = the pattern params every copy shares). */
+/** The dressed-stone relief and stone paint around a pattern (`shape`: the layout layer's pattern params). */
 function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamValues, ctx: RecipeContext, blockMin: number, blockMax: number): RecipeLayer[] {
   const seed = num(m.seed, 6)
   const pillow = num(m.pillow, 0.6)
@@ -45,18 +46,20 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
   const chips = num(m.chips, 0.6)
   const rough = num(m.rough, 0.5)
   const glint = num(m.glints, 0.6)
-  const flat = { ...shape, bevel: 0, profile: 'flat', mk_target: '', dif_on: false }
+  // One pattern layer lays the stones out (writing the Shape mask); the rest read its stones from there (Mask area).
+  const flat = { ...fromMask(SHAPE_MASK, shape), dif_on: false }
   const stones = m.stone_colours ?? STONES
   const joint = String(m.joint_colour ?? '#16110a')
   const relief = (role: string, layer: ReturnType<typeof L>): RecipeLayer => ({ role, stack: 'relief', layer })
   const paint = (role: string, layer: ReturnType<typeof L>): RecipeLayer => ({ role, stack: 'paint', layer })
   return [
-    relief('pillow', L(type, 'Pillow', { ...flat, h_on: true, h_amount: r2(pillow) }, pillow > 0)),
+    relief('layout', L(type, 'Stones', { ...shape, bevel: 0, profile: 'flat', h_on: false, dif_on: false })),
+    relief('pillow', L('surfacemask', 'Pillow', { ...flat, h_on: true, h_amount: r2(pillow) }, pillow > 0)),
     relief('pillow-blur', L('blur', 'Pillow blur', { radius: r2(clamp(blockMin / 4, 1.5, 6)), ...HEIGHT_ONLY }, pillow > 0)),
     relief(
       'edges',
-      L(type, 'Edges', {
-        ...shape, bevel: r2(clamp(blockMin * 0.6, 2, 12)), profile: 'custom', bevel_curve: crisp(), mk_op: 'replace', dif_on: false,
+      L('surfacemask', 'Edges', {
+        ...fromMask(SHAPE_MASK, shape), bevel: r2(clamp(blockMin * 0.6, 2, 12)), profile: 'custom', bevel_curve: crisp(), dif_on: false,
         h_on: true, h_amount: r2(Math.max(0.05, edge)), r_on: true, r_mode: 'replace', r_src: 'flat', r_a: 0.6, r_b: 0.6,
         s_on: true, s_mode: 'replace', s_src: 'flat', s_a: r2(glint), s_b: r2(glint),
       }),
@@ -68,7 +71,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
         h_on: true, h_mode: 'min', h_amount: r2(lerp(2.2, 0.8, chips)), dif_on: false, m_hmode: 'below', m_hlevel: r2(0.8 * (pillow + edge)), m_hsoft: 0.08,
       }, chips > 0),
     ),
-    relief('heights', L(type, 'Stone heights', { ...flat, h_on: true, h_amount: r2(0.8 * num(m.heights, 0.5)), h_var: 1 }, num(m.heights, 0.5) > 0)),
+    relief('heights', L('surfacemask', 'Stone heights', { ...flat, h_on: true, h_amount: r2(0.8 * num(m.heights, 0.5)), h_var: 1 }, num(m.heights, 0.5) > 0)),
     relief(
       'lumps',
       L('noise', 'Lumps', {
@@ -87,7 +90,7 @@ function stoneLayers(type: 'bricks' | 'voronoi', shape: ParamValues, m: ParamVal
     paint('stone-noise', L('noise', 'Stone noise', { noise: 'value', fractal: 'fbm', scale: across(ctx, 7), octaves: 3, seed: seed + 6, ...limitTo(SHAPE_MASK), h_on: false, dif_on: true, dif_grad: stones })),
     paint(
       'stone-colour',
-      L(type, 'Stone colour', { ...shape, bevel: 0, profile: 'flat', mk_target: '', h_on: false, ...limitTo(SHAPE_MASK), dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.6)), dif_grad: stones }),
+      L('surfacemask', 'Stone colour', { ...fromMask(SHAPE_MASK, shape), h_on: false, dif_on: true, dif_src: 'random', dif_opacity: r2(num(m.variety, 0.6)), dif_grad: stones }),
     ),
     paint(
       'moss',

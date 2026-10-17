@@ -53,10 +53,10 @@ export const hammeredLayer: LayerDef = {
     P.float('crease', 'Crease softness', 0.02, 0, 1, { step: 0.001, hint: 'Where overlapping dents meet: 0 = sharp creases, higher = rounded ridges (most of the change is in the first tenth)' }),
     P.float('rim', 'Rim', 0.1, 0, 1, { softMax: 0.5, step: 0.001, hint: 'A raised lip of displaced metal round each dent, as a share of its depth — it shows on untouched metal and on the ridges between dents' }),
     P.float('overlap', 'Edge overlap', 2, 0, 8, { softMax: 4, step: 0.01, hint: 'How far each region’s dents run on past its edge, in dent radii, thinning out over the band (sparse dents skip blows where the neighbour already struck): 0 = every region stops at its edge (seams and wedges of untouched metal where courses meet), higher = the passes mesh and hide the seams' }),
-    P.float('mask_r', 'Shape mask size', 1, 0, 2, {
+    P.float('mask_r', 'Mask size', 1, 0, 2, {
       step: 0.001,
       showIf: writesShape,
-      hint: 'With Mask › Use shape mask (or a named-mask write): the shape is a disc per dent, this times its radius — 1 = the whole dent, lower = round its deepest point (its floor); large, overlapping dents still join up below about 0.5',
+      hint: 'Writing a mask (Mask › Write to): the shape is a disc per dent, this times its radius — 1 = the whole dent, lower = round its deepest point (its floor); large, overlapping dents still join up below about 0.5',
     }),
     P.seed(),
   ],
@@ -206,7 +206,7 @@ bool hmStruck(vec2 at, int jv, int own, float near) {
   return hit;
 }
 
-// The dents' discs for the Shape Mask, joined with a 2 px fillet so pinholes between nearly touching discs close
+// The dents' discs for the mask it writes, joined with a 2 px fillet so pinholes between nearly touching discs close
 // (continuous, so the mask's distance stays usable past its edge).
 float hmSmin(float a, float b) {
   float h = max(2.0 - abs(a - b), 0.0) * 0.5;
@@ -319,7 +319,7 @@ GenOut gen(vec2 p) {
   float score = 1e9;         // the winning dent (its rnd): the deepest, else (untouched) the nearest in units of its radius
   float dentRnd = 0.0;
   float shade = 0.0;         // the winning dent's region shade (Region variation), −0.5 … 0.5
-  float sd = 1e9;            // signed distance to the dents' discs (Shape Mask)
+  float sd = 1e9;            // signed distance to the dents' discs (its mask)
   // (No continue in this loop: ANGLE / D3D11 can miscompile it.)
   for (int t = 0; t < count; t++) {
     int reg = t / per;
@@ -350,7 +350,7 @@ GenOut gen(vec2 p) {
       // The deepest point, moved off centre by Tilt (in radii; never closer than 4 px to the rim, so small dents don't
       // get one-pixel cliffs on their steep side).
       vec2 o = min(u_tilt * (0.4 + 0.3 * hr.w), clamp(1.0 - 4.0 / R, 0.0, 0.7)) * vec2(cos(TAU * hr.z), sin(TAU * hr.z));
-      // The Shape-mask disc: Shape mask size × the radius, moving from the dent's centre (1) to its deepest point (0).
+      // The mask's disc: Mask size × the radius, moving from the dent's centre (1) to its deepest point (0).
       float dDisc = (length(l - o * (1.0 - u_mask_r)) - u_mask_r) * R;
       if (q >= ext + 2.0 / R) {
         // Too far to touch this pixel: only the nearest such dent's random (for untouched metal) and its disc.

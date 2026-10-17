@@ -35,8 +35,9 @@ matching starts from, and stays within, what reads right.
    Colour grain (height off), Mottle, Crevice dirt, Edge wear, Water stains (Drips, Multiply), Moss in hollows into
    **paint**. Structural mutations now see both stacks (toggle, insert, remove).
 4. **Tied pattern params** (`patternTies` in `optimizer.ts`) — layers of one type that share a seed are copies of
-   one pattern doing different jobs (relief Pillow / Edges / Block heights plus a paint layer colouring each stone;
-   water stains, rust trails and blisters from the same sources; a relief noise and the paint that follows it). A
+   one pattern doing different jobs (water stains, rust trails and blisters from the same sources; a relief noise
+   and the paint that follows it; the stone walls' Pillow / Edges / Block heights / stone colour copies became Mask
+   area layers reading one Stones layer's Shape mask in FR8.23). A
    pattern param (the generator's own groups, offsets, domain warp) they hold equal becomes **one** entry, labelled
    "(+N linked)", written to every copy — tuning can no longer pull the copies apart. Params the copies already
    differ in (bevel, trail width) stay independent. Always on; it only needs the convention "same seed = same
@@ -44,8 +45,8 @@ matching starts from, and stays within, what reads right.
 5. **Templates rebuilt** (emulation, `src/match/templates.ts`) — the structural lessons became the templates
    themselves, so emulation starts from the recipes instead of hoping the search finds them:
    - **Masonry** (bricks, vertical bricks, blocks, new *rubble*, new *carved*) and **cobbles**: the dressed-stone
-     relief stack (flat Pillow → height blur ≈ ¼ block → Edges with the crisp custom curve → Voronoi-facet Chips,
-     Min, masked to the edge zone → Block heights `h_var` 1 → Lumps driving the glints → Pits), stone paint (dark
+     relief stack (one Stones layer writing the Shape mask, Mask area layers reading it: flat Pillow → height blur
+     ≈ ¼ block → Edges with the crisp custom curve → Voronoi-facet Chips, Min, masked to the edge zone → Block heights `h_var` 1 → Lumps driving the glints → Pits), stone paint (dark
      joints outside the stones, multi-hue noise and per-stone colour ordered by **hue** so stones differ in hue,
      moss in the hollows when the palette has a green, colour-only speckle, crevice dirt / edge wear), thin mortar,
      AO 1, specular tint 0.75. Whole-pattern domain warp instead of wobble; courses never taller than the stones are

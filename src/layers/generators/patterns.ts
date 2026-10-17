@@ -218,7 +218,7 @@ void pat_setBevelDist(float bd) {
   pat_bd = bd * u_bevel / max(sqrt(dot(n2, W * W)), 1e-4);
 }
 
-// The distance the wrapper draws: the layer's shape combined with the Shape Mask by the Mode (when ticked).
+// The distance the wrapper draws: the layer's shape combined with its mask by the Mode (when it writes one).
 float pat_drawnDist(float sdf) {
   return maskOp() > 0 ? sdfCombine(maskOp(), maskIn(ivec2(gl_FragCoord.xy)), sdf, u_mk_smooth) : sdf;
 }
@@ -1434,7 +1434,7 @@ GenOut gen(vec2 p) {
   if (u_fit_bevel && u_mode == 0) {
     // Fit the bevel: at most a third of this stripe's width (inside, the distance is stretched to match), on the
     // stripe grown by half of it — Height reads that as a profile of its own (genOutHeight, reaching past the
-    // coverage), while colour, coverage and the shape mask keep the stripe at its Width: the bevel's half height.
+    // coverage), while colour, coverage and the mask keep the stripe at its Width: the bevel's half height.
     float be = min(u_bevel, wn * period / 3.0);
     float dg = d - 0.5 * be;
     if (dg < 0.0) dg *= u_bevel / max(be, 1e-3);

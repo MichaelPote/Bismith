@@ -76,6 +76,16 @@ export function limitTo(spec: string | (string | LimitOp | '∪' | '∩' | '−'
   return limitParams({ terms, outside: opts.outside ?? false })
 }
 
+/**
+ * Params of a Mask area layer that draws a mask's own shape (Features › Inside; type 'surfacemask'): one pattern
+ * layer writes the layout, and layers like this give it more relief or colour — each feature with its own random —
+ * without copying it. Writes no mask; flat Edge unless given one; `layout` (the pattern layer's params) passes on its
+ * Anti-alias, so hard pixel edges stay hard.
+ */
+export function fromMask(mask: string = SHAPE_MASK, layout?: ParamValues): ParamValues {
+  return { select: 'features', area: 'inside', src_mask: mask, mk_target: '', bevel: 0, profile: 'flat', ...(layout && 'aa' in layout ? { aa: layout.aa } : {}) }
+}
+
 /** The expression as a short label: "Shape − Opening", "outside Moss ∪ Wet". */
 export function limitLabel(e: LimitExpr): string {
   const sym: Record<LimitOp, string> = { and: '∩', or: '∪', minus: '−' }

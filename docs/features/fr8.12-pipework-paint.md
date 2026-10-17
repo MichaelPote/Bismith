@@ -26,8 +26,8 @@ Pipe runs as true cylinders — the value is the surface height, so the lights s
   limited to half the adjoining lengths), collars (couplings at an even spacing, elbow ends, tees) and bolted
   flanges (two plates, a ridge of bolt heads) — copied across the edges when tiling, and packed into an RGBA8 texture
   (16-bit fixed point) through the generator data hook (FR8.10). The shader keeps the highest surface per pixel.
-- **Outputs**: Surface height (1 = 4 × the pipe radius), Coverage (writes the pipes' outline to the shape register,
-  so later layers clip to the pipes), Tubes only (the outline less the fittings — glass tubes, metal collars),
+- **Outputs**: Surface height (1 = 4 × the pipe radius), Coverage (writes the pipes' outline to its mask, Shape by
+  default, so later layers can be limited to the pipes), Tubes only (the outline less the fittings — glass tubes, metal collars),
   Fittings, Underside (0 on top → 1 underneath: rust, grime), Facing the light (across each pipe, 1 towards the
   top-left → 0 away, continuous around elbows: reflection bands), Liquid (1 below the run's liquid surface).
 - **Liquid settles under gravity** (`runLevel`): one level surface per run, set by its lowest horizontal length
@@ -38,15 +38,15 @@ Pipe runs as true cylinders — the value is the surface height, so the lights s
 - The craft rule capping relief at 2.5 (minimal relief) exempts pipework: its height is its shape.
 
 ## Glass filter (`layers/filters/glass.ts`)
-Glass over what is already painted, inside the shape register: the background sampled further out along the surface
-slope (from the height: magnified in the middle, squeezed at the rims), carried mostly as emission (transmitted light
+Glass over what is already painted, inside the Shape mask (or the mask it writes): the background sampled further out
+along the surface slope (from the height: magnified in the middle, squeezed at the rims), carried mostly as emission (transmitted light
 is not shaded by the glass surface), tinted more towards the rims (a longer path through the glass), Fresnel-darkened
 rims, an inner glint on the far side from the light, and low roughness / high specular for the highlights.
 
 ## Pipes lump
 Pipework in both stacks: true-scale relief (`RecipeContext.depth` = the project's heightDepth), per-pipe colour,
 weathering, grime underneath, and trails running down the wall from the pipes' lower edges (relief-driven drips,
-clipped outside the pipes). Switches cast shadows on.
+limited to outside the pipes). Switches cast shadows on.
 
 - **Finish**: rusty iron, painted (Colour; chips), copper (verdigris), galvanised steel, chrome, plastic (PVC) and
   glass. Each sets colours, roughness, specular and its weathering colour and roughness. **Shine** moves roughness and

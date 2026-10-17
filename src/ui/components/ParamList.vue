@@ -8,6 +8,7 @@ import type { Curve, Gradient, ParamDef, ParamValue, ParamValues } from '@/core/
 import NumberField from './NumberField.vue'
 import ColorField from './ColorField.vue'
 import SelectField from './SelectField.vue'
+import MaskField from './MaskField.vue'
 import CheckField from './CheckField.vue'
 import GradientField from './GradientField.vue'
 import CurveField from './CurveField.vue'
@@ -145,6 +146,15 @@ function tip(r: Row): Tip {
               @update:model-value="set(d.key, $event)"
               @commit="emit('commit')"
             />
+            <MaskField
+              v-else-if="d.type === 'text' && d.mask"
+              :model-value="String(value(d) ?? '')"
+              :choices="d.maskChoices ?? []"
+              :kind="d.mask"
+              :label="labelOf(d)"
+              @update:model-value="set(d.key, $event)"
+              @commit="emit('commit')"
+            />
             <NumberField
               v-else
               :model-value="Number(value(d))"
@@ -171,6 +181,10 @@ function tip(r: Row): Tip {
       <div v-else-if="r.def.type === 'curve'" class="row wide">
         <span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>
         <CurveField :model-value="value(r.def) as Curve" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
+      </div>
+      <div v-else-if="r.def.type === 'text' && r.def.mask" class="row">
+        <label v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
+        <MaskField :model-value="String(value(r.def) ?? '')" :choices="r.def.maskChoices ?? []" :kind="r.def.mask" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
       </div>
       <div v-else-if="r.def.type === 'text'" class="row wide">
         <span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>

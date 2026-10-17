@@ -17,7 +17,7 @@ chain-link fences).
 Motifs the generic layers cannot express: tumbling blocks, herringbone, interlocking crosses, octagons, Cairo
 pentagons…, diamond plate, woven strands / lattices / chain-link, and tech-wall bands (Z steps,
 zig-zags, trapezoid panels). All are SDF generators (distance in px, negative inside) so the common shape params
-(bevel, profile, register combine, aa) work, all tile seamlessly, and all carry a per-feature `rnd`.
+(bevel, profile, mask combine, aa) work, all tile seamlessly, and all carry a per-feature `rnd`.
 
 ## Plan
 - One shared GLSL toolkit (`geo_*`):
@@ -56,7 +56,8 @@ zig-zags, trapezoid panels). All are SDF generators (distance in px, negative in
 
 ## Layer reference
 
-Common to all four: the shape params (`sdf_op`, `bevel`, `profile`, `aa`), shaping, mask and channel outputs.
+Common to all four: the shape params (`bevel`, `profile`, `aa`), shaping, the Mask card (*Write to*, `mk_op`; *Limit
+to*) and channel outputs.
 `orient` = 0°…315° in 45° steps (bands: Horizontal / Vertical / flipped and the four diagonals). `rnd_mode`: per feature / per kind
 (`(kind + .5) / kinds`) / kind + random (`(kind + .15 + .7·hash) / kinds`).
 
@@ -82,7 +83,7 @@ Common to all four: the shape params (`sdf_op`, `bevel`, `profile`, `aa`), shapi
 | `cut` | 0.293 | octagon corner cut (0.293 = regular) |
 | `inner` | 0.33 | pinwheel centre square |
 | `cairo` | 0.274 | Cairo segment half-length (0 = 45° squares, 0.274 = equal-sided) |
-| `block_j` | 0 | rhombille: joints inside a block as a share of the gap (the faces' edges at the block centre are pushed out by (1 − j) × gap/2 before the inset). Below 1 a block is one unit: one id for missing / hand-laid / tilt / crown / tone, one Per-feature variation (applied in `hval`, `feat` 0, when Height reads Pattern). At 0 (and every kind drawn) the block is one hexagon: no seam in its coverage, bevel or shape mask; the face comes from the pixel's place (top above both upper edges, then left / right), its colour blending into the face across over ±½ px |
+| `block_j` | 0 | rhombille: joints inside a block as a share of the gap (the faces' edges at the block centre are pushed out by (1 − j) × gap/2 before the inset). Below 1 a block is one unit: one id for missing / hand-laid / tilt / crown / tone, one Per-feature variation (applied in `hval`, `feat` 0, when Height reads Pattern). At 0 (and every kind drawn) the block is one hexagon: no seam in its coverage, bevel or mask; the face comes from the pixel's place (top above both upper edges, then left / right), its colour blending into the face across over ±½ px |
 | `crease` | 0.25 | solid blocks (block_j 0): the edges between the faces dip by this share of the height over the Bevel width (Height › Pattern, × (1 − c · (1 − bevel(distance to the nearest face edge))) — 0 = a sharp arris, 1 = down to the joint |
 | `block_iso` | 0.5 | rhombille: the side faces slope from the edge they share with the top (β = 0) to the bottom corner (β = \|x\| − 3y = 1), down by 0.5 × this (the bottom rim stays lit) and meet in a ridge — raised boxes with convex arrises |
 | `soft` | 1.5 px | Tones: blur. Every tile within half of it weighs in with its tone (smoothstep ramps; a 1 px linear ramp at 0 for anti-aliasing, a step without `aa`). Rectangles (squares, bricks, pinwheel) blur as a product of 1D ramps across their box, mixed towards the distance ramp as the rounding passes half the blur — the separable blur of a grid, so four squares' corners stay crossed and the weights sum to 1. Other tiles use their distance; where weights overlap (> 1) they share out. Rhombille, triangles and Cairo try their neighbourhood (18 hexes / 3×3 triangles of each kind / 3×3 Cairo anchors per kind), not only the tile found directly, so the blur sees the tile across each edge |
@@ -93,7 +94,7 @@ Common to all four: the shape params (`sdf_op`, `bevel`, `profile`, `aa`), shapi
 | `tilt` | 0.5 | Height: a random lean per tile over its box, low side down by ≤ 0.75 × tilt of its own height (never into the joint) |
 | `crown`, `crown_shape` | 0.3, 0.3 | Height: dome = 1 − 0.75 · crown · r^k, r = box-normalised radius, k = 2 … 10 by the shape (round dome → flat top with a shoulder) |
 | `missing` | 0 | share of tiles left out at random (seeded): holes in a floor, scattered inlays. In the modes that test only the tile under the pixel (rhombille, triangles, Cairo, basketweave's block) a hole's distance is "far outside" rather than the distance to its neighbours |
-| `only`, `only_inv` | all, off | draw one kind of tile (Kind 1…5 = class 0…4, the kinds below), or every tile but that kind: the small squares of octagon + square, pinwheel rectangles without their centres… so a kind gets its own layer (shape mask, bevel, material) |
+| `only`, `only_inv` | all, off | draw one kind of tile (Kind 1…5 = class 0…4, the kinds below), or every tile but that kind: the small squares of octagon + square, pinwheel rectangles without their centres… so a kind gets its own layer (mask, bevel, material) |
 | `rnd_mode` | kind + random | kinds: squares/diamonds parity, cube faces top/left/right, H/V bricks, cross sub-lattice, 5 plus classes, octagon/square, up/down triangles, big/small squares, pinwheel H/V/centre, 4 Cairo orientations |
 | `kind_w` | 1, linked to the tiling | Kind contrast (kind + random): rnd = mix(.5, (kind + .5)/kinds, w) + (2h − 1) · mix(.3, .35/kinds, w) — 1 keeps each kind in its own band; lower, the bands slide to the middle and widen. Linked default: blocks 1, octagon / argyle 0.8, hopscotch 0.6, pinwheel 0.5, crosses / plus / Cairo 0.4, herringbone / basketweave 0.35, triangles 0.3, squares 0. |
 
@@ -130,8 +131,8 @@ diagonal); stud checker, width 0.45; teardrop checker · 45° · 0.85 · 0.32; d
 Code-built layers that set these keep theirs (the tech recipe sets only style and counts, so each tread style gets its
 own look).
 
-While the layer draws its own shape (Shape mask off or Normal) it paints its own value (`genOutShaded` with its own
-coverage and a constant bevel factor, divided out), so Bevel aspect is not applied; the combine modes fall back to the
+While the layer draws its own shape (writing no mask, or in Normal mode) it paints its own value (`genOutShaded` with
+its own coverage and a constant bevel factor, divided out), so Bevel aspect is not applied; the combine modes fall back to the
 plain bevel of the combined shape. Defaults: height add 0.4 with per-lug variation 0.06 (rolled plate: nearly level),
 round bevel 1.5 px, diffuse 60 % by value (steel ramp) with jitter 0.12, the micro jitters above (so seeds differ), and
 roughness 0.55 → 0.25 / specular 0.2 → 0.7 by the value, so the spines glint (a layer added in the editor keeps those
@@ -157,8 +158,8 @@ sources at Pattern rather than the registry's Shape).
 | `stud_dome` | 1 | Stud dome: 0 flat head with the Bevel at its rim, 1 domed all over |
 | `rnd_mode` | per strand | per float · 0.25 / 0.75 for horizontal / vertical strands · direction + random · per strand (one value along a strand's whole length; Height's per-feature variation then varies whole strands) |
 
-While the layer draws its own shape (Shape mask off or Normal) it paints its own relief (`genOutShaded`, its own
-coverage), so Bevel aspect is not applied; the combine modes fall back to the plain bevel of the combined shape.
+While the layer draws its own shape (writing no mask, or in Normal mode) it paints its own relief (`genOutShaded`, its
+own coverage), so Bevel aspect is not applied; the combine modes fall back to the plain bevel of the combined shape.
 Under-run slivers shorter than 2 px are left out (they aliased into hairlines).
 
 Defaults: height add 0.5 with per-strand variation 0.15, round bevel 3 px, diffuse by value (darker dives and flanks,
@@ -230,7 +231,7 @@ Checked on a contact sheet (ref | render, palette Quake, ACES).
   px when width and margins are whole.
 - **Distance quality.** Inside distances are exact (bevels are true). Several modes evaluate only the tile that
   contains the pixel (rhombille hex, basketweave block, triangles, Cairo); the zero set is exact, but outside
-  distances near acute corners may be overestimated up to ~2× (affects only AA / register ops in the grout).
+  distances near acute corners may be overestimated up to ~2× (affects only AA / mask ops in the grout).
 - **Weave height.** Floats are separate SDF shapes; the over/under read comes from the value painted along the
   float (`arch`), not from a separate height field, so `profile`/`bevel` still drive the cross-section. The search runs
   as one flat loop over 12 candidates (2 directions × 3 strands × the float here or either side) with a uniform
@@ -255,7 +256,7 @@ Checked on a contact sheet (ref | render, palette Quake, ACES).
   has one call site in a uniform-bounded loop: cold D3D11 compile 1.96 s → 1.3 s (1.0 s before Z pieces were fitted to their neighbours; each Z piece takes six
   steps of the flat loop — three draw it and its neighbours from one hash chain each, three are its segments).
 - **Carved cracks and worn tiles by stacking** (used for a set of hand-painted floor recreations; no extra generator
-  code). The Tiles generator's own SDF combines with the shape mask, so a crack network can be *carved* into the tiles:
+  code). The Tiles generator's own SDF combines with the mask it writes, so a crack network can be *carved* into the tiles:
   the Cracks generator writes its shards to the mask; a Tiles copy with *Missing tiles* = the cracked share is unioned
   in (the whole tiles); optionally a second copy pushed off-centre by a large *Hand-laid shift* (which also shrinks it
   inside its footprint) is smooth-unioned in as each partly cracked tile's crack-free core, leaving cracks in a band
@@ -264,10 +265,10 @@ Checked on a contact sheet (ref | render, palette Quake, ACES).
   to one kind. Shards take the main layer's (thin) bevel; a flat-height `max` floor over the tile footprint (a mask
   from a hidden copy) keeps the cracks a shallow V, and a wider outer bevel is multiplied in afterwards from an
   uncracked copy (`h_mode` multiply). A copy restored into the mask before Chips keeps chips on the outline. Crack
-  floors are painted by a Tiles copy clipped outside the shape within the footprint mask (each tile's own colour),
-  shaded darker. Per-kind passes (rims, specks) use the Tones output of a hidden copy as a named mask (the checker
+  floors are painted by a Tiles copy limited to the footprint mask − Shape (each tile's own colour),
+  shaded darker. Per-kind passes (rims, specks) use the Tones output of a hidden copy as a mask of their own (the checker
   parity). Rims are a Tiles copy's bevel value (`dif_src` value) cut into a band by its ramp and multiplied in.
-  Tile edges with bevelled chips: put the plain outline in the shape mask, then draw the relief with Chips' *Chipped
+  Tile edges with bevelled chips: put the plain outline in the Shape mask, then draw the relief with Chips' *Chipped
   shape* output (its bevel and profile apply to the chipped outline, so each flake is bevelled like the edge); shaping
   levels on that pass reshape the bevel (High 0.4: full height in 40 % of the bevel width — a crisp edge; a second,
   crisp pass masked to one kind gives dark tiles a hard edge while light ones keep a soft roll). Per-tile height and

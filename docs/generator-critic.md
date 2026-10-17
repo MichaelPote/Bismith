@@ -78,8 +78,8 @@ via a colour ramp, Height, Roughness, Specular, Emissive); surface grain, dirt a
 *other* layers stacked on it (noise, scratches, mottle…), so don't demand that every generator paints everything —
 judge whether it does its own job well and is a good building block. Every shape-type layer also has **shared
 controls** (listed at the end of the .md with their values): Edge (Bevel width and Profile, Bevel aspect, anti-alias),
-the **Shape mask** (the running shape the layer writes, which later layers clip to or bevel from — layers that add or
-remove material should be able to write it), Domain warp, and per channel e.g. Height › Amount, Mode and *Per-feature
+the **Mask** (*Write to*: the mask the layer writes, Shape by default, which later layers are limited to or bevel
+from — layers that add or remove material should be able to write it; *Limit to*), Domain warp, and per channel e.g. Height › Amount, Mode and *Per-feature
 variation* (h_var: random height per brick/cell), Diffuse › Random jitter. Count those when you judge what the user
 can do, but do criticise poor *defaults* of them (e.g. a bevel too thin to read at this size).
 

@@ -2,7 +2,7 @@
 // crack network whose cracks vary in width and flare into wedges at the junctions, with a finer, partial second
 // generation of cracks (branches tapering off the main ones, or a faint hairline network) and patches shattered into
 // shards. It has a combined output (plate value × its own bevel, the cracks sunk by their width; the plate outline
-// goes to the shape mask, genOutOwn) and an SDF output for the register. Plates can dome, curl and tilt in Height
+// goes to its mask, genOutOwn) and an SDF output for the mask. Plates can dome, curl and tilt in Height
 // (GenOut.hval), sink round wide cracks (halo) and carry a fine roughness.
 
 import { P } from '@/core/params'
@@ -24,7 +24,7 @@ export const cracksLayer: LayerDef = {
     P.enum('output', 'Output', 'plates', [
       ['plates', 'Plates (bevel × coverage)'],
       ['shape', 'Plate shapes (SDF)'],
-    ], { hint: 'Plates: value 1 on the plates with the Shape bevel at their edges, 0 in the cracks (the cracks still paint: the low end of the ramps); the plate outline goes to the shape mask. Shape: the outline of the plates only — the cracks show what is below' }),
+    ], { hint: 'Plates: value 1 on the plates with the Shape bevel at their edges, 0 in the cracks (the cracks still paint: the low end of the ramps); the plate outline goes to the mask it writes. Shape: the outline of the plates only — the cracks show what is below' }),
     P.float('scale', 'Scale', 5, 0.5, 256, { softMax: 32, step: 0.01, hint: 'Main plates across the texture width (rounded when tiling)' }),
     P.float('jitter', 'Jitter', 0.9, 0, 1, { step: 0.001, hint: 'How irregular the plates are: 0 a square grid, 1 fully random' }),
     P.float('size_var', 'Size variation', 0.5, 0, 2, { softMax: 1, step: 0.001, hint: 'Main plates of different sizes (weights of the cells: above 1 small plates get squeezed out between big ones)' }),
@@ -47,7 +47,7 @@ export const cracksLayer: LayerDef = {
     P.float('sub_tone', 'Fine darkness', 1, 0, 1, { step: 0.001, section: 'Fine cracks', showIf: (p) => fineOn(p) && p.sub_shape !== true, hint: 'Colour only: how dark the fine cracks draw — low values leave a faint grey hairline network' }),
     P.float('sub_depth', 'Fine depth', 0.55, 0, 1, { step: 0.001, section: 'Fine cracks', showIf: (p) => fineOn(p) && p.sub_shape !== true, hint: 'Height only: how deep the fine cracks are, a share of the main cracks\' depth — shallower grooves with the bevel\'s rounded shoulders, fading out along with the taper. Colour still draws them dark' }),
     P.bool('sub_connect', 'Connected only', true, { section: 'Fine cracks', showIf: fineOn, hint: 'Drop fine cracks that touch neither a main crack nor another fine crack (floating strokes), and let a fine crack that ends inside a plate run out to a point there rather than stop bluntly' }),
-    P.bool('sub_shape', 'Fine cracks in the shape', false, { section: 'Fine cracks', showIf: fineOn, hint: 'On: the fine cracks cut the plates like the main ones — full depth, in the shape mask and the Shape output. Off: they are grooves of their own depth on the plates; the shape mask holds the main network' }),
+    P.bool('sub_shape', 'Fine cracks in the shape', false, { section: 'Fine cracks', showIf: fineOn, hint: 'On: the fine cracks cut the plates like the main ones — full depth, in the mask and the Shape output. Off: they are grooves of their own depth on the plates; the mask holds the main network' }),
     P.bool('sub_cross', 'Cross main cracks', false, { section: 'Fine cracks', showIf: fineOn, hint: 'On: one fine network over the whole texture, its cracks running straight across the main ones. Off: each plate cracks on its own, so fine cracks end at the main cracks (T-junctions), as cracks in drying mud do' }),
     P.bool('sub_vary', 'Fine plates vary', false, { section: 'Fine cracks', showIf: fineOn, hint: 'Each fine plate gets its own random (colour jitter, per-feature height), not just each main plate. Where a fine crack is missing the change shows without a crack, so it suits Fine cracks near 1' }),
     P.float('shatter', 'Shattered', 0, 0, 1, { step: 0.001, section: 'Shatter', hint: 'Share of the fine plates (or of the cells they would make, with Fine cracks at 0) broken up into small shards by a mesh of dark cracks, outlined by a crack: patches of crazing between the whole plates' }),
@@ -550,7 +550,7 @@ GenOut gen(vec2 p) {
   float k = mix(1.0, clamp(0.1 + 0.9 * hw.z / max(u_width, 1e-3), 0.0, 1.0), u_depth_var);
   // The plates' own Shape bevel (0 in the cracks and at their edges, rising to 1 over the bevel), the cracks sunk by k.
   // Painted here (genOutOwn) rather than by the wrapper, which would take every crack to the bottom; the outline still
-  // goes to the shape mask.
+  // goes to the mask.
   float e = 1.0 - k * (1.0 - org_edgeProfile(sdf) * coverage(sdf, u_aa));
   // Plates: value 1 (colour) less the fine cracks and the halo, a little darker where the dome falls away; the plate
   // surface less the fine grooves in Height; both × the bevel.

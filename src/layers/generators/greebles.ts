@@ -55,7 +55,7 @@ export const greeblesLayer: LayerDef = {
       ['beams', 'Beams (shape)'],
     ], { hint: 'Relief composes every element into one height value (uses the Edge bevel). The shape outputs give one element class as a shape — stack copies with the same seed for separate materials' }),
     P.enum('mask', 'Shape for the mask', 'plates', [
-      ['none', 'None', 'the relief leaves the shape mask as it was'],
+      ['none', 'None', 'the relief leaves its mask as it was'],
       ['plates', 'Plate tops', 'the panels less everything sunk into them: slots, holes, recesses, light housings, groove lines and recessed centres'],
       ['panels', 'Panels', 'the whole panels: only the seams left out'],
       ['seams', 'Seams', 'the gaps between the panels'],
@@ -66,7 +66,7 @@ export const greeblesLayer: LayerDef = {
       ['beams', 'Beams'],
     ], {
       showIf: isRelief,
-      hint: 'What the relief hands to the shape mask (Mask card › Use shape mask), for later layers to clip to (grime in the seams, paint on the plates only, glow in the lenses) or chip and bevel from — no second Greebles layer needed',
+      hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (grime in the seams, paint on the plates only, glow in the lenses) or chip and bevel from — no second Greebles layer needed',
     }),
     P.enum('root', 'Layout', 'pinwheel', [
       ['tile', 'Whole tile', 'the tile is the first panel, cut in two (or as a pinwheel, by Pinwheel splits); its border is a seam (Offset moves it)'],

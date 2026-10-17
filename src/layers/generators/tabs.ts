@@ -1,13 +1,13 @@
 // Tabs & notches (FR8.8): small greeble details with diagonal cuts — the clip notches on a grate frame,
-// chevrons, bow-tie bridges, diagonal slits, chamfered plates, scallops — placed along the edges of the shape mask (the
+// chevrons, bow-tie bridges, diagonal slits, chamfered plates, scallops — placed along the edges of its mask (the
 // panels, planks or plates below), along the texture's edges, on a grid or scattered. A crisp SDF shape (value 1
 // inside), meant for small relief (a lit 1–2 px chamfer) and colour.
 //
 // Local frame per element: u along its edge (centred), v inward from the edge (≥ 0 inside). Grid and scatter elements
 // use the same frame centred on their cell.
 //
-// Along the shape mask: each pixel takes the nearest edge of the shape mask (its distance and normal from the
-// register), follows that edge both ways to where it stops being straight (a corner, a gap, the texture's border) and
+// Along the mask: each pixel takes the nearest edge of the mask (its distance and normal from
+// maskIn()), follows that edge both ways to where it stops being straight (a corner, a gap, the texture's border) and
 // spreads the side's elements evenly over it — as many as asked for, fewer where the side is too short for them to
 // clear its corners. Exact distances read ~0 all along a straight side, so a tight threshold finds its ends; curved
 // edges never stay straight long enough to hold an element.
@@ -37,7 +37,7 @@ export const tabsLayer: LayerDef = {
   sdf: true,
   // Along the mask's edges: it reads the mask before it (the one it writes, or Shape).
   readsMask: true,
-  description: 'Small details with diagonal cuts — trapezoid tabs, notches, chevrons, bow-ties, slits, chamfered plates, scallops — along the edges of the shape mask or the texture, on a grid or scattered.',
+  description: 'Small details with diagonal cuts — trapezoid tabs, notches, chevrons, bow-ties, slits, chamfered plates, scallops — along the edges of a mask (the Shape mask by default) or the texture, on a grid or scattered.',
   params: [
     P.enum('shape', 'Shape', 'trapezoid', [
       ['trapezoid', 'Trapezoid tab (45° sides)', 'full length at the edge, sides cut inward at the Diagonal cut slope (negative: a dovetail)'],
@@ -52,13 +52,13 @@ export const tabsLayer: LayerDef = {
       ['border', 'Along the texture edges'],
       ['grid', 'Grid'],
       ['scatter', 'Scattered'],
-      ['shape', 'Along the shape mask’s edges', 'every straight side of the shape mask below (panels, planks, plates) gets its own evenly spread elements; with nothing in the shape mask, the texture’s edges'],
+      ['shape', 'Along the mask’s edges', 'every straight side of the mask below — the one this layer writes, or Shape (panels, planks, plates) — gets its own evenly spread elements; with nothing in it, the texture’s edges'],
     ]),
     P.enum('side', 'Side', 'in', [['in', 'Into the shape'], ['out', 'Out of the shape']], {
       showIf: (p) => p.place === 'shape',
       hint: 'Into the shape: notches and tabs cut in from its edges. Out of the shape: they stick out from its edges into the gaps',
     }),
-    P.enum('edges', 'Edges', 'all', EDGES, { showIf: onEdges, hint: 'Which edges get elements — along the shape mask, its sides by the way they face' }),
+    P.enum('edges', 'Edges', 'all', EDGES, { showIf: onEdges, hint: 'Which edges get elements — along the mask, its sides by the way they face' }),
     P.enum('distribute', 'Spread', 'spacing', [['count', 'Count per edge'], ['spacing', 'Spacing']], {
       showIf: onEdges,
       hint: 'Count per edge: the same number on every edge. Spacing: about one every Spacing px, so long sides get more than short ones',
@@ -66,7 +66,7 @@ export const tabsLayer: LayerDef = {
     P.int('count', 'Count', 3, 1, 256, {
       softMax: 24,
       showIf: (p) => !onEdges(p) || p.distribute !== 'spacing',
-      hint: 'Per edge (along the edges; sides of the shape mask too short for that many get fewer) or across (grid / scatter)',
+      hint: 'Per edge (along the edges; sides of the mask too short for that many get fewer) or across (grid / scatter)',
     }),
     P.float('spacing', 'Spacing', 64, 1, 8192, {
       softMax: 256,
@@ -137,7 +137,7 @@ export const tabsLayer: LayerDef = {
   },
   glsl: /* glsl */ `
 const float TB_R2 = 0.70710678;
-// |shape mask| under this is on an edge: exact distances read ~0 all along a straight side.
+// |mask| under this is on an edge: exact distances read ~0 all along a straight side.
 const float TB_EPS = 0.02;
 // 1, read from a uniform: loops bounded by it are not unrolled by D3D.
 #define TB_1 (uRes.x > 0.0 ? 1 : 0)
@@ -210,7 +210,7 @@ bool tb_edgeOn(int e) {
 GenOut gen(vec2 p) {
   int place = u_place;
 
-  // ---- Along the shape mask: this pixel's element frame (u along, v in) from the nearest straight side.
+  // ---- Along the mask: this pixel's element frame (u along, v in) from the nearest straight side.
   vec2 sQ = vec2(0.0);
   float sRnd = 0.5, sPar = 0.0, sFb = 1.0;
   ivec2 sKey = ivec2(0);
@@ -220,7 +220,7 @@ GenOut gen(vec2 p) {
     vec2 fc = gl_FragCoord.xy;
     float d0 = maskIn(ic);
     vec2 g = 0.5 * vec2(maskIn(ic + ivec2(1, 0)) - maskIn(ic - ivec2(1, 0)), maskIn(ic + ivec2(0, 1)) - maskIn(ic - ivec2(0, 1)));
-    if (d0 > 5e3) place = 0;  // nothing in the shape mask: the texture is the shape, its edges the edges
+    if (d0 > 5e3) place = 0;  // nothing in the mask: the texture is the shape, its edges the edges
     else {
       // The wrapper's offset and domain warp, carried into the frame (the elements move and wobble, the sides stay).
       vec2 dl = p - fc;
@@ -294,7 +294,7 @@ GenOut gen(vec2 p) {
     }
   }
 
-  // ---- One element per candidate: the four texture edges, the cells that can reach the pixel, or the shape mask's
+  // ---- One element per candidate: the four texture edges, the cells that can reach the pixel, or the mask's
   // side. Cells: a grid centred on the texture, shifted by Offset, its step growing with Column / Row spacing (on the
   // grid; scatter keeps its cells), with copies round the torus when tiling (repGrid) — at least the neighbours
   // either side, more for elements larger than their step.
@@ -366,7 +366,7 @@ GenOut gen(vec2 p) {
     float d = skip ? 1e4 : tb_shape(qs) * sc;
     if (d < best) { best = d; brnd = rnd; }
   }
-  // Away from every element: a lower bound on the distance (the shape mask must not read 'nothing written').
+  // Away from every element: a lower bound on the distance (the mask must not read 'nothing written').
   if (u_place == 3 && place == 3 && !sOk) best = sFb;
   return genOut(1.0, 1.0, brnd, min(best, 4e3));
 }

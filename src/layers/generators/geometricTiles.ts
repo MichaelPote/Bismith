@@ -261,7 +261,7 @@ export const tilesLayer: LayerDef = {
       showIf: (p) => !isValue(p) && Number(p.crown) > 0,
       hint: '0 = a round dome over the whole tile; 1 = a flat top with a firm shoulder near the edge (cushioned setts)',
     }),
-    P.float('missing', 'Missing tiles', 0, 0, 1, { step: 0.001, section: 'Per tile', hint: 'Share of tiles left out at random (the seed picks which): gaps in a floor, scattered inlays. Their place is outside the shape (shape mask, Clip to outside); in Tones, the Joint tone' }),
+    P.float('missing', 'Missing tiles', 0, 0, 1, { step: 0.001, section: 'Per tile', hint: 'Share of tiles left out at random (the seed picks which): gaps in a floor, scattered inlays. Their place is outside the shape (its mask: Limit to, Outside); in Tones, the Joint tone' }),
     P.enum('only', 'Tiles drawn', 'all', TILE_KINDS, { section: 'Per tile', hint: KIND_HINT }),
     P.bool('only_inv', 'All but that kind', false, { section: 'Per tile', showIf: (p) => (p.only ?? 'all') !== 'all', hint: 'Draw every tile except that kind (pinwheel rectangles without their centre squares, two faces of each block…)' }),
     { ...rndModeParam(['Per tile', 'Per tile kind', 'Tile kind + random'], `${KIND_HINT}. Use with Diffuse source = random`), section: 'Per tile' },
@@ -801,7 +801,7 @@ GenOut gen(vec2 p) {
   if (val) return genOut(wSum > 1.0 ? vSum / wSum : vSum + (1.0 - wSum) * u_joint_tone, 1.0, rnd, NO_SDF);
 
   // Tilt, crown, block relief and crease: Height › Pattern reads the bevel (of the shape as drawn — combined with the
-  // shape mask as the wrapper does) × a lean along a random direction × a dome over the tile's box × the block's
+  // mask as the wrapper does) × a lean along a random direction × a dome over the tile's box × the block's
   // sloped sides × the crease between a solid block's faces (Crease depth of its height, over the bevel). Lean, crown
   // and relief never take a tile below a quarter of its height, so every edge keeps its bevel. A solid block's faces
   // share one Per-feature variation, applied here (the wrapper's would hash each face's own random).

@@ -136,7 +136,7 @@ Layer {
 }
 ```
 
-Generator layers carry the common params (SDF operator + bevel, shaping, mask, and one group per channel
+Generator layers carry the common params (bevel, shaping, mask — Write to, Limit to — and one group per channel
 output) flat in `params`, next to the type's own params, with prefixes (`sdf_*`, `sh_*`, `m_*`, `dif_*`, `op_*`,
 `h_*`, `r_*`, `s_*`, `e_*`; see `src/layers/commonParams.ts`). Keeping everything in one `ParamDef`-described record
 means the properties panel, the uniform upload and the optimiser all treat outputs exactly like any other
@@ -153,7 +153,10 @@ LayerDef {
   params: ParamDef[],            // drives both the UI and the uniforms
   glsl?: string,                 // generator: defines `GenOut gen(vec2 p)`
   sdf?: boolean | 'mask',        // generator produces a signed distance (shapes, bricks, voronoi); 'mask': for the
-                                 //   Shape Mask only, the generator shapes its own value and coverage (Drips' blisters)
+                                 //   mask it writes only, the generator shapes its own value and coverage (Drips' blisters)
+  maskWrite?: (params) => 'shape' | 'coverage' | false, // what it writes into its mask (masks.ts, FR8.23)
+  readsMask?: boolean,           // reads maskIn() in its shader (Chips, Tabs, Glass)
+  maskSource?: (params) => string | null, // the mask it reads as its source (edge filters, Mask area)
   prepare?: (ctx, layer) => textures, // generator: GPU pre-passes over the current state (e.g. a jump-flood field)
   linkedDefaults?: (params) => params, // defaults that follow other params (Drips: Height on for Sources); a value
                                  //   still at its old default moves with them, one set by hand stays
@@ -161,7 +164,7 @@ LayerDef {
   defaults?: Partial<LayerOutputs>
 }
 ParamDef { key, label, type: float|int|bool|color|enum|seed|gradient|curve|text, default, min, max, softMin, softMax,
-           step, unit, options, group, showIf, optimize, hint }
+           step, unit, options, group, showIf, optimize, hint, mask }   // mask: 'read' | 'write' — a mask-name field
 ```
 
 `ParamDef`s are the single source of truth: the properties panel renders controls from them, the material
@@ -172,7 +175,7 @@ pipeline uploads them as uniforms named `u_<key>` (enum → option index, colour
 
 ### 5.2 Generators
 
-A generator's GLSL returns `GenOut { float value; float mask; float rnd; float sdf; }`:
+A generator's GLSL returns `GenOut { float value; float mask; float rnd; float sdf; … }`:
 
 - `value` — the pattern value `0..1` (noise value, or a bevel profile for SDF shapes).
 - `mask` — coverage `0..1` (anti-aliased inside-ness for shapes; `1` for noise).
@@ -182,9 +185,11 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
   (× amount) instead of the value, wherever it is non-zero — not limited by the coverage, so it can rise past what the
   other outputs paint and sink below the surface (Drips' blisters: a lifted lip outside the hole, the hole below).
 - `own` — how an SDF generator's value relates to its shape: 0 the wrapper draws the shape (value = bevel profile,
-  coverage = inside); 1 (`genOutOwn`) the generator painted its own value and coverage and `sdf` only goes to the shape
-  register and named masks (Chips & splits' carve); 2 (`genOutShaded`) the generator's pattern × the bevel of the
-  combined shape, its own coverage (Wood's grain on its planks).
+  coverage = inside); 1 (`genOutOwn`) the generator painted its own value and coverage and `sdf` only goes to the mask
+  it writes (Chips & splits' carve); 2 (`genOutShaded`) the generator's pattern × the bevel of the combined shape, its
+  own coverage (Wood's grain on its planks).
+- `fid` — the feature's own random, which the mask it writes records (FR8.23): `rnd` may be tinted for colour and
+  `feat` zeroed where a generator varies heights itself. `genOut*` set it from `rnd`; `genOutSmooth` −1 (no features).
 - `bdist` — optional: the distance the bevel is measured in with Bevel aspect applied (Wood: its boxes in a vertically
   stretched space, so bevels of different widths meet in a clean mitre). Otherwise the aspect comes from the direction
   of the shape's distance gradient.
@@ -193,10 +198,11 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
 
 The common generator wrapper then:
 
-1. **SDF combine.** SDF generators combine their distance with the **shape register** (see 5.4) using an SDF
-   operator: `new | union | subtract | intersect | smooth union | smooth subtract | smooth intersect`, and write the
-   result back. Coverage and bevel profile are computed from the *combined* distance, so a rect unioned with a
-   circle bevels as one shape.
+1. **Mask write.** A layer writes one **mask** by name (Mask › *Write to*, `mk_target`; shape layers default to the
+   *Shape* mask, see 5.4). A shape layer combines its distance with what the mask held by its Mode (`mk_op`: `normal |
+   union | subtract | intersect | smooth union | smooth subtract | smooth intersect`); coverage and bevel profile are
+   computed from the *combined* distance, so a rect unioned with a circle bevels as one shape. Other layers write
+   their coverage. Masks follow the stack: only the layers after a writer see what it wrote.
 2. **Profile.** For SDF generators `value = profile(insideDistance / bevelWidth)` with profiles
    `flat | linear | smooth | round | cove | ridge | steps | custom` — *custom* is an editable curve
    (`bevel_curve`: up to 8 points that may rise and fall — rims, dishes; Fritsch–Carlson tangents, so it never
@@ -211,8 +217,9 @@ The common generator wrapper then:
    GLSL): a cross-section through one feature — outside, the bevel's rise, full, the fall, outside (a plain
    0 → 1 → 0 sweep on layers without a shape) — with the dashed unshaped value behind it. With Height on, Height ›
    Amount and Offset are mirrored under the graph (the same params), so the curve's strength is set beside it.
-4. **Mask.** Multiply coverage by: inside/outside the shape register (clip), and/or a soft height range of the
-   current surface (`above | below level`). This is how dirt collects only in crevices.
+4. **Limit.** Multiply coverage by its *Limit to* — up to four masks by name with ∪ ∩ −, and Outside (`lim_*`),
+   intersected with its material's limit — and/or a soft height range of the current surface (`above | below level`).
+   This is how dirt collects only in crevices.
 5. **Channel outputs.** Each enabled output maps the value into a channel and blends it in, weighted by
    `mask × opacity`:
 
@@ -234,10 +241,10 @@ Diffuse blending is done in sRGB space (like a paint program); results are store
 
 Beyond the procedural families, three generators take hand-authored input (FR7.5): **Stamp** (a pixel bitmap typed
 as rows of characters — insignia, emblems), **Label** (pixel-font lettering) and **Path** (polygons from a vertex
-list — chamfered cut-outs, channels, inlays), all as SDFs so bevels and the shape register apply; and **Cable**
+list — chamfered cut-outs, channels, inlays), all as SDFs so bevels and masks apply; and **Cable**
 draws tubes wound on a helix (coils, twisted rope mouldings). **Drips** (FR7.7) runs stains down from scattered
 sources (or outputs the sources as blisters); **Hammered** lays dish dents on concentric rings around a few centres
-whose regions interlock along arcs. **Chips & splits** (FR8.17) damages whatever is in the shape register: chips off its
+whose regions interlock along arcs. **Chips & splits** (FR8.17) damages whatever is in its mask (the Shape mask): chips off its
 edges and corners, splits along the grain from the edges that cross it (merging where they meet), nicks across it. **Rock**
 (FR8.18) builds natural rock faces from blocks in strata on a sheared lattice — each block a mesa with its own height,
 tilt and draped scarps, finer facets, joints, folds — with outputs for the relief and for paint (scarps, crevices, rain
@@ -245,7 +252,9 @@ streaks). **Grass** (FR8.21) strews tapered blades that bend, curl and waver, in
 the tips and dark among the roots, with tufts, bare patches and two kinds of blade on one ramp. **Stone blocks**
 (FR8.22) lays a wall of rock-faced ashlar — courses of varying height, blocks split into slabs and short pieces, some
 running through two courses — each face pitched with flake scars struck in from its edges, with outputs for the
-relief and for paint (joints, scars, open gaps).
+relief and for paint (joints, scars, open gaps). **Mask area** (FR8.23) only selects: from the surface so far
+(crevices, high spots, slopes, slopes facing a direction, a height range) or from a mask's features (inside each one
+with its own random, a gradient across each, a band at one side), with noise Breakup — to write a mask or paint.
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
@@ -261,24 +270,30 @@ main thread where the browser has `KHR_parallel_shader_compile`, otherwise with 
 ### 5.3 Filters
 
 Filters read the current channels and rewrite them. They own a `run()` that may issue several passes:
-blur (separable Gaussian), bevel and etch (jump-flood distance field, or the exact shape register),
+blur (separable Gaussian), bevel and etch (jump-flood distance field, or a mask's exact distance),
 cavity / edge wear (curvature = height − blur(height)), warp (noise displacement), adjustments
 (levels, HSV, height-from-diffuse).
 
 ### 5.4 Channel storage (GPU)
 
-The material state is three RGBA float textures, written together via MRT and ping-ponged per layer:
+The material state is three RGBA float textures, written together via MRT and ping-ponged per layer, plus a fourth
+output for the mask a layer writes:
 
 | Attachment | R          | G          | B          | A                          |
 | ---------- | ---------- | ---------- | ---------- | -------------------------- |
 | `albedo`   | diffuse r  | diffuse g  | diffuse b  | opacity                    |
-| `surface`  | height     | roughness  | metallic*  | **shape register** (SDF px)|
+| `surface`  | height     | roughness  | metallic*  | (unused)                   |
 | `emissive` | emissive r | emissive g | emissive b | **specular level**         |
+| `mask out` | distance   | feature random | feature flag | —                     |
 
 \* Metallic is reserved (always 0 today) so a metal workflow can be added without a storage change.
 Albedo is stored **linear**; colours entered in the UI are sRGB and converted on upload.
-The **shape register** holds the signed distance of the current shape group (initialised to +1e4 = "no shape");
-SDF layers combine into it, and bevel/etch filters can read exact distances from it instead of a jump flood.
+**Masks** (FR8.23) are named; each texel holds a signed distance (px, < 0 inside; +1e4 = empty), the random of the
+feature there and whether there is one. Every write makes a new version of its mask; `planMasks`
+(`src/layers/masks.ts`) gives a version a **slot** texture only while a later layer reads it (as many slots as
+versions alive at once), and the pipeline copies the written version from `mask out` into it. A layer reads its masks
+as `maskIn()` (what it writes over, or Shape), `maskSrc()` (its source) and `limitAt()` (its limit; several masks are
+combined by a small pass first). Bevel and Etch read a mask's distance directly where only shapes wrote it.
 
 The **normal** map is derived in its own pass (Sobel over height × `heightDepth`, wrapping when tileable) into a
 fourth texture whose `w` holds the world height in px (the path tracer marches it with hardware bilinear
@@ -470,7 +485,7 @@ docs/
 | 8.10  | [Circuit routing (space-filling traces)](features/fr8.10-circuit-router.md) |
 | 8.11  | [Setts and pavers (fans, rings, bone, plus)](features/fr8.11-setts-pavers.md) |
 | 8.12  | [Pipework and peeling paint](features/fr8.12-pipework-paint.md) |
-| 8.13  | [Named masks and cut-outs](features/fr8.13-named-masks.md) |
+| 8.13  | [Named masks and cut-outs](features/fr8.13-named-masks.md) (superseded by 8.23) |
 | 8.14  | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md) |
 | 8.17  | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md) |
 | 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md) |
@@ -478,4 +493,4 @@ docs/
 | 8.20  | [Project previews](features/fr8.20-project-previews.md) |
 | 8.21  | [Grass](features/fr8.21-grass.md) |
 | 8.22  | [Stone blocks (rock-faced ashlar)](features/fr8.22-stone-blocks.md) |
-| 8.23  | [One mask system (planned)](features/fr8.23-masks.md) |
+| 8.23  | [One mask system and Mask area](features/fr8.23-masks.md) |

@@ -29,8 +29,8 @@ layers — each drawn shape a layer in the layer list.
   to scale y by the width, which misplaced shapes on non-square textures).
 - A material whose controls include a shape param (Pipes' *Runs*) is edited through that control, so every member
   layer follows.
-- **Areas**: a Path layer writing the Shape Mask (or a named mask) lets the layers above clip to it — hand-drawn
-  regions for paint, wear or stains.
+- **Areas**: a Path layer writing the Shape mask (or a mask of its own name) lets later layers be limited to it —
+  hand-drawn regions for paint, wear or stains.
 - Tested in a headless browser (Playwright): polygon → Path layer, line → Polyline layer, two runs into a Pipes
   material shared by all its layers, vertex drag.
 

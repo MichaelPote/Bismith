@@ -70,7 +70,7 @@ GenOut gen(vec2 p0) {
   // taps round the instance loop made the compile much slower). The nearest instances come first, and an instance is
   // measured only when its bounding circle could beat the nearest distance so far (and lies within MOT_EXACT): far
   // ones cost one length(), and the distance stays exact (a fixed cut-off just past the bound left rings in a bevel
-  // reading the shape mask).
+  // reading the mask).
   for (int e = 0; e < nxy * taps; e++) {
     int k = e % nxy;
     if (k == 0) {
@@ -182,7 +182,7 @@ export const rosetteLayer: LayerDef = {
     P.enum('relief', 'Relief', 'sculpted', [
       ['bevel', 'Bevel', 'the Edge bevel round the whole rosette: every element at one height, one profile'],
       ['sculpted', 'Sculpted', 'each element its own section and height: lines, beads and the hub domed, rays, solid petals and filled stars ridged along their spine (faceted)'],
-    ], { showIf: (p) => p.output === 'shape', hint: 'How Height › Pattern shapes the rosette. Sculpted needs the shape mask in Normal mode (or off): combined with it, the Edge bevel applies' }),
+    ], { showIf: (p) => p.output === 'shape', hint: 'How Height › Pattern shapes the rosette. Sculpted needs Mask › Mode Normal (or no mask written): combined with a mask, the Edge bevel applies' }),
     P.float('blend', 'Fillet', 0, 0, 256, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => p.output !== 'radial', hint: 'Rounds the joins between elements (a smooth union): fills the slivers and teeth where petals, rays, stars and the hub meet' }),
     P.float('radius', 'Radius', 28, 0, 4096, { softMax: 512, unit: 'px', step: 0.1, hint: 'Outer radius; the elements below are placed in fractions of it' }),
     ...PLACEMENT,
@@ -427,7 +427,7 @@ GenOut motifOut(float d, float rnd, vec2 nearQ, float h) {
   }
   if (u_output == 2) return genOut(1.0 - clamp(length(nearQ) / max(u_radius, 1e-3), 0.0, 1.0), 1.0, rnd, NO_SDF);
   GenOut o = genOut(0.0, 1.0, rnd, d);
-  // Sculpted: Height › Pattern takes the elements' own sections. Combined with the shape mask (Union, Subtract…)
+  // Sculpted: Height › Pattern takes the elements' own sections. Combined with its mask (Union, Subtract…)
   // the drawn shape isn't the rosette's alone, so the Edge bevel stays.
   if (u_relief == 1 && maskOp() <= 1) o.hval = h;
   return o;
@@ -435,7 +435,7 @@ GenOut motifOut(float d, float rnd, vec2 nearQ, float h) {
 // Glow softness: the glow averaged over a Vogel disc of taps (a blur), one copy of the repeat in the loop.
 #define MOT_TAPS (u_output == 1 && u_glow_soft > 0.0 ? 16 : 1)
 #define MOT_BLUR (0.5 * u_glow_soft * u_glow)
-// The shape needs the exact distance everywhere (the shape mask), the glow out to its width, radial none at all.
+// The shape needs the exact distance everywhere (its mask), the glow out to its width, radial none at all.
 #define MOT_EXACT (u_output == 1 ? u_glow : u_output == 2 ? -1e9 : 1e9)
 ` +
     MOT_REPEAT,

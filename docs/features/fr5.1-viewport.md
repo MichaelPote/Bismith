@@ -9,7 +9,8 @@ place lights.
 ## Plan
 - Display pass: draws the chosen buffer into the canvas with zoom / pan (nearest-neighbour), sRGB encode,
   alpha checkerboard, optional 5×5 tile preview and pixel grid at high zoom.
-- Channel selector: Final · Diffuse · Height · Roughness · Normal · Emissive · Opacity · Shape register.
+- Channel selector: Final · Diffuse · Height · Roughness · Normal · Emissive · Opacity · Masks (`0`: a picker for
+  any mask the stack writes, and rename).
 - Mouse: wheel zoom about cursor, middle/space-drag pan, double-click to fit, `1` = 100 %, `F` = fit.
 - Overlay toolbar (Cinderforge viewport header): view name, resolution, sample count, toggles (tile, grid,
   checker), FPS-style readout of samples.
@@ -23,4 +24,4 @@ place lights.
 - [x] Alpha checkerboard
 - [x] Viewport header toolbar + readouts
 - [x] Light gizmos
-- [x] Cursor readout — texel coordinates plus colour, height, roughness, emissive and SDF value under the cursor
+- [x] Cursor readout — texel coordinates plus colour, height, roughness, emissive and the viewed mask's distance (Shape unless the Masks view picks another) under the cursor

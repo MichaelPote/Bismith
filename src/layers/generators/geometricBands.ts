@@ -1,6 +1,6 @@
 // Bands: thick bands with mitred bends that run across the tile in lanes — diagonal bars, a zig-zag band,
 // nested chevrons, and tech-wall Z steps (low run → rise → high run, chamfered ends), optionally with rails along
-// the lane edges. Exact distances (px) so bevels, profiles and the shape register work; rnd per bar / piece / lane.
+// the lane edges. Exact distances (px) so bevels, profiles and masks work; rnd per bar / piece / lane.
 
 import { P, gradient } from '@/core/params'
 import type { LayerDef } from '../types'
@@ -511,7 +511,7 @@ GenOut gen(vec2 p) {
 
   // Width variation: a thinner piece bevels as a scaled copy of a full one — its bevel measured in the piece's own
   // scale (bdist, the Bevel aspect applied from the distance's direction as the wrapper does), while the distance the
-  // shape mask gets stays exact. Derivatives taken outside any branch.
+  // mask gets stays exact. Derivatives taken outside any branch.
   vec2 gd = vec2(dFdx(d), dFdy(d));
   float bd = NO_SDF;
   if (wv > 0.0 && !fillM && !rail) {

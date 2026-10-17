@@ -92,7 +92,7 @@ export const tracesLayer: LayerDef = {
       softMax: 1,
       step: 0.001,
       group: 'pads',
-      hint: 'Pads and vias stand this much higher than the traces (0.3 = 30 % higher: solder, plating). With it or Pad dome above 0, Height › Pattern takes the relief from this layer’s own shapes; at 0 from the combined shape mask, like other shape layers',
+      hint: 'Pads and vias stand this much higher than the traces (0.3 = 30 % higher: solder, plating). With it or Pad dome above 0, Height › Pattern takes the relief from this layer’s own shapes; at 0 from the combined mask it writes, like other shape layers',
     }),
     P.float('pad_dome', 'Pad dome', 0.35, 0, 1, { step: 0.001, group: 'pads', hint: 'Rounds pads and vias into domes (solder blobs): 0 = the Edge bevel, 1 = one dome over the whole pad' }),
     P.float('vias', 'Vias', 0.12, 0, 1, { step: 0.001, group: 'pads', hint: 'Chance of a ring at any linked node (never two linked side by side)' }),
@@ -206,7 +206,7 @@ GenOut gen(vec2 p) {
   int off = span / 2 - 1;
   // Every feature nearer than this was found (traces from nodes past the window end a ring in, pads and vias sit two
   // rings in): the distance is capped there, so it stays continuous where the window moves on (Bevel / Etch read the
-  // shape mask out to their width).
+  // mask out to their width).
   float sure = max(min(float(rings + 1) * cmin - hw * wideK, float(rings + 2) * cmin - max(padR, viaR)), 0.5);
   float hole = 1e4; // drill holes (pads, vias): cut out of everything at the end, traces running in included
   // No continue in these loops: ANGLE / D3D11 can miscompile it (AGENTS.md).

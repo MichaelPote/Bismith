@@ -1,6 +1,6 @@
-// Chips & splits: damage taken out of the current Shape Mask — angular chips knocked off its edges (more at corners),
+// Chips & splits: damage taken out of its mask as it stands — angular chips knocked off its edges (more at corners),
 // splits that run along the grain from the edges that cross it, tapering as they go, the odd split in the open and short
-// nicks across the grain. Works on whatever wrote the shape mask (planks, bricks, panels, setts); with nothing there the
+// nicks across the grain. Works on whatever wrote the mask (planks, bricks, panels, setts); with nothing there the
 // whole texture is one piece, which only gets the splits in the open and the nicks.
 //
 // Every feature is a cut c (px, > 0 inside it) and a depth f (0..1). Two outputs:
@@ -9,9 +9,9 @@
 //     it. It is the bevel re-evaluated on the chipped shape over the bevel on the original (this layer's Bevel / Profile /
 //     aspect): with those matched to the layer that drew the relief, the multiply leaves exactly that relief, its bevel
 //     following every chip and split. Hairline cracks add their thin-line coverage.
-//   - Chipped shape: the shape mask minus the cuts as an SDF; a part-depth cut sinks (1 − f) × bevel below the surface
+//   - Chipped shape: the mask minus the cuts as an SDF; a part-depth cut sinks (1 − f) × bevel below the surface
 //     instead of reaching the edge, so the wrapper's bevel gives it a floor.
-// Both write the chipped shape to the Shape Mask when it's used (genOutOwn for Carve), for later clips.
+// Both write the chipped shape to the mask when it writes one (genOutOwn for Carve), for later limits.
 
 import { P, gradient } from '@/core/params'
 import type { LayerDef } from '../types'
@@ -27,13 +27,13 @@ export const chipsLayer: LayerDef = {
   kind: 'generator',
   sdf: true,
   readsMask: true,
-  description: 'Damage to the shape mask: chips knocked off its edges and corners, splits along the grain from the edges that cross it, nicks across it.',
+  description: 'Damage to a mask (the Shape mask by default): chips knocked off its edges and corners, splits along the grain from the edges that cross it, nicks across it.',
   params: [
     P.enum('output', 'Output', 'carve', [
       ['carve', 'Carve what is below', 'how much of the surface is left, 1 untouched … 0 cut away, over the damage only: Height › Multiply carves it out of the relief beneath, Diffuse › Multiply darkens it. Give this layer the Bevel, Profile and Bevel aspect of the layer that drew the relief and its bevel follows every chip and split'],
-      ['shape', 'Chipped shape (SDF)', 'the shape mask with the damage taken out, drawn with this layer’s bevel: build the relief from it'],
-    ], { hint: 'Both outputs put the chipped shape in the Shape Mask (when Use shape mask is on), so later layers can clip to it' }),
-    P.float('chips', 'Chips', 0.35, 0, 1, { step: 0.001, section: 'Chips', hint: 'Chance of a chip at each spot along the edges of the shape mask' }),
+      ['shape', 'Chipped shape (SDF)', 'the mask with the damage taken out, drawn with this layer’s bevel: build the relief from it'],
+    ], { hint: 'Both outputs put the chipped shape in the mask this layer writes (Mask › Write to), so later layers can be limited to it' }),
+    P.float('chips', 'Chips', 0.35, 0, 1, { step: 0.001, section: 'Chips', hint: 'Chance of a chip at each spot along the edges of the mask' }),
     P.float('corners', 'Corners', 0.5, 0, 1, { step: 0.001, section: 'Chips', hint: 'Extra chance of a chip where an edge turns a corner' }),
     P.float('chip_size', 'Size', 5, 0.5, 256, { softMax: 24, unit: 'px', step: 0.05, section: 'Chips', showIf: chipsOn, hint: 'Chip radius; spots are about 2.5 sizes apart' }),
     P.float('chip_var', 'Size variation', 0.6, 0, 1, { step: 0.001, section: 'Chips', showIf: chipsOn }),

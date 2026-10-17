@@ -226,8 +226,8 @@ float profileCurve(int type, float x) {
 }
 
 // ---------------------------------------------------------------- SDF operators
-// a = existing (register) distance, b = this layer's distance. Negative inside.
-// 0 none (ignore register), 1 replace, 2 union, 3 subtract (cut b out of a), 4 intersect,
+// a = the mask's existing distance, b = this layer's distance. Negative inside.
+// 0 none (ignore a), 1 replace, 2 union, 3 subtract (cut b out of a), 4 intersect,
 // 5 smooth union, 6 smooth subtract, 7 smooth intersect
 float sdfCombine(int op, float a, float b, float k) {
   k = max(k, 1e-4);

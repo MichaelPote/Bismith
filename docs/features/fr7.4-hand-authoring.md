@@ -41,7 +41,7 @@ Where a motif cannot be expressed, a generator is added (FR7.2, FR7.5).
 | -------------- | ------ |
 | Rock | `rockskin()`: warped Voronoi colour patches + value mottle + jagged crack network carved into height + in-hue grain + rare coloured flecks (cutoff) |
 | Crates | wood grain, flat-painted moulding bands, 1×2 px lit beads (Stamp repeats), traced emblem Stamp + Label "03", black hand-hold slots |
-| Tech plates | `tekplate()` (mottle, grain, hammer dents) + Path cut-out (subtract, linear bevel) filled by `ribbed()` / louvre stripes / panel greebles clipped to the register, rivet Stamps (row shift for diagonals) |
+| Tech plates | `tekplate()` (mottle, grain, hammer dents) + Path cut-out (subtract, linear bevel) filled by `ribbed()` / louvre stripes / panel greebles limited to the Shape mask, rivet Stamps (row shift for diagonals) |
 | Lights | flat rects with a value ramp (edge brown → orange → yellow → white) + small emissive; circuit grooves as 1 px subtract rects |
 | Wood | `wood` generator (planks / joints / grain) with sampled ramps; logos and inlays as Stamp / Path |
 | Lava | single-octave Worley cells (dark centres) + soft-light heat + in-hue grain |

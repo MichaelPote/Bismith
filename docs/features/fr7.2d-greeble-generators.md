@@ -22,14 +22,14 @@ Every greeble layer is an SDF generator (`sdf: true`) with an **`output`** enum.
 - **Relief (value).** The default output. It composes the whole motif into one 0..1 height value:
   - panel plateaus at per-panel levels, seams, frames, rivet domes, sunken slots, louvre fins, half-cylinder pipes, band profiles
   - main edges use the layer's own **Shape** params (bevel width, profile, anti-alias)
-  - the relief also writes the shape mask by default (Panels' plates, Trim's strips, Vents' plate; each layer's
-    *Shape mask* choice, `none` to leave the register alone) through `genOutOwn`, which keeps the relief as the value;
-    `LayerDef.writesMask` tells the Clip to labels when that happens
+  - the relief also writes the mask in *Write to* (Shape by default) — Panels' plates, Trim's strips, Vents' plate;
+    each layer's *Shape for the mask* choice, `none` to leave the mask alone — through `genOutOwn`, which keeps the
+    relief as the value; `LayerDef.maskWrite` tells the mask analysis (and the *Limit to* labels) when that happens
   - out of the box it gives a complete height map, and a value-mapped diffuse ramp (dark seams → metal → bright rivets)
 - **Shape outputs (SDF).** Each returns the signed distance of one element class, such as panels, seams, rivets, lights, slots, clamps or bands:
-  - the common bevel, profile, SDF combine and clip params apply to it
+  - the common bevel, profile, mask (*Write to*, *Limit to*) params apply to it
   - `rnd` is per element (per panel, slot, pipe run, block or element)
-  - stacking copies of the layer with the **same seed and layout params** but different outputs gives one layout with several materials. Examples: relief → height + base colour; rivets → brass diffuse; lights → emissive; band 1 → a clip mask for a stucco noise. The `rp3` and `rt1` recreations below do this.
+  - stacking copies of the layer with the **same seed and layout params** but different outputs gives one layout with several materials. Examples: relief → height + base colour; rivets → brass diffuse; lights → emissive; band 1 → a mask a stucco noise is limited to. The `rp3` and `rt1` recreations below do this.
 
 Why not a single SDF output? The wrapper replaces `value` with the bevel profile whenever `sdf > NO_SDF`. An SDF output therefore can't also carry per-panel height steps or rivet domes. The relief output is the self-contained alternative (see the shared-change notes below).
 
@@ -51,14 +51,14 @@ Why not a single SDF output? The wrapper replaces `value` with the bevel profile
   - full-length slots become continuous bars
   - a 1 px bar is kept between slots and holes
   - slot depth, chamfered rims with an optional bead, per-slot depth variation (dished) and missing slots (plugs)
-  - four outputs; the relief can hand the plate, the openings or the frame to the shape mask
+  - four outputs; the relief can hand the plate, the openings or the frame to the mask it writes
 - [x] **pipes**:
   - horizontal/vertical runs, count, bundle (pipes side by side, with a gap and per-pipe variation)
   - diameter with per-run variation, jitter within the free space, offset
   - round (true half-cylinder) or conduit (bevelled trunking with crown and lid seams), heights normalised or true to size
   - joints: couplings, flange pairs or weld beads, in proportion to the pipe
   - clamp straps: count, width, lip, feet with bolts, offset, per-run phase jitter (bundles share straps)
-  - four outputs; the relief can hand the pipes and/or clamps to the shape mask
+  - four outputs; the relief can hand the pipes and/or clamps to the mask it writes
 - [x] **trim**:
   - six bands (px height, profile, level, base), mirror about the centre, stretch band
   - twelve band profiles: flat, bead, cove, ridge, groove, step, chamfer in/out, quarter round in/out, ogee in/out
@@ -67,7 +67,7 @@ Why not a single SDF output? The wrapper replaces `value` with the bevel profile
   - elements (rivet, ringed bolt, slot along, slot across, round hole, square hole, hex head, slotted screw)
     - laid out evenly along the tile or within each block
     - 1–64 rows, row spacing, stagger; hole depth, head turn, missing share
-  - six outputs; the relief can also write the Shape Mask (`mask_shape`)
+  - six outputs; the relief can also write a mask (`mask_shape`)
 - [x] Typecheck, smoke (`--only greebles,vents,pipes,trim`, 64 px and 32 px).
 - [x] Robustness: 16×16, 256×16 and non-tiling 48×40 renders of every output.
 - [x] Tiling check: 2×2 repeats.
@@ -77,7 +77,7 @@ Why not a single SDF output? The wrapper replaces `value` with the bevel profile
 
 Common to every type:
 - `output`, `seed`.
-- The Shape params apply: `bevel`, `profile`, `aa`, `sdf_op`, `sdf_k`.
+- The Shape params apply: `bevel`, `profile`, `aa`; the Mask card's `mk_target`, `mk_op`, `mk_smooth`.
 - Relief uses `bevel` and `profile` for the main edges.
 
 Defaults:
@@ -135,9 +135,9 @@ Compile time (D3D11, cold): ~3.1 s against ~1.8 s for the old Panels (docs/shade
 step) share one profile evaluation, as do the final plate's (`grb_rise3`); recess walls, ribs and beams use a plain
 smooth ramp.
 
-Like vents and trim, the relief **writes a shape to the shape mask** (`mask`, *Shape for the mask*, default plate tops;
-`none` leaves the mask alone; `writesMask` tells the Clip-to labels): plates, panels, seams, frames, rivets, details or
-lights, through `genOutOwn` — later layers clip to it (grime in the seams: *Outside the shape mask*), chip or bevel from
+Like vents and trim, the relief **writes a shape to its mask** (`mask`, *Shape for the mask*, default plate tops;
+`none` leaves the mask alone; `maskWrite` tells the mask analysis): plates, panels, seams, frames, rivets, details or
+lights, through `genOutOwn` — later layers are limited to it (grime in the seams: *Outside* Shape), chip or bevel from
 it, while the relief value stays the layer's own. *Plate tops* leaves out everything sunk into the plates (slots, holes,
 recesses, housing rings, groove lines, recessed centres) and keeps what stands on them (lenses, hinge knuckles, pipes,
 ribs); *Panels* only the seams.
@@ -200,9 +200,9 @@ A border's band is the piece's distance in from its (stepping) sides out to the 
 row on the piece's straight box.
 
 ### `vents` — Vents & grilles
-The relief writes the shape mask by **Shape for the mask** (`mask`): the plate (metal, frame and fasteners, openings
-cut out; the default), the openings or the frame (`genOutOwn`, by the Mask card's mode), or none (`writesMask` then
-doesn't list the layer as a writer). Later layers clip to it — paint only the plate, or grime only inside the slots — or bevel from it. Its
+The relief writes its mask by **Shape for the mask** (`mask`): the plate (metal, frame and fasteners, openings
+cut out; the default), the openings or the frame (`genOutOwn`, by the Mask card's mode), or none (`maskWrite` then
+doesn't count the layer as a writer). Later layers are limited to it — paint only the plate, or grime only inside the slots — or bevel from it. Its
 random is per slot inside the slots and one value on the plate, and Per-feature variation is off on the relief (it would
 step the plate per slot; Depth variation varies the slots instead). Relief heights: frame 1, field `field_level`,
 openings down to `field × (1 − depth)`; hoods, beads and fasteners rise above that, and Height (`hval`) is then divided
@@ -210,7 +210,7 @@ by the highest reachable level so nothing clips, while the paint keeps the frame
 fasteners or hoods are switched on).
 
 The plain defaults are a 64 px grille (2 × 8 slots, 1 px rims, long points, the Smooth profile, Height amount 1, the plate
-in the shape mask, a ramp with the field and frame as mid metal). A layer **added in the editor** (`fresh`) sizes it to
+in the Shape mask, a ramp with the field and frame as mid metal). A layer **added in the editor** (`fresh`) sizes it to
 the texture: cells about 1/20 of the height tall (8…48 px; on strips and small panels from a 100 px short side never
 below ~22 px), five times as wide, slots 80 % × 40 % of the cell, rims 0.3 × the slot width (≥ 1 px), and from 128 px
 a framed panel — a frame of 1/16 of the short side with the field at 0.6, an edge clearance of the bevel plus half a
@@ -236,7 +236,7 @@ frame; radius ⅕ of the frame, capped by its flat).
 | clear | 0 px | Frame: edge clearance — the openings are laid out over the field less this border (and clipped to it), so the outer bars match the inner ones |
 | outer, round | 1 px, 2 px | Frame: outer bevel down to the wall at the tile edge (tiled panels meet in a groove); corner radius of the field, the outer corners concentric (radius + frame) |
 | fasteners, fast_size, fast_style | none, 3 px, slotted | Frame: none · corners · sides (corners and mid-sides), on the centre line of the frame's flat (between the outer bevel and the step to the field; round the bend of rounded corners), the radius capped at 0.3 × that flat (≥ 1.25 px; the slider notes the cap); dome · slotted · cross heads (0.6 above the frame) in a dark, slightly sunk seat ring, shaded by their dome, slots turned at random per fastener (seeded) |
-| mask | plate | what the relief writes to the shape mask: none · plate · slots (openings) · frame |
+| mask | plate | what the relief writes to its mask: none · plate · slots (openings) · frame |
 
 ### `pipes` — Pipes & conduits
 Each run is the nearest few (±1, more for wide feet or flanges, up to ±4: a uniform loop bound), composited by height.
@@ -246,7 +246,7 @@ as the maximum). **Relief height** (`scale`) *True to size* outputs the heights 
 radius at any diameter (the default, at Height amount 0.5: half as tall, round without swamping finer relief); *Tallest
 pipe = Amount* is a flat 0..1 relief. The value (diffuse) stays the normalised height,
 except that clamp feet and bolts paint as metal (0.75 / 0.9) while their height stays low (`hval`). **Shape for the
-mask** (`mask`) hands pipes + clamps (the default), the pipes (with their joints) or the clamps to the shape mask (rust
+mask** (`mask`) hands pipes + clamps (the default), the pipes (with their joints) or the clamps to its mask (rust
 on the pipes, grime on the wall between), or none.
 
 The plain defaults are three 8 px runs on a 64 px wall with diameter variation 0.35, a coupling per pipe, clamp straps in
@@ -264,7 +264,7 @@ diameter (none under 8 px), a joint per pipe from 8 px.
 | bundle_gap, pipe_var | 0 px, 0 | space between a bundle's pipes; each pipe's own random reduction, centred in its place |
 | diameter, dia_var, jitter, offset | 8 px, 0.35, 2 px, 0 | diameter is clamped so that the runs fit their spacing; jitter stays within the free space |
 | scale | true | relief height: unit (tallest = Height amount) · true (px of the radius ÷ Height depth; Levels / Gamma don't apply) |
-| mask | all | what the relief writes to the shape mask: none · all · pipes · clamps |
+| mask | all | what the relief writes to its mask: none · all · pipes · clamps |
 | joints, joint_style, joint_size, joint_jitter, joint_spread, flange_bolts | 1, coupling, 1, 1, 0.5, on | Joints per pipe along the tile, at a random phase per run. In a bundle they are a staggered group — each pipe's joint a joint's length plus a gap along from its neighbour's (direction at random per run), each its own circle combined by height, so a sleeve stands over the pipe beside it but never clashes with its joint. The group is pushed clear of the nearest clamp by 0.6 D, or centred between two where the gap is short (single pipes' couplings shorten to fit it); Spacing jitter shifts each group along the run (1 = ± 0.3 of the spacing; the two nearest per pipe are evaluated): coupling (a sleeve 0.7 D long, lip 0.07 D, chamfered shoulders, a fine groove near each end) · flange (two discs 0.12 D thick, lip 0.28 D, a 1 px seam between, hex nuts with domed ends on their outer faces at the bolt circle's centre and ± 45°) · weld (a bead 0.12 D wide, lip 0.06 D, rippled unevenly: two ripples with random phases per weld); size scales them |
 | clamps, clamp_width, clamp_lip, clamp_foot, bolts, clamp_offset, clamp_jitter, clamp_seeded, clamp_rel | 2, 3 px, 1 px, 2 px, on, 0, 0, on, on | straps per pipe along the tile, hugging each pipe of a bundle; feet are flat tabs (as thick as the lip, ≥ 1 px) reaching past the run's sides, filleted into the strap, at most half way to the next run (dropped below 40 %), optionally with a bolt head each; with feet the strap paints as metal down to the wall. The phase is random per run; Shift with the seed moves all straps by a seeded amount; Size with each pipe scales width, lip and feet by the run's diameter ÷ Diameter (never below 3 px wide, 1.5 px proud and 3 px feet) and leaves clamps off runs thinner than 10 px (or the Diameter, if less). Bolts need feet ≥ 3 px |
 
@@ -274,7 +274,7 @@ To use pipes as a shape, set the Round profile with bevel ≈ radius. That gives
 | Param | Default | Notes |
 | --- | --- | --- |
 | output | relief | relief · blocks · dividers · elements · band (`sel_band`) · strip (the strip material: strips less holes, seams and the empty holes of missing heads) |
-| mask_shape | strip | what the relief output hands to the Shape Mask (via `genOutOwn`, so its own value and coverage stay): none (the register passes through) · strip · blocks · dividers · elements · band. One relief layer can then feed Chips (strip edges), dirt clipped outside (the cuts) or a colour clipped inside (brass rivets, red beads) without a second Trim layer |
+| mask_shape | strip | what the relief output hands to its mask (via `genOutOwn`, so its own value and coverage stay): none (the mask is left as it was) · strip · blocks · dividers · elements · band. One relief layer can then feed Chips (strip edges), dirt limited to Outside (the cuts) or a colour limited to inside (brass rivets, red beads) without a second Trim layer |
 | orient | horizontal | strip direction (vertical: bands from the left edge) |
 | mirror | true | bands run from both edges to the centre. A band touching the centre joins its mirror image, except the one-sided profiles (chamfers, quarter rounds, ogees, coves), which make a roof/valley |
 | fill | 4 | this band stretches to fill the remaining height (0 = none: the last band's level continues) |
@@ -327,7 +327,7 @@ The project files are in the session scratchpad: `…/scratchpad/greeble/rec/*.j
 - **Value range.** Relief values are clamped to 0..1. Panel plateaus sit at ≤ 0.75 so rivets and raised frames have headroom. Pipes are normalised by the clamp radius.
 
 ## Possible shared improvements (not done here)
-1. **Value-carrying SDFs.** Let a generator keep its own `value` alongside an SDF, for example a `LayerDef` flag or a `GenOut` field that multiplies the bevel profile. Per-panel height steps and rivet domes could then combine with the shape register in one layer instead of needing the relief/NO_SDF route.
+1. **Value-carrying SDFs.** Let a generator keep its own `value` alongside an SDF, for example a `LayerDef` flag or a `GenOut` field that multiplies the bevel profile. Per-panel height steps and rivet domes could then combine with a mask in one layer instead of needing the relief/NO_SDF route.
 2. **Emissive colour ramp.** Emissive is `colour × intensity × value`. Per-feature light colours (red/green/amber panel lights) need a gradient source like the diffuse ramp.
 3. **Promote helpers.** `grb_snapC` (pixel-snapped centre) and `grb_rise` (profile with a coverage fallback) are generally useful and could move to `glsl/common.ts`.
 4. **Parent checklist.** `fr7.2-bespoke-generators.md` already links here; its "Greeble generators" checkbox can be ticked. The presets could also get a greeble example, such as a tech wall or a riveted trim.

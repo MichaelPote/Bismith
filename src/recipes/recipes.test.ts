@@ -38,7 +38,9 @@ describe('recipes', () => {
     byRole(p, 'lumps').params.octaves = 5 // the user's own edit
     byRole(p, 'pillow').params.h_amount = 0.9
     expect(setMacro(p, m, 'columns', 6)).toBeGreaterThan(0)
-    for (const role of ['pillow', 'edges', 'heights', 'stone-colour']) expect(byRole(p, role).params.columns).toBe(6)
+    // One layer lays the stones out; Pillow, Edges, heights and colour read them from the Shape mask.
+    expect(byRole(p, 'layout').params.columns).toBe(6)
+    for (const role of ['pillow', 'edges', 'heights', 'stone-colour']) expect(byRole(p, role).type).toBe('surfacemask')
     expect(byRole(p, 'lumps').params.octaves).toBe(5)
     expect(byRole(p, 'pillow').params.h_amount).toBe(0.9) // 'columns' doesn't touch the pillow height…
     setMacro(p, m, 'pillow', 0.3)
@@ -95,7 +97,8 @@ describe('macro that switches generator', () => {
     const tile = p.layers.find((l) => l.id === m.members.tile)!
     expect(tile.type).toBe('hex')
     expect(tile.params.orient).toBe('flat')
-    expect(p.layers.find((l) => l.id === m.members['tile-colour'])!.type).toBe('hex')
+    // The tile colour reads the tiles from the Shape mask, whatever draws them.
+    expect(p.layers.find((l) => l.id === m.members['tile-colour'])!.type).toBe('surfacemask')
   })
 
   it('limits every member to masks, through macro rebuilds, a save and unpacking', () => {
@@ -133,5 +136,26 @@ describe('macro that switches generator', () => {
     expect(p.layers.find((l) => l.id === m.members.frame)!.params.mk_target).toBe('Opening frame')
     setMacro(p, m, 'mask', 'Hatch')
     expect(p.layers.find((l) => l.id === m.members.opening)!.params.mk_target).toBe('Hatch')
+  })
+})
+
+describe('renaming a mask', () => {
+  it('renames it wherever it is named: writes, limits, sources, material limits and macros', async () => {
+    const { renameMask } = await import('./index')
+    const { createLayer } = await import('@/core/serialize')
+    const p = createProject({ width: 64, height: 64, layers: [] })
+    const cut = addMaterial(p, 'cutout', { frame: 2 })
+    const tiles = addMaterial(p, 'tiles')
+    setMaterialLimit(tiles, { terms: [{ mask: 'Opening', op: 'and' }], outside: true })
+    const bevel = createLayer('bevel', { source: 'mask', source_mask: 'Opening' })
+    const area = createLayer('surfacemask', { select: 'features', src_mask: 'Opening' })
+    p.layers.push(bevel, area)
+    expect(renameMask(p, 'Opening', 'Hatch')).toBeGreaterThanOrEqual(4)
+    expect(p.layers.find((l) => l.id === cut.members.opening)!.params.mk_target).toBe('Hatch')
+    expect(cut.params.mask).toBe('Hatch')
+    expect(tiles.limit!.terms[0].mask).toBe('Hatch')
+    expect([bevel.params.source_mask, area.params.src_mask]).toEqual(['Hatch', 'Hatch'])
+    // The Cut-out's macro rebuilds its frame, whose mask follows the new name.
+    expect(p.layers.find((l) => l.id === cut.members.frame)!.params.mk_target).toBe('Hatch frame')
   })
 })

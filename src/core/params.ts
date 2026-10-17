@@ -74,6 +74,13 @@ export interface ParamDef {
    * The shape editor draws 'points' shapes closed and 'lines' shapes open.
    */
   bitmap?: 'pixels' | 'font' | 'points' | 'lines'
+  /**
+   * UI only, text params: a mask name (FR8.23), drawn as a dropdown of masks with "New mask…" — 'read' a mask layers
+   * above write (Limit to, sources), 'write' the mask the layer writes. `maskChoices` lists them; the inspector fills it
+   * per layer.
+   */
+  mask?: 'read' | 'write'
+  maskChoices?: string[]
   hint?: string
   /** UI only: the label for the current values, when the param means something different per mode (e.g. per style). */
   labelFor?: (p: ParamValues) => string

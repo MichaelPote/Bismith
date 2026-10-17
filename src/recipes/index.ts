@@ -4,6 +4,7 @@ import { defaultParams, sanitizeParams, type ParamValue, type ParamValues } from
 import { newId } from '@/core/ids'
 import type { Layer, LimitExpr, Project, SmartMaterial } from '@/core/project'
 import { foldLimit, layerLimit, limitParams } from '@/layers/masks'
+import { layerParamDefs } from '@/layers/registry'
 import { cobblestones, dressedStone } from './stone'
 import { brushedMetal, hammeredMetal, stains } from './metal'
 import { concrete } from './surfaces'
@@ -114,6 +115,39 @@ export function setMacro(p: Project, m: SmartMaterial, key: string, value: Param
 export function setMaterialLimit(m: SmartMaterial, limit: LimitExpr | null): void {
   if (limit?.terms.length) m.limit = limit
   else delete m.limit
+}
+
+/**
+ * Rename a mask everywhere it is named (FR8.23): what layers write and are limited to, their sources, materials' limits
+ * and recipe macros that name a mask (the Cut-out's). Returns how many places changed.
+ */
+export function renameMask(p: Project, from: string, to: string): number {
+  const name = to.trim()
+  if (!name || name === from) return 0
+  let n = 0
+  for (const l of p.layers) {
+    for (const d of layerParamDefs(l.type)) {
+      if (d.mask && String(l.params[d.key] ?? '').trim() === from) {
+        l.params[d.key] = name
+        n++
+      }
+    }
+  }
+  for (const m of p.materials ?? []) {
+    for (const t of m.limit?.terms ?? []) {
+      if (t.mask === from) {
+        t.mask = name
+        n++
+      }
+    }
+    for (const d of getRecipe(m.recipe)?.params ?? []) {
+      if (d.mask && String(m.params[d.key] ?? '').trim() === from) {
+        setMacro(p, m, d.key, name)
+        n++
+      }
+    }
+  }
+  return n
 }
 
 /** The material a layer belongs to, if any. */

@@ -8,7 +8,7 @@
 // wins, and where its edge lies over another the two blend by its coverage, so front-over-back crossings anti-alias. Sink sets the cable into the surface: a bed plane hides what lies
 // below it, and the outline follows where the tubes rise out of it. Fibres groove each strand with yarns wound round
 // it; Irregularity varies the strands' thickness, radius and lay from one half turn to the next (seeded). The outline
-// is the layer's shape for the Shape Mask (`sdf: 'mask'`, by Union). Path: an angle
+// is the layer's shape for its mask (`sdf: 'mask'`, by Union). Path: an angle
 // (snapped to a direction that closes on the torus when tiling), a sag and cut ends with rounded strand tips.
 
 import { P } from '@/core/params'
@@ -47,7 +47,7 @@ export const cableLayer: LayerDef = {
     P.float('row_shift', 'Row shift', 0, -1, 1, { step: 0.001, section: 'Rows', showIf: (p) => Number(p.rows) > 1, hint: 'Each row starts this fraction of a turn further along (0.5 staggers the crossings between rows)' }),
     P.bool('row_flip', 'Alternate twist', false, { section: 'Rows', showIf: (p) => Number(p.rows) > 1, hint: 'Every other row twisted the other way: herringbone, knitted cables (an even number of rows repeats seamlessly)' }),
   ],
-  // The outline goes to the Shape Mask, by Union (a trim laid over earlier shapes adds to them).
+  // The outline goes to its mask (Shape by default), by Union (a trim laid over earlier shapes adds to them).
   sdf: 'mask',
   defaults: { mk_op: 'union', h_on: true, h_amount: 0.6, dif_on: true },
   // Plain defaults: a three-strand laid rope with fibres round a core, set a third into the surface, slightly uneven,
@@ -166,7 +166,7 @@ GenOut gen(vec2 p) {
   float R = u_radius, L = u_lean, r = max(u_thickness, 0.25);
   float Rm = R * (1.0 + 0.3 * irr), rm = r * (1.0 + 0.3 * irr) * (1.0 + 0.25 * irr);
   float ext = Rm + rm;                       // the cable's half height
-  float reach = ext + max(8.0, rm);          // distances (the Shape Mask) are worked out this far from its centre
+  float reach = ext + max(8.0, rm);          // distances (its mask) are worked out this far from its centre
   float top = Rm * u_back + rm;              // its crown above the centre plane
   float bed = mix(-top, top, u_sink);        // the surface it is set into
 

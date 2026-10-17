@@ -19,7 +19,7 @@ import { DEFAULT_BEVEL_CURVE } from '@/layers/commonParams'
 import { hexToRgb, linearToOklab, rgbToHex, srgbToLinear1, type RGB } from '@/core/color'
 import type { Analysis } from './analyze'
 import { BRICKS_PLAIN, VORONOI_PLAIN } from '@/layers/generators/patterns'
-import { SHAPE_MASK, limitTo } from '@/layers/masks'
+import { SHAPE_MASK, fromMask, limitTo } from '@/layers/masks'
 
 export interface TemplateContext {
   /** Palette id for the final snap ('quake', 'doom', … or '' for none). */
@@ -238,26 +238,28 @@ function dents(a: Analysis, amount = 0.1): Layer {
 }
 
 /**
- * Dressed stone (FR7.6): a flat Pillow blurred into a broad dome; crisp edges that rise slowly (custom curve, no
- * tent); broad faceted chips cut into the edge zone; per-block heights (after the chips, so no face drowns under
- * the mask); lumps and pits. `shape` holds the pattern every copy shares — Bricks or Voronoi cells.
+ * Dressed stone (FR7.6): one pattern layer — Bricks or Voronoi cells, `shape` its params — lays the stones out in the
+ * Shape mask; Mask area layers read them from there (FR8.23): a flat Pillow blurred into a broad dome; crisp edges
+ * that rise slowly (custom curve, no tent); broad faceted chips cut into the edge zone; per-block heights (after the
+ * chips, so no face drowns under the mask); lumps and pits.
  */
 function dressedRelief(a: Analysis, type: 'bricks' | 'voronoi', shape: ParamValues, blockMin: number, blockMax: number): Layer[] {
   const pillow = 0.6
   const edge = 0.5
-  const flat = { ...shape, bevel: 0, profile: 'flat', mk_target: '', dif_on: false }
+  const flat = { ...fromMask(SHAPE_MASK, shape), dif_on: false }
   return [
-    L(type, 'Pillow', { ...flat, h_on: true, h_amount: pillow }),
+    L(type, 'Stones', { ...shape, bevel: 0, profile: 'flat', h_on: false, dif_on: false }),
+    L('surfacemask', 'Pillow', { ...flat, h_on: true, h_amount: pillow }),
     L('blur', 'Pillow blur', { radius: r2(clamp(blockMin / 4, 1.5, 6)), ...HEIGHT_ONLY }),
-    L(type, 'Edges', {
-      ...shape, bevel: r2(clamp(blockMin * 0.6, 2, 12)), profile: 'custom', bevel_curve: crisp(), mk_op: 'replace', dif_on: false,
+    L('surfacemask', 'Edges', {
+      ...fromMask(SHAPE_MASK, shape), bevel: r2(clamp(blockMin * 0.6, 2, 12)), profile: 'custom', bevel_curve: crisp(), dif_on: false,
       h_on: true, h_amount: edge, r_on: true, r_mode: 'replace', r_src: 'flat', r_a: 0.6, r_b: 0.6, s_on: true, s_mode: 'replace', s_src: 'flat', s_a: 0.6, s_b: 0.6,
     }),
     L('voronoi', 'Chips', {
       output: 'facets', facet_fit: false, scale: across(a, clamp(0.18 * (blockMin + blockMax), 6, 12)), jitter: 1, tilt: 1.6, seed: 19, mk_target: '',
       h_on: true, h_mode: 'min', h_amount: 1.3, dif_on: false, m_hmode: 'below', m_hlevel: r2(0.8 * (pillow + edge)), m_hsoft: 0.08,
     }),
-    L(type, 'Block heights', { ...flat, h_on: true, h_amount: 0.4, h_var: 1 }),
+    L('surfacemask', 'Block heights', { ...flat, h_on: true, h_amount: 0.4, h_var: 1 }),
     lumps(a, clamp(blockMin * 0.6, 4, 10), 0.4),
     pits(a),
   ]
@@ -279,10 +281,10 @@ function grime(a: Analysis, radius = 2, wear = 0.35): Layer {
 }
 
 /**
- * Stone paint (FR7.6): dark joints, multi-hue noise under per-stone colour (the same pattern as the relief, so the
- * copies stay tied), moss in the hollows when the palette has a green, colour speckle, crevice dirt and edge wear.
+ * Stone paint (FR7.6): dark joints, multi-hue noise under per-stone colour (the stones of the Shape mask the relief's
+ * pattern layer wrote), moss in the hollows when the palette has a green, colour speckle, crevice dirt and edge wear.
  */
-function stonePaint(a: Analysis, type: 'bricks' | 'voronoi', shape: ParamValues, radius = 2): Layer[] {
+function stonePaint(a: Analysis, shape: ParamValues, radius = 2): Layer[] {
   const dark = pick(a, 0)
   const moss = greenest(a)
   return [
@@ -292,8 +294,8 @@ function stonePaint(a: Analysis, type: 'bricks' | 'voronoi', shape: ParamValues,
     L('noise', 'Stone noise', {
       noise: 'value', fractal: 'fbm', scale: across(a, 7), octaves: 3, seed: 12, ...limitTo(SHAPE_MASK), h_on: false, dif_on: true, dif_grad: hueRamp(a, 0.15, 0.85),
     }),
-    L(type, 'Stone colour', {
-      ...shape, bevel: 0, profile: 'flat', mk_target: '', h_on: false, ...limitTo(SHAPE_MASK), dif_on: true, dif_src: 'random', dif_opacity: 0.6, dif_grad: hueRamp(a, 0.2, 1),
+    L('surfacemask', 'Stone colour', {
+      ...fromMask(SHAPE_MASK, shape), h_on: false, dif_on: true, dif_src: 'random', dif_opacity: 0.6, dif_grad: hueRamp(a, 0.2, 1),
     }),
     ...(moss
       ? [
@@ -328,7 +330,7 @@ function masonry(a: Analysis, ctx: TemplateContext, name: string, shape: ParamVa
   }
   const lo = Math.min(lengthPx, coursePx)
   const hi = Math.max(lengthPx, coursePx)
-  return base(a, ctx, name, { relief: dressedRelief(a, 'bricks', shape, lo, hi), paint: stonePaint(a, 'bricks', shape, radius) }, stone(a))
+  return base(a, ctx, name, { relief: dressedRelief(a, 'bricks', shape, lo, hi), paint: stonePaint(a, shape, radius) }, stone(a))
 }
 
 /**
@@ -469,7 +471,7 @@ export const TEMPLATES: Template[] = [
     build: (a, ctx) => {
       const cell = Math.max(6, a.periodX || a.periodY || 13)
       const shape = { ...VORONOI_PLAIN, output: 'cells', scale: across(a, cell), jitter: 0.85, gap: 1, round: 2, warp: 1.5, seed: 4, aa: false }
-      return base(a, ctx, 'Cobbles', { relief: dressedRelief(a, 'voronoi', shape, cell, cell), paint: stonePaint(a, 'voronoi', shape, 2) }, stone(a))
+      return base(a, ctx, 'Cobbles', { relief: dressedRelief(a, 'voronoi', shape, cell, cell), paint: stonePaint(a, shape, 2) }, stone(a))
     },
   },
 

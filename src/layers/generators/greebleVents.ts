@@ -64,13 +64,13 @@ export const ventsLayer: LayerDef = {
     P.float('rim', 'Slot rim', 1, 0, 256, { softMax: 16, unit: 'px', step: 0.25, hint: 'A bevel round each opening, on the plate outside it: the plate slopes down into the opening over this width with the Edge profile (the opening keeps its width). 0 = cut sharp' }),
     P.float('bead', 'Rim bead', 0, 0, 1, { step: 0.001, showIf: (p) => Number(p.rim) > 0, hint: 'An embossed bead raised on the rim round each opening (relief; 1 = as high as the frame stands)' }),
     P.enum('mask', 'Shape for the mask', 'plate', [
-      ['none', 'None', 'the relief leaves the shape mask as it was'],
+      ['none', 'None', 'the relief leaves its mask as it was'],
       ['plate', 'Plate', 'the metal: plate, frame and fasteners, the openings cut out'],
       ['slots', 'Openings', 'the slots or holes'],
       ['frame', 'Frame', 'the border frame (needs a Frame width)'],
     ], {
       showIf: (p) => (p.output ?? 'relief') === 'relief',
-      hint: 'What the relief hands to the shape mask (Mask card › Use shape mask), for later layers to clip to (paint only the plate, or only inside the slots) or bevel from',
+      hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (paint only the plate, or only inside the slots) or bevel from',
     }),
     P.seed(),
     P.float('margin', 'Frame', 0, 0, 1024, { softMax: 128, unit: 'px', step: 0.5, group: 'frame', hint: 'Border with no slots round the tile (0 = an endless grille). The Edge bevel slopes it down to the field' }),
@@ -414,13 +414,13 @@ export const pipesLayer: LayerDef = {
       ['true', 'True to size', 'heights in px of the pipes’ own radius: Height amount 1 = round pipes as tall as their radius (the project’s Height depth converts), 0.5 = half as tall, so big pipes stay round at any size. Levels and Gamma don’t apply to it'],
     ], { showIf: (p) => (p.output ?? 'relief') === 'relief', hint: 'How the relief’s heights scale' }),
     P.enum('mask', 'Shape for the mask', 'all', [
-      ['none', 'None', 'the relief leaves the shape mask as it was'],
+      ['none', 'None', 'the relief leaves its mask as it was'],
       ['all', 'Pipes + clamps'],
       ['pipes', 'Pipes'],
       ['clamps', 'Clamps'],
     ], {
       showIf: (p) => (p.output ?? 'relief') === 'relief',
-      hint: 'What the relief hands to the shape mask (Mask card › Use shape mask), for later layers to clip to (rust on the pipes only, grime on the wall between) or bevel from. Pipes include their joints',
+      hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (rust on the pipes only, grime on the wall between) or bevel from. Pipes include their joints',
     }),
     P.seed(),
     P.int('joints', 'Joints', 1, 0, 64, { softMax: 16, group: 'joints', hint: 'Joints per pipe along the tile (0 = none), at a random place on each run' }),

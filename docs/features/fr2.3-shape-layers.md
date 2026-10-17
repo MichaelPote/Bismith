@@ -70,7 +70,8 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
 - **Bevel span** (every shape, `dome`): *To the middle* spans the bevel from the edge to the shape's greatest depth
   (`shapeInradius`: hip roofs, faceted stars, rods, lenses at any size); Rectangle *Pillow* and Ellipse *Dome* are
   smooth closed forms ((1 − x²/a²)(1 − y²/b²), 1 − x²/a² − y²/b²) without the ridges a distance bevel makes. They go
-  out through `GenOut.bdist`, which the instancing always fills (so they apply with the Shape mask off or Normal).
+  out through `GenOut.bdist`, which the instancing always fills (so they apply when the layer writes no mask, or
+  writes it in Normal mode).
   *Scale the bevel too* (Repeat) measures it in the instance's own units; a shape may also set its own bevel distance (`gShapeBevel`) — Cross measures it arm by arm,
   so crossing arms keep their height instead of rising to a peak. The wrapper's Bevel aspect is applied to these
   distances in `gen` (not to the spans).
