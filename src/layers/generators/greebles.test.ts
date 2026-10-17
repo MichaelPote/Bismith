@@ -71,7 +71,7 @@ describe('greebles', () => {
 
   it('uses every param it declares, and marks pixel lengths for supersampling', () => {
     for (const d of greeblesLayer.params) if (d.key !== 'seed') expect(greeblesLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true)
-    const px = ['min_size', 'max_size', 'snap', 'gap', 'round', 'frame_inset', 'frame_width', 'frame_min', 'rivet_min', 'det_min', 'rivet_radius', 'rivet_inset', 'rivet_spacing', 'vent_pitch', 'vent_slot', 'light_size', 'light_rim', 'recess_wall', 'pipe_min', 'shape_min', 'beam_width', 'jog', 'jog_space']
+    const px = ['min_size', 'max_size', 'snap', 'gap', 'round', 'frame_inset', 'frame_width', 'frame_min', 'rivet_min', 'det_min', 'rivet_radius', 'rivet_inset', 'rivet_spacing', 'vent_pitch', 'vent_slot', 'light_size', 'light_rim', 'recess_wall', 'pipe_min', 'shape_min', 'beam_width', 'edge_min', 'edge_width']
     for (const k of px) expect(greeblesLayer.params.find((d) => d.key === k)!.unit, k).toBe('px')
   })
 

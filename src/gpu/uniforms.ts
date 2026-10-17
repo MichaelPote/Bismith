@@ -38,19 +38,24 @@ export function declareUniforms(defs: ParamDef[]): string {
         lines.push(
           `uniform vec4 ${n}_pts[${MAX_CURVE_POINTS}];`,
           `uniform int ${n}_count;`,
+          // (The loop runs to the uniform count, without break or return: FXC on D3D11 unrolls a loop to a constant
+          // capacity with an early exit, and this function is inlined at every bevel-profile call site —
+          // docs/shader-compilation.md.)
           `float curve_${d.key}(float x) {
-  int c = ${n}_count;
+  int c = min(${n}_count, ${MAX_CURVE_POINTS});
   x = clamp(x, 0.0, 1.0);
-  if (x <= ${n}_pts[0].x) return ${n}_pts[0].y;
-  for (int i = 0; i < ${MAX_CURVE_POINTS - 1}; i++) {
-    if (i + 1 >= c) break;
+  float y = ${n}_pts[max(c - 1, 0)].y;
+  bool found = x <= ${n}_pts[0].x;
+  if (found) y = ${n}_pts[0].y;
+  for (int i = 0; i < c - 1; i++) {
     vec4 a = ${n}_pts[i], b = ${n}_pts[i + 1];
-    if (x <= b.x) {
+    if (!found && x <= b.x) {
+      found = true;
       float h = max(b.x - a.x, 1e-6), t = (x - a.x) / h, t2 = t * t, t3 = t2 * t;
-      return (2.0 * t3 - 3.0 * t2 + 1.0) * a.y + (t3 - 2.0 * t2 + t) * h * a.z + (-2.0 * t3 + 3.0 * t2) * b.y + (t3 - t2) * h * b.z;
+      y = (2.0 * t3 - 3.0 * t2 + 1.0) * a.y + (t3 - 2.0 * t2 + t) * h * a.z + (-2.0 * t3 + 3.0 * t2) * b.y + (t3 - t2) * h * b.z;
     }
   }
-  return ${n}_pts[max(c - 1, 0)].y;
+  return y;
 }`,
         )
         break

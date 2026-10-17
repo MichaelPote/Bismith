@@ -145,9 +145,9 @@ function techPlates(): Project {
       L('greebles', 'Plates', {
         root: 'pinwheel', pinwheel: 0.25, edge_seam: 0.5, min_size: 28, max_size: 120, split: 0.7, cluster: 0.5, split_var: 0.9, diag: 0.08,
         gap: 2, seam_taper: 0, seam_max: 0, bevel: 3, profile: 'linear', round: 0,
-        jog: 8, jog_space: 72, jog_chance: 0.6, jog_layers: 2,
+        jog: 0.3, jog_chance: 0.7, jog_layers: 2,
         cut_chance: 0.7, cut_size: 0.4, cut_var: 0.5, shape_chance: 0.15, shape_min: 60, fill: 'plates',
-        frame_chance: 0.75, frame_style: 'raise', frame_inset: 7, frame_min: 34, rivets: 'none',
+        frame_chance: 0.3, frame_style: 'raise', frame_inset: 5, frame_min: 30, rivets: 'none', edge_chance: 0.12, edge_width: 9, edge_min: 60,
         detail_chance: 0.2, det_min: 44, det_light: false, det_pipes: false, vent_pitch: 4, vent_slot: 2,
         levels: 4, height_var: 0.35, bulge: 0, inset_depth: 0.22,
         h_on: true, h_amount: 0.7, dif_on: true, dif_src: 'value', dif_jitter: 0.1, dif_grad: ramp('#151512', '#4e4c40', '#8a8770', '#c4c1a8'),
