@@ -6,6 +6,10 @@ rounds of *render → critique → improve* until it scored 9.
 
 ## How to use it
 
+0. **Start from the last run's record.** Before writing anything, look for the run's folder (see *Keeping the record*
+   below) and read its `GAPS.md` and the latest critique: they say where the previous run stopped, what still
+   differs, which fixes were proposed and which approaches already failed. Continue from there instead of
+   rediscovering the same flaws, and give round 0's critic the last critique as its "previous round".
 1. **Write a spec** for the generator: its type, a few seeds, the default, and the settings worth judging (each slider
    near its extremes, the modes, small and large textures). Context layers go in `below` / `above`. The format is
    documented at the top of `tools/gensheet.ts`.
@@ -22,6 +26,28 @@ rounds of *render → critique → improve* until it scored 9.
 5. **Hand the critique to the improver** (the agent that changes the generator), with the blocking flaws first. Ask
    it to check the critic's exact coordinates on its own new renders before reporting a flaw fixed; without that,
    "fixed" flaws tend to come back in the next critique.
+6. **End the run by writing `GAPS.md`** (below), from the last round's critique — even when the run stops early or
+   the score plateaus. The critic's final feedback is the most useful thing a run produces for the next one; if it only
+   lives in a scratch folder or a chat transcript, it is lost.
+
+### Keeping the record
+
+Each run keeps one folder that outlives the session: `private/recreations/<name>/` for work against reference
+textures (gitignored, see AGENTS.md), or `private/critic/<generator>/` for a plain generator pass. Scratch renders and
+sheets stay out of it; what goes in:
+
+- `critiques/r<N>.md` — every round's critique, copied from the scratch folder as soon as the critic writes it, plus
+  the brief and any context notes the critics were given (e.g. a description of the layer stack).
+- `GAPS.md` — the hand-over, rewritten at the end of every run:
+  - **Across the set / the generator**: the flaws still open, most serious first, each with the fix to try and
+    whether it is a stack change or needs **generator** work.
+  - **Per item** (texture, mode or variant): the final score, what still differs, the fix.
+  - **What already matches** — so the next run doesn't regress it.
+  - **Notes for the next pass**: where scores plateaued, fixes that oscillated or failed, and the approach most likely
+    to get past the plateau.
+- The final state of the work itself (projects, specs, authoring scripts) and a README linking to `GAPS.md`.
+
+Date `GAPS.md` and name the round it summarises, so a later reader knows how current it is.
 
 Notes from the pass:
 - Use a new critic each round. A critic that saw earlier rounds drifts toward the improver's point of view.
@@ -29,7 +55,7 @@ Notes from the pass:
 - The critic tends to ask for narrower slider ranges where an extreme looks bad; the project prefers generous ranges,
   so turn that into "make the top end useful" rather than "cap it".
 - Generators that plateau for several rounds (the same flaw coming back) usually need a different approach, not
-  another fix on the same one. Stop after about six rounds and take stock.
+  another fix on the same one. Stop after about six rounds and take stock — and write that stock-take into `GAPS.md`.
 
 ---
 
