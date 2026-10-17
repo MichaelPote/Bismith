@@ -38,6 +38,8 @@ const preset = ref<MetricPreset>('tilewin')
 let presetChosen = false
 /** Windows metric: window side as 1/N of the short side. */
 const windowDiv = ref('8')
+/** Colour range: how far (OKLab) the layers' colours may stray from the reference's own colours ('0' = off). */
+const colourRangeSel = ref('0.06')
 const samples = ref(16)
 // Stop criteria (0 = off). With all off the run goes on until paused.
 const maxSteps = ref(300)
@@ -87,6 +89,13 @@ const PRESET_OPTIONS = [
   { value: 'texture', label: 'Texture (statistics)' },
   { value: 'layout', label: 'Layout (+ pixel aligned)' },
 ]
+const COLOUR_RANGE_OPTIONS = [
+  { value: '0', label: 'Off' },
+  { value: '0.03', label: 'Tight' },
+  { value: '0.06', label: 'Normal' },
+  { value: '0.12', label: 'Loose' },
+]
+
 const WINDOW_OPTIONS = [
   { value: '16', label: 'Fine (1/16 of the side)' },
   { value: '8', label: 'Medium (1/8)' },
@@ -340,6 +349,7 @@ async function run(): Promise<void> {
         {
           lambda: 4,
           structural: structural.value,
+          colourRange: Number(colourRangeSel.value),
           space: { ...space.value },
           seed: 1,
           target: matcher.target,
@@ -711,6 +721,9 @@ const bestLoss = computed(() => (curve.value.length ? curve.value[curve.value.le
         <div class="row"><span class="lbl">Metric</span><SelectField v-model="preset" :options="PRESET_OPTIONS" label="Metric preset" @update:model-value="metricChanged" /></div>
         <div v-if="preset === 'windows' || preset === 'tilewin'" class="row" title="Size of the windows compared (at up to 512 px): smaller looks at finer detail and ignores more of the layout">
           <span class="lbl">Window</span><SelectField v-model="windowDiv" :options="WINDOW_OPTIONS" label="Window size" @update:model-value="metricChanged" />
+        </div>
+        <div class="row" title="Keep the layers' colours near the reference's own colours, so the optimiser can't win pixels with hues the reference doesn't have or saturate ramps to fight the lighting. Lightness is freer than hue and saturation; greys always pass">
+          <span class="lbl">Colours</span><SelectField v-model="colourRangeSel" :options="COLOUR_RANGE_OPTIONS" label="Colour range" @update:model-value="reset" />
         </div>
         <div class="row"><span class="lbl">Samples</span><NumberField v-model="samples" :min="1" :max="256" :soft-min="1" :soft-max="64" int label="Samples per candidate" /></div>
         <div class="row" title="Each Optimise / Continue runs up to this many steps (0 = no limit)"><span class="lbl">Max steps</span><NumberField v-model="maxSteps" :min="0" :max="1000000" :soft-min="0" :soft-max="2000" int label="Max steps" /></div>

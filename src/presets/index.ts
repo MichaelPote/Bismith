@@ -673,6 +673,62 @@ function frostedStone(): Project {
   })
 }
 
+// Grass (FR8.21): a photographic lawn tuned with Match against a photo (colour range Normal, so every colour stays near
+// the photo's), at a height depth that lets the sun model the turf.
+
+/** A mown lawn strewn with clusters of fallen brown leaves over dark soil, lit by a low sun. */
+function grassLawn(): Project {
+  return createProject({
+    name: 'Grass',
+    width: 512,
+    height: 512,
+    tileable: true,
+    heightDepth: 1.5,
+    base: { color: '#51472a', roughness: 0.99, specular: 0.89, height: 0, opacity: 1 },
+    layers: [
+      L('noise', 'Soil', {
+        scale: 115, stretch: 9.31, octaves: 12, lacunarity: 1.94, gain: 0.985, warp: 0.0563, warp_scale: 1.88,
+        contrast: 1.69, soft: 0.324, ofs_x: 3.84, ofs_y: -6.97, sh_lo: 0.125, sh_hi: 0.666, opacity: 0.955,
+        dif_on: true, dif_opacity: 0.96, dif_jitter: 0.0446, h_amount: 0.201, h_var: 0.951,
+        dif_grad: { stops: [{ pos: 0.119, color: '#5f3b2e' }, { pos: 0.129, color: '#8f5f37' }, { pos: 0.695, color: '#644142' }, { pos: 0.859, color: '#a3764c' }] },
+      }),
+      L('grass', 'Grass', {
+        length: 5.04, length_var: 0.658, width: 1.24, width_var: 0.0185, taper: 0.899, density: 0.578, angle: 269,
+        spread: 93.6, bend: 23.4, curl: 209, wiggle: 79.1, clump: 0.0229, arch: 0.237, lift: 1.17, relief: 0.443,
+        relief_scale: 17.4, depth: 0.313, shadow: 0.868, shadow_w: 0.12, fold: 0.173, light: 251, blade_var: 0.737,
+        round: 0.279, bare: 0.2, bare_scale: 6.87, bare_detail: 0.878, patches: 0.153, patch_scale: 12.2, ofs_y: -16.9,
+        dw_amount: 1.54, dw_scale: 1.57, sh_hi: 0.967, opacity: 0.979, dif_opacity: 0.746, dif_jitter: 0.0206,
+        h_amount: 1.14, h_var: 0.379,
+        dif_grad: { stops: [{ pos: 0.0746, color: '#495820' }, { pos: 0.19, color: '#387923' }, { pos: 0.667, color: '#76922f' }, { pos: 1, color: '#95ad5b' }] },
+      }),
+      L('grass', 'Leaf litter', {
+        shape: 'leaf', length: 8.51, length_var: 0.399, width: 9.26, width_var: 0.535, taper: 0.262, density: 1.13,
+        angle: 333, bend: 17.3, curl: 9.54, wiggle: 34.2, clump: 0.355, arch: 0.221, lift: 0.755, relief: 0.47,
+        relief_scale: 1.45, depth: 0.497, shadow: 0.426, shadow_w: 2.47, fold: 0.976, light: 183, blade_var: 0.379,
+        round: 0.471, gaps: 'clear', bare: 0.618, bare_scale: 20.8, bare_detail: 0.755, bare_invert: true, patches: 0.296,
+        seed: 11, patch_seed: 5, ofs_x: 6.19, ofs_y: 3.6, sh_hi: 0.914, sh_gamma: 0.876, sh_cut: 0.172,
+        sh_cut_soft: 0.00477, opacity: 0.969, dif_jitter: 0.174, h_amount: 0.8, h_var: 0.987,
+        dif_grad: { stops: [{ pos: 0, color: '#48311a' }, { pos: 0.229, color: '#6d4425' }, { pos: 0.609, color: '#905c34' }, { pos: 1, color: '#ae8559' }] },
+      }),
+      L('grass', 'Top blades', {
+        length: 9.07, length_var: 0.505, width: 1.35, width_var: 0.00659, taper: 0.989, density: 0.895, angle: 52.5,
+        spread: 149, bend: 3.15, curl: 88.8, wiggle: 0.267, clump: 0.437, arch: 0.0359, lift: 1.95, relief: 0.5,
+        relief_scale: 8, depth: 0.131, shadow: 0.801, fold: 0.993, light: 333, blade_var: 0.934, round: 0.318,
+        gaps: 'clear', bare: 0.0475, bare_scale: 14.2, bare_detail: 0.505, patches: 0.257, patch_scale: 0.992, seed: 7,
+        ofs_x: -0.092, ofs_y: -29, sh_lo: 0.148, sh_steps: 3, dif_jitter: 0.788, h_amount: 0.98, h_var: 0.758,
+        dif_grad: { stops: [{ pos: 0.322, color: '#617e26' }, { pos: 0.742, color: '#7aa344' }, { pos: 0.95, color: '#98af42' }] },
+      }),
+    ],
+    lighting: {
+      sky: { enabled: true, zenith: '#cfdcf0', horizon: '#ffffff', intensity: 0.52 },
+      ambient: { color: '#ffffff', intensity: 0.0825 },
+      lights: [sun({ azimuth: 304, elevation: 35, angle: 10.3, intensity: 1.3, color: '#fff6e8' })],
+    },
+    render: { ...defaultRender(), maxSamples: 64, bounces: 1, jitter: false, specular: 0.1, specularTint: 0.6, ao: 0.78, aoRadius: 8.24 },
+    post: [post('tonemap', { operator: 'clamp' })],
+  })
+}
+
 /** A preset whose built project carries its generated preview (PRESET_PREVIEWS), when there is one. */
 const withPreview = (p: Preset): Preset => {
   const preview = PRESET_PREVIEWS[p.id]
@@ -696,5 +752,6 @@ export const PRESETS: Preset[] = ([
   { id: 'lichen', name: 'Lichen sandstone', group: 'Nature', build: lichenSandstone },
   { id: 'slate', name: 'Mossy slate wall', group: 'Nature', build: mossySlate },
   { id: 'frost', name: 'Frosted stone', group: 'Nature', build: frostedStone },
+  { id: 'grass', name: 'Grass', group: 'Nature', build: grassLawn },
   { id: 'blank', name: 'Blank noise', group: 'Basics', build: () => createProject({ name: 'Untitled' }) },
 ] satisfies Preset[]).map(withPreview)

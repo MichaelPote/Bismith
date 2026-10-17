@@ -25,6 +25,7 @@ import { createLayer, getLayerDef, layerGroups, layerParamDefs } from '@/layers/
 import { getPostDef } from '@/render/post/registry'
 import { patternKeys } from '@/core/links'
 import { applyColourMap, colourMap } from './colourFit'
+import { colourRange, constrainLab, type ColourRange } from './colourRange'
 import type { MatchImage } from './image'
 
 // ------------------------------------------------------------------------------------------------ RNG
@@ -745,6 +746,12 @@ export interface OptimizerOptions {
   /** Probability that a candidate is a colour fit, when `target` is set (default 0.08). */
   colourFitRate?: number
   /**
+   * Keep the layers' and base colours within this OKLab distance of the reference's own colours (colourRange.ts;
+   * lightness counts half, greys always pass), when `target` is set. 0 = off (default). Every candidate is pulled into
+   * range before it is rendered, so no move can buy pixels with hues the reference doesn't have.
+   */
+  colourRange?: number
+  /**
    * Losses closer than this are equal (default 1e-6). The same project renders a hair differently in different pages
    * (last-bit float differences, ~1e-8), and inert moves tie exactly — compared exactly, a tie would be a win in one
    * page and a loss in another, and identical runs would part ways.
@@ -887,6 +894,7 @@ export class Optimizer {
   evaluations = 0
   initialLoss: number | null = null
   private evaluate: Evaluate
+  private range: ColourRange | null = null
   private rng: Rng
   private bestC: Candidate | null = null
   private bestStep = 0
@@ -959,6 +967,7 @@ export class Optimizer {
       gradientSize: Math.max(2, Math.round(opts.gradientSize ?? 8)),
       target: opts.target ?? null,
       colourFitRate: opts.colourFitRate ?? 0.08,
+      colourRange: Math.max(0, opts.colourRange ?? 0),
       adaptive: opts.adaptive ?? true,
       tolerance: Math.max(0, opts.tolerance ?? 1e-6),
       space: opts.space ?? {},
@@ -966,6 +975,7 @@ export class Optimizer {
       maxLayers: opts.maxLayers ?? project.layers.length + 3,
     }
     this.rng = new Rng(this.opts.seed)
+    if (this.opts.target && this.opts.colourRange > 0) this.range = colourRange(this.opts.target, this.opts.colourRange)
     const base: Project = JSON.parse(JSON.stringify(project))
     const space = extractParams(base, this.opts.space)
     const start: Candidate = { project: base, base, space, vector: Float64Array.from(space.initial), loss: Infinity, mutated: [], structural: null }
@@ -1250,8 +1260,30 @@ export class Optimizer {
     return applyParams(base, space, vector)
   }
 
+  /** Pull the candidate's layer and base colours into the colour range (vector and project), if one is set. */
+  private constrain(c: Candidate): void {
+    if (!this.range) return
+    let changed = false
+    for (const e of c.space.entries) {
+      if ((e.kind !== 'color' && e.kind !== 'stop-color') || (e.scope !== 'layer' && e.scope !== 'base')) continue
+      // Colours of switched-off outputs (an emissive colour with Emissive off) don't render: leave them be.
+      if (!isEntryActive(c.project, e)) continue
+      const o = e.offset
+      const v = c.vector
+      const lab: RGB = [v[o], v[o + 1] * 2 * AB - AB, v[o + 2] * 2 * AB - AB]
+      const q = constrainLab(lab, this.range)
+      if (q === lab) continue
+      v[o] = q[0]
+      v[o + 1] = (q[1] + AB) / (2 * AB)
+      v[o + 2] = (q[2] + AB) / (2 * AB)
+      changed = true
+    }
+    if (changed) c.project = this.build(c.base, c.space, c.vector)
+  }
+
   private async score(c: Candidate): Promise<void> {
     this.evaluations++
+    this.constrain(c)
     try {
       const r = await this.evaluate(c.project)
       if (typeof r === 'number') c.loss = r

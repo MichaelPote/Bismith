@@ -18,10 +18,11 @@
 //       progress (whichever first); --iters then caps the steps only when given.
 //                              [--preset tilewin|windows|tile|texture|layout] [--weights …] [--lambda N] [--islands N] [--seed N]
 //                              [--sigma X] [--lights] [--post] [--base] [--shading] [--enums] [--seeds]
-//                              [--structural] [--final-samples N] [--max-size N] [--wrap] [--window]
+//                              [--structural] [--final-samples N] [--max-size N] [--wrap] [--window] [--colour-range D]
 //       Runs the (1+λ)-ES optimiser in-page for N steps (λ renders each, default 100 × 6 at 16 spp),
 //       printing progress; writes the best project JSON (also after every improvement) and a contact
-//       sheet [target | start | best | |best − target|×2] next to it (best.png).
+//       sheet [target | start | best | |best − target|×2] next to it (best.png). --colour-range D keeps the layers'
+//       and base colours within OKLab distance D of the reference's colours (0.06 is a good start; off by default).
 //
 // Examples:
 //   npm run harness -- render a.json --out harness-out/target.png --samples 64
@@ -218,6 +219,7 @@ async function cmdOptimize(args: Args) {
     samples: num(args.flags.samples) ?? 16,
     finalSamples: num(args.flags['final-samples']) ?? 64,
     lambda: num(args.flags.lambda),
+    colourRange: num(args.flags['colour-range']),
     islands: num(args.flags.islands),
     seed: num(args.flags.seed),
     sigma: num(args.flags.sigma),

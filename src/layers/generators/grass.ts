@@ -26,7 +26,11 @@ export const grassLayer: LayerDef = {
     P.float('length_var', 'Length variation', 0.5, 0, 1, { step: 0.001, hint: 'How much shorter blades may be: 0 all full length, 1 anywhere from nothing to full' }),
     P.float('width', 'Blade width', 2, 0.2, 64, { softMax: 10, unit: 'px', step: 0.05, hint: 'Width at the root' }),
     P.float('width_var', 'Width variation', 0.3, 0, 1, { step: 0.001 }),
-    P.float('taper', 'Taper', 0.9, 0, 1, { step: 0.001, hint: 'How much a blade narrows to its tip: 1 a sharp point, 0 an even ribbon' }),
+    P.enum('shape', 'Shape', 'blade', [
+      ['blade', 'Blade', 'widest at the root, narrowing to the tip'],
+      ['leaf', 'Leaf', 'widest in the middle, pointed at both ends: fallen leaves, litter, clover, broad-leaved weeds'],
+    ]),
+    P.float('taper', 'Taper', 0.9, 0, 1, { step: 0.001, hint: 'How much a blade narrows to its tip (a leaf to both ends): 1 a sharp point, 0 an even ribbon' }),
     P.float('density', 'Density', 3, 0.05, 16, { softMax: 8, step: 0.01, hint: 'How many blades lie over each spot, on average (the count follows the blade size)' }),
     P.float('angle', 'Direction', 0, 0, 360, { unit: '°', step: 0.1, section: 'Growth', hint: 'Which way the blades point from their roots, clockwise from up' }),
     P.float('spread', 'Spread', 180, 0, 180, { unit: '°', step: 0.1, section: 'Growth', hint: 'How far blades may turn either side of the Direction: 180 any way at all' }),
@@ -36,11 +40,15 @@ export const grassLayer: LayerDef = {
     P.float('clump', 'Tufts', 0.15, 0, 1, { step: 0.001, section: 'Growth', hint: 'Share of the blades that grow from a tuft (one per blade-length cell), fanning out from one spot' }),
     P.float('arch', 'Arch', 0, 0, 1, { step: 0.001, section: 'Shading', hint: 'Blades rise to their middle and droop again to the tip (arching grass) instead of climbing all the way: 1 the tip back down at its root’s depth' }),
     P.float('lift', 'Rise', 1, 0, 4, { softMax: 2, step: 0.001, section: 'Shading', hint: 'How far a blade climbs towards its tip, against the depth blades lie in: high, the tips lie over the roots around them and the roots sink into shade' }),
+    P.float('relief', 'Turf relief', 0, 0, 1, { step: 0.001, section: 'Shading', hint: 'Hummocks and hollows the blades and ground ride on (Height): under a light, the turf shades in broad soft swells, and ambient occlusion darkens the hollows' }),
+    P.float('relief_scale', 'Relief across', 6, 0.5, 64, { softMax: 24, step: 0.01, section: 'Shading', showIf: (p) => Number(p.relief) > 0, hint: 'Size of the hummocks: about this many across the texture (laid out by the Patch seed)' }),
     P.float('depth', 'Depth shading', 0.7, 0, 1, { step: 0.001, section: 'Shading', hint: 'Deep blades (and roots) darker than high ones and tips: 0 every blade at the bright end of the ramp' }),
     P.float('shadow', 'Contact shadow', 0.6, 0, 1, { step: 0.001, section: 'Shading', hint: 'Shade cast on a blade beside a higher one passing over it, keeping overlapping blades apart' }),
     P.float('shadow_w', 'Shadow width', 2, 0.1, 64, { softMax: 8, unit: 'px', step: 0.05, section: 'Shading', showIf: (p) => Number(p.shadow) > 0 }),
     P.float('fold', 'Fold', 0.4, 0, 1, { step: 0.001, section: 'Shading', hint: 'Blades are creased along the middle: the half facing the light lighter, the other darker' }),
     P.float('light', 'Light from', 315, 0, 360, { unit: '°', step: 0.1, section: 'Shading', showIf: (p) => Number(p.fold) > 0, hint: 'Where the light falls from for the Fold, clockwise from up (315 = top left)' }),
+    P.float('blade_var', 'Blade variation', 0.3, 0, 1, { step: 0.001, section: 'Shading', hint: 'Each blade lighter or darker than the next, by up to this much: the sunlit and shaded blades of a real lawn (Random jitter moves along the ramp instead, hue and all)' }),
+    P.float('round', 'Roundness', 0.3, 0, 1, { step: 0.001, section: 'Shading', hint: 'Blades lit along the middle and darker at their edges, so each one reads as a rounded stroke' }),
     P.bool('kinds', 'Two kinds', false, { section: 'Shading', hint: 'Two kinds of blade (green and dry, say) on one ramp: its middle is the shade both share, the first kind lightens towards the start of the ramp, the second towards the end' }),
     P.float('kind_share', 'Second kind', 0.4, 0, 1, { step: 0.001, section: 'Shading', showIf: (p) => Boolean(p.kinds), hint: 'Share of the blades of the second kind' }),
     P.enum('gaps', 'Gaps', 'fill', [
@@ -48,17 +56,20 @@ export const grassLayer: LayerDef = {
       ['clear', 'Clear', 'only the blades are drawn: what is below shows between them (a second layer of grass, soil)'],
     ], { section: 'Ground' }),
     P.float('bare', 'Bare patches', 0, 0, 1, { step: 0.001, section: 'Ground', hint: 'Patches where the grass thins out and stops, showing what is below (worn lawn, soil)' }),
-    P.float('bare_scale', 'Patches across', 5, 0.5, 64, { softMax: 16, step: 0.01, section: 'Ground', showIf: (p) => Number(p.bare) > 0, hint: 'Size of the bare patches: about this many across the texture' }),
+    P.float('bare_scale', 'Patches across', 5, 0.5, 128, { softMax: 32, step: 0.01, section: 'Ground', showIf: (p) => Number(p.bare) > 0, hint: 'Size of the bare patches: about this many across the texture' }),
+    P.float('bare_detail', 'Patch edges', 0.5, 0, 1, { step: 0.001, section: 'Ground', showIf: (p) => Number(p.bare) > 0, hint: 'How ragged the patches are: 0 smooth rounded blobs, 1 frayed edges, scattered islands and specks' }),
+    P.bool('bare_invert', 'Grow in patches', false, { section: 'Ground', showIf: (p) => Number(p.bare) > 0, hint: 'The other way round: blades grow only in the patches (the rest is bare) — clusters of fallen leaves, clover, weeds' }),
     P.float('patches', 'Colour patches', 0, 0, 1, { step: 0.001, section: 'Ground', hint: 'Broad patches where the blades shift along the ramp (drier, lusher)' }),
     P.float('patch_scale', 'Colour patches across', 3, 0.5, 64, { softMax: 16, step: 0.01, section: 'Ground', showIf: (p) => Number(p.patches) > 0 }),
     P.seed(),
+    P.seed('patch_seed', 'Patch seed', 1, { section: 'Ground', hint: 'Lays out the bare and colour patches. Grass layers with the same patch seed share their patches: a layer of top blades thins out over the same bare ground as the turf beneath it' }),
   ],
   defaults: {
     dif_on: true,
     dif_grad: gradient('#1a260c', '#3b5f18', '#6f9a2c', '#b8d060'),
     dif_jitter: 0.12,
     h_on: true,
-    h_amount: 0.6,
+    h_amount: 1,
   },
   fresh: ({ width, height }) => {
     const s = Math.sqrt(width * height)
@@ -71,6 +82,14 @@ export const grassLayer: LayerDef = {
 float gr_u8(uint h, uint sh) { return float((h >> sh) & 0xffu) / 256.0; }
 float gr_u16(uint h, uint sh) { return float((h >> sh) & 0xffffu) / 65536.0; }
 
+// The bare-patch noise at texture coords u (0..1), high where blades grow. Patch edges add octaves and keep more of
+// each, so the outline frays into islands and specks.
+float gr_patch(vec2 u) {
+  vec2 cells = vec2(u_bare_scale);
+  float n = org_noiseFbm(1, false, u * cells, org_per(cells), 3 + int(u_bare_detail * 3.0 + 0.5), 0.45 + 0.25 * u_bare_detail, u_patch_seed * 131.0 + 71.0);
+  return u_bare_invert ? 1.0 - n : n;
+}
+
 GenOut gen(vec2 p) {
   float L = max(u_length, 0.5);
   float W = max(u_width, 0.05);
@@ -80,7 +99,8 @@ GenOut gen(vec2 p) {
   vec2 ncell = uTile ? max(floor(uRes / reach), 1.0) : vec2(1e6);
   vec2 cs = uTile ? uRes / ncell : vec2(reach);
   ivec2 per = ivec2(ncell);
-  float area = L * (1.0 - 0.5 * u_length_var) * W * (1.0 - 0.5 * u_width_var) * (1.0 - 0.4 * u_taper);
+  bool leaf = u_shape == 1;
+  float area = L * (1.0 - 0.5 * u_length_var) * W * (1.0 - 0.5 * u_width_var) * (1.0 - (leaf ? 0.13 : 0.4) * u_taper);
   float Kf = min(u_density * cs.x * cs.y / max(area, 0.05), 256.0);
   int K = max(int(ceil(Kf)), 1);
   float lastKeep = Kf - float(K - 1);
@@ -130,8 +150,7 @@ GenOut gen(vec2 p) {
           uint g4 = pcg(g3);
           bool grows = true;
           if (bare) {
-            float n = org_fbm(root / uRes, vec2(u_bare_scale), 3, uSeed + 71.0);
-            grows = gr_u8(g4, 16u) < smoothstep(bLo, bLo + 0.25, n);
+            grows = gr_u8(g4, 16u) < smoothstep(bLo, bLo + 0.25, gr_patch(root / uRes));
           }
           if (grows) {
             float wi = W * (1.0 - u_width_var * gr_u8(g3, 24u));
@@ -151,7 +170,7 @@ GenOut gen(vec2 p) {
               vec2 off = pa - seg * u * T;
               float d = length(off);
               float t = (float(i) + u) / fn;
-              float hw = 0.5 * wi * (1.0 - u_taper * t * sqrt(t));
+              float hw = 0.5 * wi * (leaf ? mix(1.0, sqrt(sin(3.14159265 * t)), u_taper) : 1.0 - u_taper * t * sqrt(t));
               if (d - hw < best) { best = d - hw; bd = d; bhw = hw; bt = t; bsp = dot(off, vec2(-T.y, T.x)); bT = T; }
               a += seg * T;
             }
@@ -162,11 +181,11 @@ GenOut gen(vec2 p) {
             float cov = clamp(min(bd + bhw, 0.5) - max(bd - bhw, -0.5), 0.0, 1.0);
             bool full = cov > 0.99;
             if (cov > 0.0 && (hgt > h2 || (full && hgt > hF))) {
-              float v = mix(1.0, hgt, u_depth);
+              float uu = clamp(bsp / max(bhw, 1e-3), -1.0, 1.0);
+              float v = mix(1.0, hgt, u_depth) * (1.0 + u_blade_var * (1.6 * gr_u16(pcg(g5), 0u) - 0.8)) * (1.0 - 0.6 * u_round * uu * uu);
               float lit = dot(vec2(-bT.y, bT.x), Ld) * clamp(bsp / 0.6, -1.0, 1.0);
               v = lit > 0.0 ? mix(v, 1.0, 0.35 * u_fold * lit) : v * (1.0 + 0.5 * u_fold * lit);
               float kd = gr_u8(g4, 24u) < u_kind_share ? 1.0 : 0.0;
-              float uu = bsp / max(bhw, 1e-3);
               float hv = hgt + min(0.08 * bhw, 0.25) * sqrt(max(1.0 - uu * uu, 0.0));
               float rnd = gr_u16(g3, 0u) * 0.37 + gr_u16(g1, 0u) * 0.63;
               if (hgt > h1) {
@@ -185,7 +204,7 @@ GenOut gen(vec2 p) {
 
   // Contact shadow and colour patches shade each blade; with two kinds, each kind then takes its half of the ramp.
   float sk = 3.0;
-  float shift = u_patches > 0.0 ? u_patches * (org_fbm(p / uRes, vec2(u_patch_scale), 4, uSeed + 113.0) - 0.5) * 1.6 : 0.0;
+  float shift = u_patches > 0.0 ? u_patches * (org_fbm(p / uRes, vec2(u_patch_scale), 4, u_patch_seed * 131.0 + 113.0) - 0.5) * 1.6 : 0.0;
   // Two kinds share the dark middle of the ramp: anti-aliased edges between them pass through shade, not a third colour.
   v1 = clamp(v1 * (1.0 - u_shadow * clamp((M - h1) * sk, 0.0, 1.0)) + shift, 0.0, 1.0);
   v2 = clamp(v2 * (1.0 - u_shadow * clamp((M - h2) * sk, 0.0, 1.0)) + shift, 0.0, 1.0);
@@ -202,16 +221,20 @@ GenOut gen(vec2 p) {
   float hv = mix(mix(anyF ? hvF : 0.0, hv2, c2), hv1, c1);
   float blades = 1.0 - (1.0 - c1) * (1.0 - c2) * (anyF ? 0.0 : 1.0);
   float rnd = c1 >= 0.5 ? r1 : c2 >= 0.5 ? r2 : anyF ? rF : r1;
-
   float mask = blades;
   if (u_gaps == 0) {
     float ground = 1.0;
-    if (bare) ground = smoothstep(bLo - 0.02, bLo + 0.1, org_fbm(p / uRes, vec2(u_bare_scale), 3, uSeed + 71.0));
+    // The ground thins out with the blades (the same curve), so no band of bare shadowed ground rings the patches.
+    if (bare) ground = smoothstep(bLo, bLo + 0.25, gr_patch(p / uRes));
     mask = max(blades, ground);
   } else {
     // Clear gaps: the blades' own shade, not darkened towards the ground at their anti-aliased edges.
     v = blades > 0.0 ? clamp((v - gap * (1.0 - blades)) / blades, 0.0, 1.0) : gap;
     hv = blades > 0.0 ? hv / blades : 0.0;
+  }
+  if (u_relief > 0.0) {
+    float n = org_fbm(p / uRes, vec2(u_relief_scale), 4, u_patch_seed * 131.0 + 29.0);
+    hv = hv * (1.0 - 0.5 * u_relief) + u_relief * 1.2 * (n - 0.2);
   }
   return GenOut(clamp(v, 0.0, 1.0), mask, rnd, 0.0, 1.0, NO_SDF, 0, clamp(hv, 0.0, 1.0), NO_SDF);
 }

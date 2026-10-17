@@ -288,3 +288,18 @@ so the same rules drive the harness CLI and the Match workspace. With no bound s
   optimiser starts over from it (its best would undo the edits). *Fit colours* fits the current project's colours to
   the reference (FR8.2) — undoable.
 - `harness optimize … --until LOSS --time SECONDS --patience STEPS` (`--iters` then caps the steps only when given).
+
+## Colour range (2026-10-17)
+Left alone, the search buys pixels with hues the reference never shows (a teal blade, a purple base under everything)
+and, once a light shades the surface, saturates ramps further and further to cancel the shading. `colourRange`
+(OKLab distance, 0 = off) keeps the colours it writes near the reference's own (`src/match/colourRange.ts`): the
+reference's pixels are binned in OKLab (bins under 1 in 10 000 pixels dropped, so stray specks don't count), and before
+each candidate is rendered every active layer and base colour further than the range from all of them is pulled
+straight towards the nearest until it is just inside. Lightness counts half (light and shade move it legitimately), so
+the range mostly holds hue and chroma; greys always pass (multiply and overlay ramps need their white-to-grey stops).
+Constraining the vector itself, in `score()`, covers every move — mutations, gradient steps, colour fits, inserts.
+- Match workspace: *Colours* — Off / Tight (0.03) / Normal (0.06, the default) / Loose (0.12).
+- `harness optimize … --colour-range 0.06` (off by default in the harness).
+- Measured on a lit photo of a lawn with leaf litter, 300 steps from the same start with the height depth held: without
+  it the loss reached 0.147 with a purple base and a green stop in the soil ramp; with Normal it reached 0.131, every
+  colour in the photo's family.
