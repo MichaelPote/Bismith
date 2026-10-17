@@ -157,16 +157,6 @@ export const SHAPING_PARAMS: ParamDef[] = [
   P.int('sh_steps', 'Posterize', 0, 0, 64, { softMax: 16, group: 'shaping', section: 'Value', hint: '0 = off' }),
   P.float('sh_cut', 'Cutoff', 0, 0, 1, { step: 0.001, group: 'shaping', section: 'Value', hint: 'Covers only where the shaped value ≥ cutoff (0 = off): sparse flecks from white noise, islands from clouds' }),
   P.float('sh_cut_soft', 'Cutoff softness', 0, 0, 0.5, { step: 0.001, group: 'shaping', section: 'Value', showIf: (p) => Number(p.sh_cut) > 0 }),
-  P.float('sh_ofs_z', 'Offset Z', 0, -64, 64, {
-    softMin: -1,
-    softMax: 1,
-    step: 0.001,
-    optimize: false,
-    group: 'shaping',
-    section: 'Value',
-    showIf: (p) => p.h_on === true,
-    hint: 'Raises (or, below 0, sinks) the whole height output by this much, in height units like Amount (1.0 = the project’s height depth): lifts one layer’s relief above another’s without squashing its range. Applies wherever the layer covers',
-  }),
 ]
 
 /**
@@ -306,6 +296,14 @@ export const OUTPUT_PARAMS: ParamDef[] = [
   source('h_src', 'height', 'h_mode'),
   P.enum('h_mode', 'Mode', 'add', HEIGHT_MODES, { group: 'height', hint: 'How the height combines with the surface below' }),
   P.float('h_amount', 'Amount', 0.5, -64, 64, { softMin: 0, softMax: 2, step: 0.001, group: 'height', hint: 'Height at a source of 1 (1.0 = the project’s height depth in px)' }),
+  P.float('h_offset', 'Offset', 0, -64, 64, {
+    softMin: -1,
+    softMax: 1,
+    step: 0.001,
+    optimize: false,
+    group: 'height',
+    hint: 'Raises (or, below 0, sinks) the whole height output by this much, in the units of Amount: the height is Offset at a source of 0 and Offset + Amount at 1. Lifts one layer’s relief above another’s without squashing its range. Applies wherever the layer covers',
+  }),
   P.float('h_var', 'Per-feature variation', 0, 0, 1, { step: 0.001, group: 'height', hint: 'Each brick / cell / instance gets its own share of the amount (1 = anywhere from 0 to full): some barely raised, others bold. No effect on patterns without features (smooth noise, clouds)' }),
 
   P.bool('r_on', 'Roughness', false, { group: 'roughness' }),
@@ -477,8 +475,8 @@ ${sdf === true ? /* glsl */ `
     // A height profile of the generator's own (signed, genOutHeight) stands in for the value and carries its own extent:
     // it applies wherever it is non-zero, limited by the clips and opacity but not by the coverage.
     bool own = u_h_src == 0 && g.height > NO_SDF;
-    // Per-feature amplitude from a hash decorrelated from the colour random; Offset Z shifts the whole output.
-    float v = (own ? g.height : srcValue(u_h_src, hval, g.rnd, shapeV)) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123)) + u_sh_ofs_z;
+    // Per-feature amplitude from a hash decorrelated from the colour random; Offset shifts the whole output.
+    float v = (own ? g.height : srcValue(u_h_src, hval, g.rnd, shapeV)) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123)) + u_h_offset;
     float h = S.r;
     float nh = u_h_mode == 0 ? h + v : u_h_mode == 1 ? h - v : u_h_mode == 2 ? max(h, v)
              : u_h_mode == 3 ? min(h, v) : u_h_mode == 4 ? v : h * v;

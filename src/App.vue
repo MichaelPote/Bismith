@@ -47,7 +47,8 @@ function startResize(e: PointerEvent, side: 'left' | 'right'): void {
   el.setPointerCapture(e.pointerId)
   const move = (ev: PointerEvent) => {
     const d = ev.clientX - startX
-    const w = Math.max(180, Math.min(560, side === 'left' ? start + d : start - d))
+    // The properties sidebar may grow twice as wide as the outliner (wide graphs and ramps).
+    const w = Math.max(180, Math.min(side === 'left' ? 560 : 1120, side === 'left' ? start + d : start - d))
     if (side === 'left') leftW.value = w
     else rightW.value = w
   }

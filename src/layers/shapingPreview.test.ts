@@ -22,11 +22,11 @@ describe('shaping preview', () => {
     expect(at(s, s.edge[0] + s.ramp / 2)).toBeCloseTo(0.25, 1)
   })
 
-  it('lifts the output by Offset Z where the layer covers', () => {
-    const shape = shapingSweep(vals({ h_on: true, h_amount: 1, sh_ofs_z: 0.3 }), true)
+  it('lifts the output by Offset where the layer covers', () => {
+    const shape = shapingSweep(vals({ h_on: true, h_amount: 1, h_offset: 0.3 }), true)
     expect(at(shape, 0.5)).toBeCloseTo(1.3)
     expect(at(shape, 0.02)).toBe(0)
-    const noise = shapingSweep(vals({ h_on: true, h_amount: 1, sh_ofs_z: 0.3 }), false)
+    const noise = shapingSweep(vals({ h_on: true, h_amount: 1, h_offset: 0.3 }), false)
     expect(at(noise, 0.02)).toBeCloseTo(0.3)
   })
 
@@ -38,7 +38,7 @@ describe('shaping preview', () => {
   })
 
   it('shows the plain value when Height is off', () => {
-    const s = shapingSweep(vals({ h_on: false, h_amount: 3, sh_ofs_z: 1 }), false)
+    const s = shapingSweep(vals({ h_on: false, h_amount: 3, h_offset: 1 }), false)
     expect(s.amount).toBe(1)
     expect(at(s, 0.5)).toBeCloseTo(1)
   })

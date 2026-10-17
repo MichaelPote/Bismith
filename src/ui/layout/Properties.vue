@@ -42,6 +42,14 @@ const sel = computed(() => editor.selection)
 const layer = computed(() => (sel.value.kind === 'layer' && sel.value.id ? store.getLayer(sel.value.id) : undefined))
 const layerDef = computed(() => (layer.value ? getLayerDef(layer.value.type) : undefined))
 const layerDefs = computed(() => (layer.value ? layerParamDefs(layer.value.type) : []))
+/** Height › Amount and Offset, mirrored under the Shaping › Value graph (the same params, edited from either card). */
+const heightMirror = computed<ParamDef[]>(() =>
+  ['h_amount', 'h_offset'].flatMap((k) => {
+    const d = layerDefs.value.find((x) => x.key === k)
+    if (!d) return []
+    return [{ ...d, label: k === 'h_amount' ? 'Height' : d.label, hint: `${d.hint} (the same control as in the Height card)` }]
+  }),
+)
 const light = computed(() => (sel.value.kind === 'light' && sel.value.id ? store.getLight(sel.value.id) : undefined))
 const post = computed(() => (sel.value.kind === 'post' && sel.value.id ? store.getPost(sel.value.id) : undefined))
 const postDef = computed(() => (post.value ? getPostDef(post.value.type) : undefined))
@@ -194,7 +202,10 @@ const asValues = (o: object) => o as unknown as ParamValues
         >
           <ParamList :defs="c.defs" :values="layer.params" @change="(k, v) => store.setLayerParam(layer!.id, k, v)">
             <template #section="{ section }">
-              <ShapingGraph v-if="c.group.id === 'shaping' && section === 'Value'" :defs="layerDefs" :values="layer.params" :sdf="layerDef.sdf === true" />
+              <template v-if="c.group.id === 'shaping' && section === 'Value'">
+                <ShapingGraph :defs="layerDefs" :values="layer.params" :sdf="layerDef.sdf === true" />
+                <ParamList v-if="layer.params.h_on === true" :defs="heightMirror" :values="layer.params" class="mirror" @change="(k, v) => store.setLayerParam(layer!.id, k, v)" />
+              </template>
             </template>
           </ParamList>
         </PanelCard>
@@ -369,6 +380,14 @@ const asValues = (o: object) => o as unknown as ParamValues
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Width-aware contents (ShapingGraph goes full width when the sidebar is narrow). */
+  container: props / inline-size;
+}
+/* Height › Amount and Offset under the Shaping › Value graph, set off from the value controls below. */
+.mirror {
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--hairline);
 }
 .title {
   display: flex;

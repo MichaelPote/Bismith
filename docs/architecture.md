@@ -206,12 +206,11 @@ The common generator wrapper then:
    their edges on pixel boundaries so 1 px features stay crisp with anti-aliasing off.
 3. **Shaping.** `domain warp` (the sample position is displaced by smooth noise before `gen()` — the whole pattern
    warps coherently), `invert`, input levels (`lo..hi`), `gamma`, `posterize steps`, and a `cutoff` that keeps coverage
-   only where the shaped value reaches it (sparse flecks from white noise, islands from fBm). `Offset Z`
-   (`sh_ofs_z`, shown with Height on) adds a constant to the height output, in height units, wherever the layer
-   covers — one layer's relief sits above another's without squashing either range. The Value section draws a
-   graph of all this (`ShapingGraph.vue`, maths in `src/layers/shapingPreview.ts`, a CPU mirror of the GLSL): a
-   cross-section through one feature — outside, the bevel's rise, full, the fall, outside (a plain 0 → 1 → 0 sweep
-   on layers without a shape) — with the dashed unshaped value behind it.
+   only where the shaped value reaches it (sparse flecks from white noise, islands from fBm). The Value section
+   draws a graph of all this (`ShapingGraph.vue`, maths in `src/layers/shapingPreview.ts`, a CPU mirror of the
+   GLSL): a cross-section through one feature — outside, the bevel's rise, full, the fall, outside (a plain
+   0 → 1 → 0 sweep on layers without a shape) — with the dashed unshaped value behind it. With Height on, Height ›
+   Amount and Offset are mirrored under the graph (the same params), so the curve's strength is set beside it.
 4. **Mask.** Multiply coverage by: inside/outside the shape register (clip), and/or a soft height range of the
    current surface (`above | below level`). This is how dirt collects only in crevices.
 5. **Channel outputs.** Each enabled output maps the value into a channel and blends it in, weighted by
@@ -221,7 +220,7 @@ The common generator wrapper then:
 | --------- | ---------------------- | ---------------------------------------- | ---------------------------------------------------- |
 | Diffuse   | value / flat / random / shape | gradient ramp (≤8 stops) + random jitter | normal, multiply, screen, overlay, add, subtract, darken, lighten, soft light |
 | Opacity   | coverage               | —                                        | replace, multiply, union (max), subtract             |
-| Height    | value / flat / random / shape | `value × amount`                         | add, subtract, max, min, replace, multiply           |
+| Height    | value / flat / random / shape | `value × amount + offset`               | add, subtract, max, min, replace, multiply           |
 | Roughness | value / flat / random / shape | `mix(a, b, value)`                       | replace, multiply, add, min, max                     |
 | Emissive  | value / flat / random / shape | `colour × intensity × value` (HDR)       | add, replace, max                                    |
 | Specular  | value / flat / random / shape | `mix(a, b, value)` level 0..1            | replace, multiply, add, min, max                     |

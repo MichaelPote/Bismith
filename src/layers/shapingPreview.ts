@@ -1,6 +1,6 @@
 // CPU mirror of the generator wrapper's value chain (GLSL_GENERATOR_MAIN in commonParams.ts, profileCurve in
 // glsl/common.ts) for the graph in Shaping › Value: a cross-section through one feature — nothing, the rise across the
-// edge, the full value, the fall, nothing — run through bevel, levels, gamma, posterize, invert, cutoff and Offset Z.
+// edge, the full value, the fall, nothing — run through bevel, levels, gamma, posterize, invert, cutoff and Offset.
 
 import { evalCurve, type Curve, type ParamValue } from '@/core/params'
 import { DEFAULT_BEVEL_CURVE, PROFILES } from './commonParams'
@@ -45,7 +45,7 @@ export interface ShapingSweep {
   xs: number[]
   input: number[]
   output: number[]
-  /** The output's scale: Amount (1 when Height is off) and Offset Z, in height units. */
+  /** The output's scale: Amount (1 when Height is off) and Offset, in height units. */
   amount: number
   offset: number
   /** The cutoff as an output level (null when off). */
@@ -61,13 +61,13 @@ const PLAIN_RAMP = 0.85
 
 /**
  * The cross-section for the current params. `sdf`: the layer has a shape and bevel (outside it the layer covers
- * nothing); without one, the value just sweeps 0 → 1 → 0 and the layer covers everywhere (so Offset Z lifts the
+ * nothing); without one, the value just sweeps 0 → 1 → 0 and the layer covers everywhere (so Offset lifts the
  * margins too). Bevel is drawn on a soft scale (b / (b + 8 px) of the half-width) so every width stays readable.
  */
 export function shapingSweep(get: Get, sdf: boolean, n = 240): ShapingSweep {
   const height = get('h_on') === true
   const amount = height ? Number(get('h_amount') ?? 0.5) : 1
-  const offset = height ? Number(get('sh_ofs_z') ?? 0) : 0
+  const offset = height ? Number(get('h_offset') ?? 0) : 0
   const bevel = Math.max(0, Number(get('bevel') ?? 0))
   const profile = Math.max(0, PROFILES.findIndex(([k]) => k === (get('profile') ?? 'round')))
   const curve = (get('bevel_curve') as Curve | undefined) ?? DEFAULT_BEVEL_CURVE
