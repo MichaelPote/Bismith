@@ -48,7 +48,7 @@ const viewItems = computed<MenuItem[]>(() => [
   { section: 'Channel' },
   ...CHANNEL_VIEWS.map((c) => ({ label: c.label, shortcut: c.key, checked: editor.channel === c.id, action: () => (editor.channel = c.id) })),
   { separator: true },
-  { label: 'Tile preview (3×3)', shortcut: 'T', checked: editor.tile, action: () => (editor.tile = !editor.tile) },
+  { label: 'Tile preview (5×5)', shortcut: 'T', checked: editor.tile, action: () => (editor.tile = !editor.tile) },
   { label: 'Pixel grid', shortcut: 'G', checked: editor.grid, action: () => (editor.grid = !editor.grid) },
   { label: 'Alpha checkerboard', checked: editor.checker, action: () => (editor.checker = !editor.checker) },
   { label: 'Preview up to selected layer', shortcut: 'S', checked: editor.solo, action: () => (editor.solo = !editor.solo) },

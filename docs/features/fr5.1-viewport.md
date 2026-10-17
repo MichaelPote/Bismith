@@ -8,7 +8,7 @@ place lights.
 
 ## Plan
 - Display pass: draws the chosen buffer into the canvas with zoom / pan (nearest-neighbour), sRGB encode,
-  alpha checkerboard, optional 3×3 tile preview and pixel grid at high zoom.
+  alpha checkerboard, optional 5×5 tile preview and pixel grid at high zoom.
 - Channel selector: Final · Diffuse · Height · Roughness · Normal · Emissive · Opacity · Shape register.
 - Mouse: wheel zoom about cursor, middle/space-drag pan, double-click to fit, `1` = 100 %, `F` = fit.
 - Overlay toolbar (Cinderforge viewport header): view name, resolution, sample count, toggles (tile, grid,
@@ -18,7 +18,7 @@ place lights.
 ## Checklist
 - [x] Display pass with zoom / pan / nearest
 - [x] Channel views
-- [x] Tile preview 3×3
+- [x] Tile preview 5×5 (copies undimmed)
 - [x] Pixel grid at high zoom (off by default; G toggles it)
 - [x] Alpha checkerboard
 - [x] Viewport header toolbar + readouts

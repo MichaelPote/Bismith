@@ -1,4 +1,4 @@
-// Stage 5: present a buffer in the viewport canvas with zoom / pan, nearest sampling, 3×3 tile preview,
+// Stage 5: present a buffer in the viewport canvas with zoom / pan, nearest sampling, 5×5 tile preview,
 // pixel grid, alpha checkerboard and per-channel visualisation.
 
 import * as THREE from 'three'
@@ -57,12 +57,10 @@ vec3 voidColor = vec3(0.090, 0.098, 0.110);
 void main() {
   vec2 fc = vec2(gl_FragCoord.x, uCanvas.y - gl_FragCoord.y);      // canvas px, y down
   vec2 t = (fc - uOffset) / uZoom;                                  // texel coords, y down
-  vec2 lo = uTileView ? -uTex : vec2(0.0);
-  vec2 hi = uTileView ? 2.0 * uTex : uTex;
+  vec2 lo = uTileView ? -2.0 * uTex : vec2(0.0);
+  vec2 hi = uTileView ? 3.0 * uTex : uTex;
   if (any(lessThan(t, lo)) || any(greaterThanEqual(t, hi))) { oColor = vec4(voidColor, 1.0); return; }
-  ivec2 c = ivec2(floor(t));
-  ivec2 cw = ivec2(floor(mod(t, uTex)));                            // wrapped texel (tile view)
-  vec2 tk = mod(t, uTex) * uSS;
+  vec2 tk = mod(t, uTex) * uSS;                                     // wrapped (tile view), in tImage texels
   ivec2 ci = ivec2(floor(tk));
   ivec2 gl = ivec2(ci.x, int(uTex.y * uSS + 0.5) - 1 - ci.y);
   vec4 v = texelFetch(tImage, gl, 0);
@@ -101,7 +99,6 @@ void main() {
     vec3 chk = mix(vec3(0.17, 0.19, 0.21), vec3(0.23, 0.25, 0.27), k);
     col = mix(chk, col, alpha);
   }
-  if (uTileView && (c.x != cw.x || c.y != cw.y)) col *= 0.72;
   if (uGrid && uZoom >= 12.0) {
     vec2 f = fract(t) * uZoom;
     if (f.x < 1.0 || f.y < 1.0) col = mix(col, vec3(0.0), 0.14);

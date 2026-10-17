@@ -48,7 +48,7 @@ function pushView(): void {
 
 function fit(): void {
   const p = store.project
-  const span = editor.tile ? 3 : 1
+  const span = editor.tile ? 5 : 1
   const availW = cssSize.value.w * dpr.value * 0.88
   const availH = (cssSize.value.h - 72) * dpr.value * 0.88
   const ideal = Math.min(availW / (p.width * span), availH / (p.height * span))
@@ -140,8 +140,8 @@ function pickTexel(e: MouseEvent): string | null {
   const p = store.project
   const tx = Math.floor(((e.clientX - rect.left) * dpr.value - editor.offsetX) / editor.zoom)
   const ty = Math.floor(((e.clientY - rect.top) * dpr.value - editor.offsetY) / editor.zoom)
-  const lo = editor.tile ? -1 : 0
-  const hi = editor.tile ? 2 : 1
+  const lo = editor.tile ? -2 : 0
+  const hi = editor.tile ? 3 : 1
   if (tx < lo * p.width || ty < lo * p.height || tx >= hi * p.width || ty >= hi * p.height) return null
   const mod = (v: number, n: number) => ((v % n) + n) % n
   const rgb = engine.pickColour(mod(tx, p.width), mod(ty, p.height))
@@ -209,7 +209,7 @@ const SHORT: Record<string, string> = {
 /** Viewport overlays: toggle keys that latch, with a pilot lamp. */
 const toggles = computed(() => [
   { label: 'Preview up to selected layer', tip: 'Preview up to the selected layer (S)', icon: IconStack2, on: editor.solo, flip: () => (editor.solo = !editor.solo) },
-  { label: 'Tile preview', tip: 'Tile preview, 3×3 (T)', icon: IconRepeat, on: editor.tile, flip: () => (editor.tile = !editor.tile) },
+  { label: 'Tile preview', tip: 'Tile preview, 5×5 (T)', icon: IconRepeat, on: editor.tile, flip: () => (editor.tile = !editor.tile) },
   { label: 'Pixel grid', tip: 'Pixel grid (G)', icon: IconGrid4x4, on: editor.grid, flip: () => (editor.grid = !editor.grid) },
   { label: 'Alpha checkerboard', tip: 'Alpha checkerboard', icon: IconBackground, on: editor.checker, flip: () => (editor.checker = !editor.checker) },
 ])
@@ -324,15 +324,19 @@ onMounted(() => {
  * seconds (D3D on Windows); started straight away, it ran before the first paint and left the page blank meanwhile.
  */
 async function startEngine(e: Engine): Promise<void> {
+  const types = store.project.layers.map((l) => l.type)
+  // Progress: a step per generator shader, and one for the first frame (filters, tracer, post).
+  const steps = e.uncompiled(types).length + 1
   editor.busy = {
     title: 'Compiling shaders…',
     detail: 'Setting up the renderer for this project. This can take a few seconds.',
     // Without background compiling the page freezes during the compile, so the modal can't wait to fade in.
     instant: !e.parallelCompile,
+    progress: 0,
   }
   try {
     await afterPaint()
-    await e.precompile(store.project.layers.map((l) => l.type))
+    await e.precompile(types, (done) => editor.busy && (editor.busy.progress = done / steps))
     // Unmounted meanwhile: the engine is disposed.
     if (engine !== e) return
     e.start()

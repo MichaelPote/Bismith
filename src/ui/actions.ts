@@ -178,16 +178,20 @@ export function useActions() {
    */
   async function withShaders(types: string[], label: string, apply: () => void): Promise<void> {
     const engine = editor.engine
-    if (!engine?.uncompiled(types).length) return apply()
+    const pending = engine?.uncompiled(types).length ?? 0
+    if (!engine || !pending) return apply()
+    // Progress: a step per shader, and one for the first run.
+    const steps = pending + 1
     editor.busy = {
       title: 'Compiling shaders…',
       detail: `Setting up ${label} for its first use. This can take a few seconds.`,
       // Without background compiling the page freezes during the compile, so the modal can't wait to fade in.
       instant: !engine.parallelCompile,
+      progress: 0,
     }
     try {
       await afterPaint()
-      await engine.precompile(types)
+      await engine.precompile(types, (done) => editor.busy && (editor.busy.progress = done / steps))
       apply()
       // Where the browser can't compile in the background, the first run does it: keep the modal up until then.
       await nextTick()

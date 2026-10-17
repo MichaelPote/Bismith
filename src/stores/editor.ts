@@ -47,9 +47,10 @@ export const useEditorStore = defineStore('editor', () => {
   const toast = ref<{ text: string; kind: 'info' | 'error'; at: number } | null>(null)
   /**
    * Blocking work in progress (e.g. a first shader compile): shown as a modal over the app, fading in after a moment
-   * unless `instant` (when the work will freeze the page, the modal has to be on screen before it starts).
+   * unless `instant` (when the work will freeze the page, the modal has to be on screen before it starts). `progress`
+   * (0…1), when given, draws a progress bar: the share of the steps done, e.g. shaders compiled.
    */
-  const busy = ref<{ title: string; detail?: string; instant?: boolean } | null>(null)
+  const busy = ref<{ title: string; detail?: string; instant?: boolean; progress?: number } | null>(null)
   /** The open question (see ask), with the function that answers it. */
   const question = shallowRef<(Question & { answer: (id: string | null) => void }) | null>(null)
   /** The new-project wizard is open. */

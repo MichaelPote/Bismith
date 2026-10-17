@@ -296,11 +296,20 @@ export class MaterialPipeline {
     this.compiled.clear()
   }
 
-  /** Compile generators' shaders ahead of their first run (see GpuContext.compile). */
-  async precompile(types: string[]): Promise<void> {
+  /**
+   * Compile generators' shaders ahead of their first run (see GpuContext.compile). They are all submitted at once (the
+   * browser compiles them in parallel); `onProgress` hears how many have finished as each one does.
+   */
+  async precompile(types: string[], onProgress?: (done: number, total: number) => void): Promise<void> {
     const defs = this.uncompiled(types).map((t) => getLayerDef(t)!)
-    await this.gpu.compile(defs.map((d) => this.generatorMaterial(d)))
-    for (const d of defs) this.compiled.add(d.type)
+    let done = 0
+    await Promise.all(
+      defs.map(async (d) => {
+        await this.gpu.compile([this.generatorMaterial(d)])
+        this.compiled.add(d.type)
+        onProgress?.(++done, defs.length)
+      }),
+    )
   }
 
   private generatorMaterial(def: LayerDef): THREE.RawShaderMaterial {

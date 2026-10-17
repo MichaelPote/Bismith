@@ -187,8 +187,8 @@ export class Engine {
   }
 
   /** Compile generator shaders ahead of their first use (see MaterialPipeline.precompile). */
-  precompile(types: string[]): Promise<void> {
-    return this.material.precompile(types)
+  precompile(types: string[], onProgress?: (done: number, total: number) => void): Promise<void> {
+    return this.material.precompile(types, onProgress)
   }
 
   /** Make the next compiles cold (a fresh salt in the shaders): for measuring compile times only. */
