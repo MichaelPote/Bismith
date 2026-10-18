@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The centre view: owns the Engine, the canvas, zoom/pan, channel views and light gizmos.
+// The centre view: owns the Engine, the canvas, zoom/pan, channel views, and the selected light's or layer's gizmo.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
@@ -10,6 +10,8 @@ import { GpuError } from '@/gpu/context'
 import { CHANNEL_VIEWS } from '@/render/display'
 import { IconBackground, IconBolt, IconGrid4x4, IconMaximize, IconPencil, IconRepeat, IconStack2 } from '@tabler/icons-vue'
 import ShapeEditor from '@/ui/components/ShapeEditor.vue'
+import LayerGizmo from '@/ui/components/LayerGizmo.vue'
+import { hasGizmo } from '@/ui/gizmos'
 import { getRecipe } from '@/recipes'
 import SelectField from '@/ui/components/SelectField.vue'
 import { vTip } from '@/ui/tooltip'
@@ -166,10 +168,11 @@ const texRect = computed(() => {
 /** A sun gizmo's horizon (CSS px from the texture centre): just outside the texture. */
 const sunHorizon = (r: { w: number; h: number }) => Math.max(40, Math.min(r.w, r.h) / 2 + 26)
 
+// Only the selected light's.
 const gizmos = computed(() => {
   const r = texRect.value
   return project.value.lighting.lights
-    .filter((l) => l.enabled)
+    .filter((l) => l.enabled && editor.selection.kind === 'light' && editor.selection.id === l.id)
     .map((l) => {
       const sel = editor.selection.kind === 'light' && editor.selection.id === l.id
       if (l.type === 'point') {
@@ -184,6 +187,14 @@ const gizmos = computed(() => {
       const len = horizon * (1 - Number(l.params.elevation) / 90)
       return { id: l.id, type: 'directional' as const, sel, color: String(l.params.color), cx, cy, horizon, x: cx + Math.sin(az) * len, y: cy - Math.cos(az) * len }
     })
+})
+
+/** The selected layer's gizmo (src/ui/gizmos.ts), in the Create workspace. */
+const gizmoLayer = computed(() => {
+  const s = editor.selection
+  if (editor.workspace !== 'create' || s.kind !== 'layer' || !s.id) return null
+  const l = store.getLayer(s.id)
+  return l && l.enabled && hasGizmo(l.type) ? l : null
 })
 
 // ---------------------------------------------------------------- shape editor
@@ -437,6 +448,7 @@ watch(
           </g>
         </template>
       </svg>
+      <LayerGizmo v-if="gizmoLayer" :layer="gizmoLayer" :project="project" :rect="texRect" :size="cssSize" />
       <ShapeEditor v-if="editor.workspace === 'create'" :target="shapeTarget" :rect="texRect" :tex-w="project.width" :tex-h="project.height" :size="cssSize" />
     </div>
 
