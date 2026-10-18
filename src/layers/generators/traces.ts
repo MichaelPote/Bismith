@@ -209,6 +209,14 @@ GenOut gen(vec2 p) {
   // mask out to their width).
   float sure = max(min(float(rings + 1) * cmin - hw * wideK, float(rings + 2) * cmin - max(padR, viaR)), 0.5);
   float hole = 1e4; // drill holes (pads, vias): cut out of everything at the end, traces running in included
+  // Bevel aspect: the same distances measured in the space the aspect stretches (px of Bevel), per piece — each
+  // trace's sides by their normal and its caps by their direction, square and octagon pads by their sides' planes,
+  // rings and holes by their direction — so the least of them stays continuous where pieces and pad sides meet (the
+  // distances' own direction steps there). Off at aspect 1: the wrapper's bevel, unchanged.
+  bool asp = bevelAspectOn();
+  vec2 bk = u_bevel / bevelWidths();             // × per screen axis
+  float bkd = u_bevel / bevelWidth(vec2(1.0));   // × across an octagon's diagonal sides
+  float bestB = 1e4, bestTB = 1e4, holeB = 1e4;  // (bestB: pads and vias)
   // No continue in these loops: ANGLE / D3D11 can miscompile it (AGENTS.md).
   for (int c = 0; c < span * span; c++) {
     ivec2 k = c0 + ivec2(c % span, c / span) - off;
@@ -222,9 +230,13 @@ GenOut gen(vec2 p) {
       vec2 a = tr_node(k);
       for (int d = 0; d < 8; d++) {
         if ((links & (1 << d)) != 0) {
-          float dist = sdSegment(p, a, tr_node(k + KING[d])) - thw;
+          vec2 pa = p - a, ba = tr_node(k + KING[d]) - a;
+          float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
+          vec2 v = pa - ba * h;
+          float dist = length(v) - thw;
           bestT = min(bestT, dist);
           if (dist < best) { best = dist; bestId = id; }
+          if (asp) bestTB = min(bestTB, bevelLine(dist, h > 0.0 && h < 1.0 ? vec2(-ba.y, ba.x) : v));
         }
       }
       vec2 q = abs(p - a);
@@ -239,13 +251,22 @@ GenOut gen(vec2 p) {
         float dist = u_pad_shape == 1 ? sdBox(q, vec2(pr)) : u_pad_shape == 2 ? max(max(q.x, q.y), (q.x + q.y) * 0.70711) - pr : r - pr;
         if (dist < best) { best = dist; bestId = id; }
         float bw = mix(u_bevel, pr, u_pad_dome);
+        // (Stretched: exact inside square and octagon pads; outside only its sign matters.)
+        float distB = !asp ? dist : u_pad_shape == 0 ? bevelLine(dist, q)
+                    : max(max((q.x - pr) * bk.x, (q.y - pr) * bk.y), u_pad_shape == 2 ? ((q.x + q.y) * 0.70711 - pr) * bkd : -1e4);
         if (u_pad_hole > 0.0) {
           hole = min(hole, r - u_pad_hole);
           dist = max(dist, u_pad_hole - r);
           bw = min(bw, 0.4 * max(pr - u_pad_hole, 0.0));
+          if (asp) {
+            holeB = min(holeB, bevelLine(r - u_pad_hole, q));
+            distB = max(distB, bevelLine(u_pad_hole - r, q));
+          }
         }
         bestP = min(bestP, dist);
-        fx = max(fx, -dist / max(bw, 1e-3));
+        bestB = min(bestB, distB);
+        // The pad's bevel (Pad dome 0) in the stretched space; the dome over the whole pad stays round.
+        fx = max(fx, -(asp ? mix(distB, dist, u_pad_dome) : dist) / max(bw, 1e-3));
       }
       // A via on a pad is the pad's (Pad hole drills pads).
       if ((fl & 2) != 0 && !pad) {
@@ -259,8 +280,12 @@ GenOut gen(vec2 p) {
           dist = max(dist, vr - ring - r);
           bw = min(bw, 0.4 * ring);
         }
+        // (A ring's sides are both circles: by its direction, the same for both.)
+        float distB = asp ? bevelLine(dist, q) : dist;
+        if (asp && vr > ring) holeB = min(holeB, bevelLine(r - (vr - ring), q));
         bestP = min(bestP, dist);
-        fx = max(fx, -dist / max(bw, 1e-3));
+        bestB = min(bestB, distB);
+        fx = max(fx, -(asp ? mix(distB, dist, u_pad_dome) : dist) / max(bw, 1e-3));
       }
     }
   }
@@ -268,16 +293,23 @@ GenOut gen(vec2 p) {
   bestT = min(bestT, sure);
   bestP = min(bestP, sure);
   float rnd = hashI(ivec2(int(bestId), 5), uSeed);
-  if (u_pad_lift <= 0.0 && u_pad_dome <= 0.0) return genOut(1.0, 1.0, rnd, best);
+  bestTB = max(bestTB, -holeB);
+  if (u_pad_lift <= 0.0 && u_pad_dome <= 0.0) {
+    GenOut g = genOut(1.0, 1.0, rnd, best);
+    if (asp) g.bdist = max(min(bestTB, bestB), -holeB);
+    return g;
+  }
   // Pad height / dome: the relief from the layer's own shapes — traces by the Edge bevel, pads and vias (1 + Pad
   // height) × as high (domed per Pad dome); every hole cuts through all of it.
   bestT = max(bestT, -hole);
   bestP = max(bestP, -hole);
   bool noBev = u_profile == 0 && u_pad_dome <= 0.0;
-  float tH = (u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, -bestT / u_bevel) : 1.0;
+  float tH = (u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, -(asp ? bestTB : bestT) / u_bevel) : 1.0;
   float pH = noBev ? 1.0 : profileCurve(u_profile == 0 ? 3 : u_profile, fx);
   float h = max(tH * coverage(bestT, u_aa), (1.0 + u_pad_lift) * pH * coverage(bestP, u_aa));
-  return genOutHeight(1.0, 1.0, rnd, best, h);
+  GenOut g = genOutHeight(1.0, 1.0, rnd, best, h);
+  if (asp) g.bdist = max(min(bestTB, bestB), -holeB);
+  return g;
 }
 `,
 }

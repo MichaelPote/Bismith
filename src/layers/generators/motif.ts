@@ -795,29 +795,51 @@ ivec2 mot_cellCount(ivec2 mult) {
 
 const ivec2 MOT_D4[4] = ivec2[4](ivec2(1, 0), ivec2(0, 1), ivec2(-1, 0), ivec2(0, -1));
 
-// Exact distance to a quarter circle of radius r centred at c, spanning the quadrant towards signs s.
-float mot_quarterArc(vec2 p, vec2 c, float r, vec2 s) {
+// Exact distance to a quarter circle of radius r centred at c, spanning the quadrant towards signs s. With gMotStr,
+// S: the band of half width w round it in the stretched space (mot_bandS; sq scales the directions back from a
+// squashed frame).
+float mot_quarterArc(vec2 p, vec2 c, float r, vec2 s, vec2 sq, float w, out float S) {
   vec2 d = p - c;
-  if (d.x * s.x >= 0.0 && d.y * s.y >= 0.0) return abs(length(d) - r);
-  return min(length(d - vec2(s.x * r, 0.0)), length(d - vec2(0.0, s.y * r)));
+  float l = length(d);
+  bool arc = d.x * s.x >= 0.0 && d.y * s.y >= 0.0;
+  vec2 e0 = d - vec2(s.x * r, 0.0), e1 = d - vec2(0.0, s.y * r);
+  bool end0 = dot(e0, e0) < dot(e1, e1);
+  vec2 v = arc ? d : end0 ? e0 : e1;
+  float dist = arc ? abs(l - r) : length(v);
+  // Past an end: the sides there run along the arc's tangent, across its radius.
+  vec2 nl = arc ? d : end0 ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  S = gMotStr ? mot_bandS(dist, v * sq, arc ? dist : abs(end0 ? e0.x : e1.y), nl * sq, w) : 0.0;
+  return dist;
+}
+
+// Bevel aspect (GLSL_BEVEL): the lines' distances in the space the aspect stretches (gMotStr; the lattice's axes are
+// the screen's, swapped for vertical meanders), piece by piece — a round piece across its nearest point's direction
+// (mot_bandS), a square-capped wall or a box as a box there (the stretch keeps it one), a pad exactly (mot_discS) —
+// so the bevels meet in clean mitres where walls turn and where boxes have corners.
+float mot_boxS(vec2 p, vec2 h) {
+  mat2 M = bevelFrame(gMotF[0], gMotF[1]);
+  return sdBox(M * p, abs(M * h));
 }
 
 // Line-centre distance to the axis-aligned segment a–b: round caps (sdSegment), or square ones (Caps: the line's
 // box, so ends are cut square and corners mitred), both measured to the centre line (the caller subtracts half the
-// width).
+// width); y: the line's own distance (its half width taken off) in the stretched space, with gMotStr.
 float mot_hw;
-float mot_seg(vec2 p, vec2 a, vec2 b) {
-  return u_caps == 0 ? sdSegment(p, a, b) : sdBox(p - 0.5 * (a + b), 0.5 * abs(b - a) + mot_hw) + mot_hw;
+vec2 mot_seg(vec2 p, vec2 a, vec2 b) {
+  if (u_caps == 0) return vec2(sdSegment(p, a, b), gMotStr ? mot_segS(p, a, b, mot_hw) : 0.0);
+  vec2 c = p - 0.5 * (a + b), h = 0.5 * abs(b - a) + mot_hw;
+  return vec2(sdBox(c, h) + mot_hw, gMotStr ? mot_boxS(c, h) : 0.0);
 }
 
 // ---- circuit: the board is laid out on the CPU (circuitTiles); each tile's data holds its +x / +y edges, wide and
 // via flags, bus direction, chip flag and place in its chip, and a random per trace.
 
 // Line-centre distance (x) and solid distance (y) of circuit tile c at offset l (px from the tile centre); rr: its
-// random. Each case only picks its segments (at most two: a0 → b0, a1 → b1) and pads (at most two: at p0, p1); one
+// random; st: with gMotStr, the lines' own distance (the half width taken off) and the solid's but its pads in the
+// stretched space; pad: the nearest pad's centre (l) and radius (z), and its distance (w). Each case only picks its segments (at most two: a0 → b0, a1 → b1) and pads (at most two: at p0, p1); one
 // loop then measures them, so every primitive is compiled once (D3D inlines each call site). Flags and edges are bit
 // masks, not arrays (D3D compiles dynamically indexed local arrays slowly).
-vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr) {
+vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr, out vec2 st, out vec4 pad) {
   ivec2 cw = mot_wrap(c, n);
   vec2 h = 0.5 * cs;
   vec2 eR = vec2(h.x, 0.0), eL = vec2(-h.x, 0.0), eU = vec2(0.0, h.y), eD = vec2(0.0, -h.y), O = vec2(0.0);
@@ -830,7 +852,7 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr) 
   bool R = (e & 1) != 0, U = (e & 2) != 0, L = (e & 4) != 0, D = (e & 8) != 0;
   vec2 a0 = O, b0 = O, a1 = O, b1 = O, p0 = O, p1 = O;
   int on = 0;   // bit 0, 1: segment 0, 1 drawn; bit 2, 3: pad 0, 1
-  float ds = 1e9;
+  float ds = 1e9, dsS = 1e9;
   int k = int(R) + int(L) + int(U) + int(D);
   vec3 hh = hash3I(cw, MOT_SEED + 5.0);
   bool junc = hh.x < u_junctions;
@@ -844,10 +866,13 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr) 
     vec2 bc = (0.5 * vec2(S - 1) - vec2(li)) * cs;
     vec2 bh = max(0.5 * vec2(S) * cs - max(cs / 3.0, vec2(u_width)), vec2(0.5));
     ds = sdBox(l - bc, bh);
+    if (gMotStr) dsS = mot_boxS(l - bc, bh);
     if (u_chip_style == 1) {
       // IC: a notch in the body's −x end, and a leg on every tile side along the outline, from the body out to the
       // tile edge (where a trace meets it) — wider than a trace, square.
-      ds = max(ds, 0.35 * min(bh.x, bh.y) - length(l - bc + vec2(bh.x, 0.0)));
+      vec2 nv = l - bc + vec2(bh.x, 0.0);
+      ds = max(ds, 0.35 * min(bh.x, bh.y) - length(nv));
+      if (gMotStr) dsS = max(dsS, mot_bl(0.35 * min(bh.x, bh.y) - length(nv), nv));
       // Per axis, the tile's sides on the outline: + or − (a chip one tile across: both, folded by |l|). The legs
       // stand a little off the body (a gap of a fifth of the inset, at least 1 px) and are narrower than a tile.
       float lw = min(max(hw, 0.14 * min(cs.x, cs.y)), 0.3 * min(cs.x, cs.y));
@@ -859,7 +884,9 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr) 
           float sg = pp ? 1.0 : -1.0, lc = x ? l.x : l.y;
           float body = (pp && pm ? 0.0 : sg * (x ? bc.x : bc.y)) + (x ? bh.x : bh.y), edge = x ? h.x : h.y;
           body += min(max(0.2 * (edge - body), 1.0), 0.5 * (edge - body));
-          ds = min(ds, sdBox(vec2((pp && pm ? abs(lc) : sg * lc) - 0.5 * (edge + body), x ? l.y : l.x), vec2(0.5 * (edge - body), lw)));
+          vec2 lp = vec2((pp && pm ? abs(lc) : sg * lc) - 0.5 * (edge + body), x ? l.y : l.x), lh = vec2(0.5 * (edge - body), lw);
+          ds = min(ds, sdBox(lp, lh));
+          if (gMotStr) dsS = min(dsS, mot_boxS(x ? lp : lp.yx, x ? lh : lh.yx));
         }
       }
     } else {
@@ -917,13 +944,23 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr) 
     a1 = cut ? eL : eU; b1 = cut ? (z ? eD : eU) : eD;
     on = cut ? 3 : 7;
   }
-  float dl = 1e9;
-  for (int q = 0; q < 2 * MOT_1; q++) {
-    if ((on & (1 << q)) != 0) dl = min(dl, sdSegment(l, q == 0 ? a0 : a1, q == 0 ? b0 : b1));
-    if ((on & (4 << q)) != 0) ds = min(ds, length(l - (q == 0 ? p0 : p1)) - u_pad);
-  }
   // A wide trace (power line): 2.5 × the width, its pads grown as much.
   float wx = (t & 4) != 0 && !chip ? max(1.5 * hw, 1.0) : 0.0;
+  float dl = 1e9, dlS = 1e9;
+  pad = vec4(0.0, 0.0, 0.0, 1e9);
+  for (int q = 0; q < 2 * MOT_1; q++) {
+    vec2 a = q == 0 ? a0 : a1, b = q == 0 ? b0 : b1, pc = q == 0 ? p0 : p1;
+    if ((on & (1 << q)) != 0) {
+      dl = min(dl, sdSegment(l, a, b));
+      if (gMotStr) dlS = min(dlS, mot_segS(l, a, b, hw + wx));
+    }
+    if ((on & (4 << q)) != 0) {
+      float e = length(l - pc) - u_pad;
+      ds = min(ds, e);
+      if (e - wx < pad.w) pad = vec4(pc, u_pad + wx, e - wx);
+    }
+  }
+  st = vec2(dlS, dsS);
   return vec2(dl - wx, ds - wx);
 }
 
@@ -949,6 +986,10 @@ GenOut gen(vec2 p) {
   mot_hw = hw;
   float best = 1e9, solid = 1e9;
   float rnd = 0.0;
+  // Bevel aspect: also the lines' own distance and the solids' in the stretched space (gMotStr, mot_bl).
+  MOT_SET_STR(bevelAspectOn());
+  gMotF = style == 4 && u_vertical ? mat2(0.0, 1.0, 1.0, 0.0) : mat2(1.0);
+  float bestS = 1e9, solidS = 1e9;
 
   float side = 0.0;   // two-tone: 1 in the filled regions
   // Over-under: the Height factor of the nearest strand — plain strands at wBase; crossing strands one cosine from a
@@ -973,18 +1014,28 @@ GenOut gen(vec2 p) {
       bool o = h.y < 0.5;
       vec2 l = u - vec2(c) * cs;
       float da, db;   // the tile's two strands (crossings: ─ and │, or ╲ and ╱)
+      float sa = 0.0, sb = 0.0;   // Bevel aspect: their bands in the stretched space
+      vec2 la, lb;    // and the directions across them (crossings: for the weave's cut)
       vec2 L = l * (m / cs);   // arcs: square frame (non-square cells squash the arcs)
+      vec2 sq = m / cs;        // (which scales directions inversely)
       float r = 0.5 * m;
       if (style == 0) {
         // Arcs round two opposite corners: (0, 0) and (m, m), or (m, 0) and (0, m); each spans the quadrant inwards.
         vec2 ca = o ? vec2(0.0) : vec2(m, 0.0), cb = vec2(m) - ca;
+        la = vec2(0.0, sq.y);
+        lb = vec2(sq.x, 0.0);
         if (crossing) {
           vec2 q = L - r;
-          da = length(vec2(max(abs(q.x) - r, 0.0), q.y));
-          db = length(vec2(q.x, max(abs(q.y) - r, 0.0)));
+          vec2 va = vec2(sign(q.x) * max(abs(q.x) - r, 0.0), q.y), vb = vec2(q.x, sign(q.y) * max(abs(q.y) - r, 0.0));
+          da = length(va);
+          db = length(vb);
+          if (gMotStr) {
+            sa = mot_bandS(da, va * sq, abs(q.y), la, hw);
+            sb = mot_bandS(db, vb * sq, abs(q.x), lb, hw);
+          }
         } else {
-          da = mot_quarterArc(L, ca, r, sign(r - ca));
-          db = mot_quarterArc(L, cb, r, sign(r - cb));
+          da = mot_quarterArc(L, ca, r, sign(r - ca), sq, hw, sa);
+          db = mot_quarterArc(L, cb, r, sign(r - cb), sq, hw, sb);
         }
         // Two-tone: every region holds lattice nodes of one parity — a corner quarter-disc its corner, the band
         // between the arcs the other two corners, a crossing's quadrant its corner. The pixel's own tile decides.
@@ -992,7 +1043,13 @@ GenOut gen(vec2 p) {
       } else {
         da = sdSegment(l, vec2(0.0), cs);
         db = sdSegment(l, vec2(cs.x, 0.0), vec2(0.0, cs.y));
-        if (!crossing) { if (o) db = 1e9; else da = 1e9; }
+        la = vec2(-cs.y, cs.x);
+        lb = cs;
+        if (gMotStr) {
+          sa = mot_segS(l, vec2(0.0), cs, hw);
+          sb = mot_segS(l, vec2(cs.x, 0.0), vec2(0.0, cs.y), hw);
+        }
+        if (!crossing) { if (o) { db = 1e9; sb = 1e9; } else { da = 1e9; sa = 1e9; } }
       }
       float hO = wBase, hU = wBase;
       bool woven = crossing && gap > 0.0;
@@ -1002,12 +1059,16 @@ GenOut gen(vec2 p) {
         // back to the plain height at the tile's edge.
         bool aOver = ((cw.x + cw.y) & 1) == 0;
         float ov = aOver ? da : db;
+        // Stretched: the under strand cut by the over one's band grown by the gap (across the over strand).
+        if (gMotStr) bestS = min(bestS, min(aOver ? sa : sb, max(aOver ? sb : sa, mot_bl(hw + gap - ov, aOver ? la : lb))));
         db = max(aOver ? db : da, 2.0 * hw + gap - ov);
         da = ov;
         float t = (style == 0 ? length(L - r) / r : length(l - 0.5 * cs) / (0.5 * length(cs)));   // 0 centre … 1 edge
         float cw2 = wAmp * cos(1.5707963 * min(t, 1.0));
         hO = wBase + cw2;
         hU = wBase - cw2;
+      } else if (gMotStr) {
+        bestS = min(bestS, min(sa, sb));
       }
       float d = min(da, db);
       if (d < best) { best = d; rnd = h.z; hgt = db < da ? hU : hO; }
@@ -1019,6 +1080,7 @@ GenOut gen(vec2 p) {
     // pixel (cell c spans lattice [c, c + 1]), and the random of the pixel's cell (per room for rooms).
     ivec2 c0 = ivec2(floor(u / cs));
     vec4 rd = vec4(0.0);
+    int wb = 0;   // the block's walls, bit 2 · (cell index in the 3×3 block) + axis (Bevel aspect)
     for (int j = -MOT_1; j <= MOT_1; j++)
     for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
@@ -1026,9 +1088,33 @@ GenOut gen(vec2 p) {
       vec4 cd = mot_cellData(c, n);
       if (i == 0 && j == 0) rd = cd;
       int bits = int(cd.b * 255.0 + 0.5);
+      wb |= (bits & 3) << (2 * (i + 1 + 3 * (j + 1)));
       // Both walls through one segment call.
       for (int ax = 0; ax < 2 * MOT_1; ax++)
-        if (((bits >> ax) & 1) == 1) best = min(best, mot_seg(u, o, ax == 0 ? vec2(o.x, o.y - cs.y) : vec2(o.x - cs.x, o.y)));
+        if (((bits >> ax) & 1) == 1) {
+          vec2 sg = mot_seg(u, o, ax == 0 ? vec2(o.x, o.y - cs.y) : vec2(o.x - cs.x, o.y));
+          best = min(best, sg.x);
+          bestS = min(bestS, sg.y);
+        }
+    }
+    if (gMotStr && u_caps == 1) {
+      // Bevel aspect with square caps: walls are boxes overlapping at the nodes, and where one runs on in line into the
+      // next, its end there (inside the next) would dent the bevel across the joint — its end along the wall measures
+      // in the stretched space at another scale than its sides. So a wall running on (within the block) is measured
+      // on to the next node, inside the next wall: the joint disappears, free ends and corners stay.
+      bestS = 1e9;
+      for (int w = 0; w < 18 * MOT_1; w++) {
+        if (((wb >> w) & 1) != 0) {
+          int ax = w & 1;
+          ivec2 ij = ivec2((w >> 1) % 3, (w >> 1) / 3);
+          ivec2 dn = ax == 0 ? ivec2(0, 1) : ivec2(1, 0);
+          ivec2 nA = ij + dn, nB = ij - dn;
+          bool runA = nA.x <= 2 && nA.y <= 2 && ((wb >> (2 * (nA.x + 3 * nA.y) + ax)) & 1) != 0;
+          bool runB = nB.x >= 0 && nB.y >= 0 && ((wb >> (2 * (nB.x + 3 * nB.y) + ax)) & 1) != 0;
+          vec2 o = vec2(c0 + ij) * cs, step = vec2(dn) * cs;
+          bestS = min(bestS, mot_seg(u, o + (runA ? step : vec2(0.0)), o - step - (runB ? step : vec2(0.0))).y);
+        }
+      }
     }
     rnd = (floor(rd.x * 255.0 + 0.5) * 256.0 + floor(rd.y * 255.0 + 0.5) + 0.5) / 65536.0;
   } else if (style == 4) {
@@ -1062,33 +1148,54 @@ GenOut gen(vec2 p) {
           a = pi; b = po; draw = running;   // the step between the in and out spirals
         } else {
           a = vec2(0.0, running ? -1.0 : 0.0); b = vec2(float(PP.x), a.y); draw = u_borders;   // the rail
+          // Bevel aspect: the rails run on into the next units' (else their square ends would dent the bevel there).
+          if (gMotStr) { a.x -= 1.0; b.x += 1.0; }
         }
-        if (draw) d = min(d, mot_seg(lp, a * cs, b * cs));
+        if (draw) {
+          vec2 sg = mot_seg(lp, a * cs, b * cs);
+          d = min(d, sg.x);
+          bestS = min(bestS, sg.y);
+        }
       }
       if (d < best) { best = d; rnd = hashI(mot_wrap(k, max(n / PP, ivec2(1))), MOT_SEED); }
     }
   } else {
     // Circuit: tiles centred on lattice nodes (traces run along lattice lines), laid out on the CPU.
     ivec2 c0 = ivec2(floor(u / cs + 0.5));
+    float padD = 1e9, padR = 0.0;   // the nearest pad (Bevel aspect measures it once, exactly)
+    vec2 padC = vec2(0.0);
     for (int j = -MOT_1; j <= MOT_1; j++)
     for (int i = -MOT_1; i <= MOT_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       float rr;
-      vec2 t = mot_circuitTile(c, u - vec2(c) * cs, cs, n, hw, rr);
+      vec2 st;
+      vec4 pd;
+      vec2 t = mot_circuitTile(c, u - vec2(c) * cs, cs, n, hw, rr, st, pd);
+      if (pd.w < padD) { padD = pd.w; padC = pd.xy + vec2(c) * cs; padR = pd.z; }
       if (min(t.x - hw, t.y) < min(best - hw, solid)) rnd = rr;
       best = min(best, t.x);
       solid = min(solid, t.y);
+      bestS = min(bestS, st.x);
+      solidS = min(solidS, st.y);
     }
+    if (gMotStr && padD < 1e8) solidS = min(solidS, mot_discS(u - padC, padR));
   }
   float sd = min(best - hw, solid);
   if (tone) sd = (side > 0.5 ? -best : best) + hw;   // the filled regions, inset by half the line (the gap)
   else if (u_draw >= 1) sd = -sd;                      // grooves: everything but the lines
   sd = max(sd, -1e4);   // far from every line (grooves): deep inside, not below NO_SDF (which would opt out)
   GenOut g = genOut(0.0, 1.0, rnd, sd);
-  // Over-under lines: Height reads the bevel × the strand's height (the bevel as the wrapper draws it, without
-  // Bevel aspect).
+  // Bevel aspect: the same shape from the stretched distances (the gaps between two-tone regions: outside, as is).
+  float bd = sd;
+  if (gMotStr) {
+    bd = min(bestS, solidS);
+    if (tone) bd = side > 0.5 ? -bestS : sd;
+    else if (u_draw >= 1) bd = -bd;
+    g.bdist = max(bd, -1e4);
+  }
+  // Over-under lines: Height reads the bevel × the strand's height (the bevel as the wrapper draws it).
   if (style <= 1 && u_draw == 0 && u_cross > 0.0 && u_weave > 0.0 && u_dip > 0.0)
-    g.hval = (u_bevel > 0.0 && u_profile != 0 ? profileCurve(u_profile, max(-sd, 0.0) / u_bevel) : 1.0) * hgt;
+    g.hval = (u_bevel > 0.0 && u_profile != 0 ? profileCurve(u_profile, max(-bd, 0.0) / u_bevel) : 1.0) * hgt;
   return g;
 }
 `,

@@ -1008,6 +1008,17 @@ ivec4 stm_t(ivec2 c) { return ivec4(texelFetch(t_stamp, c, 0) * 255.0 + 0.5); }
 // The bevel's rise at signed distance d (px) — Bevel and Profile as the wrapper draws them (flat: 1 inside).
 float stm_bev(float d) { return u_bevel <= 0.0 || u_profile == 0 ? (d <= 0.0 ? 1.0 : 0.0) : profileCurve(u_profile, max(-d, 0.0) / u_bevel); }
 
+// Bevel aspect: the squared distance from b to the unit cell box at lo (bitmap cells, b outside it) in the stretched
+// space Mb maps cell offsets into — to its two faces on b's side (turned by Angle, the box is a parallelogram there and
+// the nearest point is not the clamped one).
+float stm_box2(vec2 b, vec2 lo, mat2 Mb) {
+  vec2 f = lo + step(lo + 0.5, b);
+  vec2 ax = Mb * (vec2(f.x, lo.y) - b), ay = Mb * (vec2(lo.x, f.y) - b);
+  vec2 vx = ax + Mb[1] * clamp(-dot(ax, Mb[1]) / dot(Mb[1], Mb[1]), 0.0, 1.0);
+  vec2 vy = ay + Mb[0] * clamp(-dot(ay, Mb[0]) / dot(Mb[0], Mb[0]), 0.0, 1.0);
+  return min(dot(vx, vx), dot(vy, vy));
+}
+
 // The repeats a coordinate may touch along one axis: f = its position in steps from the first repeat, e = the reach of
 // one repeat in steps; the nearest one when none reaches. At most three.
 ivec2 stm_range(float f, float e, float n) {
@@ -1070,6 +1081,22 @@ GenOut gen(vec2 p) {
   float dep2 = 0.0;
   vec2 cen1 = vec2(1e9);
   vec2 cen2 = vec2(-1e9);
+  // Bevel aspect (GLSL_BEVEL) on the exact outline: the distance in the space the aspect stretches, to the same cells
+  // (a cell offset → screen px → × Bevel / its width per screen axis), so the bevels meet in clean mitres. Mb maps a
+  // bitmap-cell offset there: undo the quarter turns, cells → px, undo Angle. (Even strokes cap each axis' width at 0.4
+  // cell, as they cap the bevel.) bestS, sdep1/2: as best, dep1/2.
+  bool aspX = bevelAspectOn() && !smoothMap;
+  vec2 Wb = bevelWidths();
+  if (u_bev_lim) Wb = min(Wb, vec2(0.4 * max(u_scale, 0.01)));
+  mat2 Rq = u_rotate == 1 ? mat2(0.0, 1.0, -1.0, 0.0) : u_rotate == 2 ? mat2(-1.0, 0.0, 0.0, -1.0)
+          : u_rotate == 3 ? mat2(0.0, -1.0, 1.0, 0.0) : mat2(1.0);
+  mat2 Mb = mat2(u_bevel / Wb.x, 0.0, 0.0, u_bevel / Wb.y) * (turned ? mat2(ca, sa, -sa, ca) : mat2(1.0)) * Rq * sc;
+  // The cells searched round the pixel's: 3×3, or 5×5 with the aspect — the nearest cell in the stretched space can lie
+  // a cell or two along an edge from the nearest one (the candidates are those cells and their own nearest ones).
+  int nb = aspX ? 5 : 3;
+  float bestS = 1e9;
+  float sdep1 = 0.0;
+  float sdep2 = 0.0;
   for (int k = 0; k < 36 * STM_1; k++) {
     // (No continue: ANGLE / D3D11 can miscompile it in a loop — the body is skipped by a flag instead.)
     int ky = k / 6;
@@ -1103,6 +1130,7 @@ GenOut gen(vec2 p) {
       ivec2 tc = clamp(cell, ivec2(0), mapMax);
       ivec4 t0 = stm_t(tc);
       float d;
+      float dS = 0.0;
       int lvl;
       if (smoothMap) {
         // Smoothed outline: the stored distances at the cell centres, bilinear (outside the margin: plus the way to it).
@@ -1125,9 +1153,10 @@ GenOut gen(vec2 p) {
         int lv = tc == cell ? t0.x & 3 : 0;
         bool inside = lv > 0;
         float bd = 1e9;
+        float bs = 1e9;
         int blv = lv;
-        for (int j = 0; j < 9 * STM_1; j++) {
-          ivec2 n = clamp(tc + ivec2(j % 3 - 1, j / 3 - 1), ivec2(0), mapMax);
+        for (int j = 0; j < nb * nb * STM_1; j++) {
+          ivec2 n = clamp(tc + ivec2(j % nb, j / nb) - nb / 2, ivec2(0), mapMax);
           ivec4 t = stm_t(n);
           bool other = ((t.x & 3) > 0) != inside;
           ivec2 c = other ? n : ivec2(t.y + (t.w & 15) * 256, t.z + (t.w >> 4) * 256);
@@ -1135,18 +1164,27 @@ GenOut gen(vec2 p) {
           vec2 dd = max(max(lo - b, b - lo - 1.0), 0.0);
           float d2 = dot(dd, dd);
           if (d2 < bd) { bd = d2; blv = other ? t.x & 3 : t.x >> 2; }
+          if (aspX) bs = min(bs, stm_box2(b, lo, Mb));
         }
         d = (inside ? -sqrt(bd) : sqrt(bd)) * sc;
+        dS = inside ? -sqrt(bs) : sqrt(bs);
         // Outside, the level of the nearest filled cell (so a grown rim keeps its cell's colour).
         lvl = inside ? lv : blv;
       }
-      if (d < best) { best = d; bestLv = lvl; bestId = id; bestB = b; }
-      if (-d > dep1) { if (length(ic - cen1) > 0.5) { dep2 = dep1; cen2 = cen1; } dep1 = -d; cen1 = ic; }
-      else if (-d > dep2 && length(ic - cen1) > 0.5) { dep2 = -d; cen2 = ic; }
+      if (d < best) { best = d; bestLv = lvl; bestId = id; bestB = b; bestS = dS; }
+      if (-d > dep1) { if (length(ic - cen1) > 0.5) { dep2 = dep1; cen2 = cen1; sdep2 = sdep1; } dep1 = -d; cen1 = ic; sdep1 = -dS; }
+      else if (-d > dep2 && length(ic - cen1) > 0.5) { dep2 = -d; cen2 = ic; sdep2 = -dS; }
     }
   }
+  // The distance's direction (uniform control flow, before returning): Bevel aspect on the smoothed outline and as a
+  // fallback on the outline itself.
+  vec2 gb = vec2(dFdx(best), dFdy(best));
   if (best > 1e8) return genOut(0.0, 0.0, 0.0, 1e4);
-  if (best < 0.0) best = -sqrt(dep1 * dep1 + dep2 * dep2);
+  if (best < 0.0) { best = -sqrt(dep1 * dep1 + dep2 * dep2); bestS = -sqrt(sdep1 * sdep1 + sdep2 * sdep2); }
+  // The local stretch: px of Bevel per px across the outline (exact: from the stretched distance, so continuous through
+  // a mitre; else from the distance's direction).
+  float kS = aspX && abs(best) > 0.05 ? bestS / best : u_bevel / bevelWidth(gb);
+  float best0 = best;
   // Even strokes (Label): depth scaled so the bevel ends 0.4 cell in — inside the middle of a one-cell stroke.
   if (u_bev_lim && best < 0.0 && u_bevel > 0.4 * max(u_scale, 0.01)) best *= u_bevel / (0.4 * max(u_scale, 0.01));
   float d = sdOnion(best - u_grow, u_outline);
@@ -1157,9 +1195,21 @@ GenOut gen(vec2 p) {
   bool lvTex = textureSize(t_lv, 0).x > 1;
   bool aaLv = lvTex && u_aa && u_rnd_by != 1;
   GenOut g = genOut(1.0, 1.0, rnd, d);
+  // Bevel aspect: the outline's distance (grown, as an outline) × the local stretch — exactly the stretched distance on
+  // the exact outline without Grow / Outline, and along straight runs with them. The smoothed outline (no corners)
+  // keeps the distance's direction. (Even strokes: Mb caps the widths instead of scaling the depth.)
+  bool asp = bevelAspectOn();
+  float dB = d;
+  if (aspX) {
+    dB = u_grow == 0.0 && u_outline <= 0.0 ? bestS : sdOnion(best0 - u_grow, u_outline) * kS;
+    g.bdist = dB;
+  } else if (asp) dB = d * kS;
   if (lvTex && (u_lvl_h > 0.0 || aaLv)) {
     float d2;
     float d3;
+    // Bevel aspect on the level edges, as on the outline (stretched).
+    float d2S = 0.0;
+    float d3S = 0.0;
     if (smoothMap) {
       // Smoothed: the stored centre distances, bilinear.
       vec2 gq = bestB - 0.5;
@@ -1180,6 +1230,10 @@ GenOut gen(vec2 p) {
       }
       d2 = mix(mix(l2.x, l2.y, f.x), mix(l2.z, l2.w, f.x), f.y) * sc;
       d3 = mix(mix(l3.x, l3.y, f.x), mix(l3.z, l3.w, f.x), f.y) * sc;
+      // (No corners: from each distance's direction.)
+      float e2 = max(d2, d), e3 = max(d3, d);
+      d2S = bevelLine(e2, vec2(dFdx(e2), dFdy(e2)));
+      d3S = bevelLine(e3, vec2(dFdx(e3), dFdy(e3)));
     } else {
       // Exact: the nearest cell across each level edge among the 3×3 round the pixel, as for the outline (square steps).
       ivec2 cell = ivec2(floor(bestB)) + M;
@@ -1189,25 +1243,33 @@ GenOut gen(vec2 p) {
       bool in2 = tc == cell && (o2.w & 1) == 1;
       bool in3 = tc == cell && (o3.w & 1) == 1;
       vec2 bd = vec2(1e9);
-      for (int j = 0; j < 18 * STM_1; j++) {
-        int l = j / 9;
-        int m = j - l * 9;
-        ivec2 n = clamp(tc + ivec2(m % 3 - 1, m / 3 - 1), ivec2(0), mapMax);
+      vec2 bs = vec2(1e9);
+      for (int j = 0; j < 2 * nb * nb * STM_1; j++) {
+        int l = j / (nb * nb);
+        int m = j - l * nb * nb;
+        ivec2 n = clamp(tc + ivec2(m % nb, m / nb) - nb / 2, ivec2(0), mapMax);
         ivec4 t = ivec4(texelFetch(t_lv, ivec2(n.x * 2 + l, n.y), 0) * 255.0 + 0.5);
         bool other = ((t.w & 1) == 1) != (l == 0 ? in2 : in3);
         ivec2 c = other ? n : ivec2(t.x + (t.z & 15) * 256, t.y + (t.z >> 4) * 256);
         vec2 lo = vec2(c - M);
         vec2 dd = max(max(lo - bestB, bestB - lo - 1.0), 0.0);
         if (l == 0) bd.x = min(bd.x, dot(dd, dd)); else bd.y = min(bd.y, dot(dd, dd));
+        if (aspX) {
+          float s2 = stm_box2(bestB, lo, Mb);
+          if (l == 0) bs.x = min(bs.x, s2); else bs.y = min(bs.y, s2);
+        }
       }
       d2 = (o2.w & 2) == 0 ? 1e4 : (in2 ? -sqrt(bd.x) : sqrt(bd.x)) * sc;
       d3 = (o3.w & 2) == 0 ? 1e4 : (in3 ? -sqrt(bd.y) : sqrt(bd.y)) * sc;
+      d2S = max((o2.w & 2) == 0 ? 1e4 : in2 ? -sqrt(bs.x) : sqrt(bs.x), dB);
+      d3S = max((o3.w & 2) == 0 ? 1e4 : in3 ? -sqrt(bs.y) : sqrt(bs.y), dB);
     }
     if (u_lvl_h > 0.0) {
       // Level relief: the outline's bevel plus a bevel up each level edge, a third each — for Height › Pattern
       // (GenOut.hval).
-      float b1 = stm_bev(d);
-      g.hval = mix(b1, (b1 + stm_bev(max(d2, d)) + stm_bev(max(d3, d))) / 3.0, u_lvl_h);
+      // (Bevel aspect: the stretched distances, px of Bevel, as the wrapper takes GenOut.bdist.)
+      float b1 = stm_bev(asp ? dB : d);
+      g.hval = mix(b1, (b1 + stm_bev(asp ? d2S : max(d2, d)) + stm_bev(asp ? d3S : max(d3, d))) / 3.0, u_lvl_h);
     }
     if (aaLv) {
       // Anti-aliased level colours: each level area's coverage across its edge (outside the outline, as at its edge),
@@ -1453,6 +1515,12 @@ export const pathLayer: LayerDef = {
 // Per polygon: signed area (its orientation, for outer / inner corners) and, for Union / Subtract, the distance to it.
 float pth_area[PTH_MAXP];
 float pth_d[PTH_MAXP];
+// Bevel aspect (GLSL_BEVEL): the same distances in the space the aspect stretches (squared, px of Bevel; pth_dS per
+// polygon), pth_M mapping the polygons' space there, pth_bs the signed result.
+bool pth_asp;
+mat2 pth_M;
+float pth_dS[PTH_MAXP];
+float pth_bs;
 
 // Signed distance to the polygons and the filled region's polygon: the last polygon that contains the point (outside:
 // of the region across the nearest edge), so a frame with a hole is one feature.
@@ -1462,8 +1530,9 @@ vec2 pathSdf(vec2 q, vec2 k) {
   // The inside tests run at a point nudged off the pixel centre, so a centre exactly on an edge (integer slopes through
   // integer vertices) is on the same side for the crossing count and for a round's corner.
   vec2 qs = q + vec2(0.00131, 0.00207);
-  for (int i = 0; i < PTH_MAXP; i++) pth_d[i] = 1e20;
+  for (int i = 0; i < PTH_MAXP; i++) { pth_d[i] = 1e20; pth_dS[i] = 1e20; }
   float d = 1e20;
+  float dS = 1e20;
   float pid = 0.0;
   int inPoly = 0; // bit i: inside polygon i (even–odd)
   for (int i = 0; i < ${MAX_PATH_POINTS}; i++) {
@@ -1481,6 +1550,7 @@ vec2 pathSdf(vec2 q, vec2 k) {
     if (all(c) || all(not(c))) inPoly ^= bit;
     qv = q - v;
     float dd;
+    float ddS = 1e20;
     if (u_radius > 0.0) {
       vec2 a = u_points[i].xy * k;
       vec2 x = u_points[int(w4.z)].xy * k;
@@ -1496,11 +1566,14 @@ vec2 pathSdf(vec2 q, vec2 k) {
       vec2 t = e / L;
       vec2 h = qv - t * clamp(dot(qv, t), fv.x, max(L - tw, fv.x));
       dd = dot(h, h);
+      if (pth_asp) ddS = bevelSeg2(vec2(0.0), pth_M * (t * fv.x - qv), pth_M * (t * max(L - tw, fv.x) - qv));
       if (fv.w > 0.0) {
         vec2 t1 = v + normalize(a - v) * fv.x;
         vec2 t2 = v + t * fv.x;
         float ml = length(q - fv.yz);
         if (shp_sector(q, fv.yz, t1, t2)) dd = min(dd, (ml - fv.w) * (ml - fv.w));
+        // The round, stretched: an elliptic arc (chords), from the pixel (whose sector test doesn't carry over).
+        if (pth_asp) ddS = min(ddS, bevelArc2(vec2(0.0), pth_M, fv.yz - q, fv.w, normalize(t1 - fv.yz), normalize(t2 - fv.yz), normalize(v - fv.yz)));
         // Between the round and the corner the inside flips: an outer corner cut off, an inner one filled.
         float s1 = shp_cross(v - t1, qs - t1);
         float s2 = shp_cross(t2 - v, qs - v);
@@ -1511,32 +1584,39 @@ vec2 pathSdf(vec2 q, vec2 k) {
     } else {
       vec2 h = qv - e * clamp(dot(qv, e) / max(dot(e, e), 1e-9), 0.0, 1.0);
       dd = dot(h, h);
+      if (pth_asp) ddS = bevelSeg2(vec2(0.0), pth_M * -qv, pth_M * (e - qv));
     }
     if (dd < d) { d = dd; pid = v4.w; }
-    if (u_fill != 0 && pi < PTH_MAXP) pth_d[pi] = min(pth_d[pi], dd);
+    dS = min(dS, ddS);
+    if (u_fill != 0 && pi < PTH_MAXP) { pth_d[pi] = min(pth_d[pi], dd); pth_dS[pi] = min(pth_dS[pi], ddS); }
   }
   // Inside by the fill rule; the distance from all edges (even–odd) or from the polygons combined.
   int parity = 0;
   for (int i = 0; i < PTH_MAXP; i++) parity ^= (inPoly >> i) & 1;
   bool inside = u_fill == 1 ? inPoly != 0 : u_fill == 2 ? inPoly == 1 : parity == 1;
   float sd = inside ? -sqrt(d) : sqrt(d);
+  pth_bs = inside ? -sqrt(dS) : sqrt(dS);
   if (u_fill != 0) {
     // Union / First minus the rest, combined with round joins (hg_sdf's round union and intersection): where outlines
     // cross, the corner rounds with the Corner radius too — inner corners of a union, outer ones of a cut. At radius 0
     // the union's inside is √(a² + b²) of the overlapping depths, so an edge hidden in another polygon leaves no groove.
     float ru = u_round_at != 1 ? u_radius : 0.0;
     float rs = u_round_at != 2 ? u_radius : 0.0;
-    float acc = 1e20;
+    // (Bevel aspect: the stretched distances combined alike, x = px, y = stretched; the stretch keeps areas, so the
+    // joins' radius stays.)
+    vec2 acc = vec2(1e20);
     for (int i = 0; i < PTH_MAXP * PTH_1; i++) {
       if (i < np && (u_fill == 1 || i > 0)) {
-        float di = ((inPoly >> i) & 1) == 1 ? -sqrt(pth_d[i]) : sqrt(pth_d[i]);
-        acc = acc > 1e19 ? di : max(ru, min(acc, di)) - length(max(vec2(ru - acc, ru - di), 0.0));
+        vec2 di = (((inPoly >> i) & 1) == 1 ? -1.0 : 1.0) * sqrt(vec2(pth_d[i], pth_dS[i]));
+        acc = acc.x > 1e19 ? di : max(vec2(ru), min(acc, di)) - vec2(length(max(vec2(ru - acc.x, ru - di.x), 0.0)), length(max(vec2(ru - acc.y, ru - di.y), 0.0)));
       }
     }
-    if (u_fill == 1) sd = acc;
+    if (u_fill == 1) { sd = acc.x; pth_bs = acc.y; }
     else {
-      float d0 = (inPoly & 1) == 1 ? -sqrt(pth_d[0]) : sqrt(pth_d[0]);
-      sd = acc > 1e19 ? d0 : min(-rs, max(d0, -acc)) + length(max(vec2(rs + d0, rs - acc), 0.0));
+      vec2 d0 = ((inPoly & 1) == 1 ? -1.0 : 1.0) * sqrt(vec2(pth_d[0], pth_dS[0]));
+      vec2 c = min(vec2(-rs), max(d0, -acc)) + vec2(length(max(vec2(rs + d0.x, rs - acc.x), 0.0)), length(max(vec2(rs + d0.y, rs - acc.y), 0.0)));
+      sd = acc.x > 1e19 ? d0.x : c.x;
+      pth_bs = acc.x > 1e19 ? d0.y : c.y;
     }
   }
   int set = inside ? inPoly : inPoly ^ (1 << int(pid));
@@ -1567,6 +1647,10 @@ GenOut gen(vec2 p) {
   vec2 piv = 0.5 * (lo + hi);
   float ca = cos(radians(u_rotation));
   float sa = sin(radians(u_rotation));
+  // Bevel aspect: polygon-space offsets → screen (turned back, scaled; y down, which the widths don't mind) → stretched.
+  pth_asp = bevelAspectOn();
+  pth_M = mat2(u_bevel / bevelWidths().x, 0.0, 0.0, u_bevel / bevelWidths().y) * mat2(ca, sa, -sa, ca) * sc;
+  float rS = 1e20;
   // Repeats: the copy nearest the pixel along each axis and the next one toward it.
   vec2 rep = vec2(float(u_rep_x), float(u_rep_y));
   vec2 stepR = vec2(u_rep_dx, u_rep_dy);
@@ -1591,11 +1675,21 @@ GenOut gen(vec2 p) {
     if (!dup && length(bx) * sc < reach) {
       vec2 o = pathSdf(q, k);
       o.x *= sc;
-      if (o.x < r.x) r = o;
+      if (o.x < r.x) { r = o; rS = pth_bs; }
       reach = abs(r.x) + max(u_grow, 0.0) + 2.0;
     }
   }
-  return genOut(1.0, 1.0, hashI(ivec2(int(r.y), 7), uSeed), sdOnion(r.x - u_grow, u_outline));
+  float sd = sdOnion(r.x - u_grow, u_outline);
+  GenOut g = genOut(1.0, 1.0, hashI(ivec2(int(r.y), 7), uSeed), sd);
+  // Bevel aspect: the stretched distance to the outline, so the bevels meet in clean mitres. Grown or outlined: the
+  // distance × the local stretch (stretched over plain distance to the polygons' outline) — exact along straight edges,
+  // continuous through the mitres.
+  vec2 gr = vec2(dFdx(r.x), dFdy(r.x));
+  if (pth_asp) {
+    float kS = abs(r.x) > 0.05 ? rS / r.x : u_bevel / bevelWidth(gr);
+    g.bdist = u_grow == 0.0 && u_outline <= 0.0 ? rS : sd * kS;
+  }
+  return g;
 }
 `,
 }
@@ -1674,12 +1768,24 @@ float pln_len[PLN_LINES];
 float pln_flen[PLN_LINES];
 float pln_d[PLN_LINES];
 float pln_dash[PLN_LINES];
+// Bevel aspect (GLSL_BEVEL): the same distances in the space the aspect stretches (px of Bevel), each piece's term
+// across its own edge (bevelLine with the piece's normal) — the flat ends and dash ends exact, as half-planes, so their
+// corners meet in clean mitres.
+bool pln_asp;
+mat2 pln_M;          // screen px → the stretched space (px of Bevel)
+float pln_reach;     // the widest bevel
+float pln_dS[PLN_LINES];
+// A half circle in nine points from its start (0) to its end (π): cos, sin.
+const vec2 PLN_HC[9] = vec2[9](vec2(1.0, 0.0), vec2(0.92388, 0.38268), vec2(0.70711, 0.70711), vec2(0.38268, 0.92388),
+  vec2(0.0, 1.0), vec2(-0.38268, 0.92388), vec2(-0.70711, 0.70711), vec2(-0.92388, 0.38268), vec2(-1.0, 0.0));
+// A distance d and its stretched one dS through Outline: the band's inner edge at the same local stretch.
+float pln_onion(float d, float dS) { return u_outline > 0.0 ? sdOnion(d, u_outline) * (abs(d) > 0.05 ? dS / d : 1.0) : dS; }
 
 // Distance to each open polyline (segments whose "next" wraps back close a line: skipped), minus half the width, into
 // pln_d / pln_dash.
 void lineSdf(vec2 q, vec2 k, float hw) {
   int n = u_points_size.x;
-  for (int i = 0; i < PLN_LINES * PLN_1; i++) { pln_d[i] = 1e20; pln_dash[i] = 0.0; }
+  for (int i = 0; i < PLN_LINES * PLN_1; i++) { pln_d[i] = 1e20; pln_dash[i] = 0.0; pln_dS[i] = 1e20; }
   float s0 = 0.0; // along the line as drawn, at the segment's start (the taper)
   float f0 = 0.0; // along the line with its rounds (the dashes)
   for (int i = 0; i < ${MAX_PATH_POINTS}; i++) {
@@ -1712,6 +1818,13 @@ void lineSdf(vec2 q, vec2 k, float hw) {
       float uc = clamp(u, ta, max(L - fb.x, ta));
       float ex = abs(u - uc); // past the straight part's end
       float pv = abs(v);      // across the line
+      // (Bevel aspect: the piece's directions across (nA, with the signed offset vs) and along (nL, ex's sign sx).)
+      vec2 nA = vec2(-t.y, t.x), nL = t;
+      float vs = v, sx = u < uc ? -1.0 : 1.0;
+      float exC = ex;
+      bool inSec = false;
+      float adv = 0.0;
+      vec2 mr = vec2(0.0);
       float sl = s0 + uc;
       float fl = f0 + uc - ta;
       float arc = 0.0;
@@ -1722,16 +1835,23 @@ void lineSdf(vec2 q, vec2 k, float hw) {
         float span = acos(clamp(dot(normalize(t1 - fb.yz), normalize(t2 - fb.yz)), -1.0, 1.0));
         arc = span * fb.w;
         float ad = abs(length(m) - fb.w);
-        if (shp_sector(q, fb.yz, t1, t2) && ad < length(vec2(ex, pv))) {
+        inSec = shp_sector(q, fb.yz, t1, t2);
+        adv = ad;
+        mr = m;
+        if (inSec && ad < length(vec2(ex, pv))) {
           float ang = acos(clamp(dot(normalize(t1 - fb.yz), normalize(m)), -1.0, 1.0));
           ex = 0.0;
           pv = ad;
+          nA = m;
+          nL = vec2(m.y, -m.x);
+          vs = length(m) - fb.w;
           sl = s0 + L - fb.x + 2.0 * fb.x * ang / max(span, 1e-5);
           fl = f0 + L - fb.x - ta + ang * fb.w;
         }
       }
       float hwk = u_taper > 0.0 ? hw * pln_taper(sl / max(pln_len[li], 1e-6), pln_len[li]) : hw;
       float dd;
+      float ddS = 1e20;
       float dash = 0.0;
       if (u_dash > 0.0) {
         // Along the line to the nearest dash (0 on one), its index. Fitted: dash and gap scaled so the line holds a
@@ -1751,16 +1871,49 @@ void lineSdf(vec2 q, vec2 k, float hw) {
         bool on = ph < dl;
         float gapD = on ? 0.0 : min(ph - dl, per - ph);
         dash = floor(z / per) + (!on && ph - dl > per - ph ? 1.0 : 0.0);
-        dd = u_caps == 1 ? max(pv - hwk, (on ? -min(ph, dl - ph) : gapD) + ex) : length(vec2(ex + gapD, pv)) - hwk;
+        float al = (on ? -min(ph, dl - ph) : gapD) + ex;
+        dd = u_caps == 1 ? max(pv - hwk, al) : length(vec2(ex + gapD, pv)) - hwk;
+        if (pln_asp) {
+          // Along: past the straight part, else towards the nearer dash (behind it, or ahead).
+          float sa = ex > 0.0 ? sx : ph - dl < per - ph ? 1.0 : -1.0;
+          ddS = u_caps == 1 ? max(bevelLine(pv - hwk, nA), bevelLine(al, nL)) : bevelLine(dd, sa * (ex + gapD) * nL + vs * nA);
+        }
       } else {
         dd = length(vec2(ex, pv)) - hwk;
+        if (pln_asp) {
+          // The straight part's capsule: inside, the deepest of its sides (half-planes) and its round ends — each end's
+          // half circle, an elliptic arc stretched (chords), only near enough to matter (no nearer than a side further
+          // off); outside, across by its direction. The bend's band (Corner radius), a curve: across by its radial
+          // direction. Their union.
+          vec2 n0 = vec2(-t.y, t.x);
+          float dc = length(vec2(exC, v)) - hwk;
+          float cS = bevelLine(dc, (u - uc) * t + v * n0);
+          if (dc < 0.0) {
+            cS = bevelLine(abs(v) - hwk, n0);
+            float uB = max(L - fb.x, ta);
+            float m2 = 1e20;
+            for (int j = 0; j < 16 * PLN_1; j++) {
+              int en = j / 8, kk = j - en * 8;
+              float ue = en == 0 ? ta : uB;
+              if (abs(u - ue) < hwk + pln_reach) {
+                vec2 md = en == 0 ? -t : t;
+                vec2 c0 = a + t * ue - q;
+                vec2 h0 = PLN_HC[kk], h1 = PLN_HC[kk + 1];
+                m2 = min(m2, bevelSeg2(vec2(0.0), pln_M * (c0 + hwk * (h0.x * n0 + h0.y * md)), pln_M * (c0 + hwk * (h1.x * n0 + h1.y * md))));
+              }
+            }
+            cS = max(cS, -sqrt(m2));
+          }
+          ddS = min(cS, inSec ? bevelLine(adv - hwk, mr) : 1e20);
+        }
       }
       if (u_caps == 1) {
         // Flat ends: cut square at a line's first and last vertex.
-        if (first && u < 0.0) dd = max(abs(v) - hwk, -u);
-        if (last && u > L) dd = max(abs(v) - hwk, u - L);
+        if (first && u < 0.0) { dd = max(abs(v) - hwk, -u); ddS = max(bevelLine(abs(v) - hwk, vec2(-t.y, t.x)), bevelLine(-u, t)); }
+        if (last && u > L) { dd = max(abs(v) - hwk, u - L); ddS = max(bevelLine(abs(v) - hwk, vec2(-t.y, t.x)), bevelLine(u - L, t)); }
       }
       if (dd < pln_d[li]) { pln_d[li] = dd; pln_dash[li] = dash; }
+      pln_dS[li] = min(pln_dS[li], ddS);
       s0 += L;
       f0 += L - ta - fb.x + arc;
     }
@@ -1801,11 +1954,18 @@ GenOut gen(vec2 p) {
   // Tileable projects: the nearest of the 3×3 torus copies of each line, so a line may cross the edge.
   float best[PLN_LINES];
   float bdash[PLN_LINES];
-  for (int i = 0; i < PLN_LINES * PLN_1; i++) { best[i] = 1e20; bdash[i] = 0.0; }
+  float bestS[PLN_LINES];
+  pln_asp = bevelAspectOn();
+  pln_M = mat2(u_bevel / bevelWidths().x, 0.0, 0.0, u_bevel / bevelWidths().y);
+  pln_reach = max(bevelWidths().x, bevelWidths().y);
+  for (int i = 0; i < PLN_LINES * PLN_1; i++) { best[i] = 1e20; bdash[i] = 0.0; bestS[i] = 1e20; }
   for (int c = 0; c < 9; c++) {
     if (c > 0 && !uTile) break;
     lineSdf(q + vec2(SHP_TILE[c]) * uRes, k, hw);
-    for (int i = 0; i < PLN_LINES * PLN_1; i++) if (pln_d[i] < best[i]) { best[i] = pln_d[i]; bdash[i] = pln_dash[i]; }
+    for (int i = 0; i < PLN_LINES * PLN_1; i++) {
+      if (pln_d[i] < best[i]) { best[i] = pln_d[i]; bdash[i] = pln_dash[i]; }
+      bestS[i] = min(bestS[i], pln_dS[i]);
+    }
   }
   // The lines combined: the union (the two deepest where they cross, so a crossing has no crease), or the topmost line
   // over the rest, blended across its anti-aliased edge. The per-feature random is the topmost line's under the pixel
@@ -1813,6 +1973,10 @@ GenOut gen(vec2 p) {
   float d = 1e20;
   float a1 = 0.0;
   float a2 = 0.0;
+  // (Bevel aspect: the same union of the stretched distances, apart — each is continuous on its own.)
+  float dS = 1e20;
+  float s1 = 0.0;
+  float s2 = 0.0;
   int top = -1;
   int near = 0;
   for (int i = 0; i < PLN_LINES * PLN_1; i++) {
@@ -1821,9 +1985,13 @@ GenOut gen(vec2 p) {
       if (di < d) { d = di; near = i; }
       if (-di > a1) { a2 = a1; a1 = -di; } else if (-di > a2) a2 = -di;
       if (di < (u_overlap == 1 ? 0.5 : 0.0)) top = i;
+      float si = bestS[i];
+      dS = min(dS, si);
+      if (-si > s1) { s2 = s1; s1 = -si; } else if (-si > s2) s2 = -si;
     }
   }
   if (d < 0.0) d = -sqrt(a1 * a1 + a2 * a2);
+  if (dS < 0.0) dS = -sqrt(s1 * s1 + s2 * s2);
   int feat = top >= 0 ? top : near;
   float hv = -1.0;
   if (u_overlap == 1 && top >= 0) {
@@ -1831,34 +1999,45 @@ GenOut gen(vec2 p) {
     float under = 1e20;
     float b1 = 0.0;
     float b2 = 0.0;
+    float underS = 1e20;
+    float c1 = 0.0;
+    float c2 = 0.0;
     int below = -1;
     for (int i = 0; i < PLN_LINES * PLN_1; i++) {
       if (i < top) {
         under = min(under, best[i]);
         if (-best[i] > b1) { b2 = b1; b1 = -best[i]; } else if (-best[i] > b2) b2 = -best[i];
         if (best[i] < 0.0) below = i;
+        underS = min(underS, bestS[i]);
+        if (-bestS[i] > c1) { c2 = c1; c1 = -bestS[i]; } else if (-bestS[i] > c2) c2 = -bestS[i];
       }
     }
     if (under < 0.0) under = -sqrt(b1 * b1 + b2 * b2);
+    if (underS < 0.0) underS = -sqrt(c1 * c1 + c2 * c2);
     float dt = best[top];
+    float dtS = bestS[top];
     d = mix(min(under, dt), dt, clamp(0.5 - dt, 0.0, 1.0));
+    dS = mix(min(underS, dtS), dtS, clamp(0.5 - dt, 0.0, 1.0));
     // The colour: the top line where the pixel's centre is on it, else the topmost line below that is.
     if (dt >= 0.0 && below >= 0) feat = below;
     // Height (GenOut.height, may pass 1): the top line's profile raised by Stack lift where it passes over the lines
     // below — eased by the distance to them, from a line width plus the bevel (plus Lift falloff) outside their edge to
     // full over their crown, so it arches over — and never below their surface, so its sides settle onto them.
-    float U = pln_bev(sdOnion(under, u_outline));
-    float bt = pln_bev(sdOnion(dt, u_outline));
+    // (Bevel aspect: the stretched distances, as the wrapper takes GenOut.bdist.)
+    float U = pln_bev(pln_asp ? pln_onion(under, underS) : sdOnion(under, u_outline));
+    float bt = pln_bev(pln_asp ? pln_onion(dt, dtS) : sdOnion(dt, u_outline));
     float S = 1.0 - smoothstep(-hw, u_width + u_bevel + u_lift_fall, under);
     hv = max(U, bt * (1.0 + u_lift * S));
   } else if (u_overlap == 1) {
-    hv = pln_bev(sdOnion(d, u_outline));
+    hv = pln_bev(pln_asp ? pln_onion(d, dS) : sdOnion(d, u_outline));
   }
   float rnd = u_dash > 0.0 ? hashI(ivec2(feat, 7919 + int(bdash[feat])), uSeed) : hashI(ivec2(feat, 7), uSeed);
   float sd = sdOnion(d, u_outline);
   // Later on top: its own height profile, anti-aliased by the coverage (the wrapper doesn't limit it).
-  if (u_overlap == 1) return genOutHeight(1.0, 1.0, rnd, sd, hv * coverage(sd, u_aa));
-  return genOut(1.0, 1.0, rnd, sd);
+  GenOut g = genOut(1.0, 1.0, rnd, sd);
+  if (u_overlap == 1) g = genOutHeight(1.0, 1.0, rnd, sd, hv * coverage(sd, u_aa));
+  if (pln_asp) g.bdist = pln_onion(d, dS);
+  return g;
 }
 `,
 }

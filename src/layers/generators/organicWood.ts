@@ -573,6 +573,22 @@ float sc_shape(vec2 u, float r, float s, float o) {
   return (L - r - off) / length(vec2(n.x, n.y * k));
 }
 
+// Its direction across the outline at u (the distance's gradient, unnormalised), in the scale's frame.
+vec2 sc_shapeN(vec2 u, float r, float s, float o) {
+  bool pt = u.y < 0.0 && o > 0.0;
+  float off = pt ? o : 0.0;
+  float k = (pt ? sqrt(1.0 + 2.0 * o / r) : 1.0) * r / s;
+  vec2 v = vec2(abs(u.x) + off, u.y * k);
+  return vec2((u.x < 0.0 ? -1.0 : 1.0) * v.x, v.y * k);
+}
+// For Bevel aspect (GLSL_BEVEL): px of Bevel per px across a scale's outline at u, turned by w (its turn) back to the
+// screen.
+float sc_stretch(vec2 u, float r, float s, float o, float w) {
+  vec2 g = sc_shapeN(u, r, s, o);
+  float cs = cos(w), sn = sin(w);
+  return bevelLine(1.0, vec2(cs * g.x - sn * g.y, sn * g.x + cs * g.y));
+}
+
 // Polynomial smooth minimum (k px): the union of the rows in front without creases, for Tilt.
 float sc_smin(float a, float b, float k) {
   float h = max(k - abs(a - b), 0.0) / k;
@@ -633,6 +649,16 @@ GenOut gen(vec2 p) {
   vec4 cen3 = vec4(0.0);
   vec4 cen2 = vec4(0.0);
   vec4 cen1 = vec4(0.0);
+  // Bevel aspect: each shape's distance stretched (× Bevel / its bevel width across the outline there), the parts
+  // combined alike — the visible part as the deeper of its own rim and the rims on top of it, each at its own stretch, so
+  // their bevels meet in a clean mitre where they cross. fA / fB: the window's stretches; the occluders' terms carry the
+  // Outline (it widens their side of the crevice), the own rim's too.
+  bool bevAsp = bevelAspectOn();
+  vec3 fA = vec3(1.0);
+  vec3 fB = vec3(1.0);
+  float frontMinS = 1e9;
+  float rowMinS = 1e9;
+  float bestS = 1e9;
   int i = 0;
   int c0 = 0;
   float shift = 0.0;
@@ -646,6 +672,7 @@ GenOut gen(vec2 p) {
       c0 = int(floor(q.x / sw - shift));
       rowMin = 1e9;
       rowS = 1e9;
+      rowMinS = 1e9;
     }
     int c = c0 - hw + j;
     ivec2 key = uTile ? imod(ivec2(c, i), ivec2(cols, rows)) : ivec2(c, i);
@@ -661,6 +688,7 @@ GenOut gen(vec2 p) {
     float cs = cos(cNew.w), sn = sin(cNew.w);
     un = vec2(cs * un.x + sn * un.y, -sn * un.x + cs * un.y);
     float dNew = sc_shape(un, R * gi + grow, Si, 2.0 * u_point * (R * gi + grow));
+    float fNew = bevAsp ? sc_stretch(un, R * gi + grow, Si, 2.0 * u_point * (R * gi + grow), cNew.w) : 1.0;
     // Edge wobble: the 2nd and 3rd harmonics of the angle, random per scale (cos 2θ, cos 3θ, sin 3θ from the direction).
     if (u_wobble > 0.0) {
       vec3 hw = 2.0 * hash3I(key, uSeed + 15.0) - 1.0;
@@ -669,27 +697,36 @@ GenOut gen(vec2 p) {
     }
     rowMin = min(rowMin, dNew);
     rowS = sc_smin(rowS, dNew, ks);
+    rowMinS = min(rowMinS, (dNew - u_outline) * fNew);
     if (j >= 6) {
       // Column c − 3: covered by the rows in front and by any of the three columns either side that ranks above it.
       float z = zB.x;
       vec3 upA = vec3(zA.x > z ? dA.x : 1e9, zA.y > z ? dA.y : 1e9, zA.z > z ? dA.z : 1e9);
       vec3 upB = vec3(zB.y > z ? dB.y : 1e9, zB.z > z ? dB.z : 1e9, h2.x > z ? dNew : 1e9);
       float occ = min(frontMin, min(min(min(upA.x, upA.y), upA.z), min(min(upB.x, upB.y), upB.z)));
+      vec3 sA = (vec3(upA.xy, upA.z) - u_outline) * fA;
+      vec3 sB = (upB - u_outline) * vec3(fB.yz, fNew);
+      float occS = min(frontMinS, min(min(min(sA.x, sA.y), sA.z), min(min(sB.x, sB.y), sB.z)));
       // Grooved: split from the row neighbours along the bisectors with their centres instead (the midlines
       // when regular), as tiles in grout.
       if (u_edges == 1) {
         vec2 L = cen4.xy - cen3.xy, Rn = cen2.xy - cen3.xy;
-        occ = min(frontMin, min(-dot(q - cen3.xy - 0.5 * L, L) / max(length(L), 1e-3), -dot(q - cen3.xy - 0.5 * Rn, Rn) / max(length(Rn), 1e-3)));
+        float hL = -dot(q - cen3.xy - 0.5 * L, L) / max(length(L), 1e-3), hR = -dot(q - cen3.xy - 0.5 * Rn, Rn) / max(length(Rn), 1e-3);
+        occ = min(frontMin, min(hL, hR));
+        if (bevAsp) occS = min(frontMinS, min(bevelLine(hL - u_outline, L), bevelLine(hR - u_outline, Rn)));
       }
       float vis = max(dB.x, -occ);
-      if (vis < best) { best = vis; bestC = cen3; bestFront = frontS; bestOcc = occ; bestDc = dB.x; bestId = ivec2(c - 3, i); }
+      if (vis < best) { best = vis; bestS = max((dB.x + u_outline) * fB.x, -occS); bestC = cen3; bestFront = frontS; bestOcc = occ; bestDc = dB.x; bestId = ivec2(c - 3, i); }
     }
     if (j == nc - 1) {
       frontMin = min(frontMin, rowMin);
       frontS = sc_smin(frontS, rowS, ks);
+      frontMinS = min(frontMinS, rowMinS);
     }
     dA = vec3(dA.yz, dB.x);
     dB = vec3(dB.yz, dNew);
+    fA = vec3(fA.yz, fB.x);
+    fB = vec3(fB.yz, fNew);
     zA = vec3(zA.yz, zB.x);
     zB = vec3(zB.yz, h2.x);
     cen4 = cen3;
@@ -700,7 +737,9 @@ GenOut gen(vec2 p) {
   ivec2 id = uTile ? imod(bestId, ivec2(cols, rows)) : bestId;
   float rnd = hashI(id, uSeed);
   float d = best + u_outline;
-  if (u_output == 1) return genOut(0.0, 1.0, rnd, d);
+  GenOut g = genOut(0.0, 1.0, rnd, d);
+  if (bevAsp) g.bdist = bestS;
+  if (u_output == 1) return g;
   vec2 u = q - bestC.xy;
   float cs = cos(bestC.w), sn = sin(bestC.w);
   u = vec2(cs * u.x + sn * u.y, -sn * u.x + cs * u.y);
@@ -722,16 +761,16 @@ GenOut gen(vec2 p) {
   float shade = mix(1.0, dome, u_dome) * (1.0 - 0.7 * u_keel * keelV);
   float v = shade * mix(1.0, tilt, u_tilt);
   // Grooved: the wrapper multiplies the shading by the bevel of the (combined) shape, every edge into the outline.
-  if (u_edges == 1) return genOutShaded(clamp(v, 0.0, 1.0), 1.0, rnd, d);
+  if (u_edges == 1) {
+    GenOut o = genOutShaded(clamp(v, 0.0, 1.0), 1.0, rnd, d);
+    o.bdist = g.bdist;
+    return o;
+  }
   // Lapped: the rim (the scale's own edge) is bevelled down to about where the scale beneath starts — the hidden end of a
   // scale sits at 1 − Tilt — and the outline is a crevice on the scale beneath, just beyond the rim of the one on top.
+  // (Bevel aspect: across the rim's direction there, turned back to the screen.)
   float bev = 1.0;
-  if (u_bevel > 0.0 && u_profile != 0) {
-    float ra = sqrt(max(u_bevel_aspect, 1e-3));
-    vec2 n = normalize(vec2(u.x / Rb, u.y / Sb) + 1e-6);
-    vec2 W = u_bevel * vec2(1.0 / ra, ra);
-    bev = profileCurve(u_profile, max(-bestDc, 0.0) / max(length(n * W), 1e-3));
-  }
+  if (u_bevel > 0.0 && u_profile != 0) bev = profileCurve(u_profile, max(-bestDc, 0.0) * (bevAsp ? sc_stretch(u, Rb, Sb, 2.0 * u_point * Rb, bestC.w) : 1.0) / u_bevel);
   // Lip: a band just inside the rim, past the bevel, rises towards full height; the face behind it sinks a little.
   float din = max(-bestDc, 0.0);
   float lw = max(1.5, 0.07 * Rb);

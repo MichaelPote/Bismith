@@ -16,6 +16,7 @@ let savedSeed = Math.floor(Math.random() * 1e9)
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, toRaw, watch } from 'vue'
 import type { Project } from '@/core/project'
 import { createProject } from '@/core/serialize'
+import { shaderKey } from '@/render/materialPipeline'
 import { useEditorStore } from '@/stores/editor'
 import { useProjectStore } from '@/stores/project'
 import { useActions } from '@/ui/actions'
@@ -147,7 +148,7 @@ function compileAll(): void {
   // Only where the browser compiles off the main thread: elsewhere a batch would freeze the page for all of it, so
   // the cards compile their own shaders one at a time as they come into view.
   if (!engine || compiling || !engine.parallelCompile) return
-  const need = engine.uncompiled(all.value.filter((c) => !hasPreview(c)).flatMap((c) => c.project.layers.map((l) => l.type)))
+  const need = engine.uncompiled(all.value.filter((c) => !hasPreview(c)).flatMap((c) => c.project.layers.map(shaderKey)))
   if (!need.length) return
   compiling = true
   void engine
@@ -159,7 +160,7 @@ function compileAll(): void {
     })
 }
 
-const ready = (c: Card) => !editor.engine?.uncompiled(c.project.layers.map((l) => l.type)).length
+const ready = (c: Card) => !editor.engine?.uncompiled(c.project.layers.map(shaderKey)).length
 
 async function pump(): Promise<void> {
   if (rendering.value) return
@@ -174,7 +175,7 @@ async function pump(): Promise<void> {
       const c = all.value.find((x) => !x.px && !hasPreview(x) && visible.has(x.id) && (ready(x) || !compiling))
       if (!c) return
       // Ready, or (no batch running) compile its few shaders now, off the main thread where the browser can.
-      if (!ready(c)) await engine.precompile([...new Set(c.project.layers.map((l) => l.type))])
+      if (!ready(c)) await engine.precompile([...new Set(c.project.layers.map(shaderKey))])
       if (token !== run) return
       if (!suspended) {
         engine.suspend()

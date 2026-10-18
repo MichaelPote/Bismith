@@ -182,6 +182,65 @@ float tb_shape(vec2 q) {
   return max(sdBox(c, b), (c.x + c.y - (b.x + b.y - ch)) * TB_R2);
 }
 
+// Bevel aspect: plane i of a convex element in its local frame — its unit normal (xy) and offset (z): the plane is
+// dot(xy, q) − z, < 0 inside; z = 1e9 for none. su: the side of a bow-tie (sign of u), whose two triangles are each convex.
+vec3 tb_plane(int i, float su) {
+  float hl = 0.5 * u_length, d = u_depth;
+  if (i == 0 && u_shape != 4) return vec3(0.0, -1.0, 0.0);   // the edge (v = 0)
+  if (u_shape <= 1) {
+    // Trapezoid, notch: the cut sides at slope k, the top (trapezoid).
+    float k = u_shape == 0 ? u_cut : hl / max(d, 1e-3), s = sqrt(1.0 + k * k);
+    return i == 1 ? vec3(1.0, k, hl) / s : i == 2 ? vec3(-1.0, k, hl) / s : i == 3 && u_shape == 0 ? vec3(0.0, 1.0, d) : vec3(0.0, 0.0, 1e9);
+  }
+  if (u_shape == 3) {
+    float k = d / max(hl, 1e-3), s = sqrt(1.0 + k * k);
+    return i == 1 ? vec3(0.0, 1.0, d) : i == 2 ? vec3(su, 0.0, hl)
+         : i == 3 ? vec3(-su * k, 1.0, 0.5 * d) / s : i == 4 ? vec3(-su * k, -1.0, -0.5 * d) / s : vec3(0.0, 0.0, 1e9);
+  }
+  if (u_shape == 4) {
+    // Slit: the rotated box's four sides, its centre half the depth in.
+    vec2 n = unrotCW(i < 2 ? vec2(i == 0 ? 1.0 : -1.0, 0.0) : vec2(0.0, i == 2 ? 1.0 : -1.0), u_angle);
+    return i < 4 ? vec3(n, (i < 2 ? hl : 0.5 * u_thickness) + n.y * 0.5 * d) : vec3(0.0, 0.0, 1e9);
+  }
+  // Chamfered plate: the box's sides and the four cut corners.
+  float ch = min(hl, 0.5 * d) * clamp(u_cut, 0.0, 1.0);
+  float sg = (i & 1) == 0 ? 1.0 : -1.0, tg = (i & 2) == 0 ? 1.0 : -1.0;
+  return i == 1 ? vec3(0.0, 1.0, d) : i < 4 ? vec3(i == 2 ? 1.0 : -1.0, 0.0, hl)
+       : vec3(vec2(sg, tg), hl + 0.5 * d - ch + tg * 0.5 * d) * TB_R2;
+}
+
+// Bevel aspect: the element's bevel distance in the space the aspect stretches (px of Bevel, before its size scale), at
+// local q with the local axes along screen directions ax, ay. Polygons: the most of their planes' (exact inside a convex
+// one); the chevron: the nearer of its two strokes, each by its own direction (continuous where they meet); the
+// half-round: the exact stretched ellipse and its base line.
+float tb_bevel(vec2 q, vec2 ax, vec2 ay) {
+  float hl = 0.5 * u_length, d = u_depth;
+  if (u_shape == 2) {
+    float m = 1e9;
+    for (int k = 0; k < 2; k++) {
+      vec2 a = vec2(k == 0 ? -hl : hl, 0.0), ba = vec2(0.0, d) - a, pa = q - a;
+      float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
+      vec2 v = pa - ba * h;
+      vec2 n = h > 0.0 && h < 1.0 ? vec2(-ba.y, ba.x) : v;
+      m = min(m, bevelLine(length(v) - 0.5 * u_thickness, ax * n.x + ay * n.y));
+    }
+    return m;
+  }
+  if (u_shape == 6) {
+    vec2 r = vec2(max(hl, 1e-3), max(d, 1e-3));
+    mat2 M = bevelFrame(ax, ay);
+    float e = bevelEllipse(M * q, M, r);
+    return max(bevelLine(-q.y, ay), length(q / r) < 1.0 ? -e : e);
+  }
+  float m = -1e9;
+  float su = q.x < 0.0 ? -1.0 : 1.0;
+  for (int i = 0; i < 8; i++) {
+    vec3 pl = tb_plane(i, su);
+    if (pl.z < 1e8) m = max(m, bevelLine(dot(pl.xy, q) - pl.z, ax * pl.x + ay * pl.y));
+  }
+  return m;
+}
+
 // How far in from a side's end an element must stay to clear a right-angled corner: the most any of its points reaches
 // past the 45° line from the corner (max of v + |u|, less half its length) — 0 for a 45° tab, its depth for a square one.
 float tb_clear() {
@@ -211,7 +270,7 @@ GenOut gen(vec2 p) {
   int place = u_place;
 
   // ---- Along the mask: this pixel's element frame (u along, v in) from the nearest straight side.
-  vec2 sQ = vec2(0.0);
+  vec2 sQ = vec2(0.0), sAx = vec2(1.0, 0.0), sAy = vec2(0.0, 1.0);  // (sAx, sAy: the frame's axes on screen)
   float sRnd = 0.5, sPar = 0.0, sFb = 1.0;
   ivec2 sKey = ivec2(0);
   bool sOk = false;
@@ -278,6 +337,8 @@ GenOut gen(vec2 p) {
           i = endless ? i : clamp(i, 0.0, nEl - 1.0);
           float v = v0 + (outward ? 1.0 : -1.0) * dot(dl, n);
           sQ = vec2((tt - i) * sp, v - u_inset);
+          sAx = t;
+          sAy = outward ? n : -n;
           float iw = endless ? mod(i, nEl) : i;
           sPar = mod(iw, 2.0);
           // Its identity: the side (class, its line) and the element's centre (or index round an endless side), on a
@@ -300,6 +361,9 @@ GenOut gen(vec2 p) {
   // either side, more for elements larger than their step.
   float best = 1e4;
   float brnd = 0.5;
+  // The winner's local frame for Bevel aspect: its point (before size), size, and local axes on screen.
+  vec2 bQ = vec2(0.0), bAx = vec2(1.0, 0.0), bAy = vec2(0.0, 1.0);
+  float bSc = 1.0;
   float top = uRes.y - p.y;
   ivec2 gn = ivec2(max(u_count, 1), max(u_rows, 1));
   vec2 cs = place == 1 ? vec2(repPitch(uRes.x, gn.x, u_col_sp, uRes.x), repPitch(uRes.y, gn.y, u_row_sp, uRes.y))
@@ -315,6 +379,7 @@ GenOut gen(vec2 p) {
     bool flip = false;   // mirrored end for end
     bool centred = false;
     bool skip = false;   // no element from this candidate (ANGLE / D3D11 can miscompile continue)
+    vec2 ax = vec2(1.0, 0.0), ay = vec2(0.0, 1.0);  // the frame's u and v axes on screen (p.y up)
     if (place == 0) {
       // Texture edge k: 0 left, 1 right, 2 top, 3 bottom (p.y = 0 is the bottom of the image).
       skip = !tb_edgeOn(k);
@@ -328,6 +393,8 @@ GenOut gen(vec2 p) {
       float id = uTile ? mod(i, n) : i;
       skip = skip || (!uTile && (i < 0.0 || i > n - 1.0));
       q = vec2((t - i) * sp, inward - u_inset);
+      ax = k < 2 ? vec2(0.0, -1.0) : vec2(1.0, 0.0);
+      ay = k == 0 ? vec2(1.0, 0.0) : k == 1 ? vec2(-1.0, 0.0) : k == 2 ? vec2(0.0, -1.0) : vec2(0.0, 1.0);
       float bid = id + (k == 0 ? 0.0 : k == 1 ? 101.0 : k == 2 ? 211.0 : 307.0);
       rnd = hashI(ivec2(int(bid), 17), uSeed);
       key = ivec2(int(id), k);
@@ -335,6 +402,8 @@ GenOut gen(vec2 p) {
     } else if (place == 3) {
       skip = !sOk;
       q = sQ;
+      ax = sAx;
+      ay = sAy;
       rnd = sRnd;
       key = sKey;
       flip = u_alternate && sPar == 1.0;
@@ -352,6 +421,8 @@ GenOut gen(vec2 p) {
       float rot = u_rotation + u_rot_jitter * (2.0 * hashI(cw, uSeed + 11.0) - 1.0);
       if (rot != 0.0) r = unrotCW(r, rot);
       q = vec2(r.x, flip ? r.y : -r.y);
+      ax = rotCW(vec2(1.0, 0.0), rot);
+      ay = rotCW(vec2(0.0, flip ? 1.0 : -1.0), rot);
       rnd = hashI(ivec2(cw.x + cw.y * 977, 17), uSeed);
       key = cw;
       centred = true;
@@ -362,13 +433,20 @@ GenOut gen(vec2 p) {
     float sc = 1.0 - u_size_var * kh.x;
     vec2 qs = q / sc;
     if (centred) qs.y += 0.5 * u_depth - u_inset;
-    else if (flip) qs.y = u_depth - qs.y;
+    else if (flip) {
+      qs.y = u_depth - qs.y;
+      ay = -ay;
+    }
     float d = skip ? 1e4 : tb_shape(qs) * sc;
-    if (d < best) { best = d; brnd = rnd; }
+    if (d < best) { best = d; brnd = rnd; bQ = qs; bSc = sc; bAx = ax; bAy = ay; }
   }
   // Away from every element: a lower bound on the distance (the mask must not read 'nothing written').
   if (u_place == 3 && place == 3 && !sOk) best = sFb;
-  return genOut(1.0, 1.0, brnd, min(best, 4e3));
+  GenOut g = genOut(1.0, 1.0, brnd, min(best, 4e3));
+  // Bevel aspect: the winner's bevel measured in the stretched space, so its mitres don't step where the distance's
+  // direction turns (at aspect 1 the wrapper's own bevel, unchanged).
+  if (bevelAspectOn() && best < 0.0) g.bdist = tb_bevel(bQ, bAx, bAy) * bSc;
+  return g;
 }
 `,
 }

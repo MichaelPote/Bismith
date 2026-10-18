@@ -5,6 +5,7 @@ import { useProjectStore } from '@/stores/project'
 import { useEditorStore } from '@/stores/editor'
 import { afterPaint } from '@/ui/actions'
 import { Engine } from '@/render/engine'
+import { shaderKey } from '@/render/materialPipeline'
 import { GpuError } from '@/gpu/context'
 import { CHANNEL_VIEWS } from '@/render/display'
 import { IconBackground, IconBolt, IconGrid4x4, IconMaximize, IconPencil, IconRepeat, IconStack2 } from '@tabler/icons-vue'
@@ -318,6 +319,8 @@ let lastStats = 0
 onMounted(() => {
   try {
     engine = new Engine(canvas.value!)
+    // Bevel aspect's shader variants compile in the background (MaterialPipeline.deferVariants).
+    engine.material.deferVariants = true
   } catch (e) {
     editor.engineError = e instanceof GpuError ? e.message : `Renderer failed to start: ${e instanceof Error ? e.message : e}`
     return
@@ -352,7 +355,7 @@ onMounted(() => {
  * seconds (D3D on Windows); started straight away, it ran before the first paint and left the page blank meanwhile.
  */
 async function startEngine(e: Engine): Promise<void> {
-  const types = store.project.layers.map((l) => l.type)
+  const types = store.project.layers.map(shaderKey)
   // Progress: a step per generator shader, and one for the first frame (filters, tracer, post).
   const steps = e.uncompiled(types).length + 1
   editor.busy = {

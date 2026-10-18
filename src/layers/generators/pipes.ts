@@ -150,6 +150,12 @@ GenOut gen(vec2 p) {
   // Towards the (top-left) light, y down.
   const vec2 PP_D = vec2(-0.70710678, -0.70710678);
   float pid = 0.0;
+  // Bevel aspect (Coverage, Tubes only): the same outlines measured in the space the aspect stretches (px of Bevel),
+  // piece by piece — a length's sides by their normal, its ends and elbows by their direction, a fitting by its box's
+  // sides — so where a tube meets a fitting face or a fitting's sides meet, the bevel turns without the step the
+  // distance's own direction makes. Off at aspect 1: the wrapper's bevel, unchanged.
+  bool asp = bevelAspectOn() && (u_output == 1 || u_output == 4);
+  float sdTubeB = 1e4, sdFitB = 1e4;
   for (int i = 0; i < 4096; i++) {
     if (i >= n) break;
     int t = 1 + 5 * i;
@@ -170,11 +176,13 @@ GenOut gen(vec2 p) {
       // Straight length: distance to the centre line.
       vec2 b = pp_pos(t1);
       vec2 e = b - a;
-      vec2 c = a + e * clamp(dot(q - a, e) / max(dot(e, e), 1e-9), 0.0, 1.0);
+      float hs = clamp(dot(q - a, e) / max(dot(e, e), 1e-9), 0.0, 1.0);
+      vec2 c = a + e * hs;
       vec2 dv = q - c;
       float d = length(dv);
       sd = min(sd, d - r);
       sdTube = min(sdTube, d - r);
+      if (asp) sdTubeB = min(sdTubeB, bevelLine(d - r, hs > 0.0 && hs < 1.0 ? vec2(-e.y, e.x) : dv));
       if (d > r + 1.0) continue;
       cv = clamp(r - d + 0.5, 0.0, 1.0);
       if (d < r) h = depth + sqrt(r * r - d * d);
@@ -195,6 +203,7 @@ GenOut gen(vec2 p) {
       float d = abs(l - rb);
       sd = min(sd, d - r);
       sdTube = min(sdTube, d - r);
+      if (asp) sdTubeB = min(sdTubeB, bevelLine(d - r, dv));
       cv = clamp(r - d + 0.5, 0.0, 1.0);
       if (d < r) h = depth + sqrt(r * r - d * d);
       ny = (dv.y / max(l, 1e-3)) * sign(l - rb) * d / max(r, 1e-3);
@@ -214,6 +223,8 @@ GenOut gen(vec2 p) {
       float sb = length(max(bx, 0.0)) + min(max(bx.x, bx.y), 0.0);
       sd = min(sd, sb);
       sdFit = min(sdFit, sb);
+      // (Its sides' planes: exact inside the box and off its faces, where tubes meet it.)
+      if (asp) sdFitB = min(sdFitB, max(bevelLine(bx.x, tx), bevelLine(bx.y, nx)));
       if (bx.x > 1.0 || bx.y > 1.0) continue;
       cv = clamp(min(hw - abs(u), ro - abs(v)) + 0.5, 0.0, 1.0);
       if (abs(u) <= hw && abs(v) <= ro) {
@@ -245,10 +256,11 @@ GenOut gen(vec2 p) {
     }
   }
   float rnd = hashI(ivec2(int(pid), 3), uSeed);
-  if (u_output == 1) return genOut(1.0, 1.0, rnd, sd);
-  if (u_output == 4) {
-    // Tubes: the straight lengths and elbows, less the fittings over them.
-    return genOut(1.0, 1.0, rnd, max(sdTube, -sdFit));
+  if (u_output == 1 || u_output == 4) {
+    // Coverage; Tubes: the straight lengths and elbows, less the fittings over them.
+    GenOut g = genOut(1.0, 1.0, rnd, u_output == 1 ? sd : max(sdTube, -sdFit));
+    if (asp) g.bdist = u_output == 1 ? min(sdTubeB, sdFitB) : max(sdTubeB, -sdFitB);
+    return g;
   }
   if (cover <= 0.0) return genOut(0.0, 0.0, 0.0, NO_SDF);
   if (u_output == 2) return genOut(fit, cover, rnd, NO_SDF);

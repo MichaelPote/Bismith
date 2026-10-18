@@ -73,6 +73,12 @@ void geo_frame(vec2 p, int ori) {
   }
 }
 
+// A frame direction (or offset) on screen: geo_frame's rotation undone (for Bevel aspect, which stretches screen axes).
+vec2 geo_toScreen(vec2 w) {
+  float c = GEO_C[geo_ori], s = GEO_S[geo_ori];
+  return vec2(c * w.x + s * w.y, c * w.y - s * w.x);
+}
+
 // A period count: a whole multiple of m when tiling.
 float geo_count(float k, int m) {
   float fm = float(max(m, 1));
@@ -168,6 +174,46 @@ float geo_sdPoly(vec2 p) {
     if (all(c) || all(not(c))) s = -s;
   }
   return s * sqrt(d);
+}
+
+// Bevel aspect (GLSL_BEVEL): the squared distance, in the space the aspect stretches, from p (the polygon's px, mapped
+// there by M = bevelFrame of its axes on screen) to the outline of the working polygon grown by r (shrunk when r < 0) —
+// geo_sdPoly(p) − r = 0: each side moved out by r, cut where it meets its neighbour, and round the corners it turns away
+// from (convex ones growing, concave ones shrinking) an arc of radius |r|, as four chords (within 2 % of r at a right angle). Exact where
+// the plain distance's direction would step (the mitres). One flat loop, one segment per pass: a corner's arrival point
+// on its side (from the last corner's departure), then its arc's chords.
+float geo_edges2(vec2 p, float r, mat2 M) {
+  vec2 ps = M * p;
+  float best = 1e18;
+  vec2 cur = vec2(0.0), V = vec2(0.0), nIn = vec2(0.0), dep = vec2(0.0);
+  float th = 0.0;
+  bool arc = false;
+  for (int t = 0; t < (5 * GEO_NV + 1) * GEO_1; t++) {
+    if (t > 5 * geo_n) break;
+    int i = t / 5, j = t - 5 * i;
+    vec2 a, b;
+    if (j == 0) {
+      V = geo_V[i % geo_n];
+      vec2 e1 = normalize(V - geo_V[(i + geo_n - 1) % geo_n] + vec2(1e-9, 0.0));
+      vec2 e2 = normalize(geo_V[(i + 1) % geo_n] - V + vec2(1e-9, 0.0));
+      nIn = vec2(e1.y, -e1.x);
+      vec2 nOut = vec2(e2.y, -e2.x);   // outward (CCW)
+      float cr = e1.x * e2.y - e1.y * e2.x;
+      arc = r * cr > 0.0;
+      th = arc ? atan(nIn.x * nOut.y - nIn.y * nOut.x, dot(nIn, nOut)) * 0.25 : 0.0;
+      vec2 mit = V + r * (nIn + nOut) / max(1.0 + dot(nIn, nOut), 0.05);
+      a = i == 0 ? (arc ? V + r * nIn : mit) : dep;
+      b = arc ? V + r * nIn : mit;
+      dep = arc ? V + r * nOut : mit;
+    } else {
+      float al = th * float(j);
+      a = cur;
+      b = arc ? V + r * vec2(nIn.x * cos(al) - nIn.y * sin(al), nIn.x * sin(al) + nIn.y * cos(al)) : dep;
+    }
+    best = min(best, bevelSeg2(ps, M * a, M * b));
+    cur = b;
+  }
+  return best;
 }
 
 // Consider the working polygon placed at anchor (frame px). Bounding-box pruning keeps this cheap.

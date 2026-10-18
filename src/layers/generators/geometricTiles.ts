@@ -372,6 +372,9 @@ float tile_inner;   // rhombille: how far the faces' inner edges (those at the b
 vec2 tile_bu;   // the winning tile's own position in its box (−1…1 across), for tilt and crown
 ivec2 tile_bid; // and its id (its block's, when a block's faces meet)
 vec2 tile_q;    // and the pixel in its own frame (px from its anchor)
+vec2 tile_cs;   // and its turn (cos, sin), its shape (k) and growth (geo_r less its shrink): Bevel aspect's outline
+int tile_k;
+float tile_rr;
 
 void tile_pick() {
   int m = tile_mode;
@@ -692,14 +695,26 @@ GenOut gen(vec2 p) {
   // miscompiled it — the per-anchor work sits in an if.
   int shapes = mode == 2 ? (tile_hex ? 1 : 3) : mode == 10 ? 5 : (mode == 3 || mode == 7 || mode == 9 || split) ? 2
              : tile_nb && mode == 8 ? 2 : tile_nb && mode == 11 ? 4 : 1;
+  // Bevel aspect: the winning tile's outline is measured after the search (geo_edges2), so its shape is built once more
+  // by the same call when another shape came after it — one pass past the last shape.
+  bool asp = !val && bevelAspectOn();
+  bool rebuilt = false;
+  tile_k = 0;
+  tile_cs = vec2(1.0, 0.0);
+  tile_rr = 0.0;
   int k = -1, a = 0, na = 0;
   for (int it = 0; it < 72 * GEO_1; it++) {
     if (a >= na) {
       k++;
-      if (k >= shapes) break;
+      if (k >= shapes) {
+        if (!asp || tile_k == shapes - 1) break;
+        k = tile_k;
+        rebuilt = true;
+      }
       na = tile_shape(k);
       geo_finish();
       a = 0;
+      if (rebuilt) break;
     } else {
       vec2 pos;
       int cls;
@@ -736,6 +751,9 @@ GenOut gen(vec2 p) {
             tile_bu = (q - ctr) / max(ext, vec2(1e-3));
             tile_q = q;
             tile_bid = id;
+            tile_cs = cs;
+            tile_k = k;
+            tile_rr = geo_r - s;
           }
           if (val) {
             // Its tone: the kinds evenly from 0 to 1, each tile moved towards the middle by its own random (a
@@ -755,6 +773,12 @@ GenOut gen(vec2 p) {
     }
   }
   float D = min(geo_bestD, 1e4);
+  // Bevel aspect: the distance to the winning tile's outline in the space the aspect stretches (its frame: the
+  // rotation, then the tile's own turn), so the bevels of sides at different angles meet in a clean mitre. Inside only
+  // (outside, the bevel is 0 either way).
+  mat2 bM = bevelFrame(geo_toScreen(tile_cs), geo_toScreen(vec2(-tile_cs.y, tile_cs.x)));
+  float bd = NO_SDF;
+  if (asp) bd = D < 0.0 ? -sqrt(geo_edges2(tile_q, tile_rr, bM)) : D;
 
   // A solid block (one hexagon): which face the pixel is on — top above both upper edges (y > |x| / 3 in units), then
   // left or right — and how far it is from the edges between the faces (rays from the centre to (±.5, 1/6) and
@@ -770,6 +794,12 @@ GenOut gen(vec2 p) {
                    length(bq0 - rC * clamp(dot(bq0, rC) / dot(rC, rC), 0.0, 1.0)));
     eAll = min(er.x, min(er.y, er.z));
     eg = vec2(dFdx(eAll), dFdy(eAll));
+    // Bevel aspect: the crease's distance in the stretched space (px of Bevel), in the units bevelAt divides by eg's.
+    if (asp) {
+      vec2 ps = bM * bq0;
+      eAll = sqrt(min(bevelSeg2(ps, vec2(0.0), bM * rA), min(bevelSeg2(ps, vec2(0.0), bM * rB), bevelSeg2(ps, vec2(0.0), bM * rC))))
+           * bevelWidth(eg) / u_bevel;
+    }
     vec2 qu0 = bq0 / geo_s;
     int f = qu0.y > abs(qu0.x) / 3.0 ? 0 : qu0.x < 0.0 ? 1 : 2;
     // Bounding edges: top — A (right face), B (left face); left — B (top), C (right); right — A (top), C (left).
@@ -806,6 +836,7 @@ GenOut gen(vec2 p) {
   // and relief never take a tile below a quarter of its height, so every edge keeps its bevel. A solid block's faces
   // share one Per-feature variation, applied here (the wrapper's would hash each face's own random).
   GenOut g = genOut(0.0, 1.0, rnd, D);
+  g.bdist = bd;
   bool blkVar = blk && u_h_src == 0 && u_h_var > 0.0;
   float iso = mode == 2 ? clamp(u_block_iso, 0.0, 1.0) : 0.0;
   float crease = tile_hex ? clamp(u_crease, 0.0, 1.0) : 0.0;
@@ -826,7 +857,9 @@ GenOut gen(vec2 p) {
     float side = 1.0 - 0.5 * iso * fall;
     float crs = 1.0 - crease * (1.0 - bevelAt(-eAll, eg));
     float hv = blkVar ? 1.0 - u_h_var * fract(hashI(tile_bid, uSeed + 601.0) * 61.37 + 0.123) : 1.0;
-    g.hval = clamp(bevelAt(dc, dg) * plane * dome * side * crs * hv, 0.0, 1.0);
+    // (Bevel aspect, drawn as its own shape: the stretched outline distance, as the wrapper takes it.)
+    float bev = bevelAt(asp && op <= 1 ? bd * bevelWidth(dg) / u_bevel : dc, dg);
+    g.hval = clamp(bev * plane * dome * side * crs * hv, 0.0, 1.0);
     if (blkVar) g.feat = 0.0;
   }
   return g;

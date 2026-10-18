@@ -164,6 +164,15 @@ GenOut gen(vec2 p) {
   // Grain frame: x along the grain, y across (px).
   vec2 q = vert ? p.yx : p;
   vec2 ext = vert ? uRes.yx : uRes;
+  // Bevel aspect: the cuts measured in the space the aspect stretches (px of Bevel), feature by feature — a chip's facets
+  // by their own normals (the flake's corners mitre without the step the distance's direction makes there), a split's
+  // and a nick's sides across them and their tips along them — and the furthest-reaching taken, as cut. Their floors
+  // ((1 − f) × bevel) stay in bevels. Off at aspect 1: the bevel from the distance's direction, unchanged.
+  bool asp = bevelAspectOn();
+  float cutB = -1e9;
+  // × across the grain and along it (splits run along it, nicks across).
+  float kAcr = asp ? u_bevel / bevelWidth(vert ? vec2(1.0, 0.0) : vec2(0.0, 1.0)) : 1.0;
+  float kAlg = asp ? u_bevel / bevelWidth(vert ? vec2(0.0, 1.0) : vec2(1.0, 0.0)) : 1.0;
 
   // ---- Chips: one spot per cell near the edge, moved onto it along the field's normal, a flake cut around it.
   if (u_chips > 0.0 || u_corners > 0.0) {
@@ -193,18 +202,26 @@ GenOut gen(vec2 p) {
       float off = R * (g.x - 0.35) * 0.7;
       vec2 d = p - (s - dn.x * dn.yz + dn.yz * off);
       if (dot(d, d) > 4.0 * R * R) continue;
-      d = vec2(dot(d, vec2(-dn.z, dn.y)) / (1.0 + 0.6 * fract(g.x * 5.3)), dot(d, dn.yz));
+      vec2 tg = vec2(-dn.z, dn.y);
+      float st = 1.0 + 0.6 * fract(g.x * 5.3);
+      d = vec2(dot(d, tg) / st, dot(d, dn.yz));
       float a0 = g.y * 6.2832;
       // Only this side of the edge: a chip doesn't reach across a gap into the neighbouring piece.
       float dc = d.y + off - 0.5;
+      float dcB = asp ? bevelLine(dc, dn.yz) : dc;
       for (int k = 0; k < 5; k++) {
         float jit = fract(g.z * float(17 * k + 5));
         float a = a0 + float(k) * 1.2566 + (jit - 0.5) * 0.7;
-        dc = max(dc, dot(d, vec2(cos(a), sin(a))) - R * (0.6 + 0.4 * fract(jit * 7.31)));
+        vec2 fn = vec2(cos(a), sin(a));
+        float pl = dot(d, fn) - R * (0.6 + 0.4 * fract(jit * 7.31));
+        dc = max(dc, pl);
+        // (The facet's normal on screen: the stretched frame's axes back.)
+        if (asp) dcB = max(dcB, bevelLine(pl, tg * (fn.x / st) + dn.yz * fn.y));
       }
       float f = u_chip_depth * (0.6 + 0.4 * fract(g.z * 31.7));
       float cc = -dc - (1.0 - f) * K;
       if (cc > cut) { cut = cc; rnd = g.x; }
+      cutB = max(cutB, -dcB - (1.0 - f) * K);
     }
   }
 
@@ -246,8 +263,10 @@ GenOut gen(vec2 p) {
       // The distance from the crack's side scaled so the layer's bevel spans the split Bevel (narrowing with the crack,
       // so tips stay sharp); hairlines also keep their thin-line coverage (a pixel box filter, ≤ the width).
       float ax = abs(x) - 0.5 * w;
-      float cc = min(-ax * K / max(u_split_bevel * sqrt(tau), 0.25), ends) - (1.0 - f) * K;
+      float sx = -ax * K / max(u_split_bevel * sqrt(tau), 0.25);
+      float cc = min(sx, ends) - (1.0 - f) * K;
       if (cc > cut) { cut = cc; rnd = A.rnd; }
+      cutB = max(cutB, min(sx * kAcr, ends * kAlg) - (1.0 - f) * K);
       keep = min(keep, 1.0 - f * clamp(0.5 - ax, 0.0, min(w, 1.0)) * clamp(ends + 0.5, 0.0, 1.0));
     }
   }
@@ -274,8 +293,10 @@ GenOut gen(vec2 p) {
       float w = u_nick_width * (1.0 + u_split_width_var * (2.0 * fract(h.w * 9.1) - 1.0)) * pow(tau, 0.3);
       float f = pow(tau, 0.3);
       float ax = abs(x) - 0.5 * w;
-      float cc = min(-ax * K / max(u_split_bevel * sqrt(tau), 0.25), min(t, L - t)) - (1.0 - f) * K;
+      float sx = -ax * K / max(u_split_bevel * sqrt(tau), 0.25);
+      float cc = min(sx, min(t, L - t)) - (1.0 - f) * K;
       if (cc > cut) { cut = cc; rnd = h.x; }
+      cutB = max(cutB, min(sx * kAlg, min(t, L - t) * kAcr) - (1.0 - f) * K);
       keep = min(keep, 1.0 - f * clamp(0.5 - ax, 0.0, min(w, 1.0)) * clamp(min(t, L - t) + 0.5, 0.0, 1.0));
     }
   }
@@ -283,11 +304,18 @@ GenOut gen(vec2 p) {
   float d = max(reg0, cut);
   // Screen-space gradients for Bevel aspect, taken in uniform control flow.
   vec2 g0 = vec2(dFdx(reg0), dFdy(reg0)), g1 = vec2(dFdx(d), dFdy(d));
-  if (u_output == 1) return genOutSmooth(0.0, 1.0, 0.5, d);
+  // Bevel aspect: the mask's own part by its direction (no geometry here to measure it by) — as the original's bevel b0
+  // below, so untouched parts carve nothing — the cuts measured in the stretched space.
+  float dB = asp ? max(bevelLine(reg0, g0), cutB) : d;
+  if (u_output == 1) {
+    GenOut g = genOutSmooth(0.0, 1.0, 0.5, d);
+    if (asp) g.bdist = dB;
+    return g;
+  }
   // Carve: the bevel on the chipped shape over the bevel on the original. Only the shape is carved: beyond its edge
   // there is nothing to take away.
   float b0 = bevelAt(reg0, g0) * coverage(reg0, u_aa);
-  float b1 = bevelAt(d, g1) * coverage(d, u_aa);
+  float b1 = (asp ? (u_profile == 0 ? 1.0 : profileCurve(u_profile, max(-dB, 0.0) / u_bevel)) : bevelAt(d, g1)) * coverage(d, u_aa);
   keep = min(keep, b0 > 1e-3 ? clamp(b1 / b0, 0.0, 1.0) : 1.0);
   keep = 1.0 - (1.0 - keep) * coverage(reg0, true);
   return genOutOwn(keep, clamp((1.0 - keep) * 64.0, 0.0, 1.0), rnd, d);

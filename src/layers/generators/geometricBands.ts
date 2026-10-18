@@ -97,13 +97,33 @@ export const bandsLayer: LayerDef = {
 // The band being measured: half width less the corner rounding, and the end chamfer less the rounding's share (px).
 float bnd_h, bnd_c;
 
+// Bevel aspect (GLSL_BEVEL): with bnd_asp, each piece also leaves in bnd_s its distance in px of Bevel — every edge's
+// distance over its own bevel width (bevelLine), combined as the distance is (max at a mitre, min across pieces), so the
+// bevels of edges at different angles meet in a clean mitre. The rounding bnd_rc is taken off each edge there (the
+// distance takes it off at the end); past a corner of the core, its rounding's arc counts too (along the way out of the
+// corner: its tangent there), so the edges' terms carry on across into the corner without a seam.
+// bnd_L: a local direction (along / across the band) on screen.
+bool bnd_asp;
+float bnd_s, bnd_rc;
+mat2 bnd_L;
+float bnd_ln(float d, vec2 n) { return bevelLine(d, bnd_L * n); }
+
 // Exact signed distance to a half-strip |s| <= bnd_h, t >= 0 whose end (t = 0) has its corners chamfered by bnd_c
-// (t along the strip from its end, v = |s|): the end line, the chamfers and the side, with the corner regions.
-float bnd_end(float t, float v) {
+// (t along the strip from its end, v = |s|): the end line, the chamfers and the side, with the corner regions. te, ve:
+// the local directions of t and v (Bevel aspect).
+float bnd_end(float t, float v, vec2 te, vec2 ve) {
   vec2 w1 = vec2(t, v - bnd_h + bnd_c), w2 = vec2(t - bnd_c, v - bnd_h);
-  if (w1.y >= 0.0 && w1.x + w1.y <= 0.0) return length(w1);
-  if (w2.x <= 0.0 && w2.x + w2.y >= 0.0) return length(w2);
-  return max(max(-t, v - bnd_h), (v - t - bnd_h + bnd_c) * 0.70710678);
+  bool c1 = w1.y >= 0.0 && w1.x + w1.y <= 0.0;
+  bool c2 = !c1 && w2.x <= 0.0 && w2.x + w2.y >= 0.0;
+  float ch = (v - t - bnd_h + bnd_c) * 0.70710678;
+  if (bnd_asp) {
+    vec2 wc = c1 ? w1 : w2;
+    bnd_s = max(max(bnd_ln(-t - bnd_rc, te), bnd_ln(v - bnd_h - bnd_rc, ve)), bnd_ln(ch - bnd_rc, ve - te));
+    if (c1 || c2) bnd_s = max(bnd_s, bnd_ln(length(wc) - bnd_rc, wc.x * te + wc.y * ve));
+  }
+  if (c1) return length(w1);
+  if (c2) return length(w2);
+  return max(max(-t, v - bnd_h), ch);
 }
 
 // The band along one centre-line segment from a (unit direction e, length l): a capsule — the neighbouring segments
@@ -112,12 +132,19 @@ float bnd_end(float t, float v) {
 // corners, which bnd_joint supplies.
 float bnd_seg(vec2 q, vec2 a, vec2 e, float l, bool fa, bool fb) {
   vec2 w = q - a;
-  float t = dot(w, e), v = abs(e.x * w.y - e.y * w.x);
+  float cr = e.x * w.y - e.y * w.x;
+  float t = dot(w, e), v = abs(cr);
+  vec2 ve = (cr < 0.0 ? -1.0 : 1.0) * vec2(-e.y, e.x);
   bool useA = fa && (!fb || t < 0.5 * l);
   bool useB = fb && !useA;
-  if (useA && t <= l) return bnd_end(t, v);
-  if (useB && t >= 0.0) return bnd_end(l - t, v);
-  return length(vec2(max(max(-t, t - l), 0.0), v)) - bnd_h;
+  bool endA = useA && t <= l;
+  if (endA || (useB && t >= 0.0)) return bnd_end(endA ? t : l - t, v, endA ? e : -e, ve);
+  float tt = max(max(-t, t - l), 0.0);
+  float d = length(vec2(tt, v)) - bnd_h;
+  // (Bevel aspect: the strip's sides only — past its ends the bends (or the next segment) cover the band, and a round
+  // end's distance along its radius would bevel deeper than theirs where the widths differ.)
+  if (bnd_asp) bnd_s = tt > 0.0 ? 1e9 : bnd_ln(d - bnd_rc, ve);
+  return d;
 }
 
 // A bend at c from direction ea into eb (la, lb: how much of the segments either side is free for its inner corner):
@@ -135,11 +162,28 @@ float bnd_joint(vec2 q, vec2 c, vec2 ea, vec2 eb, float la, float lb) {
   bool inner = bnd_h * abs(cr) * k <= min(la, lb);
   vec2 w = q - c;
   vec2 wb = inner ? w + mo : w;
+  bnd_s = 1e9;
   if (dot(wb, ea) < 0.0 || dot(wb, eb) > 0.0) return 1e9;
   vec2 wm = w - mo;
-  float d = dot(wm, ea) >= 0.0 && dot(wm, eb) <= 0.0 ? length(wm) : max(dot(w, oa), dot(w, ob)) - bnd_h;
-  d = max(d, dot(w, normalize(oa + ob)) - BND_MITRE * bnd_h);
+  bool apex = dot(wm, ea) >= 0.0 && dot(wm, eb) <= 0.0;
+  vec2 nm = normalize(oa + ob);
+  float d = apex ? length(wm) : max(dot(w, oa), dot(w, ob)) - bnd_h;
+  d = max(d, dot(w, nm) - BND_MITRE * bnd_h);
+  if (bnd_asp) {
+    float s = max(max(bnd_ln(dot(w, oa) - bnd_h - bnd_rc, oa), bnd_ln(dot(w, ob) - bnd_h - bnd_rc, ob)),
+                  bnd_ln(dot(w, nm) - BND_MITRE * bnd_h - bnd_rc, nm));
+    if (apex) s = max(s, bnd_ln(length(wm) - bnd_rc, wm));
+    // The inner corner along the way out of it (where it takes over from a side, that side's normal).
+    bnd_s = inner ? max(s, bnd_ln(-length(wb) - bnd_rc, wb)) : s;
+  }
   return inner ? max(d, -length(wb)) : d;
+}
+
+// Bevel aspect: a box's distance (r from its centre, half size hs, local axes) in px of Bevel, as bnd_s.
+float bnd_boxS(vec2 r, vec2 hs) {
+  vec2 bq = abs(r) - hs;
+  return bq.x > 0.0 && bq.y > 0.0 ? bnd_ln(length(bq), bq * sign(r))
+       : max(bnd_ln(bq.x, vec2(1.0, 0.0)), bnd_ln(bq.y, vec2(0.0, 1.0)));
 }
 
 // A Z piece as drawn before its runs are fitted to its neighbours: the rise starts at R (at height y1, climbing Dk to
@@ -176,6 +220,12 @@ GenOut gen(vec2 p) {
   if (u_mirror && mode != 2 && (lane & 1) == 1) ly = Hl - ly;   // (chevrons overlap lanes: no mirroring)
   float sgn = u_angle < 0.0 ? -1.0 : 1.0;
   float x = (geo_f.x - u_phase * P) * sgn;   // negative angles mirror along the band
+  // Bevel aspect (not on an outline: its inner edge keeps the distance's direction).
+  bnd_asp = bevelAspectOn() && u_outline <= 0.0;
+  bnd_L = mat2(geo_toScreen(vec2(sgn, 0.0)), geo_toScreen(vec2(0.0, u_mirror && mode != 2 && (lane & 1) == 1 ? -1.0 : 1.0)));
+  float bestS = 1e9;
+  vec2 barV[4];   // the winning bar (its polygon, anchor and rounding), measured after the search
+  float barA = 0.0, barR = 0.0;
   float ang = clamp(abs(u_angle), 1.0, 90.0);
   float s = ang >= 89.99 ? 1e6 : tan(radians(ang));
   float hw = 0.5 * u_width;
@@ -334,7 +384,13 @@ GenOut gen(vec2 p) {
         geo_addPx(vec2((yt - mb) * slope + xo + wx, yt));
         geo_addPx(vec2((yt - mb) * slope + xo, yt));
         geo_finish();
+        float pd = geo_bestD;
         geo_try(vec2(x0, 0.0), 0, key);
+        if (bnd_asp && geo_bestD < pd) {
+          for (int i = 0; i < 4; i++) barV[i] = geo_V[i];
+          barA = x0;
+          barR = rc;
+        }
         float xb = x0 + xo + (ly - mb) * slope;   // the bar's left edge at this height
         if (xb <= xs && xb > leftX) { leftX = xb; leftKey = key; }
       }
@@ -428,9 +484,15 @@ GenOut gen(vec2 p) {
         float rc = min(r * sc, hc);
         bnd_h = hc - rc;
         bnd_c = clamp(u_chamfer * sc - 0.4142 * rc, 0.0, bnd_h);
+        bnd_rc = rc;
         float dc = bnd_seg(q, a, e, l, fa, fb);
-        if (joint) dc = min(dc, bnd_joint(q, a, ep, e, zLow ? lp - bnd_h : lp, zHigh ? ln - bnd_h : ln));
+        float dcS = bnd_s;
+        if (joint) {
+          dc = min(dc, bnd_joint(q, a, ep, e, zLow ? lp - bnd_h : lp, zHigh ? ln - bnd_h : ln));
+          dcS = min(dcS, bnd_s);
+        }
         dc -= rc;
+        if (bnd_asp) bestS = min(bestS, dcS);
         if (dc < geo_bestD) { geo_bestD = dc; geo_bestKey = key; geo_bestCls = 0; }
       }
       // Feet: a box from the margin to the centre line under a low run / flat (over a high one), out to where the
@@ -442,8 +504,10 @@ GenOut gen(vec2 p) {
         float bx1 = mode == 3 ? (low ? zx0 - (zL1 > 0.0 ? 0.0 : hc / sinR) : zx0 + zL1 + zDk - hc * tq) : a.x - hc * tq;
         float bx2 = mode == 3 ? (low ? zx0 + zL1 + hc * tq : zx0 + zL1 + zDk + (zL2 > 0.0 ? zL2 : hc / sinR)) : a.x + l + hc * tq;
         float by1 = low ? mb - 1.0 : a.y, by2 = low ? a.y : Hl - mt + 1.0;
-        vec2 bq = abs(q - 0.5 * vec2(bx1 + bx2, by1 + by2)) - 0.5 * vec2(bx2 - bx1, by2 - by1);
+        vec2 bc = q - 0.5 * vec2(bx1 + bx2, by1 + by2), bh = 0.5 * vec2(bx2 - bx1, by2 - by1);
+        vec2 bq = abs(bc) - bh;
         float df = length(max(bq, 0.0)) + min(max(bq.x, bq.y), 0.0);
+        if (bnd_asp) bestS = min(bestS, bnd_boxS(bc, bh));
         if (df < geo_bestD) { geo_bestD = df; geo_bestKey = key; geo_bestCls = 0; }
       }
       // Z: the piece whose rise lies left of the pixel names its panel.
@@ -456,22 +520,39 @@ GenOut gen(vec2 p) {
 
   float d = min(geo_bestD, 1e4);
   ivec2 pieceKey = geo_bestKey;
+  // Bevel aspect, bars: the winning bar's outline in the stretched space (one polygon, so measured once, here).
+  if (bnd_asp && mode == 0 && d < 1e4) {
+    for (int i = 0; i < 4; i++) geo_V[i] = barV[i];
+    geo_n = 4;
+    float e = sqrt(geo_edges2(vec2(xs - barA, ly), barR, bevelFrame(bnd_L[0], bnd_L[1])));
+    bestS = d < 0.0 ? -e : e;
+  }
+  float ds = min(bestS, 1e4);
   float dint = mode == 2 ? -1e4 : max(mb - ly, ly - (Hl - mt));
+  // (Bevel aspect: the margins' lines, in px of Bevel.)
+  vec2 Y = vec2(0.0, 1.0);
   // A zig-zag stays inside its lane: the mitre tips of sharp peaks are cut at the margins (no change where the peaks
   // have flats, whose edges lie on the margins). Not in the fill modes, whose panels stop at the margins anyway — the
   // cut would pull the feet back to the margin line and leave a sliver of panel there.
-  if (mode == 1 && !fillM) d = max(d, dint);
+  if (mode == 1 && !fillM) {
+    d = max(d, dint);
+    if (bnd_asp) ds = max(ds, bnd_ln(dint, Y));
+  }
   if (fillM) {
     // Even panel edges: the panels also keep a band width from the (moved) margins, where the runs lie (Z, zig-zag).
     float ew = u_even && (mode == 1 || mode == 3) ? u_width : 0.0;
     d = max(-d, mode == 2 ? -1e4 : max(mb + ew - ly, ly - (Hl - mt - ew)));
+    if (bnd_asp) ds = max(-ds, mode == 2 ? -1e4 : bnd_ln(max(mb + ew - ly, ly - (Hl - mt - ew)), Y));
     // The wave's centre line at the pixel (zig-zag, chevrons).
     float xm = xs - P * floor(xs / P);
     float yc = xm < Fl ? lo : xm < Fl + D ? lo + (xm - Fl) / max(D, 1e-4) * (hi - lo)
              : xm < Fl + D + Fh ? hi : hi - (xm - Fl - D - Fh) / max(D, 1e-4) * (hi - lo);
     // Above / below: drop the panels on the other side of the zig-zag centre line (the cut lies inside the
     // band, so it never shows).
-    if (mode == 1 && u_fill >= 2) d = max(d, u_fill == 2 ? yc - ly : ly - yc);
+    if (mode == 1 && u_fill >= 2) {
+      d = max(d, u_fill == 2 ? yc - ly : ly - yc);
+      if (bnd_asp) ds = max(ds, bnd_ln(u_fill == 2 ? yc - ly : ly - yc, Y));
+    }
     // Each panel its own random (not the nearest band's, which would split a panel along curves): the piece left
     // of it (bars, Z), else the repeat between the two bands that bound it.
     int pi;
@@ -499,6 +580,7 @@ GenOut gen(vec2 p) {
   if (u_rail > 0.0 && mode != 2) {
     float edge = floor(fy / Hl + 0.5);
     float dr = abs(fy - edge * Hl) - 0.5 * u_rail;
+    if (bnd_asp) ds = min(ds, bnd_ln(dr, Y));
     if (dr < d) {
       d = dr;
       rail = true;
@@ -512,14 +594,15 @@ GenOut gen(vec2 p) {
   // Width variation: a thinner piece bevels as a scaled copy of a full one — its bevel measured in the piece's own
   // scale (bdist, the Bevel aspect applied from the distance's direction as the wrapper does), while the distance the
   // mask gets stays exact. Derivatives taken outside any branch.
+  // With Bevel aspect, the distance in px of Bevel tracked alongside (bnd_s), scaled the same way.
   vec2 gd = vec2(dFdx(d), dFdy(d));
-  float bd = NO_SDF;
+  float bd = bnd_asp ? ds : NO_SDF;
   if (wv > 0.0 && !fillM && !rail) {
     float hb = hw * (1.0 - wv * hashI(pieceKey, uSeed + 7.0));   // = hash3I(…).x, cheaper
     float gg = dot(gd, gd);
     vec2 n2 = gg > 1e-12 ? gd * gd / gg : vec2(0.5);
     vec2 W = bevelWidths();
-    bd = d * (hw / max(hb, 1e-4)) * u_bevel / max(sqrt(dot(n2, W * W)), 1e-4);
+    bd = bnd_asp ? ds * (hw / max(hb, 1e-4)) : d * (hw / max(hb, 1e-4)) * u_bevel / max(sqrt(dot(n2, W * W)), 1e-4);
   }
   // Rails lower than the bands: the level × the bevel (genOutShaded-style), with the coverage drawn here.
   if (u_rail > 0.0 && u_rail_h < 1.0 && mode != 2)

@@ -190,9 +190,13 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
   own coverage (Wood's grain on its planks).
 - `fid` — the feature's own random, which the mask it writes records (FR8.23): `rnd` may be tinted for colour and
   `feat` zeroed where a generator varies heights itself. `genOut*` set it from `rnd`; `genOutSmooth` −1 (no features).
-- `bdist` — optional: the distance the bevel is measured in with Bevel aspect applied (Wood: its boxes in a vertically
-  stretched space, so bevels of different widths meet in a clean mitre). Otherwise the aspect comes from the direction
-  of the shape's distance gradient.
+- `bdist` — optional: the distance the bevel is measured in with Bevel aspect applied (px of Bevel, negative inside).
+  It is the plain distance in the space the aspect stretches, so bevels of different widths meet in a clean mitre.
+  Without it, the aspect comes from the direction of the shape's distance gradient, which steps on every mitre. Every
+  SDF generator with corners computes it with GLSL_BEVEL's toolkit (`commonParams.ts`): `bevelFrame`, `bevelLine`,
+  `bevelSeg2`, `bevelArc2`, `bevelEllipse`. It does so only under `bevelAspectOn()`, which is true only in the shader
+  variant compiled for a layer whose aspect isn't 1 (`#define BEVEL_ASPECT`, `shaderKey` in `materialPipeline.ts`;
+  the editor compiles that variant in the background). The usual shader carries none of that code.
 - `hval` — optional: a separate 0..1 value for Height › Pattern, shaped like the value (Wood: shallower grain in Height
   than in colour). Negative = use the value.
 

@@ -193,6 +193,80 @@ float pat_roundDepth(float ms[PAT_K], vec2 ns[PAT_K], float r) {
   return t;
 }
 
+// Bevel aspect (GLSL_BEVEL) of a convex cell kept as its PAT_K nearest edges (ms: px to each edge plane from the pixel,
+// positive inside; ns: outward unit normals in the generator's frame, which jx / jy — dFdx / dFdy of its position — take
+// to the screen) with corners rounded by r: the distance in the space the aspect stretches, px of Bevel, negative inside
+// (dE: the cell's own distance, for the sign). Each edge is a plane there too; a rounded corner, a circle's arc, becomes
+// an ellipse's (bevelArc2, for the true corner nearest the pixel — only within r of it can an arc be the nearest piece):
+// exact, its mitres continuous where the direction-based width steps. Round bevel corners (rb): pat_roundDepth in the
+// stretched space — the depth t at which the cell inset by t there, then rounded by the stretched corner (the ellipse),
+// passes through the pixel: the corner of the edges inset by t plus the ellipse's reach across each, V(t) = a − t b, has
+// the pixel on the ellipse round it, |K⁻¹(t b − a)| = r (the larger root), with the ellipse's normal there in the
+// corner's normal cone.
+float pat_cellBevel(float ms[PAT_K], vec2 ns[PAT_K], vec2 jx, vec2 jy, float r, float dE, bool rb) {
+  vec2 k = u_bevel / bevelWidths();   // screen axes → the stretched space
+  vec2 ki = 1.0 / k;
+  vec2 nc[PAT_K];   // the normals on screen
+  float mS[PAT_K];  // the planes in the stretched space: distance and unit normal
+  vec2 nS[PAT_K];
+  float t = 1e9;
+  for (int i = 0; i < PAT_K; i++) {
+    vec2 n = vec2(dot(jx, ns[i]), dot(jy, ns[i]));
+    n /= max(length(n), 1e-6);
+    nc[i] = n;
+    float l = max(length(n * ki), 1e-6);
+    mS[i] = ms[i] <= 1e8 ? ms[i] / l : 1e9;
+    nS[i] = n * ki / l;
+    t = min(t, mS[i]);
+  }
+  // A corner of edges i, j: rb, the stretched round depth; else the nearest true corner (inside every other edge,
+  // inset by r) for the arc. One loop over the pairs, the arc evaluated once after it.
+  float vb = 1e18;
+  vec2 vc = vec2(0.0), d0 = vec2(1.0, 0.0), d1 = vec2(0.0, 1.0);
+  for (int c = 0; c < 6 * PAT_1; c++) {
+    int i = PAT_PAIRS[c].x, j = PAT_PAIRS[c].y;
+    vec2 n1 = rb ? nS[i] : nc[i], n2 = rb ? nS[j] : nc[j];
+    float det = n1.x * n2.y - n1.y * n2.x;
+    if (ms[j] <= 1e8 && abs(det) > 1e-3 && r > 0.0) {
+      float m1 = rb ? mS[i] - r * length(k * n1) : ms[i] - r;
+      float m2 = rb ? mS[j] - r * length(k * n2) : ms[j] - r;
+      vec2 a = vec2(n2.y * m1 - n1.y * m2, n1.x * m2 - n2.x * m1) / det;
+      if (rb) {
+        vec2 b = vec2(n2.y - n1.y, n1.x - n2.x) / det;
+        vec2 A = a * ki, B = b * ki;
+        float bb = dot(B, B), ab = dot(A, B);
+        float disc = ab * ab - bb * (dot(A, A) - r * r);
+        if (bb > 1e-6 && disc >= 0.0) {
+          float tc = (ab + sqrt(disc)) / bb;
+          vec2 w = (tc * b - a) * ki * ki;   // the ellipse's normal at the pixel
+          float al = (w.x * n2.y - w.y * n2.x) / det, be = (n1.x * w.y - n1.y * w.x) / det;
+          if (al >= 0.0 && be >= 0.0) t = min(t, tc);
+        }
+      } else {
+        bool real = true;
+        for (int o = 0; o < PAT_K; o++) {
+          if (o != i && o != j && ms[o] <= 1e8 && dot(a, nc[o]) > ms[o] - r + 1e-3) real = false;
+        }
+        if (real && dot(a, a) < vb) { vb = dot(a, a); vc = a; d0 = n1; d1 = n2; }
+      }
+    }
+  }
+  if (rb) return -t;
+  // (The arc in screen px about the pixel, so its stretched position is 0.)
+  if (vb < 1e17) t = min(t, sqrt(bevelArc2(vec2(0.0), mat2(k.x, 0.0, 0.0, k.y), vc, r, d0, d1, normalize(d0 + d1))));
+  return dE > 0.0 ? abs(t) : -t;
+}
+
+// Bevel aspect of a chip broken through the outline (pat_notch, its distance moved by off): its two cuts as planes in
+// the stretched space, px of Bevel. F takes a direction in x's frame to the screen.
+float pat_notchS(vec2 x, vec2 A, vec2 K, vec2 B, vec2 ref, float off, mat2 F) {
+  vec2 n1 = normalize(vec2(K.y - A.y, A.x - K.x));
+  vec2 n2 = normalize(vec2(B.y - K.y, K.x - B.x));
+  n1 *= sign(dot(ref - A, n1));
+  n2 *= sign(dot(ref - K, n2));
+  return min(bevelLine(dot(x - A, n1) + off, F * n1), bevelLine(dot(x - K, n2) + off, F * n2));
+}
+
 // The bevel distance a generator hands the wrapper (GenOut.bdist; NO_SDF = none): set before pat_out / pat_bedOut.
 float pat_bd = NO_SDF;
 // A share of the layer's coverage (Chip dust: chips show some of the colour beneath), set before pat_out / pat_bedOut.
@@ -209,7 +283,8 @@ float pat_hollow = 0.0;
 float pat_js = 1.0;
 
 // Sets pat_bd from a bevel distance in px (negative inside), with Bevel aspect applied the way the wrapper does
-// (from the direction of its gradient). Call in uniform control flow.
+// (from the direction of its gradient). Call in uniform control flow. (At aspect 1 only: with an aspect, the generators
+// measure the stretched distance themselves — pat_cellBevel, pat_notchS — as the gradient's direction steps on mitres.)
 void pat_setBevelDist(float bd) {
   vec2 gg = vec2(dFdx(bd), dFdy(bd));
   float g2 = dot(gg, gg);
@@ -396,6 +471,9 @@ GenOut gen(vec2 p) {
   // Vertical courses: work in transposed space.
   vec2 res = u_vertical ? uRes.yx : uRes;
   if (u_vertical) p = p.yx;
+  // The frame's axes on screen (the vertical swap, Shaping › Domain warp), for Bevel aspect.
+  vec2 jx = dFdx(p), jy = dFdy(p);
+  bool asp = bevelAspectOn();
   vec2 cs = res / vec2(float(u_columns), float(u_rows));
   int r0 = int(floor(p.y / cs.y));
   // Every brick around the pixel (3 courses × 5): its distance, the pixel in its frame, half size, centre, turn, key.
@@ -449,6 +527,8 @@ GenOut gen(vec2 p) {
     }
   }
   float cg = 0.5 * clamp(0.2 * u_bevel, 1.0, 2.0);   // half the groove between creased stones
+  float CS[15];   // Bevel aspect: each stone's creases in the space the aspect stretches (px of Bevel)
+  for (int t = 0; t < 15 * PAT_1; t++) CS[t] = -1e9;
   if (u_crease) {
     // Straight creases: each stone near the pixel is split from every stone it overlaps (separating-axis test on their
     // four edge directions) along one line across the middle of the overlap, square to the axis they overlap least on
@@ -461,7 +541,7 @@ GenOut gen(vec2 p) {
       if (DD[t] < 0.25 * cs.y) {
         vec2 cA = CC[t], hA = HH[t];
         vec2 ax0 = XA[t], ax1 = vec2(-ax0.y, ax0.x);
-        float dA = DD[t];
+        float dA = DD[t], sA = -1e9;
         for (int o = 0; o < 15 * PAT_1; o++) {
           if (o != t && DD[o] < 1e8) {
             vec2 dc = CC[o] - cA, oHs = HH[o];
@@ -476,10 +556,15 @@ GenOut gen(vec2 p) {
               float pi = ha + hb - abs(D);
               if (pi < pen) { pen = pi; n = D < 0.0 ? -u : u; sp = 0.5 * (abs(D) - hb + ha); }
             }
-            if (pen > 0.0) dA = max(dA, dot(p - cA, n) - sp + cg);
+            if (pen > 0.0) {
+              float pl = dot(p - cA, n) - sp + cg;
+              dA = max(dA, pl);
+              if (asp) sA = max(sA, bevelLine(pl, vec2(dot(jx, n), dot(jy, n))));
+            }
           }
         }
         DC[t] = dA;
+        CS[t] = sA;
       }
     }
     for (int t = 0; t < 15 * PAT_1; t++) DD[t] = DC[t];
@@ -494,6 +579,11 @@ GenOut gen(vec2 p) {
     else if (d < third) third = d;
   }
   ivec2 bestId = II[b0], secId = II[b1];
+  int wi = b0;   // the nearest stone's index
+  // Bevel aspect: its own pieces in the space the aspect stretches (cutS: Stone shape's cuts; cutE: the same in px).
+  float cutS = -1e9, cutE = -1e9;
+  vec2 wa = XA[b0], wb = vec2(-wa.y, wa.x);
+  vec2 sax = normalize(vec2(dot(jx, wa), dot(jy, wa))), say = normalize(vec2(dot(jx, wb), dot(jy, wb)));
   vec2 bestQ = QQ[b0], secQ = QQ[b1];
   vec2 bestHs = HH[b0], secHs = HH[b1];
   if (u_close && u_crease && u_mortar < 0.0) {
@@ -525,7 +615,9 @@ GenOut gen(vec2 p) {
       // slanted or chamfered on one side, never sharpened into an arrowhead; ends: the plane turns about the middle.
       float hco = hc[(c & 3) ^ 2];
       float depth = corner ? u_shape_var * m * (0.1 + 0.9 * hcc * hcc) * (hcc < hco ? 0.25 : 1.0) : bestHs.y * abs(sin(an));
-      cut = max(cut, dot(bestQ, nn) - dot(bestHs, abs(nn)) + depth);
+      float cv = dot(bestQ, nn) - dot(bestHs, abs(nn)) + depth;
+      cut = max(cut, cv);
+      if (asp) cutS = max(cutS, bevelLine(cv, sax * nn.x + say * nn.y));
     }
     for (int c = 0; c < 2; c++) {
       // The top (0) and bottom (1): sagging towards one end and bowed, y = ±(hs.y − sag(x)).
@@ -534,13 +626,21 @@ GenOut gen(vec2 p) {
       float sx = ht.z < 0.5 ? 1.0 : -1.0;
       float sag = bow * ux * ux + tap * (0.5 + 0.5 * sx * ux);
       float slope = (2.0 * bow * ux + 0.5 * tap * sx) / max(bestHs.x, 1.0);
-      cut = max(cut, ((c == 0 ? 1.0 : -1.0) * bestQ.y - (bestHs.y - sag)) / sqrt(1.0 + slope * slope));
+      float cv = ((c == 0 ? 1.0 : -1.0) * bestQ.y - (bestHs.y - sag)) / sqrt(1.0 + slope * slope);
+      cut = max(cut, cv);
+      // (The curve's normal where the pixel is: (slope, ±1) in the stone's frame.)
+      if (asp) cutS = max(cutS, bevelLine(cv, sax * slope + say * (c == 0 ? 1.0 : -1.0)));
     }
     float b = max(best, cut);
     if (b > second) {
       best = second; second = min(b, third);
       bestId = secId; bestQ = secQ; bestHs = secHs;
-    } else best = b;
+      wi = b1;
+      cutS = -1e9;
+    } else {
+      best = b;
+      cutE = cut;
+    }
   }
   float bestRnd = hashI(bestId, uSeed);
   // Overlapping bricks (jitter) meet in a crease: inside the union, the distance to the boundary between the two
@@ -555,6 +655,34 @@ GenOut gen(vec2 p) {
     n = pat_fbm(p / res * wc, wper, 3, uSeed + 57.0);
   }
   if (u_wobble > 0.0) best += (n - 0.5) * 4.0 * u_wobble * (1.0 - u_wobble_var * hashI(bestId, uSeed + 59.0));
+  float bdS = ${NO_SDF};
+  if (asp) {
+    // Bevel aspect: the nearest stone — its rounded box, creases and Stone shape's cuts, each convex — measured in the
+    // space the aspect stretches: each side and cut a plane there (bevelLine), a rounded corner an ellipse's arc
+    // (bevelArc2), the most outside of them (the stone is their intersection), so its mitres stay continuous.
+    if (wi != b0) {
+      wa = XA[wi];
+      wb = vec2(-wa.y, wa.x);
+      sax = normalize(vec2(dot(jx, wa), dot(jy, wa)));
+      say = normalize(vec2(dot(jx, wb), dot(jy, wb)));
+    }
+    vec2 wq = QQ[wi], wh = HH[wi];
+    float db = sdRoundBox(wq, wh, vec4(u_round));
+    float s = max(bevelLine(abs(wq.x) - wh.x, sax), bevelLine(abs(wq.y) - wh.y, say));
+    float rr = min(u_round, min(wh.x, wh.y));
+    if (rr > 0.0) {
+      vec2 sg = vec2(wq.x < 0.0 ? -1.0 : 1.0, wq.y < 0.0 ? -1.0 : 1.0);
+      mat2 M = bevelFrame(sax, say);
+      s = -min(-s, sqrt(bevelArc2(M * wq, M, sg * (wh - rr), rr, vec2(sg.x, 0.0), vec2(0.0, sg.y), normalize(sg))));
+      if (db > 0.0) s = abs(s);
+    }
+    float bc = max(DD[wi], cutE);   // the same in px
+    bdS = max(max(s, CS[wi]), cutS);
+    // What the rest did to the distance (Close gaps, overlaps, Wobble) goes on at the local stretch — the stretched
+    // distance's share of the plain one, eased to 1 at the outline (continuous, so it doesn't step).
+    float dw = best - bc;
+    bdS += dw * (bdS * bc + 1.0) / (bc * bc + 1.0);
+  }
   float hv = 1.0;
   if (u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0) hv = pat_face(p, res, 0.5 * cs.y, bestQ, bestHs, bestId,
     pat_smin(bestHs.x - abs(bestQ.x), bestHs.y - abs(bestQ.y), 0.6 * min(bestHs.x, bestHs.y)), min(bestHs.x, bestHs.y));
@@ -566,6 +694,8 @@ GenOut gen(vec2 p) {
     float k = 0.0;
     float brk = -1e9;
     float cr = 2.0 * u_chip_size * min(bestHs.x, bestHs.y);
+    vec2 cA = vec2(0.0), cK = vec2(0.0), cB = vec2(0.0), cRef = vec2(0.0), cS = vec2(1.0);   // the piece broken out furthest
+    float cOff = 0.0;
     // The four corners' chances (c = 0..3); at most one chip per end, so an end never turns into an arrowhead.
     vec4 hx = vec4(hashI(bestId, uSeed + 101.0), hashI(bestId, uSeed + 102.0), hashI(bestId, uSeed + 103.0), hashI(bestId, uSeed + 104.0));
     for (int c = 0; c < 6; c++) {
@@ -588,10 +718,12 @@ GenOut gen(vec2 p) {
         vec2 K = c < 4 ? (one ? 0.5 * (A + B) : bestHs - vec2(ka * aa, kb * bb))
                        : vec2(x0 + (ka - 0.7) * 1.6 * aa, bestHs.y - 0.35 * bb);
         vec2 ref = c < 4 ? bestHs + 1.0 : vec2(x0, bestHs.y + 1.0);
-        float e = pat_notch(x, A, K, B, ref) + (n - 0.5) * 0.3 * r;
+        float en = (n - 0.5) * 0.3 * r;
+        float e = pat_notch(x, A, K, B, ref) + en;
         k = max(k, pat_chipK(e + r, r));
         // Broken outline: from none of the piece (0) through all of it to a little of the hollow round it (1).
-        brk = max(brk, e + (0.9 * u_chip_break - 0.5) * r);
+        float o = (0.9 * u_chip_break - 0.5) * r;
+        if (e + o > brk) { brk = e + o; cA = A; cK = K; cB = B; cRef = ref; cS = s; cOff = en + o; }
       }
     }
     // A rough, broken floor: the hollows' depth varies strongly with a fine noise (the colour follows the smooth
@@ -604,15 +736,20 @@ GenOut gen(vec2 p) {
     pat_cov = 1.0 - smoothstep(0.9, 0.95, 1.3 * u_chip_depth * kc);
     pat_tint = u_chip_dust * clamp(1.4 * kc, 0.0, 1.0);
     pat_hollow = 1.3 * u_chip_depth * kc;   // (× 1.3: where the rough floor's deeper parts reach)
-    if (u_chip_break > 0.0) best = max(best, brk);
+    if (u_chip_break > 0.0) {
+      best = max(best, brk);
+      // Bevel aspect: the broken piece's cuts as planes in the stretched space (x = the stone's frame × s).
+      if (asp && brk > -1e8) bdS = max(bdS, pat_notchS(bestQ * cS, cA, cK, cB, cRef, cOff, mat2(sax, say) * mat2(cS.x, 0.0, 0.0, cS.y)));
+    }
   }
   bool faced = u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0 || u_chips > 0.0;
   if (u_joint_var > 0.0) {
     // Joint variation: the nearest brick's bevel narrows with its share of the joint (a shut brick has hardly any edge)
     // and its relief goes flush (pat_js).
     pat_js = 1.0 - u_joint_var * hashI(bestId, uSeed + 191.0);
-    pat_setBevelDist(best / max(pat_js, 0.05));
+    if (!asp) pat_setBevelDist(best / max(pat_js, 0.05));
   }
+  if (asp) pat_bd = bdS / max(pat_js, 0.05);
   float d = faced || u_mortar_level > 0.0 ? pat_drawnDist(best) : best;
   if (u_mortar_level > 0.0) return pat_bedOut(bestRnd, best, d, hv, u_mortar_level, n);
   return pat_out(bestRnd, best, d, hv, faced);
@@ -678,6 +815,9 @@ GenOut gen(vec2 p) {
   bool flatTop = u_orient == 1;
   vec2 res = flatTop ? uRes.yx : uRes;
   vec2 q = flatTop ? p.yx : p;
+  // The frame's axes on screen (the flat-top swap, Shaping › Domain warp), for Bevel aspect.
+  vec2 jx = dFdx(q), jy = dFdy(q);
+  bool asp = bevelAspectOn();
   const float S = 0.8660254;   // row spacing / cell width for regular hexes
   vec2 n;
   if (!flatTop) { n.x = u_scale; n.y = res.y * u_scale / (res.x * S); }
@@ -759,7 +899,13 @@ GenOut gen(vec2 p) {
   float extra = (nz - 0.5) * 4.0 * u_wobble * smoothstep(0.1 * Rt, 0.45 * Rt, ms[1]);
   float d = pat_cellSdf(ms, ns, u_round) + extra;
   // Round bevel corners: the bevel measured so its inner contours keep the corners' rounding.
-  if (u_round_bevel && u_round > 0.0) pat_setBevelDist(extra - pat_roundDepth(ms, ns, u_round));
+  // Bevel aspect: the distance in the space the aspect stretches, its edges moved by the wobble and its corners rounded
+  // by what the wobble leaves of the rounding (as the distance's own corners are).
+  if (asp) {
+    float mx[PAT_K];
+    for (int i = 0; i < PAT_K; i++) mx[i] = ms[i] <= 1e8 ? ms[i] - extra : ms[i];
+    pat_bd = pat_cellBevel(mx, ns, jx, jy, max(u_round - extra, 0.0), d, u_round_bevel && u_round > 0.0);
+  } else if (u_round_bevel && u_round > 0.0) pat_setBevelDist(extra - pat_roundDepth(ms, ns, u_round));
   vec2 qc = -br - off;   // the pixel from the tile's centre
   float hv = 1.0;
   if (u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0) {
@@ -771,6 +917,8 @@ GenOut gen(vec2 p) {
     // the corner's two sides (pat_notch), a hollow in the height round it, and with Broken outline cut away.
     float k = 0.0;
     float brk = -1e9;
+    vec2 cA = vec2(0.0), cK = vec2(0.0), cB = vec2(0.0), cRef = vec2(0.0);   // the piece broken out furthest (Bevel aspect)
+    float cOff = 0.0;
     // One corner of each tile (its own pick) chips most often; the others a third as often.
     int cm = int(hashI(id, uSeed + 107.0) * 6.0);
     for (int c = 0; c < 6; c++) {
@@ -784,12 +932,15 @@ GenOut gen(vec2 p) {
         vec2 t2 = normalize(Rt * vec2(cos(th + 1.0471976), sin(th + 1.0471976)) - V);
         float aa = r * (0.6 + 0.8 * h.z), bb = r * (0.6 + 0.8 * h.w);
         float ka = 0.5 + 0.4 * fract(h.y * 5.17), kb = 0.5 + 0.4 * fract(h.z * 3.71);
-        float e = pat_notch(qc, V + aa * t1, V + ka * aa * t1 + kb * bb * t2, V + bb * t2, 1.1 * V) + (nz - 0.5) * 0.3 * r;
+        vec2 A = V + aa * t1, K = V + ka * aa * t1 + kb * bb * t2, B = V + bb * t2;
+        float en = (nz - 0.5) * 0.3 * r;
+        float e = pat_notch(qc, A, K, B, 1.1 * V) + en;
         k = max(k, pat_chipK(e + r, r));
-        brk = max(brk, e - (1.0 - u_chip_break) * 0.5 * r);
+        float o = -(1.0 - u_chip_break) * 0.5 * r;
         // With a raised grout bed, the part of the hollow the bed would fill is broken out of the outline too, so the
         // colour shows the chip where the height does (chipK passes (1 − level) / depth at e = (that − 1.4) r).
-        if (u_grout_level > 0.0) brk = max(brk, e - max(((1.0 - u_grout_level) / max(u_chip_depth, 0.05) - 1.4) * r, -0.3 * r));
+        if (u_grout_level > 0.0) o = max(o, -max(((1.0 - u_grout_level) / max(u_chip_depth, 0.05) - 1.4) * r, -0.3 * r));
+        if (e + o > brk) { brk = e + o; cA = A; cK = K; cB = B; cRef = 1.1 * V; cOff = en + o; }
       }
     }
     // A rough, broken floor: the hollows' depth varies strongly with a fine noise (the colour follows the smooth
@@ -802,7 +953,11 @@ GenOut gen(vec2 p) {
     pat_cov = 1.0 - smoothstep(0.9, 0.95, 1.3 * u_chip_depth * kc);
     pat_tint = u_chip_dust * clamp(1.4 * kc, 0.0, 1.0);
     pat_hollow = 1.3 * u_chip_depth * kc;   // (× 1.3: where the rough floor's deeper parts reach)
-    if (u_chip_break > 0.0 || u_grout_level > 0.0) d = max(d, brk);
+    if (u_chip_break > 0.0 || u_grout_level > 0.0) {
+      d = max(d, brk);
+      // Bevel aspect: the broken piece's cuts as planes in the stretched space.
+      if (asp && brk > -1e8) pat_bd = max(pat_bd, pat_notchS(qc, cA, cK, cB, cRef, cOff, mat2(jx.x, jy.x, jx.y, jy.y)));
+    }
   }
   bool faced = u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0 || u_chips > 0.0;
   float rnd = hashI(id, uSeed);
@@ -991,12 +1146,28 @@ GenOut gen(vec2 p) {
   vec2 cells = cellsFor(u_scale, 1.0);
   ivec2 per = uTile ? ivec2(cells) : NO_PERIOD;
   vec2 cs = uRes / cells;
+  // The warped frame's axes on screen (Shaping › Domain warp, then Warp): Bevel aspect takes the cells' edges there.
+  vec2 jx = dFdx(p), jy = dFdy(p);
   if (u_warp > 0.0) {
     vec2 wc = cellsFor(u_warp_scale, 1.0);
     ivec2 wper = uTile ? ivec2(wc) : NO_PERIOD;
-    // warpOffset's two fBm noises, through the rolled pat_fbm.
-    vec2 wx = p / uRes * wc;
-    p += (vec2(pat_fbm(wx, wper, 3, uSeed + 108.0), pat_fbm(wx + 17.3, wper, 3, uSeed + 218.0)) - 0.5) * 2.0 * u_warp;
+    // warpOffset's two fBm noises, through the rolled pat_fbm — with Bevel aspect also a pixel right and up, for the
+    // warp's Jacobian (dFdx of the warped position is constant over each 2 × 2 quad on some GPUs, which steps the
+    // bevel's width). One loop, so the noise compiles once.
+    vec2 w[3] = vec2[3](vec2(0.0), vec2(0.0), vec2(0.0));
+    int nw = bevelAspectOn() ? 3 : 1;
+    for (int i = 0; i < 3 * PAT_1; i++) {
+      if (i < nw) {
+        vec2 wx = (p + (i == 1 ? vec2(1.0, 0.0) : i == 2 ? vec2(0.0, 1.0) : vec2(0.0))) / uRes * wc;
+        w[i] = (vec2(pat_fbm(wx, wper, 3, uSeed + 108.0), pat_fbm(wx + 17.3, wper, 3, uSeed + 218.0)) - 0.5) * 2.0 * u_warp;
+      }
+    }
+    if (nw == 3) {
+      mat2 Jw = mat2(1.0) + mat2(w[1] - w[0], w[2] - w[0]);
+      jx = Jw * jx;
+      jy = Jw * jy;
+    }
+    p += w[0];
   }
   // Feature points live in px space so distances (and the gap) are true pixels on any aspect ratio.
   ivec2 ip = ivec2(floor(p / cs));
@@ -1204,9 +1375,16 @@ GenOut gen(vec2 p) {
   // the inside distance stretched to match — so it still rises to (nearly) the full height.
   bool rb = u_round_bevel && u_round > 0.0 && u_metric == 0;
   bool fs = u_min_bevel < 1.0 && u_metric == 0;
-  if (rb || fs) {
+  float be = fs ? clamp(0.8 * (hmin - extra), u_min_bevel * u_bevel, u_bevel) : u_bevel;
+  if (bevelAspectOn() && u_metric == 0) {
+    // Bevel aspect: the distance in the space the aspect stretches (pat_cellBevel), its edges moved in by the size
+    // jitter and its corners rounded by what that leaves of the rounding (as the distance's own corners are).
+    float mx[PAT_K];
+    for (int i = 0; i < PAT_K; i++) mx[i] = ms[i] <= 1e8 ? ms[i] - extra : ms[i];
+    float bd = pat_cellBevel(mx, ns, jx, jy, max(u_round - extra, 0.0), d, rb);
+    pat_bd = bd < 0.0 ? bd * u_bevel / max(be, 1e-3) : bd;
+  } else if (rb || fs) {
     float bd = rb ? extra - pat_roundDepth(ms, ns, u_round) : d;
-    float be = fs ? clamp(0.8 * (hmin - extra), u_min_bevel * u_bevel, u_bevel) : u_bevel;
     pat_setBevelDist(bd < 0.0 ? bd * u_bevel / max(be, 1e-3) : bd);
   }
   float hv = 1.0;
@@ -1316,9 +1494,22 @@ GenOut gen(vec2 p) {
   }
   float d = min(dl.x, dl.y);
   // Rounded panel corners: inside a panel, its distance to a rounded box's corner.
-  if (u_round > 0.0 && dl.x < u_round && dl.y < u_round) d = u_round - length(max(u_round - dl, 0.0));
+  bool corner = u_round > 0.0 && dl.x < u_round && dl.y < u_round;
+  if (corner) d = u_round - length(max(u_round - dl, 0.0));
   if (uTile) c = imod(c, m);
-  return genOut(0.0, 1.0, hashI(c, uSeed), d);
+  GenOut o = genOut(0.0, 1.0, hashI(c, uSeed), d);
+  if (bevelAspectOn()) {
+    // Bevel aspect: each line's distance in the space the aspect stretches (where lines cross, the deeper wins, as in
+    // the distance), and at a rounded panel corner the distance to its arc there — an ellipse's quarter. Taken from the
+    // direction of the distance instead, the width would step along the diagonals of every crossing.
+    vec2 k = u_bevel / bevelWidths();
+    o.bdist = min(dl.x * k.x, dl.y * k.y);
+    if (corner) {
+      float e = bevelEllipse(k * (u_round - dl), mat2(k.x, 0.0, 0.0, k.y), vec2(u_round));
+      o.bdist = d < 0.0 ? -e : e;
+    }
+  }
+  return o;
 }
 `,
 }

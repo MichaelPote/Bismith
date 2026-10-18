@@ -119,7 +119,10 @@ float crk_round(float a, float b, float R) {
 // x the band's half width there (px), y the distance to the second nearest border (small only near a junction), z the
 // half width that sets the crack's depth (x plus what the rounding opens at a junction of wide cracks — thin cracks'
 // junctions stay as shallow as the cracks).
-vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, float wVar, float fillet, float bulge, vec2 jx, vec2 jy, float seed, out vec2 off, out vec2 nb, out vec3 hw) {
+// For Bevel aspect (GLSL_BEVEL), kS = the local stretch: px of Bevel per px across the borders — the same rounded
+// minimum taken over each border's distance in the space the aspect stretches (× Bevel / its width across that border's
+// screen normal), over the plain one; continuous through the plates' corners, so their bevels don't step there.
+vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, float wVar, float fillet, float bulge, vec2 jx, vec2 jy, float seed, out vec2 off, out vec2 nb, out vec3 hw, out float kS) {
   ivec2 per = org_per(cells);
   vec2 cs = uRes / cells;
   float P = sqrt(cs.x * cs.y);
@@ -132,6 +135,9 @@ vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, fl
   // m, h1: the nearest border and its half width; m2, h2 the next; dr the rounded distance. For the nearest border also
   // its neighbour cell cN and site sN, warped distance qN, screen px per warped px kN and signed bow bN.
   float m = 1e9, m2 = 1e9, h1 = 0.0, h2 = 0.0, dr = 1e9, qN = 0.0, kN = 1.0, bN = 0.0;
+  // (Bevel aspect: drS as dr, stretched; fN the nearest border's stretch.)
+  bool asp = bevelAspectOn();
+  float drS = 1e9, fN = 1.0;
   ivec2 cN = ip;
   vec2 sN = p;
   // The plate surface's soft minimum: sum of exp(-distance / sk) over the borders.
@@ -172,8 +178,11 @@ vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, fl
         float hh = halfW * mix(1.0, 0.55 + 0.9 * r.x * r.x, wVar);
         // The corner's radius: the plate share, × 0.5–1.5 with the two cracks' widths against the mean (thin cracks
         // meet in tight corners, wide ones in broad wedges).
-        dr = crk_round(dr, d, rad * (0.5 * (h1 + hh) / max(halfW, 1e-3)));
-        if (d < m) { m2 = m; h2 = h1; n2 = nb; m = d; h1 = hh; nb = n; cN = c; sN = s; qN = dq; kN = k; bN = (aLo ? 1.0 : -1.0) * (r.y < 0.5 ? -1.0 : 1.0) * (0.45 + 1.1 * abs(r.y - 0.5)); }
+        float rr = rad * (0.5 * (h1 + hh) / max(halfW, 1e-3));
+        dr = crk_round(dr, d, rr);
+        float fa = asp ? bevelLine(1.0, vec2(dot(jx, n), dot(jy, n))) : 1.0;
+        if (asp) drS = crk_round(drS, d * fa, rr);
+        if (d < m) { m2 = m; h2 = h1; n2 = nb; m = d; h1 = hh; nb = n; cN = c; sN = s; qN = dq; kN = k; fN = fa; bN = (aLo ? 1.0 : -1.0) * (r.y < 0.5 ? -1.0 : 1.0) * (0.45 + 1.1 * abs(r.y - 0.5)); }
         else if (d < m2) { m2 = d; h2 = hh; n2 = n; }
       }
     }
@@ -199,6 +208,7 @@ vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, fl
   float db = qN - S;
   float soft = -sk * log(max(acc + exp(-abs(db) / sk) - exp(-qN / sk), 1e-30));
   dr -= S / kN;
+  drS -= S / kN * fN;
   m = abs(m - S / kN);
   if (db < 0.0) {
     // Carried across the border by its bow: the neighbouring plate's pixel, on its side of the crack.
@@ -206,8 +216,10 @@ vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, fl
     bc = cN;
     nb = -nb;
     dr = -dr;
+    drS = -drS;
     soft = -db;
   }
+  kS = abs(dr) > 0.05 ? drS / dr : fN;
   off = p - bs;
   hw = vec3(hx, m2, hx + open);
   return vec4(dr - hx, m, hashI(imod(bc, per), seed + 17.0), max(soft, 0.0));
@@ -237,7 +249,8 @@ vec2 crk_segment(ivec2 a, ivec2 b, int key, float seed) {
 // (crk_round, this share of a fine cell). Returns x = distance (px) to the edge of the nearest fine crack, y = fine-cell
 // rnd, z = that crack's strength (its width against the mean, 0.5–1.5 … 0 at its tip; scales its tone and groove),
 // w = distance (px) to the fine cell's border, present or not; site = the pixel's cell site.
-vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, float wVar, float fillet, float taper, float mainD, vec2 mainN, float plate, int key, bool connect, vec2 jx, vec2 jy, float seed, out vec2 site) {
+// kS: the local stretch for Bevel aspect, as crk_plates' — over the present segments' lines.
+vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, float wVar, float fillet, float taper, float mainD, vec2 mainN, float plate, int key, bool connect, vec2 jx, vec2 jy, float seed, out vec2 site, out float kS) {
   ivec2 per = org_per(cells);
   vec2 cs = uRes / cells;
   ivec2 ip = ivec2(floor(p / cs));
@@ -249,6 +262,9 @@ vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, f
   float b1 = 1e9, b2 = 1e9, d1 = 0.0, h1 = 0.0, t1 = 0.0, t2 = 0.0;
   // All present bands through crk_round (sm), for the rounding at their junctions; raw = the nearest border.
   float sm = 1e9, raw = 1e9, rad = fillet * sqrt(cs.x * cs.y);
+  // (Bevel aspect: the nearest present line, plain (lE) and stretched (lS), and the nearest one's stretch f1.)
+  bool asp = bevelAspectOn();
+  float lE = 1e9, lS = 1e9, f1 = 1.0;
   int i1 = 12;
   vec2 s1 = p, n1 = vec2(1.0, 0.0);
   // The 5×5 sites around the nearest one, kept for following the nearest segment to its ends below.
@@ -287,6 +303,10 @@ vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, f
       // the fine cracks in the shape) runs out a little beyond the visible end instead of drawing the rest of it.
       float b = dist + max(u - 1.0, 0.0) * 12.0 * (u_bevel + 1.0) - (h < 0.5 ? 2.0 * h - 0.5 : h);
       sm = crk_round(sm, b, rad);
+      float fa = asp ? bevelLine(1.0, vec2(dot(jx, n), dot(jy, n))) : 1.0;
+      lE = min(lE, dist);
+      lS = min(lS, dist * fa);
+      if (dist <= lE) f1 = fa;
       if (b < b1) { b2 = b1; t2 = t1; b1 = b; d1 = dist; h1 = h; t1 = st; i1 = f; s1 = s; n1 = n; }
       else if (b < b2) { b2 = b; t2 = st; }
     }
@@ -347,6 +367,7 @@ vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, f
     }
   }
   site = bs;
+  kS = lE > 1e-3 ? lS / lE : f1;
   return vec4(b1 - fil, hashI(bw, seed + 17.0), t1, raw);
 }
 
@@ -449,9 +470,12 @@ GenOut gen(vec2 p) {
   float wMul = mix(1.0, 0.35 + 1.3 * wn, u_width_var);
   vec2 off, nb;
   vec3 hw;
-  vec4 c1 = crk_plates(q, cells, u_jitter, u_size_var, 0.5 * u_width * wMul, u_width_var, u_fillet, u_bulge, jx, jy, uSeed, off, nb, hw);
+  float kS;
+  vec4 c1 = crk_plates(q, cells, u_jitter, u_size_var, 0.5 * u_width * wMul, u_width_var, u_fillet, u_bulge, jx, jy, uSeed, off, nb, hw, kS);
   // Distance (px) from the pixel to the edge of the crack bands: > 0 on a plate.
   float d = c1.x + jn;
+  // Bevel aspect: the same, stretched (px of Bevel), at the local stretch across the borders.
+  float dS = d * kS;
   float rnd = c1.z;
   float fineInk = 0.0, fineGroove = 0.0;
   if (u_sub > 0.0 || u_shatter > 0.0) {
@@ -469,14 +493,16 @@ GenOut gen(vec2 p) {
     vec2 site;
     // The shards' plane: unwarped but for the zig-zag's kinks and half the gentle fine warp.
     vec2 ps = p + (zz - 0.5) * 2.0 * u_zigzag + 0.5 * fw;
-    float fd = 1e9, fade = 0.0;
+    float fd = 1e9, fade = 0.0, fk = 1.0;
     bool shattered = false, onShard = false;
     for (int i = 0; i < 2 * ORG_1; i++) {
       bool frag = i == 1;
       if (!frag || shattered) {
-        vec4 c = crk_fineCracks(frag ? ps : q + fw, frag ? cellsFor(u_scale * u_sub_scale * u_shatter_scale, 1.0) : c2s, frag ? 1.0 : u_jitter, frag ? 0.85 : u_sub, frag ? max(0.3 * u_width, 0.45) * wMul : 0.5 * u_sub_width * wMul, u_width_var, frag ? 0.0 : u_fillet, frag ? 0.0 : u_sub_taper, c1.y, nb, L, u_sub_cross ? 0 : int(c1.z * 65536.0) + 1, !frag && u_sub_connect, frag ? vec2(1.0, 0.0) : jx, frag ? vec2(0.0, 1.0) : jy, uSeed + (frag ? 41.0 : 3.0), site);
+        float ck;
+        vec4 c = crk_fineCracks(frag ? ps : q + fw, frag ? cellsFor(u_scale * u_sub_scale * u_shatter_scale, 1.0) : c2s, frag ? 1.0 : u_jitter, frag ? 0.85 : u_sub, frag ? max(0.3 * u_width, 0.45) * wMul : 0.5 * u_sub_width * wMul, u_width_var, frag ? 0.0 : u_fillet, frag ? 0.0 : u_sub_taper, c1.y, nb, L, u_sub_cross ? 0 : int(c1.z * 65536.0) + 1, !frag && u_sub_connect, frag ? vec2(1.0, 0.0) : jx, frag ? vec2(0.0, 1.0) : jy, uSeed + (frag ? 41.0 : 3.0), site, ck);
         if (!frag) {
           c2 = c;
+          fk = ck;
           // The edge roughness fades with the taper too (it would dot the thin ends out).
           fd = c.x + jn * clamp(1.0 - u_sub_taper * c1.y / (0.35 * L), 0.0, 1.0) * min(c.z, 1.0);
           // The patch's anchor: the fine site moved across onto the main border (along its normal nb, by the border's
@@ -496,6 +522,7 @@ GenOut gen(vec2 p) {
           float sd = c.x + jn + max(0.3 * u_width, 0.45) * wMul * (1.0 - fade) * 2.0;
           if (sd < fd) {
             fd = sd;
+            fk = ck;
             c2.z = 0.3 + 0.8 * fade;
             onShard = true;
           }
@@ -504,7 +531,10 @@ GenOut gen(vec2 p) {
     }
     // Where a fine crack meets a main one, the junction rounds too: fd lowered by what crk_round takes off the pair.
     float red = min(fd, d) - crk_round(fd, d, u_fillet * L / u_sub_scale);
-    if (u_sub_shape) d = min(d, fd) - red;
+    if (u_sub_shape) {
+      d = min(d, fd) - red;
+      dS = crk_round(fd * fk, dS, u_fillet * L / u_sub_scale);
+    }
     else {
       fd -= red;
       // Grooves of their own on the plates: in colour pale for thin cracks, dark for wide ones (anti-aliased like an
@@ -519,7 +549,12 @@ GenOut gen(vec2 p) {
     if (u_sub_vary) rnd = fract(rnd + c2.y * 0.37);
   }
   float sdf = -d;
-  if (u_output == 1) return genOut(0.0, 1.0, rnd, sdf);
+  if (u_output == 1) {
+    // Bevel aspect: the plates' bevel from the stretched distance, so it meets in clean mitres at their corners.
+    GenOut g = genOut(0.0, 1.0, rnd, sdf);
+    if (bevelAspectOn()) g.bdist = -dS;
+    return g;
+  }
   // Plate surface for Height: ti runs 0 at the plate's border to 1 at its site (from the smooth soft-minimum border
   // distance, so no creases along the plate's skeleton);
   // the dome falls, or the curl rises, over the outer Dome reach of it: a = 1 at the edge … 0 from the reach inwards.

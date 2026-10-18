@@ -45,8 +45,16 @@ export const settsLayer: LayerDef = {
   glsl:
     geoGlsl(4) +
     /* glsl */ `
+// Bevel aspect (GLSL_BEVEL): a frame distance across an edge with frame normal n, in px of Bevel.
+float st_line(float d, vec2 n) { return bevelLine(d, geo_toScreen(n)); }
+
 GenOut gen(vec2 p) {
   bool rings = u_layout == 1;
+  // Bevel aspect: each straight edge's (and each arc's, along its radius) distance in px of Bevel, combined as the
+  // shape's are — max where they meet in a corner — so the bevels mitre cleanly instead of stepping.
+  bool asp = bevelAspectOn();
+  float hg = 0.5 * u_gap;
+  float regS = -1e9;
   // Odd gaps: shift half a pixel so both joint edges land on pixel boundaries.
   float sh = fract(0.5 * u_gap);
   geo_frame(p - sh, 2 * clamp(u_dir, 0, 3));
@@ -69,6 +77,7 @@ GenOut gen(vec2 p) {
     key = geo_wrapCell(cell);
     vec2 q = abs(f - c) - 0.5 * vec2(W, H);
     dReg = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+    if (asp) regS = max(st_line(q.x + hg, vec2(1.0, 0.0)), st_line(q.y + hg, vec2(0.0, 1.0)));
     pitch = 0.5 * min(W, H) / max(u_courses, 1.0);
   } else {
     // Disks below pass through the centre; at least the covering radius (squat rows) so the scales fill the plane.
@@ -88,13 +97,16 @@ GenOut gen(vec2 p) {
     key = geo_wrapCell(key);
     // Inside its own disk, outside every disk of the rows below (they lie on top).
     dReg = length(f - c) - R;
+    if (asp) regS = st_line(dReg + hg, f - c);
     for (int dj = 1; dj <= 3; dj++) {
       int j = bj - dj;
       float o = (j & 1) == 1 ? 0.5 * W : 0.0;
       int i0 = int(floor((f.x - o) / W + 0.5));
       for (int di = -1; di <= 1; di++) {
         vec2 cc = vec2(float(i0 + di) * W + o, float(j) * H);
-        dReg = max(dReg, R - length(f - cc));
+        float dc = R - length(f - cc);
+        dReg = max(dReg, dc);
+        if (asp) regS = max(regS, st_line(dc + hg, f - cc));
       }
     }
     pitch = R / max(u_courses, 1.0);
@@ -107,10 +119,11 @@ GenOut gen(vec2 p) {
   int fk = key.x * 7919 + key.y * 104729;
   int k = int(floor(r / pitch));
   int s = 0;
-  float sd;
+  float sd, sdS = 0.0;
   if (k == 0) {
     float h = hashI(ivec2(fk, 0), uSeed);
     sd = r - (pitch - ins - u_irregular * 0.2 * pitch * h);
+    if (asp) sdS = st_line(sd - u_round, d);
   } else {
     float rk = (float(k) + 0.5) * pitch;
     int n = max(3, int(floor(6.2831853 * rk / (max(u_length, 0.1) * pitch) + 0.5)));
@@ -135,15 +148,29 @@ GenOut gen(vec2 p) {
     dt = max(dt, -dot(d, vec2(cos(tm), sin(tm))));
     vec2 e = vec2(dt, dr);
     sd = length(max(e, 0.0)) + min(max(e.x, e.y), 0.0);
+    if (asp) {
+      // Each side less the rounding; past the core's corner (both e > 0) the rounding's arc too, along the way out of
+      // it (the sides still count there, so their terms carry on into the corner without a seam).
+      vec2 nb = -vec2(cos(tm), sin(tm));
+      float t1 = dot(d, n1), t2 = dot(d, n2), tb = dot(d, nb);
+      float tt = max(t1, t2) + ins + 0.5 * shrink;
+      vec2 nt = tb > tt ? nb : t1 >= t2 ? n1 : n2;
+      vec2 nr = (r >= rc ? 1.0 : -1.0) * d / max(r, 1e-6);
+      sdS = max(max(st_line(t1 + ins + 0.5 * shrink - u_round, n1), st_line(t2 + ins + 0.5 * shrink - u_round, n2)),
+                max(st_line(tb - u_round, nb), st_line(dr - u_round, nr)));
+      if (e.x > 0.0 && e.y > 0.0) sdS = max(sdS, st_line(length(e) - u_round, e.x * nt + e.y * nr));
+    }
   }
-  sd = max(sd - u_round, dReg + 0.5 * u_gap);
+  sd = max(sd - u_round, dReg + hg);
 
   float nCourses = max(u_courses, 1.0) + 1.0;
   float rnd;
   if (u_rnd_mode == 1) rnd = min((float(k) + 0.5) / nCourses, 1.0);
   else if (u_rnd_mode == 2) rnd = hashI(ivec2(fk, 7), uSeed);
   else rnd = hashI(ivec2(s * 64 + k, fk), uSeed + 5.0);
-  return genOut(0.0, 1.0, rnd, min(sd, 1e4));
+  GenOut g = genOut(0.0, 1.0, rnd, min(sd, 1e4));
+  if (asp) g.bdist = sd < 0.0 ? max(sdS, regS) : sd;
+  return g;
 }
 `,
 }

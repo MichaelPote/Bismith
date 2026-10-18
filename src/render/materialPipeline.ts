@@ -134,6 +134,18 @@ export interface HeightStats {
   max: number
 }
 
+const ASPECT_KEY = '~aspect'
+
+/**
+ * The shader a generator layer runs, for compiling ahead (uncompiled / precompile): its type, or — an SDF layer with
+ * Bevel aspect off 1 — the variant that also carries the exact stretched bevels (`#define BEVEL_ASPECT`, GLSL_BEVEL's
+ * bevelAspectOn). At aspect 1 they would give the plain bevel anyway, so the usual shader leaves all that code out.
+ */
+export function shaderKey(layer: Pick<Layer, 'type' | 'params'>): string {
+  return getLayerDef(layer.type)?.sdf === true && Number(layer.params.bevel_aspect ?? 1) !== 1 ? layer.type + ASPECT_KEY : layer.type
+}
+const shaderType = (key: string) => (key.endsWith(ASPECT_KEY) ? key.slice(0, -ASPECT_KEY.length) : key)
+
 export class MaterialPipeline {
   private gpu: Gpu
   private state: PingPong | null = null
@@ -141,8 +153,17 @@ export class MaterialPipeline {
   private width = 0
   private height = 0
   private materials = new Map<string, THREE.RawShaderMaterial>()
-  /** Generator types whose shader has been compiled (run, or precompiled). */
+  /** Generator shaders compiled (run, or precompiled), by shaderKey. */
   private compiled = new Set<string>()
+  /**
+   * Compile a Bevel aspect variant (shaderKey) in the background where the browser can, running the plain shader
+   * meanwhile (its bevel steps at the mitres) and calling onVariantReady to re-run when it is done: the editor, so the
+   * first move of the slider off 1 doesn't freeze the page for a cold compile. Off for headless renders, which must
+   * come out exact.
+   */
+  deferVariants = false
+  onVariantReady?: () => void
+  private pendingVariants = new Set<string>()
   /** A comment in generator shaders (measuring cold compiles: a new salt defeats the browser's and driver's caches). */
   private salt = ''
   private scratchTargets = new Map<string, THREE.WebGLRenderTarget>()
@@ -464,9 +485,9 @@ ${fetches}
     }
   }
 
-  /** Generator types among `types` whose shader isn't compiled yet: their first run would compile it, stalling the page. */
-  uncompiled(types: string[]): string[] {
-    return [...new Set(types)].filter((t) => getLayerDef(t)?.kind === 'generator' && !this.compiled.has(t))
+  /** Generator shaders among `keys` (shaderKey) not compiled yet: their first run would compile them, stalling the page. */
+  uncompiled(keys: string[]): string[] {
+    return [...new Set(keys)].filter((k) => getLayerDef(shaderType(k))?.kind === 'generator' && !this.compiled.has(k))
   }
 
   /** Generator shaders compile afresh after this (cold-compile timing; the old programs stay cached under the old salt). */
@@ -479,25 +500,37 @@ ${fetches}
    * Compile generators' shaders ahead of their first run (see GpuContext.compile). They are all submitted at once (the
    * browser compiles them in parallel); `onProgress` hears how many have finished as each one does.
    */
-  async precompile(types: string[], onProgress?: (done: number, total: number) => void): Promise<void> {
-    const defs = this.uncompiled(types).map((t) => getLayerDef(t)!)
+  async precompile(keys: string[], onProgress?: (done: number, total: number) => void): Promise<void> {
+    const todo = this.uncompiled(keys)
     let done = 0
     await Promise.all(
-      defs.map(async (d) => {
-        await this.gpu.compile([this.generatorMaterial(d)])
-        this.compiled.add(d.type)
-        onProgress?.(++done, defs.length)
+      todo.map(async (k) => {
+        await this.gpu.compile([this.generatorMaterial(getLayerDef(shaderType(k))!, k !== shaderType(k))])
+        this.compiled.add(k)
+        onProgress?.(++done, todo.length)
       }),
     )
   }
 
-  private generatorMaterial(def: LayerDef): THREE.RawShaderMaterial {
-    const key = `gen:${def.type}${this.salt}`
+  private compileVariant(def: LayerDef, key: string): void {
+    if (this.pendingVariants.has(key)) return
+    this.pendingVariants.add(key)
+    void this.gpu.compile([this.generatorMaterial(def, true)]).then(() => {
+      this.pendingVariants.delete(key)
+      this.compiled.add(key)
+      this.onVariantReady?.()
+    })
+  }
+
+  /** aspect: the variant with Bevel aspect's exact stretched bevels (BEVEL_ASPECT, see shaderKey). */
+  private generatorMaterial(def: LayerDef, aspect = false): THREE.RawShaderMaterial {
+    const key = `gen:${def.type}${aspect ? ASPECT_KEY : ''}${this.salt}`
     let mat = this.materials.get(key)
     if (!mat) {
       const defs = layerParamDefs(def.type)
       const frag =
         (this.salt ? `// salt ${this.salt}\n` : '') +
+        (aspect ? '#define BEVEL_ASPECT\n' : '') +
         bevelCurveDefine(defs) +
         MATERIAL_PRELUDE +
         MRT_OUTS +
@@ -617,14 +650,19 @@ ${fetches}
       try {
         this.bindMasks(masks)
         if (def.kind === 'generator') {
-          const mat = this.generatorMaterial(def)
+          let key = shaderKey(layer)
+          if (key !== layer.type && this.deferVariants && this.gpu.parallelCompile && !this.compiled.has(key)) {
+            this.compileVariant(def, key)
+            key = layer.type
+          }
+          const mat = this.generatorMaterial(def, key !== layer.type)
           updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params)
           this.bindTextures(def, layer, project, seed, mat)
           this.setCommon(mat, project, seed)
           const w = masks?.write
           mat.uniforms.uMaskKind.value = w ? (w.kind === 'shape' ? 1 : 2) : 0
           this.gpu.run(mat, state.write)
-          this.compiled.add(def.type)
+          this.compiled.add(key)
           state.swap()
           // The new version of its mask, kept while a later layer reads it.
           if (w && w.slot >= 0) this.copyInto(state.read.textures[3], this.slots[w.slot])

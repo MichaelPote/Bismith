@@ -188,11 +188,12 @@ export const SDF_PARAMS: ParamDef[] = [
  * in that stretched space, √((nx·Wx)² + (ny·Wy)²). 1 everywhere for a flat profile or no bevel (coverage anti-aliases).
  *
  * Taken from the distance's own direction, the width jumps where that direction does — on the mitre where two edges
- * meet at a corner, a visible step in the bevel. The exact bevel is the distance in the stretched space: the least,
- * over the edges, of each one's distance ÷ its width. A generator that knows the straight edges meeting at its convex
- * corners passes each as bevelLine(distance, its normal) and takes their max with bevelLine(d, gradient) (all negative
- * inside, so max = the least depth): the edge terms agree with the gradient's on either side of the mitre, so the bevel is
- * continuous and its mitre leans towards the narrower bevel. That goes to GenOut.bdist.
+ * meet at a corner, a visible step in the bevel. The exact bevel is the plain distance in the space the aspect
+ * stretches (screen axes × Bevel / their width; bevelFrame maps a feature's local frame there), to the outline piece by
+ * piece: bevelSeg2 for straight pieces, bevelArc2 for circular arcs and bevelEllipse for whole ellipses (circles and
+ * ellipses stay ellipses, stretched). The least over the pieces, signed by the generator's own inside test, goes to
+ * GenOut.bdist (px of Bevel): continuous, its mitres leaning towards the narrower bevel. (bevelLine(d, n) is one
+ * straight edge's term on its own: the same over the whole line.)
  */
 export const GLSL_BEVEL = /* glsl */ `
 vec2 bevelWidths() { float r = sqrt(max(u_bevel_aspect, 1e-3)); return u_bevel * vec2(1.0 / r, r); }
@@ -208,6 +209,68 @@ float bevelLine(float d, vec2 n) { return d * u_bevel / bevelWidth(n); }
 float bevelAt(float d, vec2 g) {
   if (u_bevel <= 0.0 || u_profile == 0) return 1.0;
   return profileCurve(u_profile, max(-d, 0.0) / bevelWidth(g));
+}
+// Whether the exact stretched bevels run: a Bevel and an aspect other than 1. Only the shader variant compiled for such a
+// layer (BEVEL_ASPECT) has them at all; at aspect 1 the plain bevel is the same, so the default compile carries none of
+// that code.
+#ifdef BEVEL_ASPECT
+bool bevelAspectOn() { return u_bevel > 0.0 && u_bevel_aspect != 1.0; }
+#else
+bool bevelAspectOn() { return false; }
+#endif
+// Local frame → the stretched space: a feature whose local x and y axes point along screen directions ax, ay (unit, with
+// any flips). Points and offsets map alike (apply it to differences from the same origin).
+mat2 bevelFrame(vec2 ax, vec2 ay) {
+  vec2 k = u_bevel / bevelWidths();
+  return mat2(ax * k, ay * k);
+}
+// Squared distance from p to the segment ab (all in the stretched space).
+float bevelSeg2(vec2 p, vec2 a, vec2 b) {
+  vec2 pa = p - a, ba = b - a;
+  vec2 v = pa - ba * clamp(dot(pa, ba) / max(dot(ba, ba), 1e-12), 0.0, 1.0);
+  return dot(v, v);
+}
+// Distance from p (stretched, local origin taken off) to the whole ellipse with local semi-axes ab along the local axes,
+// mapped by M (bevelFrame): still an ellipse, its axes from the singular values of M·diag(ab) (2×2 closed form), the
+// nearest point on it by a few Newton-like steps (0xfaded's trig-free method, as sdEllipseExact).
+float bevelEllipse(vec2 p, mat2 M, vec2 ab) {
+  mat2 A = M * mat2(ab.x, 0.0, 0.0, ab.y);
+  float E = (A[0][0] + A[1][1]) * 0.5, F = (A[0][0] - A[1][1]) * 0.5;
+  float G = (A[0][1] + A[1][0]) * 0.5, H = (A[0][1] - A[1][0]) * 0.5;
+  float Q = sqrt(E * E + H * H), R = sqrt(F * F + G * G);
+  float phi = (atan(H, E) + atan(G, F)) * 0.5;
+  vec2 e = max(vec2(Q + R, abs(Q - R)), vec2(1e-4));
+  vec2 cu = vec2(cos(phi), sin(phi));
+  vec2 pa = abs(vec2(dot(p, cu), dot(p, vec2(-cu.y, cu.x))));
+  if (abs(e.x - e.y) < 1e-4 * e.x) return abs(length(pa) - e.x);
+  vec2 t = vec2(0.70710678);
+  vec2 e2 = vec2(e.x * e.x - e.y * e.y, e.y * e.y - e.x * e.x) / e;
+  for (int i = 0; i < 4; i++) {
+    vec2 k = e2 * t * t * t;
+    vec2 qv = pa - k;
+    t = clamp((qv * (length(e * t - k) / max(length(qv), 1e-9)) + k) / e, 0.0, 1.0);
+    t /= max(length(t), 1e-9);
+  }
+  return length(pa - e * t);
+}
+// Squared distance from p (stretched) to an arc of the circle with local centre c and radius r, mapped by M (bevelFrame,
+// with the local origin already taken off p): from direction d0 to d1 (unit, local) the way round through m, its middle
+// direction (d0 = d1 = −m: the whole circle). Stretched, the circle is an ellipse; eight chords follow it within 0.2 %
+// of the radius (an exact nearest point on the whole ellipse can lie off the arc, inside a large corner).
+float bevelArc2(vec2 p, mat2 M, vec2 c, float r, vec2 d0, vec2 d1, vec2 m) {
+  float ha = acos(clamp(dot(d0, m), -1.0, 1.0));
+  float sw = 2.0 * ha * (d0.x * m.y - d0.y * m.x < 0.0 ? -1.0 : 1.0) / 8.0;
+  mat2 turn = mat2(cos(sw), sin(sw), -sin(sw), cos(sw));
+  vec2 u = d0;
+  vec2 a = M * (c + r * u);
+  float best = dot(p - a, p - a);
+  for (int i = 0; i < 8; i++) {
+    u = turn * u;
+    vec2 b = M * (c + r * u);
+    best = min(best, bevelSeg2(p, a, b));
+    a = b;
+  }
+  return best;
 }
 `
 

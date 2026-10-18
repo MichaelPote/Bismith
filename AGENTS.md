@@ -76,6 +76,12 @@ doesn't.)
   a hue; `<component :is>` for data-driven ones — layer types and recipes via `layerIcon` / `recipeIcon` in
   `src/ui/meta.ts`). `.tabler-icon { stroke-width: 1.75 }` in `src/styles/base.css` sets the UI's line weight and
   overrides Tabler's `stroke` prop, so a different weight needs CSS (see NumberField's chevrons).
+- **Bevel aspect needs a stretched distance, or it steps.** Picking the bevel's width from the distance's gradient
+  jumps on every mitre where edges of different directions meet. An SDF generator with corners passes the distance
+  measured in the stretched space as `GenOut.bdist`, using GLSL_BEVEL's toolkit (see `bdist` in
+  docs/architecture.md; `shapeEdges` in `shapes.ts` is the model). Gate that code on `bevelAspectOn()`: it is a
+  constant `false` outside the `BEVEL_ASPECT` shader variant, so the default compile drops it. A global that is
+  assigned at run time (e.g. `gMotStr`) isn't dropped; make it `const` outside the variant.
 - **ANGLE / D3D11 can miscompile `continue` in a loop.** In Scratches' cell loop it cut the strokes short and thin
   at cell borders (SwiftShader was right). Wrap the loop body in `if (!skip) { … }` instead of `continue`, and check
   a generator's loops on the GPU backend, not only SwiftShader.

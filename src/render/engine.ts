@@ -123,6 +123,10 @@ export class Engine {
     this.material.onBeforeLayer = (id) => {
       this.currentShaderOwner = id
     }
+    this.material.onVariantReady = () => {
+      this.materialDirty = true
+      this.kick()
+    }
     this.tracer = new PathTracer(this.gpu)
     this.post = new PostStack(this.gpu)
     this.display = new Display(this.gpu, GLSL_COMMON)
@@ -179,9 +183,9 @@ export class Engine {
     this.kick()
   }
 
-  /** Generator types among `types` whose shader isn't compiled yet (their first use would stall the page). */
-  uncompiled(types: string[]): string[] {
-    return this.material.uncompiled(types)
+  /** Generator shaders among `keys` (shaderKey of the layers) not compiled yet (their first use would stall the page). */
+  uncompiled(keys: string[]): string[] {
+    return this.material.uncompiled(keys)
   }
 
   /** Shader compiles run off the main thread here, so precompile() leaves the page responsive. */
@@ -190,8 +194,8 @@ export class Engine {
   }
 
   /** Compile generator shaders ahead of their first use (see MaterialPipeline.precompile). */
-  precompile(types: string[], onProgress?: (done: number, total: number) => void): Promise<void> {
-    return this.material.precompile(types, onProgress)
+  precompile(keys: string[], onProgress?: (done: number, total: number) => void): Promise<void> {
+    return this.material.precompile(keys, onProgress)
   }
 
   /** Make the next compiles cold (a fresh salt in the shaders): for measuring compile times only. */

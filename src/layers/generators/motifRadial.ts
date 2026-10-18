@@ -15,6 +15,41 @@ export const GLSL_MOT_SEED = /* glsl */ `
 #define MOT_SEED abs(uSeed)
 // The sculpted height (0..1) motifSdf leaves for the output (Rosette); the repeat keeps the nearest instance's.
 float gMotH = 0.0;
+// Bevel aspect (GLSL_BEVEL; all motif layers are SDF layers): set, the distances are measured in the space the aspect
+// stretches instead (px of Bevel), so the bevels meet in clean mitres rather than stepping where the distance's
+// direction turns at a corner. gMotF: the local frame's axes on screen (columns). mot_bl: a distance d across an edge
+// (or from a curve) with local normal n — one piece's share of a bevel, the same over its whole length.
+#ifdef BEVEL_ASPECT
+bool gMotStr = false;
+#define MOT_SET_STR(v) gMotStr = (v)
+#else
+const bool gMotStr = false;   // (a constant, so the shader variant without Bevel aspect compiles none of its code)
+#define MOT_SET_STR(v)
+#endif
+mat2 gMotF = mat2(1.0);
+float mot_bl(float d, vec2 n) { return bevelLine(d, gMotF * n); }
+// A band of half width w round a centre line: dist from its nearest point (direction n), its sides across nl at
+// lat. Along the line both agree; past a round end the cap (across its own direction) goes no deeper than the sides
+// would there, so a cap that runs on into the next piece can't poke through that piece's bevel (taken across the
+// cap's direction, the depth along the line overshoots the stretched distance).
+float mot_bandS(float dist, vec2 n, float lat, vec2 nl, float w) {
+  float side = mot_bl(lat - w, nl);
+  return dist > 1e-5 ? max(mot_bl(dist - w, n), side) : side;
+}
+// The same round a segment a–b (round caps).
+float mot_segS(vec2 p, vec2 a, vec2 b, float w) {
+  vec2 pa = p - a, ba = b - a;
+  vec2 v = pa - ba * clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
+  vec2 nl = vec2(-ba.y, ba.x) / max(length(ba), 1e-6);
+  return mot_bandS(length(v), v, abs(dot(pa, nl)), nl, w);
+}
+// A disc of radius r at offset v from its centre: exact (an ellipse, stretched) — taken across the direction from
+// the centre, its depth would turn with that direction right at the centre.
+float mot_discS(vec2 v, float r) {
+  mat2 M = bevelFrame(gMotF[0], gMotF[1]);
+  float e = bevelEllipse(M * v, M, vec2(r));
+  return length(v) < r ? -e : e;
+}
 `
 
 const PLACEMENT: ParamDef[] = [
@@ -45,6 +80,10 @@ const REPEAT: ParamDef[] = [
  *   MOT_TAPS, MOT_BLUR                          — (defines) taps and radius of the value's blur (Rosette's glow)
  *   MOT_EXACT                                   — (define) how far from the motif the output needs the exact
  *                                                 distance: past it, the bounding circle's lower bound does
+ *   MOT_STRETCH                                 — (define) whether the output takes Bevel aspect's distance: then
+ *                                                 the nearest instance is measured once more after the others, with
+ *                                                 gMotStr set (motifSdf returns the distance in the space the aspect
+ *                                                 stretches, gMotF its local axes on screen), into GenOut.bdist
  * Size jitter evaluates an instance at q / s and scales its distance by s (s ≤ 1, so the bound still holds).
  */
 const MOT_REPEAT = /* glsl */ `
@@ -66,14 +105,22 @@ GenOut gen(vec2 p0) {
   float acc = 0.0;
   float best = 1e9, bestRnd = 0.0, bestH = 0.0, nearR = 1e9;
   vec2 nearQ = vec2(1e9), p = p0;
+  // Bevel aspect: the nearest instance (its frame kept here) is measured again in a last pass, in the stretched space
+  // — the same motifSdf call, so the shader keeps one copy of it.
+  bool str = (MOT_STRETCH) && bevelAspectOn();
+  int its = nxy * taps;
+  vec2 wQ = vec2(0.0);
+  float wAng = 0.0, wSc = 1.0, bd = NO_SDF;
+  MOT_SET_STR(false);
   // One flat loop over the taps × the instances, so D3D keeps a single copy of the body and of motifSdf (a loop of
   // taps round the instance loop made the compile much slower). The nearest instances come first, and an instance is
   // measured only when its bounding circle could beat the nearest distance so far (and lies within MOT_EXACT): far
   // ones cost one length(), and the distance stays exact (a fixed cut-off just past the bound left rings in a bevel
   // reading the mask).
-  for (int e = 0; e < nxy * taps; e++) {
+  for (int e = 0; e < its + (str ? 1 : 0); e++) {
+    bool fin = e == its;
     int k = e % nxy;
-    if (k == 0) {
+    if (k == 0 && !fin) {
       float t = float(e / nxy) + 0.5;
       p = p0 + (taps > 1 ? MOT_BLUR * sqrt(t / float(taps)) * vec2(cos(2.39996 * t), sin(2.39996 * t)) : vec2(0.0));
       best = 1e9; bestRnd = 0.0; bestH = 0.0; nearR = 1e9; nearQ = vec2(1e9);
@@ -83,7 +130,7 @@ GenOut gen(vec2 p0) {
     repAt(rg, k, c, centre);
     // Odd rows, counted from the top, shift by the row offset.
     if (((n.y - 1 - c.y) & 1) == 1) centre.x += shift;
-    if (!(u_rep_drop > 0.0 && hashI(c, MOT_SEED + 3.0) < u_rep_drop)) {
+    if (fin || !(u_rep_drop > 0.0 && hashI(c, MOT_SEED + 3.0) < u_rep_drop)) {
       float inst = hashI(c, MOT_SEED);
       vec3 jit = hash3I(c, MOT_SEED + 7.0);
       centre += (jit.xy - 0.5) * u_rep_jit * pitch;
@@ -91,19 +138,31 @@ GenOut gen(vec2 p0) {
       float ang = u_rotation + (u_rep_rot > 0.0 ? (hashI(c, MOT_SEED + 5.0) - 0.5) * 2.0 * u_rep_rot : 0.0);
       float sc = 1.0 - u_rep_scale * jit.z;
       vec2 q = unrotCW(p - centre, ang) / sc;
+      if (fin) {
+        // The last pass: the nearest instance, in its own frame (local axes on screen).
+        q = wQ; ang = wAng; sc = wSc; inst = bestRnd;
+        MOT_SET_STR(true);
+        vec2 ax = rotCW(vec2(1.0, 0.0), ang);
+        gMotF = mat2(ax, vec2(-ax.y, ax.x));
+      }
       float r = length(q);
       float d = (r - bound) * sc;
-      if (d < min(best, MOT_EXACT)) d = motifSdf(q, inst) * sc;
-      if (d < best) { best = d; bestRnd = inst; bestH = gMotH; }
-      if (r < nearR) { nearR = r; nearQ = q; }
+      if (fin || d < min(best, MOT_EXACT)) d = motifSdf(q, inst) * sc;
+      if (fin) {
+        if (best < 1e8) bd = d;
+      } else {
+        if (d < best) { best = d; bestRnd = inst; bestH = gMotH; wQ = q; wAng = ang; wSc = sc; }
+        if (r < nearR) { nearR = r; nearQ = q; }
+      }
     }
-    if (k == nxy - 1) {
+    if (!fin && k == nxy - 1) {
       GenOut go = motifOut(best, bestRnd, nearQ, bestH);
       acc += go.value;
       if (e == nxy - 1) g0 = go;
     }
   }
   g0.value = acc / float(taps);
+  if (str) g0.bdist = bd;
   return g0;
 }
 `
@@ -282,11 +341,27 @@ vec2 motifSnap(vec2 c) { return c; }
 float E_D[6], E_N[6];
 int E_K[6];
 
+// Bevel aspect (gMotStr): each element's distance in the stretched space instead — straight edges and cuts across
+// their own normals (so spokes, star points and clipped ends meet in clean mitres), circles round the centre exactly,
+// rings, beads and petal arcs across their radius — and the same union.
 float motifSdf(vec2 q, float inst) {
   float R = u_radius;
   float r = length(q);
   for (int i = 0; i < 6; i++) { E_D[i] = 1e9; E_N[i] = 1.0; E_K[i] = 0; }
   if (u_hub > 0.0) { E_D[0] = r - u_hub * R; E_N[0] = u_hub * R; }
+  float clipR = u_hub_gap > 0.0 ? max(u_hub, 0.0) * R + u_hub_gap : -1.0;
+  float clipD = clipR - r;
+  if (gMotStr) {
+    // The hub and the clearance: circles round the centre (one call in a loop: one copy of it).
+    int two = uRes.x > 0.0 ? 2 : 0;
+    for (int i = 0; i < two; i++) {
+      float rr = i == 0 ? u_hub * R : clipR;
+      if (rr > 0.0) {
+        float e = mot_discS(q, rr);
+        if (i == 0) E_D[0] = e; else clipD = -e;
+      }
+    }
+  }
   if (u_rings > 0) {
     // Ring i (0 = outer) is centred at r1 − i·st; its half width runs from the outer ring's to the innermost's.
     // The two rings either side of r are tested (they may differ in width).
@@ -303,7 +378,7 @@ float motifSdf(vec2 q, float inst) {
       float e = abs(r - (r1 - i * st)) - w;
       if (e < dr) { dr = e; wr = w; }
     }
-    E_D[1] = dr; E_N[1] = wr;
+    E_D[1] = gMotStr ? mot_bl(dr, q) : dr; E_N[1] = wr;
   }
   if (u_spokes > 0) {
     vec2 l = mot_polarFold(q, u_spokes, u_spoke_off);
@@ -316,6 +391,23 @@ float motifSdf(vec2 q, float inst) {
     // Ridged along the spine: the depth at full height is the half width where the point is along the spoke.
     float wl = mix(w0, w1, clamp((l.y - a) / (b - a), 0.0, 1.0));
     E_D[2] = mot_trapezoid(l - vec2(0.0, 0.5 * (a + b)), w0, w1, 0.5 * (b - a)); E_N[2] = max(wl, 0.25); E_K[2] = 3;
+    if (gMotStr) {
+      // Each spoke a trapezoid of four half-planes: this one and those either side (their sector's edge would
+      // otherwise jump between two measures).
+      float s = TAU / float(u_spokes), b0 = max(u_spoke_out * R, a + 1e-3), ds = 1e9;
+      int one = uRes.x > 0.0 ? 1 : 0;   // (a uniform bound: D3D keeps one copy of the body)
+      for (int j = -one; j <= one; j++) {
+        int kk = k + j;
+        float th = (float(kk) + u_spoke_off) * s;
+        vec2 u = vec2(sin(th), cos(th)), v = vec2(u.y, -u.x);
+        float bb = u_spoke_alt > 0.0 && imod(u_spokes, 2) == 0 && imod(kk, 2) == 1 ? max(b0 - (b0 - a) * u_spoke_alt, a + 1e-3) : b0;
+        float y = dot(q, u), x = dot(q, v);
+        float sl = (w1 - w0) / (bb - a), ns = sqrt(1.0 + sl * sl), wy = w0 + sl * (y - a);
+        ds = min(ds, max(max(mot_bl(y - bb, u), mot_bl(a - y, u)),
+                         max(mot_bl((x - wy) / ns, v - sl * u), mot_bl((-x - wy) / ns, -v - sl * u))));
+      }
+      E_D[2] = ds;
+    }
   }
   if (u_star > 1) {
     float Rs = u_star_r * R;
@@ -360,6 +452,51 @@ float motifSdf(vec2 q, float inst) {
         nrm = length(ecs * clamp(Rs * dot(acs, ecs), 0.0, Rs * acs.y / ecs.y) - Rs * acs);
       }
     }
+    if (gMotStr) {
+      // In the star's own frame (turned by its offset). The outline (filled, outline, or clipping sharp lines) as its
+      // segments tip – valley – tip, signed as sdStar (valleys are concave: pieces, not half-planes); the outline's
+      // inner edge the same moved in by the line width, with arcs round the valleys; sharp lines as bands across
+      // their own normals, round-ended ones round their chords.
+      int n = u_star, k = clamp(u_star_skip, 1, 15);
+      float s = TAU / float(n), hw = 0.5 * u_star_w, w = u_star_w;
+      vec2 fx = rotCW(vec2(1.0, 0.0), u_star_off * 360.0 / float(n));
+      mat2 F0 = gMotF;
+      gMotF = F0 * mat2(fx, vec2(-fx.y, fx.x));
+      mat2 M = bevelFrame(gMotF[0], gMotF[1]);
+      vec2 ps = M * qs;
+      bool lines = u_star_mode == 2, sharp = lines && u_star_sharp && 2 * k < n;
+      float h = Rs * cos(PI * float(k) / float(n));
+      float div = 2.0 * float(n) / float(n - 2 * k + 2);
+      float rad = sharp ? Rs * (h + hw) / max(h, 1e-3) : Rs;
+      float mr = sharp ? (n > 2 ? 1.0 - (div - 2.0) / float(n - 2) : 1.0) : u_star_inner;
+      float an = PI / float(n), en = PI / mix(2.0, float(n), clamp(1.0 - mr, 0.0, 1.0));
+      float ri = rad * sin(en - an) / sin(en);
+      float dO = 1e18, dH = 1e18, dL = 1e9;
+      for (int i = 0; i < min(n, 32); i++) {
+        float t0 = float(i) * s, t1 = t0 + s, tv = t0 + 0.5 * s;
+        vec2 u0 = vec2(sin(t0), cos(t0)), u1 = vec2(sin(t1), cos(t1));
+        vec2 T0 = rad * u0, T1 = rad * u1, V = ri * vec2(sin(tv), cos(tv));
+        if (lines) {
+          float a = (float(i) + 0.5 * float(k)) * s;
+          vec2 nv = vec2(sin(a), cos(a));
+          dL = min(dL, sharp ? mot_bl(abs(dot(qs, nv) - h) - hw, nv) : mot_segS(qs, Rs * u0, Rs * vec2(sin(float(i + k) * s), cos(float(i + k) * s)), hw));
+        }
+        if (!lines || sharp) dO = min(dO, min(bevelSeg2(ps, M * T0, M * V), bevelSeg2(ps, M * V, M * T1)));
+        if (u_star_mode == 1) {
+          // Inward normals of the edges either side of the valley, and the tips moved in along their axes.
+          vec2 n0 = normalize(vec2(T0.y - V.y, V.x - T0.x)), n1 = normalize(vec2(V.y - T1.y, T1.x - V.x));
+          n0 *= dot(n0, T0) > 0.0 ? -1.0 : 1.0;
+          n1 *= dot(n1, T1) > 0.0 ? -1.0 : 1.0;
+          vec2 I0 = T0 + u0 * w / min(dot(u0, n0), -1e-3), I1 = T1 + u1 * w / min(dot(u1, n1), -1e-3);
+          dH = min(dH, min(bevelSeg2(ps, M * I0, M * (V + w * n0)), bevelSeg2(ps, M * (V + w * n1), M * I1)));
+          dH = min(dH, bevelArc2(ps, M, V, w, n0, n1, normalize(n0 + n1 + vec2(1e-6))));
+        }
+      }
+      float eS = sdStar(qs, rad, n, mr);
+      float sO = eS < 0.0 ? -sqrt(dO) : sqrt(dO);
+      ds = u_star_mode == 0 ? sO : u_star_mode == 1 ? max(sO, eS + w < 0.0 ? sqrt(dH) : -sqrt(dH)) : sharp ? max(dL, sO) : dL;
+      gMotF = F0;
+    }
     E_D[3] = ds; E_N[3] = nrm; E_K[3] = u_star_mode == 0 ? 3 : 2;
   }
   // Petals and beads may reach into the neighbouring sectors (overlapping rings / long petals): evaluate the
@@ -374,6 +511,36 @@ float motifSdf(vec2 q, float inst) {
       float e = u_petal_shape == 0 ? mot_vesica(l, a, b) : sdEllipse(l, vec2(b, a));
       // Outlines: each petal's own band (inside its outline), so overlapping petals cross rather than merge.
       dp = min(dp, u_petal_line > 0.0 ? abs(e + 0.5 * u_petal_line) - 0.5 * u_petal_line : e);
+    }
+    if (gMotStr) {
+      // Each petal in its own frame (x across, y along): a vesica as the two discs it is the overlap of (an outline:
+      // less the overlap of the discs shrunk by its width), each across its radius; an ellipse exactly, or (outlines)
+      // across its gradient.
+      int k0 = int(floor(atan(q.x, q.y) / s - u_petal_off + 0.5));
+      float w = u_petal_line, bb = clamp(b, 1e-3, a), rv = 0.5 * (a * a / bb + bb), dd = rv - bb;
+      int one = uRes.x > 0.0 ? 1 : 0;
+      dp = 1e9;
+      for (int j = -one; j <= one; j++) {
+        float th = (float(k0 + j) + u_petal_off) * s;
+        vec2 u = vec2(sin(th), cos(th)), v = vec2(u.y, -u.x);
+        vec2 l = vec2(dot(q, v), dot(q, u) - u_petal_pos * R);
+        float e;
+        if (u_petal_shape == 0) {
+          vec2 v1 = l + vec2(dd, 0.0), v2 = l - vec2(dd, 0.0);
+          vec2 n1 = v1.x * v + v1.y * u, n2 = v2.x * v + v2.y * u;
+          float e1 = length(v1) - rv, e2 = length(v2) - rv;
+          e = max(mot_bl(e1, n1), mot_bl(e2, n2));
+          if (w > 0.0) e = max(e, -max(mot_bl(e1 + w, n1), mot_bl(e2 + w, n2)));
+        } else if (w > 0.0) {
+          vec2 g = l / vec2(b * b, a * a);
+          e = mot_bl(abs(sdEllipse(l, vec2(b, a)) + 0.5 * w) - 0.5 * w, g.x * v + g.y * u);
+        } else {
+          mat2 M = bevelFrame(gMotF * v, gMotF * u);
+          e = bevelEllipse(M * l, M, vec2(b, a));
+          e = length(l / vec2(b, a)) < 1.0 ? -e : e;
+        }
+        dp = min(dp, e);
+      }
     }
     // Solid petals: ridged along their length (the depth at full height is the half width, at the middle).
     E_D[4] = dp; E_N[4] = u_petal_line > 0.0 ? 0.5 * u_petal_line : min(a, b); E_K[4] = u_petal_line > 0.0 ? 2 : 3;
@@ -391,11 +558,25 @@ float motifSdf(vec2 q, float inst) {
         db = min(db, u_dot_w > 0.0 ? abs(e + 0.5 * u_dot_w) - 0.5 * u_dot_w : e);
       }
     }
+    if (gMotStr) {
+      // Rings across their radius; solid beads exactly, the nearest one.
+      int k0 = int(floor(atan(q.x, q.y) / s - u_dot_off + 0.5));
+      float nr = 1e9;
+      vec2 nc = vec2(0.0);
+      db = 1e9;
+      for (int j = -reach; j <= reach; j++) {
+        float th = (float(k0 + j) + u_dot_off) * s;
+        vec2 c = pr * vec2(sin(th), cos(th)), v = q - c;
+        float e = length(v) - u_dot_r;
+        if (u_dot_w > 0.0) db = min(db, mot_bl(abs(e + 0.5 * u_dot_w) - 0.5 * u_dot_w, v));
+        if (e < nr) { nr = e; nc = c; }
+      }
+      if (u_dot_w <= 0.0) db = mot_discS(q - nc, u_dot_r);
+    }
     // Domed rivets (or domed ring lines).
     E_D[5] = db; E_N[5] = u_dot_w > 0.0 ? 0.5 * u_dot_w : u_dot_r; E_K[5] = 2;
   }
   float H[6] = float[6](u_hub_h, u_ring_h, u_spoke_h, u_star_h, u_petal_h, u_dot_h);
-  float clipR = u_hub_gap > 0.0 ? max(u_hub, 0.0) * R + u_hub_gap : -1.0;
   float d = 1e9, hv = 0.0, near = 1e9, nh = 0.0, nn = 1.0;
   bool nr = false;
   // A last pass (i = 6) gives the fillets their height: as high as the union is deep there, at the nearest
@@ -405,7 +586,7 @@ float motifSdf(vec2 q, float inst) {
     bool last = i == 6;
     int j = min(i, 5);
     float de = last ? d : E_D[j];
-    if (!last && (E_K[j] & 2) != 0 && clipR > 0.0) de = max(de, clipR - r);
+    if (!last && (E_K[j] & 2) != 0 && clipR > 0.0) de = max(de, clipD);
     float nrm = last ? nn : E_N[j], hgt = last ? nh : H[j];
     bool ridge = last ? nr : (E_K[j] & 1) != 0;
     float x = clamp(-de / max(nrm, 1e-3), 0.0, 1.0);
@@ -437,6 +618,8 @@ GenOut motifOut(float d, float rnd, vec2 nearQ, float h) {
 #define MOT_BLUR (0.5 * u_glow_soft * u_glow)
 // The shape needs the exact distance everywhere (its mask), the glow out to its width, radial none at all.
 #define MOT_EXACT (u_output == 1 ? u_glow : u_output == 2 ? -1e9 : 1e9)
+// Bevel aspect applies to the shape only.
+#define MOT_STRETCH (u_output == 0)
 ` +
     MOT_REPEAT,
 }
@@ -656,6 +839,15 @@ float mot_segD(vec2 q, vec2 a, vec2 b, vec2 c, vec2 e, float bow, float k, float
     float pf = mix(1.0, max(abs(tg.x * nibM.y - tg.y * nibM.x) / max(length(tg), 1e-6), 0.08), u_pen);
     float hw = 0.5 * u_width * wf * pf * mix(1.0, 4.0 * u * (1.0 - u), u_taper);
     float de = dt.x - hw;
+    // Bevel aspect: the band in the stretched space (mot_bandS: across the direction from its nearest point, past an
+    // end no deeper than its sides), the cuts below across their own normals — directions back to q's frame through
+    // this image's flips.
+    float deS = 0.0;
+    if (gMotStr) {
+      vec2 vn = qm - (A + 2.0 * dt.y * (B - A) + dt.y * dt.y * (A - 2.0 * B + C));
+      vec2 nl = vec2(-tg.y, tg.x) / max(length(tg), 1e-6);
+      deS = mot_bandS(length(vn), vn * fl, abs(dot(vn, nl)), nl * fl, hw);
+    }
     // Ends and joints, past a piece's end (t clamped there, with a little slack: the solve may stop just short of
     // 1) — caps bits 4 / 8: this is the stroke's first / last segment. Pen: a free stroke end (bits 1, 2) is cut
     // along the nib (into the stroke, past the node the band runs on straight up to the cut, so the end is the
@@ -693,8 +885,11 @@ float mot_segD(vec2 q, vec2 a, vec2 b, vec2 c, vec2 e, float bow, float k, float
       float eX = doCap ? (u_cap == 1 ? hw : 0.0) : doMit ? hw * sw / (1.0 + cw) : 0.0;
       float latN = doMit ? abs(r.x * w2.y - r.y * w2.x) - hw : -1e9;
       de = max(max(atA || atC ? lat - hw : de, latN), dot(r, nX) - eX);
+      if (gMotStr)
+        deS = max(max(atA || atC ? mot_bl(lat - hw, vec2(-o.y, o.x) * fl) : deS, doMit ? mot_bl(latN, vec2(-w2.y, w2.x) * fl) : -1e9),
+                  mot_bl(dot(r, nX) - eX, nX * fl));
     }
-    d = min(d, de);
+    d = min(d, gMotStr ? deS : de);
   }
   return d;
 }
@@ -714,6 +909,9 @@ float motifSdf(vec2 q, float inst) {
     vec2 gh = 0.5 * vec2(g) * sp;
     bool inside = false;
     float dFill = 1e9, dEmpty = 0.0;
+    // Bevel aspect: the blocks are boxes in the instance's frame — a filled one as its four sides' half-planes, an
+    // empty one exactly from outside (a parallelogram, stretched), the grid's edge as its half-planes.
+    mat2 M = bevelFrame(gMotF[0], gMotF[1]);
     for (int e = u_centre ? 0 : cells; e < 2 * cells; e++) {
       int c = e < cells ? e : e - cells;
       int i = c % g.x, j = c / g.x;
@@ -726,9 +924,19 @@ float motifSdf(vec2 q, float inst) {
           vec2 cq = (q + gh) / sp;
           ci = ivec2(floor(vec2(cq.x, 2.0 * gh.y / sp - cq.y)));
           dEmpty = max(-sdBox(q, gh), 0.0);
+          if (gMotStr) dEmpty = max(-max(mot_bl(abs(q.x) - gh.x, vec2(1.0, 0.0)), mot_bl(abs(q.y) - gh.y, vec2(0.0, 1.0))), 0.0);
         }
         vec2 cc = vec2((float(i) + 0.5) * sp - gh.x, gh.y - (float(j) + 0.5) * sp);
-        float db = sdBox(q - cc, hs);
+        vec2 v = q - cc;
+        float db = sdBox(v, hs);
+        if (gMotStr) {
+          if (on) db = max(mot_bl(abs(v.x) - hs.x, vec2(1.0, 0.0)), mot_bl(abs(v.y) - hs.y, vec2(0.0, 1.0)));
+          else {
+            vec2 X = M * vec2(hs.x, 0.0), Y = M * vec2(0.0, hs.y), pv = M * v;
+            db = sqrt(min(min(bevelSeg2(pv, X + Y, X - Y), bevelSeg2(pv, -X + Y, -X - Y)),
+                          min(bevelSeg2(pv, X + Y, -X + Y), bevelSeg2(pv, X - Y, -X - Y))));
+          }
+        }
         if (on) { dFill = min(dFill, db); if (ci == ivec2(i, j)) inside = true; }
         else dEmpty = min(dEmpty, max(db, 0.0));
       }
@@ -746,6 +954,8 @@ float motifSdf(vec2 q, float inst) {
   // each stroke's length and the nodes arrived at more than once (joints, where an end stays round).
   float d = 1e9, dd = 1e9, dh = 1e9;
   float rw = min(u_width, 0.5 * u_dots);       // ring line: the stroke width, but leave a hole on small dots
+  float nearDot = 1e9;                         // Bevel aspect: the nearest solid dot (its centre), measured once
+  vec2 nearC = vec2(0.0);
   bool spline = u_line == 1;
   int strokes = clamp(u_strokes, 1, 8), steps = clamp(u_steps, 1, 8);
   bool draw = !u_centre && u_taper <= 0.0 && u_cap == 0 && (u_dots <= 0.0 || u_dot_joins);
@@ -837,8 +1047,17 @@ float motifSdf(vec2 q, float inst) {
             if (u_mirror) { qf.x = abs(qf.x); cf.x = abs(cf.x); }
             if (u_mirror_y) { qf.y = abs(qf.y); cf.y = abs(cf.y); }
             float l = length(qf - cf);
-            dd = min(dd, u_dot_ring ? abs(l - u_dots + 0.5 * rw) - 0.5 * rw : l - u_dots);
-            dh = min(dh, l - u_dots + rw);
+            if (gMotStr) {
+              // The image nearest (the fold's), across its radius; solid dots exactly, after the walk.
+              vec2 ci = vec2(u_mirror && q.x < 0.0 ? -cf.x : cf.x, u_mirror_y && q.y < 0.0 ? -cf.y : cf.y);
+              vec2 v = q - (u_mirror || u_mirror_y ? ci : c);
+              dd = min(dd, mot_bl(abs(l - u_dots + 0.5 * rw) - 0.5 * rw, v));
+              dh = min(dh, mot_bl(l - u_dots + rw, v));
+              if (l < nearDot) { nearDot = l; nearC = q - v; }
+            } else {
+              dd = min(dd, u_dot_ring ? abs(l - u_dots + 0.5 * rw) - 0.5 * rw : l - u_dots);
+              dh = min(dh, l - u_dots + rw);
+            }
           }
         }
       }
@@ -884,6 +1103,7 @@ float motifSdf(vec2 q, float inst) {
       s++;
     }
   }
+  if (gMotStr && !u_dot_ring) dd = nearDot < 1e8 ? mot_discS(q - nearC, u_dots) : 1e9;
   // Ring dots are open: the strokes stop at the ring instead of running into its hole.
   if (u_dot_ring) d = max(d, -dh);
   return min(d, dd);
@@ -893,5 +1113,6 @@ GenOut motifOut(float d, float rnd, vec2 nearQ, float h) { return genOut(0.0, 1.
 #define MOT_TAPS 1
 #define MOT_BLUR 0.0
 #define MOT_EXACT 1e9
+#define MOT_STRETCH true
 ` + MOT_REPEAT,
 }
