@@ -9,6 +9,7 @@ import NumberField from './NumberField.vue'
 import ColorField from './ColorField.vue'
 import SelectField from './SelectField.vue'
 import MaskField from './MaskField.vue'
+import ImageField from './ImageField.vue'
 import CheckField from './CheckField.vue'
 import GradientField from './GradientField.vue'
 import CurveField from './CurveField.vue'
@@ -205,6 +206,10 @@ function tip(r: Row): Tip {
         <span v-if="r.def.bare" />
         <label v-else v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
         <MaskField :model-value="String(value(r.def) ?? '')" :choices="r.def.maskChoices ?? []" :kind="r.def.mask" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
+      </div>
+      <div v-else-if="r.def.type === 'text' && r.def.image" class="row">
+        <label v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
+        <ImageField :model-value="String(value(r.def) ?? '')" :label="labelOf(r.def)" @update:model-value="set(r.def.key, $event)" @commit="emit('commit')" />
       </div>
       <div v-else-if="r.def.type === 'text'" class="row wide">
         <span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>

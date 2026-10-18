@@ -10,6 +10,7 @@
 import { MAX_PATH_POINTS, parsePolygons, textBitmap } from '@/core/bitmap'
 import { P, type ParamDef, type ParamValues } from '@/core/params'
 import type { CpuTexture, LayerDef } from '../types'
+import { getImage } from '@/core/images'
 
 // ------------------------------------------------------------------------------------------------ bitmaps (CPU)
 
@@ -1005,6 +1006,24 @@ const STAMP_GLSL = /* glsl */ `
 // 1, read from a uniform: loops bounded by it are not unrolled by D3D (see ORG_1 in organicShared).
 #define STM_1 (uRes.x > 0.0 ? 1 : 0)
 ivec4 stm_t(ivec2 c) { return ivec4(texelFetch(t_stamp, c, 0) * 255.0 + 0.5); }
+#ifdef STAMP_IMAGE
+// Stamp › Image file: the image's colour (sRGB, straight alpha) at bitmap position b — the pixel itself, or bilinear
+// (Smooth image; mixed premultiplied, so transparent pixels don't darken the edge).
+vec4 stm_image(vec2 b, vec2 dims) {
+  ivec2 m = textureSize(t_img, 0) - 1;
+  vec2 bb = clamp(b, vec2(0.0), dims - 1e-3);
+  if (!u_img_smooth) return texelFetch(t_img, clamp(ivec2(floor(bb)), ivec2(0), m), 0);
+  vec2 g = bb - 0.5;
+  ivec2 i0 = ivec2(floor(g));
+  vec2 f = g - floor(g);
+  vec4 c = vec4(0.0);
+  for (int j = 0; j < 4; j++) {
+    vec4 t = texelFetch(t_img, clamp(i0 + ivec2(j & 1, j >> 1), ivec2(0), m), 0);
+    c += vec4(t.rgb * t.a, t.a) * ((j & 1) == 1 ? f.x : 1.0 - f.x) * ((j >> 1) == 1 ? f.y : 1.0 - f.y);
+  }
+  return vec4(c.a > 1e-4 ? c.rgb / c.a : vec3(0.0), c.a);
+}
+#endif
 // The bevel's rise at signed distance d (px) — Bevel and Profile as the wrapper draws them (flat: 1 inside).
 float stm_bev(float d) { return u_bevel <= 0.0 || u_profile == 0 ? (d <= 0.0 ? 1.0 : 0.0) : profileCurve(u_profile, max(-d, 0.0) / u_bevel); }
 
@@ -1279,6 +1298,43 @@ GenOut gen(vec2 p) {
       g.rnd = u_rnd_by == 0 ? lvl / 3.0 : (lvl - 1.0 + h) / 3.0;
     }
   }
+#ifdef STAMP_IMAGE
+  // Image file: the image's pixel under the cell (past the outline, the nearest one): its colour into Diffuse (in place
+  // of the ramp, gGenRgb), or its brightness into Height (× the bevel, as genOutShaded); its alpha fades the coverage.
+  vec4 ic = vec4(1.0);
+  float val = float(bestLv) / 3.0;
+  if (u_source == 1) {
+    ic = stm_image(bestB, dims);
+    val = dot(ic.rgb, vec3(0.2126, 0.7152, 0.0722));
+  }
+  // Wear: values below a threshold drop out, the threshold varied over the stamp by a few octaves of noise (each
+  // repeat its own): dark (or, inverted, bright) values and the noise's high spots go first.
+  float keep = 1.0;
+  if (u_wear > 0.0) {
+    vec2 wp = bestB / max(max(dims.x, dims.y), 1.0) * u_wear_scale;
+    float ws = uSeed + 71.0 + 97.0 * hashI(bestId, uSeed + 7.0);
+    float n = 0.0, a = 1.0, na = 0.0;
+    for (int o = 0; o < 8; o++) {
+      if (o < u_wear_oct) {
+        n += a * perlinNoise(wp, NO_PERIOD, ws + float(o) * 31.0);
+        na += a;
+      }
+      a *= 0.5;
+      wp *= 2.0;
+    }
+    // 0: below every value (nothing drops) … 1: above every value (all gone); the noise spreads it over the stamp.
+    float t = 2.0 * u_wear - 1.0 + n / max(na, 1e-4);
+    keep = smoothstep(t - u_wear_soft, t + u_wear_soft + 1e-4, u_wear_inv ? 1.0 - val : val);
+  }
+  if (u_source == 1 && u_into == 1) {
+    g.own = 2;
+    g.value = val;
+    g.mask = ic.a * keep * coverage(d, u_aa);
+  } else {
+    if (u_source == 1) gGenRgb = ic.rgb;
+    g.mask *= ic.a * keep;
+  }
+#endif
   return g;
 }
 `
@@ -1306,38 +1362,85 @@ const DEFAULT_PIXELS = [
   '######################',
 ].join('\n')
 
+const fromImage = (p: ParamValues) => p.source === 'image'
+const worn = (p: ParamValues) => Number(p.wear) > 0
+const NO_IMAGE: CpuTexture = { width: 1, height: 1, data: new Uint8Array(4) }
+
+/**
+ * Stamp › Image file: the image's pixels at least Alpha cut opaque are the cells (one level), the image itself goes up
+ * as t_img. Nothing (an empty bitmap) while it decodes or when none is picked.
+ */
+function imageTextures(q: ParamValues): Record<string, CpuTexture> {
+  const img = getImage(String(q.image ?? ''))
+  const cut = Math.round(Math.min(1, Math.max(0.004, Number(q.alpha_cut ?? 0.5))) * 255)
+  const c: Cells = img ? { w: img.width, h: img.height, lv: new Uint8Array(img.width * img.height) } : { w: 0, h: 0, lv: new Uint8Array(0) }
+  if (img) for (let i = 0; i < c.lv.length; i++) c.lv[i] = img.data[i * 4 + 3] >= cut ? 3 : 0
+  // (Join diagonals, Mirror and Level relief are the typed pixels' alone.)
+  const t = layerTextures(c, { ...q, join: false, lvl_h: 0 })
+  return { ...t, img: img ? { width: img.width, height: img.height, data: img.data } : NO_IMAGE }
+}
+
 export const stampLayer: LayerDef = {
   type: 'stamp',
   label: 'Stamp',
   category: 'shape',
   kind: 'generator',
   sdf: true,
-  description: 'A hand-drawn pixel bitmap (insignia, emblem, decal) as a shape: one row per line, # full, + mid, - low, . empty.',
+  description: 'A hand-drawn pixel bitmap or an image file (insignia, emblem, decal) as a shape: typed rows of cells (# full, + mid, - low, . empty), or a PNG / JPEG / WebP whose colours go into Diffuse or its brightness into Height.',
   params: [
+    P.enum('source', 'Source', 'pixels', [
+      ['pixels', 'Typed pixels', 'rows of cell characters'],
+      ['image', 'Image file', 'a PNG, JPEG or WebP: its opaque pixels are the stamp, one cell each'],
+    ]),
+    P.image('image', 'Image', {
+      showIf: fromImage,
+      hint: 'A PNG, JPEG or WebP, scaled down on loading to fit the texture (at most 1024 px): each of its pixels is a cell, Pixel size texture px across. The project saves its file name; the image itself stays in this browser (load it again elsewhere)',
+    }),
+    P.enum('into', 'Into', 'diffuse', [
+      ['diffuse', 'Diffuse', 'the image’s colours, in place of the colour ramp'],
+      ['height', 'Height', 'the image’s brightness as height (× the bevel at its outline)'],
+    ], { showIf: fromImage, hint: 'Where the image goes. Its outline still bevels and writes the mask either way' }),
+    P.float('alpha_cut', 'Alpha cut', 0.5, 0.004, 1, { step: 0.001, showIf: fromImage, hint: 'Pixels at least this opaque are the stamp; their alpha still fades the colour' }),
+    P.bool('img_smooth', 'Smooth image', false, { showIf: fromImage, hint: 'Blend between the image’s pixels (when Pixel size enlarges it) instead of keeping each one square' }),
     P.bitmap('pixels', 'Pixels', DEFAULT_PIXELS, 'pixels', {
       uniform: false,
+      showIf: (p) => !fromImage(p),
       hint: 'One row per line (up to 128 × 128): "#" full, "+" mid, "-" low level, "." or space empty. Levels drive Per-feature colour',
     }),
     P.enum('mirror', 'Mirror', 'none', [['none', 'None'], ['odd', 'Mirror (shared centre column)'], ['even', 'Mirror (no shared column)']], {
+      showIf: (p) => !fromImage(p),
       hint: 'Draw only the left half; the right half is reflected',
     }),
     P.float('lvl_h', 'Level relief', 1, 0, 1, {
       step: 0.001,
+      showIf: (p) => !fromImage(p),
       hint: 'Height follows the cell levels: "-" a third, "+" two thirds, "#" full, each step bevelled like the outline (Height › Pattern) — multi-tone bitmaps emboss. Cells drawn "+" or "-" only for their colour (a rivet\'s highlight) then sit lower too — set 0 for one height for all'
     }),
     P.bool('join', 'Join diagonals', false, {
+      showIf: (p) => !fromImage(p),
       hint: 'Bridges cells that touch only at a corner with two half-cell squares, so one-cell diagonal lines (and an X’s crossing) bevel as one stroke instead of a row of squares; nothing else changes — square corners stay square',
     }),
     ...placement,
+    P.float('wear', 'Wear', 0, 0, 1, {
+      step: 0.001,
+      group: 'wear',
+      hint: 'Drops out values below a threshold that noise varies over the stamp: the dark parts of an image (the low levels of typed pixels) and the noise’s high spots go first — worn paint, a scuffed decal. 0 = none, 1 = all gone',
+    }),
+    P.float('wear_scale', 'Noise scale', 4, 0.25, 256, { softMax: 32, step: 0.01, group: 'wear', showIf: worn, hint: 'Noise features across the stamp (each repeat wears its own way)' }),
+    P.int('wear_oct', 'Octaves', 4, 1, 8, { group: 'wear', showIf: worn, hint: 'Noise octaves: more = finer, ragged edges to the worn patches' }),
+    P.float('wear_soft', 'Softness', 0.04, 0, 0.5, { step: 0.001, group: 'wear', showIf: worn, hint: 'Fades the dropped-out edge instead of cutting it' }),
+    P.bool('wear_inv', 'Bright parts first', false, { group: 'wear', showIf: worn, hint: 'Wear the bright values first instead of the dark ones' }),
   ],
-  groups: stampGroups,
+  groups: [...stampGroups, { id: 'wear', label: 'Wear', collapsed: true }],
+  // An image goes into one output: Diffuse (its colours) or Height (its brightness) — the other starts off.
+  linkedDefaults: (p) => (fromImage(p) ? { dif_on: p.into !== 'height', h_on: p.into === 'height' } : { dif_on: true, h_on: true }),
   defaults,
   paramPatch: { bevel: { note: (p) => wideBevelNote(p) } },
   migrate: migrateSpacing,
   fresh: (t) => freshStamp(t, 22),
-  textures: ['stamp', 'lv'],
-  cpuData: (q) => layerTextures(mirrorCells(parseCells(String(q.pixels ?? '')), q.mirror), q),
-  glsl: 'const bool u_bev_lim = false;\n' + STAMP_GLSL,
+  textures: ['stamp', 'lv', 'img'],
+  cpuData: (q) => (fromImage(q) ? imageTextures(q) : { ...layerTextures(mirrorCells(parseCells(String(q.pixels ?? '')), q.mirror), q), img: NO_IMAGE }),
+  glsl: 'const bool u_bev_lim = false;\n#define STAMP_IMAGE\n' + STAMP_GLSL,
 }
 
 export const labelLayer: LayerDef = {

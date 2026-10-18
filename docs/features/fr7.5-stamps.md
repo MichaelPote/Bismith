@@ -38,6 +38,27 @@ light through the path tracer.
   no groove. Repeats snap to the pixel grid. The per-feature random is the cell level (1..3: a *Random* colour ramp
   paints multi-tone stamps), the repeat, or both (*Random per*); the repeat's random can be kept to a sub-range
   (*Repeat random range*), e.g. clear of a base colour.
+- **Stamp › Image file** (*Source*). The stamp is an image file instead of typed rows: a PNG, JPEG or WebP picked in the
+  inspector (`ImageField.vue`), scaled down on loading so it fits the texture (at most 1024 px; `fitImage`). Each of
+  its pixels is a cell, *Pixel size* px across; the pixels at least *Alpha cut* opaque are the stamp. So the outline,
+  bevel, mask, placement and repeats are the typed stamp's, and Join diagonals, Mirror and Level relief don't apply.
+  - *Into* picks the output: **Diffuse** paints the image's colours (the generator's own colour, `gGenRgb`, takes the
+    ramp's place), **Height** its brightness, × the bevel at the outline (`genOutShaded`). The pixel's alpha fades the
+    coverage either way.
+  - *Into* is a linked default: Diffuse turns the layer's Diffuse on and Height off, Height the other way round.
+  - *Smooth image* blends between the image's pixels (bilinear, premultiplied); otherwise each stays square.
+  - **Images by file name** (`src/core/images.ts`). The param holds the file name, the "path" the project saves: a
+    browser page doesn't see where the file lives. The pixels stay in this browser, in memory and in localStorage under
+    the name. A project opened where that image isn't stored draws nothing for it, and the inspector shows the name as
+    missing with *Find…* to load it again. Loading a file under a name already used replaces it everywhere.
+  - Decoding is asynchronous: the layer draws nothing until the image is ready, then the engine re-evaluates
+    (`onImageReady`). `Engine.imagesSettled()` waits for it in headless renders.
+  - Embedding the image in the saved file (base64) is to come.
+- **Stamp › Wear** (typed pixels and images). Values below a threshold drop out, the threshold varied over the stamp
+  by a few octaves of Perlin noise, a different pattern per repeat. Dark values (the low levels of typed pixels) and
+  the noise's high spots go first; *Bright parts first* reverses it. The threshold is 2·Wear − 1 + noise, so 0 leaves
+  everything and 1 removes everything; *Softness* fades the edge. Wear fades the coverage, so the worn holes have no
+  bevel of their own: worn paint, a scuffed decal.
   - *Level relief* (0..1): Height › Pattern (GenOut `hval`) becomes a third of the outline's bevel plus a third of a
     bevel up each level edge — "-" ⅓, "+" ⅔, "#" full — from a second texture: on the exact outline the nearest cell
     across the "level ≥ 2" and "level ≥ 3" edges per cell (searched like the outline's, so the steps are as square as
@@ -189,4 +210,6 @@ light through the path tracer.
 - [x] Cable quality pass: anti-aliased crossings, swept-tube heights, sink, core, irregularity, fibres, rows, angle
   (tile-snapped), sag, cut ends, mask outline, editor rope defaults
 - [x] Shaping cutoff
+- [x] Stamp image files (Diffuse or Height, alpha cut, smooth image; saved by file name) and Wear
+- [ ] Embed stamp images in the saved project file (base64), as an option
 - [ ] UI: a pixel editor for Stamp bitmaps (today a monospace textarea) and on-canvas vertex editing for Path

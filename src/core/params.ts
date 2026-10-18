@@ -75,6 +75,11 @@ export interface ParamDef {
    */
   bitmap?: 'pixels' | 'font' | 'points' | 'lines'
   /**
+   * Text params only: an image file (core/images.ts) — the value is its file name ('' = none), the inspector shows a
+   * file picker and a thumbnail, and the layer reads the pixels in its cpuData (getImage).
+   */
+  image?: boolean
+  /**
    * UI only, text params: a mask name (FR8.23), drawn as a dropdown of masks with "New mask…" — 'read' a mask layers
    * above write (Limit to, sources), 'write' the mask the layer writes. `maskChoices` lists them; the inspector fills it
    * per layer.
@@ -229,6 +234,10 @@ export const P = {
   /** A shape-preserving curve on [0,1]² (editable points; uploaded as `vec4 u_<key>_pts[8]` + count, see curveTangents). */
   curve: (key: string, label: string, def: Curve, extra: Extra = {}): ParamDef => ({
     key, label, type: 'curve', default: def, optimize: false, ...extra,
+  }),
+  /** An image file (core/images.ts): its file name, picked in the inspector. */
+  image: (key: string, label: string, extra: Extra = {}): ParamDef => ({
+    key, label, type: 'text', default: '', image: true, uniform: false, optimize: false, ...extra,
   }),
   /** A pixel bitmap typed as text (uploaded as a bitmap uniform). */
   bitmap: (key: string, label: string, def: string, mode: 'pixels' | 'font' | 'points' | 'lines', extra: Extra = {}): ParamDef => ({

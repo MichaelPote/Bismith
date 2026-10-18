@@ -541,7 +541,7 @@ ${sdf === true ? /* glsl */ `
   if (u_dif_on) {
     float v = srcValue(u_dif_src, value, g.rnd, shapeV);
     v = clamp(v + (g.rnd - 0.5) * u_dif_jitter, 0.0, 1.0);
-    vec3 top = gradientLookup(u_dif_grad_stops, u_dif_grad_count, v);
+    vec3 top = gGenRgb.x >= 0.0 ? gGenRgb : gradientLookup(u_dif_grad_stops, u_dif_grad_count, v);
     vec3 base = linearToSrgb(A.rgb);
     vec3 blended = blendMode(u_dif_blend, base, top);
     A.rgb = srgbToLinear(mix(base, blended, m * u_dif_opacity));

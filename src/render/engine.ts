@@ -13,6 +13,7 @@ import { Display, type ChannelView, type DisplayOptions, type ViewTransform } fr
 import { ensureBuiltins } from './builtins'
 import { scaleProject, supersampleFactor } from '@/core/supersample'
 import { clamp01, linearToSrgb1 } from '@/core/color'
+import { onImageReady, pendingImages } from '@/core/images'
 
 // Box filter for supersampling: average each k×k block of the traced image (linear HDR) into one texel.
 const DOWNSAMPLE = /* glsl */ `
@@ -108,6 +109,7 @@ export class Engine {
   onMaterial: (() => void) | null = null
   /** settled() callers waiting for the pending material evaluation. */
   private materialWaiters: (() => void)[] = []
+  private offImages: () => void = () => undefined
   paused = false
 
   constructor(canvas: HTMLCanvasElement) {
@@ -127,6 +129,11 @@ export class Engine {
       this.materialDirty = true
       this.kick()
     }
+    // An image a layer uses (core/images.ts) has decoded: evaluate again with it.
+    this.offImages = onImageReady(() => {
+      this.materialDirty = true
+      this.kick()
+    })
     this.tracer = new PathTracer(this.gpu)
     this.post = new PostStack(this.gpu)
     this.display = new Display(this.gpu, GLSL_COMMON)
@@ -207,6 +214,12 @@ export class Engine {
   settled(): Promise<void> {
     if (!this.materialDirty || !this.running || this.suspended) return Promise.resolve()
     return new Promise((resolve) => this.materialWaiters.push(resolve))
+  }
+
+  /** Images the project's layers use, decoded, and the evaluation with them done (headless renders). */
+  async imagesSettled(): Promise<void> {
+    await pendingImages()
+    await this.settled()
   }
 
   private releaseWaiters(): void {
@@ -479,6 +492,7 @@ export class Engine {
   }
 
   dispose(): void {
+    this.offImages()
     this.stop()
     this.material.dispose()
     this.tracer.dispose()

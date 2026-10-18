@@ -14,6 +14,7 @@ import { GLSL_SDF } from '@/layers/glsl/sdf'
 import { GLSL_BEVEL, GLSL_GENERATOR_MAIN, bevelCurveDefine, bevelCurveImpl } from '@/layers/commonParams'
 import { planMasks, type LayerMasks, type MaskPlan, type MaskRef } from '@/layers/masks'
 import { getLayerDef, layerParamDefs } from '@/layers/registry'
+import { imagesVersion } from '@/core/images'
 import type { LayerDef } from '@/layers/types'
 
 /** Declarations available to every material-stage shader. */
@@ -81,6 +82,8 @@ GenOut genOutOwn(float value, float mask, float rnd, float sdf) { return GenOut(
 // A pattern on a shape (Wood's grain on its planks): the wrapper multiplies the value (and hval) by the bevel of the
 // combined shape — Bevel, Profile, Bevel aspect, the mask's Mode — and keeps the generator's coverage.
 GenOut genOutShaded(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 2, -1.0, NO_SDF, rnd); }
+// A colour of the generator's own for Diffuse (sRGB 0..1), in place of the ramp (Stamp's image); x < 0 = the ramp.
+vec3 gGenRgb = vec3(-1.0);
 
 // What the layer writes into its mask (Mask › Write to, FR8.23): 0 nothing, 1 its shape (a distance), 2 its coverage.
 uniform int uMaskKind;
@@ -456,7 +459,8 @@ ${fetches}
 
   /** CPU-computed data textures of a generator layer (LayerDef.cpuData), cached until its inputs change. */
   private cpuTextures(def: LayerDef, layer: Layer, project: Project, seed: number): Record<string, THREE.DataTexture> {
-    const key = JSON.stringify([layer.params, this.width, this.height, project.tileable, seed])
+    // (imagesVersion: an image a layer uses may have finished decoding since.)
+    const key = JSON.stringify([layer.params, this.width, this.height, project.tileable, seed, imagesVersion()])
     const hit = this.cpuCache.get(layer.id)
     if (hit && hit.key === key) return hit.tex
     if (hit) for (const t of Object.values(hit.tex)) t.dispose()
