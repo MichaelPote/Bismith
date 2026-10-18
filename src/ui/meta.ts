@@ -60,6 +60,36 @@ import {
   IconWaveSawTool,
   IconWaveSine,
   IconWood,
+  IconAperture,
+  IconBackground,
+  IconBlendMode,
+  IconBucketDroplet,
+  IconCircleDashed,
+  IconCircleDot,
+  IconCloudRain,
+  IconColorSwatch,
+  IconComponents,
+  IconDroplet,
+  IconDroplets,
+  IconEraser,
+  IconFlower,
+  IconLayoutRows,
+  IconLink,
+  IconMask,
+  IconPaperclip,
+  IconPhoto,
+  IconPuzzle,
+  IconSeparatorVertical,
+  IconSlice,
+  IconSparkles,
+  IconSquareDashed,
+  IconStack2,
+  IconStairs,
+  IconStar,
+  IconSun,
+  IconSunHigh,
+  IconSunLow,
+  IconTool,
 } from '@tabler/icons-vue'
 import type { LayerCategory } from '@/layers/types'
 import { getLayerDef } from '@/layers/registry'
@@ -176,3 +206,87 @@ export function layerHue(type: string): string {
 
 export const LIGHT_HUE = 'var(--cat-gold)'
 export const POST_HUE = 'var(--cat-violet)'
+
+/**
+ * Inspector card icons (PanelCard), by group id — a layer type's own groups, the common ones (Shaping, Mask, the channel
+ * outputs) and recipe groups — or by the title of the fixed cards (World, light, post). A layer's first card (its
+ * type's name) takes the layer's own icon instead (layerIcon).
+ */
+const CARD_ICON: Record<string, Component> = {
+  // Common generator groups.
+  shaping: IconWaveSine,
+  mask: IconMask,
+  diffuse: IconDroplet,
+  alpha: IconBackground,
+  height: IconMountain,
+  roughness: IconGrain,
+  specular: IconSparkles,
+  emissive: IconBulb,
+  repeat: IconLayoutGrid,
+  // Type-specific groups.
+  bands: IconLayoutRows,
+  beams: IconLine,
+  blend: IconBlendMode,
+  breakup: IconCloud,
+  clamps: IconPaperclip,
+  colorize: IconColorSwatch,
+  details: IconPuzzle,
+  dirt: IconBucketDroplet,
+  dividers: IconSeparatorVertical,
+  dots: IconCircleDot,
+  edges: IconBorderOuter,
+  elements: IconComponents,
+  fill: IconRoute,
+  frame: IconFrame,
+  grain: IconWood,
+  grid: IconGridDots,
+  jogs: IconStairs,
+  joints: IconLink,
+  outline: IconPolygon,
+  pads: IconCpu,
+  petals: IconFlower,
+  relief: IconMountain,
+  rings: IconCircles,
+  rivets: IconCircleDot,
+  source: IconPhoto,
+  splits: IconSlice,
+  spokes: IconSunHigh,
+  star: IconStar,
+  wear: IconEraser,
+  // Recipe groups.
+  boards: IconLayoutRows,
+  colour: IconPalette,
+  dents: IconHammer,
+  edge: IconBorderOuter,
+  finish: IconBrush,
+  fittings: IconTool,
+  flow: IconRipple,
+  formwork: IconLayoutBoard,
+  holes: IconCircleDashed,
+  layout: IconLayoutGrid,
+  panels: IconLayoutBoard,
+  pattern: IconTexture,
+  peel: IconPaint,
+  shape: IconSquareDashed,
+  sources: IconDroplets,
+  strata: IconStack2,
+  streaks: IconLineDashed,
+  surface: IconTexture,
+  traces: IconRoute,
+  tubes: IconBulb,
+  veins: IconRipple,
+  weather: IconCloudRain,
+  // Fixed cards, by title.
+  Texture: IconPhoto,
+  'Path tracer': IconAperture,
+  'Base material': IconSquare,
+  'Lighting presets': IconSun,
+  'Sky light': IconCloud,
+  Ambient: IconSunLow,
+  Mask: IconMask,
+}
+
+/** A card's icon by group id or fixed title (see CARD_ICON); a generic one for groups not listed. */
+export function cardIcon(key: string): Component {
+  return CARD_ICON[key] ?? IconAdjustmentsHorizontal
+}

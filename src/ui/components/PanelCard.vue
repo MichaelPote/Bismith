@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// Collapsible panel card with a disclosure chevron; optional enable checkbox in the header.
-import { ref, watch } from 'vue'
+// Collapsible panel card with a disclosure chevron, an optional icon before its title, and an optional enable checkbox in
+// the header.
+import { ref, watch, type Component } from 'vue'
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-vue'
 
 const props = withDefaults(
-  defineProps<{ title: string; collapsed?: boolean; toggle?: boolean | null; storageKey?: string }>(),
-  { collapsed: false, toggle: null },
+  defineProps<{ title: string; collapsed?: boolean; toggle?: boolean | null; storageKey?: string; icon?: Component; iconColor?: string }>(),
+  { collapsed: false, toggle: null, icon: undefined, iconColor: undefined },
 )
 const emit = defineEmits<{ (e: 'update:toggle', v: boolean): void }>()
 
@@ -37,10 +38,14 @@ watch(open, (v) => {
     <div class="head">
       <button type="button" class="disclose" :aria-expanded="open" @click="open = !open">
         <component :is="open ? IconChevronDown : IconChevronRight" :size="12" />
-        <span v-if="toggle === null" class="title">{{ title }}</span>
+        <template v-if="toggle === null">
+          <component :is="icon" v-if="icon" class="icon" :size="14" :color="iconColor" />
+          <span class="title">{{ title }}</span>
+        </template>
       </button>
       <label v-if="toggle !== null" class="toggle">
         <input type="checkbox" :checked="toggle" @change="emit('update:toggle', ($event.target as HTMLInputElement).checked)" />
+        <component :is="icon" v-if="icon" class="icon" :size="14" :color="iconColor" />
         <span class="title">{{ title }}</span>
       </label>
       <div class="actions"><slot name="actions" /></div>
@@ -99,6 +104,13 @@ watch(open, (v) => {
   font-weight: 500;
   color: var(--text-hi);
   font-size: 13px;
+}
+.icon {
+  flex: none;
+  color: var(--text-mid);
+}
+.off .icon {
+  color: var(--text-lo);
 }
 .off .title {
   color: var(--text-lo);

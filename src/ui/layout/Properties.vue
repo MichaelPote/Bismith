@@ -11,7 +11,7 @@ import { LIGHT_DEFS } from '@/core/lights'
 import { BASE_DEFS, PROJECT_DEFS, RENDER_DEFS } from '@/core/settingsDefs'
 import { P, type ParamDef, type ParamValue, type ParamValues } from '@/core/params'
 import { layerUnits, SIZE_PRESETS } from '@/core/project'
-import { layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta'
+import { cardIcon, layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta'
 import { useActions } from '@/ui/actions'
 import PanelCard from '@/ui/components/PanelCard.vue'
 import ParamList from '@/ui/components/ParamList.vue'
@@ -210,6 +210,8 @@ const asValues = (o: object) => o as unknown as ParamValues
           v-for="c in layerCards"
           :key="`${layer.id}:${c.group.id}`"
           :title="c.group.label === 'Pattern' ? layerDef.label : c.group.label"
+          :icon="c.group.id === 'params' ? layerIcon(layer.type) : cardIcon(c.group.id)"
+          :icon-color="c.group.id === 'params' ? layerHue(layer.type) : undefined"
           :collapsed="c.group.collapsed"
           :storage-key="`${layer.type}:${c.group.id}`"
           :toggle="c.group.toggleKey ? Boolean(layer.params[c.group.toggleKey]) : null"
@@ -251,10 +253,10 @@ const asValues = (o: object) => o as unknown as ParamValues
       </div>
       <p class="desc">{{ recipe.description }} Its layers are ordinary layers — open it in the outliner to edit one; a control here rewrites only the settings it governs.</p>
       <div class="scroll">
-        <PanelCard v-for="c in materialCards" :key="`${material.id}:${c.group.id}`" :title="c.group.label" :storage-key="`material:${recipe.id}:${c.group.id}`">
+        <PanelCard v-for="c in materialCards" :key="`${material.id}:${c.group.id}`" :title="c.group.label" :icon="cardIcon(c.group.id)" :storage-key="`material:${recipe.id}:${c.group.id}`">
           <ParamList :defs="c.defs" :values="material.params" @change="(k, v) => store.setMaterialParam(material!.id, k, v)" />
         </PanelCard>
-        <PanelCard title="Mask" storage-key="material:mask">
+        <PanelCard title="Mask" :icon="cardIcon('Mask')" storage-key="material:mask">
           <p class="hint">Limit every layer of this material to masks written by layers above it (e.g. a Cut-out's opening), on top of each layer's own Limit to. Cutting a hole: the material in front limited to the mask with Invert, the one behind to the mask — otherwise the hidden one's glow and relief show through.</p>
           <ParamList :defs="materialLimitDefs" :values="materialLimit" @change="setMaterialLimit" />
         </PanelCard>
@@ -278,7 +280,7 @@ const asValues = (o: object) => o as unknown as ParamValues
       </div>
       <p class="desc">{{ light.type === 'point' ? 'Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at 64 px.' : 'Drag the sun gizmo around the texture to set the azimuth. Hold Shift to place it under the cursor, setting the elevation too (the centre is overhead, the dashed ring the horizon); hold Ctrl to snap to 15° steps.' }}</p>
       <div class="scroll">
-        <PanelCard title="Light">
+        <PanelCard title="Light" :icon="light.type === 'point' ? IconBulb : IconSun" :icon-color="LIGHT_HUE">
           <ParamList :defs="LIGHT_DEFS[light.type].params" :values="light.params" @change="(k, v) => store.setLightParam(light!.id, k, v)" />
         </PanelCard>
       </div>
@@ -306,7 +308,7 @@ const asValues = (o: object) => o as unknown as ParamValues
       </div>
       <p v-if="postDef.description" class="desc">{{ postDef.description }}</p>
       <div class="scroll">
-        <PanelCard :title="postDef.label">
+        <PanelCard :title="postDef.label" :icon="IconSparkles" :icon-color="POST_HUE">
           <ParamList :defs="postDef.params" :values="post.params" @change="(k, v) => store.setPostParam(post!.id, k, v)" />
           <PostExtras :filter="post" />
         </PanelCard>
@@ -322,7 +324,7 @@ const asValues = (o: object) => o as unknown as ParamValues
       <div v-if="sel.kind === 'base'" class="sub"><span class="type">Base</span></div>
       <p class="desc">Texture size and tiling, the base material every layer builds on, world lighting and the path tracer.</p>
       <div class="scroll">
-        <PanelCard title="Texture">
+        <PanelCard title="Texture" :icon="cardIcon('Texture')">
           <div class="sizes">
             <button
               v-for="s in SIZE_PRESETS"
@@ -337,19 +339,19 @@ const asValues = (o: object) => o as unknown as ParamValues
           </div>
           <ParamList :defs="PROJECT_DEFS" :values="asValues(store.project)" @change="(k, v) => assign(store.project, k, v)" />
         </PanelCard>
-        <PanelCard title="Path tracer" storage-key="world:tracer">
+        <PanelCard title="Path tracer" :icon="cardIcon('Path tracer')" storage-key="world:tracer">
           <ParamList :defs="RENDER_DEFS" :values="asValues(store.project.render)" @change="(k, v) => assign(store.project.render, k, v)" />
         </PanelCard>
-        <PanelCard title="Base material">
+        <PanelCard title="Base material" :icon="cardIcon('Base material')">
           <ParamList :defs="BASE_DEFS" :values="asValues(store.project.base)" @change="(k, v) => assign(store.project.base, k, v)" />
         </PanelCard>
-        <PanelCard title="Lighting presets" storage-key="world:presets">
+        <PanelCard title="Lighting presets" :icon="cardIcon('Lighting presets')" storage-key="world:presets">
           <LightingPresets />
         </PanelCard>
-        <PanelCard title="Sky light" storage-key="world:sky">
+        <PanelCard title="Sky light" :icon="cardIcon('Sky light')" storage-key="world:sky">
           <ParamList :defs="SKY_DEFS" :values="asValues(store.project.lighting.sky)" @change="(k, v) => assign(store.project.lighting.sky, k, v)" />
         </PanelCard>
-        <PanelCard title="Ambient" storage-key="world:ambient">
+        <PanelCard title="Ambient" :icon="cardIcon('Ambient')" storage-key="world:ambient">
           <ParamList :defs="AMBIENT_DEFS" :values="asValues(store.project.lighting.ambient)" @change="(k, v) => assign(store.project.lighting.ambient, k, v)" />
         </PanelCard>
       </div>
