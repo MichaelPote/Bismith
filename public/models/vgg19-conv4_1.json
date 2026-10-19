@@ -1,82 +1,73 @@
 {
- "format": "float16 little-endian, weights (kh, kw, cin, cout) then bias per layer; offsets in values",
- "source": "VGG-19 (Simonyan & Zisserman, Oxford VGG, CC BY 4.0) via keras vgg19_weights_tf_dim_ordering_tf_kernels_notop.h5",
- "preprocess": "RGB 0..255 \u2192 BGR, subtract mean [103.939, 116.779, 123.68]",
- "pool_after": [
-  "block1_conv2",
-  "block2_conv2",
-  "block3_conv4"
- ],
- "taps": [
-  "block1_conv1",
-  "block2_conv1",
-  "block3_conv1",
-  "block4_conv1"
- ],
- "values": 3505728,
- "layers": [
-  {
-   "name": "block1_conv1",
-   "cin": 3,
-   "cout": 64,
-   "w": 0,
-   "b": 1728
-  },
-  {
-   "name": "block1_conv2",
-   "cin": 64,
-   "cout": 64,
-   "w": 1792,
-   "b": 38656
-  },
-  {
-   "name": "block2_conv1",
-   "cin": 64,
-   "cout": 128,
-   "w": 38720,
-   "b": 112448
-  },
-  {
-   "name": "block2_conv2",
-   "cin": 128,
-   "cout": 128,
-   "w": 112576,
-   "b": 260032
-  },
-  {
-   "name": "block3_conv1",
-   "cin": 128,
-   "cout": 256,
-   "w": 260160,
-   "b": 555072
-  },
-  {
-   "name": "block3_conv2",
-   "cin": 256,
-   "cout": 256,
-   "w": 555328,
-   "b": 1145152
-  },
-  {
-   "name": "block3_conv3",
-   "cin": 256,
-   "cout": 256,
-   "w": 1145408,
-   "b": 1735232
-  },
-  {
-   "name": "block3_conv4",
-   "cin": 256,
-   "cout": 256,
-   "w": 1735488,
-   "b": 2325312
-  },
-  {
-   "name": "block4_conv1",
-   "cin": 256,
-   "cout": 512,
-   "w": 2325568,
-   "b": 3505216
-  }
- ]
+	"format": "float16 little-endian, weights (kh, kw, cin, cout) then bias per layer; offsets in values",
+	"source": "VGG-19 (Simonyan & Zisserman, Oxford VGG, CC BY 4.0) via keras vgg19_weights_tf_dim_ordering_tf_kernels_notop.h5",
+	"preprocess": "RGB 0..255 \u2192 BGR, subtract mean [103.939, 116.779, 123.68]",
+	"pool_after": ["block1_conv2", "block2_conv2", "block3_conv4"],
+	"taps": ["block1_conv1", "block2_conv1", "block3_conv1", "block4_conv1"],
+	"values": 3505728,
+	"layers": [
+		{
+			"name": "block1_conv1",
+			"cin": 3,
+			"cout": 64,
+			"w": 0,
+			"b": 1728
+		},
+		{
+			"name": "block1_conv2",
+			"cin": 64,
+			"cout": 64,
+			"w": 1792,
+			"b": 38656
+		},
+		{
+			"name": "block2_conv1",
+			"cin": 64,
+			"cout": 128,
+			"w": 38720,
+			"b": 112448
+		},
+		{
+			"name": "block2_conv2",
+			"cin": 128,
+			"cout": 128,
+			"w": 112576,
+			"b": 260032
+		},
+		{
+			"name": "block3_conv1",
+			"cin": 128,
+			"cout": 256,
+			"w": 260160,
+			"b": 555072
+		},
+		{
+			"name": "block3_conv2",
+			"cin": 256,
+			"cout": 256,
+			"w": 555328,
+			"b": 1145152
+		},
+		{
+			"name": "block3_conv3",
+			"cin": 256,
+			"cout": 256,
+			"w": 1145408,
+			"b": 1735232
+		},
+		{
+			"name": "block3_conv4",
+			"cin": 256,
+			"cout": 256,
+			"w": 1735488,
+			"b": 2325312
+		},
+		{
+			"name": "block4_conv1",
+			"cin": 256,
+			"cout": 512,
+			"w": 2325568,
+			"b": 3505216
+		}
+	]
 }

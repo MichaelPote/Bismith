@@ -3,10 +3,12 @@
 **Status:** done (v1)
 
 ## Goal
+
 Let Claude (or CI) render project JSON to PNG and score it against a reference without touching the UI —
 "use your own intuition and a harness to test and iterate".
 
 ## Plan
+
 - `src/headless.ts` — `window.__bismith` API: `loadProject(json)`, `render({ samples }) → PNG data URL`,
   `renderChannels()`, `compare(targetDataURL, weights) → metrics`, `optimize(target, options)`.
 - `?headless` URL flag renders a minimal page (no editor chrome).
@@ -18,6 +20,7 @@ Let Claude (or CI) render project JSON to PNG and score it against a reference w
 - Output folder `harness-out/` (git-ignored).
 
 ## Checklist
+
 - [x] Headless API in the app
 - [x] Minimal `?headless` mode
 - [x] Playwright CLI: render
@@ -26,6 +29,7 @@ Let Claude (or CI) render project JSON to PNG and score it against a reference w
 - [x] Documented usage
 
 ## Usage
+
 All commands start Vite (no HMR / file watching, so edits elsewhere in the repo can't reload the page mid-run),
 open `/?headless` in Playwright Chromium with SwiftShader, and drive `window.__bismith`. Outputs default to
 `harness-out/`. Project JSON may be partial — missing fields and params get defaults (`normalizeProject`).
@@ -73,6 +77,7 @@ npx tsx tools/matchbench.ts pairs.json strategy.json [--seeds N] [--workers N] [
   `results.jsonl`, and prints per-pair means of the best Tile / Texture totals and per-move statistics.
 
 ## Page API (`window.__bismith`, src/headless.ts)
+
 - `loadProject(json) → Project`, `getProject()`, `render({ samples }) → { png, width, height, samples, ms, errors }`,
   `renderMaps(kinds?) → { [kind]: dataURL }` (unchanged).
 - `compare(target, opts?) → Promise<HeadlessCompareResult>` — renders the current project (`opts.samples`, default
@@ -90,6 +95,7 @@ npx tsx tools/matchbench.ts pairs.json strategy.json [--seeds N] [--workers N] [
   `optimizeFinish() → HeadlessOptimizeResult`.
 
 ## Notes
+
 - Chromium needs NSS/NSPR. On machines without them (and without root): `apt-get download libnss3 libnspr4`
   into `.cache/chromium-libs/debs/`, then `dpkg -x <deb> .cache/chromium-libs` for each; `chromiumEnv()` adds
   `.cache/chromium-libs/usr/lib/x86_64-linux-gnu` (and `/nss`) to `LD_LIBRARY_PATH` automatically.

@@ -3,22 +3,24 @@
 **Status:** done (generator); the riveted panels and hammered copper reworked
 
 ## Goal
+
 A rusty riveted panel and hammered copper exposed missing tools: fluids that run down and stain what is
 beneath, the flaking paint they bleed from, brushed rather than ruled metal, and dish-shaped hammer marks.
 
 ## Design
+
 - **Drips** generator (`drips`, `src/layers/generators/drips.ts`): sources scattered on a cols × rows grid
-  (density, per-cell jittered position), each with a trail running *down* (user space) of random length
+  (density, per-cell jittered position), each with a trail running _down_ (user space) of random length
   (`len_min..len_max`), width (tapering to half, `width_var`), strength `start × (1 − t)^fade`, and a gentle
   wobble. Coverage is the strength (soft), so a Normal or Multiply diffuse blend stains in proportion. Wraps on
-  tileable projects; pixel-snapped in *hard* mode so 1 px trails hit whole pixels.
-  - **Output → Sources**: the blisters of peeling paint the stains bleed from (see *Blisters* below). Same seed ⇒
+  tileable projects; pixel-snapped in _hard_ mode so 1 px trails hit whole pixels.
+  - **Output → Sources**: the blisters of peeling paint the stains bleed from (see _Blisters_ below). Same seed ⇒
     same places, so a Sources layer and a Stains layer line up.
   - **Head** (off by default): an optional drop blob for viscous fluids; water, rust and blood have none.
-  - **Drips from** (`spawn`; old files' *Relief drive* r loads as r / 2): one slider from the grid to the ledges, the
+  - **Drips from** (`spawn`; old files' _Relief drive_ r loads as r / 2): one slider from the grid to the ledges, the
     drip count growing steadily along it. 0: only the Columns × Rows grid, scattered. Towards 0.5 a growing share (2·s)
     of the grid cells drips from the strongest ledge anywhere inside them; at 0.5 all do, one drip per cell. A second
-    set — cells of *Ledge spacing* px (blisters: at least half the radius), each holding its strongest ledge pixel,
+    set — cells of _Ledge spacing_ px (blisters: at least half the radius), each holding its strongest ledge pixel,
     dripping by Density × Clustering, a px or two below the lip now and then — fades in from 0 as s^1.5, while above
     0.5 the grid drips thin out; at 1 drips start anywhere along every ledge, whatever the grid. Prepare runs two
     ledge-cell passes (every pixel tried: set B's cells, and the grid's search cells, no bigger than half a grid cell,
@@ -37,17 +39,17 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
     across, ≤ 6 px deep), fading in over at least 4 px, longest at the sides; their sway ramps in below the seep, so
     the seep sits on its source; their runnels leave it together and part below.
   - **Surface flow** (0.6): weaker for every rise crossed since the source in this pixel's column (counted from reach
-    + 3 px below the source, so its own ledge doesn't dim it; rivet-sized rises under 0.25 height units ignored; over
-    ~8 px below a rise rather than a cut; each trail its own sensitivity), pooling darker just above a rise.
-    Overlapping stains add up (1 − ∏(1 − strength)), so a column of rivets darkens all the way down.
-  - **Relief-aware** (group *Relief*): Drips reads the height the layers beneath have built. *Drips from* moves
+    - 3 px below the source, so its own ledge doesn't dim it; rivet-sized rises under 0.25 height units ignored; over
+      ~8 px below a rise rather than a cut; each trail its own sensitivity), pooling darker just above a rise.
+      Overlapping stains add up (1 − ∏(1 − strength)), so a column of rivets darkens all the way down.
+  - **Relief-aware** (group _Relief_): Drips reads the height the layers beneath have built. _Drips from_ moves
     the sources from the scattered grid (0) onto **ledges** — where the height drops by at least the
-    *ledge threshold* within the *ledge reach* below the source (short reach = only hard steps; long = soft, gradual
-    edges too; *ledge softness* turns the cut-off into a ramp): the lower edges of rivets, lips, blisters. *Height → length* lengthens a
+    _ledge threshold_ within the _ledge reach_ below the source (short reach = only hard steps; long = soft, gradual
+    edges too; _ledge softness_ turns the cut-off into a ramp): the lower edges of rivets, lips, blisters. _Height → length_ lengthens a
     trail with the drop it falls from (taller rivets, longer tails). Use a fine source grid (≈ 2 px cells) so every
     ledge gets candidates; place the layer after whatever raises the ledges.
-- **Two-stage staining** (from review feedback): one Drips layer as a wide, soft *water stain* with Multiply
-  (darkens what is beneath), and a second with the **same seed** as a narrow *rust* trail using the shaping
+- **Two-stage staining** (from review feedback): one Drips layer as a wide, soft _water stain_ with Multiply
+  (darkens what is beneath), and a second with the **same seed** as a narrow _rust_ trail using the shaping
   **cutoff** on the same strength field — rust appears only where the darkening is extreme (near the source).
 - **Brushed metal**: value noise stretched into thin vertical lines — `scale = W / line length`,
   `stretch = line width / line length` (stretch < 1 narrows features horizontally) — with levels widened
@@ -64,7 +66,7 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
     and height), **Tilt** (the deepest point moved off centre — a long gentle slope one way, a short steep one the
     other, floors level), **Stretch** (lengthens along the course, or across it below 1, never narrows), and a **Rim**
     of displaced metal just outside the edge (0.7–1.4 radii), shown on untouched metal and the ridges between dents,
-    faded down in a dent. Height › *Per-feature variation* varies each dent's depth through `hval` (the wrapper's own
+    faded down in a dent. Height › _Per-feature variation_ varies each dent's depth through `hval` (the wrapper's own
     scaling is off — it would step the rims).
   - **Hand-guided courses**: **Ring wobble** (in ring spacings, slider 0–3, up to 6: two low harmonics round the circle
     and a ninth that courses from about 3 rings out take on, so long outer courses still bend; phases drift slowly from
@@ -74,15 +76,15 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
     per-course offsets left long ridges of untouched metal), **Region variation** (each region its own dent scale, depth
     and a shade in colour only, so the regions read as separate passes). **Arc boundaries** weights are 1 / (1 + 2v·h)
     on new layers (positive at any v, slider to 1.5, up to 4).
-  - **Regions without seams**: a dent belongs to the region its *centre* lies in (exact weighted-Voronoi test against
+  - **Regions without seams**: a dent belongs to the region its _centre_ lies in (exact weighted-Voronoi test against
     every centre), and the regions whose edge passes within a dent's reach of the pixel (the exact Apollonius-circle
-    distance, nearest eight — a region counts only if it lies within reach past its edge with *every* nearer centre, so
+    distance, nearest eight — a region counts only if it lies within reach past its edge with _every_ nearer centre, so
     far images and circles that merely pass by don't crowd out the real neighbours) are searched too, so dents cross
     region edges whole instead of being cut. **Edge overlap** (in dent radii, default 2): every region's dents run on
     past its edges, both ways — whole dents (never faded ghosts), thinning out by count with a random cut-off per dent
     from 20 % of the overlap on, so the regions' last dents don't end along a line of creases (a one-sided overlap left
     the earlier region's last dents ending in a straight welt). Where dents stand apart (Dent size < 1.3), a dent near
-    or past the edge of a region hammered *earlier* (a random rank per centre) is skipped if that region already struck
+    or past the edge of a region hammered _earlier_ (a random rank per centre) is skipped if that region already struck
     within 0.6 spacings (`hmStruck`: its own dents on the three courses and three dents around), so the passes don't
     double up along the seam. Small dents (radius under 6 px, Region variation aside) strike shallower, ×(R / 6)^0.75,
     and Tilt keeps the deepest point at least 4 px inside the rim, so fine peening has no one-pixel cliffs (dark
@@ -96,8 +98,8 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
     displaced metal rises round them (up to +0.35 Rim at 10). Crease softness maps through a square root (kc =
     0.3·√crease), so the first tenth of the slider already rounds the creases. The mask discs are joined with a 2
     px fillet, so pinholes between nearly touching dents close.
-  - **Mask** (`sdf: 'mask'`, opt-in — *Write to* is empty by default, so adding dents never replaces the Shape mask):
-    the dents as discs of *Mask size* × their radius, moving from the dent's centre (1 = whole dents) to its tilted
+  - **Mask** (`sdf: 'mask'`, opt-in — _Write to_ is empty by default, so adding dents never replaces the Shape mask):
+    the dents as discs of _Mask size_ × their radius, moving from the dent's centre (1 = whole dents) to its tilted
     deepest point (lower = round its floor).
   - **Defaults**: the plain defaults are the look at 512 px (planished bowls, Tilt 1 — off-centre floors — meeting in
     crisp creases, in wandering courses round 4 centres); `fresh` sizes the courses to the texture — about 21 across,
@@ -115,13 +117,15 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
   slight height blur, tinted specular.
 
 ## Runnels style (detailed stains)
+
 The classic trail is a 1 px-friendly strip; at higher resolutions and widths it reads as a stripe. **Style → Runnels**
 models water running down a wall instead (`dr_runnels` in `drips.ts`):
+
 - **Wash**: the water sheet, its centre line wandering on two octaves of smooth 1D noise (Wobble = how far, Meander
   length = one swing), narrowing or spreading down its length (Taper), widening from a third of its width at the seep
   over its first stretch (so the runnels fan out from one point). A darker **tide mark** within ~1 px of its edges,
   **dry patches** from value noise breaking it up.
-- **Runnels**: 1 to *Runnels* thin streams per stain (narrow stains hold fewer), each wandering on its own around its
+- **Runnels**: 1 to _Runnels_ thin streams per stain (narrow stains hold fewer), each wandering on its own around its
   lane — so they cross, merge and split — thinning to half, keeping most of their strength (Fade sets how much they
   lose), each ending at its own length; some end in a **bead**, an ellipse narrower than it is tall hanging from the
   runnel (a round one read as a rivet).
@@ -132,7 +136,7 @@ models water running down a wall instead (`dr_runnels` in `drips.ts`):
   stains material has a **Style** macro — Auto (streaks below 128 px, runnels from 128 px), Streaks, Runnels — with a
   source grid sized from the stain's width and length for runnels, rust following the strongest runnels.
 - **Quality pass**:
-  - **The seep**: *Seep width* sets how wide the stain is where it seeps out (low = a point; 1 = a
+  - **The seep**: _Seep width_ sets how wide the stain is where it seeps out (low = a point; 1 = a
     whole line — a crack, a lip; 0.8 by default); its corners are rounded, and the runnels start below it.
     **Fan-out** stretches the widening from seep to full width from about the stain's own width to its whole length,
     as a straight V; **Taper** acts past the fan-out, to the end (fan 0: over the whole length), so the
@@ -150,13 +154,13 @@ models water running down a wall instead (`dr_runnels` in `drips.ts`):
     and bare stretches along a ledge.
   - **Per-cell source pass**: every cell's drip (position, ledge drop, whether it drips) is worked out once in a pass into a (cols + 16) × (rows + 104) texture, margins for cells beyond the
     texture; the generator fetches it. The row search now reaches 96 rows for both styles.
-  - **Streaks**: fine streaks down through the wash (value noise stretched down the stain, *Streak width* apart), each
+  - **Streaks**: fine streaks down through the wash (value noise stretched down the stain, _Streak width_ apart), each
     lighter or as dark as the wash, each running out at its own length — a ragged, frayed lower end. They break the
     tide marks too. No dry patches in the narrow seep (they read as holes).
   - **Softness** (px) blurs every edge (wash, streaks, runnels, beads, heads; the streak style's trail too).
     **Strength variation** gives each trail its own share of the strength (faint old stains among fresh ones);
     **Runnel strength** sets the runnels' darkness against the wash; **Braiding** how far they wander across it (0 =
-    straight lanes); *Runnels* may be 0 (the wash alone) up to 16.
+    straight lanes); _Runnels_ may be 0 (the wash alone) up to 16.
   - The strength is capped at 1 (a strong wash plus tide marks used to pass it, blending past the ramp into dark and
     coloured specks). Trails longer than the row search reaches (96 rows) are shortened to it, so they still fade out
     instead of being cut off; the streak style searches as many columns as its width and
@@ -174,14 +178,16 @@ models water running down a wall instead (`dr_runnels` in `drips.ts`):
     Drips from 0 unless they ask.
 
 ## Blisters (Sources output)
+
 Peeling paint giving way to the rust beneath, as a **mask** rather than domes (`dr_blisters` in `drips.ts`):
+
 - **Where**: a ragged hole at each drip source (the stains' own placement, `dr_source`, so the same seed lines them
-  up; *Relief drive* moves them onto ledges as before) smooth-unioned with bands along **every ledge** — the pixels the
-  ledge test (*Ledge threshold / reach / softness*) accepts, flooded into an exact distance field before the layer runs
-  (`prepare` → jump flood with a custom source, `t_ledges`). *Ledges* (0..1) sets how fast the bands grow with the
+  up; _Relief drive_ moves them onto ledges as before) smooth-unioned with bands along **every ledge** — the pixels the
+  ledge test (_Ledge threshold / reach / softness_) accepts, flooded into an exact distance field before the layer runs
+  (`prepare` → jump flood with a custom source, `t_ledges`). _Ledges_ (0..1) sets how fast the bands grow with the
   radius (0 = spots only); a band opens from its middle, so radius 0 shows nothing.
 - **Blister radius** grows everything: specks → dots and thin ledge lines → blobs → patches that merge into whole
-  areas. *Size variation* gives each source its own share. A big radius on a fine grid is cut short at 5 source cells
+  areas. _Size variation_ gives each source its own share. A big radius on a fine grid is cut short at 5 source cells
   each way (8 without the relief search); by then the blisters have merged anyway.
 - **Raggedness**: lobes on the source grid's scale (they stay put as the radius grows, and tile) as big as the
   blister, plus a tear from ~2.5 px down to single pixels that small specks keep little of; it also makes the lift
@@ -194,14 +200,14 @@ Peeling paint giving way to the rust beneath, as a **mask** rather than domes (`
     (the cell-scale lobe noise), so no two stretches peel alike; the flaps vary the lift's width as well as its height;
     the floor steps down at the edge, then sinks deeper towards the middle over half the radius, broadly uneven (mid
     lobe noise) as well as rough — and the value (for the rust ramp) darkens with it.
-- **Outputs**: the distance goes to the mask in *Write to* (`sdf: 'mask'`: no bevel card; Shape by default, Normal),
-  so the layers after it are limited to it for the rust beneath and to it with *Invert* for the paint. **Height** is the peel, signed
-  (`genOutHeight`): outside, the paint lifts towards the torn edge by *Lift*, steepening as it curls (cubic over *Lift
-  width*); at the edge it falls to *Depth* below the surface onto a rough floor — both × the Height amount, added to the
+- **Outputs**: the distance goes to the mask in _Write to_ (`sdf: 'mask'`: no bevel card; Shape by default, Normal),
+  so the layers after it are limited to it for the rust beneath and to it with _Invert_ for the paint. **Height** is the peel, signed
+  (`genOutHeight`): outside, the paint lifts towards the torn edge by _Lift_, steepening as it curls (cubic over _Lift
+  width_); at the edge it falls to _Depth_ below the surface onto a rough floor — both × the Height amount, added to the
   relief beneath (which shows through the hole). Coverage is the hole; the value its floor's roughness (0.6–1), for a
-  diffuse ramp to shade the rust by. *Hard edges* steps the edge and the drop at whole pixels.
+  diffuse ramp to shade the rust by. _Hard edges_ steps the edge and the drop at whole pixels.
 - Old Sources layers without a radius take their head size as it (`migrate`); the Water & rust stains material's
-  *Blisters* macro and the rusty-panel template build them without writing a mask (`mk_target: ''`), with
+  _Blisters_ macro and the rusty-panel template build them without writing a mask (`mk_target: ''`), with
   ledge blisters only when they start at ledges.
 - **Height** turns on with the Sources output (and off again with Stains) unless set by hand (`linkedDefaults`).
 - Compile cost (D3D11, cold, `tools/compile-time.ts`): one flat cell loop serves both outputs (each picks its cell
@@ -215,6 +221,7 @@ Peeling paint giving way to the rust beneath, as a **mask** rather than domes (`
   the free head, flow) ≈ 1.45 s.
 
 ## Relief / paint mixing (lesson)
+
 Enforcing "paint never changes the shape" regressed the stone walls: part of their look was paint noise layers also
 adding fine height, so lit bumps coincided with colour patches. The model is therefore: **the relief stack carries
 the structure** (blocks, joints, dents); **paint layers may add fine, colour-coupled relief** — written explicitly
@@ -222,6 +229,7 @@ the structure** (blocks, joints, dents); **paint layers may add fine, colour-cou
 Caution: the Noise generator's default has height on (0.25) — set it deliberately on paint layers.
 
 ## Checklist
+
 - [x] Drips generator: stains / sources, wobble, taper, fade, pixel snap, tiling
 - [x] Relief-aware sources (ledges) and height-driven trail length
 - [x] Water-darkening + same-seed rust (cutoff) recipe; blisters from sources

@@ -3,10 +3,12 @@
 **Status:** done (v1)
 
 ## Goal
-A Vue 3 + Vite single-page app with the Cinderforge *Blender-tempered* editor layout, so every later feature
+
+A Vue 3 + Vite single-page app with the Cinderforge _Blender-tempered_ editor layout, so every later feature
 has a home: top bar, outliner, viewport, properties panel, status bar.
 
 ## Plan
+
 - Replace the React/Tailwind starter with Vue 3, Pinia, Three.js, TypeScript (strict), vue-tsc, Vitest, oxlint.
 - `src/styles/tokens.css` — Cinderforge tokens as CSS custom properties (ground, lines, text, ember ramp,
   category hues, spacing, radii, fonts); `base.css` for resets, focus ring (1px Ember 400), scrollbars.
@@ -20,6 +22,7 @@ has a home: top bar, outliner, viewport, properties panel, status bar.
 - Menus as simple dropdown popovers; keyboard focus visible; real `<button>`/`<input>` everywhere.
 
 ## Checklist
+
 - [x] Vue/Vite/TS scaffold replaces React starter
 - [x] Cinderforge tokens + base styles
 - [x] Fonts bundled

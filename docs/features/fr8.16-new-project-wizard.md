@@ -3,11 +3,13 @@
 **Status:** done — File ▸ New project… (Ctrl+Alt+N) opens the wizard; smart materials joined the add-layer grid
 
 ## Goal
+
 Start a project from something good-looking: the template families the Match workspace suggests for a reference,
 without needing a reference, each in a colour scheme that suits its material; plus blank and the example projects.
 And one place to add anything to the layer list.
 
 ## Design
+
 - **Add grid** (outliner +): Noise · Shapes · Patterns · **Smart materials** · Filters · Adjust as tile rows — the
   composites sit right after the generators they are made of. The separate ◆ button is gone.
 - **Wizard** (`ui/panels/NewProjectWizard.vue`, `editor.wizard`): Starters — Blank (no layers, base material only)
@@ -37,6 +39,7 @@ And one place to add anything to the layer list.
   made green rock and electric blue stone, so colours are now chosen per material and the snap is gone.
 
 ## Checklist
+
 - [x] Smart materials in the add grid
 - [x] Wizard: Starters (blank + presets), Suggestions, size, shuffle, progressive thumbnails
 - [x] Cards whose project carries a preview show it without compiling or rendering (FR8.20) — the examples all do

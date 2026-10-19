@@ -34,7 +34,7 @@ game-style grass. Source: `src/layers/generators/grass.ts`.
 - **Two kinds** puts two kinds of blade on one ramp: its middle is the shade both share, the first kind lightens
   towards the ramp's start, the second towards its end. Anti-aliased edges between the kinds pass through shade
   rather than a third colour, which reads as a contact line.
-- **Gaps**: *Shadowed ground* paints the gaps with the dark end of the ramp (the middle with two kinds); *Clear* draws
+- **Gaps**: _Shadowed ground_ paints the gaps with the dark end of the ramp (the middle with two kinds); _Clear_ draws
   only the blades, so a layer below (soil, a finer grass) shows between them. **Bare patches** thin the blades out and
   stop them in noise patches (**Patches across**); the ground fill thins out on the same curve, so no band of shadowed
   ground rings a patch. **Patch edges** adds octaves to the patch noise and keeps more of each, fraying the outlines into
@@ -48,16 +48,16 @@ game-style grass. Source: `src/layers/generators/grass.ts`.
 
 ## Looks
 
-| Look | Settings |
-| --- | --- |
-| Painted meadow, arching | long, wide blades (90 / 5.5 px at 512), Direction 0, Spread 55°, Bend 110°, Arch 0.7, Tufts 0.4, Two kinds (olive and green) |
-| Lawn over soil | thin blades (40 / 1.6 px), Gaps Clear over a brown noise layer, Bare patches 0.2 |
-| Moss / fleece | thin (1.5 px), Bend 90°, Curl 90°, Wiggle 45°, Depth shading 0.9, bright top of the ramp |
-| Lawn with leaf litter (the *Grass* starter) | soil noise, short fill blades, a Leaf litter layer growing in patches and sparse top blades; tuned with Match against a photo (Colour range Normal), height depth 1.5, low sun with shadows and AO |
-| Photo lawn | soil noise, a dense fill layer (12 / 1.6 px) and a sparse clear top layer, Blade variation 0.5, Roundness 0.4, Turf relief 0.5; lit by a low sun with shadows and AO |
-| Leaf litter on a lawn | a Leaf layer (13 / 6 px, Taper 0.8, Rise 0.3, Curl 60°) in a brown ramp, Gaps Clear, Bare patches 0.7 with Grow in patches |
-| Worn turf over sand | sandy noise below; fill and top layers with the same Patch seed, Bare patches 0.4, Patch edges 0.9 |
-| Straw over undergrowth | a dense short dark layer, Blur 2.5 px, then sparse wide straw blades (Gaps Clear) with Fold and Colour patches |
+| Look                                        | Settings                                                                                                                                                                                           |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Painted meadow, arching                     | long, wide blades (90 / 5.5 px at 512), Direction 0, Spread 55°, Bend 110°, Arch 0.7, Tufts 0.4, Two kinds (olive and green)                                                                       |
+| Lawn over soil                              | thin blades (40 / 1.6 px), Gaps Clear over a brown noise layer, Bare patches 0.2                                                                                                                   |
+| Moss / fleece                               | thin (1.5 px), Bend 90°, Curl 90°, Wiggle 45°, Depth shading 0.9, bright top of the ramp                                                                                                           |
+| Lawn with leaf litter (the _Grass_ starter) | soil noise, short fill blades, a Leaf litter layer growing in patches and sparse top blades; tuned with Match against a photo (Colour range Normal), height depth 1.5, low sun with shadows and AO |
+| Photo lawn                                  | soil noise, a dense fill layer (12 / 1.6 px) and a sparse clear top layer, Blade variation 0.5, Roundness 0.4, Turf relief 0.5; lit by a low sun with shadows and AO                               |
+| Leaf litter on a lawn                       | a Leaf layer (13 / 6 px, Taper 0.8, Rise 0.3, Curl 60°) in a brown ramp, Gaps Clear, Bare patches 0.7 with Grow in patches                                                                         |
+| Worn turf over sand                         | sandy noise below; fill and top layers with the same Patch seed, Bare patches 0.4, Patch edges 0.9                                                                                                 |
+| Straw over undergrowth                      | a dense short dark layer, Blur 2.5 px, then sparse wide straw blades (Gaps Clear) with Fold and Colour patches                                                                                     |
 
 ## Checklist
 

@@ -4,56 +4,111 @@
 // (optionally staggered / mirrored per cell) around a configurable centre; the source is read at the folded
 // position with nearest (pixel-art) or bilinear sampling, wrapping when the project is tileable.
 
-import { P } from '@/core/params'
-import type { LayerDef } from '../types'
+import { P } from '@/core/params';
+import type { LayerDef } from '../types';
 
 const MODES: [string, string][] = [
-  ['mirror-x', 'Mirror X (left → right)'],
-  ['mirror-y', 'Mirror Y (top → bottom)'],
-  ['quad', 'Mirror XY (quad)'],
-  ['diagonal', 'Diagonal mirror ╲'],
-  ['antidiagonal', 'Diagonal mirror ╱'],
-  ['square8', '8-fold square (XY + diagonals)'],
-  ['rotate', 'Rotational (n-fold)'],
-  ['kaleido', 'Kaleidoscope (n-fold + mirror)'],
-  ['repeat', 'None (repeat cells only)'],
-]
+	['mirror-x', 'Mirror X (left → right)'],
+	['mirror-y', 'Mirror Y (top → bottom)'],
+	['quad', 'Mirror XY (quad)'],
+	['diagonal', 'Diagonal mirror ╲'],
+	['antidiagonal', 'Diagonal mirror ╱'],
+	['square8', '8-fold square (XY + diagonals)'],
+	['rotate', 'Rotational (n-fold)'],
+	['kaleido', 'Kaleidoscope (n-fold + mirror)'],
+	['repeat', 'None (repeat cells only)']
+];
 
-const polar = (p: Record<string, unknown>) => p.mode === 'rotate' || p.mode === 'kaleido'
+const polar = (p: Record<string, unknown>) => p.mode === 'rotate' || p.mode === 'kaleido';
 
 export const symmetryLayer: LayerDef = {
-  type: 'symmetry',
-  channels: { diffuse: true, height: true },
-  label: 'Symmetry',
-  category: 'filter',
-  kind: 'filter',
-  description: 'Kaleidoscope: folds every channel below through mirror, rotational or kaleidoscope symmetry, per cell of a grid — turns noise and shapes into medallions and ornaments.',
-  params: [
-    P.enum('mode', 'Symmetry', 'square8', MODES),
-    P.int('n', 'Folds', 6, 2, 12, { showIf: polar, hint: 'Rotational order (n copies around the centre)' }),
-    P.float('angle', 'Angle', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1, hint: 'Rotates the mirror axes / wedges' }),
-    P.bool('flip', 'Other side', false, { hint: 'Read the opposite half / wedge (the source is the left, top, top-left or up-left part by default); mirrors the result in rotational mode' }),
-    P.float('cx', 'Centre X', 0.5, -1, 2, { softMin: 0, softMax: 1, step: 0.001, hint: 'Fold centre within each cell, 0..1 across' }),
-    P.float('cy', 'Centre Y', 0.5, -1, 2, { softMin: 0, softMax: 1, step: 0.001, hint: 'Fold centre within each cell, 0..1 down' }),
-    P.bool('nearest', 'Nearest pixel', true, { hint: 'No interpolation: exact pixel mirrors for pixel art (bilinear when off)' }),
-    P.int('cells_x', 'Cells X', 1, 1, 64, { softMax: 16, group: 'grid', hint: 'Repeat the fold in a grid of cells (a tile of medallions)' }),
-    P.int('cells_y', 'Cells Y', 1, 1, 64, { softMax: 16, group: 'grid' }),
-    P.float('stagger', 'Row offset', 0, 0, 1, { step: 0.001, group: 'grid', hint: 'Shift odd rows by a fraction of a cell (use an even row count to tile)' }),
-    P.bool('alt', 'Mirror alternate cells', false, { group: 'grid', hint: 'Mirror odd columns / rows so neighbouring cells meet seamlessly (wallpaper symmetry)' }),
-    P.bool('shared', 'Same source for all cells', false, { group: 'source', hint: 'Every cell copies the top-left cell’s fold (identical medallions); off folds each cell’s own content' }),
-    P.float('zoom', 'Zoom', 1, 0.05, 20, { softMin: 0.25, softMax: 4, step: 0.001, group: 'source', hint: 'Magnifies the sampled source (> 1 reads a smaller area)' }),
-    P.float('src_x', 'Source offset X', 0, -1, 1, { step: 0.001, group: 'source', hint: 'Read the source from elsewhere, fraction of the texture' }),
-    P.float('src_y', 'Source offset Y', 0, -1, 1, { step: 0.001, group: 'source' }),
-    P.float('radius', 'Medallion radius', 0, 0, 2, { step: 0.001, group: 'blend', hint: 'Only fold inside this radius (fraction of half the cell); 0 = whole cell' }),
-    P.float('soft', 'Edge softness', 0, 0, 256, { softMax: 16, unit: 'px', step: 0.1, group: 'blend', showIf: (p) => Number(p.radius) > 0 }),
-    P.float('opacity', 'Opacity', 1, 0, 1, { step: 0.001, group: 'blend' }),
-  ],
-  groups: [
-    { id: 'grid', label: 'Cells' },
-    { id: 'source', label: 'Source', collapsed: true },
-    { id: 'blend', label: 'Blend', collapsed: true },
-  ],
-  filterGlsl: /* glsl */ `
+	type: 'symmetry',
+	channels: { diffuse: true, height: true },
+	label: 'Symmetry',
+	category: 'filter',
+	kind: 'filter',
+	description:
+		'Kaleidoscope: folds every channel below through mirror, rotational or kaleidoscope symmetry, per cell of a grid — turns noise and shapes into medallions and ornaments.',
+	params: [
+		P.enum('mode', 'Symmetry', 'square8', MODES),
+		P.int('n', 'Folds', 6, 2, 12, { showIf: polar, hint: 'Rotational order (n copies around the centre)' }),
+		P.float('angle', 'Angle', 0, -360, 360, {
+			softMin: -180,
+			softMax: 180,
+			unit: '°',
+			step: 0.1,
+			hint: 'Rotates the mirror axes / wedges'
+		}),
+		P.bool('flip', 'Other side', false, {
+			hint: 'Read the opposite half / wedge (the source is the left, top, top-left or up-left part by default); mirrors the result in rotational mode'
+		}),
+		P.float('cx', 'Centre X', 0.5, -1, 2, {
+			softMin: 0,
+			softMax: 1,
+			step: 0.001,
+			hint: 'Fold centre within each cell, 0..1 across'
+		}),
+		P.float('cy', 'Centre Y', 0.5, -1, 2, {
+			softMin: 0,
+			softMax: 1,
+			step: 0.001,
+			hint: 'Fold centre within each cell, 0..1 down'
+		}),
+		P.bool('nearest', 'Nearest pixel', true, {
+			hint: 'No interpolation: exact pixel mirrors for pixel art (bilinear when off)'
+		}),
+		P.int('cells_x', 'Cells X', 1, 1, 64, {
+			softMax: 16,
+			group: 'grid',
+			hint: 'Repeat the fold in a grid of cells (a tile of medallions)'
+		}),
+		P.int('cells_y', 'Cells Y', 1, 1, 64, { softMax: 16, group: 'grid' }),
+		P.float('stagger', 'Row offset', 0, 0, 1, {
+			step: 0.001,
+			group: 'grid',
+			hint: 'Shift odd rows by a fraction of a cell (use an even row count to tile)'
+		}),
+		P.bool('alt', 'Mirror alternate cells', false, {
+			group: 'grid',
+			hint: 'Mirror odd columns / rows so neighbouring cells meet seamlessly (wallpaper symmetry)'
+		}),
+		P.bool('shared', 'Same source for all cells', false, {
+			group: 'source',
+			hint: 'Every cell copies the top-left cell’s fold (identical medallions); off folds each cell’s own content'
+		}),
+		P.float('zoom', 'Zoom', 1, 0.05, 20, {
+			softMin: 0.25,
+			softMax: 4,
+			step: 0.001,
+			group: 'source',
+			hint: 'Magnifies the sampled source (> 1 reads a smaller area)'
+		}),
+		P.float('src_x', 'Source offset X', 0, -1, 1, {
+			step: 0.001,
+			group: 'source',
+			hint: 'Read the source from elsewhere, fraction of the texture'
+		}),
+		P.float('src_y', 'Source offset Y', 0, -1, 1, { step: 0.001, group: 'source' }),
+		P.float('radius', 'Medallion radius', 0, 0, 2, {
+			step: 0.001,
+			group: 'blend',
+			hint: 'Only fold inside this radius (fraction of half the cell); 0 = whole cell'
+		}),
+		P.float('soft', 'Edge softness', 0, 0, 256, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			group: 'blend',
+			showIf: (p) => Number(p.radius) > 0
+		}),
+		P.float('opacity', 'Opacity', 1, 0, 1, { step: 0.001, group: 'blend' })
+	],
+	groups: [
+		{ id: 'grid', label: 'Cells' },
+		{ id: 'source', label: 'Source', collapsed: true },
+		{ id: 'blend', label: 'Blend', collapsed: true }
+	],
+	filterGlsl: /* glsl */ `
 // Fold an offset v (px from the centre, GL y up, in the fold frame) into the source region.
 vec2 sym_fold(vec2 v) {
   int m = u_mode;
@@ -121,7 +176,7 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   S = mix(S, S2, m);
   E = mix(E, E2, m);
 }
-`,
-}
+`
+};
 
-export const SYMMETRY_FILTERS: LayerDef[] = [symmetryLayer]
+export const SYMMETRY_FILTERS: LayerDef[] = [symmetryLayer];

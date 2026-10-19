@@ -1,9 +1,9 @@
 // Blur: separable Gaussian over the accumulated channels (two MRT passes through the state ping-pong).
 
-import * as THREE from 'three'
-import { P } from '@/core/params'
-import type { LayerDef } from '../types'
-import { GLSL_GAUSS, radiusToSigma } from './shared'
+import * as THREE from 'three';
+import { P } from '@/core/params';
+import type { LayerDef } from '../types';
+import { GLSL_GAUSS, radiusToSigma } from './shared';
 
 const BLUR_MRT = /* glsl */ `
 ${GLSL_GAUSS}
@@ -47,34 +47,39 @@ void main() {
   oSurface = S;
   oEmissive = E;
 }
-`
+`;
 
 export const blurLayer: LayerDef = {
-  type: 'blur',
-  channels: { diffuse: 'diffuse', height: 'height' },
-  label: 'Blur',
-  category: 'filter',
-  kind: 'filter',
-  description: 'Gaussian blur of the layers below (wraps on tileable projects).',
-  params: [
-    P.float('radius', 'Radius', 2, 0, 128, { softMax: 16, unit: 'px', step: 0.1, hint: 'Kernel reaches ~1.5 × radius (σ = radius / 2)' }),
-    P.bool('diffuse', 'Diffuse', true),
-    P.bool('height', 'Height', true),
-    P.bool('roughness', 'Roughness', false),
-    P.bool('specular', 'Specular', false),
-    P.bool('emissive', 'Emissive', false),
-    P.bool('opacity', 'Opacity', false, { hint: 'Also blurs opacity; colour is then alpha-weighted' }),
-  ],
-  run(ctx, layer) {
-    const p = layer.params
-    const radius = Number(p.radius ?? 0)
-    if (radius <= 0) return
-    if (!p.diffuse && !p.height && !p.roughness && !p.specular && !p.emissive && !p.opacity) return
-    const mat = ctx.mrtMaterial('blur', BLUR_MRT, { uDir: { value: new THREE.Vector2(1, 0) }, uSigma: { value: 1 } })
-    mat.uniforms.uSigma.value = Math.max(radiusToSigma(radius), 1e-3)
-    ;(mat.uniforms.uDir.value as THREE.Vector2).set(1, 0)
-    ctx.runMRT(mat)
-    ;(mat.uniforms.uDir.value as THREE.Vector2).set(0, 1)
-    ctx.runMRT(mat)
-  },
-}
+	type: 'blur',
+	channels: { diffuse: 'diffuse', height: 'height' },
+	label: 'Blur',
+	category: 'filter',
+	kind: 'filter',
+	description: 'Gaussian blur of the layers below (wraps on tileable projects).',
+	params: [
+		P.float('radius', 'Radius', 2, 0, 128, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Kernel reaches ~1.5 × radius (σ = radius / 2)'
+		}),
+		P.bool('diffuse', 'Diffuse', true),
+		P.bool('height', 'Height', true),
+		P.bool('roughness', 'Roughness', false),
+		P.bool('specular', 'Specular', false),
+		P.bool('emissive', 'Emissive', false),
+		P.bool('opacity', 'Opacity', false, { hint: 'Also blurs opacity; colour is then alpha-weighted' })
+	],
+	run(ctx, layer) {
+		const p = layer.params;
+		const radius = Number(p.radius ?? 0);
+		if (radius <= 0) return;
+		if (!p.diffuse && !p.height && !p.roughness && !p.specular && !p.emissive && !p.opacity) return;
+		const mat = ctx.mrtMaterial('blur', BLUR_MRT, { uDir: { value: new THREE.Vector2(1, 0) }, uSigma: { value: 1 } });
+		mat.uniforms.uSigma.value = Math.max(radiusToSigma(radius), 1e-3);
+		(mat.uniforms.uDir.value as THREE.Vector2).set(1, 0);
+		ctx.runMRT(mat);
+		(mat.uniforms.uDir.value as THREE.Vector2).set(0, 1);
+		ctx.runMRT(mat);
+	}
+};

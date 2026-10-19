@@ -156,4 +156,4 @@ vec2 warpOffset(vec2 x, ivec2 period, float seed) {
     fractalNoise(1, 1, x, period, 3, 2.0, 0.5, seed + 101.0),
     fractalNoise(1, 1, x + 17.3, period, 3, 2.0, 0.5, seed + 211.0)) - 0.5;
 }
-`
+`;

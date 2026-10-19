@@ -1,8 +1,8 @@
 // Pixelate post filter: blocks of size×size px, anchored at the top-left (docs/features/fr4.1-post-stack.md).
 // Two passes: one texel per block into a small scratch target (average or point sample), then expand.
 
-import { P } from '@/core/params'
-import type { PostDef } from './types'
+import { P } from '@/core/params';
+import type { PostDef } from './types';
 
 const REDUCE = /* glsl */ `
 uniform ivec2 uFull; // full image size
@@ -27,7 +27,7 @@ void main() {
   sum /= float((hi.x - lo.x) * (hi.y - lo.y));
   oColor = vec4(sum.a > 1e-6 ? sum.rgb / sum.a : vec3(0.0), sum.a);
 }
-`
+`;
 
 const EXPAND = /* glsl */ `
 uniform sampler2D tBlocks;
@@ -38,30 +38,30 @@ void main() {
   int rowTop = int(uRes.y) - 1 - ip.y;
   oColor = texelFetch(tBlocks, ivec2(ip.x / s, uBlocks.y - 1 - rowTop / s), 0);
 }
-`
+`;
 
 export const pixelatePost: PostDef = {
-  type: 'pixelate',
-  label: 'Pixelate',
-  description: 'Chunky pixels: replace each block with its average (or centre) colour. Blocks start at the top-left.',
-  params: [
-    P.int('size', 'Block size', 4, 1, 128, { softMax: 32, unit: 'px' }),
-    P.enum('mode', 'Sample', 'average', [
-      ['average', 'Average'],
-      ['point', 'Centre pixel'],
-    ]),
-  ],
-  run(ctx, input, output) {
-    const s = Math.max(1, Math.round(Number(ctx.filter.params.size ?? 4)))
-    const bw = Math.ceil(ctx.width / s)
-    const bh = Math.ceil(ctx.height / s)
-    const blocks = ctx.scratch('blocks', bw, bh)
-    const reduce = ctx.material('reduce', REDUCE, { uFull: { value: [0, 0] } })
-    reduce.uniforms.uFull.value = [ctx.width, ctx.height]
-    ctx.run(reduce, blocks, input)
-    const expand = ctx.material('expand', EXPAND, { tBlocks: { value: null }, uBlocks: { value: [0, 0] } })
-    expand.uniforms.tBlocks.value = blocks.texture
-    expand.uniforms.uBlocks.value = [bw, bh]
-    ctx.run(expand, output, null)
-  },
-}
+	type: 'pixelate',
+	label: 'Pixelate',
+	description: 'Chunky pixels: replace each block with its average (or centre) colour. Blocks start at the top-left.',
+	params: [
+		P.int('size', 'Block size', 4, 1, 128, { softMax: 32, unit: 'px' }),
+		P.enum('mode', 'Sample', 'average', [
+			['average', 'Average'],
+			['point', 'Centre pixel']
+		])
+	],
+	run(ctx, input, output) {
+		const s = Math.max(1, Math.round(Number(ctx.filter.params.size ?? 4)));
+		const bw = Math.ceil(ctx.width / s);
+		const bh = Math.ceil(ctx.height / s);
+		const blocks = ctx.scratch('blocks', bw, bh);
+		const reduce = ctx.material('reduce', REDUCE, { uFull: { value: [0, 0] } });
+		reduce.uniforms.uFull.value = [ctx.width, ctx.height];
+		ctx.run(reduce, blocks, input);
+		const expand = ctx.material('expand', EXPAND, { tBlocks: { value: null }, uBlocks: { value: [0, 0] } });
+		expand.uniforms.tBlocks.value = blocks.texture;
+		expand.uniforms.uBlocks.value = [bw, bh];
+		ctx.run(expand, output, null);
+	}
+};

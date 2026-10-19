@@ -7,187 +7,673 @@
 // shoulders, rills and laminae; the creases where two meet are the joints, which can open into cracks, and the blocks
 // between them go to the mask it writes. Scarps and crevices are outputs of their own, for paint.
 
-import { P, gradient, type ParamValues } from '@/core/params'
-import type { LayerDef } from '../types'
-import { ORG_GLSL, ORG_GLSL_SDF } from './organicShared'
+import { P, gradient, type ParamValues } from '@/core/params';
+import type { LayerDef } from '../types';
+import { ORG_GLSL, ORG_GLSL_SDF } from './organicShared';
 
 // Styles: the shape settings of hand-authored recreations (docs/features/fr8.18-rock.md, the settings table), where
 // they differ from the defaults. Block size, facet levels, Height and the paint stay as they are; params a style
 // doesn't name go back to their defaults. (Columns: no facets — the recreation had one level.)
 const STYLES: Record<string, ParamValues> = {
-  fractured: {
-    angle: -60, fold: 0, elong: 1.15, bedding: 0.6, jitter: 1, merge: 0.45, size_var: 0.9, tilt: 1, lean: 0.6,
-    weather: 0.5, facets: 0.35, zones: 0.8, steps: 0.8, joint: 0,
-  },
-  ledges: {
-    angle: 0, elong: 1.4, bedding: 0.3, merge: 0.6, size_var: 0.7, fold: 0, coherence: 0.2, tilt: 0.15, scarp: 2,
-    weather: 2, lean: -0.6, steps: 0, bed_relief: 0.8, facets: 0.8, zones: 0.3, rough: 0.02, rough_scale: 3, joint: 0.5,
-    joint_open: 0.12, joint_cross: 2, joint_var: 0.6, joint_depth: 0.15,
-  },
-  flakes: {
-    angle: -25, cross: 25, elong: 2.5, bedding: 0.3, jitter: 1, merge: 0, size_var: 0.5, fold: 1.5, heights: 1.2,
-    coherence: 0.4, dip: 0.2, scarp: 5, weather: 0, lean: -0.3, steps: 1, bed_relief: 0.8, zones: 0.6, rough: 0.05,
-    joint: 0, joint_open: 1, joint_cross: 1, joint_var: 0.6, joint_depth: 0.6,
-  },
-  slate: {
-    angle: -20, elong: 2, merge: 0, warp: 0.3, jag: 0.6, fold: 1.5, fold_scale: 1, heights: 0.5, coherence: 0.2,
-    tilt: 0.4, dip: 0.2, weather: 0.3, lean: 0.8, steps: 0, facets: 0.3, zones: 0, rough: 0.25, rough_scale: 3,
-    joint: 2.5, joint_open: 1, joint_cross: 0.3, joint_facets: 0.2, joint_var: 1, joint_depth: 0.8, fractures: 0.5,
-    frac_angle: -60,
-  },
-  columns: {
-    angle: 90, cross: 20, elong: 2.5, bedding: 0.7, jitter: 1, merge: 0, size_var: 0.4, warp: 0.03, jag: 0.1, fold: 0,
-    heights: 0.8, coherence: 0, tilt: 0.1, pitch: 1, bulge: 1, crest: 'hex', scarp: 0.8, weather: 0, lean: -0.3,
-    steps: 0, bed_relief: 1.5, zones: 0, rough: 0.05, rough_scale: 3, joint: 0, joint_open: 1, joint_cross: 1,
-    joint_var: 0.6, joint_depth: 0.6, facets: 0,
-  },
-  rubble: {
-    angle: 0, elong: 1.8, bedding: 0.9, merge: 0, size_var: 0.5, warp: 0.2, jag: 0.4, fold: 0, heights: 0.4, proud: 0.4,
-    coherence: 0.2, tilt: 0.4, dip: 0.1, bulge: 0.3, scarp: 2, weather: 3, corner: 2, steps: 0, facets: 0.3, zones: 0.5,
-    rough: 0.1, rough_scale: 1.5, joint: 1.5, joint_open: 1, joint_cross: 1, joint_facets: 0.3, facet_break: 0.6,
-    joint_var: 0.5, joint_depth: 0.6,
-  },
-  cobbles: {
-    angle: 0, elong: 1.3, bedding: 0.2, jitter: 1, merge: 0, warp: 0.2, fold: 0, heights: 0.4, coherence: 0.2,
-    tilt: 0.3, bulge: 0.9, scarp: 2, weather: 2, corner: 3, lean: 0, steps: 0, facets: 0.2, zones: 0.4, rough: 0.05,
-    joint: 2, joint_open: 1, joint_cross: 1, joint_var: 0.5, joint_depth: 0.8,
-  },
-}
-const STYLE_KEYS = [...new Set(Object.values(STYLES).flatMap((s) => Object.keys(s)))]
+	fractured: {
+		angle: -60,
+		fold: 0,
+		elong: 1.15,
+		bedding: 0.6,
+		jitter: 1,
+		merge: 0.45,
+		size_var: 0.9,
+		tilt: 1,
+		lean: 0.6,
+		weather: 0.5,
+		facets: 0.35,
+		zones: 0.8,
+		steps: 0.8,
+		joint: 0
+	},
+	ledges: {
+		angle: 0,
+		elong: 1.4,
+		bedding: 0.3,
+		merge: 0.6,
+		size_var: 0.7,
+		fold: 0,
+		coherence: 0.2,
+		tilt: 0.15,
+		scarp: 2,
+		weather: 2,
+		lean: -0.6,
+		steps: 0,
+		bed_relief: 0.8,
+		facets: 0.8,
+		zones: 0.3,
+		rough: 0.02,
+		rough_scale: 3,
+		joint: 0.5,
+		joint_open: 0.12,
+		joint_cross: 2,
+		joint_var: 0.6,
+		joint_depth: 0.15
+	},
+	flakes: {
+		angle: -25,
+		cross: 25,
+		elong: 2.5,
+		bedding: 0.3,
+		jitter: 1,
+		merge: 0,
+		size_var: 0.5,
+		fold: 1.5,
+		heights: 1.2,
+		coherence: 0.4,
+		dip: 0.2,
+		scarp: 5,
+		weather: 0,
+		lean: -0.3,
+		steps: 1,
+		bed_relief: 0.8,
+		zones: 0.6,
+		rough: 0.05,
+		joint: 0,
+		joint_open: 1,
+		joint_cross: 1,
+		joint_var: 0.6,
+		joint_depth: 0.6
+	},
+	slate: {
+		angle: -20,
+		elong: 2,
+		merge: 0,
+		warp: 0.3,
+		jag: 0.6,
+		fold: 1.5,
+		fold_scale: 1,
+		heights: 0.5,
+		coherence: 0.2,
+		tilt: 0.4,
+		dip: 0.2,
+		weather: 0.3,
+		lean: 0.8,
+		steps: 0,
+		facets: 0.3,
+		zones: 0,
+		rough: 0.25,
+		rough_scale: 3,
+		joint: 2.5,
+		joint_open: 1,
+		joint_cross: 0.3,
+		joint_facets: 0.2,
+		joint_var: 1,
+		joint_depth: 0.8,
+		fractures: 0.5,
+		frac_angle: -60
+	},
+	columns: {
+		angle: 90,
+		cross: 20,
+		elong: 2.5,
+		bedding: 0.7,
+		jitter: 1,
+		merge: 0,
+		size_var: 0.4,
+		warp: 0.03,
+		jag: 0.1,
+		fold: 0,
+		heights: 0.8,
+		coherence: 0,
+		tilt: 0.1,
+		pitch: 1,
+		bulge: 1,
+		crest: 'hex',
+		scarp: 0.8,
+		weather: 0,
+		lean: -0.3,
+		steps: 0,
+		bed_relief: 1.5,
+		zones: 0,
+		rough: 0.05,
+		rough_scale: 3,
+		joint: 0,
+		joint_open: 1,
+		joint_cross: 1,
+		joint_var: 0.6,
+		joint_depth: 0.6,
+		facets: 0
+	},
+	rubble: {
+		angle: 0,
+		elong: 1.8,
+		bedding: 0.9,
+		merge: 0,
+		size_var: 0.5,
+		warp: 0.2,
+		jag: 0.4,
+		fold: 0,
+		heights: 0.4,
+		proud: 0.4,
+		coherence: 0.2,
+		tilt: 0.4,
+		dip: 0.1,
+		bulge: 0.3,
+		scarp: 2,
+		weather: 3,
+		corner: 2,
+		steps: 0,
+		facets: 0.3,
+		zones: 0.5,
+		rough: 0.1,
+		rough_scale: 1.5,
+		joint: 1.5,
+		joint_open: 1,
+		joint_cross: 1,
+		joint_facets: 0.3,
+		facet_break: 0.6,
+		joint_var: 0.5,
+		joint_depth: 0.6
+	},
+	cobbles: {
+		angle: 0,
+		elong: 1.3,
+		bedding: 0.2,
+		jitter: 1,
+		merge: 0,
+		warp: 0.2,
+		fold: 0,
+		heights: 0.4,
+		coherence: 0.2,
+		tilt: 0.3,
+		bulge: 0.9,
+		scarp: 2,
+		weather: 2,
+		corner: 3,
+		lean: 0,
+		steps: 0,
+		facets: 0.2,
+		zones: 0.4,
+		rough: 0.05,
+		joint: 2,
+		joint_open: 1,
+		joint_cross: 1,
+		joint_var: 0.5,
+		joint_depth: 0.8
+	}
+};
+const STYLE_KEYS = [...new Set(Object.values(STYLES).flatMap((s) => Object.keys(s)))];
 
 export const rockLayer: LayerDef = {
-  type: 'rock',
-  label: 'Rock',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Fractured, bedded stone: blocks in strata (ledges, slabs, columns, rubble) with their own heights, tilts and draped scarps, finer facets, joints and weathering — plus masks of its scarps, crevices and rain streaks to paint.',
-  params: [
-    P.enum('output', 'Output', 'relief', [
-      ['relief', 'Relief', 'the rock surface: block faces, scarps, facets and cracks, as a height (and a colour by height)'],
-      ['scarps', 'Scarps', '1 on the scarps — the slopes a block runs out over its lower neighbours — 0 on the faces: paint the shaded, weathered faces, or dust and scree on them'],
-      ['crevices', 'Crevices', '1 in the creases where blocks meet (the joints and the foot of every scarp), fading over the Crevice reach: moss, dirt and damp in the cracks'],
-      ['streaks', 'Streaks', 'rain streaks running down each block from its top edge, fading as they go: water stains, lime or rust washed down the faces'],
-    ], { hint: 'Every output comes from the same rock (same settings, same seed) and puts its blocks in the mask it writes' }),
-    P.enum('style', 'Style', 'default', [
-      ['default', 'Default', 'the generator’s defaults: gently folded strata of tilted blocks'],
-      ['fractured', 'Fractured face', 'steep strata broken into tilted blocks of many sizes, with finer fractures (the wizard’s Rock face)'],
-      ['ledges', 'Layered ledges', 'level beds standing out as ledges with sheer undersides, a few open joints'],
-      ['flakes', 'Flaky strata', 'folded beds of thin plates, each ledge a staircase of flakes'],
-      ['slate', 'Slate plates', 'flat plates in angled, folded beds, wide open joints and long fractures'],
-      ['columns', 'Columns', 'hexagonal columns with sheared, lit ends'],
-      ['rubble', 'Coursed rubble', 'big rounded stones in courses, partly cracked, mostly flush'],
-      ['cobbles', 'Cobbles', 'domed, rounded stones with open joints'],
-    ], { uniform: false, hint: 'Sets the shape to a proven look (block size, Height and paint stay). Params you change afterwards stay as you set them' }),
-    P.enum('scarp_face', 'Facing', 'all', [
-      ['all', 'All', 'every scarp'],
-      ['down', 'Below ledges', 'the scarps a block runs out over the rock below it (down the screen): the shaded undersides'],
-      ['up', 'Above ledges', 'the scarps rising to the block above (up the screen): shelves where dust, scree and moss settle'],
-    ], { showIf: (p) => p.output === 'scarps' }),
-    P.float('crev_patch', 'Patchiness', 0.5, 0, 1, { step: 0.001, showIf: (p) => p.output === 'crevices', hint: 'Breaks the crevice mask into patches about two blocks across: 0 = every crack filled, 1 = only here and there' }),
-    P.float('crev_reach', 'Crevice reach', 3, 0.5, 64, { softMax: 12, unit: 'px', step: 0.05, showIf: (p) => p.output === 'crevices', hint: 'How far the crevice mask fades out from the crease (deeper steps reach a little further)' }),
-    P.float('streak_len', 'Streak length', 24, 1, 512, { softMax: 96, unit: 'px', step: 0.1, showIf: (p) => p.output === 'streaks', hint: 'Longest streak; each runs 40–100 % of it down from its block’s top edge' }),
-    P.float('streak_density', 'Streak density', 0.5, 0, 1, { step: 0.001, showIf: (p) => p.output === 'streaks', hint: 'How many of the narrow columns (about 1.5 px wide) carry a streak, in clusters: about this share up to 0.5, three quarters at 1' }),
-    P.float('angle', 'Bedding angle', -15, -90, 90, { step: 0.1, unit: '°', hint: 'Direction the strata run, clockwise from horizontal; ±90 = columns. Snapped a little when tiling so the texture stays seamless' }),
-    P.float('cross', 'Cross-joint angle', 0, -60, 60, { step: 0.1, unit: '°', hint: 'Lean of the joints across the bedding: 0 = square to the strata, otherwise rhomboid blocks. Snapped (coarsely for big blocks) when tiling so the texture stays seamless' }),
-    P.float('size', 'Block size', 16, 2, 512, { softMax: 64, unit: 'px', step: 0.1, hint: 'Thickness of a block across the bedding (course height, column width)' }),
-    P.float('elong', 'Elongation', 1.6, 0.5, 12, { softMax: 6, step: 0.01, hint: 'Block length along the bedding ÷ its thickness' }),
-    P.float('bedding', 'Bedding', 0.45, 0, 1, { step: 0.001, hint: '1: blocks line up in straight courses; 0: scattered, any which way' }),
-    P.float('jitter', 'Irregularity', 0.9, 0, 1, { step: 0.001, hint: 'Spread of block lengths and positions' }),
-    P.float('stagger', 'Stagger', 0, 0, 1, { step: 0.001, hint: 'Shifts every other course half a block along the bedding — a running bond, as in brickwork and coursed rubble: each block bridges a joint below it. With little bedding the blocks become hexagons, their ends slanted' }),
-    P.float('merge', 'Merge', 0.4, 0, 1, { step: 0.001, hint: 'Chance that a 2 × 2 group of blocks fuses into one big block: one face, no joints inside — big blocks among small ones (not for ridges and prisms)' }),
-    P.float('size_var', 'Size variation', 0.6, 0, 1, { step: 0.001, hint: 'Some blocks grow at their neighbours’ expense' }),
-    P.float('warp', 'Warp', 0.15, 0, 2, { softMax: 1, step: 0.001, hint: 'Bends the strata (in block sizes)' }),
-    P.float('fold', 'Folds', 0.5, 0, 16, { softMax: 4, step: 0.01, hint: 'Bends the strata in broad folds: how many beds they shift up and down across the texture' }),
-    P.float('fold_scale', 'Fold count', 1.5, 0.5, 16, { softMax: 6, step: 0.01, showIf: (p) => Number(p.fold) > 0, hint: 'Folds across the texture width (rounded when tiling)' }),
-    P.float('fold_sharp', 'Fold sharpness', 0, 0, 1, { step: 0.001, showIf: (p) => Number(p.fold) > 0, hint: 'Turns the smooth folds into chevrons: strata bent in sharp V-shaped hinges, as in folded shale and flaky sandstone' }),
-    P.float('jag', 'Jaggedness', 0.3, 0, 8, { softMax: 3, unit: 'px', step: 0.01, hint: 'Raggedness of the block edges, in wiggles about a fifth of a block across' }),
+	type: 'rock',
+	label: 'Rock',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Fractured, bedded stone: blocks in strata (ledges, slabs, columns, rubble) with their own heights, tilts and draped scarps, finer facets, joints and weathering — plus masks of its scarps, crevices and rain streaks to paint.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'relief',
+			[
+				[
+					'relief',
+					'Relief',
+					'the rock surface: block faces, scarps, facets and cracks, as a height (and a colour by height)'
+				],
+				[
+					'scarps',
+					'Scarps',
+					'1 on the scarps — the slopes a block runs out over its lower neighbours — 0 on the faces: paint the shaded, weathered faces, or dust and scree on them'
+				],
+				[
+					'crevices',
+					'Crevices',
+					'1 in the creases where blocks meet (the joints and the foot of every scarp), fading over the Crevice reach: moss, dirt and damp in the cracks'
+				],
+				[
+					'streaks',
+					'Streaks',
+					'rain streaks running down each block from its top edge, fading as they go: water stains, lime or rust washed down the faces'
+				]
+			],
+			{
+				hint: 'Every output comes from the same rock (same settings, same seed) and puts its blocks in the mask it writes'
+			}
+		),
+		P.enum(
+			'style',
+			'Style',
+			'default',
+			[
+				['default', 'Default', 'the generator’s defaults: gently folded strata of tilted blocks'],
+				[
+					'fractured',
+					'Fractured face',
+					'steep strata broken into tilted blocks of many sizes, with finer fractures (the wizard’s Rock face)'
+				],
+				['ledges', 'Layered ledges', 'level beds standing out as ledges with sheer undersides, a few open joints'],
+				['flakes', 'Flaky strata', 'folded beds of thin plates, each ledge a staircase of flakes'],
+				['slate', 'Slate plates', 'flat plates in angled, folded beds, wide open joints and long fractures'],
+				['columns', 'Columns', 'hexagonal columns with sheared, lit ends'],
+				['rubble', 'Coursed rubble', 'big rounded stones in courses, partly cracked, mostly flush'],
+				['cobbles', 'Cobbles', 'domed, rounded stones with open joints']
+			],
+			{
+				uniform: false,
+				hint: 'Sets the shape to a proven look (block size, Height and paint stay). Params you change afterwards stay as you set them'
+			}
+		),
+		P.enum(
+			'scarp_face',
+			'Facing',
+			'all',
+			[
+				['all', 'All', 'every scarp'],
+				[
+					'down',
+					'Below ledges',
+					'the scarps a block runs out over the rock below it (down the screen): the shaded undersides'
+				],
+				[
+					'up',
+					'Above ledges',
+					'the scarps rising to the block above (up the screen): shelves where dust, scree and moss settle'
+				]
+			],
+			{ showIf: (p) => p.output === 'scarps' }
+		),
+		P.float('crev_patch', 'Patchiness', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.output === 'crevices',
+			hint: 'Breaks the crevice mask into patches about two blocks across: 0 = every crack filled, 1 = only here and there'
+		}),
+		P.float('crev_reach', 'Crevice reach', 3, 0.5, 64, {
+			softMax: 12,
+			unit: 'px',
+			step: 0.05,
+			showIf: (p) => p.output === 'crevices',
+			hint: 'How far the crevice mask fades out from the crease (deeper steps reach a little further)'
+		}),
+		P.float('streak_len', 'Streak length', 24, 1, 512, {
+			softMax: 96,
+			unit: 'px',
+			axis: 'y',
+			step: 0.1,
+			showIf: (p) => p.output === 'streaks',
+			hint: 'Longest streak; each runs 40–100 % of it down from its block’s top edge'
+		}),
+		P.float('streak_density', 'Streak density', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.output === 'streaks',
+			hint: 'How many of the narrow columns (about 1.5 px wide) carry a streak, in clusters: about this share up to 0.5, three quarters at 1'
+		}),
+		P.float('angle', 'Bedding angle', -15, -90, 90, {
+			step: 0.1,
+			unit: '°',
+			hint: 'Direction the strata run, clockwise from horizontal; ±90 = columns. Snapped a little when tiling so the texture stays seamless'
+		}),
+		P.float('cross', 'Cross-joint angle', 0, -60, 60, {
+			step: 0.1,
+			unit: '°',
+			hint: 'Lean of the joints across the bedding: 0 = square to the strata, otherwise rhomboid blocks. Snapped (coarsely for big blocks) when tiling so the texture stays seamless'
+		}),
+		P.float('size', 'Block size', 16, 2, 512, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Thickness of a block across the bedding (course height, column width)'
+		}),
+		P.float('elong', 'Elongation', 1.6, 0.5, 12, {
+			softMax: 6,
+			step: 0.01,
+			hint: 'Block length along the bedding ÷ its thickness'
+		}),
+		P.float('bedding', 'Bedding', 0.45, 0, 1, {
+			step: 0.001,
+			hint: '1: blocks line up in straight courses; 0: scattered, any which way'
+		}),
+		P.float('jitter', 'Irregularity', 0.9, 0, 1, { step: 0.001, hint: 'Spread of block lengths and positions' }),
+		P.float('stagger', 'Stagger', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Shifts every other course half a block along the bedding — a running bond, as in brickwork and coursed rubble: each block bridges a joint below it. With little bedding the blocks become hexagons, their ends slanted'
+		}),
+		P.float('merge', 'Merge', 0.4, 0, 1, {
+			step: 0.001,
+			hint: 'Chance that a 2 × 2 group of blocks fuses into one big block: one face, no joints inside — big blocks among small ones (not for ridges and prisms)'
+		}),
+		P.float('size_var', 'Size variation', 0.6, 0, 1, {
+			step: 0.001,
+			hint: 'Some blocks grow at their neighbours’ expense'
+		}),
+		P.float('warp', 'Warp', 0.15, 0, 2, { softMax: 1, step: 0.001, hint: 'Bends the strata (in block sizes)' }),
+		P.float('fold', 'Folds', 0.5, 0, 16, {
+			softMax: 4,
+			step: 0.01,
+			hint: 'Bends the strata in broad folds: how many beds they shift up and down across the texture'
+		}),
+		P.float('fold_scale', 'Fold count', 1.5, 0.5, 16, {
+			softMax: 6,
+			step: 0.01,
+			showIf: (p) => Number(p.fold) > 0,
+			hint: 'Folds across the texture width (rounded when tiling)'
+		}),
+		P.float('fold_sharp', 'Fold sharpness', 0, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.fold) > 0,
+			hint: 'Turns the smooth folds into chevrons: strata bent in sharp V-shaped hinges, as in folded shale and flaky sandstone'
+		}),
+		P.float('jag', 'Jaggedness', 0.3, 0, 8, {
+			softMax: 3,
+			unit: 'px',
+			step: 0.01,
+			hint: 'Raggedness of the block edges, in wiggles about a fifth of a block across'
+		}),
 
-    P.float('heights', 'Height variation', 1, 0, 4, { softMax: 1.5, step: 0.001, section: 'Relief', hint: 'How much the blocks differ in height' }),
-    P.float('bed_relief', 'Bed relief', 0, 0, 2, { softMax: 1, step: 0.001, section: 'Relief', hint: 'Each bed (course, column) stands out or sinks back as a whole — hard beds weather proud, soft ones recede: ledges along the strata, columns of different heights' }),
-    P.float('coherence', 'Height coherence', 0.3, 0, 1, { step: 0.001, section: 'Relief', hint: 'Neighbouring blocks share their heights: they follow broad swells across the rock, so only some joints step (ledges here and there) instead of every one' }),
-    P.float('proud', 'Proud blocks', 1, 0, 1, { step: 0.001, section: 'Relief', hint: 'Share of the blocks that stand out or sink by their own height; the rest sit flush with their neighbours, parted only by the joints — as in most rock faces, where a step is the exception' }),
-    P.float('tilt', 'Tilt', 0.8, 0, 2, { softMax: 1, step: 0.001, section: 'Relief', hint: 'Random slope of each block face' }),
-    P.float('dip', 'Ledge dip', 0, -2, 2, { softMin: -1, softMax: 1, step: 0.001, section: 'Relief', hint: 'Every block leans across the bedding the same way: a saw-tooth of ledges, each with a drop along one side. Negative flips the side' }),
-    P.float('pitch', 'Pitch', 0, -2, 2, { softMin: -1, softMax: 1, step: 0.001, section: 'Relief', hint: 'Every block leans along the bedding the same way: a saw-tooth along each course or column whose steps all face one way. Positive: the faces rise up the screen (columns) or to the right, and the breaks face up or right — lit caps under a light from the top left' }),
-    P.float('bulge', 'Rounding', 0, -1, 2, { softMin: 0, softMax: 1, step: 0.001, section: 'Relief', hint: 'Rounds each block’s face (rubble, boulders, weathered columns). Below 0 the faces are scooped out instead: the shell-shaped scars where flakes spalled off' }),
-    P.enum('crest', 'Rounding shape', 'dome', [
-      ['dome', 'Dome', 'rounded all round, like a pillow or a boulder'],
-      ['ridge', 'Ridge', 'a crest along the block and two faces falling away from it; its ends break off in a slope from the crest'],
-      ['hex', 'Hexagonal prism', 'a hexagonal column lying along the bedding, each turned its own way (two or three faces showing); its ends break off in a sloping plane whose outline follows the hexagon'],
-    ], { section: 'Relief', showIf: (p) => Number(p.bulge) > 0, hint: 'Ridges and prisms span their own course or column, whatever its width' }),
-    P.float('scarp', 'Scarp width', 1.5, 0, 64, { softMax: 16, unit: 'px', step: 0.05, section: 'Relief', hint: 'How far a block’s side runs out over a lower neighbour, per full height step: 0 = sheer steps, more = sloping shelves' }),
-    P.float('weather', 'Weathering', 0.6, 0, 64, { softMax: 12, unit: 'px', step: 0.05, section: 'Relief', hint: 'Rounds the blocks’ edges over this many px, inside and out: worn, pillowy shoulders instead of fresh, sharp breaks' }),
-    P.float('corner', 'Corner rounding', 0, 0, 64, { softMax: 8, unit: 'px', step: 0.05, section: 'Relief', hint: 'Rounds the blocks’ corners in plan: each corner sinks away in a curve this wide and the cracks open up where blocks meet — pillows, rubble, worn cobbles' }),
-    P.float('lean', 'Scarp lean', 0.3, -1, 1, { step: 0.001, section: 'Relief', hint: 'Scarps run out further below the blocks (on screen) and stand sheer above them: shaded shelves under every ledge, a crisp lit step on top. Negative flips it: sheer undersides that cast shadows, lit slopes up to the block above. Blocks only (facets don’t lean)' }),
-    P.float('steps', 'Scarp steps', 0.6, 0, 1, { step: 0.001, section: 'Relief', hint: 'Breaks each block’s scarp into a staircase of thin plates — flat treads, steep risers — instead of one slope: flaky, shingled ledges, each edge with its own thin shadow' }),
-    P.float('step_px', 'Step width', 2, 1, 32, { softMax: 12, unit: 'px', step: 0.05, section: 'Relief', showIf: (p) => Number(p.steps) > 0, hint: 'How far apart the scarp’s steps are, in px (each block varies it ±30 %)' }),
-    P.int('detail', 'Facet levels', 3, 1, 3, { section: 'Relief', hint: 'Generations of blocks: each further level splits the faces into smaller facets (half the size; levels under ~8 px fade out)' }),
-    P.float('facets', 'Facet strength', 0.4, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.detail) > 1, hint: 'Relief of the finer facets relative to the blocks (halved again for each further level)' }),
-    P.float('zones', 'Fracture zones', 0.7, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.detail) > 1 || Number(p.rough) > 0, hint: 'The facets and roughness come and go across the rock in zones a few blocks wide: smooth, whole faces beside shattered, crumbly ones' }),
-    P.float('rough', 'Roughness', 0.04, 0, 1, { step: 0.001, section: 'Relief', hint: 'Fine grainy unevenness over every face' }),
-    P.float('rough_scale', 'Roughness size', 4, 1, 64, { softMax: 16, unit: 'px', step: 0.05, section: 'Relief', showIf: (p) => Number(p.rough) > 0 }),
+		P.float('heights', 'Height variation', 1, 0, 4, {
+			softMax: 1.5,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'How much the blocks differ in height'
+		}),
+		P.float('bed_relief', 'Bed relief', 0, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Each bed (course, column) stands out or sinks back as a whole — hard beds weather proud, soft ones recede: ledges along the strata, columns of different heights'
+		}),
+		P.float('coherence', 'Height coherence', 0.3, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Neighbouring blocks share their heights: they follow broad swells across the rock, so only some joints step (ledges here and there) instead of every one'
+		}),
+		P.float('proud', 'Proud blocks', 1, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Share of the blocks that stand out or sink by their own height; the rest sit flush with their neighbours, parted only by the joints — as in most rock faces, where a step is the exception'
+		}),
+		P.float('tilt', 'Tilt', 0.8, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Random slope of each block face'
+		}),
+		P.float('dip', 'Ledge dip', 0, -2, 2, {
+			softMin: -1,
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Every block leans across the bedding the same way: a saw-tooth of ledges, each with a drop along one side. Negative flips the side'
+		}),
+		P.float('pitch', 'Pitch', 0, -2, 2, {
+			softMin: -1,
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Every block leans along the bedding the same way: a saw-tooth along each course or column whose steps all face one way. Positive: the faces rise up the screen (columns) or to the right, and the breaks face up or right — lit caps under a light from the top left'
+		}),
+		P.float('bulge', 'Rounding', 0, -1, 2, {
+			softMin: 0,
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Rounds each block’s face (rubble, boulders, weathered columns). Below 0 the faces are scooped out instead: the shell-shaped scars where flakes spalled off'
+		}),
+		P.enum(
+			'crest',
+			'Rounding shape',
+			'dome',
+			[
+				['dome', 'Dome', 'rounded all round, like a pillow or a boulder'],
+				[
+					'ridge',
+					'Ridge',
+					'a crest along the block and two faces falling away from it; its ends break off in a slope from the crest'
+				],
+				[
+					'hex',
+					'Hexagonal prism',
+					'a hexagonal column lying along the bedding, each turned its own way (two or three faces showing); its ends break off in a sloping plane whose outline follows the hexagon'
+				]
+			],
+			{
+				section: 'Relief',
+				showIf: (p) => Number(p.bulge) > 0,
+				hint: 'Ridges and prisms span their own course or column, whatever its width'
+			}
+		),
+		P.float('scarp', 'Scarp width', 1.5, 0, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			section: 'Relief',
+			hint: 'How far a block’s side runs out over a lower neighbour, per full height step: 0 = sheer steps, more = sloping shelves'
+		}),
+		P.float('weather', 'Weathering', 0.6, 0, 64, {
+			softMax: 12,
+			unit: 'px',
+			step: 0.05,
+			section: 'Relief',
+			hint: 'Rounds the blocks’ edges over this many px, inside and out: worn, pillowy shoulders instead of fresh, sharp breaks'
+		}),
+		P.float('corner', 'Corner rounding', 0, 0, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.05,
+			section: 'Relief',
+			hint: 'Rounds the blocks’ corners in plan: each corner sinks away in a curve this wide and the cracks open up where blocks meet — pillows, rubble, worn cobbles'
+		}),
+		P.float('lean', 'Scarp lean', 0.3, -1, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Scarps run out further below the blocks (on screen) and stand sheer above them: shaded shelves under every ledge, a crisp lit step on top. Negative flips it: sheer undersides that cast shadows, lit slopes up to the block above. Blocks only (facets don’t lean)'
+		}),
+		P.float('steps', 'Scarp steps', 0.6, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Breaks each block’s scarp into a staircase of thin plates — flat treads, steep risers — instead of one slope: flaky, shingled ledges, each edge with its own thin shadow'
+		}),
+		P.float('step_px', 'Step width', 2, 1, 32, {
+			softMax: 12,
+			unit: 'px',
+			step: 0.05,
+			section: 'Relief',
+			showIf: (p) => Number(p.steps) > 0,
+			hint: 'How far apart the scarp’s steps are, in px (each block varies it ±30 %)'
+		}),
+		P.int('detail', 'Facet levels', 3, 1, 3, {
+			section: 'Relief',
+			hint: 'Generations of blocks: each further level splits the faces into smaller facets (half the size; levels under ~8 px fade out)'
+		}),
+		P.float('facets', 'Facet strength', 0.4, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.detail) > 1,
+			hint: 'Relief of the finer facets relative to the blocks (halved again for each further level)'
+		}),
+		P.float('zones', 'Fracture zones', 0.7, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.detail) > 1 || Number(p.rough) > 0,
+			hint: 'The facets and roughness come and go across the rock in zones a few blocks wide: smooth, whole faces beside shattered, crumbly ones'
+		}),
+		P.float('rough', 'Roughness', 0.04, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Fine grainy unevenness over every face'
+		}),
+		P.float('rough_scale', 'Roughness size', 4, 1, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			section: 'Relief',
+			showIf: (p) => Number(p.rough) > 0
+		}),
 
-    P.float('rills', 'Rills', 0, 0, 1, { step: 0.001, section: 'Surface', hint: 'Vertical flutes worn by running water: rounded channels between sharp crests, always down the screen' }),
-    P.float('rill_space', 'Rill spacing', 3, 1, 64, { softMax: 12, unit: 'px', step: 0.05, section: 'Surface', showIf: (p) => Number(p.rills) > 0 }),
-    P.float('rill_len', 'Rill length', 24, 2, 512, { softMax: 96, unit: 'px', step: 0.1, section: 'Surface', showIf: (p) => Number(p.rills) > 0 }),
-    P.float('pits', 'Pits', 0, 0, 1, { step: 0.001, section: 'Surface', hint: 'Small round pits (vugs) scattered over the faces — not in the crevices or on the scarps' }),
-    P.float('pit_size', 'Pit size', 1.2, 0.5, 16, { softMax: 4, unit: 'px', step: 0.05, section: 'Surface', showIf: (p) => Number(p.pits) > 0, hint: 'Radius of the biggest pits (each from a quarter of it to all of it, mostly small)' }),
-    P.float('laminae', 'Laminae', 0, 0, 1, { step: 0.001, section: 'Surface', hint: 'Fine grooves along the bedding — the thin layers inside each bed — some deeper than others, fading in and out' }),
-    P.float('lam_space', 'Lamina spacing', 3, 1, 64, { softMax: 12, unit: 'px', step: 0.05, section: 'Surface', showIf: (p) => Number(p.laminae) > 0, hint: 'Rounded so each bed holds a whole number of laminae' }),
+		P.float('rills', 'Rills', 0, 0, 1, {
+			step: 0.001,
+			section: 'Surface',
+			hint: 'Vertical flutes worn by running water: rounded channels between sharp crests, always down the screen'
+		}),
+		P.float('rill_space', 'Rill spacing', 3, 1, 64, {
+			softMax: 12,
+			unit: 'px',
+			axis: 'x',
+			step: 0.05,
+			section: 'Surface',
+			showIf: (p) => Number(p.rills) > 0
+		}),
+		P.float('rill_len', 'Rill length', 24, 2, 512, {
+			softMax: 96,
+			unit: 'px',
+			axis: 'y',
+			step: 0.1,
+			section: 'Surface',
+			showIf: (p) => Number(p.rills) > 0
+		}),
+		P.float('pits', 'Pits', 0, 0, 1, {
+			step: 0.001,
+			section: 'Surface',
+			hint: 'Small round pits (vugs) scattered over the faces — not in the crevices or on the scarps'
+		}),
+		P.float('pit_size', 'Pit size', 1.2, 0.5, 16, {
+			softMax: 4,
+			unit: 'px',
+			step: 0.05,
+			section: 'Surface',
+			showIf: (p) => Number(p.pits) > 0,
+			hint: 'Radius of the biggest pits (each from a quarter of it to all of it, mostly small)'
+		}),
+		P.float('laminae', 'Laminae', 0, 0, 1, {
+			step: 0.001,
+			section: 'Surface',
+			hint: 'Fine grooves along the bedding — the thin layers inside each bed — some deeper than others, fading in and out'
+		}),
+		P.float('lam_space', 'Lamina spacing', 3, 1, 64, {
+			softMax: 12,
+			unit: 'px',
+			step: 0.05,
+			section: 'Surface',
+			showIf: (p) => Number(p.laminae) > 0,
+			hint: 'Rounded so each bed holds a whole number of laminae'
+		}),
 
-    P.float('joint', 'Joint width', 0.6, 0, 32, { softMax: 6, unit: 'px', step: 0.05, section: 'Joints', hint: 'Open cracks along the joints between blocks (the creases where two blocks meet)' }),
-    P.float('joint_open', 'Open joints', 0.35, 0, 1, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0, hint: 'Share of the joints that open into cracks, each along its whole length; the rest stay closed — only a step or a crease, no bevel, and the blocks either side are one piece in the mask' }),
-    P.float('joint_cross', 'Cross-joint width', 1.6, 0, 2, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0, hint: 'Width of the joints across the bedding (block ends) relative to those along it: below 1, wide bedding cracks and thin cross cracks (slate); above 1, the other way (columns)' }),
-    P.float('joint_facets', 'Facet joints', 0, 0, 1, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0 && Number(p.detail) > 1, hint: 'Share of the borders between the first level of facets that crack too — hairlines, thinner and shallower than the joints; each cracks along its whole length or not at all' }),
-    P.float('facet_break', 'Facet joint breakup', 0, 0, 1, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0 && Number(p.joint_facets) > 0 && Number(p.detail) > 1, hint: 'Facet cracks fade in and out along their length (noise about half a block across): partial, hairline cracks inside the stones rather than whole straight ones' }),
-    P.float('joint_var', 'Width variation', 0.8, 0, 1, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0, hint: 'Each joint opens by its own share of the width (1 = from shut to fully open), and pinches and swells along its length (with Warp on)' }),
-    P.float('joint_depth', 'Joint depth', 0.25, 0, 1, { step: 0.001, section: 'Joints', showIf: (p) => Number(p.joint) > 0 || Number(p.fractures) > 0, hint: 'How far the cracks (and the long fractures) sink below the faces' }),
-    P.float('fractures', 'Long fractures', 0, 0, 1, { step: 0.001, section: 'Joints', hint: 'Long, straight cracks that cut across many blocks at their own angle (tectonic joints), each a few blocks long, in a lane of their own' }),
-    P.float('frac_angle', 'Fracture angle', 70, -90, 90, { step: 0.1, unit: '°', section: 'Joints', showIf: (p) => Number(p.fractures) > 0, hint: 'Direction of the long fractures, clockwise from horizontal (each wanders a little)' }),
-    // Not a control: 1 px of the texture in shader px. Supersampling scales every px param by k, so this tells the shader
-    // how big a texture pixel is (the facets' pixel-scale fade, streak columns, the thinnest cracks).
-    P.float('px_scale', 'Pixel scale', 1, 1, 8, { unit: 'px', step: 1, optimize: false, showIf: () => false }),
-    P.enum('rnd_mode', 'Random value', 'block', [
-      ['block', 'Per block', 'each block its own value'],
-      ['bed', 'Per bed', 'each bed (course, column) its own value: colour bands along the strata. Angled strata that tile repeat their beds sooner'],
-      ['mix', 'Per bed, varied', 'the bed’s value, each block shifted from it a little'],
-      ['facet', 'Per facet', 'each facet of the first facet level its own value (blocks without facets: per block): patchwork colour'],
-    ], { hint: 'The random value Diffuse › Random and Random jitter read' }),
-    P.seed(),
-  ],
-  defaults: {
-    bevel: 0,
-    profile: 'round',
-    aa: true,
-    h_on: true,
-    // Deep relief: ledges cast shadows a few px long (the default Block size is 16 px).
-    h_amount: 5,
-    dif_on: true,
-    dif_grad: gradient('#3b3631', '#7d746a', '#a69c90'),
-  },
-  // Added in the editor: blocks a little over a tenth of the texture's mean side, the relief deepening with them.
-  fresh: ({ width, height }) => {
-    const size = Math.round(Math.min(48, Math.max(6, Math.sqrt(width * height) * 0.12)) * 10) / 10
-    return { size, h_amount: Math.round(size * 3.2) / 10, detail: size >= 14 ? 3 : 2 }
-  },
-  // Relief is the height; scarps and crevices are masks for paint (their coverage is their value, so a colour lands only
-  // on them): scarps darken the faces they cover, crevices fill with moss.
-  linkedDefaults: (p) => ({
-    ...(p.output === 'scarps'
-      ? { h_on: false, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#7a6a58') }
-      : p.output === 'crevices'
-        ? { h_on: false, dif_blend: 'normal', dif_grad: gradient('#3a3a1c', '#4e5226') }
-        : p.output === 'streaks'
-          ? { h_on: false, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#6a5e50') }
-        : { h_on: true, dif_blend: 'normal', dif_grad: gradient('#3b3631', '#7d746a', '#a69c90') }),
-    ...Object.fromEntries(STYLE_KEYS.map((k) => [k, rockLayer.params.find((d) => d.key === k)!.default])),
-    ...STYLES[String(p.style)],
-  }),
-  glsl:
-    ORG_GLSL +
-    ORG_GLSL_SDF +
-    /* glsl */ `
+		P.float('joint', 'Joint width', 0.6, 0, 32, {
+			softMax: 6,
+			unit: 'px',
+			step: 0.05,
+			section: 'Joints',
+			hint: 'Open cracks along the joints between blocks (the creases where two blocks meet)'
+		}),
+		P.float('joint_open', 'Open joints', 0.35, 0, 1, {
+			step: 0.001,
+			section: 'Joints',
+			showIf: (p) => Number(p.joint) > 0,
+			hint: 'Share of the joints that open into cracks, each along its whole length; the rest stay closed — only a step or a crease, no bevel, and the blocks either side are one piece in the mask'
+		}),
+		P.float('joint_cross', 'Cross-joint width', 1.6, 0, 2, {
+			step: 0.001,
+			section: 'Joints',
+			showIf: (p) => Number(p.joint) > 0,
+			hint: 'Width of the joints across the bedding (block ends) relative to those along it: below 1, wide bedding cracks and thin cross cracks (slate); above 1, the other way (columns)'
+		}),
+		P.float('joint_facets', 'Facet joints', 0, 0, 1, {
+			step: 0.001,
+			section: 'Joints',
+			showIf: (p) => Number(p.joint) > 0 && Number(p.detail) > 1,
+			hint: 'Share of the borders between the first level of facets that crack too — hairlines, thinner and shallower than the joints; each cracks along its whole length or not at all'
+		}),
+		P.float('facet_break', 'Facet joint breakup', 0, 0, 1, {
+			step: 0.001,
+			section: 'Joints',
+			showIf: (p) => Number(p.joint) > 0 && Number(p.joint_facets) > 0 && Number(p.detail) > 1,
+			hint: 'Facet cracks fade in and out along their length (noise about half a block across): partial, hairline cracks inside the stones rather than whole straight ones'
+		}),
+		P.float('joint_var', 'Width variation', 0.8, 0, 1, {
+			step: 0.001,
+			section: 'Joints',
+			showIf: (p) => Number(p.joint) > 0,
+			hint: 'Each joint opens by its own share of the width (1 = from shut to fully open), and pinches and swells along its length (with Warp on)'
+		}),
+		P.float('joint_depth', 'Joint depth', 0.25, 0, 1, {
+			step: 0.001,
+			section: 'Joints',
+			showIf: (p) => Number(p.joint) > 0 || Number(p.fractures) > 0,
+			hint: 'How far the cracks (and the long fractures) sink below the faces'
+		}),
+		P.float('fractures', 'Long fractures', 0, 0, 1, {
+			step: 0.001,
+			section: 'Joints',
+			hint: 'Long, straight cracks that cut across many blocks at their own angle (tectonic joints), each a few blocks long, in a lane of their own'
+		}),
+		P.float('frac_angle', 'Fracture angle', 70, -90, 90, {
+			step: 0.1,
+			unit: '°',
+			section: 'Joints',
+			showIf: (p) => Number(p.fractures) > 0,
+			hint: 'Direction of the long fractures, clockwise from horizontal (each wanders a little)'
+		}),
+		// Not a control: 1 px of the texture in shader px. Supersampling scales every px param by k, so this tells the shader
+		// how big a texture pixel is (the facets' pixel-scale fade, streak columns, the thinnest cracks).
+		P.float('px_scale', 'Pixel scale', 1, 1, 8, {
+			unit: 'px',
+			outputPx: true,
+			step: 1,
+			optimize: false,
+			showIf: () => false
+		}),
+		P.enum(
+			'rnd_mode',
+			'Random value',
+			'block',
+			[
+				['block', 'Per block', 'each block its own value'],
+				[
+					'bed',
+					'Per bed',
+					'each bed (course, column) its own value: colour bands along the strata. Angled strata that tile repeat their beds sooner'
+				],
+				['mix', 'Per bed, varied', 'the bed’s value, each block shifted from it a little'],
+				[
+					'facet',
+					'Per facet',
+					'each facet of the first facet level its own value (blocks without facets: per block): patchwork colour'
+				]
+			],
+			{ hint: 'The random value Diffuse › Random and Random jitter read' }
+		),
+		P.seed()
+	],
+	defaults: {
+		bevel: 0,
+		profile: 'round',
+		aa: true,
+		h_on: true,
+		// Deep relief: ledges cast shadows a few px long (the default Block size is 16 px).
+		h_amount: 5,
+		dif_on: true,
+		dif_grad: gradient('#3b3631', '#7d746a', '#a69c90')
+	},
+	// Added in the editor: blocks a little over a tenth of the texture's mean side, the relief deepening with them.
+	fresh: ({ width, height }) => {
+		const size = Math.round(Math.min(48, Math.max(6, Math.sqrt(width * height) * 0.12)) * 10) / 10;
+		return { size, h_amount: Math.round(size * 3.2) / 10, detail: size >= 14 ? 3 : 2 };
+	},
+	// Relief is the height; scarps and crevices are masks for paint (their coverage is their value, so a colour lands only
+	// on them): scarps darken the faces they cover, crevices fill with moss.
+	linkedDefaults: (p) => ({
+		...(p.output === 'scarps'
+			? { h_on: false, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#7a6a58') }
+			: p.output === 'crevices'
+				? { h_on: false, dif_blend: 'normal', dif_grad: gradient('#3a3a1c', '#4e5226') }
+				: p.output === 'streaks'
+					? { h_on: false, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#6a5e50') }
+					: { h_on: true, dif_blend: 'normal', dif_grad: gradient('#3b3631', '#7d746a', '#a69c90') }),
+		...Object.fromEntries(STYLE_KEYS.map((k) => [k, rockLayer.params.find((d) => d.key === k)!.default])),
+		...STYLES[String(p.style)]
+	}),
+	glsl:
+		ORG_GLSL +
+		ORG_GLSL_SDF +
+		/* glsl */ `
 // Seamless key of a lattice cell. The tile's two periods move the cells by (nu, ks) and (−kU, nv): a lattice whose
 // Hermite basis is (g, B), (0, C) — u wraps every g cells shifting the rows by B, v every C rows (rk_basis). rk_wrap
 // reduces a cell by that basis: rk_wrap(c, ivec2(g, C), B).
@@ -905,5 +1391,5 @@ GenOut gen(vec2 p) {
   }
   return genOutOwn(clamp(v, 0.0, 1.0), cov, rnd, j.y);
 }
-`,
-}
+`
+};

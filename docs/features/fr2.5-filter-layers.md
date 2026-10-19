@@ -3,10 +3,12 @@
 **Status:** done (emboss not implemented — see notes)
 
 ## Goal
+
 "Convolutional filters like blur the layers before this one, bevel, etch, etc." — layers that transform the
 accumulated channels rather than generating new content.
 
 ## Plan
+
 - `src/gpu/jfa.ts` — jump-flood signed distance field from a thresholded source (height / opacity /
   luminance / a mask's coverage), wrap-aware (toroidal distance) on tileable projects.
 - **Blur:** separable Gaussian, radius px, channel toggles.
@@ -19,6 +21,7 @@ accumulated channels rather than generating new content.
   height-from-diffuse luminance, emboss.
 
 ## Checklist
+
 - [x] Jump-flood distance field utility
 - [x] Blur
 - [x] Bevel
@@ -31,18 +34,20 @@ accumulated channels rather than generating new content.
 - [ ] Emboss (not started; height-from-diffuse + the derived normals cover most uses)
 
 ## Files
-| File | Contents |
-| ---- | -------- |
-| `src/gpu/jfa.ts` | `jumpFlood(ctx, { source, threshold, invert?, maxDistance?, relax?, name? })` → scratch target (r = signed distance px, negative inside; gb = nearest seed; a = found) |
-| `src/layers/filters/shared.ts` | distance-source params (`source`, `threshold`, `smooth`), `sourceDistance()`, `blurTexture()` (separable Gaussian into scratch), GLSL helpers |
-| `src/layers/filters/blur.ts` | `blur` |
-| `src/layers/filters/edges.ts` | `bevel`, `etch` |
-| `src/layers/filters/cavity.ts` | `cavity` |
-| `src/layers/filters/warp.ts` | `warp` (single-pass `filterGlsl`) |
-| `src/layers/filters/adjust.ts` | `levels`, `hsv` (single-pass), `heightFromDiffuse` |
-| `src/layers/filters/index.ts` | `FILTERS` in add-menu order |
+
+| File                           | Contents                                                                                                                                                               |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/gpu/jfa.ts`               | `jumpFlood(ctx, { source, threshold, invert?, maxDistance?, relax?, name? })` → scratch target (r = signed distance px, negative inside; gb = nearest seed; a = found) |
+| `src/layers/filters/shared.ts` | distance-source params (`source`, `threshold`, `smooth`), `sourceDistance()`, `blurTexture()` (separable Gaussian into scratch), GLSL helpers                          |
+| `src/layers/filters/blur.ts`   | `blur`                                                                                                                                                                 |
+| `src/layers/filters/edges.ts`  | `bevel`, `etch`                                                                                                                                                        |
+| `src/layers/filters/cavity.ts` | `cavity`                                                                                                                                                               |
+| `src/layers/filters/warp.ts`   | `warp` (single-pass `filterGlsl`)                                                                                                                                      |
+| `src/layers/filters/adjust.ts` | `levels`, `hsv` (single-pass), `heightFromDiffuse`                                                                                                                     |
+| `src/layers/filters/index.ts`  | `FILTERS` in add-menu order                                                                                                                                            |
 
 ## Layer types and params
+
 Lengths are px; heights are unitless (1.0 = `heightDepth` px).
 
 - **`blur`** (filter) — `radius` (σ = radius / 2, kernel ≈ 1.5 × radius), toggles `diffuse`, `height`,
@@ -73,6 +78,7 @@ Lengths are px; heights are unitless (1.0 = `heightDepth` px).
   the generator height modes), `invert`, `centre` (luminance − 0.5), `blur` (pre-blur radius).
 
 ## Notes
+
 - **Jump flood.** Boundary texels (mask differs from a 4-neighbour) seed the flood with a sub-pixel
   iso-line point (linear interpolation of the source value toward each opposite neighbour, combined into
   the perpendicular foot when both axes cross). Flood steps run from half the power-of-two size (or just

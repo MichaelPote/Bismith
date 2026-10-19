@@ -5,128 +5,193 @@
 // pipe radius (value 1); Coverage writes the pipes' outline to its mask (signed distance) so later layers
 // can be limited to them.
 
-import { P } from '@/core/params'
-import type { ParamValues } from '@/core/params'
-import type { LayerDef } from '../types'
-import { buildPrims, encodePrims, parseRuns, randomRuns, stackHeight, type PipeOptions, type PipeRun } from './pipesGeometry'
+import { P } from '@/core/params';
+import type { ParamValues } from '@/core/params';
+import type { LayerDef } from '../types';
+import {
+	buildPrims,
+	encodePrims,
+	parseRuns,
+	randomRuns,
+	stackHeight,
+	type PipeOptions,
+	type PipeRun
+} from './pipesGeometry';
 
-const isRandom = (p: Record<string, unknown>) => (p.layout ?? 'random') === 'random'
-const isDrawn = (p: Record<string, unknown>) => p.layout === 'drawn'
+const isRandom = (p: Record<string, unknown>) => (p.layout ?? 'random') === 'random';
+const isDrawn = (p: Record<string, unknown>) => p.layout === 'drawn';
 
 /** The runs of a layer (drawn or random) at a texture size. */
 export function pipeRuns(q: ParamValues, o: PipeOptions): PipeRun[] {
-  const radius = Number(q.radius ?? 6)
-  const variety = Number(q.variety ?? 0.3)
-  if (q.layout === 'drawn') {
-    const lines = parseRuns(String(q.points ?? ''), q.units === 'fraction', o.width, o.height)
-    const inside = ([x, y]: [number, number]) => x > 0 && y > 0 && x < o.width && y < o.height
-    const runs: PipeRun[] = lines.map((pts, i) => ({
-      points: pts,
-      radius: Math.max(1, radius * (1 + variety * 0.8 * (((i * 0.618034) % 1) - 0.5))),
-      depth: 0,
-      capStart: inside(pts[0]),
-      capEnd: inside(pts[pts.length - 1]),
-    }))
-    // An end on another run tees into it.
-    const onRun = (pt: [number, number], self: number): { r: number; j: number } | undefined => {
-      for (let j = 0; j < runs.length; j++) {
-        if (j === self) continue
-        const ps = runs[j].points
-        for (let k = 0; k + 1 < ps.length; k++) {
-          const [ax, ay] = ps[k]
-          const [bx, by] = ps[k + 1]
-          const ex = bx - ax
-          const ey = by - ay
-          const t = Math.max(0, Math.min(1, ((pt[0] - ax) * ex + (pt[1] - ay) * ey) / Math.max(ex * ex + ey * ey, 1e-9)))
-          if (Math.hypot(pt[0] - ax - ex * t, pt[1] - ay - ey * t) <= runs[j].radius) return { r: runs[j].radius, j }
-        }
-      }
-      return undefined
-    }
-    runs.forEach((run, i) => {
-      const a = onRun(run.points[0], i)
-      const b = onRun(run.points[run.points.length - 1], i)
-      run.teeStart = a?.r
-      run.teeEnd = b?.r
-      run.joins = [a?.j, b?.j].filter((j): j is number => j !== undefined)
-      if (run.teeStart !== undefined) run.capStart = false
-      if (run.teeEnd !== undefined) run.capEnd = false
-      // A branch a little narrower than the pipe it joins meets it in a curved saddle (equal sizes show a sharp V).
-      const joins = Math.min(run.teeStart ?? Infinity, run.teeEnd ?? Infinity)
-      if (Number.isFinite(joins)) run.radius = Math.min(run.radius, joins * 0.85)
-    })
-    return runs
-  }
-  return randomRuns(o, {
-    runs: Math.round(Number(q.runs ?? 3)),
-    drops: Math.round(Number(q.drops ?? 2)),
-    radius,
-    variety,
-    jogs: Number(q.jogs ?? 0.5),
-    tees: Number(q.tees ?? 0.5),
-    density: Number(q.density ?? 0),
-  })
+	const radius = Number(q.radius ?? 6);
+	const variety = Number(q.variety ?? 0.3);
+	if (q.layout === 'drawn') {
+		const lines = parseRuns(String(q.points ?? ''), q.units === 'fraction', o.width, o.height);
+		const inside = ([x, y]: [number, number]) => x > 0 && y > 0 && x < o.width && y < o.height;
+		const runs: PipeRun[] = lines.map((pts, i) => ({
+			points: pts,
+			radius: Math.max(1, radius * (1 + variety * 0.8 * (((i * 0.618034) % 1) - 0.5))),
+			depth: 0,
+			capStart: inside(pts[0]),
+			capEnd: inside(pts[pts.length - 1])
+		}));
+		// An end on another run tees into it.
+		const onRun = (pt: [number, number], self: number): { r: number; j: number } | undefined => {
+			for (let j = 0; j < runs.length; j++) {
+				if (j === self) continue;
+				const ps = runs[j].points;
+				for (let k = 0; k + 1 < ps.length; k++) {
+					const [ax, ay] = ps[k];
+					const [bx, by] = ps[k + 1];
+					const ex = bx - ax;
+					const ey = by - ay;
+					const t = Math.max(
+						0,
+						Math.min(1, ((pt[0] - ax) * ex + (pt[1] - ay) * ey) / Math.max(ex * ex + ey * ey, 1e-9))
+					);
+					if (Math.hypot(pt[0] - ax - ex * t, pt[1] - ay - ey * t) <= runs[j].radius) return { r: runs[j].radius, j };
+				}
+			}
+			return undefined;
+		};
+		runs.forEach((run, i) => {
+			const a = onRun(run.points[0], i);
+			const b = onRun(run.points[run.points.length - 1], i);
+			run.teeStart = a?.r;
+			run.teeEnd = b?.r;
+			run.joins = [a?.j, b?.j].filter((j): j is number => j !== undefined);
+			if (run.teeStart !== undefined) run.capStart = false;
+			if (run.teeEnd !== undefined) run.capEnd = false;
+			// A branch a little narrower than the pipe it joins meets it in a curved saddle (equal sizes show a sharp V).
+			const joins = Math.min(run.teeStart ?? Infinity, run.teeEnd ?? Infinity);
+			if (Number.isFinite(joins)) run.radius = Math.min(run.radius, joins * 0.85);
+		});
+		return runs;
+	}
+	return randomRuns(o, {
+		runs: Math.round(Number(q.runs ?? 3)),
+		drops: Math.round(Number(q.drops ?? 2)),
+		radius,
+		variety,
+		jogs: Number(q.jogs ?? 0.5),
+		tees: Number(q.tees ?? 0.5),
+		density: Number(q.density ?? 0)
+	});
 }
 
 export const pipeworkLayer: LayerDef = {
-  type: 'pipework',
-  label: 'Pipework',
-  category: 'shape',
-  kind: 'generator',
-  sdf: true,
-  description: 'Pipe runs on a wall: straight lengths, rounded elbows, tees and crossings, collars and bolted flanges — round, lit, shadow-casting. Drawn runs or a random tileable layout.',
-  params: [
-    P.enum('output', 'Output', 'height', [['height', 'Surface height'], ['cover', 'Coverage'], ['fittings', 'Fittings'], ['underside', 'Underside'], ['tubes', 'Tubes only'], ['facing', 'Facing the light'], ['liquid', 'Liquid']], {
-      hint: 'Surface height: the round pipes (for relief; 1 = 4 × the pipe radius). Coverage: the pipes\' outline (writes its mask, so later layers can be limited to the pipes). Fittings: 1 on collars and flanges. Underside: 0 on top of a pipe → 1 underneath (rust, grime). Tubes only: the outline of the tubes without their fittings (writes its mask — e.g. glass tubes with metal collars). Facing the light: across each pipe, 1 on the side towards the top-left → 0 away (reflection bands on chrome). Liquid: 1 below each run\'s liquid surface (Liquid level)',
-    }),
-    P.enum('layout', 'Layout', 'random', [['random', 'Random (tileable)'], ['drawn', 'Drawn runs']]),
-    P.bitmap('points', 'Runs', '0,24 40,24 40,48 64,48 | 20,0 20,24', 'lines', {
-      hint: 'x,y centre-line points (px from the top-left, or 0..1 with Units = fraction); one run per line or "|". Ends inside the texture get a flange; an end on another run tees into it',
-      showIf: isDrawn,
-      uniform: false,
-    }),
-    P.enum('units', 'Units', 'px', [['px', 'Pixels'], ['fraction', 'Fraction of the texture']], { showIf: isDrawn }),
-    P.int('runs', 'Horizontal runs', 3, 0, 64, { softMax: 16, showIf: isRandom, hint: 'Runs keep clear of each other while there is room; beyond that they lie over the ones they overlap' }),
-    P.int('drops', 'Vertical runs', 2, 0, 64, { softMax: 16, showIf: isRandom, hint: 'In front of the horizontal runs; beyond the room for them they lie over the ones they overlap' }),
-    P.float('jogs', 'Jogs', 0.5, 0, 1, { step: 0.01, showIf: isRandom, hint: 'Chance a horizontal run steps up or down and back (two pairs of elbows)' }),
-    P.float('tees', 'Tees', 0.5, 0, 1, { step: 0.01, showIf: isRandom, hint: 'Chance a vertical run tees between two horizontal runs instead of passing in front of them' }),
-    P.float('density', 'Density', 0, 0, 1, {
-      step: 0.01,
-      showIf: isRandom,
-      hint: 'Stack more pipes in front of these — horizontal, vertical, horizontal … each layer resting on the one behind — until this share of the bare wall is covered (1 = none left). A stack taller than four pipe radii is scaled to fit the height range: raise the height amount for rounder pipes',
-    }),
-    P.float('radius', 'Pipe radius', 6, 0.5, 256, { softMax: 32, unit: 'px', step: 0.1 }),
-    P.float('variety', 'Radius variety', 0.3, 0, 1, { step: 0.01 }),
-    P.float('bend', 'Bend radius', 2, 1, 8, { step: 0.01, hint: 'Elbow centre-line radius in pipe radii' }),
-    P.float('spacing', 'Coupling spacing', 48, 0, 4096, { softMax: 256, unit: 'px', step: 1, hint: 'Collars along straight lengths (0 = none)' }),
-    P.float('flanges', 'Flanges', 0.3, 0, 1, { step: 0.01, hint: 'Chance a coupling is a bolted flange' }),
-    P.float('collar', 'Collar size', 0.15, 0, 1, { step: 0.01, hint: 'How far collars stand proud (flanges twice that), in pipe radii' }),
-    P.bool('elbow_fittings', 'Elbow collars', true),
-    P.float('fill', 'Liquid level', 0.5, 0, 1, { step: 0.01, hint: 'For the Liquid output: how full each run\'s lowest horizontal pipe is; the surface stays level through bends and drops' }),
-    P.seed(),
-  ],
-  defaults: { h_on: true, h_amount: 1, dif_on: true, bevel: 0, profile: 'flat' },
-  textures: ['pipes'],
-  cpuData(q, ctx) {
-    const o: PipeOptions = {
-      width: ctx.width,
-      height: ctx.height,
-      tile: ctx.tileable,
-      seed: Math.floor(ctx.seed * 7919) + Number(q.seed ?? 0),
-      bend: Number(q.bend ?? 2),
-      spacing: Number(q.spacing ?? 48),
-      flanges: Number(q.flanges ?? 0.3),
-      collar: Number(q.collar ?? 0.15),
-      elbowFittings: q.elbow_fittings !== false,
-      fill: Number(q.fill ?? 0.5),
-    }
-    const prims = buildPrims(pipeRuns(q, o), o)
-    // A stack taller than the default 4 × radius (density, runs lying over runs) is scaled to fit rather than having its
-    // front pipes clipped flat; one that fits keeps the default (0 in the header).
-    const top = stackHeight(prims)
-    return { pipes: encodePrims(prims, top > 4 * Math.max(Number(q.radius ?? 6), 0.5) ? top : 0) }
-  },
-  glsl: /* glsl */ `
+	type: 'pipework',
+	label: 'Pipework',
+	category: 'shape',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Pipe runs on a wall: straight lengths, rounded elbows, tees and crossings, collars and bolted flanges — round, lit, shadow-casting. Drawn runs or a random tileable layout.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'height',
+			[
+				['height', 'Surface height'],
+				['cover', 'Coverage'],
+				['fittings', 'Fittings'],
+				['underside', 'Underside'],
+				['tubes', 'Tubes only'],
+				['facing', 'Facing the light'],
+				['liquid', 'Liquid']
+			],
+			{
+				hint: "Surface height: the round pipes (for relief; 1 = 4 × the pipe radius). Coverage: the pipes' outline (writes its mask, so later layers can be limited to the pipes). Fittings: 1 on collars and flanges. Underside: 0 on top of a pipe → 1 underneath (rust, grime). Tubes only: the outline of the tubes without their fittings (writes its mask — e.g. glass tubes with metal collars). Facing the light: across each pipe, 1 on the side towards the top-left → 0 away (reflection bands on chrome). Liquid: 1 below each run's liquid surface (Liquid level)"
+			}
+		),
+		P.enum('layout', 'Layout', 'random', [
+			['random', 'Random (tileable)'],
+			['drawn', 'Drawn runs']
+		]),
+		P.bitmap('points', 'Runs', '0,24 40,24 40,48 64,48 | 20,0 20,24', 'lines', {
+			hint: 'x,y centre-line points (px from the top-left, or 0..1 with Units = fraction); one run per line or "|". Ends inside the texture get a flange; an end on another run tees into it',
+			showIf: isDrawn,
+			uniform: false
+		}),
+		P.enum(
+			'units',
+			'Units',
+			'px',
+			[
+				['px', 'Pixels'],
+				['fraction', 'Fraction of the texture']
+			],
+			{ showIf: isDrawn }
+		),
+		P.int('runs', 'Horizontal runs', 3, 0, 64, {
+			softMax: 16,
+			showIf: isRandom,
+			hint: 'Runs keep clear of each other while there is room; beyond that they lie over the ones they overlap'
+		}),
+		P.int('drops', 'Vertical runs', 2, 0, 64, {
+			softMax: 16,
+			showIf: isRandom,
+			hint: 'In front of the horizontal runs; beyond the room for them they lie over the ones they overlap'
+		}),
+		P.float('jogs', 'Jogs', 0.5, 0, 1, {
+			step: 0.01,
+			showIf: isRandom,
+			hint: 'Chance a horizontal run steps up or down and back (two pairs of elbows)'
+		}),
+		P.float('tees', 'Tees', 0.5, 0, 1, {
+			step: 0.01,
+			showIf: isRandom,
+			hint: 'Chance a vertical run tees between two horizontal runs instead of passing in front of them'
+		}),
+		P.float('density', 'Density', 0, 0, 1, {
+			step: 0.01,
+			showIf: isRandom,
+			hint: 'Stack more pipes in front of these — horizontal, vertical, horizontal … each layer resting on the one behind — until this share of the bare wall is covered (1 = none left). A stack taller than four pipe radii is scaled to fit the height range: raise the height amount for rounder pipes'
+		}),
+		P.float('radius', 'Pipe radius', 6, 0.5, 256, { softMax: 32, unit: 'px', step: 0.1 }),
+		P.float('variety', 'Radius variety', 0.3, 0, 1, { step: 0.01 }),
+		P.float('bend', 'Bend radius', 2, 1, 8, { step: 0.01, hint: 'Elbow centre-line radius in pipe radii' }),
+		P.float('spacing', 'Coupling spacing', 48, 0, 4096, {
+			softMax: 256,
+			unit: 'px',
+			step: 1,
+			hint: 'Collars along straight lengths (0 = none)'
+		}),
+		P.float('flanges', 'Flanges', 0.3, 0, 1, { step: 0.01, hint: 'Chance a coupling is a bolted flange' }),
+		P.float('collar', 'Collar size', 0.15, 0, 1, {
+			step: 0.01,
+			hint: 'How far collars stand proud (flanges twice that), in pipe radii'
+		}),
+		P.bool('elbow_fittings', 'Elbow collars', true),
+		P.float('fill', 'Liquid level', 0.5, 0, 1, {
+			step: 0.01,
+			hint: "For the Liquid output: how full each run's lowest horizontal pipe is; the surface stays level through bends and drops"
+		}),
+		P.seed()
+	],
+	defaults: { h_on: true, h_amount: 1, dif_on: true, bevel: 0, profile: 'flat' },
+	textures: ['pipes'],
+	cpuData(q, ctx) {
+		const o: PipeOptions = {
+			width: ctx.width,
+			height: ctx.height,
+			tile: ctx.tileable,
+			seed: Math.floor(ctx.seed * 7919) + Number(q.seed ?? 0),
+			bend: Number(q.bend ?? 2),
+			spacing: Number(q.spacing ?? 48),
+			flanges: Number(q.flanges ?? 0.3),
+			collar: Number(q.collar ?? 0.15),
+			elbowFittings: q.elbow_fittings !== false,
+			fill: Number(q.fill ?? 0.5)
+		};
+		const prims = buildPrims(pipeRuns(q, o), o);
+		// A stack taller than the default 4 × radius (density, runs lying over runs) is scaled to fit rather than having its
+		// front pipes clipped flat; one that fits keeps the default (0 in the header).
+		const top = stackHeight(prims);
+		return { pipes: encodePrims(prims, top > 4 * Math.max(Number(q.radius ?? 6), 0.5) ? top : 0) };
+	},
+	glsl: /* glsl */ `
 float pp_u16(vec2 b) { return floor(b.x * 255.0 + 0.5) * 256.0 + floor(b.y * 255.0 + 0.5); }
 vec2 pp_pos(vec4 t) { return vec2(pp_u16(t.rg), pp_u16(t.ba)) / 8.0 - 4096.0; }
 float pp_ang(vec2 b, float range) { return (pp_u16(b) / 65535.0 * 2.0 - 1.0) * range; }
@@ -269,5 +334,5 @@ GenOut gen(vec2 p) {
   if (u_output == 6) return genOut(liq, cover, rnd, NO_SDF);
   return genOut(clamp(max(best, 0.0) / hnorm, 0.0, 1.0), cover, rnd, NO_SDF);
 }
-`,
-}
+`
+};

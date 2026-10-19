@@ -8,72 +8,176 @@
 //     direction (bottom to top of every block), or a band in from its edge on that side.
 // Breakup pulls any selection down by fBm noise before Shaping, so its edge ends raggedly (edge wear, uneven grime).
 
-import { P, type ParamValues } from '@/core/params'
-import { SHAPE_MASK } from '@/core/project'
-import type { LayerDef } from '../types'
+import { P, type ParamValues } from '@/core/params';
+import { SHAPE_MASK } from '@/core/project';
+import type { LayerDef } from '../types';
 
-const features = (p: ParamValues) => p.select === 'features'
-const surface = (p: ParamValues) => !features(p)
-const find = (...modes: string[]) => (p: ParamValues) => surface(p) && modes.includes(String(p.find ?? 'crevices'))
-const gradient = (p: ParamValues) => features(p) && p.area === 'gradient'
+const features = (p: ParamValues) => p.select === 'features';
+const surface = (p: ParamValues) => !features(p);
+const find =
+	(...modes: string[]) =>
+	(p: ParamValues) =>
+		surface(p) && modes.includes(String(p.find ?? 'crevices'));
+const gradient = (p: ParamValues) => features(p) && p.area === 'gradient';
 /** The mask's own shape, as a distance (Inside without Breakup): the Edge controls apply and a write is a shape. */
-const inside = (p: ParamValues) => features(p) && (p.area ?? 'inside') === 'inside' && !(Number(p.bk_amount ?? 0) > 0)
+const inside = (p: ParamValues) => features(p) && (p.area ?? 'inside') === 'inside' && !(Number(p.bk_amount ?? 0) > 0);
 
 export const surfaceMaskLayer: LayerDef = {
-  type: 'surfacemask',
-  label: 'Mask area',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  sdfShowIf: (p) => inside(p),
-  maskWrite: (p) => (inside(p) ? 'shape' : 'coverage'),
-  maskSource: (p) => (features(p) ? String(p.src_mask ?? '').trim() || SHAPE_MASK : null),
-  description:
-    'Selects areas, to write to a mask or paint directly: from the surface so far (crevices, high spots, slopes, slopes facing a direction, a height range) or from the features of a mask (inside each one with its own random, or a gradient across each). Breakup frays the selection with noise.',
-  params: [
-    P.enum('select', 'Select', 'surface', [
-      ['surface', 'The surface', 'from the relief the layers above built'],
-      ['features', 'Features of a mask', 'from the shapes a mask holds: each brick, cell or plate'],
-    ]),
-    P.enum('find', 'Find', 'crevices', [
-      ['crevices', 'Crevices', 'lower than the surface around them'],
-      ['high', 'High spots', 'higher than the surface around them'],
-      ['both', 'Both'],
-      ['slopes', 'Slopes', 'steep anywhere'],
-      ['facing', 'Facing a direction', 'slopes turned towards Direction: every bottom edge, the lit side of each bump'],
-      ['height', 'Height range', 'above or below a level'],
-    ], { showIf: surface }),
-    P.float('radius', 'Radius', 8, 0.5, 64, { softMax: 16, unit: 'px', step: 0.1, showIf: find('crevices', 'high', 'both', 'slopes', 'facing'), hint: 'How far around each pixel the surface is compared: small = fine cracks and joints, large = broad dips and rises. Slopes are measured across half of it, so surface grain finer than that doesn’t count' }),
-    P.float('depth', 'Depth', 0.5, 0.01, 64, { softMax: 4, unit: 'px', step: 0.01, hint: 'Height difference (px) that gives a full mask', showIf: find('crevices', 'high', 'both') }),
-    P.float('steep', 'Full at slope', 0.2, 0.02, 16, { softMax: 2, step: 0.01, hint: 'Slope (height px per px; 1 = 45°) that gives a full mask: fine relief rises a pixel or two over several, so a fifth is steep here', showIf: find('slopes', 'facing') }),
-    P.float('hlevel', 'Height level', 0.5, -16, 16, { softMin: 0, softMax: 1, step: 0.001, showIf: find('height'), hint: 'The height that divides above from below, in height units (1 = the project’s Height depth in px)' }),
-    P.enum('hside', 'Side', 'above', [['above', 'Above'], ['below', 'Below']], { showIf: find('height') }),
-    P.text('src_mask', 'Mask', SHAPE_MASK, { mask: 'read', showIf: features, hint: 'The mask whose features this selects, by name (Shape: the one shape layers write)' }),
-    P.enum('area', 'Area', 'inside', [
-      ['inside', 'Inside', 'the mask’s shape itself, each feature with its own random (Source › Random, Per-feature variation)'],
-      ['gradient', 'Gradient', 'a ramp across each feature along Direction: 1 at the side it faces, 0 at the far side'],
-    ], { showIf: features }),
-    P.enum('across', 'Across', 'whole', [
-      ['whole', 'The whole feature', 'from the far side to the near one'],
-      ['edge', 'A band at the edge', 'only Width px in from the side Direction faces'],
-    ], { showIf: gradient }),
-    P.float('width', 'Width', 4, 0.5, 256, { softMax: 32, unit: 'px', step: 0.1, showIf: (p) => gradient(p) && p.across === 'edge', hint: 'How far in from the mask’s outline the band reaches (a bevel inside the outline is part of it)' }),
-    P.float('band_soft', 'Band softness', 0.5, 0, 1, { step: 0.001, showIf: (p) => gradient(p) && p.across === 'edge', hint: 'The share of the band that fades out towards its inner end: 0 a crisp band, 1 a ramp all the way from the edge' }),
-    P.float('dir', 'Direction', 180, 0, 360, {
-      step: 1,
-      showIf: (p) => find('facing')(p) || gradient(p),
-      hint: 'Which way, in degrees round the texture: 0 top, 90 right, 180 bottom, 270 left',
-    }),
-    P.float('spread', 'Spread', 60, 1, 180, { step: 1, showIf: find('facing'), hint: 'How far round from Direction a slope may face and still count (degrees, fading to its edge)' }),
-    P.float('reach', 'Max feature size', 128, 8, 1024, { softMax: 256, unit: 'px', step: 1, showIf: gradient, hint: 'How far the gradient looks for a feature’s edge: features longer than this ramp over this length only' }),
-    P.float('level', 'Level', 0.2, 0, 1, { step: 0.001, showIf: surface, hint: 'Ignore anything weaker than this' }),
-    P.float('softness', 'Softness', 0.5, 0, 1, { step: 0.001, showIf: surface, hint: 'How gradually the mask rises above the level (0 = hard edge)' }),
-    P.float('bk_amount', 'Breakup', 0, 0, 1, { step: 0.001, section: 'Breakup', hint: 'Pulls the selection down by noise, so its edge ends raggedly — in patches and flecks with a Cutoff (Shaping), mottled without: chipped edge wear, grime that stops unevenly' }),
-    P.float('bk_scale', 'Breakup size', 16, 1, 1024, { softMax: 64, unit: 'px', step: 0.1, section: 'Breakup', showIf: (p) => Number(p.bk_amount ?? 0) > 0, hint: 'Size of the noise’s blotches' }),
-    P.seed('bk_seed', 'Breakup seed', 1, { section: 'Breakup', showIf: (p) => Number(p.bk_amount ?? 0) > 0 }),
-  ],
-  defaults: { mk_target: 'Crevices', dif_on: false, h_on: false, bevel: 0, profile: 'flat' },
-  glsl: /* glsl */ `
+	type: 'surfacemask',
+	label: 'Mask area',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	sdfShowIf: (p) => inside(p),
+	maskWrite: (p) => (inside(p) ? 'shape' : 'coverage'),
+	maskSource: (p) => (features(p) ? String(p.src_mask ?? '').trim() || SHAPE_MASK : null),
+	description:
+		'Selects areas, to write to a mask or paint directly: from the surface so far (crevices, high spots, slopes, slopes facing a direction, a height range) or from the features of a mask (inside each one with its own random, or a gradient across each). Breakup frays the selection with noise.',
+	params: [
+		P.enum('select', 'Select', 'surface', [
+			['surface', 'The surface', 'from the relief the layers above built'],
+			['features', 'Features of a mask', 'from the shapes a mask holds: each brick, cell or plate']
+		]),
+		P.enum(
+			'find',
+			'Find',
+			'crevices',
+			[
+				['crevices', 'Crevices', 'lower than the surface around them'],
+				['high', 'High spots', 'higher than the surface around them'],
+				['both', 'Both'],
+				['slopes', 'Slopes', 'steep anywhere'],
+				[
+					'facing',
+					'Facing a direction',
+					'slopes turned towards Direction: every bottom edge, the lit side of each bump'
+				],
+				['height', 'Height range', 'above or below a level']
+			],
+			{ showIf: surface }
+		),
+		P.float('radius', 'Radius', 8, 0.5, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			showIf: find('crevices', 'high', 'both', 'slopes', 'facing'),
+			hint: 'How far around each pixel the surface is compared: small = fine cracks and joints, large = broad dips and rises. Slopes are measured across half of it, so surface grain finer than that doesn’t count'
+		}),
+		P.float('depth', 'Depth', 0.5, 0.01, 64, {
+			softMax: 4,
+			unit: 'px',
+			step: 0.01,
+			hint: 'Height difference (px) that gives a full mask',
+			showIf: find('crevices', 'high', 'both')
+		}),
+		P.float('steep', 'Full at slope', 0.2, 0.02, 16, {
+			softMax: 2,
+			step: 0.01,
+			hint: 'Slope (height px per px; 1 = 45°) that gives a full mask: fine relief rises a pixel or two over several, so a fifth is steep here',
+			showIf: find('slopes', 'facing')
+		}),
+		P.float('hlevel', 'Height level', 0.5, -16, 16, {
+			softMin: 0,
+			softMax: 1,
+			step: 0.001,
+			showIf: find('height'),
+			hint: 'The height that divides above from below, in height units (1 = the project’s Height depth in px)'
+		}),
+		P.enum(
+			'hside',
+			'Side',
+			'above',
+			[
+				['above', 'Above'],
+				['below', 'Below']
+			],
+			{ showIf: find('height') }
+		),
+		P.text('src_mask', 'Mask', SHAPE_MASK, {
+			mask: 'read',
+			showIf: features,
+			hint: 'The mask whose features this selects, by name (Shape: the one shape layers write)'
+		}),
+		P.enum(
+			'area',
+			'Area',
+			'inside',
+			[
+				[
+					'inside',
+					'Inside',
+					'the mask’s shape itself, each feature with its own random (Source › Random, Per-feature variation)'
+				],
+				[
+					'gradient',
+					'Gradient',
+					'a ramp across each feature along Direction: 1 at the side it faces, 0 at the far side'
+				]
+			],
+			{ showIf: features }
+		),
+		P.enum(
+			'across',
+			'Across',
+			'whole',
+			[
+				['whole', 'The whole feature', 'from the far side to the near one'],
+				['edge', 'A band at the edge', 'only Width px in from the side Direction faces']
+			],
+			{ showIf: gradient }
+		),
+		P.float('width', 'Width', 4, 0.5, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => gradient(p) && p.across === 'edge',
+			hint: 'How far in from the mask’s outline the band reaches (a bevel inside the outline is part of it)'
+		}),
+		P.float('band_soft', 'Band softness', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => gradient(p) && p.across === 'edge',
+			hint: 'The share of the band that fades out towards its inner end: 0 a crisp band, 1 a ramp all the way from the edge'
+		}),
+		P.float('dir', 'Direction', 180, 0, 360, {
+			step: 1,
+			showIf: (p) => find('facing')(p) || gradient(p),
+			hint: 'Which way, in degrees round the texture: 0 top, 90 right, 180 bottom, 270 left'
+		}),
+		P.float('spread', 'Spread', 60, 1, 180, {
+			step: 1,
+			showIf: find('facing'),
+			hint: 'How far round from Direction a slope may face and still count (degrees, fading to its edge)'
+		}),
+		P.float('reach', 'Max feature size', 128, 8, 1024, {
+			softMax: 256,
+			unit: 'px',
+			step: 1,
+			showIf: gradient,
+			hint: 'How far the gradient looks for a feature’s edge: features longer than this ramp over this length only'
+		}),
+		P.float('level', 'Level', 0.2, 0, 1, { step: 0.001, showIf: surface, hint: 'Ignore anything weaker than this' }),
+		P.float('softness', 'Softness', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: surface,
+			hint: 'How gradually the mask rises above the level (0 = hard edge)'
+		}),
+		P.float('bk_amount', 'Breakup', 0, 0, 1, {
+			step: 0.001,
+			section: 'Breakup',
+			hint: 'Pulls the selection down by noise, so its edge ends raggedly — in patches and flecks with a Cutoff (Shaping), mottled without: chipped edge wear, grime that stops unevenly'
+		}),
+		P.float('bk_scale', 'Breakup size', 16, 1, 1024, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.1,
+			section: 'Breakup',
+			showIf: (p) => Number(p.bk_amount ?? 0) > 0,
+			hint: 'Size of the noise’s blotches'
+		}),
+		P.seed('bk_seed', 'Breakup seed', 1, { section: 'Breakup', showIf: (p) => Number(p.bk_amount ?? 0) > 0 })
+	],
+	defaults: { mk_target: 'Crevices', dif_on: false, h_on: false, bevel: 0, profile: 'flat' },
+	glsl: /* glsl */ `
 // 1, read from a uniform: loops bounded by it are not unrolled by D3D (see ORG_1 in organicShared).
 #define MA_1 (uRes.x > 0.0 ? 1 : 0)
 
@@ -197,5 +301,5 @@ GenOut gen(vec2 p) {
   o.fid = fid;
   return o;
 }
-`,
-}
+`
+};

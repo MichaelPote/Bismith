@@ -17,7 +17,7 @@ These are the founding requirements. Everything below exists to serve them.
    - **Diffuse** — surface colour, no lighting (plus an alpha/opacity for UI cut-outs).
    - **Height** — which areas are raised or sunken.
    - **Roughness** — shiny vs matte.
-   - **Normal** — surface direction. *Always derived from Height, never edited directly.*
+   - **Normal** — surface direction. _Always derived from Height, never edited directly._
    - **Emissive** — areas that emit their own light.
 3. **Global lighting** is a project setting: a sky light, individually placed lights, ambient strength, etc.
 4. **Rendering** is path traced. Three.js provides the WebGL2 plumbing; the path tracer is our own fragment shader
@@ -28,7 +28,7 @@ These are the founding requirements. Everything below exists to serve them.
 7. **Procedural layers needed:** noise of all kinds; lines, curves, boxes, rectangles, circles; bricks, Voronoi,
    clouds; convolution filters that act on the layers below (blur, bevel, etch…).
 8. **Post filters needed:** glow, blur, 8-bit, tonemap.
-9. **UI** follows the *Cinderforge* design system (tokens in `src/styles/tokens.css`).
+9. **UI** follows the _Cinderforge_ design system (tokens in `src/styles/tokens.css`).
 10. **Platform:** browser app, Vue 3 + Vite.
 
 ### Design principles derived from the brief
@@ -38,7 +38,7 @@ These are the founding requirements. Everything below exists to serve them.
 - **Tileable by default.** Noise frequencies snap to integers, shapes/filters wrap, and rays wrap around the
   torus, so a wall texture repeats seamlessly. UI projects turn tiling off.
 - **Everything is a uniform.** Moving a slider never recompiles a shader; it only updates uniforms and re-runs the
-  (cheap) layer passes. Shaders compile once per layer *type*.
+  (cheap) layer passes. Shaders compile once per layer _type_.
 - **HDR until the last moment.** Material, lighting and render buffers are float; tonemapping and palettisation
   are explicit post filters, so glow can key off real over-bright energy.
 - **Relief is fine by default.** Real texture relief is shallow: a bevel should rise ~1 px over a 2–4 px run,
@@ -85,15 +85,15 @@ accumulation (3–4), a post edit re-runs only stage 4, a view change only stage
 
 ## 3. Technology
 
-| Concern       | Choice                                                                  |
-| ------------- | ----------------------------------------------------------------------- |
-| UI framework  | Vue 3 (`<script setup>`, Composition API) + Pinia                       |
-| Build         | Vite, TypeScript (strict), vue-tsc                                      |
-| GPU           | Three.js (`WebGLRenderer`, `WebGLRenderTarget` MRT, `RawShaderMaterial` GLSL 3.00 ES) |
-| Styling       | Hand-written CSS with Cinderforge tokens as CSS custom properties       |
-| Fonts         | IBM Plex Sans / IBM Plex Mono / Cormorant Garamond via `@fontsource`    |
-| Tests         | Vitest (pure logic: colour, palettes, metrics, serialisation)           |
-| Harness       | Playwright (headless Chromium) driving the app's headless API           |
+| Concern      | Choice                                                                                |
+| ------------ | ------------------------------------------------------------------------------------- |
+| UI framework | Vue 3 (`<script setup>`, Composition API) + Pinia                                     |
+| Build        | Vite, TypeScript (strict), vue-tsc                                                    |
+| GPU          | Three.js (`WebGLRenderer`, `WebGLRenderTarget` MRT, `RawShaderMaterial` GLSL 3.00 ES) |
+| Styling      | Hand-written CSS with Cinderforge tokens as CSS custom properties                     |
+| Fonts        | IBM Plex Sans / IBM Plex Mono / Cormorant Garamond via `@fontsource`                  |
+| Tests        | Vitest (pure logic: colour, palettes, metrics, serialisation)                         |
+| Harness      | Playwright (headless Chromium) driving the app's headless API                         |
 
 ---
 
@@ -202,13 +202,13 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
 
 The common generator wrapper then:
 
-1. **Mask write.** A layer writes one **mask** by name (Mask › *Write to*, `mk_target`; shape layers default to the
-   *Shape* mask, see 5.4). A shape layer combines its distance with what the mask held by its Mode (`mk_op`: `normal |
+1. **Mask write.** A layer writes one **mask** by name (Mask › _Write to_, `mk_target`; shape layers default to the
+   _Shape_ mask, see 5.4). A shape layer combines its distance with what the mask held by its Mode (`mk_op`: `normal |
    union | subtract | intersect | smooth union | smooth subtract | smooth intersect`); coverage and bevel profile are
-   computed from the *combined* distance, so a rect unioned with a circle bevels as one shape. Other layers write
+   computed from the _combined_ distance, so a rect unioned with a circle bevels as one shape. Other layers write
    their coverage. Masks follow the stack: only the layers after a writer see what it wrote.
 2. **Profile.** For SDF generators `value = profile(insideDistance / bevelWidth)` with profiles
-   `flat | linear | smooth | round | cove | ridge | steps | custom` — *custom* is an editable curve
+   `flat | linear | smooth | round | cove | ridge | steps | custom` — _custom_ is an editable curve
    (`bevel_curve`: up to 8 points that may rise and fall — rims, dishes; Fritsch–Carlson tangents, so it never
    overshoots between points), e.g. a steep 1–2 px edge followed
    by a long, gentle rise. Flat profiles (or zero bevel) output `1` and leave
@@ -221,22 +221,22 @@ The common generator wrapper then:
    GLSL): a cross-section through one feature — outside, the bevel's rise, full, the fall, outside (a plain
    0 → 1 → 0 sweep on layers without a shape) — with the dashed unshaped value behind it. With Height on, Height ›
    Amount and Offset are mirrored under the graph (the same params), so the curve's strength is set beside it.
-4. **Limit.** Multiply coverage by its *Limit to* — up to four masks by name with ∪ ∩ −, and Invert (`lim_*`),
+4. **Limit.** Multiply coverage by its _Limit to_ — up to four masks by name with ∪ ∩ −, and Invert (`lim_*`),
    intersected with its material's limit — and/or a soft height range of the current surface (`above | below level`).
    This is how dirt collects only in crevices.
 5. **Channel outputs.** Each enabled output maps the value into a channel and blends it in, weighted by
    `mask × opacity`:
 
-| Output    | Source                 | Mapping                                  | Modes                                                |
-| --------- | ---------------------- | ---------------------------------------- | ---------------------------------------------------- |
+| Output    | Source                        | Mapping                                  | Modes                                                                         |
+| --------- | ----------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
 | Diffuse   | value / flat / random / shape | gradient ramp (≤8 stops) + random jitter | normal, multiply, screen, overlay, add, subtract, darken, lighten, soft light |
-| Opacity   | coverage               | —                                        | replace, multiply, union (max), subtract             |
-| Height    | value / flat / random / shape | `value × amount + offset`               | add, subtract, max, min, replace, multiply           |
-| Roughness | value / flat / random / shape | `mix(a, b, value)`                       | replace, multiply, add, min, max                     |
-| Emissive  | value / flat / random / shape | `colour × intensity × value` (HDR)       | add, replace, max                                    |
-| Specular  | value / flat / random / shape | `mix(a, b, value)` level 0..1            | replace, multiply, add, min, max                     |
+| Opacity   | coverage                      | —                                        | replace, multiply, union (max), subtract                                      |
+| Height    | value / flat / random / shape | `value × amount + offset`                | add, subtract, max, min, replace, multiply                                    |
+| Roughness | value / flat / random / shape | `mix(a, b, value)`                       | replace, multiply, add, min, max                                              |
+| Emissive  | value / flat / random / shape | `colour × intensity × value` (HDR)       | add, replace, max                                                             |
+| Specular  | value / flat / random / shape | `mix(a, b, value)` level 0..1            | replace, multiply, add, min, max                                              |
 
-*Shape* is inside the layer's own shape (1 in, 0 out, anti-aliased; 1 for layers without a shape) — the shape without
+_Shape_ is inside the layer's own shape (1 in, 0 out, anti-aliased; 1 for layers without a shape) — the shape without
 its pattern, for layers that paint their own value over it (Wood: rougher gaps than boards, the grain ignored).
 
 Height also has a **per-feature variation**: each brick / cell / instance scales the amount by its own random share.
@@ -283,12 +283,12 @@ cavity / edge wear (curvature = height − blur(height)), warp (noise displaceme
 The material state is three RGBA float textures, written together via MRT and ping-ponged per layer, plus a fourth
 output for the mask a layer writes:
 
-| Attachment | R          | G          | B          | A                          |
-| ---------- | ---------- | ---------- | ---------- | -------------------------- |
-| `albedo`   | diffuse r  | diffuse g  | diffuse b  | opacity                    |
-| `surface`  | height     | roughness  | metallic*  | (unused)                   |
-| `emissive` | emissive r | emissive g | emissive b | **specular level**         |
-| `mask out` | distance   | feature random | feature flag | —                     |
+| Attachment | R          | G              | B            | A                  |
+| ---------- | ---------- | -------------- | ------------ | ------------------ |
+| `albedo`   | diffuse r  | diffuse g      | diffuse b    | opacity            |
+| `surface`  | height     | roughness      | metallic*    | (unused)           |
+| `emissive` | emissive r | emissive g     | emissive b   | **specular level** |
+| `mask out` | distance   | feature random | feature flag | —                  |
 
 \* Metallic is reserved (always 0 today) so a metal workflow can be added without a storage change.
 Albedo is stored **linear**; colours entered in the UI are sRGB and converted on upload.
@@ -355,15 +355,15 @@ top-down camera:
 
 A user-ordered stack of `PostFilter { id, type, enabled, params }`, each a pass (or several) over the float image:
 
-| Filter    | Notes                                                                                   |
-| --------- | --------------------------------------------------------------------------------------- |
-| Glow      | threshold + soft knee, multi-level down/up-sample bloom, intensity, radius, tint        |
-| Blur      | separable Gaussian, radius px                                                           |
-| Tonemap   | exposure (EV) + operator: clamp, Reinhard, ACES (fitted), AgX, Uncharted 2              |
-| Grade     | brightness, contrast, saturation, hue shift                                             |
-| Pixelate  | block size (renders big, quantises down)                                                |
-| Sharpen   | unsharp mask                                                                            |
-| Palette   | nearest-colour in OKLab or RGB to a palette (Quake, Doom, PICO-8, EGA, CGA, Game Boy, C64, RGB332, custom hex list, auto/k-means from the image), with ordered (Bayer 2/4/8) dithering |
+| Filter   | Notes                                                                                                                                                                                  |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Glow     | threshold + soft knee, multi-level down/up-sample bloom, intensity, radius, tint                                                                                                       |
+| Blur     | separable Gaussian, radius px                                                                                                                                                          |
+| Tonemap  | exposure (EV) + operator: clamp, Reinhard, ACES (fitted), AgX, Uncharted 2                                                                                                             |
+| Grade    | brightness, contrast, saturation, hue shift                                                                                                                                            |
+| Pixelate | block size (renders big, quantises down)                                                                                                                                               |
+| Sharpen  | unsharp mask                                                                                                                                                                           |
+| Palette  | nearest-colour in OKLab or RGB to a palette (Quake, Doom, PICO-8, EGA, CGA, Game Boy, C64, RGB332, custom hex list, auto/k-means from the image), with ordered (Bayer 2/4/8) dithering |
 
 Before display/export the buffer is encoded to sRGB (with a clamp if no tonemap filter is present).
 
@@ -391,7 +391,7 @@ Before display/export the buffer is encoded to sRGB (with a clamp if no tonemap 
 
 ## 10. UI (Cinderforge)
 
-The editor uses the *Blender-tempered* Cinderforge editor language:
+The editor uses the _Blender-tempered_ Cinderforge editor language:
 
 - **Ground** Void `#17191c`, Base `#1e2124`, Panel `#24282c`, Raised `#2c3136`, Sunken `#1a1d20`;
   **lines** Hairline `#363c41`, Line `#4a5259`, Line strong `#6b757d`, Sigil `#7ea9b0`, Pill `#9ed0d6`;
@@ -404,7 +404,7 @@ The editor uses the *Blender-tempered* Cinderforge editor language:
 - Category hues (stroke only): Stone = shapes, Gold = lights/emissive, Teal = filters, Sky = patterns,
   Rose = textures/noise, Violet = post.
 
-- Buttons are *Forged keys v2* (`.fk`): a flat face on a 2px lip; one **lit** key per rail (workspace, channel view),
+- Buttons are _Forged keys v2_ (`.fk`): a flat face on a 2px lip; one **lit** key per rail (workspace, channel view),
   **latched** toggles with a pilot lamp, one ember **primary** key (Export / Optimise), studs for row and panel icons.
 - Field names carry tooltips (Tippy.js, theme `cinder`): the hint, what each option does, the key and default.
 
@@ -447,54 +447,54 @@ docs/
 
 ## Feature index
 
-| ID    | Feature                                                         |
-| ----- | --------------------------------------------------------------- |
-| 1.1   | [App shell & Cinderforge theme](features/fr1.1-app-shell.md)    |
-| 1.2   | [Project model, persistence & history](features/fr1.2-project-model.md) |
-| 1.3   | [GPU pipeline foundation](features/fr1.3-gpu-pipeline.md)       |
-| 2.1   | [Layer stack & channel outputs](features/fr2.1-layer-stack.md)  |
-| 2.2   | [Noise layers](features/fr2.2-noise-layers.md)                  |
-| 2.3   | [Shape layers (SDF)](features/fr2.3-shape-layers.md)            |
-| 2.4   | [Pattern layers: bricks, Voronoi, clouds…](features/fr2.4-pattern-layers.md) |
-| 2.5   | [Filter layers: blur, bevel, etch…](features/fr2.5-filter-layers.md) |
-| 2.6   | [Normal derivation](features/fr2.6-normal-derivation.md)        |
-| 3.1   | [Lighting](features/fr3.1-lighting.md)                          |
-| 3.2   | [Path tracer](features/fr3.2-path-tracer.md)                    |
-| 4.1   | [Post stack: glow, blur, tonemap…](features/fr4.1-post-stack.md) |
-| 4.2   | [8-bit palettisation & dithering](features/fr4.2-palettisation.md) |
-| 5.1   | [Viewport](features/fr5.1-viewport.md)                          |
-| 5.2   | [Outliner & properties](features/fr5.2-outliner-properties.md)  |
-| 5.3   | [Export & project files](features/fr5.3-export.md)              |
-| 5.4   | [Presets](features/fr5.4-presets.md)                            |
-| 6.1   | [Similarity metrics](features/fr6.1-similarity-metrics.md)      |
-| 6.2   | [Headless render harness](features/fr6.2-headless-harness.md)   |
-| 6.3   | [Reference-matching optimiser](features/fr6.3-optimizer.md)     |
-| 7.1   | [GPU harness (Windows headless Chrome)](features/fr7.1-gpu-harness.md) |
-| 7.2   | [Bespoke generators](features/fr7.2-bespoke-generators.md)       |
-| 7.3   | [Automatic emulation pipeline](features/fr7.3-emulation.md)      |
-| 7.4   | [Hand-authored recreations (studio)](features/fr7.4-hand-authoring.md) |
-| 7.5   | [Stamps, labels, paths & cables](features/fr7.5-stamps.md)       |
-| 7.6   | [Relief stack, specular channel, richer relief](features/fr7.6-relief-and-specular.md) |
-| 7.7   | [Drips, weathering and relief/paint mixing](features/fr7.7-drips-and-weathering.md) |
-| 7.8   | [Craft heuristics for the optimiser](features/fr7.8-optimizer-heuristics.md) (rules removed) |
-| 8.1   | [Texture term: VGG-19 Gram statistics](features/fr8.1-texture-metric.md) |
-| 8.2   | [Colour fitting](features/fr8.2-colour-fit.md) |
-| 8.3   | [Smart materials (recipes as a few controls)](features/fr8.3-smart-materials.md) |
-| 8.4   | [Start from a reference: Suggest and Variations](features/fr8.4-from-reference.md) |
-| 8.5   | [Shape editor](features/fr8.5-shape-editor.md) |
-| 8.6   | [Material lumps (recipes tuned against references)](features/fr8.6-material-lumps.md) |
-| 8.7   | [Supersampling](features/fr8.7-supersampling.md) |
-| 8.8   | [Tabs & notches, Traces & mazes, slot ends, formwork](features/fr8.8-greebles-traces.md) |
-| 8.9   | [Caustic light (refraction)](features/fr8.9-caustic-light.md) |
-| 8.10  | [Circuit routing (space-filling traces)](features/fr8.10-circuit-router.md) |
-| 8.11  | [Setts and pavers (fans, rings, bone, plus)](features/fr8.11-setts-pavers.md) |
-| 8.12  | [Pipework and peeling paint](features/fr8.12-pipework-paint.md) |
-| 8.13  | [Named masks and cut-outs](features/fr8.13-named-masks.md) (superseded by 8.23) |
-| 8.14  | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md) |
-| 8.17  | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md) |
-| 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md) |
-| 8.19  | [Windows metric (local texture)](features/fr8.19-window-metric.md) |
-| 8.20  | [Project previews](features/fr8.20-project-previews.md) |
-| 8.21  | [Grass](features/fr8.21-grass.md) |
-| 8.22  | [Stone blocks (rock-faced ashlar)](features/fr8.22-stone-blocks.md) |
-| 8.23  | [One mask system and Mask area](features/fr8.23-masks.md) |
+| ID   | Feature                                                                                      |
+| ---- | -------------------------------------------------------------------------------------------- |
+| 1.1  | [App shell & Cinderforge theme](features/fr1.1-app-shell.md)                                 |
+| 1.2  | [Project model, persistence & history](features/fr1.2-project-model.md)                      |
+| 1.3  | [GPU pipeline foundation](features/fr1.3-gpu-pipeline.md)                                    |
+| 2.1  | [Layer stack & channel outputs](features/fr2.1-layer-stack.md)                               |
+| 2.2  | [Noise layers](features/fr2.2-noise-layers.md)                                               |
+| 2.3  | [Shape layers (SDF)](features/fr2.3-shape-layers.md)                                         |
+| 2.4  | [Pattern layers: bricks, Voronoi, clouds…](features/fr2.4-pattern-layers.md)                 |
+| 2.5  | [Filter layers: blur, bevel, etch…](features/fr2.5-filter-layers.md)                         |
+| 2.6  | [Normal derivation](features/fr2.6-normal-derivation.md)                                     |
+| 3.1  | [Lighting](features/fr3.1-lighting.md)                                                       |
+| 3.2  | [Path tracer](features/fr3.2-path-tracer.md)                                                 |
+| 4.1  | [Post stack: glow, blur, tonemap…](features/fr4.1-post-stack.md)                             |
+| 4.2  | [8-bit palettisation & dithering](features/fr4.2-palettisation.md)                           |
+| 5.1  | [Viewport](features/fr5.1-viewport.md)                                                       |
+| 5.2  | [Outliner & properties](features/fr5.2-outliner-properties.md)                               |
+| 5.3  | [Export & project files](features/fr5.3-export.md)                                           |
+| 5.4  | [Presets](features/fr5.4-presets.md)                                                         |
+| 6.1  | [Similarity metrics](features/fr6.1-similarity-metrics.md)                                   |
+| 6.2  | [Headless render harness](features/fr6.2-headless-harness.md)                                |
+| 6.3  | [Reference-matching optimiser](features/fr6.3-optimizer.md)                                  |
+| 7.1  | [GPU harness (Windows headless Chrome)](features/fr7.1-gpu-harness.md)                       |
+| 7.2  | [Bespoke generators](features/fr7.2-bespoke-generators.md)                                   |
+| 7.3  | [Automatic emulation pipeline](features/fr7.3-emulation.md)                                  |
+| 7.4  | [Hand-authored recreations (studio)](features/fr7.4-hand-authoring.md)                       |
+| 7.5  | [Stamps, labels, paths & cables](features/fr7.5-stamps.md)                                   |
+| 7.6  | [Relief stack, specular channel, richer relief](features/fr7.6-relief-and-specular.md)       |
+| 7.7  | [Drips, weathering and relief/paint mixing](features/fr7.7-drips-and-weathering.md)          |
+| 7.8  | [Craft heuristics for the optimiser](features/fr7.8-optimizer-heuristics.md) (rules removed) |
+| 8.1  | [Texture term: VGG-19 Gram statistics](features/fr8.1-texture-metric.md)                     |
+| 8.2  | [Colour fitting](features/fr8.2-colour-fit.md)                                               |
+| 8.3  | [Smart materials (recipes as a few controls)](features/fr8.3-smart-materials.md)             |
+| 8.4  | [Start from a reference: Suggest and Variations](features/fr8.4-from-reference.md)           |
+| 8.5  | [Shape editor](features/fr8.5-shape-editor.md)                                               |
+| 8.6  | [Material lumps (recipes tuned against references)](features/fr8.6-material-lumps.md)        |
+| 8.7  | [Supersampling](features/fr8.7-supersampling.md)                                             |
+| 8.8  | [Tabs & notches, Traces & mazes, slot ends, formwork](features/fr8.8-greebles-traces.md)     |
+| 8.9  | [Caustic light (refraction)](features/fr8.9-caustic-light.md)                                |
+| 8.10 | [Circuit routing (space-filling traces)](features/fr8.10-circuit-router.md)                  |
+| 8.11 | [Setts and pavers (fans, rings, bone, plus)](features/fr8.11-setts-pavers.md)                |
+| 8.12 | [Pipework and peeling paint](features/fr8.12-pipework-paint.md)                              |
+| 8.13 | [Named masks and cut-outs](features/fr8.13-named-masks.md) (superseded by 8.23)              |
+| 8.14 | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md)               |
+| 8.17 | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md)              |
+| 8.18 | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md)                             |
+| 8.19 | [Windows metric (local texture)](features/fr8.19-window-metric.md)                           |
+| 8.20 | [Project previews](features/fr8.20-project-previews.md)                                      |
+| 8.21 | [Grass](features/fr8.21-grass.md)                                                            |
+| 8.22 | [Stone blocks (rock-faced ashlar)](features/fr8.22-stone-blocks.md)                          |
+| 8.23 | [One mask system and Mask area](features/fr8.23-masks.md)                                    |

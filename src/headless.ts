@@ -1,365 +1,407 @@
 // window.__bismith — the API the Playwright harness (tools/harness.ts) drives. See docs/features/fr6.2.
 
-import type { Project } from '@/core/project'
-import { normalizeProject } from '@/core/serialize'
-import { Engine } from '@/render/engine'
-import { mapPixels, pixelsToDataURL, type MapKind } from '@/render/export'
-import { capturePreview } from '@/render/preview'
+import type { Project } from '@/core/project';
+import { normalizeProject } from '@/core/serialize';
+import { Engine } from '@/render/engine';
+import { mapPixels, pixelsToDataURL, type MapKind } from '@/render/export';
+import { capturePreview } from '@/render/preview';
 import {
-  Matcher,
-  absDiff,
-  fromRgba8,
-  toRgba8,
-  type MatchImage,
-  type MetricOptions,
-  type MetricResult,
-} from '@/match/metrics'
-import { Optimizer, type OptimizerOptions, type StepInfo } from '@/match/optimizer'
-import { attachTexture, makeEvaluator, renderToMatchImage } from '@/match/evaluate'
-import { TextureNet, matchHistogram } from '@/match/vgg'
-import { fitColours as fitColoursImpl } from '@/match/colourFit'
-import { emulate as runEmulate, type EmulateOptions, type EmulateResult } from '@/match/emulate'
+	Matcher,
+	absDiff,
+	fromRgba8,
+	toRgba8,
+	type MatchImage,
+	type MetricOptions,
+	type MetricResult
+} from '@/match/metrics';
+import { Optimizer, type OptimizerOptions, type StepInfo } from '@/match/optimizer';
+import { attachTexture, makeEvaluator, renderToMatchImage } from '@/match/evaluate';
+import { TextureNet, matchHistogram } from '@/match/vgg';
+import { fitColours as fitColoursImpl } from '@/match/colourFit';
+import { emulate as runEmulate, type EmulateOptions, type EmulateResult } from '@/match/emulate';
 
 export interface HeadlessRenderResult {
-  width: number
-  height: number
-  /** data:image/png;base64,… */
-  png: string
-  samples: number
-  ms: number
-  errors: Record<string, string>
+	width: number;
+	height: number;
+	/** data:image/png;base64,… */
+	png: string;
+	samples: number;
+	ms: number;
+	errors: Record<string, string>;
 }
 
 /**
  * A reference image: a PNG/JPEG data URL (decoded in the page without colour management), or raw 8-bit
  * sRGB RGBA (base64 string or byte array) — the harness sends the latter, decoded exactly by pngjs.
  */
-export type TargetInput = string | { width: number; height: number; rgba: string | number[] }
+export type TargetInput = string | { width: number; height: number; rgba: string | number[] };
 
 export interface CompareOptions extends MetricOptions {
-  /** Samples per pixel for the render (default: the project's maxSamples). */
-  samples?: number
-  /** Gain applied to the difference image (default 2). */
-  diffGain?: number
+	/** Samples per pixel for the render (default: the project's maxSamples). */
+	samples?: number;
+	/** Gain applied to the difference image (default 2). */
+	diffGain?: number;
 }
 
 export interface HeadlessCompareResult extends MetricResult {
-  /** Render, target and |difference| at the comparison size (PNG data URLs). */
-  renderPng: string
-  targetPng: string
-  diffPng: string
-  samples: number
-  ms: number
+	/** Render, target and |difference| at the comparison size (PNG data URLs). */
+	renderPng: string;
+	targetPng: string;
+	diffPng: string;
+	samples: number;
+	ms: number;
 }
 
 export interface HeadlessOptimizeOptions extends OptimizerOptions {
-  /** Optimiser steps for optimize() (each evaluates `lambda` candidates). Default 30. */
-  iters?: number
-  /** Samples per evaluation render (deterministic; default 16). */
-  samples?: number
-  /** Samples for the final comparison render of the best project (default 64). */
-  finalSamples?: number
-  /** Metric preset / weights / size options. */
-  metric?: MetricOptions
+	/** Optimiser steps for optimize() (each evaluates `lambda` candidates). Default 30. */
+	iters?: number;
+	/** Samples per evaluation render (deterministic; default 16). */
+	samples?: number;
+	/** Samples for the final comparison render of the best project (default 64). */
+	finalSamples?: number;
+	/** Metric preset / weights / size options. */
+	metric?: MetricOptions;
 }
 
 export interface HeadlessOptimizeStart {
-  initialLoss: number
-  entries: number
-  width: number
-  height: number
+	initialLoss: number;
+	entries: number;
+	width: number;
+	height: number;
 }
 
 export interface HeadlessOptimizeResult {
-  bestProject: Project
-  bestLoss: number
-  initialLoss: number
-  evaluations: number
-  history: StepInfo[]
-  /** Metric breakdown + images of the best project re-rendered at finalSamples. */
-  compare: HeadlessCompareResult
+	bestProject: Project;
+	bestLoss: number;
+	initialLoss: number;
+	evaluations: number;
+	history: StepInfo[];
+	/** Metric breakdown + images of the best project re-rendered at finalSamples. */
+	compare: HeadlessCompareResult;
 }
 
 export interface BismithHeadless {
-  ready: boolean
-  engine: Engine
-  loadProject(project: unknown): Project
-  getProject(): Project | null
-  render(opts?: { samples?: number }): HeadlessRenderResult
-  renderMaps(kinds?: MapKind[]): Record<string, string>
-  /**
-   * A mask as the last render left it (FR8.23), at the render's size (supersampled), rows bottom-to-top: per texel its
-   * distance (px), random and feature flag. Null when nothing writes it.
-   */
-  maskData(name: string): { width: number; height: number; distance: number[]; random: number[]; feature: number[] } | null
-  /** Render the current project and score it against a reference. */
-  compare(target: TargetInput, opts?: CompareOptions): Promise<HeadlessCompareResult>
-  /** Run a whole optimisation in-page; the current project becomes the best one. */
-  optimize(target: TargetInput, opts?: HeadlessOptimizeOptions): Promise<HeadlessOptimizeResult>
-  /** Step-wise optimisation (lets the harness print progress): start → step(n)… → finish. */
-  optimizeStart(target: TargetInput, opts?: HeadlessOptimizeOptions): Promise<HeadlessOptimizeStart>
-  optimizeStep(steps?: number): Promise<StepInfo[]>
-  /** The best project so far (without finishing). */
-  optimizeBest(): { project: Project; loss: number } | null
-  /** GPU objects alive (three.js renderer.info.memory) — for spotting leaks. */
-  memoryInfo(): { textures: number; geometries: number }
-  optimizeFinish(): Promise<HeadlessOptimizeResult>
-  /** WebGL renderer string (to confirm GPU vs SwiftShader). */
-  rendererInfo(): string
-  /** The final image as a project preview (FR8.20; render first) — undefined before anything has rendered. */
-  preview(): string | undefined
-  /**
-   * Compile generator shaders ahead of use, all at once (parallel where the browser can); returns the wall time.
-   * `cold`: salt the shaders first, so neither the browser's nor the driver's shader cache can answer.
-   */
-  precompile(types: string[], opts?: { cold?: boolean }): Promise<{ ms: number; parallel: boolean }>
-  /** Automatic emulation of a reference (templates → race → optimise); the best becomes the current project. */
-  emulate(target: TargetInput, opts?: EmulateOptions): Promise<HeadlessEmulateResult>
-  /**
-   * VGG texture distance of `a` to `b` (same size; `colourMatch` first matches a's colours to b's, as the metric's
-   * texture term does) — for checking the GPU network against a reference implementation.
-   */
-  textureDistance(a: TargetInput, b: TargetInput, opts?: { wrap?: boolean; colourMatch?: boolean }): Promise<{ distance: number; ms: number }>
-  /** Fit the current project's colours to a reference (FR8.2; smart materials through their colour controls). */
-  fitColours(target: TargetInput, opts?: { samples?: number; rounds?: number }): Promise<{ before: number; after: number; rounds: number; project: Project }>
+	ready: boolean;
+	engine: Engine;
+	loadProject(project: unknown): Project;
+	getProject(): Project | null;
+	render(opts?: { samples?: number }): HeadlessRenderResult;
+	renderMaps(kinds?: MapKind[]): Record<string, string>;
+	/**
+	 * A mask as the last render left it (FR8.23), at the render's size (supersampled), rows bottom-to-top: per texel its
+	 * distance (px), random and feature flag. Null when nothing writes it.
+	 */
+	maskData(
+		name: string
+	): { width: number; height: number; distance: number[]; random: number[]; feature: number[] } | null;
+	/** Render the current project and score it against a reference. */
+	compare(target: TargetInput, opts?: CompareOptions): Promise<HeadlessCompareResult>;
+	/** Run a whole optimisation in-page; the current project becomes the best one. */
+	optimize(target: TargetInput, opts?: HeadlessOptimizeOptions): Promise<HeadlessOptimizeResult>;
+	/** Step-wise optimisation (lets the harness print progress): start → step(n)… → finish. */
+	optimizeStart(target: TargetInput, opts?: HeadlessOptimizeOptions): Promise<HeadlessOptimizeStart>;
+	optimizeStep(steps?: number): Promise<StepInfo[]>;
+	/** The best project so far (without finishing). */
+	optimizeBest(): { project: Project; loss: number } | null;
+	/** GPU objects alive (three.js renderer.info.memory) — for spotting leaks. */
+	memoryInfo(): { textures: number; geometries: number };
+	optimizeFinish(): Promise<HeadlessOptimizeResult>;
+	/** WebGL renderer string (to confirm GPU vs SwiftShader). */
+	rendererInfo(): string;
+	/** The final image as a project preview (FR8.20; render first) — undefined before anything has rendered. */
+	preview(): string | undefined;
+	/**
+	 * Compile generator shaders ahead of use, all at once (parallel where the browser can); returns the wall time.
+	 * `cold`: salt the shaders first, so neither the browser's nor the driver's shader cache can answer.
+	 */
+	precompile(types: string[], opts?: { cold?: boolean }): Promise<{ ms: number; parallel: boolean }>;
+	/** Automatic emulation of a reference (templates → race → optimise); the best becomes the current project. */
+	emulate(target: TargetInput, opts?: EmulateOptions): Promise<HeadlessEmulateResult>;
+	/**
+	 * VGG texture distance of `a` to `b` (same size; `colourMatch` first matches a's colours to b's, as the metric's
+	 * texture term does) — for checking the GPU network against a reference implementation.
+	 */
+	textureDistance(
+		a: TargetInput,
+		b: TargetInput,
+		opts?: { wrap?: boolean; colourMatch?: boolean }
+	): Promise<{ distance: number; ms: number }>;
+	/** Fit the current project's colours to a reference (FR8.2; smart materials through their colour controls). */
+	fitColours(
+		target: TargetInput,
+		opts?: { samples?: number; rounds?: number }
+	): Promise<{ before: number; after: number; rounds: number; project: Project }>;
 }
 
 export interface HeadlessEmulateResult extends EmulateResult {
-  renderPng: string
-  targetPng: string
-  diffPng: string
+	renderPng: string;
+	targetPng: string;
+	diffPng: string;
 }
 
 declare global {
-  interface Window {
-    __bismith?: BismithHeadless
-  }
+	interface Window {
+		__bismith?: BismithHeadless;
+	}
 }
 
 function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
+	const bin = atob(b64);
+	const out = new Uint8Array(bin.length);
+	for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+	return out;
 }
 
 /** Decode a reference image to a MatchImage (sRGB 0..1). */
 export async function decodeTarget(t: TargetInput): Promise<MatchImage> {
-  if (typeof t !== 'string') {
-    const bytes = typeof t.rgba === 'string' ? base64ToBytes(t.rgba) : Uint8Array.from(t.rgba)
-    return fromRgba8(bytes, t.width, t.height)
-  }
-  const blob = await (await fetch(t)).blob()
-  const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
-  const canvas = document.createElement('canvas')
-  canvas.width = bmp.width
-  canvas.height = bmp.height
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
-  ctx.drawImage(bmp, 0, 0)
-  const data = ctx.getImageData(0, 0, bmp.width, bmp.height).data
-  bmp.close()
-  return fromRgba8(data, canvas.width, canvas.height)
+	if (typeof t !== 'string') {
+		const bytes = typeof t.rgba === 'string' ? base64ToBytes(t.rgba) : Uint8Array.from(t.rgba);
+		return fromRgba8(bytes, t.width, t.height);
+	}
+	const blob = await (await fetch(t)).blob();
+	const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+	const canvas = document.createElement('canvas');
+	canvas.width = bmp.width;
+	canvas.height = bmp.height;
+	const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+	ctx.drawImage(bmp, 0, 0);
+	const data = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+	bmp.close();
+	return fromRgba8(data, canvas.width, canvas.height);
 }
 
 function imagePng(img: MatchImage): string {
-  return pixelsToDataURL(toRgba8(img), img.width, img.height)
+	return pixelsToDataURL(toRgba8(img), img.width, img.height);
 }
 
-function compareResult(matcher: Matcher, render: MatchImage, samples: number, t0: number, diffGain = 2): HeadlessCompareResult {
-  const fitted = matcher.fit(render)
-  const r = matcher.score(render)
-  return {
-    ...r,
-    renderPng: imagePng(fitted),
-    targetPng: imagePng(matcher.target),
-    diffPng: imagePng(absDiff(fitted, matcher.target, diffGain)),
-    samples,
-    ms: performance.now() - t0,
-  }
+function compareResult(
+	matcher: Matcher,
+	render: MatchImage,
+	samples: number,
+	t0: number,
+	diffGain = 2
+): HeadlessCompareResult {
+	const fitted = matcher.fit(render);
+	const r = matcher.score(render);
+	return {
+		...r,
+		renderPng: imagePng(fitted),
+		targetPng: imagePng(matcher.target),
+		diffPng: imagePng(absDiff(fitted, matcher.target, diffGain)),
+		samples,
+		ms: performance.now() - t0
+	};
 }
 
 export function installHeadless(engine: Engine): BismithHeadless {
-  let project: Project | null = null
-  let session: { optimizer: Optimizer; matcher: Matcher; opts: HeadlessOptimizeOptions } | null = null
+	let project: Project | null = null;
+	let session: { optimizer: Optimizer; matcher: Matcher; opts: HeadlessOptimizeOptions } | null = null;
 
-  const need = () => {
-    if (!project) throw new Error('loadProject first')
-    return project
-  }
+	const need = () => {
+		if (!project) throw new Error('loadProject first');
+		return project;
+	};
 
-  const api: BismithHeadless = {
-    ready: true,
-    engine,
-    loadProject(p) {
-      project = normalizeProject(typeof p === 'string' ? JSON.parse(p) : p)
-      engine.setProject(project)
-      return project
-    },
-    getProject: () => project,
-    render(opts = {}) {
-      const p = need()
-      const t0 = performance.now()
-      engine.renderNow(opts.samples ?? p.render.maxSamples)
-      const { width, height, pixels } = mapPixels(engine, 'final')
-      return {
-        width,
-        height,
-        png: pixelsToDataURL(pixels, width, height),
-        samples: engine.tracer.samples,
-        ms: performance.now() - t0,
-        errors: engine.stats.errors,
-      }
-    },
-    maskData(name) {
-      const tex = engine.material.maskTexture(name)
-      if (!tex) return null
-      const { width, height } = engine.material.size
-      const d = engine.gpu.readTexture(tex, width, height)
-      const pick = (c: number) => Array.from({ length: width * height }, (_, i) => d[i * 4 + c])
-      return { width, height, distance: pick(0), random: pick(1), feature: pick(2) }
-    },
+	const api: BismithHeadless = {
+		ready: true,
+		engine,
+		loadProject(p) {
+			project = normalizeProject(typeof p === 'string' ? JSON.parse(p) : p);
+			engine.setProject(project);
+			return project;
+		},
+		getProject: () => project,
+		render(opts = {}) {
+			const p = need();
+			const t0 = performance.now();
+			engine.renderNow(opts.samples ?? p.render.maxSamples);
+			const { width, height, pixels } = mapPixels(engine, 'final');
+			return {
+				width,
+				height,
+				png: pixelsToDataURL(pixels, width, height),
+				samples: engine.tracer.samples,
+				ms: performance.now() - t0,
+				errors: engine.stats.errors
+			};
+		},
+		maskData(name) {
+			const tex = engine.material.maskTexture(name);
+			if (!tex) return null;
+			const { width, height } = engine.material.size;
+			const d = engine.gpu.readTexture(tex, width, height);
+			const pick = (c: number) => Array.from({ length: width * height }, (_, i) => d[i * 4 + c]);
+			return { width, height, distance: pick(0), random: pick(1), feature: pick(2) };
+		},
 
-    renderMaps(kinds = ['diffuse', 'height', 'roughness', 'specular', 'ao', 'normal-gl', 'emissive', 'opacity']) {
-      const out: Record<string, string> = {}
-      for (const k of kinds) {
-        const { width, height, pixels } = mapPixels(engine, k)
-        out[k] = pixelsToDataURL(pixels, width, height)
-      }
-      return out
-    },
+		renderMaps(kinds = ['diffuse', 'height', 'roughness', 'specular', 'ao', 'normal-gl', 'emissive', 'opacity']) {
+			const out: Record<string, string> = {};
+			for (const k of kinds) {
+				const { width, height, pixels } = mapPixels(engine, k);
+				out[k] = pixelsToDataURL(pixels, width, height);
+			}
+			return out;
+		},
 
-    async compare(target, opts = {}) {
-      const p = need()
-      const t0 = performance.now()
-      const img = await decodeTarget(target)
-      // Same matcher as the Match workspace: periodic comparison for tileable projects, the VGG texture term
-      // whenever the preset weights it.
-      const matcher = new Matcher(img, { wrap: p.tileable, window: !p.tileable, ...opts, size: opts.size ?? [p.width, p.height] })
-      await attachTexture(engine, matcher, opts.wrap ?? p.tileable)
-      const samples = opts.samples ?? p.render.maxSamples
-      try {
-        return compareResult(matcher, renderToMatchImage(engine, p, samples), samples, t0, opts.diffGain)
-      } finally {
-        matcher.dispose()
-      }
-    },
+		async compare(target, opts = {}) {
+			const p = need();
+			const t0 = performance.now();
+			const img = await decodeTarget(target);
+			// Same matcher as the Match workspace: periodic comparison for tileable projects, the VGG texture term
+			// whenever the preset weights it.
+			const matcher = new Matcher(img, {
+				wrap: p.tileable,
+				window: !p.tileable,
+				...opts,
+				size: opts.size ?? [p.width, p.height]
+			});
+			await attachTexture(engine, matcher, opts.wrap ?? p.tileable);
+			const samples = opts.samples ?? p.render.maxSamples;
+			try {
+				return compareResult(matcher, renderToMatchImage(engine, p, samples), samples, t0, opts.diffGain);
+			} finally {
+				matcher.dispose();
+			}
+		},
 
-    async optimizeStart(target, opts = {}) {
-      const p = need()
-      const img = await decodeTarget(target)
-      const matcher = new Matcher(img, { wrap: p.tileable, window: !p.tileable, ...opts.metric, size: opts.metric?.size ?? [p.width, p.height] })
-      await attachTexture(engine, matcher, opts.metric?.wrap ?? p.tileable)
-      const samples = opts.samples ?? 16
-      const optimizer = new Optimizer(p, makeEvaluator(engine, matcher, { samples }), { target: matcher.target, ...opts })
-      session?.matcher.dispose()
-      session = { optimizer, matcher, opts }
-      const initialLoss = await optimizer.init()
-      return { initialLoss, entries: optimizer.space.entries.length, width: matcher.width, height: matcher.height }
-    },
+		async optimizeStart(target, opts = {}) {
+			const p = need();
+			const img = await decodeTarget(target);
+			const matcher = new Matcher(img, {
+				wrap: p.tileable,
+				window: !p.tileable,
+				...opts.metric,
+				size: opts.metric?.size ?? [p.width, p.height]
+			});
+			await attachTexture(engine, matcher, opts.metric?.wrap ?? p.tileable);
+			const samples = opts.samples ?? 16;
+			const optimizer = new Optimizer(p, makeEvaluator(engine, matcher, { samples }), {
+				target: matcher.target,
+				...opts
+			});
+			session?.matcher.dispose();
+			session = { optimizer, matcher, opts };
+			const initialLoss = await optimizer.init();
+			return { initialLoss, entries: optimizer.space.entries.length, width: matcher.width, height: matcher.height };
+		},
 
-    async optimizeStep(steps = 1) {
-      if (!session) throw new Error('optimizeStart first')
-      return session.optimizer.run(steps)
-    },
+		async optimizeStep(steps = 1) {
+			if (!session) throw new Error('optimizeStart first');
+			return session.optimizer.run(steps);
+		},
 
-    optimizeBest() {
-      if (!session) return null
-      const b = session.optimizer.best
-      return { project: b.project, loss: b.loss }
-    },
+		optimizeBest() {
+			if (!session) return null;
+			const b = session.optimizer.best;
+			return { project: b.project, loss: b.loss };
+		},
 
-    async optimizeFinish() {
-      if (!session) throw new Error('optimizeStart first')
-      const { optimizer, matcher, opts } = session
-      const best = optimizer.best
-      const t0 = performance.now()
-      const finalSamples = opts.finalSamples ?? 64
-      api.loadProject(best.project)
-      const compare = compareResult(matcher, renderToMatchImage(engine, project!, finalSamples), finalSamples, t0)
-      session = null
-      return {
-        bestProject: best.project,
-        bestLoss: best.loss,
-        initialLoss: optimizer.initialLoss ?? best.loss,
-        evaluations: optimizer.evaluations,
-        history: optimizer.history,
-        compare,
-      }
-    },
+		async optimizeFinish() {
+			if (!session) throw new Error('optimizeStart first');
+			const { optimizer, matcher, opts } = session;
+			const best = optimizer.best;
+			const t0 = performance.now();
+			const finalSamples = opts.finalSamples ?? 64;
+			api.loadProject(best.project);
+			const compare = compareResult(matcher, renderToMatchImage(engine, project!, finalSamples), finalSamples, t0);
+			session = null;
+			return {
+				bestProject: best.project,
+				bestLoss: best.loss,
+				initialLoss: optimizer.initialLoss ?? best.loss,
+				evaluations: optimizer.evaluations,
+				history: optimizer.history,
+				compare
+			};
+		},
 
-    async optimize(target, opts = {}) {
-      await api.optimizeStart(target, opts)
-      await api.optimizeStep(opts.iters ?? 30)
-      return api.optimizeFinish()
-    },
+		async optimize(target, opts = {}) {
+			await api.optimizeStart(target, opts);
+			await api.optimizeStep(opts.iters ?? 30);
+			return api.optimizeFinish();
+		},
 
-    rendererInfo: () => rendererString(engine),
-    preview: () => capturePreview(engine),
-    memoryInfo: () => ({ ...engine.gpu.renderer.info.memory }),
-    async precompile(types, opts = {}) {
-      if (opts.cold) engine.setShaderSalt(`${Date.now()}-${Math.random()}`)
-      const t = performance.now()
-      await engine.precompile(types)
-      return { ms: performance.now() - t, parallel: engine.parallelCompile }
-    },
+		rendererInfo: () => rendererString(engine),
+		preview: () => capturePreview(engine),
+		memoryInfo: () => ({ ...engine.gpu.renderer.info.memory }),
+		async precompile(types, opts = {}) {
+			if (opts.cold) engine.setShaderSalt(`${Date.now()}-${Math.random()}`);
+			const t = performance.now();
+			await engine.precompile(types);
+			return { ms: performance.now() - t, parallel: engine.parallelCompile };
+		},
 
-    async fitColours(target, opts = {}) {
-      const p = need()
-      const img = await decodeTarget(target)
-      const matcher = new Matcher(img, { preset: 'tile', wrap: p.tileable, window: !p.tileable, size: [p.width, p.height] })
-      await attachTexture(engine, matcher, p.tileable)
-      // Palette snap off while fitting (a quantised render moves in steps), back as it was afterwards.
-      const snap = (q: Project, on: boolean): Project => ({ ...q, post: q.post.map((f) => (f.type === 'palette' ? { ...f, enabled: on && f.enabled } : f)) })
-      const palOn = new Map(p.post.map((f) => [f.id, f.enabled]))
-      const r = await fitColoursImpl(snap(p, false), matcher, (q) => renderToMatchImage(engine, q, opts.samples ?? 16), { rounds: opts.rounds }).finally(() =>
-        matcher.dispose(),
-      )
-      const fitted = { ...r.project, post: r.project.post.map((f) => ({ ...f, enabled: palOn.get(f.id) ?? f.enabled })) }
-      api.loadProject(fitted)
-      return { before: r.before, after: r.after, rounds: r.rounds, project: project! }
-    },
+		async fitColours(target, opts = {}) {
+			const p = need();
+			const img = await decodeTarget(target);
+			const matcher = new Matcher(img, {
+				preset: 'tile',
+				wrap: p.tileable,
+				window: !p.tileable,
+				size: [p.width, p.height]
+			});
+			await attachTexture(engine, matcher, p.tileable);
+			// Palette snap off while fitting (a quantised render moves in steps), back as it was afterwards.
+			const snap = (q: Project, on: boolean): Project => ({
+				...q,
+				post: q.post.map((f) => (f.type === 'palette' ? { ...f, enabled: on && f.enabled } : f))
+			});
+			const palOn = new Map(p.post.map((f) => [f.id, f.enabled]));
+			const r = await fitColoursImpl(
+				snap(p, false),
+				matcher,
+				(q) => renderToMatchImage(engine, q, opts.samples ?? 16),
+				{ rounds: opts.rounds }
+			).finally(() => matcher.dispose());
+			const fitted = {
+				...r.project,
+				post: r.project.post.map((f) => ({ ...f, enabled: palOn.get(f.id) ?? f.enabled }))
+			};
+			api.loadProject(fitted);
+			return { before: r.before, after: r.after, rounds: r.rounds, project: project! };
+		},
 
-    async textureDistance(a, b, opts = {}) {
-      const net = await TextureNet.load(engine.gpu)
-      const ia = await decodeTarget(a)
-      const ib = await decodeTarget(b)
-      const t0 = performance.now()
-      const distance = net.compare(opts.colourMatch ? matchHistogram(ia, ib) : ia, ib, opts.wrap ?? true)
-      return { distance, ms: performance.now() - t0 }
-    },
+		async textureDistance(a, b, opts = {}) {
+			const net = await TextureNet.load(engine.gpu);
+			const ia = await decodeTarget(a);
+			const ib = await decodeTarget(b);
+			const t0 = performance.now();
+			const distance = net.compare(opts.colourMatch ? matchHistogram(ia, ib) : ia, ib, opts.wrap ?? true);
+			return { distance, ms: performance.now() - t0 };
+		},
 
-    async emulate(target, opts = {}) {
-      const img = await decodeTarget(target)
-      const result = await runEmulate(engine, img, opts)
-      api.loadProject(result.bestProject)
-      const matcher = new Matcher(img, { weights: result.final.weights, size: [img.width, img.height], maxSize: 4096 })
-      const render = renderToMatchImage(engine, project!, opts.finalSamples ?? 128)
-      const c = compareResult(matcher, render, opts.finalSamples ?? 128, performance.now(), 2)
-      return { ...result, renderPng: c.renderPng, targetPng: c.targetPng, diffPng: c.diffPng }
-    },
-  }
-  window.__bismith = api
-  return api
+		async emulate(target, opts = {}) {
+			const img = await decodeTarget(target);
+			const result = await runEmulate(engine, img, opts);
+			api.loadProject(result.bestProject);
+			const matcher = new Matcher(img, { weights: result.final.weights, size: [img.width, img.height], maxSize: 4096 });
+			const render = renderToMatchImage(engine, project!, opts.finalSamples ?? 128);
+			const c = compareResult(matcher, render, opts.finalSamples ?? 128, performance.now(), 2);
+			return { ...result, renderPng: c.renderPng, targetPng: c.targetPng, diffPng: c.diffPng };
+		}
+	};
+	window.__bismith = api;
+	return api;
 }
 
 export function rendererString(engine: Engine): string {
-  const gl = engine.gpu.gl
-  const ext = gl.getExtension('WEBGL_debug_renderer_info')
-  return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER))
+	const gl = engine.gpu.gl;
+	const ext = gl.getExtension('WEBGL_debug_renderer_info');
+	return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
 }
 
 /** Minimal page for ?headless: a hidden canvas and the API (plus the job loop in worker mode). */
 export function bootHeadless(root: HTMLElement): void {
-  const canvas = document.createElement('canvas')
-  canvas.width = 64
-  canvas.height = 64
-  root.appendChild(canvas)
-  const engine = new Engine(canvas)
-  // No interactive loop: nothing is displayed, and its frames would trace between API calls.
-  engine.suspend()
-  const api = installHeadless(engine)
-  const worker = new URLSearchParams(location.search).get('worker')
-  if (worker !== null) void workerLoop(api, worker)
+	const canvas = document.createElement('canvas');
+	canvas.width = 64;
+	canvas.height = 64;
+	root.appendChild(canvas);
+	const engine = new Engine(canvas);
+	// No interactive loop: nothing is displayed, and its frames would trace between API calls.
+	engine.suspend();
+	const api = installHeadless(engine);
+	const worker = new URLSearchParams(location.search).get('worker');
+	if (worker !== null) void workerLoop(api, worker);
 }
 
 /**
@@ -367,38 +409,44 @@ export function bootHeadless(root: HTMLElement): void {
  * long-poll queue, run `window.__bismith[method](...args)`, post `{ id, ok, result | error }` back.
  */
 async function workerLoop(api: BismithHeadless, worker: string): Promise<void> {
-  const q = `?worker=${encodeURIComponent(worker)}`
-  const post = (path: string, body: unknown) =>
-    fetch(`/__bismith/${path}${q}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-  const forward = (level: string) => {
-    const orig = console[level as 'error']
-    console[level as 'error'] = (...a: unknown[]) => {
-      orig.apply(console, a)
-      void post('log', { level, text: a.map((x) => (x instanceof Error ? x.message : String(x))).join(' ') }).catch(() => {})
-    }
-  }
-  forward('error')
-  forward('warn')
-  window.addEventListener('error', (e) => void post('log', { level: 'pageerror', text: e.message }).catch(() => {}))
-  await post('hello', { renderer: api.rendererInfo() })
-  const methods = api as unknown as Record<string, (...a: unknown[]) => unknown>
-  for (;;) {
-    let job: { id: number; method: string; args: unknown[] } | null = null
-    try {
-      const res = await fetch(`/__bismith/job${q}`)
-      if (res.status !== 200) continue
-      job = await res.json()
-    } catch {
-      await new Promise((r) => setTimeout(r, 1000))
-      continue
-    }
-    if (!job) continue
-    try {
-      if (typeof methods[job.method] !== 'function') throw new Error(`unknown method ${job.method}`)
-      const result = await methods[job.method](...job.args)
-      await post('result', { id: job.id, ok: true, result: result === undefined ? null : result })
-    } catch (e) {
-      await post('result', { id: job.id, ok: false, error: e instanceof Error ? e.message : String(e) })
-    }
-  }
+	const q = `?worker=${encodeURIComponent(worker)}`;
+	const post = (path: string, body: unknown) =>
+		fetch(`/__bismith/${path}${q}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body)
+		});
+	const forward = (level: string) => {
+		const orig = console[level as 'error'];
+		console[level as 'error'] = (...a: unknown[]) => {
+			orig.apply(console, a);
+			void post('log', { level, text: a.map((x) => (x instanceof Error ? x.message : String(x))).join(' ') }).catch(
+				() => {}
+			);
+		};
+	};
+	forward('error');
+	forward('warn');
+	window.addEventListener('error', (e) => void post('log', { level: 'pageerror', text: e.message }).catch(() => {}));
+	await post('hello', { renderer: api.rendererInfo() });
+	const methods = api as unknown as Record<string, (...a: unknown[]) => unknown>;
+	for (;;) {
+		let job: { id: number; method: string; args: unknown[] } | null = null;
+		try {
+			const res = await fetch(`/__bismith/job${q}`);
+			if (res.status !== 200) continue;
+			job = await res.json();
+		} catch {
+			await new Promise((r) => setTimeout(r, 1000));
+			continue;
+		}
+		if (!job) continue;
+		try {
+			if (typeof methods[job.method] !== 'function') throw new Error(`unknown method ${job.method}`);
+			const result = await methods[job.method](...job.args);
+			await post('result', { id: job.id, ok: true, result: result === undefined ? null : result });
+		} catch (e) {
+			await post('result', { id: job.id, ok: false, error: e instanceof Error ? e.message : String(e) });
+		}
+	}
 }

@@ -4,64 +4,79 @@
 // one band with a gap round it — for trim sheets and trim bands across larger walls. See greebleCommon.ts for the
 // relief / SDF output convention.
 
-import { P, gradient, type ParamDef, type ParamValues } from '@/core/params'
-import type { LayerDef } from '../types'
-import { GRB_GLSL, ORIENT } from './greebleCommon'
+import { P, gradient, type ParamDef, type ParamValues } from '@/core/params';
+import type { LayerDef } from '../types';
+import { GRB_GLSL, ORIENT } from './greebleCommon';
 
 // Option order is the uniform's index (the GLSL tests it): only append.
 export const BAND_PROFILES: [string, string][] = [
-  ['flat', 'Flat'],
-  ['bead', 'Bead (half round)'],
-  ['cove', 'Flute (concave channel)'],
-  ['ridge', 'Ridge (peak)'],
-  ['groove', 'Groove (V notch)'],
-  ['step', 'Step (bevelled plateau)'],
-  ['ramp_in', 'Chamfer rising inward'],
-  ['ramp_out', 'Chamfer falling inward'],
-  ['round_in', 'Quarter round rising inward'],
-  ['round_out', 'Quarter round falling inward'],
-  ['ogee_in', 'Ogee (S curve) rising inward'],
-  ['ogee_out', 'Ogee (S curve) falling inward'],
-  ['cove_in', 'Cove (concave quarter round) rising inward'],
-  ['cove_out', 'Cove (concave quarter round) falling inward'],
-]
+	['flat', 'Flat'],
+	['bead', 'Bead (half round)'],
+	['cove', 'Flute (concave channel)'],
+	['ridge', 'Ridge (peak)'],
+	['groove', 'Groove (V notch)'],
+	['step', 'Step (bevelled plateau)'],
+	['ramp_in', 'Chamfer rising inward'],
+	['ramp_out', 'Chamfer falling inward'],
+	['round_in', 'Quarter round rising inward'],
+	['round_out', 'Quarter round falling inward'],
+	['ogee_in', 'Ogee (S curve) rising inward'],
+	['ogee_out', 'Ogee (S curve) falling inward'],
+	['cove_in', 'Cove (concave quarter round) rising inward'],
+	['cove_out', 'Cove (concave quarter round) falling inward']
+];
 
 // The default moulding, in a 16-unit half fitted to the strip (Fit bands) and joined (Join bands): a low lip, a bead
 // rising from it, a cove up to a gently crowned face (the stretch band) with room above it for the heads.
 const BAND_DEFAULTS: [number, string, number, number][] = [
-  [2, 'flat', 0.2, 0],
-  [4, 'bead', 0.82, 0.2],
-  [2, 'cove_in', 0.42, 0.2],
-  [8, 'bead', 0.54, 0.42],
-  [0, 'flat', 0.5, 0],
-  [0, 'flat', 0.5, 0],
-]
+	[2, 'flat', 0.2, 0],
+	[4, 'bead', 0.82, 0.2],
+	[2, 'cove_in', 0.42, 0.2],
+	[8, 'bead', 0.54, 0.42],
+	[0, 'flat', 0.5, 0],
+	[0, 'flat', 0.5, 0]
+];
 
 const bandParams: ParamDef[] = BAND_DEFAULTS.flatMap(([h, prof, lvl, base], i) => {
-  const n = i + 1
-  const on = (p: Record<string, unknown>) => Number(p[`band${n}`]) > 0 || Number(p.fill) === n
-  return [
-    P.int(`band${n}`, `Band ${n}`, h, 0, 1024, { softMax: 64, unit: 'px', group: 'bands', hint: n === 1 ? 'Band heights from the outer edge (top, or both edges when mirrored); 0 = unused' : undefined }),
-    P.enum(`prof${n}`, `Band ${n} profile`, prof, BAND_PROFILES, { group: 'bands', showIf: on }),
-    P.float(`level${n}`, `Band ${n} level`, lvl, 0, 1, { step: 0.001, group: 'bands', showIf: on, hint: n === 1 ? 'The profile’s high point (a flat band’s height)' : undefined }),
-    P.float(`base${n}`, `Band ${n} base`, base, 0, 1, {
-      step: 0.001,
-      group: 'bands',
-      showIf: (p) => on(p) && p[`prof${n}`] !== 'flat',
-      hint: n === 1 || n === 2 ? 'The profile’s low point: it runs from Base up to Level. 0 sinks it to the bottom (a bead between dark creases); raise it to seat the profile on its neighbours' : undefined,
-    }),
-  ]
-})
+	const n = i + 1;
+	const on = (p: Record<string, unknown>) => Number(p[`band${n}`]) > 0 || Number(p.fill) === n;
+	return [
+		P.int(`band${n}`, `Band ${n}`, h, 0, 1024, {
+			softMax: 64,
+			unit: 'px',
+			group: 'bands',
+			hint: n === 1 ? 'Band heights from the outer edge (top, or both edges when mirrored); 0 = unused' : undefined
+		}),
+		P.enum(`prof${n}`, `Band ${n} profile`, prof, BAND_PROFILES, { group: 'bands', showIf: on }),
+		P.float(`level${n}`, `Band ${n} level`, lvl, 0, 1, {
+			step: 0.001,
+			group: 'bands',
+			showIf: on,
+			hint: n === 1 ? 'The profile’s high point (a flat band’s height)' : undefined
+		}),
+		P.float(`base${n}`, `Band ${n} base`, base, 0, 1, {
+			step: 0.001,
+			group: 'bands',
+			showIf: (p) => on(p) && p[`prof${n}`] !== 'flat',
+			hint:
+				n === 1 || n === 2
+					? 'The profile’s low point: it runs from Base up to Level. 0 sinks it to the bottom (a bead between dark creases); raise it to seat the profile on its neighbours'
+					: undefined
+		})
+	];
+});
 
-const hasDiv = (p: Record<string, unknown>) => Number(p.div_count) > 0
-const hasElem = (p: Record<string, unknown>) => p.elem !== 'none'
-const raisedElem = (p: Record<string, unknown>) => ['rivet', 'bolt', 'hex', 'screw'].includes(String(p.elem))
+const hasDiv = (p: Record<string, unknown>) => Number(p.div_count) > 0;
+const hasElem = (p: Record<string, unknown>) => p.elem !== 'none';
+const raisedElem = (p: Record<string, unknown>) =>
+	['rivet', 'bolt', 'hex', 'screw', 'allen', 'cross', 'allen_sunk', 'hex_sunk'].includes(String(p.elem));
 /** The situational note on element lengths while they scale with the bands. */
-const fitNote = (p: Record<string, unknown>) => (p.elem_fit ? 'In the bands’ units: scaled with them (Scale with bands)' : undefined)
-const holeElem = (p: Record<string, unknown>) => ['slot', 'vslot', 'hole', 'square'].includes(String(p.elem))
+const fitNote = (p: Record<string, unknown>) =>
+	p.elem_fit ? 'In the bands’ units: scaled with them (Scale with bands)' : undefined;
+const holeElem = (p: Record<string, unknown>) => ['slot', 'vslot', 'hole', 'square'].includes(String(p.elem));
 
 /** Default colour: worn brass, dark in the seams and creases, bright on the beads and heads. */
-const TRIM_RAMP = gradient('#15110c', '#43372a', '#76623f', '#a68a58', '#d6bd86')
+const TRIM_RAMP = gradient('#15110c', '#43372a', '#76623f', '#a68a58', '#d6bd86');
 
 /**
  * What a Trim layer added in the editor starts with (LayerDef.fresh): the default moulding sized to the texture — one
@@ -69,155 +84,378 @@ const TRIM_RAMP = gradient('#15110c', '#43372a', '#76623f', '#a68a58', '#d6bd86'
  * textures run vertically), plates about three strip heights long, grooves and the Edge bevel in proportion.
  */
 export function trimFresh({ width, height }: { width: number; height: number }): ParamValues {
-  const vert = height > width
-  const along = vert ? height : width
-  const across = vert ? width : height
-  const strips = across <= 96 ? 1 : Math.max(1, Math.round(across / 64))
-  const H = Math.max(1, Math.floor(across / strips))
-  const half = (x: number, lo: number) => Math.max(lo, Math.round(x * 2) / 2)
-  return {
-    orient: vert ? 'vertical' : 'horizontal',
-    strips,
-    div_count: Math.max(1, Math.round(along / (3 * H))),
-    div_width: half(H / 20, 1),
-    bevel: half(H / 21, 1),
-  }
+	const vert = height > width;
+	const along = vert ? height : width;
+	const across = vert ? width : height;
+	const strips = across <= 96 ? 1 : Math.max(1, Math.round(across / 64));
+	const H = Math.max(1, Math.floor(across / strips));
+	const half = (x: number, lo: number) => Math.max(lo, Math.round(x * 2) / 2);
+	return {
+		orient: vert ? 'vertical' : 'horizontal',
+		strips,
+		div_count: Math.max(1, Math.round(along / (3 * H))),
+		div_width: half(H / 20, 1),
+		bevel: half(H / 21, 1)
+	};
 }
 
 export const trimLayer: LayerDef = {
-  type: 'trim',
-  label: 'Trim strip',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  // The relief writes its shape to the mask only when it is given one (mask_shape); the shape outputs always do.
-  maskWrite: (p) => (p.output !== 'relief' || p.mask_shape !== 'none' ? 'shape' : false),
-  description: 'Moulding / trim strip: stacked profiled bands (bead, cove, ogee, groove, step…), dividers and a row of rivets, bolts, screws, slots or holes; one strip across the texture, several stacked, or a band with a gap round it. Tileable.',
-  params: [
-    P.enum('output', 'Output', 'relief', [
-      ['relief', 'Relief (all, value)'],
-      ['blocks', 'Blocks between dividers (shape)'],
-      ['dividers', 'Dividers (shape)'],
-      ['elements', 'Rivets / slots (shape)'],
-      ['band', 'One band (shape)'],
-      ['strip', 'Strip material (shape)'],
-    ], { hint: 'Relief composes bands, dividers and elements into one height value. Shapes give one element class as an SDF. Strip material: the strips less their holes and seams' }),
-    P.enum('mask_shape', 'Shape for the mask', 'strip', [
-      ['none', 'None (left as it was)'],
-      ['strip', 'Strip material'],
-      ['blocks', 'Blocks'],
-      ['dividers', 'Dividers'],
-      ['elements', 'Rivets / slots'],
-      ['band', 'One band'],
-    ], {
-      showIf: (p) => p.output === 'relief',
-      hint: 'The shape the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to or bevel from: Strip material is the strips less their holes and seams (chip their edges, dirt in the cuts); Rivets / slots, a band or the dividers let one layer’s colour or roughness land on just those — no second Trim layer needed',
-    }),
-    P.enum('orient', 'Direction', 'horizontal', ORIENT),
-    P.bool('mirror', 'Mirror', true, { hint: 'Bands run from both edges to the centre line' }),
-    P.int('fill', 'Stretch band', 4, 0, 6, { hint: 'This band grows to fill the remaining height (0 = none: the last band\'s level continues)' }),
-    P.int('sel_band', 'Band (output)', 1, 1, 6, { showIf: (p) => p.output === 'band' || (p.output === 'relief' && p.mask_shape === 'band') }),
-    P.seed(),
-    P.int('strips', 'Strips', 1, 1, 256, { softMax: 32, hint: 'Strips stacked across the texture, each a copy of the band stack in an equal share (a trim sheet, ribbed panelling)' }),
-    P.int('strip_h', 'Strip height', 0, 0, 4096, { softMax: 256, unit: 'px', hint: 'Height of each strip; 0 fills its share. Smaller leaves a gap round it that the layer leaves alone — a trim band across a wall' }),
-    P.float('strip_pos', 'Strip position', 0.5, 0, 1, { step: 0.001, hint: 'Centre of the strips across, as a fraction of their share (0.5 = centred, 0 / 1 = on the top or left edge; wraps). Moves a lone trim band up or down the wall' }),
-    P.float('strip_var', 'Strip variety', 0.6, 0, 1, { step: 0.001, showIf: (p) => Number(p.strips) > 1, hint: 'Each strip by its own random halves or doubles its plates, runs plain (no dividers), goes without elements or takes other profiles for its shaped bands — more of them the higher this is, so a stack of strips reads as a trim sheet rather than one strip repeated' }),
-    P.float('strip_alt', 'Alternate heights', 0.3, 0, 0.9, { step: 0.001, showIf: (p) => Number(p.strips) > 1, hint: 'Pairs of strips split their two shares unevenly — a broad strip, then a narrow one (0 = all the same). An even strip count tiles' }),
-    P.float('strip_stagger', 'Stagger', 0.5, 0, 1, { step: 0.001, showIf: (p) => Number(p.strips) > 1, hint: 'Alternate strips shift along by this share of a block (of the element spacing without dividers), like brick courses. An even strip count tiles' }),
-    P.bool('band_fit', 'Fit bands to strip', true, {
-      group: 'bands',
-      hint: 'Scale the band stack so that it spans the strip (both halves when mirrored): the heights become proportions, and the moulding grows and shrinks with Strip height. Off: the heights are px (× Band scale)',
-    }),
-    P.float('band_scale', 'Band scale', 1, 0.05, 64, { softMin: 0.25, softMax: 8, step: 0.01, group: 'bands', showIf: (p) => !p.band_fit, hint: 'Multiplies every band height (rounded to whole px): a moulding designed small, made bold' }),
-    P.bool('band_chain', 'Join bands', true, {
-      group: 'bands',
-      hint: 'Each band but a flat one starts where the band before it ends — its Base, or for flutes, grooves and the falling profiles its Level — keeping its own rise (Level − Base), so ridges, steps and grooves run on from their neighbours instead of jumping',
-    }),
-    ...bandParams,
-    P.int('div_count', 'Dividers', 3, 0, 256, { softMax: 32, group: 'dividers', hint: 'Dividers along the tile (blocks between them get their own random)' }),
-    P.enum('div_style', 'Style', 'groove', [['groove', 'Groove (bevelled blocks)'], ['seam', 'Seam line'], ['bar', 'Raised bar']], { group: 'dividers', showIf: hasDiv }),
-    P.enum('div_prof', 'Profile', 'v', [
-      ['bevel', 'Edge bevel', 'the blocks bevel down into a groove, a bar bevels up from its edges, by the layer’s Edge › Bevel'],
-      ['square', 'Square', 'straight walls'],
-      ['v', 'V', 'a V channel or ridge across the whole width'],
-      ['round', 'Round', 'a half-round channel or bar across the whole width'],
-    ], { group: 'dividers', showIf: (p) => hasDiv(p) && p.div_style !== 'seam', hint: 'Cross-section of a groove or bar. V and Round keep the full Width whatever the Edge bevel' }),
-    P.bool('div_return', 'Frame the blocks', true, {
-      group: 'dividers',
-      showIf: hasDiv,
-      hint: 'The bands turn the corner at the dividers and run across the block ends too, mitred, so every block is a framed plate (the innermost band is its face)',
-    }),
-    P.float('div_width', 'Width', 1, 0, 256, { softMax: 16, unit: 'px', step: 0.5, group: 'dividers', showIf: hasDiv }),
-    P.float('div_depth', 'Depth', 0.7, 0, 1, { step: 0.001, group: 'dividers', showIf: hasDiv, hint: 'How far a groove or seam sinks (1 = to the bottom), or how high a bar rises (1 = to the top)' }),
-    P.float('div_inset', 'Inset', 0, 0, 2048, { softMax: 64, unit: 'px', step: 0.5, group: 'dividers', showIf: hasDiv, hint: 'Gap between the divider ends and the strip edges' }),
-    P.float('div_offset', 'Offset', 0, 0, 1, { step: 0.001, group: 'dividers', showIf: hasDiv }),
-    P.float('div_var', 'Length variation', 0.25, 0, 1, { step: 0.001, group: 'dividers', showIf: hasDiv, hint: 'Moves each divider at random (by up to 45% of a block) so the blocks differ in length' }),
-    P.enum('elem', 'Element', 'rivet', [
-      ['none', 'None'],
-      ['rivet', 'Rivet'],
-      ['bolt', 'Bolt'],
-      ['slot', 'Slot (along)'],
-      ['vslot', 'Slot (across)'],
-      ['hole', 'Round hole'],
-      ['square', 'Square hole'],
-      ['hex', 'Hex bolt head'],
-      ['screw', 'Slotted screw'],
-    ], { group: 'elements' }),
-    P.bool('elem_fit', 'Scale with bands', true, {
-      group: 'elements',
-      showIf: hasElem,
-      hint: 'Element sizes, spacing, insets and fillet are in the bands’ units and scale with them (Fit bands, or Band scale), so the heads grow with the moulding',
-    }),
-    P.enum('elem_layout', 'Spacing', 'block', [['even', 'Even along the tile'], ['block', 'Within each block']], { group: 'elements', showIf: hasElem, hint: 'Within each block: Count elements from Inset to Inset between dividers' }),
-    P.int('elem_count', 'Count', 8, 1, 512, { softMax: 64, group: 'elements', showIf: (p) => hasElem(p) && !(Number(p.elem_pitch) > 0), hint: 'Per row along the tile (or per block)' }),
-    P.float('elem_pitch', 'Pitch', 14.5, 0, 2048, { softMax: 128, unit: 'px', step: 0.5, note: fitNote, group: 'elements', showIf: hasElem, hint: 'Spacing between elements instead of a Count (0 = use Count): within blocks, longer blocks get more' }),
-    P.float('elem_inset', 'Inset', 3.5, 0, 2048, { softMax: 64, unit: 'px', step: 0.5, note: fitNote, group: 'elements', showIf: (p) => hasElem(p) && p.elem_layout === 'block', hint: 'Block edge (a framed block’s frame) to the first / last element centre. With a Pitch the row is centred and the inset is the least room left' }),
-    P.float('elem_size', 'Radius', 2.25, 0.5, 256, { softMax: 24, unit: 'px', step: 0.5, note: fitNote, group: 'elements', showIf: hasElem, hint: 'Radius, or half the slot / square / hex width' }),
-    P.float('elem_len', 'Slot length', 6, 1, 1024, { softMax: 64, unit: 'px', step: 0.5, note: fitNote, group: 'elements', showIf: (p) => p.elem === 'slot' || p.elem === 'vslot' }),
-    P.enum('elem_ref', 'Position on', 'face', [['strip', 'The strip'], ['face', 'The face (stretch band)']], { group: 'elements', showIf: hasElem, hint: 'What Position is a share of: the whole strip, or its face — the stretch band (else the innermost band), so the rows stay on it whatever the strip’s height' }),
-    P.float('elem_y', 'Position', 0.5, 0, 1, { step: 0.001, group: 'elements', showIf: hasElem, hint: 'Centre of the rows across the strip (or the face), 0 = top (left) edge' }),
-    P.int('elem_rows', 'Rows', 1, 1, 64, { softMax: 8, group: 'elements', showIf: hasElem }),
-    P.float('elem_row_gap', 'Row spacing', 8, 0, 2048, { softMax: 64, unit: 'px', step: 0.5, note: fitNote, group: 'elements', showIf: (p) => hasElem(p) && Number(p.elem_rows) > 1 }),
-    P.bool('elem_stagger', 'Stagger rows', false, { group: 'elements', showIf: (p) => hasElem(p) && Number(p.elem_rows) > 1 && p.elem_layout !== 'block', hint: 'Shift alternate rows half a step' }),
-    P.float('elem_offset', 'Offset', 0, 0, 1, { step: 0.001, group: 'elements', showIf: (p) => hasElem(p) && p.elem_layout !== 'block' }),
-    P.float('elem_height', 'Height', 0.46, 0, 1, { step: 0.001, group: 'elements', showIf: raisedElem, hint: 'Head height above the surface round it, in the relief’s 0…1 range, held under the room left above that surface (1 = all of it: up to the top) so a head stays round' }),
-    P.float('elem_depth', 'Depth', 1, 0, 1, { step: 0.001, group: 'elements', showIf: holeElem, hint: 'How far the holes / slots sink below the surface round them (1 = to the bottom)' }),
-    P.float('elem_turn', 'Turn', 1, 0, 1, { step: 0.001, group: 'elements', showIf: (p) => p.elem === 'hex' || p.elem === 'screw', hint: 'Random turn of each hex head or screw slot (0 = all aligned)' }),
-    P.float('elem_clear', 'Divider clearance', 1, 0, 2048, {
-      softMax: 32,
-      unit: 'px',
-      step: 0.5,
-      note: fitNote,
-      group: 'elements',
-      showIf: (p) => hasElem(p) && hasDiv(p),
-      hint: 'Keep the heads this far from the dividers — from the frame when the blocks are framed (0 = off: elements may sit on them). Evenly spaced ones that come closer are left out; within blocks the inset grows',
-    }),
-    P.float('elem_bevel', 'Fillet', 0.3, 0, 1, { softMax: 0.6, step: 0.01, group: 'elements', showIf: hasElem, hint: 'Rounds the walls of holes and slots, the seats round heads and the washers’ edges, as a share of the head’s radius (at least 1 px): the walls slope, floors dish and seats become countersinks, so they catch the light (0 = hard cuts)' }),
-    P.float('elem_chamfer', 'Chamfer', 0.25, 0, 1, { step: 0.01, group: 'elements', showIf: (p) => p.elem === 'hex', hint: 'How far the chamfer that rounds off a hex head’s corners reaches in, as a share of its radius: about 0.25 is a nut (six flats, corners clipped); larger, a rounder head' }),
-    P.float('elem_seat', 'Seat', 1, 0, 1, { step: 0.001, group: 'elements', showIf: raisedElem, hint: 'A fine sunken ring round each head (round a washer): the shadow line that makes small heads read' }),
-    P.float('elem_missing', 'Missing', 0, 0, 1, { step: 0.001, group: 'elements', showIf: hasElem, hint: 'Share of the elements left out at random; rivets, bolts and screws leave their empty hole' }),
-    P.float('elem_hole', 'Empty hole', 0.55, 0, 1, { step: 0.001, group: 'elements', showIf: (p) => raisedElem(p) && Number(p.elem_missing) > 0, hint: 'Radius of the hole a missing head leaves, as a share of the head’s radius (0 = no hole)' }),
-  ],
-  groups: [
-    { id: 'bands', label: 'Bands' },
-    { id: 'dividers', label: 'Dividers', collapsed: true },
-    { id: 'elements', label: 'Elements' },
-  ],
-  defaults: {
-    h_on: true,
-    h_amount: 0.6,
-    bevel: 3,
-    profile: 'smooth',
-    h_var: 0.3,
-    dif_on: true,
-    dif_src: 'value',
-    dif_jitter: 0.08,
-    dif_grad: TRIM_RAMP,
-  },
-  fresh: trimFresh,
-  glsl:
-    GRB_GLSL +
-    /* glsl */ `
+	type: 'trim',
+	label: 'Trim strip',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	// The relief writes its shape to the mask only when it is given one (mask_shape); the shape outputs always do.
+	maskWrite: (p) => (p.output !== 'relief' || p.mask_shape !== 'none' ? 'shape' : false),
+	description:
+		'Moulding / trim strip: stacked profiled bands (bead, cove, ogee, groove, step…), dividers and a row of rivets, bolts, screws, slots or holes; one strip across the texture, several stacked, or a band with a gap round it. Tileable.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'relief',
+			[
+				['relief', 'Relief (all, value)'],
+				['blocks', 'Blocks between dividers (shape)'],
+				['dividers', 'Dividers (shape)'],
+				['elements', 'Rivets / slots (shape)'],
+				['band', 'One band (shape)'],
+				['strip', 'Strip material (shape)']
+			],
+			{
+				hint: 'Relief composes bands, dividers and elements into one height value. Shapes give one element class as an SDF. Strip material: the strips less their holes and seams'
+			}
+		),
+		P.enum(
+			'mask_shape',
+			'Shape for the mask',
+			'strip',
+			[
+				['none', 'None (left as it was)'],
+				['strip', 'Strip material'],
+				['blocks', 'Blocks'],
+				['dividers', 'Dividers'],
+				['elements', 'Rivets / slots'],
+				['band', 'One band']
+			],
+			{
+				showIf: (p) => p.output === 'relief',
+				hint: 'The shape the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to or bevel from: Strip material is the strips less their holes and seams (chip their edges, dirt in the cuts); Rivets / slots, a band or the dividers let one layer’s colour or roughness land on just those — no second Trim layer needed'
+			}
+		),
+		P.enum('orient', 'Direction', 'horizontal', ORIENT),
+		P.bool('mirror', 'Mirror', true, { hint: 'Bands run from both edges to the centre line' }),
+		P.int('fill', 'Stretch band', 4, 0, 6, {
+			hint: "This band grows to fill the remaining height (0 = none: the last band's level continues)"
+		}),
+		P.int('sel_band', 'Band (output)', 1, 1, 6, {
+			showIf: (p) => p.output === 'band' || (p.output === 'relief' && p.mask_shape === 'band')
+		}),
+		P.seed(),
+		P.int('strips', 'Strips', 1, 1, 256, {
+			softMax: 32,
+			hint: 'Strips stacked across the texture, each a copy of the band stack in an equal share (a trim sheet, ribbed panelling)'
+		}),
+		P.int('strip_h', 'Strip height', 0, 0, 4096, {
+			softMax: 256,
+			unit: 'px',
+			hint: 'Height of each strip; 0 fills its share. Smaller leaves a gap round it that the layer leaves alone — a trim band across a wall'
+		}),
+		P.float('strip_pos', 'Strip position', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'Centre of the strips across, as a fraction of their share (0.5 = centred, 0 / 1 = on the top or left edge; wraps). Moves a lone trim band up or down the wall'
+		}),
+		P.float('strip_var', 'Strip variety', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.strips) > 1,
+			hint: 'Each strip by its own random halves or doubles its plates, runs plain (no dividers), goes without elements or takes other profiles for its shaped bands — more of them the higher this is, so a stack of strips reads as a trim sheet rather than one strip repeated'
+		}),
+		P.float('strip_alt', 'Alternate heights', 0.3, 0, 0.9, {
+			step: 0.001,
+			showIf: (p) => Number(p.strips) > 1,
+			hint: 'Pairs of strips split their two shares unevenly — a broad strip, then a narrow one (0 = all the same). An even strip count tiles'
+		}),
+		P.float('strip_stagger', 'Stagger', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.strips) > 1,
+			hint: 'Alternate strips shift along by this share of a block (of the element spacing without dividers), like brick courses. An even strip count tiles'
+		}),
+		P.bool('band_fit', 'Fit bands to strip', true, {
+			group: 'bands',
+			hint: 'Scale the band stack so that it spans the strip (both halves when mirrored): the heights become proportions, and the moulding grows and shrinks with Strip height. Off: the heights are px (× Band scale)'
+		}),
+		P.float('band_scale', 'Band scale', 1, 0.05, 64, {
+			softMin: 0.25,
+			softMax: 8,
+			step: 0.01,
+			group: 'bands',
+			showIf: (p) => !p.band_fit,
+			hint: 'Multiplies every band height (rounded to whole px): a moulding designed small, made bold'
+		}),
+		P.bool('band_chain', 'Join bands', true, {
+			group: 'bands',
+			hint: 'Each band but a flat one starts where the band before it ends — its Base, or for flutes, grooves and the falling profiles its Level — keeping its own rise (Level − Base), so ridges, steps and grooves run on from their neighbours instead of jumping'
+		}),
+		...bandParams,
+		P.int('div_count', 'Dividers', 3, 0, 256, {
+			softMax: 32,
+			group: 'dividers',
+			hint: 'Dividers along the tile (blocks between them get their own random)'
+		}),
+		P.enum(
+			'div_style',
+			'Style',
+			'groove',
+			[
+				['groove', 'Groove (bevelled blocks)'],
+				['seam', 'Seam line'],
+				['bar', 'Raised bar']
+			],
+			{ group: 'dividers', showIf: hasDiv }
+		),
+		P.enum(
+			'div_prof',
+			'Profile',
+			'v',
+			[
+				[
+					'bevel',
+					'Edge bevel',
+					'the blocks bevel down into a groove, a bar bevels up from its edges, by the layer’s Edge › Bevel'
+				],
+				['square', 'Square', 'straight walls'],
+				['v', 'V', 'a V channel or ridge across the whole width'],
+				['round', 'Round', 'a half-round channel or bar across the whole width']
+			],
+			{
+				group: 'dividers',
+				showIf: (p) => hasDiv(p) && p.div_style !== 'seam',
+				hint: 'Cross-section of a groove or bar. V and Round keep the full Width whatever the Edge bevel'
+			}
+		),
+		P.bool('div_return', 'Frame the blocks', true, {
+			group: 'dividers',
+			showIf: hasDiv,
+			hint: 'The bands turn the corner at the dividers and run across the block ends too, mitred, so every block is a framed plate (the innermost band is its face)'
+		}),
+		P.float('div_width', 'Width', 1, 0, 256, { softMax: 16, unit: 'px', step: 0.5, group: 'dividers', showIf: hasDiv }),
+		P.float('div_depth', 'Depth', 0.7, 0, 1, {
+			step: 0.001,
+			group: 'dividers',
+			showIf: hasDiv,
+			hint: 'How far a groove or seam sinks (1 = to the bottom), or how high a bar rises (1 = to the top)'
+		}),
+		P.float('div_inset', 'Inset', 0, 0, 2048, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.5,
+			group: 'dividers',
+			showIf: hasDiv,
+			hint: 'Gap between the divider ends and the strip edges'
+		}),
+		P.float('div_offset', 'Offset', 0, 0, 1, { step: 0.001, group: 'dividers', showIf: hasDiv }),
+		P.float('div_var', 'Length variation', 0.25, 0, 1, {
+			step: 0.001,
+			group: 'dividers',
+			showIf: hasDiv,
+			hint: 'Moves each divider at random (by up to 45% of a block) so the blocks differ in length'
+		}),
+		P.enum(
+			'elem',
+			'Element',
+			'rivet',
+			[
+				['none', 'None'],
+				['rivet', 'Rivet'],
+				['bolt', 'Bolt'],
+				['slot', 'Slot (along)'],
+				['vslot', 'Slot (across)'],
+				['hole', 'Round hole'],
+				['square', 'Square hole'],
+				['hex', 'Hex head', 'a hex head, its corners chamfered (greebleCommon’s fastener heads)'],
+				['screw', 'Slotted screw'],
+				['allen', 'Allen bolt', 'a round cap head with a hex socket (greebleCommon’s fastener heads)'],
+				['cross', 'Cross screw', 'a pan head with a cross slot'],
+				['allen_sunk', 'Allen bolt (sunk)', 'an Allen bolt in a round counterbore'],
+				['hex_sunk', 'Hex head (sunk)', 'a hex head in a round counterbore']
+			],
+			{
+				group: 'elements',
+				hint: 'Rivet, hex head, slotted and cross screws, Allen bolt and round hole are the fastener heads the other greeble generators offer too'
+			}
+		),
+		P.bool('elem_fit', 'Scale with bands', true, {
+			group: 'elements',
+			showIf: hasElem,
+			hint: 'Element sizes, spacing, insets and fillet are in the bands’ units and scale with them (Fit bands, or Band scale), so the heads grow with the moulding'
+		}),
+		P.enum(
+			'elem_layout',
+			'Spacing',
+			'block',
+			[
+				['even', 'Even along the tile'],
+				['block', 'Within each block']
+			],
+			{
+				group: 'elements',
+				showIf: hasElem,
+				hint: 'Within each block: Count elements from Inset to Inset between dividers'
+			}
+		),
+		P.int('elem_count', 'Count', 8, 1, 512, {
+			softMax: 64,
+			group: 'elements',
+			showIf: (p) => hasElem(p) && !(Number(p.elem_pitch) > 0),
+			hint: 'Per row along the tile (or per block)'
+		}),
+		P.float('elem_pitch', 'Pitch', 14.5, 0, 2048, {
+			softMax: 128,
+			unit: 'px',
+			step: 0.5,
+			note: fitNote,
+			group: 'elements',
+			showIf: hasElem,
+			hint: 'Spacing between elements instead of a Count (0 = use Count): within blocks, longer blocks get more'
+		}),
+		P.float('elem_inset', 'Inset', 3.5, 0, 2048, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.5,
+			note: fitNote,
+			group: 'elements',
+			showIf: (p) => hasElem(p) && p.elem_layout === 'block',
+			hint: 'Block edge (a framed block’s frame) to the first / last element centre. With a Pitch the row is centred and the inset is the least room left'
+		}),
+		P.float('elem_size', 'Radius', 2.25, 0.5, 256, {
+			softMax: 24,
+			unit: 'px',
+			step: 0.5,
+			note: fitNote,
+			group: 'elements',
+			showIf: hasElem,
+			hint: 'Radius, or half the slot / square / hex width'
+		}),
+		P.float('elem_len', 'Slot length', 6, 1, 1024, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.5,
+			note: fitNote,
+			group: 'elements',
+			showIf: (p) => p.elem === 'slot' || p.elem === 'vslot'
+		}),
+		P.enum(
+			'elem_ref',
+			'Position on',
+			'face',
+			[
+				['strip', 'The strip'],
+				['face', 'The face (stretch band)']
+			],
+			{
+				group: 'elements',
+				showIf: hasElem,
+				hint: 'What Position is a share of: the whole strip, or its face — the stretch band (else the innermost band), so the rows stay on it whatever the strip’s height'
+			}
+		),
+		P.float('elem_y', 'Position', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'elements',
+			showIf: hasElem,
+			hint: 'Centre of the rows across the strip (or the face), 0 = top (left) edge'
+		}),
+		P.int('elem_rows', 'Rows', 1, 1, 64, { softMax: 8, group: 'elements', showIf: hasElem }),
+		P.float('elem_row_gap', 'Row spacing', 8, 0, 2048, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.5,
+			note: fitNote,
+			group: 'elements',
+			showIf: (p) => hasElem(p) && Number(p.elem_rows) > 1
+		}),
+		P.bool('elem_stagger', 'Stagger rows', false, {
+			group: 'elements',
+			showIf: (p) => hasElem(p) && Number(p.elem_rows) > 1 && p.elem_layout !== 'block',
+			hint: 'Shift alternate rows half a step'
+		}),
+		P.float('elem_offset', 'Offset', 0, 0, 1, {
+			step: 0.001,
+			group: 'elements',
+			showIf: (p) => hasElem(p) && p.elem_layout !== 'block'
+		}),
+		P.float('elem_height', 'Height', 0.46, 0, 1, {
+			step: 0.001,
+			group: 'elements',
+			showIf: raisedElem,
+			hint: 'Head height above the surface round it, in the relief’s 0…1 range, held under the room left above that surface (1 = all of it: up to the top) so a head stays round'
+		}),
+		P.float('elem_depth', 'Depth', 1, 0, 1, {
+			step: 0.001,
+			group: 'elements',
+			showIf: holeElem,
+			hint: 'How far the holes / slots sink below the surface round them (1 = to the bottom)'
+		}),
+		P.float('elem_turn', 'Turn', 1, 0, 1, {
+			step: 0.001,
+			group: 'elements',
+			showIf: (p) => ['hex', 'screw', 'allen', 'cross', 'allen_sunk', 'hex_sunk'].includes(String(p.elem)),
+			hint: 'Random turn of each hex head, screw slot or socket (0 = all aligned)'
+		}),
+		P.float('elem_clear', 'Divider clearance', 1, 0, 2048, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.5,
+			note: fitNote,
+			group: 'elements',
+			showIf: (p) => hasElem(p) && hasDiv(p),
+			hint: 'Keep the heads this far from the dividers — from the frame when the blocks are framed (0 = off: elements may sit on them). Evenly spaced ones that come closer are left out; within blocks the inset grows'
+		}),
+		P.float('elem_bevel', 'Fillet', 0.3, 0, 1, {
+			softMax: 0.6,
+			step: 0.01,
+			group: 'elements',
+			showIf: hasElem,
+			hint: 'Rounds the walls of holes and slots, the seats round heads and the washers’ edges, as a share of the head’s radius (at least 1 px): the walls slope, floors dish and seats become countersinks, so they catch the light (0 = hard cuts)'
+		}),
+		P.float('elem_seat', 'Seat', 1, 0, 1, {
+			step: 0.001,
+			group: 'elements',
+			showIf: raisedElem,
+			hint: 'A fine sunken ring round each head (round a washer): the shadow line that makes small heads read'
+		}),
+		P.float('elem_missing', 'Missing', 0, 0, 1, {
+			step: 0.001,
+			group: 'elements',
+			showIf: hasElem,
+			hint: 'Share of the elements left out at random; rivets, bolts and screws leave their empty hole'
+		}),
+		P.float('elem_hole', 'Empty hole', 0.55, 0, 1, {
+			step: 0.001,
+			group: 'elements',
+			showIf: (p) => raisedElem(p) && Number(p.elem_missing) > 0,
+			hint: 'Radius of the hole a missing head leaves, as a share of the head’s radius (0 = no hole)'
+		})
+	],
+	groups: [
+		{ id: 'bands', label: 'Bands' },
+		{ id: 'dividers', label: 'Dividers', collapsed: true },
+		{ id: 'elements', label: 'Elements' }
+	],
+	defaults: {
+		h_on: true,
+		h_amount: 0.6,
+		bevel: 3,
+		profile: 'smooth',
+		h_var: 0.3,
+		dif_on: true,
+		dif_src: 'value',
+		dif_jitter: 0.08,
+		dif_grad: TRIM_RAMP
+	},
+	fresh: trimFresh,
+	glsl:
+		GRB_GLSL +
+		/* glsl */ `
 // Band shape 0..1 at t (0 = outer edge, 1 = inner edge); y = px from the band's outer edge, h = band px.
 float grb_bandShape(int prof, float t, float y, float h) {
   float x = 2.0 * t - 1.0;
@@ -238,15 +476,6 @@ float grb_bandShape(int prof, float t, float y, float h) {
 // 1, read from a uniform: loops bounded by it are not unrolled by D3D (one copy of the body; see ORG_1).
 #define TRM_1 (uRes.x > 0.0 ? 1 : 0)
 
-// Hexagon of inradius r (flat top and bottom).
-float grb_hex(vec2 p, float r) {
-  const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
-  p = abs(p);
-  p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
-  p -= vec2(clamp(p.x, -k.z * r, k.z * r), r);
-  return length(p) * sign(p.y);
-}
-
 // The ring round a bolt head of radius r (its washer's width is twice this): 0.75 px up to r = 3, then a quarter of r.
 float grb_ringW(float r) { return max(0.75, 0.25 * r); }
 
@@ -257,11 +486,13 @@ float grb_fil(float d, float w) { return w > 0.0 ? smoothstep(0.0, 1.0, (0.5 - d
 // Footprint of element kind at d (along, across) from its centre, radius r (a hex head with its washer); len = slot
 // length.
 float grb_elemSdf(int kind, vec2 d, float r, float len) {
-  if (kind == 1 || kind == 5 || kind == 8) return length(d) - r;
+  if (kind == 1 || kind == 5 || kind == 8 || kind == 10) return length(d) - r;
+  if (kind == 9) return length(d) - 0.95 * r;
+  if (kind >= 11) return length(d) - 1.55 * r;   // a sunk head's counterbore
   if (kind == 2) return length(d) - (r + 2.0 * grb_ringW(r));
   if (kind == 3) return sdRoundBox(d, vec2(0.5 * len, r), vec4(r));
   if (kind == 4) return sdRoundBox(d, vec2(r, 0.5 * len), vec4(r));
-  if (kind == 7) return length(d) - 1.35 * r;
+  if (kind == 7) return length(d) - r;
   return sdBox(d, vec2(r));
 }
 
@@ -413,11 +644,13 @@ GenOut gen(vec2 p) {
   // end too, meeting the long ones in a mitre.
   bool wrapped = false;
   float F = 0.0;   // frame width (0 unless framed)
+  float yA = y, yE = 1e9;   // (Bevel aspect: y across, and along from a framed block's end where it can turn the corner)
   if (u_div_return && nd > 0) {
     float cum = 0.0;
     for (int i = 0; i < 6 * TRM_1; i++) if (bh[i] > 0.0) { F = cum; cum += bh[i]; }
     float dEnd = max(min(s - blo, bhi - s), 0.0);
     if (span <= 0.0 && dEnd < min(F, y)) { y = dEnd; wrapped = true; }
+    if (span <= 0.0 && dEnd < F) yE = dEnd;
   }
 
   // Band under the pixel.
@@ -469,13 +702,13 @@ GenOut gen(vec2 p) {
   }
 
   // Selected band region (both mirrored copies, and its returns round framed block ends).
-  float dBand = 1e4;
+  float dBand = 1e4, bnd0 = 1e9, bnd1 = 1e9;
   {
     int sel = u_sel_band - 1;
     float b0 = 0.0;
     for (int i = 0; i < 6 * TRM_1; i++) {
       if (bh[i] > 0.0 && i <= sel) {
-        if (i == sel) dBand = max(b0 - y, y - (b0 + bh[i]));
+        if (i == sel) { dBand = max(b0 - y, y - (b0 + bh[i])); bnd0 = b0; bnd1 = b0 + bh[i]; }
         else b0 += bh[i];
       }
     }
@@ -500,7 +733,7 @@ GenOut gen(vec2 p) {
 
   // ---- elements: rows along the strip, spaced evenly along the tile or within each block
   float dE = 1e4, eRnd = 0.0, eAng = 0.0, dMiss = 1e4;
-  vec2 eLoc = vec2(1e4);
+  vec2 eLoc = vec2(1e4), mLoc = vec2(1e4);
   float r = es != 1.0 ? max(floor(u_elem_size * es * 2.0 + 0.5) * 0.5, 0.5) : max(u_elem_size, 0.5);
   float rw = grb_ringW(r);
   float fw = u_elem_bevel > 0.0 ? max(u_elem_bevel * r, 1.0) : 0.0;   // fillet of cuts and head edges
@@ -510,7 +743,7 @@ GenOut gen(vec2 p) {
     float len = u_elem_len * es;
     // fp: the extent pixel snapping centres; ext: the head's whole extent along (spacing, clearance).
     vec2 fp = ek == 3 ? vec2(len, 2.0 * r) : ek == 4 ? vec2(2.0 * r, len) : vec2(2.0 * r);
-    float ext = ek == 2 ? 2.0 * (r + 2.0 * rw) : ek == 7 ? 2.7 * r : fp.x;
+    float ext = ek == 2 ? 2.0 * (r + 2.0 * rw) : ek >= 11 ? 3.1 * r : fp.x;
     float rg = u_elem_row_gap * es;
     float a0 = (u_elem_ref == 1 ? fLo + u_elem_y * (fHi - fLo) : u_elem_y * A) - 0.5 * float(nr - 1) * rg;
     int j0 = nr > 1 && rg > 0.0 ? int(clamp(floor((a - a0) / rg + 0.5), 0.0, float(nr - 1))) : 0;
@@ -576,7 +809,7 @@ GenOut gen(vec2 p) {
         ivec2 id = ivec2(ki, row + 64 * si);
         // Missing ones (a share at random): raised heads leave their empty hole.
         float hm = hashI(id, uSeed + 21.0);
-        if (hm < u_elem_missing) { if (raised && holeR > 0.0) dMiss = min(dMiss, length(dl) - holeR); }
+        if (hm < u_elem_missing) { if (raised && holeR > 0.0 && length(dl) - holeR < dMiss) { dMiss = length(dl) - holeR; mLoc = dl; } }
         else {
           float d = grb_elemSdf(ek, dl, r, len);
           if (d < dE) { dE = d; eLoc = dl; eAng = 3.14159265 * u_elem_turn * (fract(hm * 7.13) - 0.5); eRnd = hashI(id, uSeed + 9.0); }
@@ -590,11 +823,11 @@ GenOut gen(vec2 p) {
     // hex head on its washer (flat top, chamfered round towards the corners, steep flats); a slotted pan-head screw.
     // Their height stays under the relief's ceiling of 1, so a head on a high band keeps its round top.
     float eh = min(u_elem_height, max(1.0 - v, 0.0));
-    bool washer = ek == 7 || ek == 2;
-    float rWash = ek == 7 ? 1.35 * r : r + 2.0 * rw;
+    bool washer = ek == 2;
+    float rWash = r + 2.0 * rw;
     // Seat: a fine sunken ring round each head (round a washer) — the shadow line that makes a small head read.
     float ringW = 0.6 * rw;
-    float ringR = (washer ? rWash : r) + ringW;
+    float ringR = (washer ? rWash : ek >= 11 ? 1.55 * r : r) + ringW;
     float ringK = 0.5 * u_elem_seat;
     // Filleted, the ring is a rounded V (a countersink) instead of a flat-floored channel.
     float ringV = clamp(1.0 - abs(lr - ringR) / (ringW + 0.5 * fw + 0.5), 0.0, 1.0);
@@ -602,17 +835,12 @@ GenOut gen(vec2 p) {
     if (raised && ringK > 0.0) v -= ringK * u_elem_height * ringP;
     float head = grb_dome(lr, r);
     if (ek == 2) head = sqrt(max(1.0 - x * x * x * x, 0.0)) * 0.85;
-    if (ek == 7) {
-      // A nut: steep six-sided walls (the main step up from the washer) and a flat top whose corners only are
-      // chamfered — a cone from about the apothem (Chamfer pulls it in) out to the corners.
-      float hd = -grb_hex(q, r);
-      float side = clamp(hd / max(max(0.12 * r, 0.5 * fw), 0.6), 0.0, 1.0);
-      float rA = r * (1.0 - 0.4 * u_elem_chamfer);
-      head = side * mix(0.7, 1.0, clamp((1.155 * r - lr) / max(1.155 * r - rA, 0.5), 0.0, 1.0));
-    }
     if (ek == 8) head = sqrt(max(1.0 - x * x * x * x, 0.0)) * (1.0 - 0.7 * grb_fil(abs(q.y) - max(0.16 * r, 0.5), 0.5 * fw));
+    // The shared heads (greebleCommon): a hex head, an Allen bolt, a cross screw, a sunk Allen bolt or hex head in its
+    // counterbore.
+    if (ek == 7 || ek >= 9) head = grb_fastener(ek == 7 ? 3 : ek == 9 ? 1 : ek == 10 ? 6 : ek == 11 ? 2 : 4, q, r, 0.6).x;
     // The washer: a ring a little higher at its hole than at its rim, its edge filleted.
-    if (washer) head = max(head, ((ek == 7 ? 0.16 : 0.24) + 0.08 * clamp((rWash - lr) / max(rWash - r, 0.5), 0.0, 1.0)) * grb_fil(lr - rWash, max(fw, 0.5)));
+    if (washer) head = max(head, (0.24 + 0.08 * clamp((rWash - lr) / max(rWash - r, 0.5), 0.0, 1.0)) * grb_fil(lr - rWash, max(fw, 0.5)));
     if (raised) v += eh * head;
     // Cuts: filleted, the walls slope and the floor dishes towards the middle (a lit far wall), else a hard cut.
     else v = mix(v, v * (1.0 - u_elem_depth), fw > 0.0 ? grb_fil(dE, fw) * (0.75 + 0.25 * clamp(-dE / r, 0.0, 1.0)) : grb_cov(dE));
@@ -637,11 +865,31 @@ GenOut gen(vec2 p) {
     if (nd > 0 && !u_div_return) g.feat *= clamp(1.0 + min(a - fLo, fHi - a) / max(2.0, 0.15 * (fHi - fLo)), 0.0, 1.0);
     return g;
   }
-  if (u_output == 1) return genOut(0.0, 1.0, blkRnd, dBlk);
-  if (u_output == 2) return genOut(0.0, 1.0, blkRnd, dDiv);
-  if (u_output == 3) return genOut(0.0, 1.0, eRnd, dE);
-  if (u_output == 4) return genOut(0.0, 1.0, blkRnd, dBand);
-  return genOut(0.0, 1.0, blkRnd, dMat);
+  GenOut g = genOut(0.0, 1.0, u_output == 3 ? eRnd : blkRnd,
+                    u_output == 1 ? dBlk : u_output == 2 ? dDiv : u_output == 3 ? dE : u_output == 4 ? dBand : dMat);
+  if (grb_bevOn()) {
+    // Bevel aspect (greebleCommon): the same shapes in the stretched space, k along (s) and across (a). Strips, blocks,
+    // dividers and bands are slabs and boxes along those axes (a band turning a framed block's end mitres across both);
+    // the element (and a missing one's hole) a rounded box — one in the loop.
+    vec2 k = grb_bevK(vert);
+    float sStrip = dStrip * k.y;
+    float sBlk = nd > 0 ? max(max((blo - s) * k.x, (s - bhi) * k.x), sStrip) : sStrip;
+    float sE = 1e4, sMiss = 1e4;
+    for (int i = 0; i < (u_output == 5 ? 2 : u_output == 3 ? 1 : 0) * TRM_1; i++) {
+      bool el = i == 0;
+      vec2 hb = !el ? vec2(u_elem_hole * r) : ek == 3 ? vec2(0.5 * u_elem_len * es, r) : ek == 4 ? vec2(r, 0.5 * u_elem_len * es)
+              : vec2(ek == 2 ? r + 2.0 * rw : ek >= 11 ? 1.55 * r : r);
+      float e = grb_bevRBox(el ? eLoc : mLoc, hb, !el || (ek != 6) ? min(hb.x, hb.y) : 0.0, k);
+      if (el) sE = dE < 1e3 ? e : dE; else sMiss = dMiss < 1e3 ? e : dMiss;
+    }
+    float sMat = nd > 0 && u_div_style != 2 ? sBlk : sStrip;
+    if (ek >= 3 && ek <= 6) sMat = max(sMat, -sE);
+    sMat = max(sMat, -sMiss);
+    g.bdist = u_output == 1 ? sBlk : u_output == 2 ? (nd > 0 ? max(dd * k.x, span * k.y) : dDiv) : u_output == 3 ? sE
+            : u_output == 4 ? (bnd0 < 1e8 ? max(max((bnd0 - yA) * k.y, (bnd0 - yE) * k.x), min((yA - bnd1) * k.y, (yE - bnd1) * k.x)) : dBand)
+            : sMat;
+  }
+  return g;
 }
-`,
-}
+`
+};

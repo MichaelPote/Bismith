@@ -1,93 +1,267 @@
 // Organic value generators (FR7.2a): veined marble and liquid caustics. Both output a plain value (veins /
 // bright rims = 1) for the colour ramp; caustics can also hand its cells to a mask.
 
-import { P, gradient } from '@/core/params'
-import type { LayerDef } from '../types'
-import { ORG_GLSL, ORG_NO_SDF } from './organicShared'
+import { P, gradient } from '@/core/params';
+import type { LayerDef } from '../types';
+import { ORG_GLSL, ORG_NO_SDF } from './organicShared';
 
 // ------------------------------------------------------------------------------------------------ marble
 
-
 export const marbleLayer: LayerDef = {
-  type: 'marble',
-  noise: true,
-  label: 'Marble',
-  category: 'pattern',
-  kind: 'generator',
-  description: 'Veined marble: turbulent streaks, meandering vein networks or cellular veins, with fine secondary veins. Veins = 1.',
-  params: [
-    P.enum('style', 'Style', 'ridges', [
-      ['streaks', 'Streaks (turbulent bands)'],
-      ['network', 'Network (meandering)'],
-      ['cells', 'Cells (vein mesh)'],
-      ['ridges', 'Ridges (crests of warped noise)'],
-    ], { hint: 'Streaks: classic sin(x + turbulence) veins along a direction. Network: contour lines of warped noise. Cells: veins along warped cell borders. Ridges: the crests of a warped, stretched noise — veins that meander, fork where crests meet and taper out' }),
-    P.float('veins', 'Veins', 2.5, 0.25, 64, { softMax: 16, step: 0.01, hint: 'Streaks: vein bands per texture width. Network / cells: noise cells across (rounded when tiling)' }),
-    P.float('angle', 'Angle', 30, -360, 360, { softMin: -90, softMax: 90, unit: '°', step: 0.1, showIf: (p) => p.style === 'streaks' || p.style === 'ridges', hint: 'Vein direction, clockwise from horizontal (snapped to a seamless angle when tiling)' }),
-    P.float('stretch', 'Stretch', 6, 0.1, 10, { softMin: 0.25, softMax: 8, step: 0.01, hint: 'Streaks: > 1 stretches the turbulence along the veins — long, flowing veins that bunch and spread; ridges: the veins’ noise itself along the angle (tiling snaps the direction to within a few degrees). Network / cells: > 1 elongates the pattern horizontally' }),
-    P.float('levels', 'Contours', 1, 0.5, 8, { softMax: 4, step: 0.01, showIf: (p) => p.style === 'network', hint: 'Vein contour lines per unit of noise — more = denser, nested veins' }),
-    P.enum('turb', 'Turbulence', 'smooth', [
-      ['billow', 'Kinked (billow)'],
-      ['smooth', 'Smooth'],
-    ], { showIf: (p) => p.style === 'streaks', hint: 'Kinked: the classic marble turbulence, |noise| — sharp turns and lobes. Smooth: signed noise — softer, wavier veins' }),
-    P.float('warp', 'Warp', 0.3, 0, 8, { softMax: 4, step: 0.001, hint: 'Turbulence strength (in vein periods / cells)' }),
-    P.float('fold', 'Folding', 0.2, 0, 8, { softMax: 3, step: 0.001, showIf: (p) => p.style === 'streaks', hint: 'Bends the veins together with their turbulence by a smooth warp at half the warp scale (in vein periods): sweeping, folded flow instead of straight bands' }),
-    P.float('warp_scale', 'Warp scale', 2, 0.25, 64, { softMax: 16, step: 0.01, hint: 'Turbulence cells across the texture (rounded when tiling)' }),
-    P.int('detail', 'Detail', 2, 1, 8, { hint: 'Turbulence octaves (kinks and wiggles in the veins)' }),
-    P.float('rough', 'Roughness', 0.35, 0.1, 0.9, { step: 0.001, hint: 'Strength of each finer turbulence octave against the one before: low = smooth, flowing veins; high = crinkled, coastline-like veins with loops' }),
-    P.float('width', 'Vein width', 1.6, 0, 64, { softMax: 12, unit: 'px', step: 0.05 }),
-    P.float('soft', 'Softness', 2, 0, 64, { softMax: 16, unit: 'px', step: 0.05, hint: 'Falloff beyond the vein core (0 = crisp)' }),
-    P.float('width_var', 'Width variation', 0.5, 0, 1, { step: 0.001, hint: 'Veins swell and thin along their length' }),
-    P.float('flow', 'Width from flow', 0.7, 0, 1, { step: 0.001, showIf: (p) => p.style !== 'cells', hint: 'Veins swell where the turbulence spreads them apart and pinch where it crowds them, like bands in real stone (0 = even, drawn-line widths)' }),
-    P.float('fork', 'Strands', 0.5, 0, 1, { step: 0.001, showIf: (p) => p.style !== 'cells', hint: 'Splits each main vein into a bundle of strands that part and rejoin along it (0 = single veins)' }),
-    P.float('cell_var', 'Edge weight variation', 0.6, 0, 1, { step: 0.001, showIf: (p) => p.style === 'cells' || p.fine_style === 'cells', hint: 'Cells: every cell edge its own weight, heavy to hairline (0 = even lines)' }),
-    P.float('cull', 'Loop culling', 0.7, 0, 1, { step: 0.001, showIf: (p) => p.style !== 'cells', hint: 'Fades the tiny rings and dots that form round the turbulence’s peaks and dips (where the flow is flat) and, for streaks, the far side of closed loops and hairpin folds of any size (where a vein runs back against the flow). Ridges: veins taper out gradually where their crest flattens — no small loops, no hooks' }),
-    P.float('breakup', 'Breakup', 0.1, 0, 1, { step: 0.001, hint: 'Fades veins in and out along their length' }),
-    P.float('halo', 'Halo', 0.3, 0, 1, { step: 0.001, hint: 'A faint wash of vein colour bleeding into the stone around the veins (0 = off)' }),
-    P.float('halo_width', 'Halo width', 14, 0.5, 256, { softMax: 48, unit: 'px', step: 0.1, showIf: (p) => Number(p.halo) > 0, hint: 'How far the halo reaches from a vein' }),
-    P.float('fine', 'Fine veins', 0.55, 0, 1, { step: 0.001, hint: 'Strength of a second, finer vein system' }),
-    P.enum('fine_style', 'Fine style', 'same', [
-      ['same', 'Same as the main veins'],
-      ['streaks', 'Streaks'],
-      ['network', 'Network'],
-      ['cells', 'Cells (crackle)'],
-      ['ridges', 'Ridges'],
-    ], { showIf: (p) => Number(p.fine) > 0, hint: 'Shape of the fine veins: the main style (finer contours of the same flow) or another — Cells gives a crackle of fine veins between the main ones' }),
-    P.float('fine_angle', 'Fine angle', 30, -180, 180, { softMin: -60, softMax: 60, unit: '°', step: 0.1, showIf: (p) => Number(p.fine) > 0 && (['streaks', 'ridges'].includes(String(p.fine_style)) || (p.fine_style === 'same' && ['streaks', 'ridges'].includes(String(p.style)))), hint: 'Turns the fine streaks / ridges against the main veins, so they cross them and branch off at an angle' }),
-    P.float('fine_stretch', 'Fine stretch', 0.5, 0.1, 4, { softMin: 0.25, softMax: 2, step: 0.01, showIf: (p) => Number(p.fine) > 0 && (['streaks', 'ridges'].includes(String(p.fine_style)) || (p.fine_style === 'same' && ['streaks', 'ridges'].includes(String(p.style)))), hint: 'The fine veins’ stretch along their own angle, relative to the main Stretch (1 = the same)' }),
-    P.float('fine_scale', 'Fine scale', 3, 1, 16, { softMax: 8, step: 0.01, showIf: (p) => Number(p.fine) > 0, hint: 'Fine veins per main vein' }),
-    P.float('fine_width', 'Fine width', 0, 0, 32, { softMax: 4, unit: 'px', step: 0.05, showIf: (p) => Number(p.fine) > 0, hint: 'Core width of the fine veins (0 = auto: hairlines, a third of the main width within 0.75–1.5 px)' }),
-    P.float('fine_near', 'Fine clustering', 0.8, 0, 1, { step: 0.001, showIf: (p) => Number(p.fine) > 0, hint: 'Gathers the fine veins round the main ones (strands and branches along them): 0 = spread evenly, 1 = only near the main veins' }),
-    P.float('fine_wander', 'Fine wander', 0.35, 0, 2, { softMax: 1, step: 0.001, showIf: (p) => Number(p.fine) > 0 && (p.fine_style === 'same' ? p.style : p.fine_style) !== 'streaks', hint: 'Extra warp of the fine veins (in main-vein cells): their spacing and direction vary across the slab instead of a regular hatch' }),
-    P.float('fine_break', 'Fine breakup', 0.45, 0, 1, { step: 0.001, showIf: (p) => Number(p.fine) > 0, hint: 'Breaks the fine veins into lengths that taper out' }),
-    P.float('fine_patch', 'Fine patchiness', 0.5, 0, 1, { step: 0.001, showIf: (p) => Number(p.fine) > 0, hint: 'Varies the fine veins’ density across the slab: dense patches and clear areas (0 = even everywhere)' }),
-    P.int('tiles', 'Tiles', 0, 0, 64, { softMax: 8, hint: 'Cut into tiles across (0 = off): each tile gets its own piece of marble; the per-feature random is per tile' }),
-    P.float('tile_rot', 'Tile vein turn', 45, 0, 180, { unit: '°', step: 0.1, showIf: (p) => Number(p.tiles) > 0 && (p.style === 'streaks' || p.style === 'ridges'), hint: 'Random vein rotation per tile (±)' }),
-    P.float('cloud', 'Cloudiness', 0.25, 0, 1, { step: 0.001, hint: 'Mottled background between the veins (raises the value up to this much)' }),
-    P.float('cloud_scale', 'Cloud scale', 0, 0, 64, { softMax: 16, step: 0.01, showIf: (p) => Number(p.cloud) > 0, hint: 'Cloud blotches across the texture (0 = 1.5 × the warp scale; rounded when tiling)' }),
-    P.float('cloud_stretch', 'Cloud stretch', 1.5, 0.1, 10, { softMin: 0.25, softMax: 6, step: 0.01, showIf: (p) => Number(p.cloud) > 0 && (p.style === 'streaks' || p.style === 'ridges'), hint: 'Draws the clouds out along the veins (> 1) or across them (< 1)' }),
-    P.bool('filter', 'Filter fine detail', true, { hint: 'Fades turbulence octaves and vein contours finer than ~2 px, so dense or highly detailed marble doesn’t alias into speckle and moiré' }),
-    P.float('relief', 'Relief', 0.12, 0, 1, { step: 0.001, hint: 'What Height › Pattern follows: 1 = the whole value (veins and clouds); lower = mostly the veins, that much shallower — polished stone with faintly etched (Subtract) or raised veins' }),
-    P.seed(),
-  ],
-  defaults: {
-    dif_on: true,
-    dif_grad: gradient('#d9d4ca', '#bfb8ac', '#8d867c', '#4b4641'),
-    r_on: true,
-    r_a: 0.25,
-    r_b: 0.45,
-    // Veins faintly etched into polished stone (with Relief's shallow, vein-only height).
-    h_mode: 'subtract',
-  },
-  // Added in the editor: vein width, softness and halo sized to the texture (the defaults are for 512 px).
-  fresh: ({ width }) => {
-    const k = width / 512
-    const r1 = (v: number) => Math.round(v * 100) / 100
-    return { width: r1(Math.max(1, 1.6 * Math.sqrt(k))), soft: r1(Math.max(0.75, 2 * Math.sqrt(k))), halo_width: r1(Math.max(3, 14 * k)) }
-  },
-  glsl:
-    ORG_GLSL +
-    /* glsl */ `
+	type: 'marble',
+	noise: true,
+	label: 'Marble',
+	category: 'pattern',
+	kind: 'generator',
+	description:
+		'Veined marble: turbulent streaks, meandering vein networks or cellular veins, with fine secondary veins. Veins = 1.',
+	params: [
+		P.enum(
+			'style',
+			'Style',
+			'ridges',
+			[
+				['streaks', 'Streaks (turbulent bands)'],
+				['network', 'Network (meandering)'],
+				['cells', 'Cells (vein mesh)'],
+				['ridges', 'Ridges (crests of warped noise)']
+			],
+			{
+				hint: 'Streaks: classic sin(x + turbulence) veins along a direction. Network: contour lines of warped noise. Cells: veins along warped cell borders. Ridges: the crests of a warped, stretched noise — veins that meander, fork where crests meet and taper out'
+			}
+		),
+		P.float('veins', 'Veins', 2.5, 0.25, 64, {
+			softMax: 16,
+			step: 0.01,
+			hint: 'Streaks: vein bands per texture width. Network / cells: noise cells across (rounded when tiling)'
+		}),
+		P.float('angle', 'Angle', 30, -360, 360, {
+			softMin: -90,
+			softMax: 90,
+			unit: '°',
+			step: 0.1,
+			showIf: (p) => p.style === 'streaks' || p.style === 'ridges',
+			hint: 'Vein direction, clockwise from horizontal (snapped to a seamless angle when tiling)'
+		}),
+		P.float('stretch', 'Stretch', 6, 0.1, 10, {
+			softMin: 0.25,
+			softMax: 8,
+			step: 0.01,
+			hint: 'Streaks: > 1 stretches the turbulence along the veins — long, flowing veins that bunch and spread; ridges: the veins’ noise itself along the angle (tiling snaps the direction to within a few degrees). Network / cells: > 1 elongates the pattern horizontally'
+		}),
+		P.float('levels', 'Contours', 1, 0.5, 8, {
+			softMax: 4,
+			step: 0.01,
+			showIf: (p) => p.style === 'network',
+			hint: 'Vein contour lines per unit of noise — more = denser, nested veins'
+		}),
+		P.enum(
+			'turb',
+			'Turbulence',
+			'smooth',
+			[
+				['billow', 'Kinked (billow)'],
+				['smooth', 'Smooth']
+			],
+			{
+				showIf: (p) => p.style === 'streaks',
+				hint: 'Kinked: the classic marble turbulence, |noise| — sharp turns and lobes. Smooth: signed noise — softer, wavier veins'
+			}
+		),
+		P.float('warp', 'Warp', 0.3, 0, 8, {
+			softMax: 4,
+			step: 0.001,
+			hint: 'Turbulence strength (in vein periods / cells)'
+		}),
+		P.float('fold', 'Folding', 0.2, 0, 8, {
+			softMax: 3,
+			step: 0.001,
+			showIf: (p) => p.style === 'streaks',
+			hint: 'Bends the veins together with their turbulence by a smooth warp at half the warp scale (in vein periods): sweeping, folded flow instead of straight bands'
+		}),
+		P.float('warp_scale', 'Warp scale', 2, 0.25, 64, {
+			softMax: 16,
+			step: 0.01,
+			hint: 'Turbulence cells across the texture (rounded when tiling)'
+		}),
+		P.int('detail', 'Detail', 2, 1, 8, { hint: 'Turbulence octaves (kinks and wiggles in the veins)' }),
+		P.float('rough', 'Roughness', 0.35, 0.1, 0.9, {
+			step: 0.001,
+			hint: 'Strength of each finer turbulence octave against the one before: low = smooth, flowing veins; high = crinkled, coastline-like veins with loops'
+		}),
+		P.float('width', 'Vein width', 1.6, 0, 64, { softMax: 12, unit: 'px', step: 0.05 }),
+		P.float('soft', 'Softness', 2, 0, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			hint: 'Falloff beyond the vein core (0 = crisp)'
+		}),
+		P.float('width_var', 'Width variation', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'Veins swell and thin along their length'
+		}),
+		P.float('flow', 'Width from flow', 0.7, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style !== 'cells',
+			hint: 'Veins swell where the turbulence spreads them apart and pinch where it crowds them, like bands in real stone (0 = even, drawn-line widths)'
+		}),
+		P.float('fork', 'Strands', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style !== 'cells',
+			hint: 'Splits each main vein into a bundle of strands that part and rejoin along it (0 = single veins)'
+		}),
+		P.float('cell_var', 'Edge weight variation', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'cells' || p.fine_style === 'cells',
+			hint: 'Cells: every cell edge its own weight, heavy to hairline (0 = even lines)'
+		}),
+		P.float('cull', 'Loop culling', 0.7, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style !== 'cells',
+			hint: 'Fades the tiny rings and dots that form round the turbulence’s peaks and dips (where the flow is flat) and, for streaks, the far side of closed loops and hairpin folds of any size (where a vein runs back against the flow). Ridges: veins taper out gradually where their crest flattens — no small loops, no hooks'
+		}),
+		P.float('breakup', 'Breakup', 0.1, 0, 1, { step: 0.001, hint: 'Fades veins in and out along their length' }),
+		P.float('halo', 'Halo', 0.3, 0, 1, {
+			step: 0.001,
+			hint: 'A faint wash of vein colour bleeding into the stone around the veins (0 = off)'
+		}),
+		P.float('halo_width', 'Halo width', 14, 0.5, 256, {
+			softMax: 48,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => Number(p.halo) > 0,
+			hint: 'How far the halo reaches from a vein'
+		}),
+		P.float('fine', 'Fine veins', 0.55, 0, 1, { step: 0.001, hint: 'Strength of a second, finer vein system' }),
+		P.enum(
+			'fine_style',
+			'Fine style',
+			'same',
+			[
+				['same', 'Same as the main veins'],
+				['streaks', 'Streaks'],
+				['network', 'Network'],
+				['cells', 'Cells (crackle)'],
+				['ridges', 'Ridges']
+			],
+			{
+				showIf: (p) => Number(p.fine) > 0,
+				hint: 'Shape of the fine veins: the main style (finer contours of the same flow) or another — Cells gives a crackle of fine veins between the main ones'
+			}
+		),
+		P.float('fine_angle', 'Fine angle', 30, -180, 180, {
+			softMin: -60,
+			softMax: 60,
+			unit: '°',
+			step: 0.1,
+			showIf: (p) =>
+				Number(p.fine) > 0 &&
+				(['streaks', 'ridges'].includes(String(p.fine_style)) ||
+					(p.fine_style === 'same' && ['streaks', 'ridges'].includes(String(p.style)))),
+			hint: 'Turns the fine streaks / ridges against the main veins, so they cross them and branch off at an angle'
+		}),
+		P.float('fine_stretch', 'Fine stretch', 0.5, 0.1, 4, {
+			softMin: 0.25,
+			softMax: 2,
+			step: 0.01,
+			showIf: (p) =>
+				Number(p.fine) > 0 &&
+				(['streaks', 'ridges'].includes(String(p.fine_style)) ||
+					(p.fine_style === 'same' && ['streaks', 'ridges'].includes(String(p.style)))),
+			hint: 'The fine veins’ stretch along their own angle, relative to the main Stretch (1 = the same)'
+		}),
+		P.float('fine_scale', 'Fine scale', 3, 1, 16, {
+			softMax: 8,
+			step: 0.01,
+			showIf: (p) => Number(p.fine) > 0,
+			hint: 'Fine veins per main vein'
+		}),
+		P.float('fine_width', 'Fine width', 0, 0, 32, {
+			softMax: 4,
+			unit: 'px',
+			step: 0.05,
+			showIf: (p) => Number(p.fine) > 0,
+			hint: 'Core width of the fine veins (0 = auto: hairlines, a third of the main width within 0.75–1.5 px)'
+		}),
+		P.float('fine_near', 'Fine clustering', 0.8, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.fine) > 0,
+			hint: 'Gathers the fine veins round the main ones (strands and branches along them): 0 = spread evenly, 1 = only near the main veins'
+		}),
+		P.float('fine_wander', 'Fine wander', 0.35, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			showIf: (p) => Number(p.fine) > 0 && (p.fine_style === 'same' ? p.style : p.fine_style) !== 'streaks',
+			hint: 'Extra warp of the fine veins (in main-vein cells): their spacing and direction vary across the slab instead of a regular hatch'
+		}),
+		P.float('fine_break', 'Fine breakup', 0.45, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.fine) > 0,
+			hint: 'Breaks the fine veins into lengths that taper out'
+		}),
+		P.float('fine_patch', 'Fine patchiness', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.fine) > 0,
+			hint: 'Varies the fine veins’ density across the slab: dense patches and clear areas (0 = even everywhere)'
+		}),
+		P.int('tiles', 'Tiles', 0, 0, 64, {
+			softMax: 8,
+			hint: 'Cut into tiles across (0 = off): each tile gets its own piece of marble; the per-feature random is per tile'
+		}),
+		P.float('tile_rot', 'Tile vein turn', 45, 0, 180, {
+			unit: '°',
+			step: 0.1,
+			showIf: (p) => Number(p.tiles) > 0 && (p.style === 'streaks' || p.style === 'ridges'),
+			hint: 'Random vein rotation per tile (±)'
+		}),
+		P.float('cloud', 'Cloudiness', 0.25, 0, 1, {
+			step: 0.001,
+			hint: 'Mottled background between the veins (raises the value up to this much)'
+		}),
+		P.float('cloud_scale', 'Cloud scale', 0, 0, 64, {
+			softMax: 16,
+			step: 0.01,
+			showIf: (p) => Number(p.cloud) > 0,
+			hint: 'Cloud blotches across the texture (0 = 1.5 × the warp scale; rounded when tiling)'
+		}),
+		P.float('cloud_stretch', 'Cloud stretch', 1.5, 0.1, 10, {
+			softMin: 0.25,
+			softMax: 6,
+			step: 0.01,
+			showIf: (p) => Number(p.cloud) > 0 && (p.style === 'streaks' || p.style === 'ridges'),
+			hint: 'Draws the clouds out along the veins (> 1) or across them (< 1)'
+		}),
+		P.bool('filter', 'Filter fine detail', true, {
+			hint: 'Fades turbulence octaves and vein contours finer than ~2 px, so dense or highly detailed marble doesn’t alias into speckle and moiré'
+		}),
+		P.float('relief', 'Relief', 0.12, 0, 1, {
+			step: 0.001,
+			hint: 'What Height › Pattern follows: 1 = the whole value (veins and clouds); lower = mostly the veins, that much shallower — polished stone with faintly etched (Subtract) or raised veins'
+		}),
+		P.seed()
+	],
+	defaults: {
+		dif_on: true,
+		dif_grad: gradient('#d9d4ca', '#bfb8ac', '#8d867c', '#4b4641'),
+		r_on: true,
+		r_a: 0.25,
+		r_b: 0.45,
+		// Veins faintly etched into polished stone (with Relief's shallow, vein-only height).
+		h_mode: 'subtract'
+	},
+	// Added in the editor: vein width, softness and halo sized to the texture (the defaults are for 512 px).
+	fresh: ({ width }) => {
+		const k = width / 512;
+		const r1 = (v: number) => Math.round(v * 100) / 100;
+		return {
+			width: r1(Math.max(1, 1.6 * Math.sqrt(k))),
+			soft: r1(Math.max(0.75, 2 * Math.sqrt(k))),
+			halo_width: r1(Math.max(3, 14 * k))
+		};
+	},
+	glsl:
+		ORG_GLSL +
+		/* glsl */ `
 // worleyNoise(x, per, 1.0, 0, seed).wz — distance to the cell border (cells) and the cell's random — in one flat loop:
 // the 3×3 cells for the nearest point, then the 5×5 for the border (the library's nested loops compile slower).
 vec2 org_worleyBorder(vec2 x, ivec2 per, float seed) {
@@ -556,66 +730,149 @@ GenOut gen(vec2 p) {
   if (u_relief < 1.0) go.hval = clamp(u_relief * (base * u_relief + (1.0 - base * u_relief) * veinR), 0.0, 1.0);
   return go;
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ caustics
 
 export const causticsLayer: LayerDef = {
-  type: 'caustics',
-  noise: true,
-  label: 'Caustics / liquid',
-  category: 'pattern',
-  kind: 'generator',
-  description: 'Liquid surfaces — lava, slime, water: bright rims on warped, rounded cells (net) or bright blobs split by dark cracks.',
-  params: [
-    P.enum('mode', 'Mode', 'net', [
-      ['net', 'Caustic net (bright rims)'],
-      ['blobs', 'Blobs (bright cells, dark cracks)'],
-    ], { hint: 'Value is brightness in both modes. Net: Height subtracts it, so the rims sink and the cells bulge; Blobs: Height adds it (the height mode follows the mode until you set it)' }),
-    P.float('scale', 'Scale', 5, 0.5, 64, { softMax: 16, step: 0.01, hint: 'Cells across the texture width (rounded when tiling)' }),
-    P.float('stretch', 'Stretch', 1, 0.1, 10, { softMin: 0.25, softMax: 4, step: 0.01, hint: '> 1 draws the cells out horizontally (flowing lava, a current), < 1 vertically' }),
-    P.float('jitter', 'Jitter', 0.85, 0, 1, { step: 0.001 }),
-    P.float('size_var', 'Size variation', 0.5, 0, 1, { step: 0.001, hint: 'Weighted cells: some blobs grow, others shrink' }),
-    P.float('round', 'Roundness', 0.8, 0, 1, { step: 0.001, hint: '0 = polygonal cells; 1 = round blobs (the glow follows F1 / F2 circles; the net thickens slightly at junctions)' }),
-    P.float('warp', 'Warp', 0.3, 0, 4, { softMax: 1.5, step: 0.001, hint: 'Domain warp, in cells — wobbly, organic rims; high values swirl the cells into each other' }),
-    P.float('warp_scale', 'Warp scale', 1, 0.25, 16, { softMax: 4, step: 0.01, hint: 'Warp noise frequency relative to the cells' }),
-    P.int('warp_detail', 'Warp detail', 2, 1, 6, { showIf: (p) => Number(p.warp) > 0, hint: 'Warp octaves: 1–2 smooth, blobby distortion; more = ragged, wrinkled rims' }),
-    P.float('rim', 'Rim width', 1.4, 0, 64, { softMax: 12, unit: 'px', step: 0.05, hint: 'Width of the bright core (net) or dark crack (blobs)' }),
-    P.float('rim_soft', 'Rim softness', 0.5, 0, 32, { softMax: 8, unit: 'px', step: 0.05 }),
-    P.float('rim_var', 'Rim variation', 0.6, 0, 1, { step: 0.001, hint: 'Rims widen, pinch and change brightness along their length (0 = an even line)' }),
-    P.float('rim_round', 'Rounded rims', 1, 0, 1, { step: 0.001, hint: 'A smooth crest across each rim and pool, blending into the glow (0 = a flat, clipped core with a hard inner edge)' }),
-    P.float('glow', 'Glow reach', 1, 0, 3, { softMax: 2, step: 0.001, hint: 'How far the rim light reaches into the cell (fraction of the cell radius)' }),
-    P.float('glow_smooth', 'Glow smoothing', 0.35, 0, 1, { step: 0.001, hint: 'Rounds the glow and dome over the cells’ corners: no straight creases from the corners to the core (0 = the exact polygon distance)' }),
-    P.float('glow_amount', 'Glow level', 0.65, 0, 1, { step: 0.001, hint: 'Brightness of the glow next to the rim (net) / of the blob edge (blobs)' }),
-    P.float('falloff', 'Falloff', 0.7, 0.1, 8, { softMax: 4, step: 0.01, hint: 'Glow curve: < 1 keeps the glow level wide then drops into dark cores; > 1 fades quickly from the rim (net). Blobs: higher = flatter tops' }),
-    P.float('octave2', 'Second octave', 0.3, 0, 1, { step: 0.001, hint: 'Finer rims / cracks of smaller cells inside the main ones' }),
-    P.float('octave2_scale', 'Second octave scale', 2, 1.25, 8, { softMax: 4, step: 0.01, showIf: (p) => Number(p.octave2) > 0, hint: 'Its cells per main cell (across)' }),
-    P.float('octave2_nest', 'Nest second octave', 1, 0, 1, { step: 0.001, showIf: (p) => Number(p.octave2) > 0, hint: 'Fades the second octave toward the main rims, tapering it in width and strength (a hierarchy inside each cell). 0 = even everywhere' }),
-    P.float('dome', 'Rounded relief', 0.8, -1, 1, { step: 0.001, hint: 'What Height › Pattern follows: 0 = the brightness (the glow’s curve, flat where it fades out), 1 = a rounded dome on every cell, −1 = flat plates; sunk at the rims (net) / cracks (blobs)' }),
-    P.float('cell_h', 'Cell height variation', 0.4, 0, 1, { step: 0.001, showIf: (p) => Number(p.dome) !== 0, hint: 'Each cell its own height above the common rim floor (Rounded relief). Unlike Height › Per-feature variation, which scales the whole depth, the rims stay continuous: no cliffs' }),
-    P.float('dome_var', 'Dome variation', 0.6, 0, 1, { step: 0.001, showIf: (p) => Number(p.dome) > 0, hint: 'Each cell’s dome its own shape: flat-topped pillows to peaked mounds (Cell height variation sets their heights)' }),
-    P.seed(),
-  ],
-  // The cells (inside the rims / cracks) go to a mask when it writes one — e.g. a crust only on the blobs. None by
-  // default: a value pattern shouldn't replace the Shape mask unless asked.
-  sdf: 'mask',
-  defaults: {
-    mk_target: '',
-    dif_on: true,
-    dif_grad: gradient('#1c0400', '#4f0b00', '#9c2400', '#e05a00', '#ffa21a', '#ffe08a'),
-    h_on: true,
-    h_mode: 'subtract',
-    h_amount: 0.35,
-    e_on: true,
-    e_color: '#ff6a10',
-    e_intensity: 0.6,
-  },
-  // Blobs are bright where they are high: Height adds them; the net's bright rims are sunk.
-  linkedDefaults: (p) => ({ h_mode: p.mode === 'blobs' ? 'add' : 'subtract' }),
-  glsl:
-    ORG_GLSL +
-    /* glsl */ `
+	type: 'caustics',
+	noise: true,
+	label: 'Caustics / liquid',
+	category: 'pattern',
+	kind: 'generator',
+	description:
+		'Liquid surfaces — lava, slime, water: bright rims on warped, rounded cells (net) or bright blobs split by dark cracks.',
+	params: [
+		P.enum(
+			'mode',
+			'Mode',
+			'net',
+			[
+				['net', 'Caustic net (bright rims)'],
+				['blobs', 'Blobs (bright cells, dark cracks)']
+			],
+			{
+				hint: 'Value is brightness in both modes. Net: Height subtracts it, so the rims sink and the cells bulge; Blobs: Height adds it (the height mode follows the mode until you set it)'
+			}
+		),
+		P.float('scale', 'Scale', 5, 0.5, 64, {
+			softMax: 16,
+			step: 0.01,
+			hint: 'Cells across the texture width (rounded when tiling)'
+		}),
+		P.float('stretch', 'Stretch', 1, 0.1, 10, {
+			softMin: 0.25,
+			softMax: 4,
+			step: 0.01,
+			hint: '> 1 draws the cells out horizontally (flowing lava, a current), < 1 vertically'
+		}),
+		P.float('jitter', 'Jitter', 0.85, 0, 1, { step: 0.001 }),
+		P.float('size_var', 'Size variation', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'Weighted cells: some blobs grow, others shrink'
+		}),
+		P.float('round', 'Roundness', 0.8, 0, 1, {
+			step: 0.001,
+			hint: '0 = polygonal cells; 1 = round blobs (the glow follows F1 / F2 circles; the net thickens slightly at junctions)'
+		}),
+		P.float('warp', 'Warp', 0.3, 0, 4, {
+			softMax: 1.5,
+			step: 0.001,
+			hint: 'Domain warp, in cells — wobbly, organic rims; high values swirl the cells into each other'
+		}),
+		P.float('warp_scale', 'Warp scale', 1, 0.25, 16, {
+			softMax: 4,
+			step: 0.01,
+			hint: 'Warp noise frequency relative to the cells'
+		}),
+		P.int('warp_detail', 'Warp detail', 2, 1, 6, {
+			showIf: (p) => Number(p.warp) > 0,
+			hint: 'Warp octaves: 1–2 smooth, blobby distortion; more = ragged, wrinkled rims'
+		}),
+		P.float('rim', 'Rim width', 1.4, 0, 64, {
+			softMax: 12,
+			unit: 'px',
+			step: 0.05,
+			hint: 'Width of the bright core (net) or dark crack (blobs)'
+		}),
+		P.float('rim_soft', 'Rim softness', 0.5, 0, 32, { softMax: 8, unit: 'px', step: 0.05 }),
+		P.float('rim_var', 'Rim variation', 0.6, 0, 1, {
+			step: 0.001,
+			hint: 'Rims widen, pinch and change brightness along their length (0 = an even line)'
+		}),
+		P.float('rim_round', 'Rounded rims', 1, 0, 1, {
+			step: 0.001,
+			hint: 'A smooth crest across each rim and pool, blending into the glow (0 = a flat, clipped core with a hard inner edge)'
+		}),
+		P.float('glow', 'Glow reach', 1, 0, 3, {
+			softMax: 2,
+			step: 0.001,
+			hint: 'How far the rim light reaches into the cell (fraction of the cell radius)'
+		}),
+		P.float('glow_smooth', 'Glow smoothing', 0.35, 0, 1, {
+			step: 0.001,
+			hint: 'Rounds the glow and dome over the cells’ corners: no straight creases from the corners to the core (0 = the exact polygon distance)'
+		}),
+		P.float('glow_amount', 'Glow level', 0.65, 0, 1, {
+			step: 0.001,
+			hint: 'Brightness of the glow next to the rim (net) / of the blob edge (blobs)'
+		}),
+		P.float('falloff', 'Falloff', 0.7, 0.1, 8, {
+			softMax: 4,
+			step: 0.01,
+			hint: 'Glow curve: < 1 keeps the glow level wide then drops into dark cores; > 1 fades quickly from the rim (net). Blobs: higher = flatter tops'
+		}),
+		P.float('octave2', 'Second octave', 0.3, 0, 1, {
+			step: 0.001,
+			hint: 'Finer rims / cracks of smaller cells inside the main ones'
+		}),
+		P.float('octave2_scale', 'Second octave scale', 2, 1.25, 8, {
+			softMax: 4,
+			step: 0.01,
+			showIf: (p) => Number(p.octave2) > 0,
+			hint: 'Its cells per main cell (across)'
+		}),
+		P.float('octave2_nest', 'Nest second octave', 1, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.octave2) > 0,
+			hint: 'Fades the second octave toward the main rims, tapering it in width and strength (a hierarchy inside each cell). 0 = even everywhere'
+		}),
+		P.float('dome', 'Rounded relief', 0.8, -1, 1, {
+			step: 0.001,
+			hint: 'What Height › Pattern follows: 0 = the brightness (the glow’s curve, flat where it fades out), 1 = a rounded dome on every cell, −1 = flat plates; sunk at the rims (net) / cracks (blobs)'
+		}),
+		P.float('cell_h', 'Cell height variation', 0.4, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.dome) !== 0,
+			hint: 'Each cell its own height above the common rim floor (Rounded relief). Unlike Height › Per-feature variation, which scales the whole depth, the rims stay continuous: no cliffs'
+		}),
+		P.float('dome_var', 'Dome variation', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.dome) > 0,
+			hint: 'Each cell’s dome its own shape: flat-topped pillows to peaked mounds (Cell height variation sets their heights)'
+		}),
+		P.seed()
+	],
+	// The cells (inside the rims / cracks) go to a mask when it writes one — e.g. a crust only on the blobs. None by
+	// default: a value pattern shouldn't replace the Shape mask unless asked.
+	sdf: 'mask',
+	defaults: {
+		mk_target: '',
+		dif_on: true,
+		dif_grad: gradient('#1c0400', '#4f0b00', '#9c2400', '#e05a00', '#ffa21a', '#ffe08a'),
+		h_on: true,
+		h_mode: 'subtract',
+		h_amount: 0.35,
+		e_on: true,
+		e_color: '#ff6a10',
+		e_intensity: 0.6
+	},
+	// Blobs are bright where they are high: Height adds them; the net's bright rims are sunk.
+	linkedDefaults: (p) => ({ h_mode: p.mode === 'blobs' ? 'add' : 'subtract' }),
+	glsl:
+		ORG_GLSL +
+		/* glsl */ `
 // org_cellDist (organicShared) measured in a stretch metric — the cells, of aspect cs.x / cs.y, are square in the space
 // p · M, so the 5×5 searches stay exact however far they are stretched (M = 1 is org_cellDist exactly) — and without
 // continue (ANGLE / D3D11 can miscompile it). Also returns nrm, the nearest bisector's unit normal (metric space), er,
@@ -816,5 +1073,5 @@ GenOut gen(vec2 p) {
   if (u_dome != 0.0) g.hval = clamp(mix(v, u_dome > 0.0 ? h.x : h.y, abs(u_dome)), 0.0, 1.0);
   return g;
 }
-`,
-}
+`
+};

@@ -4,10 +4,12 @@
 Liquid material; Blender-style soft limits in number fields
 
 ## Goal
+
 Animate textures (water, lava, boiling noise) by rendering frames at successive phases, with a seamless loop; and let
 number fields go past the range a slider shows without lifting the real limits.
 
 ## Design
+
 - **Noise library** (`glsl/noise.ts`): a global `gPhase` (0 → 1 = one loop) that every generator's wrapper sets from
   its `phase` param. Phase 0 is the still noise exactly (renders are unchanged).
   - Perlin / simplex: each lattice gradient turns one whole revolution per loop, clockwise or not by a second hash.
@@ -16,8 +18,8 @@ number fields go past the range a slider shows without lifting the real limits.
     windows cover the reflected circle exactly).
   - Worley and other cellular generators (Voronoi, Cracks): feature points move the same way per axis
     (`cellPoint`), so they stay inside their cell and the 3 × 3 search stays exact.
-- **Params**: generators flagged `noise` (Noise, Clouds, Voronoi, Marble, Caustics, Wood, Cracks) get *Phase* in their
-  Pattern card; every other generator gets *Warp phase* in Shaping, shown while a domain warp (or its own warp /
+- **Params**: generators flagged `noise` (Noise, Clouds, Voronoi, Marble, Caustics, Wood, Cracks) get _Phase_ in their
+  Pattern card; every other generator gets _Warp phase_ in Shaping, shown while a domain warp (or its own warp /
   wobble) is on. Caustic light has its own Phase: each wave travels a whole number of wavelengths per loop (fine
   waves twice as fast), forwards or backwards. The Warp and Cavity filters have one for their noise. The Liquid
   material's Flow card drives its generators' Phase. Phase is never optimised.
@@ -30,6 +32,7 @@ number fields go past the range a slider shows without lifting the real limits.
   reopen the editor, arrows nudged the value instead of moving the caret).
 
 ## Checklist
+
 - [x] Phase 0 renders identical (88 regression renders); phase 1 = phase 0 for every animated type; all 60 layer and
       post types compile
 - [x] Phase params, Warp phase, filters, Liquid macro

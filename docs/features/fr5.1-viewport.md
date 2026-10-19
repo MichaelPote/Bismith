@@ -3,10 +3,12 @@
 **Status:** done (v1)
 
 ## Goal
+
 The centre view of the editor: inspect the final render or any channel, zoom to pixels, preview tiling and
 place lights.
 
 ## Plan
+
 - Display pass: draws the chosen buffer into the canvas with zoom / pan (nearest-neighbour), sRGB encode,
   alpha checkerboard, optional 5×5 tile preview and pixel grid at high zoom.
 - Channel selector: Final · Diffuse · Height · Roughness · Normal · Emissive · Opacity · Masks (`0`: a picker for
@@ -30,6 +32,7 @@ place lights.
   Size handles are still to come.
 
 ## Checklist
+
 - [x] Display pass with zoom / pan / nearest
 - [x] Channel views
 - [x] Tile preview 5×5 (copies undimmed)

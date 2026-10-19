@@ -1,40 +1,59 @@
 // Stage 5: present a buffer in the viewport canvas with zoom / pan, nearest sampling, 5×5 tile preview,
 // pixel grid, alpha checkerboard and per-channel visualisation.
 
-import * as THREE from 'three'
-import type { Gpu } from '@/gpu/context'
+import * as THREE from 'three';
+import type { Gpu } from '@/gpu/context';
 
-export type ChannelView = 'final' | 'diffuse' | 'height' | 'roughness' | 'specular' | 'normal' | 'ao' | 'emissive' | 'opacity' | 'masks'
+export type ChannelView =
+	| 'final'
+	| 'diffuse'
+	| 'height'
+	| 'roughness'
+	| 'specular'
+	| 'normal'
+	| 'ao'
+	| 'emissive'
+	| 'opacity'
+	| 'masks';
 
 export const CHANNEL_VIEWS: { id: ChannelView; label: string; key: string }[] = [
-  { id: 'final', label: 'Final', key: '1' },
-  { id: 'diffuse', label: 'Diffuse', key: '2' },
-  { id: 'height', label: 'Height', key: '3' },
-  { id: 'roughness', label: 'Roughness', key: '4' },
-  { id: 'specular', label: 'Specular', key: '5' },
-  { id: 'normal', label: 'Normal', key: '6' },
-  { id: 'ao', label: 'AO', key: '7' },
-  { id: 'emissive', label: 'Emissive', key: '8' },
-  { id: 'opacity', label: 'Opacity', key: '9' },
-  { id: 'masks', label: 'Masks', key: '0' },
-]
+	{ id: 'final', label: 'Final', key: '1' },
+	{ id: 'diffuse', label: 'Diffuse', key: '2' },
+	{ id: 'height', label: 'Height', key: '3' },
+	{ id: 'roughness', label: 'Roughness', key: '4' },
+	{ id: 'specular', label: 'Specular', key: '5' },
+	{ id: 'normal', label: 'Normal', key: '6' },
+	{ id: 'ao', label: 'AO', key: '7' },
+	{ id: 'emissive', label: 'Emissive', key: '8' },
+	{ id: 'opacity', label: 'Opacity', key: '9' },
+	{ id: 'masks', label: 'Masks', key: '0' }
+];
 
 const MODE: Record<ChannelView, number> = {
-  final: 0, diffuse: 1, height: 2, roughness: 3, normal: 4, emissive: 5, opacity: 6, masks: 7, specular: 8, ao: 9,
-}
+	final: 0,
+	diffuse: 1,
+	height: 2,
+	roughness: 3,
+	normal: 4,
+	emissive: 5,
+	opacity: 6,
+	masks: 7,
+	specular: 8,
+	ao: 9
+};
 
 export interface ViewTransform {
-  /** Canvas device px per texel. */
-  zoom: number
-  /** Canvas device px of the texture's top-left corner from the canvas top-left. */
-  offsetX: number
-  offsetY: number
+	/** Canvas device px per texel. */
+	zoom: number;
+	/** Canvas device px of the texture's top-left corner from the canvas top-left. */
+	offsetX: number;
+	offsetY: number;
 }
 
 export interface DisplayOptions {
-  tile: boolean
-  grid: boolean
-  checker: boolean
+	tile: boolean;
+	grid: boolean;
+	checker: boolean;
 }
 
 const FRAG = /* glsl */ `
@@ -100,57 +119,57 @@ void main() {
   }
   oColor = vec4(col, 1.0);
 }
-`
+`;
 
 export class Display {
-  private gpu: Gpu
-  private mat: THREE.RawShaderMaterial
+	private gpu: Gpu;
+	private mat: THREE.RawShaderMaterial;
 
-  constructor(gpu: Gpu, common: string) {
-    this.gpu = gpu
-    this.mat = gpu.material(common + FRAG, {
-      uRes: { value: new THREE.Vector2() },
-      uTile: { value: false },
-      tImage: { value: null },
-      uMode: { value: 0 },
-      uTex: { value: new THREE.Vector2() },
-      uCanvas: { value: new THREE.Vector2() },
-      uOffset: { value: new THREE.Vector2() },
-      uZoom: { value: 1 },
-      uTileView: { value: false },
-      uGrid: { value: false },
-      uChecker: { value: true },
-      uHRange: { value: new THREE.Vector2(0, 1) },
-      uSS: { value: 1 },
-    })
-  }
+	constructor(gpu: Gpu, common: string) {
+		this.gpu = gpu;
+		this.mat = gpu.material(common + FRAG, {
+			uRes: { value: new THREE.Vector2() },
+			uTile: { value: false },
+			tImage: { value: null },
+			uMode: { value: 0 },
+			uTex: { value: new THREE.Vector2() },
+			uCanvas: { value: new THREE.Vector2() },
+			uOffset: { value: new THREE.Vector2() },
+			uZoom: { value: 1 },
+			uTileView: { value: false },
+			uGrid: { value: false },
+			uChecker: { value: true },
+			uHRange: { value: new THREE.Vector2(0, 1) },
+			uSS: { value: 1 }
+		});
+	}
 
-  draw(
-    texture: THREE.Texture,
-    channel: ChannelView,
-    texSize: [number, number],
-    canvasSize: [number, number],
-    view: ViewTransform,
-    opts: DisplayOptions,
-    heightRange: [number, number],
-    texelScale = 1,
-  ): void {
-    const u = this.mat.uniforms
-    u.tImage.value = texture
-    u.uSS.value = texelScale
-    u.uMode.value = MODE[channel]
-    ;(u.uTex.value as THREE.Vector2).set(texSize[0], texSize[1])
-    ;(u.uCanvas.value as THREE.Vector2).set(canvasSize[0], canvasSize[1])
-    ;(u.uOffset.value as THREE.Vector2).set(view.offsetX, view.offsetY)
-    u.uZoom.value = view.zoom
-    u.uTileView.value = opts.tile
-    u.uGrid.value = opts.grid
-    u.uChecker.value = opts.checker
-    ;(u.uHRange.value as THREE.Vector2).set(heightRange[0], heightRange[1])
-    this.gpu.run(this.mat, null)
-  }
+	draw(
+		texture: THREE.Texture,
+		channel: ChannelView,
+		texSize: [number, number],
+		canvasSize: [number, number],
+		view: ViewTransform,
+		opts: DisplayOptions,
+		heightRange: [number, number],
+		texelScale = 1
+	): void {
+		const u = this.mat.uniforms;
+		u.tImage.value = texture;
+		u.uSS.value = texelScale;
+		u.uMode.value = MODE[channel];
+		(u.uTex.value as THREE.Vector2).set(texSize[0], texSize[1]);
+		(u.uCanvas.value as THREE.Vector2).set(canvasSize[0], canvasSize[1]);
+		(u.uOffset.value as THREE.Vector2).set(view.offsetX, view.offsetY);
+		u.uZoom.value = view.zoom;
+		u.uTileView.value = opts.tile;
+		u.uGrid.value = opts.grid;
+		u.uChecker.value = opts.checker;
+		(u.uHRange.value as THREE.Vector2).set(heightRange[0], heightRange[1]);
+		this.gpu.run(this.mat, null);
+	}
 
-  dispose(): void {
-    this.mat.dispose()
-  }
+	dispose(): void {
+		this.mat.dispose();
+	}
 }

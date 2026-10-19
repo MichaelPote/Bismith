@@ -1,16 +1,16 @@
 // Stage 3 (docs/architecture.md §7): a progressive path tracer specialised for a height field z = h(x, y)
 // seen by an orthographic top-down camera. World space is GL pixel space (x right, y up) with z up in px.
 
-import * as THREE from 'three'
-import type { Project } from '@/core/project'
-import { hexToLinear } from '@/core/color'
-import { Gpu, PingPong } from '@/gpu/context'
-import { GLSL_COMMON } from '@/layers/glsl/common'
-import type { MaterialPipeline } from './materialPipeline'
+import * as THREE from 'three';
+import type { Project } from '@/core/project';
+import { hexToLinear } from '@/core/color';
+import { Gpu, PingPong } from '@/gpu/context';
+import { GLSL_COMMON } from '@/layers/glsl/common';
+import type { MaterialPipeline } from './materialPipeline';
 
-export const MAX_LIGHTS = 8
+export const MAX_LIGHTS = 8;
 /** Distance (px) at which a point light of intensity 1 lights a white surface to 1.0. */
-export const POINT_LIGHT_REF_DIST = 64
+export const POINT_LIGHT_REF_DIST = 64;
 
 const TRACE_FRAG = /* glsl */ `
 uniform sampler2D tAlbedo;
@@ -310,55 +310,55 @@ void main() {
   cur.a = texelFetch(tAlbedo, ip, 0).a;
   oColor = uN <= 0.0 ? cur : mix(prev, cur, 1.0 / (uN + 1.0));
 }
-`
+`;
 
 export class PathTracer {
-  private gpu: Gpu
-  private accum: PingPong | null = null
-  private ao: THREE.WebGLRenderTarget | null = null
-  private aoMat: THREE.RawShaderMaterial
-  private mat: THREE.RawShaderMaterial
-  samples = 0
-  private width = 0
-  private height = 0
+	private gpu: Gpu;
+	private accum: PingPong | null = null;
+	private ao: THREE.WebGLRenderTarget | null = null;
+	private aoMat: THREE.RawShaderMaterial;
+	private mat: THREE.RawShaderMaterial;
+	samples = 0;
+	private width = 0;
+	private height = 0;
 
-  constructor(gpu: Gpu) {
-    this.gpu = gpu
-    this.mat = gpu.material(GLSL_COMMON + TRACE_FRAG, {
-      uRes: { value: new THREE.Vector2() },
-      uTile: { value: true },
-      tAlbedo: { value: null },
-      tSurface: { value: null },
-      tEmissive: { value: null },
-      tNormal: { value: null },
-      tAccum: { value: null },
-      uN: { value: 0 },
-      uFrame: { value: 0 },
-      uMaxH: { value: 0 },
-      uMinH: { value: 0 },
-      uBounces: { value: 2 },
-      uF0: { value: 0.04 },
-      uSpecTint: { value: 0 },
-      tAO: { value: null },
-      uAO: { value: 0 },
-      uJitter: { value: true },
-      uClamp: { value: 8 },
-      uShadows: { value: true },
-      uSkyOn: { value: true },
-      uSkyZenith: { value: new THREE.Vector3() },
-      uSkyHorizon: { value: new THREE.Vector3() },
-      uAmbient: { value: new THREE.Vector3() },
-      uLightCount: { value: 0 },
-      uLType: { value: new Array(MAX_LIGHTS).fill(0) },
-      uLColor: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3()) },
-      uLVec: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3()) },
-      uLSize: { value: new Array(MAX_LIGHTS).fill(0) },
-      uLRange: { value: new Array(MAX_LIGHTS).fill(0) },
-      uRefDist: { value: POINT_LIGHT_REF_DIST },
-    })
-    this.aoMat = gpu.material(
-      GLSL_COMMON +
-        /* glsl */ `
+	constructor(gpu: Gpu) {
+		this.gpu = gpu;
+		this.mat = gpu.material(GLSL_COMMON + TRACE_FRAG, {
+			uRes: { value: new THREE.Vector2() },
+			uTile: { value: true },
+			tAlbedo: { value: null },
+			tSurface: { value: null },
+			tEmissive: { value: null },
+			tNormal: { value: null },
+			tAccum: { value: null },
+			uN: { value: 0 },
+			uFrame: { value: 0 },
+			uMaxH: { value: 0 },
+			uMinH: { value: 0 },
+			uBounces: { value: 2 },
+			uF0: { value: 0.04 },
+			uSpecTint: { value: 0 },
+			tAO: { value: null },
+			uAO: { value: 0 },
+			uJitter: { value: true },
+			uClamp: { value: 8 },
+			uShadows: { value: true },
+			uSkyOn: { value: true },
+			uSkyZenith: { value: new THREE.Vector3() },
+			uSkyHorizon: { value: new THREE.Vector3() },
+			uAmbient: { value: new THREE.Vector3() },
+			uLightCount: { value: 0 },
+			uLType: { value: new Array(MAX_LIGHTS).fill(0) },
+			uLColor: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3()) },
+			uLVec: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3()) },
+			uLSize: { value: new Array(MAX_LIGHTS).fill(0) },
+			uLRange: { value: new Array(MAX_LIGHTS).fill(0) },
+			uRefDist: { value: POINT_LIGHT_REF_DIST }
+		});
+		this.aoMat = gpu.material(
+			GLSL_COMMON +
+				/* glsl */ `
       uniform sampler2D tNormal;
       uniform float uRadius;
       out vec4 oColor;
@@ -384,135 +384,135 @@ export class PathTracer {
         float ao = clamp(1.0 - occ / float(D), 0.0, 1.0);
         oColor = vec4(ao, ao, ao, 1.0);
       }`,
-      { uRes: { value: new THREE.Vector2() }, uTile: { value: true }, tNormal: { value: null }, uRadius: { value: 4 } },
-    )
-  }
+			{ uRes: { value: new THREE.Vector2() }, uTile: { value: true }, tNormal: { value: null }, uRadius: { value: 4 } }
+		);
+	}
 
-  /** Ambient-occlusion map (R), recomputed on every configure. */
-  get aoTexture(): THREE.Texture | null {
-    return this.ao?.texture ?? null
-  }
+	/** Ambient-occlusion map (R), recomputed on every configure. */
+	get aoTexture(): THREE.Texture | null {
+		return this.ao?.texture ?? null;
+	}
 
-  /** Horizon-based AO from the world height (normal texture w): 16 directions × 8 steps within the radius. */
-  private computeAO(project: Project, normal: THREE.Texture, radius: number): void {
-    if (!this.ao || this.ao.width !== project.width || this.ao.height !== project.height) {
-      this.ao?.dispose()
-      this.ao = this.gpu.target(project.width, project.height)
-    }
-    const u = this.aoMat.uniforms
-    ;(u.uRes.value as THREE.Vector2).set(project.width, project.height)
-    u.uTile.value = project.tileable
-    u.tNormal.value = normal
-    u.uRadius.value = radius
-    this.gpu.run(this.aoMat, this.ao)
-  }
+	/** Horizon-based AO from the world height (normal texture w): 16 directions × 8 steps within the radius. */
+	private computeAO(project: Project, normal: THREE.Texture, radius: number): void {
+		if (!this.ao || this.ao.width !== project.width || this.ao.height !== project.height) {
+			this.ao?.dispose();
+			this.ao = this.gpu.target(project.width, project.height);
+		}
+		const u = this.aoMat.uniforms;
+		(u.uRes.value as THREE.Vector2).set(project.width, project.height);
+		u.uTile.value = project.tileable;
+		u.tNormal.value = normal;
+		u.uRadius.value = radius;
+		this.gpu.run(this.aoMat, this.ao);
+	}
 
-  get output(): THREE.Texture | null {
-    return this.accum?.read.texture ?? null
-  }
+	get output(): THREE.Texture | null {
+		return this.accum?.read.texture ?? null;
+	}
 
-  reset(): void {
-    this.samples = 0
-  }
+	reset(): void {
+		this.samples = 0;
+	}
 
-  private ensure(w: number, h: number): void {
-    if (this.accum && this.width === w && this.height === h) return
-    this.accum?.dispose()
-    this.accum = new PingPong(this.gpu, w, h)
-    this.width = w
-    this.height = h
-    this.samples = 0
-  }
+	private ensure(w: number, h: number): void {
+		if (this.accum && this.width === w && this.height === h) return;
+		this.accum?.dispose();
+		this.accum = new PingPong(this.gpu, w, h);
+		this.width = w;
+		this.height = h;
+		this.samples = 0;
+	}
 
-  /** Upload scene uniforms. Call after the material changed or lighting/render settings changed. */
-  configure(project: Project, material: MaterialPipeline, override?: { bounces?: number }): void {
-    this.ensure(project.width, project.height)
-    const u = this.mat.uniforms
-    ;(u.uRes.value as THREE.Vector2).set(project.width, project.height)
-    u.uTile.value = project.tileable
-    u.tAlbedo.value = material.albedo
-    u.tSurface.value = material.surface
-    u.tEmissive.value = material.emissive
-    const nt = material.normalTex!
-    const wrap = project.tileable ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping
-    if (nt.wrapS !== wrap || nt.minFilter !== THREE.LinearFilter) {
-      nt.wrapS = nt.wrapT = wrap
-      nt.minFilter = nt.magFilter = THREE.LinearFilter
-      nt.needsUpdate = true
-    }
-    u.tNormal.value = nt
-    u.uMaxH.value = material.heightStats.max + 0.01
-    u.uMinH.value = material.heightStats.min
-    const r = project.render
-    u.uBounces.value = override?.bounces ?? r.bounces
-    u.uF0.value = 0.08 * r.specular
-    u.uSpecTint.value = r.specularTint ?? 1
-    u.uAO.value = r.ao ?? 0
-    // Always computed (cheap) so the AO channel can be viewed and exported even at strength 0.
-    this.computeAO(project, nt, r.aoRadius ?? 4)
-    u.tAO.value = this.ao!.texture
-    u.uJitter.value = r.jitter
-    u.uClamp.value = r.clamp
-    u.uShadows.value = r.shadows !== false
+	/** Upload scene uniforms. Call after the material changed or lighting/render settings changed. */
+	configure(project: Project, material: MaterialPipeline, override?: { bounces?: number }): void {
+		this.ensure(project.width, project.height);
+		const u = this.mat.uniforms;
+		(u.uRes.value as THREE.Vector2).set(project.width, project.height);
+		u.uTile.value = project.tileable;
+		u.tAlbedo.value = material.albedo;
+		u.tSurface.value = material.surface;
+		u.tEmissive.value = material.emissive;
+		const nt = material.normalTex!;
+		const wrap = project.tileable ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+		if (nt.wrapS !== wrap || nt.minFilter !== THREE.LinearFilter) {
+			nt.wrapS = nt.wrapT = wrap;
+			nt.minFilter = nt.magFilter = THREE.LinearFilter;
+			nt.needsUpdate = true;
+		}
+		u.tNormal.value = nt;
+		u.uMaxH.value = material.heightStats.max + 0.01;
+		u.uMinH.value = material.heightStats.min;
+		const r = project.render;
+		u.uBounces.value = override?.bounces ?? r.bounces;
+		u.uF0.value = 0.08 * r.specular;
+		u.uSpecTint.value = r.specularTint ?? 1;
+		u.uAO.value = r.ao ?? 0;
+		// Always computed (cheap) so the AO channel can be viewed and exported even at strength 0.
+		this.computeAO(project, nt, r.aoRadius ?? 4);
+		u.tAO.value = this.ao!.texture;
+		u.uJitter.value = r.jitter;
+		u.uClamp.value = r.clamp;
+		u.uShadows.value = r.shadows !== false;
 
-    const lt = project.lighting
-    u.uSkyOn.value = lt.sky.enabled
-    const z = hexToLinear(lt.sky.zenith).map((c) => c * lt.sky.intensity)
-    const hz = hexToLinear(lt.sky.horizon).map((c) => c * lt.sky.intensity)
-    ;(u.uSkyZenith.value as THREE.Vector3).set(z[0], z[1], z[2])
-    ;(u.uSkyHorizon.value as THREE.Vector3).set(hz[0], hz[1], hz[2])
-    const amb = hexToLinear(lt.ambient.color).map((c) => c * lt.ambient.intensity)
-    ;(u.uAmbient.value as THREE.Vector3).set(amb[0], amb[1], amb[2])
+		const lt = project.lighting;
+		u.uSkyOn.value = lt.sky.enabled;
+		const z = hexToLinear(lt.sky.zenith).map((c) => c * lt.sky.intensity);
+		const hz = hexToLinear(lt.sky.horizon).map((c) => c * lt.sky.intensity);
+		(u.uSkyZenith.value as THREE.Vector3).set(z[0], z[1], z[2]);
+		(u.uSkyHorizon.value as THREE.Vector3).set(hz[0], hz[1], hz[2]);
+		const amb = hexToLinear(lt.ambient.color).map((c) => c * lt.ambient.intensity);
+		(u.uAmbient.value as THREE.Vector3).set(amb[0], amb[1], amb[2]);
 
-    const lights = lt.lights.filter((l) => l.enabled).slice(0, MAX_LIGHTS)
-    u.uLightCount.value = lights.length
-    const types = u.uLType.value as number[]
-    const colors = u.uLColor.value as THREE.Vector3[]
-    const vecs = u.uLVec.value as THREE.Vector3[]
-    const sizes = u.uLSize.value as number[]
-    const ranges = u.uLRange.value as number[]
-    lights.forEach((l, i) => {
-      const p = l.params
-      const c = hexToLinear(String(p.color)).map((v) => v * Number(p.intensity))
-      colors[i].set(c[0], c[1], c[2])
-      if (l.type === 'directional') {
-        types[i] = 0
-        const az = (Number(p.azimuth) * Math.PI) / 180
-        const el = (Number(p.elevation) * Math.PI) / 180
-        // Azimuth is clockwise from the top of the image; GL y is up.
-        vecs[i].set(Math.sin(az) * Math.cos(el), Math.cos(az) * Math.cos(el), Math.sin(el)).normalize()
-        sizes[i] = (Number(p.angle) * Math.PI) / 180
-        ranges[i] = 0
-      } else {
-        types[i] = 1
-        vecs[i].set(Number(p.x) * project.width, (1 - Number(p.y)) * project.height, Number(p.z))
-        sizes[i] = Number(p.radius)
-        ranges[i] = Number(p.range)
-      }
-    })
-  }
+		const lights = lt.lights.filter((l) => l.enabled).slice(0, MAX_LIGHTS);
+		u.uLightCount.value = lights.length;
+		const types = u.uLType.value as number[];
+		const colors = u.uLColor.value as THREE.Vector3[];
+		const vecs = u.uLVec.value as THREE.Vector3[];
+		const sizes = u.uLSize.value as number[];
+		const ranges = u.uLRange.value as number[];
+		lights.forEach((l, i) => {
+			const p = l.params;
+			const c = hexToLinear(String(p.color)).map((v) => v * Number(p.intensity));
+			colors[i].set(c[0], c[1], c[2]);
+			if (l.type === 'directional') {
+				types[i] = 0;
+				const az = (Number(p.azimuth) * Math.PI) / 180;
+				const el = (Number(p.elevation) * Math.PI) / 180;
+				// Azimuth is clockwise from the top of the image; GL y is up.
+				vecs[i].set(Math.sin(az) * Math.cos(el), Math.cos(az) * Math.cos(el), Math.sin(el)).normalize();
+				sizes[i] = (Number(p.angle) * Math.PI) / 180;
+				ranges[i] = 0;
+			} else {
+				types[i] = 1;
+				vecs[i].set(Number(p.x) * project.width, (1 - Number(p.y)) * project.height, Number(p.z));
+				sizes[i] = Number(p.radius);
+				ranges[i] = Number(p.range);
+			}
+		});
+	}
 
-  /** Render `count` more samples into the accumulation buffer. */
-  trace(count: number, maxSamples: number): number {
-    if (!this.accum) return 0
-    let done = 0
-    const u = this.mat.uniforms
-    while (done < count && this.samples < maxSamples) {
-      u.tAccum.value = this.accum.read.texture
-      u.uN.value = this.samples
-      u.uFrame.value = this.samples
-      this.gpu.run(this.mat, this.accum.write)
-      this.accum.swap()
-      this.samples++
-      done++
-    }
-    return done
-  }
+	/** Render `count` more samples into the accumulation buffer. */
+	trace(count: number, maxSamples: number): number {
+		if (!this.accum) return 0;
+		let done = 0;
+		const u = this.mat.uniforms;
+		while (done < count && this.samples < maxSamples) {
+			u.tAccum.value = this.accum.read.texture;
+			u.uN.value = this.samples;
+			u.uFrame.value = this.samples;
+			this.gpu.run(this.mat, this.accum.write);
+			this.accum.swap();
+			this.samples++;
+			done++;
+		}
+		return done;
+	}
 
-  dispose(): void {
-    this.accum?.dispose()
-    this.ao?.dispose()
-    this.mat.dispose()
-    this.aoMat.dispose()
-  }
+	dispose(): void {
+		this.accum?.dispose();
+		this.ao?.dispose();
+		this.mat.dispose();
+		this.aoMat.dispose();
+	}
 }

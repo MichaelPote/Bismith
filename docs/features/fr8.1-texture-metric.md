@@ -4,13 +4,15 @@
 where the network can't load, e.g. unit tests)
 
 ## Problem
-The heaviest metric term, *structure*, compares pixels at the best circular shift. It rewards a layout that lines
+
+The heaviest metric term, _structure_, compares pixels at the best circular shift. It rewards a layout that lines
 up (a wall of 2×2 blocks) but reads every irregular pattern on another seed as unrelated — ≈ 0.63 for every
 template on a stone wall and on hammered copper — so rankings fell to colour and contrast and preferred smooth
 templates (marble) to the right family (rubble). Shift-invariant autocorrelation (raw, half-resolution, edge
 magnitude) did not separate families: pixel speckle dominates 64 px palette textures.
 
 ## Design (`src/match/vgg.ts`)
+
 - The standard texture descriptor of neural texture synthesis (Gatys et al. 2015): Gram matrices of VGG-19
   activations at conv1_1, conv2_1, conv3_1, conv4_1, at the native size. Distance = mean over the taps of
   ‖G − G_target‖ / (‖G‖ + ‖G_target‖) (0..1).
@@ -27,6 +29,7 @@ magnitude) did not separate families: pixel speckle dominates 64 px palette text
 - Headless `textureDistance(a, b, { colourMatch })` for checking the GPU network against a reference.
 
 ## Validation
+
 numpy reference vs GPU (colour-matched, stone wall): rubble 0.140 / 0.145, bricks 0.160 / 0.170, marble 0.275 / 0.279,
 greeble 0.266 / 0.264. Right family ≈ 0.14, wrong ≈ 0.27 (untuned templates), tuned results ≈ 0.10–0.13. With FR8.2 the
 emulation screen picks a plausible family for 9 of 11 test targets (was 4): stone wall → rubble (was marble),
@@ -39,6 +42,7 @@ matrices, other input scales, and a higher texture weight — none ranked refere
 results; see FR6.3, "A stronger texture term".
 
 ## Checklist
+
 - [x] Weights extracted (fp16) + manifest; numpy validation
 - [x] GPU network, Gram, reduction; parity with numpy
 - [x] Metric term, presets, emulation / harness / Match workspace wiring

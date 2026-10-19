@@ -2,25 +2,34 @@
 // a seamless rotated frame, period-index wrapping, and exact polygon tiles with gap (mitred inset) and convex
 // corner rounding. Each layer compiles its own copy; every helper is prefixed `geo_`.
 
-import { P, type ParamDef } from '@/core/params'
+import { P, type ParamDef } from '@/core/params';
 
 /** Orientation options in 45° steps (enum index = steps clockwise). */
 export const ORIENT8: [string, string][] = [
-  ['0', '0°'],
-  ['45', '45°'],
-  ['90', '90°'],
-  ['135', '135°'],
-  ['180', '180°'],
-  ['225', '225°'],
-  ['270', '270°'],
-  ['315', '315°'],
-]
+	['0', '0°'],
+	['45', '45°'],
+	['90', '90°'],
+	['135', '135°'],
+	['180', '180°'],
+	['225', '225°'],
+	['270', '270°'],
+	['315', '315°']
+];
 
-export const orientParam = (hint: string): ParamDef =>
-  P.enum('orient', 'Rotation', '0', ORIENT8, { hint })
+export const orientParam = (hint: string): ParamDef => P.enum('orient', 'Rotation', '0', ORIENT8, { hint });
 
 export const rndModeParam = (labels: [string, string, string], hint: string): ParamDef =>
-  P.enum('rnd_mode', 'Random value', 'random', [['random', labels[0]], ['class', labels[1]], ['class_random', labels[2]]], { hint })
+	P.enum(
+		'rnd_mode',
+		'Random value',
+		'random',
+		[
+			['random', labels[0]],
+			['class', labels[1]],
+			['class_random', labels[2]]
+		],
+		{ hint }
+	);
 
 /**
  * GLSL helpers. `nv` = capacity of the working polygon (vertices).
@@ -235,4 +244,4 @@ float geo_rnd(int mode, int nCls) {
   if (mode == 2) return (c + 0.15 + 0.7 * h) / n;
   return h;
 }
-`
+`;

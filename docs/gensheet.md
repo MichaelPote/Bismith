@@ -18,20 +18,20 @@ npx tsx tools/gensheet.ts <spec.json> [--out DIR] [--samples N] [--backend windo
 
 ```json
 {
-  "type": "bricks",
-  "name": "bricks",
-  "size": 512,
-  "params": { "seed": 1 },
-  "below": [{ "type": "noise", "params": { "scale": 4 } }],
-  "above": [],
-  "project": { "heightDepth": 2 },
-  "variants": [
-    { "label": "default" },
-    { "label": "seed 7", "params": { "seed": 7 } },
-    { "label": "mortar 6 px, rubble", "params": { "mortar": 6, "shape_var": 1 } },
-    { "label": "64 px default", "project": { "width": 64, "height": 64 } },
-    { "label": "on a dark base", "below": [{ "type": "noise", "params": { "dif_on": true } }] }
-  ]
+	"type": "bricks",
+	"name": "bricks",
+	"size": 512,
+	"params": { "seed": 1 },
+	"below": [{ "type": "noise", "params": { "scale": 4 } }],
+	"above": [],
+	"project": { "heightDepth": 2 },
+	"variants": [
+		{ "label": "default" },
+		{ "label": "seed 7", "params": { "seed": 7 } },
+		{ "label": "mortar 6 px, rubble", "params": { "mortar": 6, "shape_var": 1 } },
+		{ "label": "64 px default", "project": { "width": 64, "height": 64 } },
+		{ "label": "on a dark base", "below": [{ "type": "noise", "params": { "dif_on": true } }] }
+	]
 }
 ```
 

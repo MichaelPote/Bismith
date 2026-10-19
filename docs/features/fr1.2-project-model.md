@@ -3,10 +3,12 @@
 **Status:** done (v1)
 
 ## Goal
+
 A single JSON-serialisable `Project` that fully describes a texture (see architecture §5), held in a Pinia store
 with undo/redo and autosave.
 
 ## Plan
+
 - `src/core/project.ts` — types for Project, Layer, LayerOutputs, Shaping, LayerMask, Lighting, Light,
   RenderSettings, PostFilter; factory functions with defaults (`createProject`, `createLayer(type)`,
   `createLight`, `createPostFilter`).
@@ -20,6 +22,7 @@ with undo/redo and autosave.
 - Autosave to `localStorage` (debounced); restore on load; "New project" resets.
 
 ## Checklist
+
 - [x] Project/Layer/Lighting/Render/Post types + defaults
 - [x] ParamDef model + defaults helper
 - [x] Colour maths (sRGB/linear/OKLab/hex)

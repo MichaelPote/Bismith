@@ -3,9 +3,11 @@
 **Status:** done (v1)
 
 ## Goal
+
 Starter projects that demonstrate both target styles and act as optimiser seeds.
 
 ## Plan
+
 - Quake-style (64×64, tileable, Quake palette): riveted plate, stone bricks, cobblestones, tech panel with light strip.
 - UI-style (non-tiling, ACES): forged button (Cinderforge keycap + ember underlight + glow), sunken well (chamfered
   notch), bevelled panel (alpha cut-out frame, recess, mirrored corner screws), ember gem.
@@ -16,6 +18,7 @@ Starter projects that demonstrate both target styles and act as optimiser seeds.
   presets are plain `Project` objects in `src/presets/`.
 
 ## Checklist
+
 - [x] Preset plumbing + New-from-preset menu — File ▸ New from preset; first run opens Stone bricks
 - [x] Quake: riveted metal
 - [x] Quake: stone bricks

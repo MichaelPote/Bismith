@@ -7,7 +7,7 @@ The earlier caustics generator drew cells with soft rims; light doesn't behave l
 - **Surface**: a sum of plane waves (Waves, Cells across, Wavelength spread, Fine waves) with whole-number wave counts
   across the texture — tiles, and its slope is exact and cheap. Coarse and fine waves each take exactly evenly spaced
   directions (one random rotation per seed), and when tiling each whole-number wave vector is the one closest in
-  *direction* (then length): unevenly rounded directions stretched the cells along the dominant ones.
+  _direction_ (then length): unevenly rounded directions stretched the cells along the dominant ones.
 - **Crest sharpness**: each wave carries a second, in-phase sine (cos φ + c·cos 2φ, a Stokes profile: sharper
   crests, flatter troughs) — light focuses into thinner filaments. c = Crest sharpness / 16: at 1 the trough
   curvature is still largest mid-trough, so cells stay whole; above it the troughs flatten and a faint wall splits
@@ -32,7 +32,7 @@ The earlier caustics generator drew cells with soft rims; light doesn't behave l
   exceeds the sharp light, × Halo — a glow around the filaments that leaves the filaments and the cells' dark cores
   alone (mixing it in instead lifted the cores and, once tone-mapped, fattened the filaments into chunky bands).
 - **Value** = 1 − exp(−Exposure · light^Contrast): additive, soft, never clipping (Contrast darkens the cells and
-  keeps the filaments). Output *Surface height* gives the waves themselves (relief, depth tint).
+  keeps the filaments). Output _Surface height_ gives the waves themselves (relief, depth tint).
 
 The Liquid lump keeps the filaments thin (Filament width 0.45 px, Refraction 7 px, Meander 0.7, Halo 0.5) and is
 tone-fitted (FR8.2, `fit: 'tones'`): its ramp becomes the reference's tones at the value's quantiles — the

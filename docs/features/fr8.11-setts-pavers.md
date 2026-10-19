@@ -1,9 +1,10 @@
 # FR8.11 — Setts and pavers (fans, rings, bone, plus)
 
-**Status:** done — Tiles lump patterns *Fan setts*, *Ring setts*, *Bone pavers*, *Plus pavers*; tuned against
+**Status:** done — Tiles lump patterns _Fan setts_, _Ring setts_, _Bone pavers_, _Plus pavers_; tuned against
 reference textures of fan cobbles, bone pavers and plus pavers.
 
 ## Setts generator (`layers/generators/setts.ts`)
+
 Small paving stones laid in concentric arcs.
 
 - **Fans**: disks of radius R on an offset-row lattice (W apart in a row, rows H apart, alternate rows shifted W/2),
@@ -19,10 +20,11 @@ Small paving stones laid in concentric arcs.
 - Whole fans across and an even row count when tiling; Direction turns the frame in 90° steps.
 
 ## Tiles lump
-- *Fan setts* / *Ring setts*: Tile size = the sett, Fans across, Irregularity; courses = rim radius / sett size.
-- *Bone pavers*: the Tiles *cross* tiles (hex topology in half-offset columns) with plateau 0.6 (wide ends, a
+
+- _Fan setts_ / _Ring setts_: Tile size = the sett, Fans across, Irregularity; courses = rim radius / sett size.
+- _Bone pavers_: the Tiles _cross_ tiles (hex topology in half-offset columns) with plateau 0.6 (wide ends, a
   waist) and step 0.3 (the stepped waist), rows 1.35× tall. Tile size = the paver's width.
-- *Plus pavers*: the Tiles *plus* pentominoes. Tile size = an arm.
+- _Plus pavers_: the Tiles _plus_ pentominoes. Tile size = an arm.
 
 Lesson: the colour fit can wash out joints on fine, busy patterns (it matches the histogram, and a uniform mid grey
 scores well); seed the sett and joint colours from the reference instead.

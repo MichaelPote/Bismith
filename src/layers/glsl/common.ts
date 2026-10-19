@@ -8,7 +8,7 @@ export const GLSL_HEADER = /* glsl */ `
 precision highp float;
 precision highp int;
 precision highp sampler2D;
-`
+`;
 
 export const GLSL_COMMON = /* glsl */ `
 #define PI 3.14159265358979
@@ -242,10 +242,10 @@ float sdfCombine(int op, float a, float b, float k) {
 
 // Anti-aliased coverage from a signed distance in px.
 float coverage(float d, bool aa) { return aa ? clamp(0.5 - d, 0.0, 1.0) : (d <= 0.0 ? 1.0 : 0.0); }
-`
+`;
 
 /** Fixed vertex shader for every full-screen pass: one oversized triangle. */
 export const FULLSCREEN_VERT = /* glsl */ `
 in vec3 position;
 void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
-`
+`;

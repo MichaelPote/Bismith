@@ -13,64 +13,184 @@
 //     instead of reaching the edge, so the wrapper's bevel gives it a floor.
 // Both write the chipped shape to the mask when it writes one (genOutOwn for Carve), for later limits.
 
-import { P, gradient } from '@/core/params'
-import type { LayerDef } from '../types'
+import { P, gradient } from '@/core/params';
+import type { LayerDef } from '../types';
 
-const chipsOn = (p: Record<string, unknown>) => Number(p.chips) > 0 || Number(p.corners) > 0
-const splitsOn = (p: Record<string, unknown>) => Number(p.splits) > 0 || Number(p.interior) > 0
-const nicksOn = (p: Record<string, unknown>) => Number(p.nicks) > 0
+const chipsOn = (p: Record<string, unknown>) => Number(p.chips) > 0 || Number(p.corners) > 0;
+const splitsOn = (p: Record<string, unknown>) => Number(p.splits) > 0 || Number(p.interior) > 0;
+const nicksOn = (p: Record<string, unknown>) => Number(p.nicks) > 0;
 
 export const chipsLayer: LayerDef = {
-  type: 'chips',
-  label: 'Chips & splits',
-  category: 'shape',
-  kind: 'generator',
-  sdf: true,
-  readsMask: true,
-  description: 'Damage to a mask (the Shape mask by default): chips knocked off its edges and corners, splits along the grain from the edges that cross it, nicks across it.',
-  params: [
-    P.enum('output', 'Output', 'carve', [
-      ['carve', 'Carve what is below', 'how much of the surface is left, 1 untouched … 0 cut away, over the damage only: Height › Multiply carves it out of the relief beneath, Diffuse › Multiply darkens it. Give this layer the Bevel, Profile and Bevel aspect of the layer that drew the relief and its bevel follows every chip and split'],
-      ['shape', 'Chipped shape (SDF)', 'the mask with the damage taken out, drawn with this layer’s bevel: build the relief from it'],
-    ], { hint: 'Both outputs put the chipped shape in the mask this layer writes (Mask › Write to), so later layers can be limited to it' }),
-    P.float('chips', 'Chips', 0.35, 0, 1, { step: 0.001, section: 'Chips', hint: 'Chance of a chip at each spot along the edges of the mask' }),
-    P.float('corners', 'Corners', 0.5, 0, 1, { step: 0.001, section: 'Chips', hint: 'Extra chance of a chip where an edge turns a corner' }),
-    P.float('chip_size', 'Size', 5, 0.5, 256, { softMax: 24, unit: 'px', step: 0.05, section: 'Chips', showIf: chipsOn, hint: 'Chip radius; spots are about 2.5 sizes apart' }),
-    P.float('chip_var', 'Size variation', 0.6, 0, 1, { step: 0.001, section: 'Chips', showIf: chipsOn }),
-    P.float('chip_depth', 'Depth', 0.8, 0, 1, { step: 0.001, section: 'Chips', showIf: chipsOn, hint: '1: chips go down to the level of the shape’s edge; less leaves a shallow flake with a floor' }),
-    P.enum('grain', 'Grain', 'vertical', [['vertical', 'Vertical'], ['horizontal', 'Horizontal']], { group: 'splits', hint: 'Which way splits run (and nicks cross)' }),
-    P.float('splits', 'From edges', 0.5, 0, 1, { step: 0.001, group: 'splits', hint: 'Chance of a split at each lane where an edge crosses the grain (board ends): it opens at the edge and runs in, tapering' }),
-    P.float('interior', 'In the open', 0.1, 0, 1, { step: 0.001, group: 'splits', hint: 'Chance of a split away from the edges, tapered at both ends' }),
-    P.float('split_len', 'Length', 48, 2, 2048, { softMax: 192, unit: 'px', step: 0.1, group: 'splits', showIf: splitsOn, hint: 'Longest split (each takes 45–100 % of it)' }),
-    P.float('split_width', 'Width', 1.5, 0.1, 32, { softMax: 6, unit: 'px', step: 0.05, group: 'splits', showIf: splitsOn, hint: 'Width where a split opens (on average); it narrows to nothing along the split' }),
-    P.float('split_width_var', 'Width jitter', 0.3, 0, 1, { step: 0.001, group: 'splits', showIf: (p) => splitsOn(p) || nicksOn(p), hint: 'How much each split\'s (and nick\'s) width varies around the Width: 0 all the same, 0.3 from 0.7× to 1.3×, 1 anywhere from a hairline to twice as wide' }),
-    P.float('split_len_var', 'Length jitter', 0.55, 0, 1, { step: 0.001, group: 'splits', showIf: (p) => splitsOn(p) || nicksOn(p), hint: 'How much shorter than the Length (or Nick length) each one may be: 0 all full length, 1 anywhere from nothing to full' }),
-    P.float('split_bevel', 'Bevel', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.05, group: 'splits', showIf: (p) => splitsOn(p) || nicksOn(p), hint: 'Width of the rounded shoulder either side of a split or nick (shaped by Shaping › Profile): 0 a hard-edged crack, more a soft groove' }),
-    P.float('split_space', 'Spacing', 10, 1, 512, { softMax: 48, unit: 'px', step: 0.1, group: 'splits', showIf: splitsOn, hint: 'Distance between neighbouring split lanes across the grain' }),
-    P.float('split_wobble', 'Wobble', 0.75, 0, 32, { softMax: 4, unit: 'px', step: 0.05, group: 'splits', showIf: (p) => splitsOn(p) || nicksOn(p), hint: 'How far splits bend across the grain: they run straight between a few knots and deflect gently at each (nicks zigzag by it too)' }),
-    P.float('merge', 'Merging', 0.3, 0, 1, { step: 0.001, group: 'splits', showIf: splitsOn, hint: 'Chance a split from an edge veers into the split beside it and ends there, the two joining into one' }),
-    P.float('nicks', 'Nicks', 0, 0, 1, { step: 0.001, group: 'splits', hint: 'Chance of a short crack across the grain at each spot (spots are 1.5 nick lengths apart)' }),
-    P.float('nick_len', 'Nick length', 14, 1, 512, { softMax: 64, unit: 'px', step: 0.1, group: 'splits', showIf: nicksOn }),
-    P.float('nick_width', 'Nick width', 1.5, 0.1, 32, { softMax: 6, unit: 'px', step: 0.05, group: 'splits', showIf: nicksOn }),
-    P.seed(),
-  ],
-  groups: [{ id: 'splits', label: 'Splits' }],
-  defaults: {
-    bevel: 1.5,
-    profile: 'linear',
-    h_on: true,
-    h_mode: 'multiply',
-    h_amount: 1,
-    dif_on: true,
-    dif_blend: 'multiply',
-    dif_grad: gradient('#3a3029', '#ffffff'),
-  },
-  // Carve multiplies what is beneath; a chipped shape is drawn like any other shape.
-  linkedDefaults: (p) =>
-    p.output === 'shape'
-      ? { h_mode: 'add', h_amount: 0.4, dif_on: false, dif_blend: 'normal' }
-      : { h_mode: 'multiply', h_amount: 1, dif_on: true, dif_blend: 'multiply' },
-  glsl: /* glsl */ `
+	type: 'chips',
+	label: 'Chips & splits',
+	category: 'shape',
+	kind: 'generator',
+	sdf: true,
+	readsMask: true,
+	description:
+		'Damage to a mask (the Shape mask by default): chips knocked off its edges and corners, splits along the grain from the edges that cross it, nicks across it.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'carve',
+			[
+				[
+					'carve',
+					'Carve what is below',
+					'how much of the surface is left, 1 untouched … 0 cut away, over the damage only: Height › Multiply carves it out of the relief beneath, Diffuse › Multiply darkens it. Give this layer the Bevel, Profile and Bevel aspect of the layer that drew the relief and its bevel follows every chip and split'
+				],
+				[
+					'shape',
+					'Chipped shape (SDF)',
+					'the mask with the damage taken out, drawn with this layer’s bevel: build the relief from it'
+				]
+			],
+			{
+				hint: 'Both outputs put the chipped shape in the mask this layer writes (Mask › Write to), so later layers can be limited to it'
+			}
+		),
+		P.float('chips', 'Chips', 0.35, 0, 1, {
+			step: 0.001,
+			section: 'Chips',
+			hint: 'Chance of a chip at each spot along the edges of the mask'
+		}),
+		P.float('corners', 'Corners', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Chips',
+			hint: 'Extra chance of a chip where an edge turns a corner'
+		}),
+		P.float('chip_size', 'Size', 5, 0.5, 256, {
+			softMax: 24,
+			unit: 'px',
+			step: 0.05,
+			section: 'Chips',
+			showIf: chipsOn,
+			hint: 'Chip radius; spots are about 2.5 sizes apart'
+		}),
+		P.float('chip_var', 'Size variation', 0.6, 0, 1, { step: 0.001, section: 'Chips', showIf: chipsOn }),
+		P.float('chip_depth', 'Depth', 0.8, 0, 1, {
+			step: 0.001,
+			section: 'Chips',
+			showIf: chipsOn,
+			hint: '1: chips go down to the level of the shape’s edge; less leaves a shallow flake with a floor'
+		}),
+		P.enum(
+			'grain',
+			'Grain',
+			'vertical',
+			[
+				['vertical', 'Vertical'],
+				['horizontal', 'Horizontal']
+			],
+			{ group: 'splits', hint: 'Which way splits run (and nicks cross)' }
+		),
+		P.float('splits', 'From edges', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'splits',
+			hint: 'Chance of a split at each lane where an edge crosses the grain (board ends): it opens at the edge and runs in, tapering'
+		}),
+		P.float('interior', 'In the open', 0.1, 0, 1, {
+			step: 0.001,
+			group: 'splits',
+			hint: 'Chance of a split away from the edges, tapered at both ends'
+		}),
+		P.float('split_len', 'Length', 48, 2, 2048, {
+			softMax: 192,
+			unit: 'px',
+			step: 0.1,
+			group: 'splits',
+			showIf: splitsOn,
+			hint: 'Longest split (each takes 45–100 % of it)'
+		}),
+		P.float('split_width', 'Width', 1.5, 0.1, 32, {
+			softMax: 6,
+			unit: 'px',
+			step: 0.05,
+			group: 'splits',
+			showIf: splitsOn,
+			hint: 'Width where a split opens (on average); it narrows to nothing along the split'
+		}),
+		P.float('split_width_var', 'Width jitter', 0.3, 0, 1, {
+			step: 0.001,
+			group: 'splits',
+			showIf: (p) => splitsOn(p) || nicksOn(p),
+			hint: "How much each split's (and nick's) width varies around the Width: 0 all the same, 0.3 from 0.7× to 1.3×, 1 anywhere from a hairline to twice as wide"
+		}),
+		P.float('split_len_var', 'Length jitter', 0.55, 0, 1, {
+			step: 0.001,
+			group: 'splits',
+			showIf: (p) => splitsOn(p) || nicksOn(p),
+			hint: 'How much shorter than the Length (or Nick length) each one may be: 0 all full length, 1 anywhere from nothing to full'
+		}),
+		P.float('split_bevel', 'Bevel', 1, 0, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.05,
+			group: 'splits',
+			showIf: (p) => splitsOn(p) || nicksOn(p),
+			hint: 'Width of the rounded shoulder either side of a split or nick (shaped by Shaping › Profile): 0 a hard-edged crack, more a soft groove'
+		}),
+		P.float('split_space', 'Spacing', 10, 1, 512, {
+			softMax: 48,
+			unit: 'px',
+			step: 0.1,
+			group: 'splits',
+			showIf: splitsOn,
+			hint: 'Distance between neighbouring split lanes across the grain'
+		}),
+		P.float('split_wobble', 'Wobble', 0.75, 0, 32, {
+			softMax: 4,
+			unit: 'px',
+			step: 0.05,
+			group: 'splits',
+			showIf: (p) => splitsOn(p) || nicksOn(p),
+			hint: 'How far splits bend across the grain: they run straight between a few knots and deflect gently at each (nicks zigzag by it too)'
+		}),
+		P.float('merge', 'Merging', 0.3, 0, 1, {
+			step: 0.001,
+			group: 'splits',
+			showIf: splitsOn,
+			hint: 'Chance a split from an edge veers into the split beside it and ends there, the two joining into one'
+		}),
+		P.float('nicks', 'Nicks', 0, 0, 1, {
+			step: 0.001,
+			group: 'splits',
+			hint: 'Chance of a short crack across the grain at each spot (spots are 1.5 nick lengths apart)'
+		}),
+		P.float('nick_len', 'Nick length', 14, 1, 512, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.1,
+			group: 'splits',
+			showIf: nicksOn
+		}),
+		P.float('nick_width', 'Nick width', 1.5, 0.1, 32, {
+			softMax: 6,
+			unit: 'px',
+			step: 0.05,
+			group: 'splits',
+			showIf: nicksOn
+		}),
+		P.seed()
+	],
+	groups: [{ id: 'splits', label: 'Splits' }],
+	defaults: {
+		bevel: 1.5,
+		profile: 'linear',
+		h_on: true,
+		h_mode: 'multiply',
+		h_amount: 1,
+		dif_on: true,
+		dif_blend: 'multiply',
+		dif_grad: gradient('#3a3029', '#ffffff')
+	},
+	// Carve multiplies what is beneath; a chipped shape is drawn like any other shape.
+	linkedDefaults: (p) =>
+		p.output === 'shape'
+			? { h_mode: 'add', h_amount: 0.4, dif_on: false, dif_blend: 'normal' }
+			: { h_mode: 'multiply', h_amount: 1, dif_on: true, dif_blend: 'multiply' },
+	glsl: /* glsl */ `
 // 1, read from a uniform: loops bounded by it are not unrolled by D3D (see ORG_1 in organicShared).
 #define CH_1 (uRes.x > 0.0 ? 1 : 0)
 
@@ -320,5 +440,5 @@ GenOut gen(vec2 p) {
   keep = 1.0 - (1.0 - keep) * coverage(reg0, true);
   return genOutOwn(keep, clamp((1.0 - keep) * 64.0, 0.0, 1.0), rnd, d);
 }
-`,
-}
+`
+};

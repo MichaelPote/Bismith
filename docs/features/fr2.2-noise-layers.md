@@ -3,10 +3,12 @@
 **Status:** done (v1)
 
 ## Goal
+
 "Noise — all different types": a tileable noise library and a Noise layer exposing it, plus convenience
 layers (Clouds lives in FR2.4).
 
 ## Plan
+
 - `src/layers/glsl/noise.ts` — periodic (tileable) implementations taking an integer period:
   white (per-texel), value, Perlin (gradient), simplex-style (non-periodic; falls back to Perlin when tiling),
   Worley F1 / F2 / F2−F1, plus fractal wrappers fBm, ridged, billow, turbulence; domain warp.
@@ -15,6 +17,7 @@ layers (Clouds lives in FR2.4).
 - Pixel noise (white) at 1 cell = 1 px for pixel-art speckle, with optional block size.
 
 ## Checklist
+
 - [x] White / pixel noise
 - [x] Value noise (periodic)
 - [x] Perlin gradient noise (periodic)
@@ -27,6 +30,7 @@ layers (Clouds lives in FR2.4).
 - [x] Worley jitter (0 = regular lattice … 1 = random) and distance metric (Euclidean / Manhattan / Chebyshev)
 
 ## Notes
+
 - **One flat octave loop.** The Noise layer sums its octaves itself (the same values as `fractalNoise()`), in one
   loop with a runtime bound, so each base noise is compiled once; the library's generic dispatch inlines Worley in
   every unrolled octave. Cold D3D11 compile 2.3 s → 0.9 s (1.2 s with the turned lattice and Lp cells). Worley's cell random (`rnd`, per-feature variation) comes
@@ -37,11 +41,11 @@ layers (Clouds lives in FR2.4).
   (exact at the border) for the other metrics. Manhattan and Chebyshev are the 1.3- and 4-norms (|r| softened over
   0.05 cells): strictly convex, so cells have real borders — the 1- and ∞-norms share whole regions between two
   points (F1 = F2), which drew flat ties and sparkle stars.
-- **Cells.** *Even cells*, from the true border distance `d`: Worley edges rise over *Wall width* (`1 − e^(−d / wall)`,
+- **Cells.** _Even cells_, from the true border distance `d`: Worley edges rise over _Wall width_ (`1 − e^(−d / wall)`,
   cells): the same walls for big and small cells, their middles level; F1 dimples are `u = smin(F1, F2, 0.12) / (F1 + d)`, 0 at the point, 1 at its own border
   (the soft-min rounds the crest where two cells meet), with points kept in the middle 70 % of their cells (no sliver
   cells, whose walls ran through the dimples as needles); its profiles are dish shapes over u — Linear a cone,
-  Smooth a parabolic dish `u²` (round bottoms packed edge to edge), Round a spherical dish (sharp rims), Cove `smoothstep`. *Cell profile* (profileCurve of the inside; F1 is its inverse):
+  Smooth a parabolic dish `u²` (round bottoms packed edge to edge), Round a spherical dish (sharp rims), Cove `smoothstep`. _Cell profile_ (profileCurve of the inside; F1 is its inverse):
   round = wide dished dimples with sharp ridges (F1), pillows (edges); smooth = soft dimples / cushions.
 - **Crease softness** (Ridged, Billow) replaces `|2n − 1|` by `√((2n − 1)² + e²) − e` (renormalised), `e = 0.25 ·
   crease · (octave + 1)` (+ `0.15 · hierarchy · octave` for Ridged): the fine octaves' wiry crests soften most.

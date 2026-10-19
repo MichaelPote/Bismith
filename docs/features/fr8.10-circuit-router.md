@@ -1,6 +1,6 @@
 # FR8.10 — Circuit routing (space-filling traces)
 
-**Status:** done — Traces & mazes › Mode *Fill*; the Circuit board lump's default
+**Status:** done — Traces & mazes › Mode _Fill_; the Circuit board lump's default
 
 Space-filling traces that never touch need a global, sequential process, so they are routed on the CPU and drawn on
 the GPU:
@@ -23,9 +23,9 @@ the GPU:
 - **Horizontal bias** weights horizontal against vertical steps and starts. **Run alongside** favours steps beside
   another trace, far more one running the same way, and queues the free nodes beside each new trace as the next
   starts, so buses grow trace by trace and bend together. **Open areas** keeps rectangles of board (varied size per
-  *Open area size*, up to 3:1, wrapping) free of traces — footprints and mounting areas between routed clusters. A
+  _Open area size_, up to 3:1, wrapping) free of traces — footprints and mounting areas between routed clusters. A
   diagonal step never crosses another over the same grid square, the walking trace's own included. **Pads where
   crowded**: ends left without room for a full pad (flag 4) get one this fraction of the radius instead of ending bare.
 - **Shader**: reads each node's link (R) and flags (G) and draws crisp SDF segments, pads and vias; node centres
   snap to pixel centres so 1 px traces stay 1 px.
-- Other modes stay: *Route* (local paths, no junctions — per-node out / in priority) and *Maze* (independent links).
+- Other modes stay: _Route_ (local paths, no junctions — per-node out / in priority) and _Maze_ (independent links).

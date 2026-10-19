@@ -1,14 +1,15 @@
 # FR8.12 — Pipework and peeling paint
 
-**Status:** done (first pass on materials) — *Pipework* generator, *Glass* filter, *Pipes* (seven finishes) and
-*Peeling paint* lumps; tried against two photographs of rusty pipes on painted walls (panels; bricks)
+**Status:** done (first pass on materials) — _Pipework_ generator, _Glass_ filter, _Pipes_ (seven finishes) and
+_Peeling paint_ lumps; tried against two photographs of rusty pipes on painted walls (panels; bricks)
 
 ## Pipework generator (`layers/generators/pipes.ts`, `pipesGeometry.ts`)
+
 Pipe runs as true cylinders — the value is the surface height, so the lights shade them round and they cast shadows.
 
-- **Runs**: *Drawn* — centre-line polylines in a `points` param (px or fractions), edited with the shape editor;
+- **Runs**: _Drawn_ — centre-line polylines in a `points` param (px or fractions), edited with the shape editor;
   an end inside the texture gets a flange, an end on another run tees into it (the branch drawn at most 0.85× the
-  pipe it joins, and stopped on that pipe's near flank: equal cylinders meeting at the axis show a sharp V). *Random*
+  pipe it joins, and stopped on that pipe's near flank: equal cylinders meeting at the axis show a sharp V). _Random_
   (tileable) — horizontal runs spanning the width (some jogging up or down and back), vertical runs spanning the
   height in front of them, or teeing between two horizontal runs next to each other at that x (at the run's actual
   height there, clear of its jogs' elbows); every run spans exactly one period, so the layout tiles. Drawn runs
@@ -38,12 +39,14 @@ Pipe runs as true cylinders — the value is the surface height, so the lights s
 - The craft rule capping relief at 2.5 (minimal relief) exempts pipework: its height is its shape.
 
 ## Glass filter (`layers/filters/glass.ts`)
+
 Glass over what is already painted, inside the Shape mask (or the mask it writes): the background sampled further out
 along the surface slope (from the height: magnified in the middle, squeezed at the rims), carried mostly as emission (transmitted light
 is not shaded by the glass surface), tinted more towards the rims (a longer path through the glass), Fresnel-darkened
 rims, an inner glint on the far side from the light, and low roughness / high specular for the highlights.
 
 ## Pipes lump
+
 Pipework in both stacks: true-scale relief (`RecipeContext.depth` = the project's heightDepth), per-pipe colour,
 weathering, grime underneath, and trails running down the wall from the pipes' lower edges (relief-driven drips,
 limited to outside the pipes). Switches cast shadows on.
@@ -58,11 +61,13 @@ limited to outside the pipes). Switches cast shadows on.
   is level (see Liquid above).
 
 ## Peeling paint lump
+
 An overlay for any substrate (tiles, plates, concrete): one fBm decides where paint is left (Paint left,
 Chip size, Raggedness, Vertical streaking); the same noise colours the paint — darker near a chip, lighter inside —
 over what the chips expose (Beneath: rust → bare metal, primer or plaster). A thin relief step at chip edges (lit
 rim, shadow), large mottle, grain, rust streaks and grime in the substrate's creases.
 
 ## Lessons
+
 - The colour fit wrecks these looks (teal paint → black and white): seed colours by hand.
 - Paint and rust need more variety than one noise gives to approach a photograph (layered rust, seams, edge wear).

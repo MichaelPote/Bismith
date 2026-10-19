@@ -2,9 +2,9 @@
 // Clouds and gradients are value generators (no SDF); scratches also hand their outline to a mask
 // (sdf: 'mask'). See patterns.ts for the cell-based SDF patterns.
 
-import { P, gradient, type ParamValues } from '@/core/params'
-import type { LayerDef } from '../types'
-import { NZ_SHARED_GLSL, quantileTexture, quantilesOf } from './noise'
+import { P, gradient, type ParamValues } from '@/core/params';
+import type { LayerDef } from '../types';
+import { NZ_SHARED_GLSL, quantileTexture, quantilesOf } from './noise';
 
 // ------------------------------------------------------------------------------------------------ clouds
 
@@ -14,213 +14,354 @@ import { NZ_SHARED_GLSL, quantileTexture, quantilesOf } from './noise'
 // the animation phase and the layer's own domain warp / offset (they move the pattern; its statistics barely change).
 
 const pcgU = (v: number) => {
-  const st = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0
-  const w = Math.imul(((st >>> ((st >>> 28) + 4)) ^ st) >>> 0, 277803737) >>> 0
-  return ((w >>> 22) ^ w) >>> 0
-}
-const hashI = (x: number, y: number, s: number) => pcgU((x >>> 0) ^ pcgU((y >>> 0) ^ pcgU(s >>> 0))) / 4294967296
-const imod = (a: number, m: number) => ((a % m) + m) % m
-const quint = (f: number) => f * f * f * (f * (f * 6 - 15) + 10)
-const NO_PER = 1 << 20
+	const st = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0;
+	const w = Math.imul(((st >>> ((st >>> 28) + 4)) ^ st) >>> 0, 277803737) >>> 0;
+	return ((w >>> 22) ^ w) >>> 0;
+};
+const hashI = (x: number, y: number, s: number) => pcgU((x >>> 0) ^ pcgU((y >>> 0) ^ pcgU(s >>> 0))) / 4294967296;
+const imod = (a: number, m: number) => ((a % m) + m) % m;
+const quint = (f: number) => f * f * f * (f * (f * 6 - 15) + 10);
+const NO_PER = 1 << 20;
 
 function cvNoise(basis: number, x: number, y: number, px: number, py: number, s: number): number {
-  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy
-  const corner = (ox: number, oy: number) => {
-    const cx = imod(ix + ox, px), cy = imod(iy + oy, py)
-    if (basis === 0) return hashI(cx, cy, s)
-    const a = hashI(cx, cy, s) * Math.PI * 2
-    return Math.cos(a) * (fx - ox) + Math.sin(a) * (fy - oy)
-  }
-  const ux = quint(fx), uy = quint(fy)
-  const a = corner(0, 0), b = corner(1, 0), c = corner(0, 1), d = corner(1, 1)
-  const v = (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy
-  return basis === 0 ? v : Math.min(1, Math.max(0, v * 1.2 + 0.5))
+	const ix = Math.floor(x),
+		iy = Math.floor(y),
+		fx = x - ix,
+		fy = y - iy;
+	const corner = (ox: number, oy: number) => {
+		const cx = imod(ix + ox, px),
+			cy = imod(iy + oy, py);
+		if (basis === 0) return hashI(cx, cy, s);
+		const a = hashI(cx, cy, s) * Math.PI * 2;
+		return Math.cos(a) * (fx - ox) + Math.sin(a) * (fy - oy);
+	};
+	const ux = quint(fx),
+		uy = quint(fy);
+	const a = corner(0, 0),
+		b = corner(1, 0),
+		c = corner(0, 1),
+		d = corner(1, 1);
+	const v = (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy;
+	return basis === 0 ? v : Math.min(1, Math.max(0, v * 1.2 + 0.5));
 }
 
 // rl_noise / rl_reduce / rl_lattice (NZ_SHARED_GLSL).
 function rlNoise(basis: number, y0: number, y1: number, c1: number[], c2: number[], s: number): number {
-  const D = c1[0] * c2[1] - c2[0] * c1[1]
-  const ix = Math.floor(y0), iy = Math.floor(y1), fx = y0 - ix, fy = y1 - iy
-  const corner = (ox: number, oy: number) => {
-    const kx = ix + ox, ky = iy + oy
-    const a = Math.floor((c2[1] * kx - c2[0] * ky) / D), b = Math.floor((c1[0] * ky - c1[1] * kx) / D)
-    const rx = kx - a * c1[0] - b * c2[0], ry = ky - a * c1[1] - b * c2[1]
-    if (basis === 0) return hashI(rx, ry, s)
-    const g = hashI(rx, ry, s) * Math.PI * 2
-    return Math.cos(g) * (fx - ox) + Math.sin(g) * (fy - oy)
-  }
-  const ux = quint(fx), uy = quint(fy)
-  const a = corner(0, 0), b = corner(1, 0), c = corner(0, 1), d = corner(1, 1)
-  const v = (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy
-  return basis === 0 ? v : Math.min(1, Math.max(0, v * 1.2 + 0.5))
+	const D = c1[0] * c2[1] - c2[0] * c1[1];
+	const ix = Math.floor(y0),
+		iy = Math.floor(y1),
+		fx = y0 - ix,
+		fy = y1 - iy;
+	const corner = (ox: number, oy: number) => {
+		const kx = ix + ox,
+			ky = iy + oy;
+		const a = Math.floor((c2[1] * kx - c2[0] * ky) / D),
+			b = Math.floor((c1[0] * ky - c1[1] * kx) / D);
+		const rx = kx - a * c1[0] - b * c2[0],
+			ry = ky - a * c1[1] - b * c2[1];
+		if (basis === 0) return hashI(rx, ry, s);
+		const g = hashI(rx, ry, s) * Math.PI * 2;
+		return Math.cos(g) * (fx - ox) + Math.sin(g) * (fy - oy);
+	};
+	const ux = quint(fx),
+		uy = quint(fy);
+	const a = corner(0, 0),
+		b = corner(1, 0),
+		c = corner(0, 1),
+		d = corner(1, 1);
+	const v = (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy;
+	return basis === 0 ? v : Math.min(1, Math.max(0, v * 1.2 + 0.5));
 }
 
 /** The clouds' raw value (before the coverage threshold and contrast) at 4096 points of the texture. */
-export function cloudsSamples(p: ParamValues, ctx: { width: number; height: number; tileable: boolean; seed: number }): number[] {
-  const W = ctx.width, H = ctx.height, tile = ctx.tileable, seed = ctx.seed
-  const scale = Number(p.scale), stretch = Math.max(Number(p.stretch ?? 1), 1e-3)
-  let cx = scale / stretch, cy = (scale * H) / W
-  if (tile) { cx = Math.max(1, Math.floor(cx + 0.5)); cy = Math.max(1, Math.floor(cy + 0.5)) } else { cx = Math.max(cx, 1e-3); cy = Math.max(cy, 1e-3) }
-  const per0x = tile ? cx : NO_PER, per0y = tile ? cy : NO_PER
-  const basis = p.basis === 'value' ? 0 : 1
-  const style = ({ fbm: 0, billow: 1, ridged: 2, cumulus: 3 } as Record<string, number>)[String(p.style)] ?? 0
-  const oct = Math.max(1, Math.min(12, Math.round(Number(p.octaves))))
-  const gain = Number(p.gain), lac = Number(p.lacunarity ?? 2), ilac = Math.floor(lac + 0.5)
-  const crease = Number(p.crease ?? 0), hier = Number(p.hier ?? 0), ridge = Number(p.ridge ?? 0)
-  const warp = Number(p.warp ?? 0), wdetail = Number(p.wdetail ?? 1)
-  const turned = tile && per0x === per0y
-  const ro = 1 + ridge
-  // warpOffset(x, per, seed + 7): fractalNoise(perlin, fBm, 3 octaves, lacunarity 2, gain 0.5), twice.
-  const fbm3 = (x: number, y: number, sd: number) => {
-    let sum = 0, amp = 1, norm = 0, px = per0x, py = per0y
-    for (let o = 0; o < 3; o++) {
-      sum += cvNoise(1, x, y, px, py, sd + o * 31) * amp
-      norm += amp
-      amp *= 0.5
-      x *= 2; y *= 2
-      if (tile) { px *= 2; py *= 2 }
-    }
-    return sum / norm
-  }
-  const out: number[] = []
-  const G = 64
-  for (let gy = 0; gy < G; gy++) for (let gx = 0; gx < G; gx++) {
-    // Pixel centres spread over the texture.
-    const pxl = Math.floor(((gx + 0.5) / G) * W) + 0.5, pyl = Math.floor(((gy + 0.5) / G) * H) + 0.5
-    let x = (pxl / W) * cx, y = (pyl / H) * cy
-    let offx = 0, offy = 0
-    if (warp > 0) {
-      const wx = (fbm3(x, y, seed + 7 + 101) - 0.5) * warp * 2, wy = (fbm3(x + 17.3, y + 17.3, seed + 7 + 211) - 0.5) * warp * 2
-      if (wdetail >= 1) { x += wx; y += wy } else { offx = wx; offy = wy }
-    }
-    let sum = 0, amp = 1, norm = 0, weight = 1, f0 = 1, cut = 1
-    let px = per0x, py = per0y
-    for (let o = 0; o < oct; o++) {
-      const s = seed + o * 31
-      let xo = x + offx, yo = y + offy
-      const shx = hashI(o, 3, seed) + 0.37 * o, shy = hashI(o, 5, seed) + 0.37 * o
-      if (o > 0) { xo += shx; yo += shy }
-      if (!tile) { const a = 0.5 + 2.4 * o, c = Math.cos(a), sn = Math.sin(a); const tx = c * xo - sn * yo; yo = sn * xo + c * yo; xo = tx }
-      const dual = basis === 0
-      let n = 0
-      for (let j = 0; j < (dual ? 2 : 1); j++) {
-        const sj = s + 13 * j
-        if (turned) {
-          let m = Math.max(1, Math.floor(cx / 2.236068 + 0.5))
-          for (let q = 0; q < o; q++) m *= ilac
-          let c1 = o % 2 === 0 ? [2 * m, m] : [m, 2 * m], c2 = o % 2 === 0 ? [-m, 2 * m] : [-2 * m, m]
-          if (j === 1) { c1 = [c1[1], c1[0]]; c2 = [-c2[1], -c2[0]] }
-          const k = px / per0x
-          const ux = (x + offx) / (cx * k), uy = (y + offy) / (cy * k)
-          n += rlNoise(basis, c1[0] * ux + c2[0] * uy + shx + 0.5 * j, c1[1] * ux + c2[1] * uy + shy + 0.5 * j, c1, c2, sj)
-        } else {
-          let xj = xo, yj = yo
-          if (j === 1) {
-            if (!tile) { const c = Math.cos(1.1), sn = Math.sin(1.1); const tx = c * xj - sn * yj; yj = sn * xj + c * yj; xj = tx }
-            xj += 0.5; yj += 0.5
-          }
-          n += cvNoise(basis, xj, yj, px, py, sj)
-        }
-      }
-      if (dual) n = Math.min(1, Math.max(0, 0.5 + (n - 1) * 0.70711))
-      const ce = 0.25 * crease * (style === 1 ? 1 + 0.5 * o : 1 + o) * (style === 2 ? 2 : 1) + (style === 2 ? 0.15 * hier * Math.max(o - 1, 0) : 0)
-      const ha = style !== 2 || o === 0 ? 1 : o === 1 ? 1 + 0.6 * hier : Math.pow(1 - 0.35 * hier, o - 1)
-      const t = 2 * n - 1
-      const fold = ce > 0 ? (Math.sqrt(t * t + ce * ce) - ce) / (Math.sqrt(1 + ce * ce) - ce) : Math.abs(t)
-      let wn = 1
-      if (style === 2) {
-        const c = (ro - fold) / ro
-        const hp = o === 0 ? RIDGE_SHARP(hier) : 0, hg = o === 0 ? -hier : 2 * hier
-        let r = c * c * (hp > 0 ? Math.pow(Math.max(c, 1e-6), hp) : 1)
-        const gt = c * c * (hg !== 0 ? Math.pow(Math.max(c, 1e-6), hg) : 1)
-        wn = 1 + (weight - 1) * hier
-        r *= weight
-        weight = Math.max(Math.min(1, Math.max(0, 2 * gt * weight)), Math.min(ridge, 1))
-        n = r
-      } else if (style === 1 || (style === 3 && o > 0)) {
-        n = style === 1 ? (crease > 0 ? Math.pow(fold, 1 - 0.5 * crease) : fold) : fold + (n - fold) * (o >= 3 ? 1 : 0)
-      }
-      let bg = 1
-      if (style === 1 && crease > 0) {
-        if (o === 0) f0 = fold
-        else { const e = Math.min(1, Math.max(0, f0 / 0.6)); bg = 1 + (e * e * (3 - 2 * e) - 1) * crease }
-        if (o === 1 || o === 2) { const e = Math.min(1, Math.max(0, fold / 0.6)); cut *= 1 + (0.45 + 0.55 * e * e * (3 - 2 * e) - 1) * crease * (o === 1 ? 1 : 0.3) }
-      }
-      sum += n * amp * ha * bg
-      norm += amp * ha * wn
-      amp *= gain
-      const lm = tile ? ilac : lac
-      if (tile) { x *= ilac; y *= ilac; px *= ilac; py *= ilac } else { x *= lac; y *= lac }
-      offx *= lm * wdetail; offy *= lm * wdetail
-    }
-    out.push((sum / Math.max(norm, 1e-6)) * cut)
-  }
-  return out
+export function cloudsSamples(
+	p: ParamValues,
+	ctx: { width: number; height: number; tileable: boolean; seed: number }
+): number[] {
+	const W = ctx.width,
+		H = ctx.height,
+		tile = ctx.tileable,
+		seed = ctx.seed;
+	const scale = Number(p.scale),
+		stretch = Math.max(Number(p.stretch ?? 1), 1e-3);
+	let cx = scale / stretch,
+		cy = (scale * H) / W;
+	if (tile) {
+		cx = Math.max(1, Math.floor(cx + 0.5));
+		cy = Math.max(1, Math.floor(cy + 0.5));
+	} else {
+		cx = Math.max(cx, 1e-3);
+		cy = Math.max(cy, 1e-3);
+	}
+	const per0x = tile ? cx : NO_PER,
+		per0y = tile ? cy : NO_PER;
+	const basis = p.basis === 'value' ? 0 : 1;
+	const style = ({ fbm: 0, billow: 1, ridged: 2, cumulus: 3 } as Record<string, number>)[String(p.style)] ?? 0;
+	const oct = Math.max(1, Math.min(12, Math.round(Number(p.octaves))));
+	const gain = Number(p.gain),
+		lac = Number(p.lacunarity ?? 2),
+		ilac = Math.floor(lac + 0.5);
+	const crease = Number(p.crease ?? 0),
+		hier = Number(p.hier ?? 0),
+		ridge = Number(p.ridge ?? 0);
+	const warp = Number(p.warp ?? 0),
+		wdetail = Number(p.wdetail ?? 1);
+	const turned = tile && per0x === per0y;
+	const ro = 1 + ridge;
+	// warpOffset(x, per, seed + 7): fractalNoise(perlin, fBm, 3 octaves, lacunarity 2, gain 0.5), twice.
+	const fbm3 = (x: number, y: number, sd: number) => {
+		let sum = 0,
+			amp = 1,
+			norm = 0,
+			px = per0x,
+			py = per0y;
+		for (let o = 0; o < 3; o++) {
+			sum += cvNoise(1, x, y, px, py, sd + o * 31) * amp;
+			norm += amp;
+			amp *= 0.5;
+			x *= 2;
+			y *= 2;
+			if (tile) {
+				px *= 2;
+				py *= 2;
+			}
+		}
+		return sum / norm;
+	};
+	const out: number[] = [];
+	const G = 64;
+	for (let gy = 0; gy < G; gy++)
+		for (let gx = 0; gx < G; gx++) {
+			// Pixel centres spread over the texture.
+			const pxl = Math.floor(((gx + 0.5) / G) * W) + 0.5,
+				pyl = Math.floor(((gy + 0.5) / G) * H) + 0.5;
+			let x = (pxl / W) * cx,
+				y = (pyl / H) * cy;
+			let offx = 0,
+				offy = 0;
+			if (warp > 0) {
+				const wx = (fbm3(x, y, seed + 7 + 101) - 0.5) * warp * 2,
+					wy = (fbm3(x + 17.3, y + 17.3, seed + 7 + 211) - 0.5) * warp * 2;
+				if (wdetail >= 1) {
+					x += wx;
+					y += wy;
+				} else {
+					offx = wx;
+					offy = wy;
+				}
+			}
+			let sum = 0,
+				amp = 1,
+				norm = 0,
+				weight = 1,
+				f0 = 1,
+				cut = 1;
+			let px = per0x,
+				py = per0y;
+			for (let o = 0; o < oct; o++) {
+				const s = seed + o * 31;
+				let xo = x + offx,
+					yo = y + offy;
+				const shx = hashI(o, 3, seed) + 0.37 * o,
+					shy = hashI(o, 5, seed) + 0.37 * o;
+				if (o > 0) {
+					xo += shx;
+					yo += shy;
+				}
+				if (!tile) {
+					const a = 0.5 + 2.4 * o,
+						c = Math.cos(a),
+						sn = Math.sin(a);
+					const tx = c * xo - sn * yo;
+					yo = sn * xo + c * yo;
+					xo = tx;
+				}
+				const dual = basis === 0;
+				let n = 0;
+				for (let j = 0; j < (dual ? 2 : 1); j++) {
+					const sj = s + 13 * j;
+					if (turned) {
+						let m = Math.max(1, Math.floor(cx / 2.236068 + 0.5));
+						for (let q = 0; q < o; q++) m *= ilac;
+						let c1 = o % 2 === 0 ? [2 * m, m] : [m, 2 * m],
+							c2 = o % 2 === 0 ? [-m, 2 * m] : [-2 * m, m];
+						if (j === 1) {
+							c1 = [c1[1], c1[0]];
+							c2 = [-c2[1], -c2[0]];
+						}
+						const k = px / per0x;
+						const ux = (x + offx) / (cx * k),
+							uy = (y + offy) / (cy * k);
+						n += rlNoise(
+							basis,
+							c1[0] * ux + c2[0] * uy + shx + 0.5 * j,
+							c1[1] * ux + c2[1] * uy + shy + 0.5 * j,
+							c1,
+							c2,
+							sj
+						);
+					} else {
+						let xj = xo,
+							yj = yo;
+						if (j === 1) {
+							if (!tile) {
+								const c = Math.cos(1.1),
+									sn = Math.sin(1.1);
+								const tx = c * xj - sn * yj;
+								yj = sn * xj + c * yj;
+								xj = tx;
+							}
+							xj += 0.5;
+							yj += 0.5;
+						}
+						n += cvNoise(basis, xj, yj, px, py, sj);
+					}
+				}
+				if (dual) n = Math.min(1, Math.max(0, 0.5 + (n - 1) * 0.70711));
+				const ce =
+					0.25 * crease * (style === 1 ? 1 + 0.5 * o : 1 + o) * (style === 2 ? 2 : 1) +
+					(style === 2 ? 0.15 * hier * Math.max(o - 1, 0) : 0);
+				const ha = style !== 2 || o === 0 ? 1 : o === 1 ? 1 + 0.6 * hier : Math.pow(1 - 0.35 * hier, o - 1);
+				const t = 2 * n - 1;
+				const fold = ce > 0 ? (Math.sqrt(t * t + ce * ce) - ce) / (Math.sqrt(1 + ce * ce) - ce) : Math.abs(t);
+				let wn = 1;
+				if (style === 2) {
+					const c = (ro - fold) / ro;
+					const hp = o === 0 ? RIDGE_SHARP(hier) : 0,
+						hg = o === 0 ? -hier : 2 * hier;
+					let r = c * c * (hp > 0 ? Math.pow(Math.max(c, 1e-6), hp) : 1);
+					const gt = c * c * (hg !== 0 ? Math.pow(Math.max(c, 1e-6), hg) : 1);
+					wn = 1 + (weight - 1) * hier;
+					r *= weight;
+					weight = Math.max(Math.min(1, Math.max(0, 2 * gt * weight)), Math.min(ridge, 1));
+					n = r;
+				} else if (style === 1 || (style === 3 && o > 0)) {
+					n =
+						style === 1 ? (crease > 0 ? Math.pow(fold, 1 - 0.5 * crease) : fold) : fold + (n - fold) * (o >= 3 ? 1 : 0);
+				}
+				let bg = 1;
+				if (style === 1 && crease > 0) {
+					if (o === 0) f0 = fold;
+					else {
+						const e = Math.min(1, Math.max(0, f0 / 0.6));
+						bg = 1 + (e * e * (3 - 2 * e) - 1) * crease;
+					}
+					if (o === 1 || o === 2) {
+						const e = Math.min(1, Math.max(0, fold / 0.6));
+						cut *= 1 + (0.45 + 0.55 * e * e * (3 - 2 * e) - 1) * crease * (o === 1 ? 1 : 0.3);
+					}
+				}
+				sum += n * amp * ha * bg;
+				norm += amp * ha * wn;
+				amp *= gain;
+				const lm = tile ? ilac : lac;
+				if (tile) {
+					x *= ilac;
+					y *= ilac;
+					px *= ilac;
+					py *= ilac;
+				} else {
+					x *= lac;
+					y *= lac;
+				}
+				offx *= lm * wdetail;
+				offy *= lm * wdetail;
+			}
+			out.push((sum / Math.max(norm, 1e-6)) * cut);
+		}
+	return out;
 }
 
 /** Ridge hierarchy: the main crest's extra sharpening exponent (shader: the same expression). */
-const RIDGE_SHARP = (h: number) => 6 * h * h
+const RIDGE_SHARP = (h: number) => 6 * h * h;
 
 export const cloudsLayer: LayerDef = {
-  type: 'clouds',
-  noise: true,
-  label: 'Clouds',
-  category: 'noise',
-  kind: 'generator',
-  description: 'Classic fractal clouds with domain warp, contrast and coverage — grime, stains, soft variation.',
-  params: [
-    P.enum('basis', 'Basis', 'perlin', [['value', 'Value'], ['perlin', 'Perlin']]),
-    P.enum('style', 'Style', 'cumulus', [
-      ['fbm', 'Soft', 'fractal clouds: soft smoke, stains, grime'],
-      ['billow', 'Billow (puffy)', 'every octave folded: lumps between a network of dark creases'],
-      ['ridged', 'Ridged', 'sharp crests round dark basins: veins, erosion, lightning'],
-      ['cumulus', 'Cumulus', 'soft masses built of puffy sub-lumps: the first octave smooth, the finer ones folded — cauliflower clouds, foam, moss'],
-    ]),
-    P.float('scale', 'Scale', 4, 0.25, 512, { softMax: 48, step: 0.01, hint: 'Base cells across the texture width (rounded when tiling)' }),
-    P.float('stretch', 'Stretch', 1, 0.02, 100, { softMin: 0.1, softMax: 16, step: 0.01, hint: '>1 elongates features horizontally (streaks, strata), <1 vertically (rain marks)' }),
-    P.int('octaves', 'Octaves', 6, 1, 12),
-    P.float('lacunarity', 'Lacunarity', 2, 1, 8, { softMin: 1.5, softMax: 6, step: 0.01, hint: 'Frequency step per octave (rounded to a whole number when tiling: 2, 3, 4 …)' }),
-    P.float('gain', 'Gain', 0.45, 0, 1, { step: 0.001, hint: 'Amplitude kept per octave (roughness)' }),
-    P.float('crease', 'Crease softness', 0.6, 0, 1, {
-      step: 0.001,
-      showIf: (p) => p.style !== 'fbm',
-      hint: 'Rounds the sharp folds of Billow, Cumulus and Ridged (their dark creases and bright crests; at 0 the fine ones turn to hairlines). Billow: also domes the lumps and lets the second octave’s creases split them into sub-lumps. 0 = knife-sharp, 1 = soft',
-    }),
-    P.float('ridge', 'Ridge offset', 0.35, 0, 2, {
-      softMax: 1,
-      step: 0.001,
-      showIf: (p) => p.style === 'ridged',
-      hint: 'Lifts the valleys between the ridges and lets the finer octaves into them (at least this share of each): 0 = classic ridged (basins fall to flat black), 0.5 = shallower basins with half the fine detail, 1 = the detail everywhere',
-    }),
-    P.float('hier', 'Ridge hierarchy', 0.7, 0, 1, {
-      step: 0.001,
-      showIf: (p) => p.style === 'ridged',
-      hint: 'Ridged: main ridgelines with smaller ridges branching off them — the finer octaves only near the crests of the coarser ones (and wider), the flanks between left smooth (0: every scale at once, the classic ridged multifractal)',
-    }),
-    P.float('warp', 'Warp', 0.1, 0, 16, { softMax: 3, step: 0.001, hint: 'Domain warp, in base cells' }),
-    P.float('wdetail', 'Warp detail', 0.4, 0, 1, {
-      step: 0.001,
-      showIf: (p) => Number(p.warp) > 0,
-      hint: 'How much of the warp the finer octaves take: 1 = all of it (fine detail drawn out into streaks and strands), 0.5 = the large shapes swirl, fine detail stays even, 0 = only the first octave warps',
-    }),
-    P.float('contrast', 'Contrast', 1.5, 0, 64, { softMax: 12, step: 0.01 }),
-    P.float('coverage', 'Coverage', 0.5, 0, 1, { step: 0.001, hint: 'Share of the area above mid-grey — measured on this very texture, for every style, seed and size' }),
-    P.float('soft', 'Softness', 1, 0, 1, { step: 0.001, hint: 'Rounds where Contrast clips to black and white, the mid-tones untouched: 0 = a hard cut (a crease round every flat plateau), 0.5 = shoulders that meet at mid-grey, 1 = a sigmoid that never quite reaches black or white (domed lumps)' }),
-    P.seed(),
-  ],
-  // Coverage and Contrast act on this texture's own measured value spread (see cloudsSamples).
-  textures: ['calib'],
-  cpuData: (p, ctx) => quantileTexture(quantilesOf(cloudsSamples(p, ctx))),
-  // An Overlay ramp that both darkens and lightens what is beneath.
-  defaults: {
-    dif_on: true,
-    dif_blend: 'overlay',
-    dif_opacity: 0.85,
-    dif_grad: gradient('#2a241e', '#fbf6ee'),
-    h_on: true,
-    h_amount: 0.15,
-  },
-  glsl: /* glsl */ `
+	type: 'clouds',
+	noise: true,
+	label: 'Clouds',
+	category: 'noise',
+	kind: 'generator',
+	description: 'Classic fractal clouds with domain warp, contrast and coverage — grime, stains, soft variation.',
+	params: [
+		P.enum('basis', 'Basis', 'perlin', [
+			['value', 'Value'],
+			['perlin', 'Perlin']
+		]),
+		P.enum('style', 'Style', 'cumulus', [
+			['fbm', 'Soft', 'fractal clouds: soft smoke, stains, grime'],
+			['billow', 'Billow (puffy)', 'every octave folded: lumps between a network of dark creases'],
+			['ridged', 'Ridged', 'sharp crests round dark basins: veins, erosion, lightning'],
+			[
+				'cumulus',
+				'Cumulus',
+				'soft masses built of puffy sub-lumps: the first octave smooth, the finer ones folded — cauliflower clouds, foam, moss'
+			]
+		]),
+		P.float('scale', 'Scale', 4, 0.25, 512, {
+			softMax: 48,
+			step: 0.01,
+			hint: 'Base cells across the texture width (rounded when tiling)'
+		}),
+		P.float('stretch', 'Stretch', 1, 0.02, 100, {
+			softMin: 0.1,
+			softMax: 16,
+			step: 0.01,
+			hint: '>1 elongates features horizontally (streaks, strata), <1 vertically (rain marks)'
+		}),
+		P.int('octaves', 'Octaves', 6, 1, 12),
+		P.float('lacunarity', 'Lacunarity', 2, 1, 8, {
+			softMin: 1.5,
+			softMax: 6,
+			step: 0.01,
+			hint: 'Frequency step per octave (rounded to a whole number when tiling: 2, 3, 4 …)'
+		}),
+		P.float('gain', 'Gain', 0.45, 0, 1, { step: 0.001, hint: 'Amplitude kept per octave (roughness)' }),
+		P.float('crease', 'Crease softness', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style !== 'fbm',
+			hint: 'Rounds the sharp folds of Billow, Cumulus and Ridged (their dark creases and bright crests; at 0 the fine ones turn to hairlines). Billow: also domes the lumps and lets the second octave’s creases split them into sub-lumps. 0 = knife-sharp, 1 = soft'
+		}),
+		P.float('ridge', 'Ridge offset', 0.35, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			showIf: (p) => p.style === 'ridged',
+			hint: 'Lifts the valleys between the ridges and lets the finer octaves into them (at least this share of each): 0 = classic ridged (basins fall to flat black), 0.5 = shallower basins with half the fine detail, 1 = the detail everywhere'
+		}),
+		P.float('hier', 'Ridge hierarchy', 0.7, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'ridged',
+			hint: 'Ridged: main ridgelines with smaller ridges branching off them — the finer octaves only near the crests of the coarser ones (and wider), the flanks between left smooth (0: every scale at once, the classic ridged multifractal)'
+		}),
+		P.float('warp', 'Warp', 0.1, 0, 16, { softMax: 3, step: 0.001, hint: 'Domain warp, in base cells' }),
+		P.float('wdetail', 'Warp detail', 0.4, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.warp) > 0,
+			hint: 'How much of the warp the finer octaves take: 1 = all of it (fine detail drawn out into streaks and strands), 0.5 = the large shapes swirl, fine detail stays even, 0 = only the first octave warps'
+		}),
+		P.float('contrast', 'Contrast', 1.5, 0, 64, { softMax: 12, step: 0.01 }),
+		P.float('coverage', 'Coverage', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'Share of the area above mid-grey — measured on this very texture, for every style, seed and size'
+		}),
+		P.float('soft', 'Softness', 1, 0, 1, {
+			step: 0.001,
+			hint: 'Rounds where Contrast clips to black and white, the mid-tones untouched: 0 = a hard cut (a crease round every flat plateau), 0.5 = shoulders that meet at mid-grey, 1 = a sigmoid that never quite reaches black or white (domed lumps)'
+		}),
+		P.seed()
+	],
+	// Coverage and Contrast act on this texture's own measured value spread (see cloudsSamples).
+	textures: ['calib'],
+	cpuData: (p, ctx) => quantileTexture(quantilesOf(cloudsSamples(p, ctx))),
+	// An Overlay ramp that both darkens and lightens what is beneath.
+	defaults: {
+		dif_on: true,
+		dif_blend: 'overlay',
+		dif_opacity: 0.85,
+		dif_grad: gradient('#2a241e', '#fbf6ee'),
+		h_on: true,
+		h_amount: 0.15
+	},
+	glsl: /* glsl */ `
 // 1, read from a uniform: a loop bound written with it can't be unrolled, so D3D keeps one copy of the body.
 #define CL_1 (uRes.x > 0.0 ? 1 : 0)
 
@@ -338,72 +479,153 @@ GenOut gen(vec2 p) {
   v = mix(vb, 0.5 + 0.5 * tanh(2.0 * (v - 0.5)), clamp(2.0 * u_soft - 1.0, 0.0, 1.0));
   return genOutSmooth(clamp(v, 0.0, 1.0), 1.0, n, 0.0);
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ gradient
 
-const radialish = (p: Record<string, unknown>) => p.style !== 'linear'
-const repeating = (p: Record<string, unknown>) => p.repeat !== 'clamp'
+const radialish = (p: Record<string, unknown>) => p.style !== 'linear';
+const repeating = (p: Record<string, unknown>) => p.repeat !== 'clamp';
 
 export const gradientLayer: LayerDef = {
-  type: 'gradient',
-  label: 'Gradient',
-  category: 'pattern',
-  kind: 'generator',
-  description: 'Linear, radial, angular, diamond or square ramp with repeat / mirror and a falloff curve — UI shading, vignettes, sheens, domes.',
-  params: [
-    P.enum('style', 'Type', 'linear', [
-      ['linear', 'Linear'],
-      ['radial', 'Radial'],
-      ['angular', 'Angular'],
-      ['diamond', 'Diamond'],
-      ['square', 'Square', 'rectangular rings: inner glows and bevels of buttons and panels'],
-    ]),
-    P.float('angle', 'Angle', 270, -360, 360, { softMin: -180, softMax: 360, unit: '°', step: 0.1, hint: 'Direction from 0 to 1, clockwise from →; 270 runs bottom → top. Turns radial-type shapes (their Stretch axis) and where an angular sweep starts' }),
-    P.float('cx', 'Centre X', 0.5, -2, 3, { softMin: 0, softMax: 1, step: 0.001, hint: 'Where the ramp is at its middle (linear) or starts (the others)' }),
-    P.float('cy', 'Centre Y', 0.5, -2, 3, { softMin: 0, softMax: 1, step: 0.001, hint: '0..1 down' }),
-    P.float('length', 'Length / radius', 0, 0, 8192, { softMax: 512, unit: 'px', step: 0.5, showIf: (p) => p.style !== 'angular', hint: '0 = fit the texture (linear spans it, the others reach the farthest corner). Shorter, with Repeat or Mirror: bands of this width' }),
-    P.float('stretch', 'Stretch', 1, 0.02, 50, { softMin: 0.2, softMax: 5, step: 0.01, showIf: radialish, hint: 'Elongates the rings along the Angle direction (> 1) or across it (< 1): ellipses, long diamonds, rectangles. Tiling with Centre › Wrap, long rings run into their neighbouring copies’ (Seam rounding bends them together); Single keeps one clean ellipse' }),
-    P.float('round', 'Roundness', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'diamond' || p.style === 'square', hint: 'Rounds the corners of diamond and square rings (superellipses), so they meet without a crease on the diagonals: 0 = sharp, 1 = round' }),
-    P.int('turns', 'Ramps', 1, 1, 256, { softMax: 32, showIf: (p) => p.style === 'angular', hint: 'Ramps around the centre: a fan of rays (Repeat); with Mirror two ramps make one up-and-down wedge (16 → an 8-pointed star). Tiling with Centre › Wrap, an even count bends round the tile and repeats seamlessly; an odd count starts on a single centre (one sweep can’t tile round its centre: Wrap then bends the rays towards a diagonal)' }),
-    P.float('twist', 'Twist', 0, -32, 32, { softMin: -4, softMax: 4, step: 0.001, showIf: (p) => p.style === 'angular', hint: 'Winds the sweep into a spiral: turns from the centre to half the texture width' }),
-    P.enum('repeat', 'Repeat', 'clamp', [
-      ['clamp', 'None (clamp)', 'one ramp, flat beyond it — a linear one can’t tile (its top meets its bottom)'],
-      ['repeat', 'Repeat', 'sawtooth: the ramp starts over at every band'],
-      ['mirror', 'Mirror', 'up and down: bands without a step'],
-    ]),
-    P.float('band_jit', 'Band width jitter', 0, 0, 1, { step: 0.001, showIf: repeating, hint: 'Each band its own width (Repeat, Mirror): 1 = from a tenth to nearly twice the Length — strata, planks, siding. Still tiles with Fit the tile' }),
-    P.float('shift', 'Band offset', 0, -100, 100, { softMin: -1, softMax: 1, step: 0.001, hint: 'Moves the ramp along itself, in ramps: 0.5 puts the band edges where their middles were' }),
-    P.bool('fit', 'Fit the tile', true, {
-      showIf: (p) => p.style !== 'angular' && repeating(p),
-      hint: 'Tiling projects: rounds the band length so a whole number of bands fits across the tile — the bands run on seamlessly over its edges (a linear ramp’s angle snaps a little, like Stripes)',
-    }),
-    P.enum('wrap', 'Centre', 'wrap', [
-      ['wrap', 'Wrap (seamless)', 'tiling projects: the nearest copy of the centre in the neighbouring tiles — seamless, with a crease where the copies meet'],
-      ['single', 'Single', 'only this centre: a plain spotlight or vignette (not seamless across the tile’s edges)'],
-    ], { showIf: radialish, hint: 'Tiling projects: Wrap repeats the centre in every neighbouring tile, so the texture tiles; Single draws only this centre (a spotlight or vignette — it does not tile)' }),
-    P.float('seam', 'Seam rounding', 0, 0, 1024, { softMax: 48, unit: 'px', step: 0.1, showIf: (p) => radialish(p) && p.style !== 'angular' && p.wrap !== 'single', hint: 'Where the copies of the centre meet (Wrap, tiling projects): over about this width their rings bend from one copy’s into the next’s instead of meeting in a crease or a seam (a clamped ramp: a rounded ridge)' }),
-    P.enum('falloff', 'Falloff', 'linear', [
-      ['linear', 'Linear', 'an even ramp'],
-      ['smooth', 'Smooth', 'S-curve: eases out of 0 and into 1 — no crease at the ends, a rounded tip at a radial centre'],
-      ['round', 'Round', 'quarter circle: rises fast, flattens towards 1'],
-      ['cove', 'Cove', 'concave: stays low, then rises steeply — with Invert, a radial cove is a hemisphere'],
-    ], { hint: 'The curve along each ramp (applied after Repeat / Mirror); Shaping › Gamma bends it continuously' }),
-    P.bool('aa', 'Anti-alias', true, { showIf: (p) => repeating(p) || p.style === 'angular', hint: 'Smooths the step where a ramp wraps from 1 back to 0 (Repeat, the start of an angular sweep) and the folds of Mirror; bands finer than a pixel fade to grey. Off for hard pixel steps' }),
-    P.seed('seed', 'Seed', 1, { hint: 'The per-band random (each repeat of the ramp: Source › Random, Diffuse jitter, Per-feature variation)' }),
-  ],
-  // Added in the editor: repeats fit the tile, and the creases where copies of a centre meet are rounded.
-  // Added in the editor: the creases where copies of a centre meet rounded by 5 % of the texture.
-  fresh: ({ width, height }) => ({ seam: Math.round(0.05 * Math.min(width, height) * 10) / 10 }),
-  // One ramp (or any odd count) can't sweep round a tiling centre: an angular gradient with an odd count starts with a
-  // single centre (Wrap tiles it, bent); an even count with the centre repeated, seamless.
-  linkedDefaults: (p) => ({ wrap: p.style === 'angular' && Number(p.turns ?? 1) % 2 === 1 ? 'single' : 'wrap' }),
-  defaults: {
-    dif_on: true,
-    dif_grad: gradient('#3a3e43', '#9aa3ab'),
-  },
-  glsl: /* glsl */ `
+	type: 'gradient',
+	label: 'Gradient',
+	category: 'pattern',
+	kind: 'generator',
+	description:
+		'Linear, radial, angular, diamond or square ramp with repeat / mirror and a falloff curve — UI shading, vignettes, sheens, domes.',
+	params: [
+		P.enum('style', 'Type', 'linear', [
+			['linear', 'Linear'],
+			['radial', 'Radial'],
+			['angular', 'Angular'],
+			['diamond', 'Diamond'],
+			['square', 'Square', 'rectangular rings: inner glows and bevels of buttons and panels']
+		]),
+		P.float('angle', 'Angle', 270, -360, 360, {
+			softMin: -180,
+			softMax: 360,
+			unit: '°',
+			step: 0.1,
+			hint: 'Direction from 0 to 1, clockwise from →; 270 runs bottom → top. Turns radial-type shapes (their Stretch axis) and where an angular sweep starts'
+		}),
+		P.float('cx', 'Centre X', 0.5, -2, 3, {
+			softMin: 0,
+			softMax: 1,
+			step: 0.001,
+			hint: 'Where the ramp is at its middle (linear) or starts (the others)'
+		}),
+		P.float('cy', 'Centre Y', 0.5, -2, 3, { softMin: 0, softMax: 1, step: 0.001, hint: '0..1 down' }),
+		P.float('length', 'Length / radius', 0, 0, 8192, {
+			softMax: 512,
+			unit: 'px',
+			step: 0.5,
+			showIf: (p) => p.style !== 'angular',
+			hint: '0 = fit the texture (linear spans it, the others reach the farthest corner). Shorter, with Repeat or Mirror: bands of this width'
+		}),
+		P.float('stretch', 'Stretch', 1, 0.02, 50, {
+			softMin: 0.2,
+			softMax: 5,
+			step: 0.01,
+			showIf: radialish,
+			hint: 'Elongates the rings along the Angle direction (> 1) or across it (< 1): ellipses, long diamonds, rectangles. Tiling with Centre › Wrap, long rings run into their neighbouring copies’ (Seam rounding bends them together); Single keeps one clean ellipse'
+		}),
+		P.float('round', 'Roundness', 0, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'diamond' || p.style === 'square',
+			hint: 'Rounds the corners of diamond and square rings (superellipses), so they meet without a crease on the diagonals: 0 = sharp, 1 = round'
+		}),
+		P.int('turns', 'Ramps', 1, 1, 256, {
+			softMax: 32,
+			showIf: (p) => p.style === 'angular',
+			hint: 'Ramps around the centre: a fan of rays (Repeat); with Mirror two ramps make one up-and-down wedge (16 → an 8-pointed star). Tiling with Centre › Wrap, an even count bends round the tile and repeats seamlessly; an odd count starts on a single centre (one sweep can’t tile round its centre: Wrap then bends the rays towards a diagonal)'
+		}),
+		P.float('twist', 'Twist', 0, -32, 32, {
+			softMin: -4,
+			softMax: 4,
+			step: 0.001,
+			showIf: (p) => p.style === 'angular',
+			hint: 'Winds the sweep into a spiral: turns from the centre to half the texture width'
+		}),
+		P.enum('repeat', 'Repeat', 'clamp', [
+			['clamp', 'None (clamp)', 'one ramp, flat beyond it — a linear one can’t tile (its top meets its bottom)'],
+			['repeat', 'Repeat', 'sawtooth: the ramp starts over at every band'],
+			['mirror', 'Mirror', 'up and down: bands without a step']
+		]),
+		P.float('band_jit', 'Band width jitter', 0, 0, 1, {
+			step: 0.001,
+			showIf: repeating,
+			hint: 'Each band its own width (Repeat, Mirror): 1 = from a tenth to nearly twice the Length — strata, planks, siding. Still tiles with Fit the tile'
+		}),
+		P.float('shift', 'Band offset', 0, -100, 100, {
+			softMin: -1,
+			softMax: 1,
+			step: 0.001,
+			hint: 'Moves the ramp along itself, in ramps: 0.5 puts the band edges where their middles were'
+		}),
+		P.bool('fit', 'Fit the tile', true, {
+			showIf: (p) => p.style !== 'angular' && repeating(p),
+			hint: 'Tiling projects: rounds the band length so a whole number of bands fits across the tile — the bands run on seamlessly over its edges (a linear ramp’s angle snaps a little, like Stripes)'
+		}),
+		P.enum(
+			'wrap',
+			'Centre',
+			'wrap',
+			[
+				[
+					'wrap',
+					'Wrap (seamless)',
+					'tiling projects: the nearest copy of the centre in the neighbouring tiles — seamless, with a crease where the copies meet'
+				],
+				['single', 'Single', 'only this centre: a plain spotlight or vignette (not seamless across the tile’s edges)']
+			],
+			{
+				showIf: radialish,
+				hint: 'Tiling projects: Wrap repeats the centre in every neighbouring tile, so the texture tiles; Single draws only this centre (a spotlight or vignette — it does not tile)'
+			}
+		),
+		P.float('seam', 'Seam rounding', 0, 0, 1024, {
+			softMax: 48,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => radialish(p) && p.style !== 'angular' && p.wrap !== 'single',
+			hint: 'Where the copies of the centre meet (Wrap, tiling projects): over about this width their rings bend from one copy’s into the next’s instead of meeting in a crease or a seam (a clamped ramp: a rounded ridge)'
+		}),
+		P.enum(
+			'falloff',
+			'Falloff',
+			'linear',
+			[
+				['linear', 'Linear', 'an even ramp'],
+				[
+					'smooth',
+					'Smooth',
+					'S-curve: eases out of 0 and into 1 — no crease at the ends, a rounded tip at a radial centre'
+				],
+				['round', 'Round', 'quarter circle: rises fast, flattens towards 1'],
+				['cove', 'Cove', 'concave: stays low, then rises steeply — with Invert, a radial cove is a hemisphere']
+			],
+			{ hint: 'The curve along each ramp (applied after Repeat / Mirror); Shaping › Gamma bends it continuously' }
+		),
+		P.bool('aa', 'Anti-alias', true, {
+			showIf: (p) => repeating(p) || p.style === 'angular',
+			hint: 'Smooths the step where a ramp wraps from 1 back to 0 (Repeat, the start of an angular sweep) and the folds of Mirror; bands finer than a pixel fade to grey. Off for hard pixel steps'
+		}),
+		P.seed('seed', 'Seed', 1, {
+			hint: 'The per-band random (each repeat of the ramp: Source › Random, Diffuse jitter, Per-feature variation)'
+		})
+	],
+	// Added in the editor: repeats fit the tile, and the creases where copies of a centre meet are rounded.
+	// Added in the editor: the creases where copies of a centre meet rounded by 5 % of the texture.
+	fresh: ({ width, height }) => ({ seam: Math.round(0.05 * Math.min(width, height) * 10) / 10 }),
+	// One ramp (or any odd count) can't sweep round a tiling centre: an angular gradient with an odd count starts with a
+	// single centre (Wrap tiles it, bent); an even count with the centre repeated, seamless.
+	linkedDefaults: (p) => ({ wrap: p.style === 'angular' && Number(p.turns ?? 1) % 2 === 1 ? 'single' : 'wrap' }),
+	defaults: {
+		dif_on: true,
+		dif_grad: gradient('#3a3e43', '#9aa3ab')
+	},
+	glsl: /* glsl */ `
 // 1, read from a uniform: a loop bound written with it can't be unrolled, so D3D keeps one copy of the body.
 #define GR_1 (uRes.x > 0.0 ? 1 : 0)
 
@@ -644,90 +866,218 @@ GenOut gen(vec2 p) {
   float rnd = hashI(ivec2(band, 0), uSeed);
   return genOut(v, 1.0, rnd, 0.0);
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ scratches
 
 /** Whether a scratches layer's density gets near its per-cell limit (the shader's cells are about a reach wide). */
 const nearCap = (p: Record<string, unknown>): boolean => {
-  const lmax = Math.max(Number(p.len_max), Number(p.len_min))
-  const reach = 0.5 * lmax * (1 + 0.25 * Number(p.bend ?? 0)) + 0.5 * Number(p.thickness) + 1
-  return (Number(p.density) * reach * reach * (1 + Number(p.clump ?? 0))) / 4096 > 0.5 * Number(p.cap ?? 64)
-}
+	const lmax = Math.max(Number(p.len_max), Number(p.len_min));
+	const reach = 0.5 * lmax * (1 + 0.25 * Number(p.bend ?? 0)) + 0.5 * Number(p.thickness) + 1;
+	return (Number(p.density) * reach * reach * (1 + Number(p.clump ?? 0))) / 4096 > 0.5 * Number(p.cap ?? 64);
+};
 
 export const scratchesLayer: LayerDef = {
-  type: 'scratches',
-  label: 'Scratches',
-  category: 'pattern',
-  kind: 'generator',
-  description: 'Random scratches and gouges — metal wear, scuffs, scored stone: tapered, broken up, wobbly or swept, in clumps, V- or U-cut with a raised burr. Coverage masks the outputs; the outline can go to a mask.',
-  params: [
-    P.float('density', 'Density', 24, 0, 1024, { softMax: 256, step: 0.1, perArea: true, section: 'Layout', hint: 'Scratches per 64×64 px (long, dense ones saturate at the Density limit). Brushed metal: 150+ with Density limit 256, 100–400 px long, under 0.6 px wide with Shallow hairlines, Angle jitter 1–3°, Clumping 0, Breakup under 0.2, a low Height amount' }),
-    P.int('cap', 'Density limit', 64, 1, 256, {
-      section: 'Layout',
-      showIf: nearCap,
-      hint: 'Most scratches in one cell (a square about a scratch long): long, dense scratches — brushing — stop getting denser past it. Up to 256 for dense brushing (slower to render)',
-    }),
-    P.float('angle', 'Angle', 30, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1, section: 'Layout', hint: 'Clockwise from horizontal' }),
-    P.int('dirs', 'Directions', 2, 1, 4, { section: 'Layout', hint: 'Headings the scratches take, spread over 180° from Angle (each with Angle jitter): 2 = cross-hatched, 3 = wear from three ways' }),
-    P.float('dir_bal', 'Direction balance', 0.45, 0, 1, { step: 0.001, section: 'Layout', showIf: (p) => Number(p.dirs) > 1, hint: 'The first heading’s share of the scratches: 0 = all headings alike, 1 = only the first' }),
-    P.float('dir_spread', 'Direction spread', 30, 0, 90, { unit: '°', step: 0.1, section: 'Layout', showIf: (p) => Number(p.dirs) > 1, hint: 'Turns each further heading off the even spread by a random angle up to this: irregular crossings instead of a regular hatch' }),
-    P.float('angle_jitter', 'Angle jitter', 25, 0, 180, { unit: '°', step: 0.1, section: 'Layout', hint: '180 = any direction' }),
-    P.float('clump', 'Clumping', 0.75, 0, 1, { step: 0.001, section: 'Layout', hint: 'Gathers the scratches into worn patches with bare areas between (the same count overall): 0 = evenly spread' }),
-    P.float('clump_scale', 'Clump scale', 3, 0.25, 64, { softMax: 16, step: 0.01, section: 'Layout', showIf: (p) => Number(p.clump) > 0 || Number(p.bend_coh) > 0, hint: 'Patches (and Swirl’s circles) across the texture (rounded when tiling)' }),
-    P.float('len_min', 'Min length', 5, 0, 2048, { softMax: 128, unit: 'px', step: 0.5, section: 'Shape' }),
-    P.float('len_max', 'Max length', 30, 0, 2048, { softMax: 256, unit: 'px', step: 0.5, section: 'Shape' }),
-    P.float('len_bias', 'Length bias', 0.5, 0, 1, { step: 0.001, section: 'Shape', hint: 'Favours short scratches: 0 = lengths spread evenly from min to max, 1 = mostly short with a few long ones' }),
-    P.float('thickness', 'Thickness', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.05, section: 'Shape', hint: 'Width of the widest scratches' }),
-    P.float('th_len', 'Width by length', 0.8, 0, 1, { step: 0.001, section: 'Shape', hint: 'Ties width to length: short scratches thin, the long ones up to full Thickness, none wider than an eighth of its length (no rice grains)' }),
-    P.float('th_var', 'Thickness jitter', 0.6, 0, 1, { step: 0.001, section: 'Shape', hint: 'Each scratch its own width: 1 = anywhere from a faint hairline to full Thickness, most of them fine. The weaker scratches (Strength jitter) are the thinner ones' }),
-    P.float('fade', 'Strength jitter', 0.6, 0, 1, { step: 0.001, section: 'Shape', hint: 'Random strength per scratch (the value): some faint, some deep' }),
-    P.float('taper', 'Taper', 0.8, 0, 1, { step: 0.001, section: 'Shape', hint: 'Thin the ends of each scratch' }),
-    P.float('taper_len', 'Taper length', 0.35, 0.02, 1, { step: 0.001, section: 'Shape', showIf: (p) => Number(p.taper) > 0, hint: 'How much of each half narrows: 1 = the whole scratch (a spindle, widest in the middle), 0.2 = only the last fifth at each end (a gouge)' }),
-    P.float('blunt', 'Blunt start', 0.5, 0, 1, { step: 0.001, section: 'Shape', showIf: (p) => Number(p.taper) > 0, hint: 'Less taper where each scratch starts (the end the Angle points from): a blunt entry and a sharp exit, like a tool dragged across' }),
-    P.float('bend_bias', 'Bend bias', 0, 0, 1, { step: 0.001, section: 'Shape', showIf: (p) => Number(p.bend) > 0, hint: 'Leans the bends one way: 0 = each scratch bows to a random side, 1 = all bow the same way (a sweeping hand)' }),
-    P.float('bend', 'Bend', 0, 0, 2, { softMax: 1, step: 0.001, section: 'Shape', hint: 'Curves the scratches into arcs, the long ones most (one curvature for all: at 1 the longest bow a quarter of their length). With Swirl, how closely they follow its circles' }),
-    P.float('bend_coh', 'Swirl', 0, 0, 1, { step: 0.001, section: 'Shape', hint: 'Lines the scratches up along circles round a few centres (one per Clump scale cell), as wiping and polishing leave: their direction follows the circles, and Bend curves them round the centre. 0 = Angle and Angle jitter only' }),
-    P.float('wobble', 'Wobble', 0.35, 0, 64, { softMax: 8, unit: 'px', step: 0.01, section: 'Shape', hint: 'Lateral waver along each scratch (a few waves per scratch: S-curves, chatter); cuts wider than 2 px waver more, by half their width' }),
-    P.float('breakup', 'Breakup', 0.5, 0, 1, { step: 0.001, section: 'Shape', hint: 'Varies each scratch along its length — deeper and shallower, wider and narrower — and breaks it into pieces: 0 = even capsules, 1 = broken, skipping strokes' }),
-    P.float('groove', 'Groove shape', 0.8, 0, 2, { softMax: 1, step: 0.001, section: 'Relief', hint: 'Cross-section of the cut, in Height: 0 = flat-bottomed, 0.5 = rounded U, 1 = V, 2 = needle-sharp. Scratches under 2 px wide stay flat' }),
-    P.float('burr', 'Burr', 0.3, 0, 2, { softMax: 1, step: 0.001, section: 'Relief', hint: 'A raised lip of pushed-up material beside the cut, as high as this share of the depth — uneven between the sides, broken, none where the scratch starts, rising towards its end, wiped out where another cut crosses, faint on hairlines (none under half a pixel wide; Height › Pattern, Height then skips Shaping’s value controls)' }),
-    P.float('heap', 'Exit heap', 0.5, 0, 2, { softMax: 1, step: 0.001, section: 'Relief', hint: 'The material pushed out ahead of each scratch’s end: a crescent round the tip, its size varying per scratch (some none), bigger for the strong, wide cuts (Height › Pattern, like Burr)' }),
-    P.float('burr_width', 'Burr width', 1, 0.25, 32, { softMax: 6, unit: 'px', step: 0.05, section: 'Relief', showIf: (p) => Number(p.burr) > 0 || Number(p.heap) > 0, hint: 'How far the lip (and the exit heap, past the cut’s own width) spreads from the edge of the cut' }),
-    P.bool('fine', 'Shallow hairlines', true, { section: 'Relief', hint: 'Scratches under a pixel wide cut as much shallower in Height and cover as much less (their area), so fine brushing reads as a sheen, not per-pixel trenches, and thin ends fade out (off: every scratch its full depth and a pixel of coverage)' }),
-    P.float('mask_min', 'Mask strength', 0, 0, 1, {
-      step: 0.001,
-      group: 'mask',
-      section: 'Write to',
-      showIf: (p) => String(p.mk_target ?? '').trim() !== '',
-      hint: 'Only scratches at least this strong (Strength jitter) go to the mask: faint scuffs left out of what later layers are limited to (rust in the deep cuts only)',
-    }),
-    P.bool('hard', 'Hard edges', false, { hint: 'No anti-aliasing (pixel art)' }),
-    P.seed(),
-  ],
-  // The scratches' outline (a signed distance to the nearest one) goes to a mask when given one: later layers are limited
-  // to the scratches (rust in them) or, in Subtract mode, to what's around them (paint that skips them).
-  sdf: 'mask',
-  // Added in the editor: lengths, density and widths sized to the texture (the plain defaults suit about 128 px).
-  fresh: ({ width, height }) => {
-    const k = Math.max(1, Math.min(width, height) / 128)
-    const r1 = (v: number) => Math.round(v * 10) / 10
-    return {
-      density: r1(24 / k), len_min: r1(5 * k), len_max: r1(30 * k), thickness: r1(Math.min(3, Math.sqrt(k))),
-      wobble: r1(0.35 * Math.sqrt(k)), burr_width: r1(Math.max(1, 0.75 * Math.sqrt(k))),
-    }
-  },
-  defaults: {
-    mk_target: '',
-    dif_on: true,
-    dif_opacity: 0.8,
-    dif_grad: gradient('#8f8a82', '#d9d4cb'),
-    h_on: true,
-    h_mode: 'subtract',
-    h_amount: 0.2,
-  },
-  glsl: /* glsl */ `
+	type: 'scratches',
+	label: 'Scratches',
+	category: 'pattern',
+	kind: 'generator',
+	description:
+		'Random scratches and gouges — metal wear, scuffs, scored stone: tapered, broken up, wobbly or swept, in clumps, V- or U-cut with a raised burr. Coverage masks the outputs; the outline can go to a mask.',
+	params: [
+		P.float('density', 'Density', 24, 0, 1024, {
+			softMax: 256,
+			step: 0.1,
+			perArea: true,
+			section: 'Layout',
+			hint: 'Scratches per 64×64 px (long, dense ones saturate at the Density limit). Brushed metal: 150+ with Density limit 256, 100–400 px long, under 0.6 px wide with Shallow hairlines, Angle jitter 1–3°, Clumping 0, Breakup under 0.2, a low Height amount'
+		}),
+		P.int('cap', 'Density limit', 64, 1, 256, {
+			section: 'Layout',
+			showIf: nearCap,
+			hint: 'Most scratches in one cell (a square about a scratch long): long, dense scratches — brushing — stop getting denser past it. Up to 256 for dense brushing (slower to render)'
+		}),
+		P.float('angle', 'Angle', 30, -360, 360, {
+			softMin: -180,
+			softMax: 180,
+			unit: '°',
+			step: 0.1,
+			section: 'Layout',
+			hint: 'Clockwise from horizontal'
+		}),
+		P.int('dirs', 'Directions', 2, 1, 4, {
+			section: 'Layout',
+			hint: 'Headings the scratches take, spread over 180° from Angle (each with Angle jitter): 2 = cross-hatched, 3 = wear from three ways'
+		}),
+		P.float('dir_bal', 'Direction balance', 0.45, 0, 1, {
+			step: 0.001,
+			section: 'Layout',
+			showIf: (p) => Number(p.dirs) > 1,
+			hint: 'The first heading’s share of the scratches: 0 = all headings alike, 1 = only the first'
+		}),
+		P.float('dir_spread', 'Direction spread', 30, 0, 90, {
+			unit: '°',
+			step: 0.1,
+			section: 'Layout',
+			showIf: (p) => Number(p.dirs) > 1,
+			hint: 'Turns each further heading off the even spread by a random angle up to this: irregular crossings instead of a regular hatch'
+		}),
+		P.float('angle_jitter', 'Angle jitter', 25, 0, 180, {
+			unit: '°',
+			step: 0.1,
+			section: 'Layout',
+			hint: '180 = any direction'
+		}),
+		P.float('clump', 'Clumping', 0.75, 0, 1, {
+			step: 0.001,
+			section: 'Layout',
+			hint: 'Gathers the scratches into worn patches with bare areas between (the same count overall): 0 = evenly spread'
+		}),
+		P.float('clump_scale', 'Clump scale', 3, 0.25, 64, {
+			softMax: 16,
+			step: 0.01,
+			section: 'Layout',
+			showIf: (p) => Number(p.clump) > 0 || Number(p.bend_coh) > 0,
+			hint: 'Patches (and Swirl’s circles) across the texture (rounded when tiling)'
+		}),
+		P.float('len_min', 'Min length', 5, 0, 2048, { softMax: 128, unit: 'px', step: 0.5, section: 'Shape' }),
+		P.float('len_max', 'Max length', 30, 0, 2048, { softMax: 256, unit: 'px', step: 0.5, section: 'Shape' }),
+		P.float('len_bias', 'Length bias', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Shape',
+			hint: 'Favours short scratches: 0 = lengths spread evenly from min to max, 1 = mostly short with a few long ones'
+		}),
+		P.float('thickness', 'Thickness', 1, 0, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.05,
+			section: 'Shape',
+			hint: 'Width of the widest scratches'
+		}),
+		P.float('th_len', 'Width by length', 0.8, 0, 1, {
+			step: 0.001,
+			section: 'Shape',
+			hint: 'Ties width to length: short scratches thin, the long ones up to full Thickness, none wider than an eighth of its length (no rice grains)'
+		}),
+		P.float('th_var', 'Thickness jitter', 0.6, 0, 1, {
+			step: 0.001,
+			section: 'Shape',
+			hint: 'Each scratch its own width: 1 = anywhere from a faint hairline to full Thickness, most of them fine. The weaker scratches (Strength jitter) are the thinner ones'
+		}),
+		P.float('fade', 'Strength jitter', 0.6, 0, 1, {
+			step: 0.001,
+			section: 'Shape',
+			hint: 'Random strength per scratch (the value): some faint, some deep'
+		}),
+		P.float('taper', 'Taper', 0.8, 0, 1, { step: 0.001, section: 'Shape', hint: 'Thin the ends of each scratch' }),
+		P.float('taper_len', 'Taper length', 0.35, 0.02, 1, {
+			step: 0.001,
+			section: 'Shape',
+			showIf: (p) => Number(p.taper) > 0,
+			hint: 'How much of each half narrows: 1 = the whole scratch (a spindle, widest in the middle), 0.2 = only the last fifth at each end (a gouge)'
+		}),
+		P.float('blunt', 'Blunt start', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Shape',
+			showIf: (p) => Number(p.taper) > 0,
+			hint: 'Less taper where each scratch starts (the end the Angle points from): a blunt entry and a sharp exit, like a tool dragged across'
+		}),
+		P.float('bend_bias', 'Bend bias', 0, 0, 1, {
+			step: 0.001,
+			section: 'Shape',
+			showIf: (p) => Number(p.bend) > 0,
+			hint: 'Leans the bends one way: 0 = each scratch bows to a random side, 1 = all bow the same way (a sweeping hand)'
+		}),
+		P.float('bend', 'Bend', 0, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Shape',
+			hint: 'Curves the scratches into arcs, the long ones most (one curvature for all: at 1 the longest bow a quarter of their length). With Swirl, how closely they follow its circles'
+		}),
+		P.float('bend_coh', 'Swirl', 0, 0, 1, {
+			step: 0.001,
+			section: 'Shape',
+			hint: 'Lines the scratches up along circles round a few centres (one per Clump scale cell), as wiping and polishing leave: their direction follows the circles, and Bend curves them round the centre. 0 = Angle and Angle jitter only'
+		}),
+		P.float('wobble', 'Wobble', 0.35, 0, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.01,
+			section: 'Shape',
+			hint: 'Lateral waver along each scratch (a few waves per scratch: S-curves, chatter); cuts wider than 2 px waver more, by half their width'
+		}),
+		P.float('breakup', 'Breakup', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Shape',
+			hint: 'Varies each scratch along its length — deeper and shallower, wider and narrower — and breaks it into pieces: 0 = even capsules, 1 = broken, skipping strokes'
+		}),
+		P.float('groove', 'Groove shape', 0.8, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Cross-section of the cut, in Height: 0 = flat-bottomed, 0.5 = rounded U, 1 = V, 2 = needle-sharp. Scratches under 2 px wide stay flat'
+		}),
+		P.float('burr', 'Burr', 0.3, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'A raised lip of pushed-up material beside the cut, as high as this share of the depth — uneven between the sides, broken, none where the scratch starts, rising towards its end, wiped out where another cut crosses, faint on hairlines (none under half a pixel wide; Height › Pattern, Height then skips Shaping’s value controls)'
+		}),
+		P.float('heap', 'Exit heap', 0.5, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'The material pushed out ahead of each scratch’s end: a crescent round the tip, its size varying per scratch (some none), bigger for the strong, wide cuts (Height › Pattern, like Burr)'
+		}),
+		P.float('burr_width', 'Burr width', 1, 0.25, 32, {
+			softMax: 6,
+			unit: 'px',
+			step: 0.05,
+			section: 'Relief',
+			showIf: (p) => Number(p.burr) > 0 || Number(p.heap) > 0,
+			hint: 'How far the lip (and the exit heap, past the cut’s own width) spreads from the edge of the cut'
+		}),
+		P.bool('fine', 'Shallow hairlines', true, {
+			section: 'Relief',
+			hint: 'Scratches under a pixel wide cut as much shallower in Height and cover as much less (their area), so fine brushing reads as a sheen, not per-pixel trenches, and thin ends fade out (off: every scratch its full depth and a pixel of coverage)'
+		}),
+		P.float('mask_min', 'Mask strength', 0, 0, 1, {
+			step: 0.001,
+			group: 'mask',
+			section: 'Write to',
+			showIf: (p) => String(p.mk_target ?? '').trim() !== '',
+			hint: 'Only scratches at least this strong (Strength jitter) go to the mask: faint scuffs left out of what later layers are limited to (rust in the deep cuts only)'
+		}),
+		P.bool('hard', 'Hard edges', false, { hint: 'No anti-aliasing (pixel art)' }),
+		P.seed()
+	],
+	// The scratches' outline (a signed distance to the nearest one) goes to a mask when given one: later layers are limited
+	// to the scratches (rust in them) or, in Subtract mode, to what's around them (paint that skips them).
+	sdf: 'mask',
+	// Added in the editor: lengths, density and widths sized to the texture (the plain defaults suit about 128 px).
+	fresh: ({ width, height }) => {
+		const k = Math.max(1, Math.min(width, height) / 128);
+		const r1 = (v: number) => Math.round(v * 10) / 10;
+		return {
+			density: r1(24 / k),
+			len_min: r1(5 * k),
+			len_max: r1(30 * k),
+			thickness: r1(Math.min(3, Math.sqrt(k))),
+			wobble: r1(0.35 * Math.sqrt(k)),
+			burr_width: r1(Math.max(1, 0.75 * Math.sqrt(k)))
+		};
+	},
+	defaults: {
+		mk_target: '',
+		dif_on: true,
+		dif_opacity: 0.8,
+		dif_grad: gradient('#8f8a82', '#d9d4cb'),
+		h_on: true,
+		h_mode: 'subtract',
+		h_amount: 0.2
+	},
+	glsl: /* glsl */ `
 // 1, read from a uniform: a loop bound written with it can't be unrolled, so D3D keeps one copy of the body.
 #define SC_1 (uRes.x > 0.0 ? 1 : 0)
 
@@ -903,5 +1253,5 @@ GenOut gen(vec2 p) {
   float height = u_burr > 0.0 || u_heap > 0.0 ? hv - lip * (1.0 - cov) : NO_SDF;
   return GenOut(val, cov, rnd, sd, 1.0, height, 0, hval, NO_SDF, rnd);
 }
-`,
-}
+`
+};

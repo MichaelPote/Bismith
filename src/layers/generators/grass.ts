@@ -11,74 +11,222 @@
 // from lighter, and a contact shadow where a higher blade passes close by — the darkest end of the ramp is the shadowed
 // ground between blades. Height (hval) is the blade's own height with a slight dome across it; rnd is per blade.
 
-import { P, gradient } from '@/core/params'
-import type { LayerDef } from '../types'
-import { ORG_GLSL } from './organicShared'
+import { P, gradient } from '@/core/params';
+import type { LayerDef } from '../types';
+import { ORG_GLSL } from './organicShared';
 
 export const grassLayer: LayerDef = {
-  type: 'grass',
-  label: 'Grass',
-  category: 'pattern',
-  kind: 'generator',
-  description: 'Blades of grass from above: tapered, bending, curling strokes laid in depth over one another, shaded light at the tips and dark down among the roots. Tufts, bare patches, tileable.',
-  params: [
-    P.float('length', 'Blade length', 24, 1, 512, { softMax: 128, unit: 'px', step: 0.1, hint: 'Length of the longest blades, along the curve' }),
-    P.float('length_var', 'Length variation', 0.5, 0, 1, { step: 0.001, hint: 'How much shorter blades may be: 0 all full length, 1 anywhere from nothing to full' }),
-    P.float('width', 'Blade width', 2, 0.2, 64, { softMax: 10, unit: 'px', step: 0.05, hint: 'Width at the root' }),
-    P.float('width_var', 'Width variation', 0.3, 0, 1, { step: 0.001 }),
-    P.enum('shape', 'Shape', 'blade', [
-      ['blade', 'Blade', 'widest at the root, narrowing to the tip'],
-      ['leaf', 'Leaf', 'widest in the middle, pointed at both ends: fallen leaves, litter, clover, broad-leaved weeds'],
-    ]),
-    P.float('taper', 'Taper', 0.9, 0, 1, { step: 0.001, hint: 'How much a blade narrows to its tip (a leaf to both ends): 1 a sharp point, 0 an even ribbon' }),
-    P.float('density', 'Density', 3, 0.05, 16, { softMax: 8, step: 0.01, hint: 'How many blades lie over each spot, on average (the count follows the blade size)' }),
-    P.float('angle', 'Direction', 0, 0, 360, { unit: '°', step: 0.1, section: 'Growth', hint: 'Which way the blades point from their roots, clockwise from up' }),
-    P.float('spread', 'Spread', 180, 0, 180, { unit: '°', step: 0.1, section: 'Growth', hint: 'How far blades may turn either side of the Direction: 180 any way at all' }),
-    P.float('bend', 'Bend', 50, 0, 360, { softMax: 180, unit: '°', step: 0.1, section: 'Growth', hint: 'How far a blade’s heading turns from root to tip, evenly — arcs; each blade bends left or right, by 40–100 % of it' }),
-    P.float('curl', 'Curl', 20, 0, 720, { softMax: 360, unit: '°', step: 0.1, section: 'Growth', hint: 'Further turn gathered towards the tip: hooks, then curls and loops (moss, fleece)' }),
-    P.float('wiggle', 'Wiggle', 0, 0, 180, { softMax: 90, unit: '°', step: 0.1, section: 'Growth', hint: 'Heading wavers either way by up to this much, one to three waves along each blade: kinked, squiggly strands instead of clean arcs' }),
-    P.float('clump', 'Tufts', 0.15, 0, 1, { step: 0.001, section: 'Growth', hint: 'Share of the blades that grow from a tuft (one per blade-length cell), fanning out from one spot' }),
-    P.float('arch', 'Arch', 0, 0, 1, { step: 0.001, section: 'Shading', hint: 'Blades rise to their middle and droop again to the tip (arching grass) instead of climbing all the way: 1 the tip back down at its root’s depth' }),
-    P.float('lift', 'Rise', 1, 0, 4, { softMax: 2, step: 0.001, section: 'Shading', hint: 'How far a blade climbs towards its tip, against the depth blades lie in: high, the tips lie over the roots around them and the roots sink into shade' }),
-    P.float('relief', 'Turf relief', 0, 0, 1, { step: 0.001, section: 'Shading', hint: 'Hummocks and hollows the blades and ground ride on (Height): under a light, the turf shades in broad soft swells, and ambient occlusion darkens the hollows' }),
-    P.float('relief_scale', 'Relief across', 6, 0.5, 64, { softMax: 24, step: 0.01, section: 'Shading', showIf: (p) => Number(p.relief) > 0, hint: 'Size of the hummocks: about this many across the texture (laid out by the Patch seed)' }),
-    P.float('depth', 'Depth shading', 0.7, 0, 1, { step: 0.001, section: 'Shading', hint: 'Deep blades (and roots) darker than high ones and tips: 0 every blade at the bright end of the ramp' }),
-    P.float('shadow', 'Contact shadow', 0.6, 0, 1, { step: 0.001, section: 'Shading', hint: 'Shade cast on a blade beside a higher one passing over it, keeping overlapping blades apart' }),
-    P.float('shadow_w', 'Shadow width', 2, 0.1, 64, { softMax: 8, unit: 'px', step: 0.05, section: 'Shading', showIf: (p) => Number(p.shadow) > 0 }),
-    P.float('fold', 'Fold', 0.4, 0, 1, { step: 0.001, section: 'Shading', hint: 'Blades are creased along the middle: the half facing the light lighter, the other darker' }),
-    P.float('light', 'Light from', 315, 0, 360, { unit: '°', step: 0.1, section: 'Shading', showIf: (p) => Number(p.fold) > 0, hint: 'Where the light falls from for the Fold, clockwise from up (315 = top left)' }),
-    P.float('blade_var', 'Blade variation', 0.3, 0, 1, { step: 0.001, section: 'Shading', hint: 'Each blade lighter or darker than the next, by up to this much: the sunlit and shaded blades of a real lawn (Random jitter moves along the ramp instead, hue and all)' }),
-    P.float('round', 'Roundness', 0.3, 0, 1, { step: 0.001, section: 'Shading', hint: 'Blades lit along the middle and darker at their edges, so each one reads as a rounded stroke' }),
-    P.bool('kinds', 'Two kinds', false, { section: 'Shading', hint: 'Two kinds of blade (green and dry, say) on one ramp: its middle is the shade both share, the first kind lightens towards the start of the ramp, the second towards the end' }),
-    P.float('kind_share', 'Second kind', 0.4, 0, 1, { step: 0.001, section: 'Shading', showIf: (p) => Boolean(p.kinds), hint: 'Share of the blades of the second kind' }),
-    P.enum('gaps', 'Gaps', 'fill', [
-      ['fill', 'Shadowed ground', 'gaps between blades take the dark end of the ramp'],
-      ['clear', 'Clear', 'only the blades are drawn: what is below shows between them (a second layer of grass, soil)'],
-    ], { section: 'Ground' }),
-    P.float('bare', 'Bare patches', 0, 0, 1, { step: 0.001, section: 'Ground', hint: 'Patches where the grass thins out and stops, showing what is below (worn lawn, soil)' }),
-    P.float('bare_scale', 'Patches across', 5, 0.5, 128, { softMax: 32, step: 0.01, section: 'Ground', showIf: (p) => Number(p.bare) > 0, hint: 'Size of the bare patches: about this many across the texture' }),
-    P.float('bare_detail', 'Patch edges', 0.5, 0, 1, { step: 0.001, section: 'Ground', showIf: (p) => Number(p.bare) > 0, hint: 'How ragged the patches are: 0 smooth rounded blobs, 1 frayed edges, scattered islands and specks' }),
-    P.bool('bare_invert', 'Grow in patches', false, { section: 'Ground', showIf: (p) => Number(p.bare) > 0, hint: 'The other way round: blades grow only in the patches (the rest is bare) — clusters of fallen leaves, clover, weeds' }),
-    P.float('patches', 'Colour patches', 0, 0, 1, { step: 0.001, section: 'Ground', hint: 'Broad patches where the blades shift along the ramp (drier, lusher)' }),
-    P.float('patch_scale', 'Colour patches across', 3, 0.5, 64, { softMax: 16, step: 0.01, section: 'Ground', showIf: (p) => Number(p.patches) > 0 }),
-    P.seed(),
-    P.seed('patch_seed', 'Patch seed', 1, { section: 'Ground', hint: 'Lays out the bare and colour patches. Grass layers with the same patch seed share their patches: a layer of top blades thins out over the same bare ground as the turf beneath it' }),
-  ],
-  defaults: {
-    dif_on: true,
-    dif_grad: gradient('#1a260c', '#3b5f18', '#6f9a2c', '#b8d060'),
-    dif_jitter: 0.12,
-    h_on: true,
-    h_amount: 1,
-  },
-  fresh: ({ width, height }) => {
-    const s = Math.sqrt(width * height)
-    const length = Math.max(4, Math.round(s / 12))
-    return { length, width: Math.max(1, Math.round(length / 6) / 2) }
-  },
-  glsl:
-    ORG_GLSL +
-    /* glsl */ `
+	type: 'grass',
+	label: 'Grass',
+	category: 'pattern',
+	kind: 'generator',
+	description:
+		'Blades of grass from above: tapered, bending, curling strokes laid in depth over one another, shaded light at the tips and dark down among the roots. Tufts, bare patches, tileable.',
+	params: [
+		P.float('length', 'Blade length', 24, 1, 512, {
+			softMax: 128,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Length of the longest blades, along the curve'
+		}),
+		P.float('length_var', 'Length variation', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'How much shorter blades may be: 0 all full length, 1 anywhere from nothing to full'
+		}),
+		P.float('width', 'Blade width', 2, 0.2, 64, { softMax: 10, unit: 'px', step: 0.05, hint: 'Width at the root' }),
+		P.float('width_var', 'Width variation', 0.3, 0, 1, { step: 0.001 }),
+		P.enum('shape', 'Shape', 'blade', [
+			['blade', 'Blade', 'widest at the root, narrowing to the tip'],
+			['leaf', 'Leaf', 'widest in the middle, pointed at both ends: fallen leaves, litter, clover, broad-leaved weeds']
+		]),
+		P.float('taper', 'Taper', 0.9, 0, 1, {
+			step: 0.001,
+			hint: 'How much a blade narrows to its tip (a leaf to both ends): 1 a sharp point, 0 an even ribbon'
+		}),
+		P.float('density', 'Density', 3, 0.05, 16, {
+			softMax: 8,
+			step: 0.01,
+			hint: 'How many blades lie over each spot, on average (the count follows the blade size)'
+		}),
+		P.float('angle', 'Direction', 0, 0, 360, {
+			unit: '°',
+			step: 0.1,
+			section: 'Growth',
+			hint: 'Which way the blades point from their roots, clockwise from up'
+		}),
+		P.float('spread', 'Spread', 180, 0, 180, {
+			unit: '°',
+			step: 0.1,
+			section: 'Growth',
+			hint: 'How far blades may turn either side of the Direction: 180 any way at all'
+		}),
+		P.float('bend', 'Bend', 50, 0, 360, {
+			softMax: 180,
+			unit: '°',
+			step: 0.1,
+			section: 'Growth',
+			hint: 'How far a blade’s heading turns from root to tip, evenly — arcs; each blade bends left or right, by 40–100 % of it'
+		}),
+		P.float('curl', 'Curl', 20, 0, 720, {
+			softMax: 360,
+			unit: '°',
+			step: 0.1,
+			section: 'Growth',
+			hint: 'Further turn gathered towards the tip: hooks, then curls and loops (moss, fleece)'
+		}),
+		P.float('wiggle', 'Wiggle', 0, 0, 180, {
+			softMax: 90,
+			unit: '°',
+			step: 0.1,
+			section: 'Growth',
+			hint: 'Heading wavers either way by up to this much, one to three waves along each blade: kinked, squiggly strands instead of clean arcs'
+		}),
+		P.float('clump', 'Tufts', 0.15, 0, 1, {
+			step: 0.001,
+			section: 'Growth',
+			hint: 'Share of the blades that grow from a tuft (one per blade-length cell), fanning out from one spot'
+		}),
+		P.float('arch', 'Arch', 0, 0, 1, {
+			step: 0.001,
+			section: 'Shading',
+			hint: 'Blades rise to their middle and droop again to the tip (arching grass) instead of climbing all the way: 1 the tip back down at its root’s depth'
+		}),
+		P.float('lift', 'Rise', 1, 0, 4, {
+			softMax: 2,
+			step: 0.001,
+			section: 'Shading',
+			hint: 'How far a blade climbs towards its tip, against the depth blades lie in: high, the tips lie over the roots around them and the roots sink into shade'
+		}),
+		P.float('relief', 'Turf relief', 0, 0, 1, {
+			step: 0.001,
+			section: 'Shading',
+			hint: 'Hummocks and hollows the blades and ground ride on (Height): under a light, the turf shades in broad soft swells, and ambient occlusion darkens the hollows'
+		}),
+		P.float('relief_scale', 'Relief across', 6, 0.5, 64, {
+			softMax: 24,
+			step: 0.01,
+			section: 'Shading',
+			showIf: (p) => Number(p.relief) > 0,
+			hint: 'Size of the hummocks: about this many across the texture (laid out by the Patch seed)'
+		}),
+		P.float('depth', 'Depth shading', 0.7, 0, 1, {
+			step: 0.001,
+			section: 'Shading',
+			hint: 'Deep blades (and roots) darker than high ones and tips: 0 every blade at the bright end of the ramp'
+		}),
+		P.float('shadow', 'Contact shadow', 0.6, 0, 1, {
+			step: 0.001,
+			section: 'Shading',
+			hint: 'Shade cast on a blade beside a higher one passing over it, keeping overlapping blades apart'
+		}),
+		P.float('shadow_w', 'Shadow width', 2, 0.1, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.05,
+			section: 'Shading',
+			showIf: (p) => Number(p.shadow) > 0
+		}),
+		P.float('fold', 'Fold', 0.4, 0, 1, {
+			step: 0.001,
+			section: 'Shading',
+			hint: 'Blades are creased along the middle: the half facing the light lighter, the other darker'
+		}),
+		P.float('light', 'Light from', 315, 0, 360, {
+			unit: '°',
+			step: 0.1,
+			section: 'Shading',
+			showIf: (p) => Number(p.fold) > 0,
+			hint: 'Where the light falls from for the Fold, clockwise from up (315 = top left)'
+		}),
+		P.float('blade_var', 'Blade variation', 0.3, 0, 1, {
+			step: 0.001,
+			section: 'Shading',
+			hint: 'Each blade lighter or darker than the next, by up to this much: the sunlit and shaded blades of a real lawn (Random jitter moves along the ramp instead, hue and all)'
+		}),
+		P.float('round', 'Roundness', 0.3, 0, 1, {
+			step: 0.001,
+			section: 'Shading',
+			hint: 'Blades lit along the middle and darker at their edges, so each one reads as a rounded stroke'
+		}),
+		P.bool('kinds', 'Two kinds', false, {
+			section: 'Shading',
+			hint: 'Two kinds of blade (green and dry, say) on one ramp: its middle is the shade both share, the first kind lightens towards the start of the ramp, the second towards the end'
+		}),
+		P.float('kind_share', 'Second kind', 0.4, 0, 1, {
+			step: 0.001,
+			section: 'Shading',
+			showIf: (p) => Boolean(p.kinds),
+			hint: 'Share of the blades of the second kind'
+		}),
+		P.enum(
+			'gaps',
+			'Gaps',
+			'fill',
+			[
+				['fill', 'Shadowed ground', 'gaps between blades take the dark end of the ramp'],
+				[
+					'clear',
+					'Clear',
+					'only the blades are drawn: what is below shows between them (a second layer of grass, soil)'
+				]
+			],
+			{ section: 'Ground' }
+		),
+		P.float('bare', 'Bare patches', 0, 0, 1, {
+			step: 0.001,
+			section: 'Ground',
+			hint: 'Patches where the grass thins out and stops, showing what is below (worn lawn, soil)'
+		}),
+		P.float('bare_scale', 'Patches across', 5, 0.5, 128, {
+			softMax: 32,
+			step: 0.01,
+			section: 'Ground',
+			showIf: (p) => Number(p.bare) > 0,
+			hint: 'Size of the bare patches: about this many across the texture'
+		}),
+		P.float('bare_detail', 'Patch edges', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Ground',
+			showIf: (p) => Number(p.bare) > 0,
+			hint: 'How ragged the patches are: 0 smooth rounded blobs, 1 frayed edges, scattered islands and specks'
+		}),
+		P.bool('bare_invert', 'Grow in patches', false, {
+			section: 'Ground',
+			showIf: (p) => Number(p.bare) > 0,
+			hint: 'The other way round: blades grow only in the patches (the rest is bare) — clusters of fallen leaves, clover, weeds'
+		}),
+		P.float('patches', 'Colour patches', 0, 0, 1, {
+			step: 0.001,
+			section: 'Ground',
+			hint: 'Broad patches where the blades shift along the ramp (drier, lusher)'
+		}),
+		P.float('patch_scale', 'Colour patches across', 3, 0.5, 64, {
+			softMax: 16,
+			step: 0.01,
+			section: 'Ground',
+			showIf: (p) => Number(p.patches) > 0
+		}),
+		P.seed(),
+		P.seed('patch_seed', 'Patch seed', 1, {
+			section: 'Ground',
+			hint: 'Lays out the bare and colour patches. Grass layers with the same patch seed share their patches: a layer of top blades thins out over the same bare ground as the turf beneath it'
+		})
+	],
+	defaults: {
+		dif_on: true,
+		dif_grad: gradient('#1a260c', '#3b5f18', '#6f9a2c', '#b8d060'),
+		dif_jitter: 0.12,
+		h_on: true,
+		h_amount: 1
+	},
+	fresh: ({ width, height }) => {
+		const s = Math.sqrt(width * height);
+		const length = Math.max(4, Math.round(s / 12));
+		return { length, width: Math.max(1, Math.round(length / 6) / 2) };
+	},
+	glsl:
+		ORG_GLSL +
+		/* glsl */ `
 float gr_u8(uint h, uint sh) { return float((h >> sh) & 0xffu) / 256.0; }
 float gr_u16(uint h, uint sh) { return float((h >> sh) & 0xffffu) / 65536.0; }
 
@@ -238,5 +386,5 @@ GenOut gen(vec2 p) {
   }
   return GenOut(clamp(v, 0.0, 1.0), mask, rnd, 0.0, 1.0, NO_SDF, 0, clamp(hv, 0.0, 1.0), NO_SDF, rnd);
 }
-`,
-}
+`
+};

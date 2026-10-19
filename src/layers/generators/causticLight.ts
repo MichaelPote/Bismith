@@ -16,39 +16,106 @@
 // Phase animates the surface: each wave travels along its direction by a whole number of wavelengths per loop (coarse
 // waves one, fine waves two — faster, as short water waves are), forwards or backwards, so 0 → 1 loops seamlessly.
 
-import { P } from '@/core/params'
-import type { LayerDef } from '../types'
+import { P } from '@/core/params';
+import type { LayerDef } from '../types';
 
 export const causticLightLayer: LayerDef = {
-  type: 'causticlight',
-  label: 'Caustic light',
-  category: 'pattern',
-  kind: 'generator',
-  description: 'Light refracted through a wavy surface and gathered below: bright filaments and cusps around dark cells (lava, water, slime). Tileable.',
-  params: [
-    P.enum('output', 'Output', 'light', [['light', 'Gathered light'], ['surface', 'Surface height']]),
-    P.enum('model', 'Wave model', 'sines', [
-      ['sines', 'Sines', 'rolling sines, crests sharpened by a second harmonic (Crest sharpness)'],
-      ['gerstner', 'Gerstner', 'trochoidal waves: the surface gathers towards the crests — sharp crests over broad, flat troughs, rolling as they travel'],
-    ]),
-    P.float('scale', 'Cells across', 4, 0.5, 64, { softMax: 16, step: 0.01, hint: 'Wave count across the texture (rounded per wave to tile)' }),
-    P.int('waves', 'Waves', 7, 1, 16, { hint: 'Plane waves summed; more = rounder, more irregular cells' }),
-    P.float('spread', 'Wavelength spread', 0.35, 0, 1, { step: 0.001, hint: 'Variation of the wave counts around the scale' }),
-    P.float('strength', 'Refraction', 5, 0, 256, { softMax: 12, unit: 'px', step: 0.05, hint: 'How far light is bent; higher = sharper filaments, darker cells' }),
-    P.float('softness', 'Filament width', 0.8, 0.3, 8, { softMax: 3, unit: 'px', step: 0.05, hint: 'Blur of the gathered light: thin, sharp filaments when low' }),
-    P.float('exposure', 'Exposure', 1, 0.05, 8, { softMax: 4, step: 0.01, hint: 'Intensity → value: 1 − exp(−exposure · light^contrast)' }),
-    P.float('contrast', 'Contrast', 1.6, 0.5, 4, { step: 0.01, hint: 'Power on the gathered light before exposure: higher = darker cells, the filaments keep their brightness' }),
-    P.float('octave2', 'Fine waves', 0.25, 0, 1, { step: 0.001, hint: 'A second band of waves at double frequency (breaks up the filaments)' }),
-    P.float('meander', 'Meander', 0.5, 0, 4, { softMax: 2, step: 0.001, hint: 'Slow, tileable bending of the surface: curved walls, cells of varied size (organic rather than a lattice). Above about 1.4 the bends fold over into creases' }),
-    P.float('steepness', 'Steepness', 0.7, 0, 1, { step: 0.001, showIf: (p) => p.model === 'gerstner', hint: 'How far the surface gathers towards the crests: 0 = plain sines, 1 = cusped crests (the most before the surface would fold over)' }),
-    P.float('harmonic', 'Crest sharpness', 1, 0, 2, { step: 0.001, showIf: (p) => p.model !== 'gerstner', hint: 'A second, in-phase sine per wave (cos φ + c·cos 2φ, a Stokes profile): sharper crests focus thinner filaments. 1 is the sharpest that keeps the cells whole; above it the troughs flatten and the cells start to split' }),
-    P.float('halo', 'Halo', 0, 0, 1, { step: 0.001, hint: 'The same light spread wide, added where it is brighter: a glow around the filaments that keeps the cells\' cores dark' }),
-    P.float('halo_size', 'Halo radius', 3, 0.5, 16, { softMax: 8, unit: 'px', step: 0.05 }),
-    P.float('phase', 'Phase', 0, -10000, 10000, { softMin: 0, softMax: 1, step: 0.001, optimize: false, hint: 'Moves the waves: 0 → 1 is one seamless loop (render frames at even steps); it repeats beyond 1' }),
-    P.seed(),
-  ],
-  defaults: { h_on: false, dif_on: true, dif_src: 'value', dif_grad: { stops: [{ pos: 0, color: '#000010' }, { pos: 0.5, color: '#0010a0' }, { pos: 1, color: '#80a0ff' }] } },
-  glsl: /* glsl */ `
+	type: 'causticlight',
+	label: 'Caustic light',
+	category: 'pattern',
+	kind: 'generator',
+	description:
+		'Light refracted through a wavy surface and gathered below: bright filaments and cusps around dark cells (lava, water, slime). Tileable.',
+	params: [
+		P.enum('output', 'Output', 'light', [
+			['light', 'Gathered light'],
+			['surface', 'Surface height']
+		]),
+		P.enum('model', 'Wave model', 'sines', [
+			['sines', 'Sines', 'rolling sines, crests sharpened by a second harmonic (Crest sharpness)'],
+			[
+				'gerstner',
+				'Gerstner',
+				'trochoidal waves: the surface gathers towards the crests — sharp crests over broad, flat troughs, rolling as they travel'
+			]
+		]),
+		P.float('scale', 'Cells across', 4, 0.5, 64, {
+			softMax: 16,
+			step: 0.01,
+			hint: 'Wave count across the texture (rounded per wave to tile)'
+		}),
+		P.int('waves', 'Waves', 7, 1, 16, { hint: 'Plane waves summed; more = rounder, more irregular cells' }),
+		P.float('spread', 'Wavelength spread', 0.35, 0, 1, {
+			step: 0.001,
+			hint: 'Variation of the wave counts around the scale'
+		}),
+		P.float('strength', 'Refraction', 5, 0, 256, {
+			softMax: 12,
+			unit: 'px',
+			step: 0.05,
+			hint: 'How far light is bent; higher = sharper filaments, darker cells'
+		}),
+		P.float('softness', 'Filament width', 0.8, 0.3, 8, {
+			softMax: 3,
+			unit: 'px',
+			step: 0.05,
+			hint: 'Blur of the gathered light: thin, sharp filaments when low'
+		}),
+		P.float('exposure', 'Exposure', 1, 0.05, 8, {
+			softMax: 4,
+			step: 0.01,
+			hint: 'Intensity → value: 1 − exp(−exposure · light^contrast)'
+		}),
+		P.float('contrast', 'Contrast', 1.6, 0.5, 4, {
+			step: 0.01,
+			hint: 'Power on the gathered light before exposure: higher = darker cells, the filaments keep their brightness'
+		}),
+		P.float('octave2', 'Fine waves', 0.25, 0, 1, {
+			step: 0.001,
+			hint: 'A second band of waves at double frequency (breaks up the filaments)'
+		}),
+		P.float('meander', 'Meander', 0.5, 0, 4, {
+			softMax: 2,
+			step: 0.001,
+			hint: 'Slow, tileable bending of the surface: curved walls, cells of varied size (organic rather than a lattice). Above about 1.4 the bends fold over into creases'
+		}),
+		P.float('steepness', 'Steepness', 0.7, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.model === 'gerstner',
+			hint: 'How far the surface gathers towards the crests: 0 = plain sines, 1 = cusped crests (the most before the surface would fold over)'
+		}),
+		P.float('harmonic', 'Crest sharpness', 1, 0, 2, {
+			step: 0.001,
+			showIf: (p) => p.model !== 'gerstner',
+			hint: 'A second, in-phase sine per wave (cos φ + c·cos 2φ, a Stokes profile): sharper crests focus thinner filaments. 1 is the sharpest that keeps the cells whole; above it the troughs flatten and the cells start to split'
+		}),
+		P.float('halo', 'Halo', 0, 0, 1, {
+			step: 0.001,
+			hint: "The same light spread wide, added where it is brighter: a glow around the filaments that keeps the cells' cores dark"
+		}),
+		P.float('halo_size', 'Halo radius', 3, 0.5, 16, { softMax: 8, unit: 'px', step: 0.05 }),
+		P.float('phase', 'Phase', 0, -10000, 10000, {
+			softMin: 0,
+			softMax: 1,
+			step: 0.001,
+			optimize: false,
+			hint: 'Moves the waves: 0 → 1 is one seamless loop (render frames at even steps); it repeats beyond 1'
+		}),
+		P.seed()
+	],
+	defaults: {
+		h_on: false,
+		dif_on: true,
+		dif_src: 'value',
+		dif_grad: {
+			stops: [
+				{ pos: 0, color: '#000010' },
+				{ pos: 0.5, color: '#0010a0' },
+				{ pos: 1, color: '#80a0ff' }
+			]
+		}
+	},
+	glsl: /* glsl */ `
 const int LC_MAX = 16;
 vec2 lcK[LC_MAX];
 float lcPhi[LC_MAX];
@@ -305,5 +372,5 @@ GenOut gen(vec2 p) {
   if (u_halo > 0.0) I += u_halo * max(lc_gather(p, max(u_halo_size, 0.5), 0.5 * max(u_halo_size, 0.5)) - I, 0.0);
   return genOut(1.0 - exp(-u_exposure * pow(max(I, 0.0), u_contrast)), 1.0, 0.0, NO_SDF);
 }
-`,
-}
+`
+};

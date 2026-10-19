@@ -7,21 +7,21 @@
 // - tint multiplies in linear light.
 // It also runs before Tonemap on HDR data, but brightness then compresses values above 1 towards 1.
 
-import { P } from '@/core/params'
-import type { PostDef } from './types'
+import { P } from '@/core/params';
+import type { PostDef } from './types';
 
 export const gradePost: PostDef = {
-  type: 'grade',
-  label: 'Grade',
-  description: 'Brightness, contrast, saturation, hue shift and tint. Put it after Tonemap.',
-  params: [
-    P.float('brightness', 'Brightness', 0, -1, 1, { step: 0.01 }),
-    P.float('contrast', 'Contrast', 0, -1, 1, { step: 0.01 }),
-    P.float('saturation', 'Saturation', 0, -1, 2, { softMax: 1, step: 0.01, hint: '-1 = greyscale, 1 = double.' }),
-    P.float('hue', 'Hue shift', 0, -180, 180, { step: 0.1, unit: '°' }),
-    P.color('tint', 'Tint', '#ffffff'),
-  ],
-  glsl: /* glsl */ `
+	type: 'grade',
+	label: 'Grade',
+	description: 'Brightness, contrast, saturation, hue shift and tint. Put it after Tonemap.',
+	params: [
+		P.float('brightness', 'Brightness', 0, -1, 1, { step: 0.01 }),
+		P.float('contrast', 'Contrast', 0, -1, 1, { step: 0.01 }),
+		P.float('saturation', 'Saturation', 0, -1, 2, { softMax: 1, step: 0.01, hint: '-1 = greyscale, 1 = double.' }),
+		P.float('hue', 'Hue shift', 0, -180, 180, { step: 0.1, unit: '°' }),
+		P.color('tint', 'Tint', '#ffffff')
+	],
+	glsl: /* glsl */ `
 vec3 gradeOklabToLinear(vec3 c) {
   float l_ = c.x + 0.3963377774 * c.y + 0.2158037573 * c.z;
   float m_ = c.x - 0.1055613458 * c.y - 0.0638541728 * c.z;
@@ -51,5 +51,5 @@ vec4 post(ivec2 ip) {
   }
   return vec4(x, c.a);
 }
-`,
-}
+`
+};

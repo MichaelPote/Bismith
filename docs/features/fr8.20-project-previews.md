@@ -3,11 +3,13 @@
 **Status:** done
 
 ## Goal
+
 The new-project wizard (FR8.16) rendered every card to show it: each card's generator shaders compile first (0.5–7 s
 each cold on D3D11), then a short render. A project file can now carry a small picture of itself, and a card whose
 project has one shows it at once.
 
 ## Design
+
 - **Format**: `Project.preview` — optional, last in the file. A data URL of the final (post-processed) image: WebP
   (JPEG where the browser can't encode WebP), the longest side scaled (smoothly) to at most 128 px — smaller textures
   keep their size — at quality 0.6. A 64 px texture is ~1–2 KB, a 128 px one 2–6 KB of base64. On load it is kept only
@@ -25,6 +27,7 @@ project has one shows it at once.
   (`--only id1,id2` for some).
 
 ## Checklist
+
 - [x] `Project.preview`, validated on load, last in the file
 - [x] Written on save and in the maps + project export (no undo step)
 - [x] Wizard shows previews without compiling or rendering; falls back to rendering

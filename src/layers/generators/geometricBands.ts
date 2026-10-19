@@ -2,94 +2,209 @@
 // nested chevrons, and tech-wall Z steps (low run → rise → high run, chamfered ends), optionally with rails along
 // the lane edges. Exact distances (px) so bevels, profiles and masks work; rnd per bar / piece / lane.
 
-import { P, gradient } from '@/core/params'
-import type { LayerDef } from '../types'
-import { geoGlsl } from './geometricCommon'
+import { P, gradient } from '@/core/params';
+import type { LayerDef } from '../types';
+import { geoGlsl } from './geometricCommon';
 
-const modeIs = (...m: string[]) => (p: Record<string, unknown>) => m.includes(String(p.mode))
+const modeIs =
+	(...m: string[]) =>
+	(p: Record<string, unknown>) =>
+		m.includes(String(p.mode));
 
 /** Directions in 45° steps; the index is the frame rotation (steps clockwise). */
 const DIRECTIONS: [string, string][] = [
-  ['0', 'Horizontal'],
-  ['45', 'Diagonal 45°'],
-  ['90', 'Vertical'],
-  ['135', 'Diagonal 135°'],
-  ['180', 'Horizontal (flipped)'],
-  ['225', 'Diagonal 225°'],
-  ['270', 'Vertical (flipped)'],
-  ['315', 'Diagonal 315°'],
-]
+	['0', 'Horizontal'],
+	['45', 'Diagonal 45°'],
+	['90', 'Vertical'],
+	['135', 'Diagonal 135°'],
+	['180', 'Horizontal (flipped)'],
+	['225', 'Diagonal 225°'],
+	['270', 'Vertical (flipped)'],
+	['315', 'Diagonal 315°']
+];
 
 export const bandsLayer: LayerDef = {
-  type: 'bands',
-  label: 'Bands',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description:
-    'Thick diagonal / zig-zag / chevron / Z-step bands in lanes between horizontal strips (tech-wall look), seamless, with mitred bends, chamfered or rounded ends, optional rails and per-piece variation.',
-  params: [
-    P.enum('mode', 'Shape', 'z', [
-      ['diagonal', 'Diagonal bars'],
-      ['zigzag', 'Zig-zag band'],
-      ['chevron', 'Chevrons'],
-      ['z', 'Z steps'],
-    ]),
-    P.int('count', 'Count', 2, 1, 128, { softMax: 32, hint: 'Repeats along the band direction' }),
-    P.int('rows', 'Rows', 3, 1, 128, { softMax: 32, hint: 'Lanes stacked across the band direction (chevrons: stripe spacing)' }),
-    P.float('width', 'Band width', 32, 0.5, 2048, { softMax: 128, unit: 'px', step: 0.1, hint: 'Thickness across the band' }),
-    P.float('width_var', 'Width variation', 0, 0, 1, { step: 0.001, hint: 'Each piece (bar, Z piece) or lane (zig-zag, chevron) gets its own thickness, down to (1 − 0.8 × this) × Band width; its bevel, chamfer and rounding scale with it' }),
-    P.float('margin_top', 'Top margin', 20, 0, 1024, { softMax: 128, unit: 'px', step: 0.1, showIf: modeIs('diagonal', 'zigzag', 'z'), hint: 'Clear strip along the top of each lane (in the band frame). Diagonal bars with both margins 0 run through as seamless stripes' }),
-    P.float('margin_bottom', 'Bottom margin', 20, 0, 1024, { softMax: 128, unit: 'px', step: 0.1, showIf: modeIs('diagonal', 'zigzag', 'z'), hint: 'Clear strip along the bottom of each lane' }),
-    P.float('rail', 'Rails', 17, 0, 1024, { softMax: 64, unit: 'px', step: 0.1, showIf: modeIs('diagonal', 'zigzag', 'z'), hint: 'Strips this thick along the lane edges, shared by neighbouring lanes (centred on the edge, so they eat half into each margin): the horizontal rails of a tech wall. 0 = none' }),
-    P.float('rail_h', 'Rail height', 0.7, 0, 1, { step: 0.001, showIf: (p) => Number(p.rail) > 0 && p.mode !== 'chevron', hint: 'The rails’ level against the bands (1 = as high; lower sets the bands off from their frame). Also scales their Pattern value, so it shades them in Diffuse › Pattern' }),
-    P.float('angle', 'Angle', 45, -90, 90, { unit: '°', step: 0.1, hint: 'Slope of the rising parts (negative mirrors). Diagonal bars with 0 margin snap to a seamless slope. A zig-zag that can’t climb its lane within a repeat at this angle gets steeper, unless Keep angle is on' }),
-    P.float('amp', 'Amplitude', 1, 0, 1, { step: 0.001, showIf: modeIs('zigzag'), hint: 'How much of the lane the zig-zag climbs, centred (1 = margin to margin). With Keep angle it is lowered further when the slope needs it' }),
-    P.bool('keep_angle', 'Keep angle', true, { showIf: modeIs('zigzag'), hint: 'Zig-zag: when the slope can’t climb the whole lane within a repeat, lower the zig-zag (centred in the lane) instead of steepening it. Off: it always spans the lane, the slope steepening as needed' }),
-    P.float('run', 'Run', 0.4, 0, 1, { step: 0.001, showIf: modeIs('z', 'zigzag', 'chevron'), hint: 'Z: flat run length (fraction of the repeat). Zig-zag: share of the flats on the high side (there are flats only when the slope leaves room: a steeper angle or fewer repeats). Chevron: flat top/bottom fraction (0 = pointed)' }),
-    P.float('run_var', 'Run variation', 0.5, 0, 1, { step: 0.001, showIf: modeIs('z'), hint: 'Each Z piece gets its own low and high run lengths (at 1: 0.25 to 1.75 × Run): short and long steps' }),
-    P.float('rise_var', 'Rise variation', 0.6, 0, 1, { step: 0.001, showIf: modeIs('z'), hint: 'Each Z piece climbs only part of the lane from its low run (at 1: down to a fifth, mostly well below full): low steps among full ones. Not in the fill modes, whose panels need full-height pieces' }),
-    P.float('chamfer', 'End chamfer', 9, 0, 1024, { softMax: 64, unit: 'px', step: 0.1, showIf: modeIs('z'), hint: '45° chamfer on the band ends (up to half the band width: a pointed end)' }),
-    P.float('round', 'Corner rounding', 0, 0, 1024, { softMax: 32, unit: 'px', step: 0.1, hint: 'Rounds convex corners (outer bends, ends); half the band width gives round ends and bends' }),
-    P.float('outline', 'Outline', 0, 0, 1024, { softMax: 32, unit: 'px', step: 0.1, hint: '> 0 turns the shape into an inner outline this thick' }),
-    P.enum('fill', 'Fill', 'band', [['band', 'Band'], ['between', 'Between bands'], ['above', 'Above the band'], ['below', 'Below the band']], { hint: 'Between: the lane interior minus the bands. Above / below (zig-zag only): just the panels on one side, e.g. a row of trapezoids. The panels are the shape (raised); Height › Subtract sinks them' }),
-    P.bool('even', 'Even panel edges', true, { showIf: (p) => p.fill !== 'band' && (p.mode === 'z' || p.mode === 'zigzag'), hint: 'Fill modes: the runs lie against the rails (on the lane edges without rails) and the panels keep one band width from them, so every joint is one band width and the panel edges are straight. The margins are not used' }),
-    P.float('phase', 'Phase', 0, 0, 1, { step: 0.001, hint: 'Shift along the band, fraction of a repeat' }),
-    P.float('jitter', 'Shift jitter', 0, 0, 1, { step: 0.001, hint: 'Slides each lane along the band by its own random amount (1 = up to ± half a repeat): staggered, less regular rows' }),
-    P.float('stagger', 'Lane stagger', 0.7, 0, 1, { step: 0.001, showIf: modeIs('diagonal', 'z'), hint: 'Z steps and bars between margins: each lane starts at its own random point along the band (1 = up to ± half a repeat). Like Shift jitter, but ignored where the lanes must line up (zig-zags, chevrons, through stripes), so switching Shape keeps those intact' }),
-    P.float('jitter_piece', 'Spacing jitter', 0, 0, 1, { step: 0.001, showIf: modeIs('diagonal', 'z'), hint: 'Slides each bar / Z piece along the band by its own random amount (1 = up to ± half a repeat): uneven spacing, pieces may touch or overlap' }),
-    P.float('skip', 'Missing pieces', 0, 0, 1, { step: 0.001, hint: 'Share of pieces left out at random (bars, Z pieces; whole lanes for zig-zags and chevrons)' }),
-    P.bool('mirror', 'Mirror alternate rows', false, { hint: 'Flip every other lane across the band (hourglass / symmetric panels); rows are made even when tiling. Not for chevrons' }),
-    P.enum('orient', 'Direction', '0', DIRECTIONS, { hint: 'Which way the bands run. Diagonal directions repeat over the texture’s diagonal, so counts are rounded to fit it' }),
-    P.seed(),
-  ],
-  // A tech wall: three lanes of staggered Z steps between lower rails, each piece its own run lengths, climb, height
-  // and shade of metal; crowned (the custom curve's steep edge and gentle rise over half the band).
-  defaults: {
-    h_on: true,
-    h_amount: 0.4,
-    h_var: 0.3,
-    bevel: 16,
-    profile: 'custom',
-    dif_on: true,
-    dif_src: 'random',
-    dif_grad: gradient('#776d5f', '#a79d8d'),
-  },
-  // Added in the editor: the sizes follow the texture — three lanes (fewer on wide trims), band, margins, rails, chamfer
-  // and bevel scaled to the lane height, rounded to whole px (half px on tiny textures).
-  fresh: ({ width, height }) => {
-    const rows = Math.max(1, Math.round(3 * Math.min(1, height / width)))
-    const lane = height / rows
-    const px = (v: number) => (v >= 8 ? Math.round(v) : Math.max(0.5, Math.round(v * 2) / 2))
-    const w = px(0.19 * lane)
-    return {
-      count: Math.max(1, Math.round(width / (1.5 * lane))), rows, width: w, margin_top: px(0.12 * lane),
-      margin_bottom: px(0.12 * lane), rail: px(0.1 * lane), chamfer: px(0.055 * lane), bevel: px(Math.max(1, 0.5 * w)),
-    }
-  },
-  glsl:
-    geoGlsl(8) +
-    /* glsl */ `
+	type: 'bands',
+	label: 'Bands',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Thick diagonal / zig-zag / chevron / Z-step bands in lanes between horizontal strips (tech-wall look), seamless, with mitred bends, chamfered or rounded ends, optional rails and per-piece variation.',
+	params: [
+		P.enum('mode', 'Shape', 'z', [
+			['diagonal', 'Diagonal bars'],
+			['zigzag', 'Zig-zag band'],
+			['chevron', 'Chevrons'],
+			['z', 'Z steps']
+		]),
+		P.int('count', 'Count', 2, 1, 128, { softMax: 32, hint: 'Repeats along the band direction' }),
+		P.int('rows', 'Rows', 3, 1, 128, {
+			softMax: 32,
+			hint: 'Lanes stacked across the band direction (chevrons: stripe spacing)'
+		}),
+		P.float('width', 'Band width', 32, 0.5, 2048, {
+			softMax: 128,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Thickness across the band'
+		}),
+		P.float('width_var', 'Width variation', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Each piece (bar, Z piece) or lane (zig-zag, chevron) gets its own thickness, down to (1 − 0.8 × this) × Band width; its bevel, chamfer and rounding scale with it'
+		}),
+		P.float('margin_top', 'Top margin', 20, 0, 1024, {
+			softMax: 128,
+			unit: 'px',
+			step: 0.1,
+			showIf: modeIs('diagonal', 'zigzag', 'z'),
+			hint: 'Clear strip along the top of each lane (in the band frame). Diagonal bars with both margins 0 run through as seamless stripes'
+		}),
+		P.float('margin_bottom', 'Bottom margin', 20, 0, 1024, {
+			softMax: 128,
+			unit: 'px',
+			step: 0.1,
+			showIf: modeIs('diagonal', 'zigzag', 'z'),
+			hint: 'Clear strip along the bottom of each lane'
+		}),
+		P.float('rail', 'Rails', 17, 0, 1024, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.1,
+			showIf: modeIs('diagonal', 'zigzag', 'z'),
+			hint: 'Strips this thick along the lane edges, shared by neighbouring lanes (centred on the edge, so they eat half into each margin): the horizontal rails of a tech wall. 0 = none'
+		}),
+		P.float('rail_h', 'Rail height', 0.7, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.rail) > 0 && p.mode !== 'chevron',
+			hint: 'The rails’ level against the bands (1 = as high; lower sets the bands off from their frame). Also scales their Pattern value, so it shades them in Diffuse › Pattern'
+		}),
+		P.float('angle', 'Angle', 45, -90, 90, {
+			unit: '°',
+			step: 0.1,
+			hint: 'Slope of the rising parts (negative mirrors). Diagonal bars with 0 margin snap to a seamless slope. A zig-zag that can’t climb its lane within a repeat at this angle gets steeper, unless Keep angle is on'
+		}),
+		P.float('amp', 'Amplitude', 1, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('zigzag'),
+			hint: 'How much of the lane the zig-zag climbs, centred (1 = margin to margin). With Keep angle it is lowered further when the slope needs it'
+		}),
+		P.bool('keep_angle', 'Keep angle', true, {
+			showIf: modeIs('zigzag'),
+			hint: 'Zig-zag: when the slope can’t climb the whole lane within a repeat, lower the zig-zag (centred in the lane) instead of steepening it. Off: it always spans the lane, the slope steepening as needed'
+		}),
+		P.float('run', 'Run', 0.4, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('z', 'zigzag', 'chevron'),
+			hint: 'Z: flat run length (fraction of the repeat). Zig-zag: share of the flats on the high side (there are flats only when the slope leaves room: a steeper angle or fewer repeats). Chevron: flat top/bottom fraction (0 = pointed)'
+		}),
+		P.float('run_var', 'Run variation', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('z'),
+			hint: 'Each Z piece gets its own low and high run lengths (at 1: 0.25 to 1.75 × Run): short and long steps'
+		}),
+		P.float('rise_var', 'Rise variation', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('z'),
+			hint: 'Each Z piece climbs only part of the lane from its low run (at 1: down to a fifth, mostly well below full): low steps among full ones. Not in the fill modes, whose panels need full-height pieces'
+		}),
+		P.float('chamfer', 'End chamfer', 9, 0, 1024, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.1,
+			showIf: modeIs('z'),
+			hint: '45° chamfer on the band ends (up to half the band width: a pointed end)'
+		}),
+		P.float('round', 'Corner rounding', 0, 0, 1024, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Rounds convex corners (outer bends, ends); half the band width gives round ends and bends'
+		}),
+		P.float('outline', 'Outline', 0, 0, 1024, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			hint: '> 0 turns the shape into an inner outline this thick'
+		}),
+		P.enum(
+			'fill',
+			'Fill',
+			'band',
+			[
+				['band', 'Band'],
+				['between', 'Between bands'],
+				['above', 'Above the band'],
+				['below', 'Below the band']
+			],
+			{
+				hint: 'Between: the lane interior minus the bands. Above / below (zig-zag only): just the panels on one side, e.g. a row of trapezoids. The panels are the shape (raised); Height › Subtract sinks them'
+			}
+		),
+		P.bool('even', 'Even panel edges', true, {
+			showIf: (p) => p.fill !== 'band' && (p.mode === 'z' || p.mode === 'zigzag'),
+			hint: 'Fill modes: the runs lie against the rails (on the lane edges without rails) and the panels keep one band width from them, so every joint is one band width and the panel edges are straight. The margins are not used'
+		}),
+		P.float('phase', 'Phase', 0, 0, 1, { step: 0.001, hint: 'Shift along the band, fraction of a repeat' }),
+		P.float('jitter', 'Shift jitter', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Slides each lane along the band by its own random amount (1 = up to ± half a repeat): staggered, less regular rows'
+		}),
+		P.float('stagger', 'Lane stagger', 0.7, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('diagonal', 'z'),
+			hint: 'Z steps and bars between margins: each lane starts at its own random point along the band (1 = up to ± half a repeat). Like Shift jitter, but ignored where the lanes must line up (zig-zags, chevrons, through stripes), so switching Shape keeps those intact'
+		}),
+		P.float('jitter_piece', 'Spacing jitter', 0, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('diagonal', 'z'),
+			hint: 'Slides each bar / Z piece along the band by its own random amount (1 = up to ± half a repeat): uneven spacing, pieces may touch or overlap'
+		}),
+		P.float('skip', 'Missing pieces', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Share of pieces left out at random (bars, Z pieces; whole lanes for zig-zags and chevrons)'
+		}),
+		P.bool('mirror', 'Mirror alternate rows', false, {
+			hint: 'Flip every other lane across the band (hourglass / symmetric panels); rows are made even when tiling. Not for chevrons'
+		}),
+		P.enum('orient', 'Direction', '0', DIRECTIONS, {
+			hint: 'Which way the bands run. Diagonal directions repeat over the texture’s diagonal, so counts are rounded to fit it'
+		}),
+		P.seed()
+	],
+	// A tech wall: three lanes of staggered Z steps between lower rails, each piece its own run lengths, climb, height
+	// and shade of metal; crowned (the custom curve's steep edge and gentle rise over half the band).
+	defaults: {
+		h_on: true,
+		h_amount: 0.4,
+		h_var: 0.3,
+		bevel: 16,
+		profile: 'custom',
+		dif_on: true,
+		dif_src: 'random',
+		dif_grad: gradient('#776d5f', '#a79d8d')
+	},
+	// Added in the editor: the sizes follow the texture — three lanes (fewer on wide trims), band, margins, rails, chamfer
+	// and bevel scaled to the lane height, rounded to whole px (half px on tiny textures).
+	fresh: ({ width, height }) => {
+		const rows = Math.max(1, Math.round(3 * Math.min(1, height / width)));
+		const lane = height / rows;
+		const px = (v: number) => (v >= 8 ? Math.round(v) : Math.max(0.5, Math.round(v * 2) / 2));
+		const w = px(0.19 * lane);
+		return {
+			count: Math.max(1, Math.round(width / (1.5 * lane))),
+			rows,
+			width: w,
+			margin_top: px(0.12 * lane),
+			margin_bottom: px(0.12 * lane),
+			rail: px(0.1 * lane),
+			chamfer: px(0.055 * lane),
+			bevel: px(Math.max(1, 0.5 * w))
+		};
+	},
+	glsl:
+		geoGlsl(8) +
+		/* glsl */ `
 #define BND_1 (uRes.x > 0.0 ? 1 : 0)   // 1, from a uniform: a loop bound D3D can't unroll
 #define BND_MITRE 4.0                 // mitre tips are clipped this many half widths from the bend
 #define BND_EPS 1e-3
@@ -611,5 +726,5 @@ GenOut gen(vec2 p) {
   o.bdist = bd;
   return o;
 }
-`,
-}
+`
+};

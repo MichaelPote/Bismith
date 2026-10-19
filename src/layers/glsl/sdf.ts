@@ -113,4 +113,4 @@ float sdCross(vec2 p, vec2 b, float r) {
 
 // Onion: turn a solid into an outline of thickness t (t <= 0 leaves it solid).
 float sdOnion(float d, float t) { return t > 0.0 ? abs(d + t * 0.5) - t * 0.5 : d; }
-`
+`;

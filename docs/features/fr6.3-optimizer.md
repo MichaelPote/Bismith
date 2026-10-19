@@ -5,9 +5,11 @@ evaluation, headless runs and the in-app Match workspace; v2 adds the search ord
 fits, copy alignment, shading levers and the Tile + Texture preset (see v2 below).
 
 ## Goal
+
 An automated, self-improving loop that iterates the project toward a reference texture.
 
 ## Plan
+
 - `src/match/optimizer.ts` — evolution strategy over a flat parameter vector extracted from the unlocked
   layers (+ optionally lights and post): floats/ints (normalised by min/max), colours (OKLab), enums
   (categorical resample with low probability), gradients (stop colours/positions).
@@ -20,6 +22,7 @@ An automated, self-improving loop that iterates the project toward a reference t
 - Same optimiser callable headlessly via the harness (FR6.2).
 
 ## Checklist
+
 - [x] Parameter vector extraction / application
 - [x] (1+λ)-ES with adaptive steps + restarts
 - [x] Structural mutations
@@ -28,6 +31,7 @@ An automated, self-improving loop that iterates the project toward a reference t
 - [x] Headless optimise via harness
 
 ## Notes
+
 Files: `src/match/optimizer.ts` (engine-agnostic), `src/match/evaluate.ts` (engine glue), tests in
 `src/match/optimizer.test.ts`.
 
@@ -36,6 +40,7 @@ Files: `src/match/optimizer.ts` (engine-agnostic), `src/match/evaluate.ts` (engi
 re-sorted by position, colours travel with their stops). Every entry has a stable `id`
 (`layer:<layerId>:<key>`, `layer:<id>:dif_grad:<i>:color|pos`, `light:<id>:azimuth`, `post:<id>:exposure`,
 `base::color`, `lighting::sky.intensity`), a `label` ("Noise › Scale"), `kind`, `offset`/`dims` into the vector.
+
 - Only enabled, unlocked layers; params with `isOptimizable(def)` (float, int, colour, gradient unless the def
   says otherwise).
 - Numbers are normalised over `softMin..softMax` (the slider range; hard limits when absent), widened to include
@@ -54,83 +59,91 @@ re-sorted by position, colours travel with their stops). Every entry has a stabl
 
 **Algorithm.** Per step, λ candidates (default 6) are generated from the parent; each mutates k ≥ 1 entries
 (geometric, mean 2), picked with weights learnt per entry: `(1 + successes) / (1 + 0.15·fails + 0.5·neutral)`,
-×0.15 for enums/seeds, ×0.3 for *dormant* entries (an effect that is off: value = default = minimum, e.g.
+×0.15 for enums/seeds, ×0.3 for _dormant_ entries (an effect that is off: value = default = minimum, e.g.
 jitter 0, posterize 0, repeat count 1) until they succeed once. Numbers move by σᵢ·N(0,1) in normalised units,
 reflected at the range ends; σᵢ starts at 0.1 and adapts per entry (×1.5 on success, ×0.9 on failure ≈ 1/5
 rule, ×1.25 when the loss didn't change — quantised or inert). Enums resample to another option, seeds re-roll.
-The best candidate replaces the parent when it is no worse (ties drift through inert params). *Momentum*: after
-an improving step, the next step's first candidate repeats the same change. *Restarts*: after `restartAfter`
+The best candidate replaces the parent when it is no worse (ties drift through inert params). _Momentum_: after
+an improving step, the next step's first candidate repeats the same change. _Restarts_: after `restartAfter`
 (20) steps without a significant gain (`minImprovement` 0.002), σ is reset and the parent restarts from a
-perturbed copy of the best. *Islands* (`islands`, default 1): independent chains explored round-robin, the
+perturbed copy of the best. _Islands_ (`islands`, default 1): independent chains explored round-robin, the
 worse half dropped every `islandSteps` (12) rounds — helps long runs (≳ 250 steps) escape early bad basins.
-*Structural mutations* (`structural: true`; by default only once the search has stalled, see below): toggle an unlocked layer, switch a diffuse blend
+_Structural mutations_ (`structural: true`; by default only once the search has stalled, see below): toggle an unlocked layer, switch a diffuse blend
 among the tonal modes (normal, multiply, overlay, soft light, screen — add, subtract, darken and lighten won pixels
 but left colours nobody would author), insert a snippet from `DEFAULT_LIBRARY` (lumps, colour grain, mottle,
 crevice dirt, edge wear, water stains, moss, chipped edges; types that aren't registered are skipped; up to
-`maxLayers`), *duplicate* an enabled generator layer (a new seed, half the time an octave apart in `scale`, right
+`maxLayers`), _duplicate_ an enabled generator layer (a new seed, half the time an octave apart in `scale`, right
 above it or above its smart material), or remove a layer the optimiser added. A paint snippet takes its colours from
 the reference where the parent's render misses it most (`residualColours`, the worst tenth of the pixels). Kinds are
 picked by their recent gain per evaluation (`StepInfo.moves` reports them as `structural:insert` …). An inserted layer
-is *incubated* before it is judged: `incubation` (default 3) extra evaluations mutate only its own numeric params
+is _incubated_ before it is judged: `incubation` (default 3) extra evaluations mutate only its own numeric params
 with wide steps (σ 0.25), and the best version competes with the parent — at its template values a new layer almost
 never beats a parent tuned for many steps, so without this inserts were rejected before they could be tuned.
 Locked layers are never touched. All randomness comes from a seeded RNG (`seed`), so a run is reproducible when `evaluate` is
 deterministic (the path tracer is seeded by sample index, so a fixed sample count is).
 
 **API for the Match workspace.**
-```ts
-import { Matcher, fromRgba8, TERM_NAMES, TERM_LABELS } from '@/match/metrics'
-import { Optimizer, type StepInfo } from '@/match/optimizer'
-import { makeEvaluator, renderToMatchImage } from '@/match/evaluate'
 
-const matcher = new Matcher(fromRgba8(imageData.data, w, h), { preset: 'texture', size: [project.width, project.height] })
+```ts
+import { Matcher, fromRgba8, TERM_NAMES, TERM_LABELS } from '@/match/metrics';
+import { Optimizer, type StepInfo } from '@/match/optimizer';
+import { makeEvaluator, renderToMatchImage } from '@/match/evaluate';
+
+const matcher = new Matcher(fromRgba8(imageData.data, w, h), {
+	preset: 'texture',
+	size: [project.width, project.height]
+});
 // A dedicated Engine on its own (offscreen) canvas — evaluation drives it synchronously.
 const evaluate = makeEvaluator(evalEngine, matcher, {
-  samples: 16,
-  yieldBefore: () => new Promise(requestAnimationFrame), // keep the UI responsive
-  onEvaluate: (p, img, r) => { /* show latest candidate / terms */ },
-})
-const opt = new Optimizer(project, evaluate, { seed: 1, space: { lights: false } })
-await opt.init()                       // initial loss (opt.initialLoss)
+	samples: 16,
+	yieldBefore: () => new Promise(requestAnimationFrame), // keep the UI responsive
+	onEvaluate: (p, img, r) => {
+		/* show latest candidate / terms */
+	}
+});
+const opt = new Optimizer(project, evaluate, { seed: 1, space: { lights: false } });
+await opt.init(); // initial loss (opt.initialLoss)
 while (running) {
-  const info: StepInfo = await opt.step()   // { step, evaluations, bestLoss, parentLoss, candidateLoss,
-                                            //   improved, accepted, restarted, structural, changed[],
-                                            //   meanSigma, island, islands, ms }
-  plot(opt.lossCurve)                       // best loss per step (monotone)
+	const info: StepInfo = await opt.step(); // { step, evaluations, bestLoss, parentLoss, candidateLoss,
+	//   improved, accepted, restarted, structural, changed[],
+	//   meanSigma, island, islands, ms }
+	plot(opt.lossCurve); // best loss per step (monotone)
 }
-opt.best        // { project (copy), loss, detail: MetricResult of the best, step }
-opt.current     // the active chain's parent
-opt.entryStates() // per-entry { id, label, sigma, success, fail, neutral, value } for a params table
-opt.space       // ParamSpace (entries with labels)
-await opt.run(n, { onStep, signal })        // convenience loop with AbortSignal
+opt.best; // { project (copy), loss, detail: MetricResult of the best, step }
+opt.current; // the active chain's parent
+opt.entryStates(); // per-entry { id, label, sigma, success, fail, neutral, value } for a params table
+opt.space; // ParamSpace (entries with labels)
+await opt.run(n, { onStep, signal }); // convenience loop with AbortSignal
 ```
+
 Pause = stop calling `step()`; apply best = put `opt.best.project` into the store (it's a copy); revert = keep the
 project you started from (the optimiser never mutates its input). Re-render the best at full quality for display.
 
 **Results** (64² projects, 16 spp evaluations, ≈25–35 ms per candidate under SwiftShader; harness defaults
 100 steps × λ6 ≈ 20 s):
-- *Panel* (rounded rect over noise; start: rect too small, sharp corners, terracotta; noise too fine and
+
+- _Panel_ (rounded rect over noise; start: rect too small, sharp corners, terracotta; noise too fine and
   green-grey), layout preset: loss 0.709 → 0.489 (100 steps), → 0.358 with `--iters 300 --islands 4` (47 s) — the
   best render has the target's blue-grey rounded panel in the right place over brownish noise. The texture preset
   lowers its loss on the same target just as readily but may swap which region gets which colour (position-free).
-- *Bricks* (staggered rect repeat over noise; start: grey-blue, 2×3 courses, wrong bevel/colours/noise scale),
+- _Bricks_ (staggered rect repeat over noise; start: grey-blue, 2×3 courses, wrong bevel/colours/noise scale),
   texture preset: 0.576 → 0.263 (seed 1) / 0.282 (seed 2) in 100 steps — brown staggered horizontal courses; seed 2
   switched the shape outline on (hollow bricks).
 - Synthetic loss in parameter space (unit test): 0.357 → 0.003 in 150 steps.
-Variance between seeds is large (local optima); when a run stalls, try another `seed`, `islands: 4` for long runs,
-or the layout preset for laid-out targets — the texture preset happily swaps which region gets which colour.
+  Variance between seeds is large (local optima); when a run stalls, try another `seed`, `islands: 4` for long runs,
+  or the layout preset for laid-out targets — the texture preset happily swaps which region gets which colour.
 
 Ideas not done: CMA-style correlated steps; a prior pulling towards the starting values; sensitivity-based
 pre-screening of parameters; per-region (masked) metrics.
 
-**Match workspace (UI).** Top tab *Match*. Load or drop a reference image; *Match size* resizes the project to it
+**Match workspace (UI).** Top tab _Match_. Load or drop a reference image; _Match size_ resizes the project to it
 (long side ≤ 512). Panes: reference · best so far · |difference|×3 (with the Windows metric, FR8.19, the window
 mismatch map instead). Settings: metric preset (tile + windows / windows / tile / texture / layout; a reference of ≥ 256 px starts on Windows, a smaller one on Tile + windows, until one is picked; changing it rescores the panes),
 samples per candidate, max steps, which parts to tune (layers, base, shading, lights, post, modes, seeds, add/remove
 layers — on by default). Live stats (step, evaluations, best, gain, σ), the best-loss curve (its axis spans at least 0.2 down from the start, so late
 gains look as small as they are and a flattening is plain), per-term bars of the best and a
 log of accepted changes (structural ones too when they're kept without a new best). The settings panel's
-height is draggable (stored per browser). *Apply best* loads the best project into the editor (undoable); *Reset* forgets the
+height is draggable (stored per browser). _Apply best_ loads the best project into the editor (undoable); _Reset_ forgets the
 run. It drives the editor's own Engine, suspending the interactive render loop for the duration
 (`Engine.suspend()/resume()`), so no second WebGL context is needed. In-browser test: Stone bricks start →
 Cobblestones reference, 149 steps in ≈25 s, loss 0.341 → 0.239.
@@ -147,27 +160,28 @@ project's height depth (scopes `render` / `project`, ranges from `src/core/setti
 Properties panel); `base` now includes the base specular. Lights (key-light direction, intensity, sky and ambient)
 help as much as anything here and are on by default in the Match workspace.
 
-**Search order** (`ordered`, default on). Entries fall in three tiers (`entryTier`): *form* — pattern / layout,
-height, roughness, specular, edge shaping, lights, shading; *tone* — diffuse amounts, value shaping (`sh_*`), masks,
-post; *colour* — colours and gradient stops. Selection weights start at form 1, tone 0.2, colour 0.03; when the
+**Search order** (`ordered`, default on). Entries fall in three tiers (`entryTier`): _form_ — pattern / layout,
+height, roughness, specular, edge shaping, lights, shading; _tone_ — diffuse amounts, value shaping (`sh_*`), masks,
+post; _colour_ — colours and gradient stops. Selection weights start at form 1, tone 0.2, colour 0.03; when the
 search stalls (`restartAfter` steps without a significant gain) the next tier opens instead of a restart (form +
 tone, then everything). Colour still moves from the start, through colour fits.
 
 **Moves.** Besides the sparse mutations and momentum:
-- *Sweeps* (`sweepRate` 0.2 of steps): one entry at λ values spread over its range or a window around it (integers
+
+- _Sweeps_ (`sweepRate` 0.2 of steps): one entry at λ values spread over its range or a window around it (integers
   try other values, enums other options, seeds new seeds) — a coarse line search past the local dips of a
   periodic or multimodal parameter (a stagger, a light azimuth).
-- *Gradient steps* (`gradientRate` 0.15 of steps, SPSA): `gradientSize` (8) numeric entries move together by
+- _Gradient steps_ (`gradientRate` 0.15 of steps, SPSA): `gradientSize` (8) numeric entries move together by
   ±½σ with random signs; the two scores give a slope, and two more candidates step along it — the correlated moves
   single-entry mutations miss.
-- *Colour fits* (`colourFitRate` 0.08 of candidates, when `target` is set and `evaluate` returns its render): the
+- _Colour fits_ (`colourFitRate` 0.08 of candidates, when `target` is set and `evaluate` returns its render): the
   parent's colours — all of them, or one owner's (the base or one layer), a quarter of the time lightness only —
   mapped towards the reference's OKLab distribution (`colourFit.ts`, moments or quantile map, strength 0.4–1).
   The most efficient move per evaluation by far early on; higher rates crowd out the rest and lose overall.
-- *Copy alignment* (`relinkRate` 0.05): layers of one type and seed are copies of one pattern
+- _Copy alignment_ (`relinkRate` 0.05): layers of one type and seed are copies of one pattern
   (`driftedCopies`); when they've drifted apart, a candidate aligns one copy to another (all differing keys or a
   random half).
-- *Structural* (`structural`, off by default in the API, on in the Match workspace): inserted layers are incubated (above) and must save `layerCost`
+- _Structural_ (`structural`, off by default in the API, on in the Match workspace): inserted layers are incubated (above) and must save `layerCost`
   (0.003) of loss to be kept — removals are credited the same — so the stack no longer fills to `maxLayers` with
   layers that barely help. `structuralWhen` (default `'stalled'`): when the search stalls with every tier open, a
   round of `structuralRound` (8) changes of the best replaces the restart — inserts incubated, the two most promising
@@ -175,7 +189,7 @@ tone, then everything). Colour still moves from the start, through colour fits.
   it beats the best, layer cost included; otherwise the restart follows. `'always'` mixes structural candidates into
   every step at `structuralRate` (adaptive like the other moves; incubation evaluations count against them).
 
-*Adaptive move mix* (`adaptive`, default on): each move kind's rate is scaled by its recent gain per evaluation
+_Adaptive move mix_ (`adaptive`, default on): each move kind's rate is scaled by its recent gain per evaluation
 relative to plain mutations (×0.25…×4 once both have ≥ 20 evaluations; gains count only beyond `tolerance` and decay
 with a half-life of ~35 steps) — colour fits pay early and fade later, so a fixed rate is wrong at one end or the
 other. Neutral to slightly positive in the benchmark (Δ Tile + Texture −0.004 ± 0.007, 15 pairs × 3 seeds).
@@ -192,10 +206,10 @@ from sample 0 at full quality; and the optimiser compared losses exactly, so las
 moves — losses within `tolerance` (1e-6) now tie, and ties go to the earlier candidate (also for the sign of a
 gradient step). Headless pages run with the interactive loop suspended.
 
-**The structure floor (investigated, metric unchanged).** On stochastic materials the Tile preset's *structure* term
+**The structure floor (investigated, metric unchanged).** On stochastic materials the Tile preset's _structure_ term
 has a floor: two renders of one project that differ only in their random detail already score ≈0.58 (stone wall),
 ≈0.60 (metal), ≈0.62 (wood) on it — a match whose detail was re-rolled is "perfect" yet far from 0, and optimised
-results sit near that floor. Coarser scales, local shift tolerance and edge maps were tried as a *layout* term
+results sit near that floor. Coarser scales, local shift tolerance and edge maps were tried as a _layout_ term
 (multi-scale |Δz| at ½–⅛ scale, ±1 texel tolerance): none lowered the floor relative to unrelated textures
 (≈0.41–0.50 of their distance for every variant — the randomness reaches every scale: mottle, lumps, joint tone),
 and on a retrieval test (66 hand-authored recreations against their references) none ranked the right reference
@@ -204,17 +218,18 @@ totals of the results unchanged (paired, 14 pairs × 3 seeds). So the term stays
 property of the material, not something a search can remove.
 
 **A stronger texture term (investigated, metric unchanged).** Three ways of strengthening the VGG term were measured:
-- *Sliced Wasserstein* distances between the VGG feature distributions instead of Gram matrices (Heitz et al. 2021;
+
+- _Sliced Wasserstein_ distances between the VGG feature distributions instead of Gram matrices (Heitz et al. 2021;
   one random direction per channel at each tap, sorted projections compared).
-- *Scale*: the network run at 1×, 2× or 4× the reference's size, or a mean over several of those.
-- A *texture weight* doubled in the objective (Tile with texture 6).
+- _Scale_: the network run at 1×, 2× or 4× the reference's size, or a mean over several of those.
+- A _texture weight_ doubled in the objective (Tile with texture 6).
 
 SW tracks the Gram distance closely (r 0.96–0.98 over 4 356 pairs). On the retrieval test it ranked the right reference
 first just as often: 46/66 each on the term alone, and 60 vs 59 within the Tile metric. It also cost 3× as much (≈16 vs
 5 ms). Optimising with it changed nothing (Δ Tile + Texture +0.001 ± 0.008 on 15 pairs × 3 seeds, +0.000 ± 0.009 held
 out). No scale or mix of scales was consistently better (retrieval 42–48/66; separation favoured the larger scales).
 A heavier texture weight ranked references no better (58/66 at 2×, 57/66 at 4×), and with the doubled weight the
-results' *Texture* totals didn't even drop (+0.002 ± 0.011). Gram stays; the search, not the texture statistic,
+results' _Texture_ totals didn't even drop (+0.002 ± 0.011). Gram stays; the search, not the texture statistic,
 limits the results.
 
 **Structural moves (measured, 2026-10-15).** At an equal budget of evaluations (`matchbench` phases take
@@ -233,27 +248,27 @@ are, so most of the gap is closed — partly — by retuning the layers that are
 radix on the float bit patterns, exactly Float32Array#sort's order) made feature computation 3.2× faster (128²:
 35 → 11 ms; CPU scoring per evaluation 8.6 → 4.1 ms at 64², 42.5 → 14.6 ms at 128²) with bit-identical scores.
 
-**Metric.** Optimising the Tile preset lowered the *Texture* total too — more than optimising a mean of the two
+**Metric.** Optimising the Tile preset lowered the _Texture_ total too — more than optimising a mean of the two
 presets did (+0.04 on the Tile + Texture sum at 1000 steps, worse on both) and as much as switching presets mid-run
 (Tile already weighs the VGG texture term at 3) — so Tile stays the default objective.
 
 **Results** (mean over the eight pairs and three or four seeds; Tile / Texture, lower is better):
 
-| Strategy | 300 steps | 1000 steps |
-| -------- | --------- | ---------- |
-| v1 search; layers, base, AO (one seed) | 0.445 / 0.336 | — |
-| + shading levers | 0.439 / 0.330 | — |
-| + search order, sweeps, alignment, colour fits | 0.419 / 0.300 | — |
-| + lights | 0.411 / 0.289 | 0.387 / 0.262 |
-| + gradient steps (the defaults) | 0.410 / 0.288 | 0.376 / 0.254 |
+| Strategy                                       | 300 steps     | 1000 steps    |
+| ---------------------------------------------- | ------------- | ------------- |
+| v1 search; layers, base, AO (one seed)         | 0.445 / 0.336 | —             |
+| + shading levers                               | 0.439 / 0.330 | —             |
+| + search order, sweeps, alignment, colour fits | 0.419 / 0.300 | —             |
+| + lights                                       | 0.411 / 0.289 | 0.387 / 0.262 |
+| + gradient steps (the defaults)                | 0.410 / 0.288 | 0.376 / 0.254 |
 
 Tried and dropped (paired, not better): higher colour-fit rates (0.2, 0.35 — clearly worse), colour fits of one layer
 or of lightness only, λ 6 at equal evaluations, σ₀ 0.15, three entries per mutation, islands (no reliable gain at 300
 or 1000 steps), a longer restart patience, seeds in the space (neutral at 300 steps, slightly worse at 1000 — also
 with each new seed incubated, and on converged projects), and a Tile + Texture objective (above). Also measured and
-removed: a *layout fit* (rescale a pattern parameter by the ratio of the render's repeat to the reference's, from
+removed: a _layout fit_ (rescale a pattern parameter by the ratio of the render's repeat to the reference's, from
 edge-profile periods — as efficient per candidate as a mutation but no better overall, +0.004 ± 0.009, and
-consistently worse on irregular cobblestones) and *cheap screening* (score candidates at 4 or 8 samples, evaluate in
+consistently worse on irregular cobblestones) and _cheap screening_ (score candidates at 4 or 8 samples, evaluate in
 full only those beating the parent's cheap score — 5× fewer full evaluations but only 13 % less time, since scoring,
 not tracing, dominates an evaluation; quality unchanged within noise).
 
@@ -264,6 +279,7 @@ phase per metric preset in the strategy, every pair × seed on a shared worker q
 move statistics (candidates proposed, steps won that improved the best, total gain per move kind).
 
 ## Craft heuristics (FR7.8, removed)
+
 The craft rules — conforming the start project and every candidate to the lessons of hand-authoring, with search-space
 priors to match — were removed (2026-10-15): a project that broke a rule was rewritten before its first evaluation and
 on every candidate, so a run could end worse than the project it started from (on two of 18 test projects, Tile
@@ -275,21 +291,24 @@ hold equal is a single entry (`ParamEntry.tied` lists the other owners, label "(
 writes to every copy — see [FR7.8](fr7.8-optimizer-heuristics.md).
 
 ## Stop criteria
+
 `Optimizer.runUntil(stop)` steps until the first criterion is met (`StopReason`): `targetLoss` (good enough),
 `timeMs` (wall clock), `steps`, `evaluations` (total), `patience` (steps in a row without the best loss improving
 by `minImprovement`, default 0.001 — restarts don't reset it), or an abort signal. `RunLimits` holds the bookkeeping
 so the same rules drive the harness CLI and the Match workspace. With no bound set a run only ends when aborted.
-- Match workspace: *Max steps*, *Stop at loss*, *Time limit*, *Stall after* — each press of Optimise / Continue /
-  Resume runs afresh (up to Max steps *more*, a new time limit and stall count; a target loss already reached no
+
+- Match workspace: _Max steps_, _Stop at loss_, _Time limit_, _Stall after_ — each press of Optimise / Continue /
+  Resume runs afresh (up to Max steps _more_, a new time limit and stall count; a target loss already reached no
   longer stops it), so a finished run can always keep going without Apply best. 0 switches each off; with all off
   the optimiser runs until paused. The log ends with the reason.
 - The workspace is kept alive across Create ↔ Match: the reference, settings and optimiser survive. Leaving pauses a
   run (the viewport needs the engine); returning re-renders the preview, and if the project was edited in Create the
-  optimiser starts over from it (its best would undo the edits). *Fit colours* fits the current project's colours to
+  optimiser starts over from it (its best would undo the edits). _Fit colours_ fits the current project's colours to
   the reference (FR8.2) — undoable.
 - `harness optimize … --until LOSS --time SECONDS --patience STEPS` (`--iters` then caps the steps only when given).
 
 ## Colour range (2026-10-17)
+
 Left alone, the search buys pixels with hues the reference never shows (a teal blade, a purple base under everything)
 and, once a light shades the surface, saturates ramps further and further to cancel the shading. `colourRange`
 (OKLab distance, 0 = off) keeps the colours it writes near the reference's own (`src/match/colourRange.ts`): the
@@ -298,7 +317,8 @@ each candidate is rendered every active layer and base colour further than the r
 straight towards the nearest until it is just inside. Lightness counts half (light and shade move it legitimately), so
 the range mostly holds hue and chroma; greys always pass (multiply and overlay ramps need their white-to-grey stops).
 Constraining the vector itself, in `score()`, covers every move — mutations, gradient steps, colour fits, inserts.
-- Match workspace: *Colours* — Off / Tight (0.03) / Normal (0.06, the default) / Loose (0.12).
+
+- Match workspace: _Colours_ — Off / Tight (0.03) / Normal (0.06, the default) / Loose (0.12).
 - `harness optimize … --colour-range 0.06` (off by default in the harness).
 - Measured on a lit photo of a lawn with leaf litter, 300 steps from the same start with the height depth held: without
   it the loss reached 0.147 with a purple base and a green stop in the soil ramp; with Normal it reached 0.131, every

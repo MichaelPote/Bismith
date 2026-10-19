@@ -3,10 +3,12 @@
 **Status:** done (v1)
 
 ## Goal
+
 A progressive path tracer, written as our own fragment shader, specialised for height-field surfaces viewed
 top-down, producing a linear HDR image (architecture §7).
 
 ## Plan
+
 - Accumulation target RGBA32F (HalfFloat fallback), running mean; reset on material / lighting / render change.
 - Analytic primary hit with sub-pixel jitter (or texel-centre sampling for crisp pixel art).
 - Height-field ray march (≈1 px steps, escape test against max height, bisection refinement, wrap / plane edge).
@@ -19,6 +21,7 @@ top-down, producing a linear HDR image (architecture §7).
 - Sample counter + time in the status bar; "Fast preview" (≤1 bounce, 1 spp per frame) while dragging.
 
 ## Checklist
+
 - [x] Accumulation + reset logic
 - [x] Primary hit + jitter / texel-centre modes
 - [x] Height-field ray march with wrap / plane edge

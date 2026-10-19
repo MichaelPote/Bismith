@@ -17,46 +17,46 @@
 // Output target (float RGBA): r = signed distance in px, gb = nearest boundary seed (GL px, possibly in a
 // neighbouring torus copy), a = 1 if a boundary point was found (else r = ±1e4).
 
-import * as THREE from 'three'
-import type { FilterContext } from '@/render/materialPipeline'
+import * as THREE from 'three';
+import type { FilterContext } from '@/render/materialPipeline';
 
 /** Mask sources, in the order of the filters' `source` enum. */
 export const DISTANCE_SOURCE = {
-  height: 0,
-  opacity: 1,
-  luminance: 2,
-  /** A mask texture (`mask`). */
-  mask: 3,
-  custom: 8,
-} as const
+	height: 0,
+	opacity: 1,
+	luminance: 2,
+	/** A mask texture (`mask`). */
+	mask: 3,
+	custom: 8
+} as const;
 
 export interface DistanceFieldOptions {
-  /** 0 height, 1 opacity, 2 diffuse luminance (perceptual, sRGB), 3 a mask's coverage (`mask`), 8 custom (`custom`). */
-  source: number
-  /** Source 3: the mask texture (distance in .x). */
-  mask?: THREE.Texture
-  /**
-   * Source 8: GLSL defining `float jfaCustom(ivec2 c)`, > 0 inside — continuous across the edge for a sub-pixel
-   * boundary. It may use the layer's u_<param> uniforms and the state textures. Materials are cached per `name`.
-   */
-  custom?: string
-  /** Inside = value above this (0.5 halves a mask's edge). */
-  threshold: number
-  /** Swap inside and outside. */
-  invert?: boolean
-  /**
-   * Largest distance (px) the caller cares about. Fewer flood passes are run; texels farther than this
-   * from any boundary get a distance ≥ maxDistance (possibly the ±1e4 sentinel), never a smaller one.
-   */
-  maxDistance?: number
-  /**
-   * Contour relaxation radius (px): fits a line through the boundary seeds within this radius and moves each
-   * seed onto it (not at corners). Hides the faceting of hard-edged sources on wide bevels; 0 = off
-   * (pixel-exact steps). 3–4 removes faceting on curves; capped at 6.
-   */
-  relax?: number
-  /** Scratch-target name prefix (defaults to 'jfa'). */
-  name?: string
+	/** 0 height, 1 opacity, 2 diffuse luminance (perceptual, sRGB), 3 a mask's coverage (`mask`), 8 custom (`custom`). */
+	source: number;
+	/** Source 3: the mask texture (distance in .x). */
+	mask?: THREE.Texture;
+	/**
+	 * Source 8: GLSL defining `float jfaCustom(ivec2 c)`, > 0 inside — continuous across the edge for a sub-pixel
+	 * boundary. It may use the layer's u_<param> uniforms and the state textures. Materials are cached per `name`.
+	 */
+	custom?: string;
+	/** Inside = value above this (0.5 halves a mask's edge). */
+	threshold: number;
+	/** Swap inside and outside. */
+	invert?: boolean;
+	/**
+	 * Largest distance (px) the caller cares about. Fewer flood passes are run; texels farther than this
+	 * from any boundary get a distance ≥ maxDistance (possibly the ±1e4 sentinel), never a smaller one.
+	 */
+	maxDistance?: number;
+	/**
+	 * Contour relaxation radius (px): fits a line through the boundary seeds within this radius and moves each
+	 * seed onto it (not at corners). Hides the faceting of hard-edged sources on wide bevels; 0 = off
+	 * (pixel-exact steps). 3–4 removes faceting on curves; capped at 6.
+	 */
+	relax?: number;
+	/** Scratch-target name prefix (defaults to 'jfa'). */
+	name?: string;
 }
 
 /** GLSL: the thresholded source value at a texel (> 0 inside). Shared with filters that need the mask. */
@@ -77,7 +77,7 @@ float jfaValue(ivec2 c) {
   else v = clamp(0.5 - fetchT(tJfaMask, c).x, 0.0, 1.0) - uJfaThreshold;
   return uJfaInvert ? -v : v;
 }
-`
+`;
 
 const SEED = /* glsl */ `
 ${GLSL_JFA_SOURCE}
@@ -111,7 +111,7 @@ void main() {
   }
   oColor = vec4(gl_FragCoord.xy + foot, vec2(c));
 }
-`
+`;
 
 const STEP = /* glsl */ `
 uniform sampler2D tJfa;
@@ -134,7 +134,7 @@ void main() {
   }
   oColor = best;
 }
-`
+`;
 
 const FINAL = /* glsl */ `
 ${GLSL_JFA_SOURCE}
@@ -162,7 +162,7 @@ void main() {
   }
   oColor = vec4(sgn * d, s.xy, 1.0);
 }
-`
+`;
 
 const RELAX = /* glsl */ `
 uniform sampler2D tSeed;
@@ -201,80 +201,84 @@ void main() {
   s.xy += nrm * clamp(dot(m, nrm), -0.5, 0.5) * lineness;
   oColor = s;
 }
-`
+`;
 
 function nextPow2(n: number): number {
-  let p = 1
-  while (p < n) p *= 2
-  return p
+	let p = 1;
+	while (p < n) p *= 2;
+	return p;
 }
 
 function setSource(mat: THREE.RawShaderMaterial, opts: DistanceFieldOptions): void {
-  const u = mat.uniforms
-  u.uJfaSource.value = opts.source
-  u.uJfaThreshold.value = opts.threshold
-  u.uJfaInvert.value = Boolean(opts.invert)
-  u.tJfaMask.value = opts.mask ?? null
+	const u = mat.uniforms;
+	u.uJfaSource.value = opts.source;
+	u.uJfaThreshold.value = opts.threshold;
+	u.uJfaInvert.value = Boolean(opts.invert);
+	u.tJfaMask.value = opts.mask ?? null;
 }
 
 const sourceUniforms = () => ({
-  uJfaSource: { value: 0 },
-  uJfaThreshold: { value: 0 },
-  uJfaInvert: { value: false },
-  tJfaMask: { value: null as THREE.Texture | null },
-})
+	uJfaSource: { value: 0 },
+	uJfaThreshold: { value: 0 },
+	uJfaInvert: { value: false },
+	tJfaMask: { value: null as THREE.Texture | null }
+});
 
 /**
  * Compute the signed distance field of the thresholded source into a scratch target and return it.
  * The target stays valid until the next jump flood with the same name (or a pipeline resize).
  */
 export function jumpFlood(ctx: FilterContext, opts: DistanceFieldOptions): THREE.WebGLRenderTarget {
-  const name = opts.name ?? 'jfa'
-  const seeds = ctx.scratch(`${name}:seed`)
-  const ping = ctx.scratch(`${name}:a`)
-  const pong = ctx.scratch(`${name}:b`)
-  const out = ctx.scratch(`${name}:dist`)
+	const name = opts.name ?? 'jfa';
+	const seeds = ctx.scratch(`${name}:seed`);
+	const ping = ctx.scratch(`${name}:a`);
+	const pong = ctx.scratch(`${name}:b`);
+	const out = ctx.scratch(`${name}:dist`);
 
-  // A custom source is compiled into its own seed and final materials.
-  const custom = opts.source === DISTANCE_SOURCE.custom && opts.custom ? `#define JFA_CUSTOM\n${opts.custom}\n` : ''
-  const variant = custom ? `:${name}` : ''
-  const seedMat = ctx.material(`jfa:seed${variant}`, custom + SEED, sourceUniforms())
-  setSource(seedMat, opts)
-  ctx.run(seedMat, seeds)
+	// A custom source is compiled into its own seed and final materials.
+	const custom = opts.source === DISTANCE_SOURCE.custom && opts.custom ? `#define JFA_CUSTOM\n${opts.custom}\n` : '';
+	const variant = custom ? `:${name}` : '';
+	const seedMat = ctx.material(`jfa:seed${variant}`, custom + SEED, sourceUniforms());
+	setSource(seedMat, opts);
+	ctx.run(seedMat, seeds);
 
-  let seedTex = seeds
-  const relax = Math.min(6, Math.max(0, opts.relax ?? 0))
-  if (relax > 0.25) {
-    seedTex = ctx.scratch(`${name}:relax`)
-    const relaxMat = ctx.material('jfa:relax', RELAX, { tSeed: { value: null }, uRelax: { value: 1 } })
-    relaxMat.uniforms.tSeed.value = seeds.texture
-    relaxMat.uniforms.uRelax.value = relax
-    ctx.run(relaxMat, seedTex)
-  }
+	let seedTex = seeds;
+	const relax = Math.min(6, Math.max(0, opts.relax ?? 0));
+	if (relax > 0.25) {
+		seedTex = ctx.scratch(`${name}:relax`);
+		const relaxMat = ctx.material('jfa:relax', RELAX, { tSeed: { value: null }, uRelax: { value: 1 } });
+		relaxMat.uniforms.tSeed.value = seeds.texture;
+		relaxMat.uniforms.uRelax.value = relax;
+		ctx.run(relaxMat, seedTex);
+	}
 
-  // Largest useful step: half the (power-of-two) texture size, or just enough to reach maxDistance.
-  const full = Math.max(1, nextPow2(Math.max(ctx.width, ctx.height)) / 2)
-  const limit = opts.maxDistance !== undefined ? nextPow2(Math.max(1, Math.ceil(opts.maxDistance))) : full
-  const steps: number[] = []
-  for (let k = Math.min(full, limit); k >= 1; k = Math.floor(k / 2)) steps.push(k)
-  steps.push(1) // JFA+1: one extra unit step fixes most of the flood's rare misses.
+	// Largest useful step: half the (power-of-two) texture size, or just enough to reach maxDistance.
+	const full = Math.max(1, nextPow2(Math.max(ctx.width, ctx.height)) / 2);
+	const limit = opts.maxDistance !== undefined ? nextPow2(Math.max(1, Math.ceil(opts.maxDistance))) : full;
+	const steps: number[] = [];
+	for (let k = Math.min(full, limit); k >= 1; k = Math.floor(k / 2)) steps.push(k);
+	steps.push(1); // JFA+1: one extra unit step fixes most of the flood's rare misses.
 
-  const stepMat = ctx.material('jfa:step', STEP, { tJfa: { value: null }, uJfaStep: { value: 1 } })
-  let src = seedTex
-  let dst = ping
-  for (const k of steps) {
-    stepMat.uniforms.tJfa.value = src.texture
-    stepMat.uniforms.uJfaStep.value = k
-    ctx.run(stepMat, dst)
-    src = dst
-    dst = dst === ping ? pong : ping
-  }
+	const stepMat = ctx.material('jfa:step', STEP, { tJfa: { value: null }, uJfaStep: { value: 1 } });
+	let src = seedTex;
+	let dst = ping;
+	for (const k of steps) {
+		stepMat.uniforms.tJfa.value = src.texture;
+		stepMat.uniforms.uJfaStep.value = k;
+		ctx.run(stepMat, dst);
+		src = dst;
+		dst = dst === ping ? pong : ping;
+	}
 
-  const finalMat = ctx.material(`jfa:final${variant}`, custom + FINAL, { ...sourceUniforms(), tJfa: { value: null }, tSeed: { value: null } })
-  setSource(finalMat, opts)
-  finalMat.uniforms.tJfa.value = src.texture
-  finalMat.uniforms.tSeed.value = seedTex.texture
-  ctx.run(finalMat, out)
+	const finalMat = ctx.material(`jfa:final${variant}`, custom + FINAL, {
+		...sourceUniforms(),
+		tJfa: { value: null },
+		tSeed: { value: null }
+	});
+	setSource(finalMat, opts);
+	finalMat.uniforms.tJfa.value = src.texture;
+	finalMat.uniforms.tSeed.value = seedTex.texture;
+	ctx.run(finalMat, out);
 
-  return out
+	return out;
 }

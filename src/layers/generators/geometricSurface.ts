@@ -7,9 +7,9 @@
 // weaves, floats that arch down to a floor where they dive, flanks that rest on the strands beneath and lower
 // under-runs. In the mask's combine modes they hand the wrapper their exact distance (its plain bevel).
 
-import { P, gradient, type ParamValues } from '@/core/params'
-import type { LayerDef } from '../types'
-import { geoGlsl, orientParam } from './geometricCommon'
+import { P, gradient, type ParamValues } from '@/core/params';
+import type { LayerDef } from '../types';
+import { geoGlsl, orientParam } from './geometricCommon';
 
 /**
  * GLSL: the layer's own value v (0..1) on its exact shape d — genOutShaded with a bevel distance where the wrapper's
@@ -26,7 +26,7 @@ GenOut surf_own(float v, float rnd, float d, float p1) {
   o.bdist = -u_bevel * surf_x1();
   return o;
 }
-`
+`;
 
 // ------------------------------------------------------------------------------------------------ tread plate
 
@@ -37,86 +37,130 @@ GenOut surf_own(float v, float rnd, float d, float p1) {
  * Width means bar spacing for bars and the diameter for studs.
  */
 const TREAD_LOOKS: Record<string, ParamValues> = {
-  lozenge: { layout: 'herringbone', angle: 45, length: 1.35, width: 0.15 },
-  capsule: { layout: 'herringbone', angle: 45, length: 1.1, width: 0.2 },
-  bars: { layout: 'checker', angle: 0, length: 0.85, width: 0.5 },
-  stud: { layout: 'checker', angle: 45, length: 0.85, width: 0.45 },
-  teardrop: { layout: 'checker', angle: 45, length: 0.85, width: 0.32 },
-  diamond: { layout: 'same', angle: 0, length: 0.92, width: 0.92 },
-}
-const notStud = (p: ParamValues) => p.style !== 'stud'
+	lozenge: { layout: 'herringbone', angle: 45, length: 1.35, width: 0.15 },
+	capsule: { layout: 'herringbone', angle: 45, length: 1.1, width: 0.2 },
+	bars: { layout: 'checker', angle: 0, length: 0.85, width: 0.5 },
+	stud: { layout: 'checker', angle: 45, length: 0.85, width: 0.45 },
+	teardrop: { layout: 'checker', angle: 45, length: 0.85, width: 0.32 },
+	diamond: { layout: 'same', angle: 0, length: 0.92, width: 0.92 }
+};
+const notStud = (p: ParamValues) => p.style !== 'stud';
 
 export const treadplateLayer: LayerDef = {
-  type: 'treadplate',
-  label: 'Tread plate',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Raised lozenges / bars in alternating orientation — diamond plate, 5-bar tread, stud, teardrop and diamond plate. Domed relief; per-lozenge random.',
-  params: [
-    P.enum('style', 'Style', 'lozenge', [
-      ['lozenge', 'Lozenge (diamond plate)'],
-      ['capsule', 'Capsule'],
-      ['bars', 'Bar group (5-bar)'],
-      ['stud', 'Round studs'],
-      ['teardrop', 'Teardrop'],
-      ['diamond', 'Diamond (rhombus)'],
-    ]),
-    P.int('count_x', 'Count X', 8, 1, 256, { softMax: 48, hint: 'Cells across (made even when tiling with alternating orientation)' }),
-    P.int('count_y', 'Count Y', 8, 1, 256, { softMax: 48, hint: 'Cells down' }),
-    orientParam('Turns the whole grid in 45° steps (Angle turns each lozenge within its cell): 45° with Angle 0 lays 5-bar groups or capsules on the diagonal. 45° grids repeat over gcd(width, height)'),
-    P.enum('layout', 'Orientation', 'herringbone', [
-      ['checker', 'Alternate (checker)'],
-      ['rows', 'Alternate by row'],
-      ['cols', 'Alternate by column'],
-      ['same', 'All the same'],
-      ['herringbone', 'Herringbone (rows alternate, offset)'],
-    ], { showIf: notStud, hint: 'Alternate cells turn 90° from the angle below. Herringbone: rows alternate and every other row is offset half a cell, so each lug points at the flank of the next — classic diamond plate' }),
-    P.float('angle', 'Angle', 45, -180, 180, { softMin: -90, softMax: 90, unit: '°', step: 0.1, showIf: notStud, hint: 'Lozenge axis, clockwise from the grid’s horizontal' }),
-    P.float('length', 'Length', 1.35, 0.05, 1.5, { step: 0.001, showIf: notStud, hint: 'Fraction of the cell size (geometric mean of its width and height); bar groups: the group’s length and breadth' }),
-    P.float('width', 'Width', 0.15, 0.02, 1, { step: 0.001, hint: 'Fraction of the cell (bars: of the bar spacing; studs: diameter)' }),
-    P.float('crown', 'Dome', 1, 0, 1, {
-      step: 0.001,
-      hint: 'How far in the bevel reaches: 0 = flat tops with only the Bevel at the edges, 1 = domed all the way to the spine; the Profile shapes the dome (Round: steep sides, rounded top). Works without a Bevel too. (Bevel aspect applies only in the mask’s combine modes: Union, Subtract …)',
-    }),
-    P.float('crest', 'Crest', 0.5, 0, 1, {
-      step: 0.001,
-      hint: 'Sharpens the top into a ridge along the spine, which catches the light: 0 = the Profile’s own rounded top, 1 = straight flanks meeting in a ridge (pyramids on diamonds). Works with Dome',
-    }),
-    P.int('bars', 'Bars', 5, 1, 16, { showIf: (p) => p.style === 'bars' }),
-    P.bool('stagger', 'Offset rows', false, { hint: 'Shift alternate rows half a cell (rows made even when tiling; Herringbone already offsets them)' }),
-    P.float('jitter', 'Angle jitter', 1.5, 0, 90, { softMax: 45, unit: '°', step: 0.1, showIf: notStud, hint: 'Random rotation per lozenge (worn / hand-made plate); 90 = any direction' }),
-    P.float('pos_jitter', 'Position jitter', 0.015, 0, 0.3, { step: 0.001, hint: 'Random offset of each lozenge from its cell centre, as a share of the cell' }),
-    P.float('size_var', 'Size variation', 0, 0, 1, { softMax: 0.5, step: 0.001, hint: 'Each lozenge shrinks at random: its length by up to this share, its width by half as much (cast or hand-made plate)' }),
-    P.seed(),
-  ],
-  // Domed lugs with a ridge and a hint of irregularity (each seed its own), nearly level (rolled plate), glossier and
-  // brighter in specular towards the spine so the plate glints.
-  defaults: {
-    h_on: true,
-    h_amount: 0.4,
-    h_var: 0.06,
-    bevel: 1.5,
-    profile: 'round',
-    dif_on: true,
-    dif_src: 'value',
-    dif_opacity: 0.6,
-    dif_jitter: 0.12,
-    dif_grad: gradient('#55595e', '#9aa0a6'),
-    r_on: true,
-    r_a: 0.55,
-    r_b: 0.25,
-    s_on: true,
-    s_a: 0.2,
-    s_b: 0.7,
-  },
-  // In the editor, roughness and specular follow the lug's relief, not its shape (the registry's default for shapes).
-  fresh: () => ({ r_src: 'value', s_src: 'value' }),
-  linkedDefaults: (p) => TREAD_LOOKS[String(p.style)] ?? TREAD_LOOKS.lozenge,
-  glsl:
-    geoGlsl(4) +
-    SURF_OWN +
-    /* glsl */ `
+	type: 'treadplate',
+	label: 'Tread plate',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Raised lozenges / bars in alternating orientation — diamond plate, 5-bar tread, stud, teardrop and diamond plate. Domed relief; per-lozenge random.',
+	params: [
+		P.enum('style', 'Style', 'lozenge', [
+			['lozenge', 'Lozenge (diamond plate)'],
+			['capsule', 'Capsule'],
+			['bars', 'Bar group (5-bar)'],
+			['stud', 'Round studs'],
+			['teardrop', 'Teardrop'],
+			['diamond', 'Diamond (rhombus)']
+		]),
+		P.int('count_x', 'Count X', 8, 1, 256, {
+			softMax: 48,
+			hint: 'Cells across (made even when tiling with alternating orientation)'
+		}),
+		P.int('count_y', 'Count Y', 8, 1, 256, { softMax: 48, hint: 'Cells down' }),
+		orientParam(
+			'Turns the whole grid in 45° steps (Angle turns each lozenge within its cell): 45° with Angle 0 lays 5-bar groups or capsules on the diagonal. 45° grids repeat over gcd(width, height)'
+		),
+		P.enum(
+			'layout',
+			'Orientation',
+			'herringbone',
+			[
+				['checker', 'Alternate (checker)'],
+				['rows', 'Alternate by row'],
+				['cols', 'Alternate by column'],
+				['same', 'All the same'],
+				['herringbone', 'Herringbone (rows alternate, offset)']
+			],
+			{
+				showIf: notStud,
+				hint: 'Alternate cells turn 90° from the angle below. Herringbone: rows alternate and every other row is offset half a cell, so each lug points at the flank of the next — classic diamond plate'
+			}
+		),
+		P.float('angle', 'Angle', 45, -180, 180, {
+			softMin: -90,
+			softMax: 90,
+			unit: '°',
+			step: 0.1,
+			showIf: notStud,
+			hint: 'Lozenge axis, clockwise from the grid’s horizontal'
+		}),
+		P.float('length', 'Length', 1.35, 0.05, 1.5, {
+			step: 0.001,
+			showIf: notStud,
+			hint: 'Fraction of the cell size (geometric mean of its width and height); bar groups: the group’s length and breadth'
+		}),
+		P.float('width', 'Width', 0.15, 0.02, 1, {
+			step: 0.001,
+			hint: 'Fraction of the cell (bars: of the bar spacing; studs: diameter)'
+		}),
+		P.float('crown', 'Dome', 1, 0, 1, {
+			step: 0.001,
+			hint: 'How far in the bevel reaches: 0 = flat tops with only the Bevel at the edges, 1 = domed all the way to the spine; the Profile shapes the dome (Round: steep sides, rounded top). Works without a Bevel too. (Bevel aspect applies only in the mask’s combine modes: Union, Subtract …)'
+		}),
+		P.float('crest', 'Crest', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'Sharpens the top into a ridge along the spine, which catches the light: 0 = the Profile’s own rounded top, 1 = straight flanks meeting in a ridge (pyramids on diamonds). Works with Dome'
+		}),
+		P.int('bars', 'Bars', 5, 1, 16, { showIf: (p) => p.style === 'bars' }),
+		P.bool('stagger', 'Offset rows', false, {
+			hint: 'Shift alternate rows half a cell (rows made even when tiling; Herringbone already offsets them)'
+		}),
+		P.float('jitter', 'Angle jitter', 1.5, 0, 90, {
+			softMax: 45,
+			unit: '°',
+			step: 0.1,
+			showIf: notStud,
+			hint: 'Random rotation per lozenge (worn / hand-made plate); 90 = any direction'
+		}),
+		P.float('pos_jitter', 'Position jitter', 0.015, 0, 0.3, {
+			step: 0.001,
+			hint: 'Random offset of each lozenge from its cell centre, as a share of the cell'
+		}),
+		P.float('size_var', 'Size variation', 0, 0, 1, {
+			softMax: 0.5,
+			step: 0.001,
+			hint: 'Each lozenge shrinks at random: its length by up to this share, its width by half as much (cast or hand-made plate)'
+		}),
+		P.seed()
+	],
+	// Domed lugs with a ridge and a hint of irregularity (each seed its own), nearly level (rolled plate), glossier and
+	// brighter in specular towards the spine so the plate glints.
+	defaults: {
+		h_on: true,
+		h_amount: 0.4,
+		h_var: 0.06,
+		bevel: 1.5,
+		profile: 'round',
+		dif_on: true,
+		dif_src: 'value',
+		dif_opacity: 0.6,
+		dif_jitter: 0.12,
+		dif_grad: gradient('#55595e', '#9aa0a6'),
+		r_on: true,
+		r_a: 0.55,
+		r_b: 0.25,
+		s_on: true,
+		s_a: 0.2,
+		s_b: 0.7
+	},
+	// In the editor, roughness and specular follow the lug's relief, not its shape (the registry's default for shapes).
+	fresh: () => ({ r_src: 'value', s_src: 'value' }),
+	linkedDefaults: (p) => TREAD_LOOKS[String(p.style)] ?? TREAD_LOOKS.lozenge,
+	glsl:
+		geoGlsl(4) +
+		SURF_OWN +
+		/* glsl */ `
 #define TP_1 (uRes.x > 0.0 ? 1 : 0)   // 1, from a uniform: a loop bound D3D can't unroll
 
 // Pointed lens along x: tips at (±hl, 0), half-width hw (two circular arcs).
@@ -219,82 +263,131 @@ GenOut gen(vec2 p) {
   float v = mix(u_profile == 0 || B <= 0.0 ? 1.0 : pv[0], x, u_crest);
   return surf_own(v, bestRnd, best, pv[1]);
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ weave
 
 export const weaveLayer: LayerDef = {
-  type: 'weave',
-  label: 'Weave',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description:
-    'Over-under woven strands (fabric, basket, wire screen, lattice). Each visible float arches up between the crossings where it dives under, its flanks resting on the strands beneath; per-float or per-strand random.',
-  params: [
-    P.enum('pattern', 'Weave', 'plain', [
-      ['plain', 'Plain (1/1)'],
-      ['twill', 'Twill 2/2'],
-      ['twill21', 'Twill 2/1'],
-      ['twill31', 'Twill 3/1'],
-      ['basket', 'Basket 2×2'],
-      ['satin', 'Satin 4/1'],
-      ['lattice', 'Lattice (horizontal on top)'],
-      ['basket3', 'Basket 3×3'],
-      ['herringbone', 'Herringbone twill'],
-    ], { hint: 'Lattice: no weaving — one layer of strips lies over the other (trellis, strap grates). Herringbone: a 2/2 twill whose diagonal mirrors every few strands (zig-zag ribs)' }),
-    P.int('period', 'Zig-zag width', 8, 2, 16, { showIf: (p) => p.pattern === 'herringbone', hint: 'Strands per arm of the herringbone (the weave repeats every 2 × this, 4 × when odd)' }),
-    P.int('count_x', 'Strands X', 8, 1, 512, { softMax: 64, hint: 'Vertical strands across (a multiple of the weave repeat when tiling)' }),
-    P.int('count_y', 'Strands Y', 8, 1, 512, { softMax: 64, hint: 'Horizontal strands down' }),
-    orientParam('45° gives a diagonal (chain-link style) mesh; diagonal frames repeat over gcd(width, height)'),
-    P.float('width', 'Strand width', 0.85, 0.05, 1, { step: 0.001, hint: 'Fraction of the strand pitch; lower values open holes (mesh)' }),
-    P.float('width_var', 'Width variation', 0.2, 0, 1, { step: 0.001, hint: 'Each strand is thinner by up to this share of its width, at random (hand-split cane, uneven yarn)' }),
-    P.float('gap', 'Gap', 1, 0, 64, { softMax: 4, unit: 'px', step: 0.1, hint: 'Clearance where a strand dives under another, and between neighbouring strands' }),
-    P.float('arch', 'Over/under arch', 0.6, 0, 1, {
-      step: 0.001,
-      hint: 'How far each float dips towards where it dives under (a sine arch from the middle of the float): 0 = flat strips that just butt into the crossing strands, 0.6 = down to 40 % at the dive, 1 = down to the base',
-    }),
-    P.float('crown', 'Roundness', 0.6, 0, 1, {
-      step: 0.001,
-      hint: 'Cross-section of the strands: 0 = flat tops with the Bevel at their sides (straps, splints), 1 = the Profile all the way across (round wire, cord, yarn). A float’s flanks come down only to the strand passing beneath it',
-    }),
-    P.float('under', 'Under depth', 0.5, 0, 1, {
-      step: 0.001,
-      hint: 'How much lower the strands lie where they run between two crossings they pass under (the bottom layer of a lattice, the bits seen between the floats of a basket or twill): 0 = as high as the floats, 1 = just above the holes (15 %)',
-    }),
-    P.float('run_on', 'Run on under', 0, 0, 1, { step: 0.001, hint: 'Strips run on under the crossing strands instead of ending at them: no gap and no dip at their ends (lattices, strap grates)' }),
-    P.float('round', 'Corner rounding', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1 }),
-    P.float('stud', 'Crossing studs', 0, 0, 256, { softMax: 8, unit: 'px', step: 0.1, hint: 'Radius of a rivet / stud at every crossing (0 = none)' }),
-    P.float('stud_h', 'Stud height', 0.35, 0, 1, { step: 0.001, showIf: (p) => Number(p.stud) > 0, hint: 'How far the stud heads stand above the strands: the strands are lowered by this share of the height to make room' }),
-    P.float('stud_dome', 'Stud dome', 1, 0, 1, { step: 0.001, showIf: (p) => Number(p.stud) > 0, hint: 'Stud head shape: 0 = flat with the Bevel at its rim, 1 = domed all over (rivet heads)' }),
-    P.enum('rnd_mode', 'Random value', 'strand', [
-      ['random', 'Per float'],
-      ['class', 'Per direction (warp / weft)'],
-      ['class_random', 'Direction + random'],
-      ['strand', 'Per strand'],
-    ], { hint: 'rnd per visible float, 0.25 / 0.75 for horizontal / vertical strands, or one per strand along its whole length (each cane or thread its own tone)' }),
-    P.seed(),
-  ],
-  // Floats that arch over the crossings and dip to 40 % where they dive, rounded strands, lower under-runs, domed
-  // studs standing proud; colour by the relief (darker dives and flanks) shifted per strand, and per-strand heights.
-  defaults: {
-    h_on: true,
-    h_amount: 0.5,
-    h_var: 0.15,
-    bevel: 3,
-    profile: 'round',
-    dif_on: true,
-    dif_src: 'value',
-    dif_jitter: 0.35,
-    dif_grad: gradient('#5b4632', '#7d6246', '#9a7d5a'),
-  },
-  // Files from before Run on under stored it as a negative Float ends ('dip'; > 0 was an end-bevel stretch, gone).
-  migrate: (p) => ('dip' in p && !('run_on' in p) ? { ...p, run_on: Math.max(0, -Number(p.dip) || 0) } : p),
-  glsl:
-    geoGlsl(4) +
-    SURF_OWN +
-    /* glsl */ `
+	type: 'weave',
+	label: 'Weave',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Over-under woven strands (fabric, basket, wire screen, lattice). Each visible float arches up between the crossings where it dives under, its flanks resting on the strands beneath; per-float or per-strand random.',
+	params: [
+		P.enum(
+			'pattern',
+			'Weave',
+			'plain',
+			[
+				['plain', 'Plain (1/1)'],
+				['twill', 'Twill 2/2'],
+				['twill21', 'Twill 2/1'],
+				['twill31', 'Twill 3/1'],
+				['basket', 'Basket 2×2'],
+				['satin', 'Satin 4/1'],
+				['lattice', 'Lattice (horizontal on top)'],
+				['basket3', 'Basket 3×3'],
+				['herringbone', 'Herringbone twill']
+			],
+			{
+				hint: 'Lattice: no weaving — one layer of strips lies over the other (trellis, strap grates). Herringbone: a 2/2 twill whose diagonal mirrors every few strands (zig-zag ribs)'
+			}
+		),
+		P.int('period', 'Zig-zag width', 8, 2, 16, {
+			showIf: (p) => p.pattern === 'herringbone',
+			hint: 'Strands per arm of the herringbone (the weave repeats every 2 × this, 4 × when odd)'
+		}),
+		P.int('count_x', 'Strands X', 8, 1, 512, {
+			softMax: 64,
+			hint: 'Vertical strands across (a multiple of the weave repeat when tiling)'
+		}),
+		P.int('count_y', 'Strands Y', 8, 1, 512, { softMax: 64, hint: 'Horizontal strands down' }),
+		orientParam('45° gives a diagonal (chain-link style) mesh; diagonal frames repeat over gcd(width, height)'),
+		P.float('width', 'Strand width', 0.85, 0.05, 1, {
+			step: 0.001,
+			hint: 'Fraction of the strand pitch; lower values open holes (mesh)'
+		}),
+		P.float('width_var', 'Width variation', 0.2, 0, 1, {
+			step: 0.001,
+			hint: 'Each strand is thinner by up to this share of its width, at random (hand-split cane, uneven yarn)'
+		}),
+		P.float('gap', 'Gap', 1, 0, 64, {
+			softMax: 4,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Clearance where a strand dives under another, and between neighbouring strands'
+		}),
+		P.float('arch', 'Over/under arch', 0.6, 0, 1, {
+			step: 0.001,
+			hint: 'How far each float dips towards where it dives under (a sine arch from the middle of the float): 0 = flat strips that just butt into the crossing strands, 0.6 = down to 40 % at the dive, 1 = down to the base'
+		}),
+		P.float('crown', 'Roundness', 0.6, 0, 1, {
+			step: 0.001,
+			hint: 'Cross-section of the strands: 0 = flat tops with the Bevel at their sides (straps, splints), 1 = the Profile all the way across (round wire, cord, yarn). A float’s flanks come down only to the strand passing beneath it'
+		}),
+		P.float('under', 'Under depth', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'How much lower the strands lie where they run between two crossings they pass under (the bottom layer of a lattice, the bits seen between the floats of a basket or twill): 0 = as high as the floats, 1 = just above the holes (15 %)'
+		}),
+		P.float('run_on', 'Run on under', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Strips run on under the crossing strands instead of ending at them: no gap and no dip at their ends (lattices, strap grates)'
+		}),
+		P.float('round', 'Corner rounding', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1 }),
+		P.float('stud', 'Crossing studs', 0, 0, 256, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Radius of a rivet / stud at every crossing (0 = none)'
+		}),
+		P.float('stud_h', 'Stud height', 0.35, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.stud) > 0,
+			hint: 'How far the stud heads stand above the strands: the strands are lowered by this share of the height to make room'
+		}),
+		P.float('stud_dome', 'Stud dome', 1, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.stud) > 0,
+			hint: 'Stud head shape: 0 = flat with the Bevel at its rim, 1 = domed all over (rivet heads)'
+		}),
+		P.enum(
+			'rnd_mode',
+			'Random value',
+			'strand',
+			[
+				['random', 'Per float'],
+				['class', 'Per direction (warp / weft)'],
+				['class_random', 'Direction + random'],
+				['strand', 'Per strand']
+			],
+			{
+				hint: 'rnd per visible float, 0.25 / 0.75 for horizontal / vertical strands, or one per strand along its whole length (each cane or thread its own tone)'
+			}
+		),
+		P.seed()
+	],
+	// Floats that arch over the crossings and dip to 40 % where they dive, rounded strands, lower under-runs, domed
+	// studs standing proud; colour by the relief (darker dives and flanks) shifted per strand, and per-strand heights.
+	defaults: {
+		h_on: true,
+		h_amount: 0.5,
+		h_var: 0.15,
+		bevel: 3,
+		profile: 'round',
+		dif_on: true,
+		dif_src: 'value',
+		dif_jitter: 0.35,
+		dif_grad: gradient('#5b4632', '#7d6246', '#9a7d5a')
+	},
+	// Files from before Run on under stored it as a negative Float ends ('dip'; > 0 was an end-bevel stretch, gone).
+	migrate: (p) => ('dip' in p && !('run_on' in p) ? { ...p, run_on: Math.max(0, -Number(p.dip) || 0) } : p),
+	glsl:
+		geoGlsl(4) +
+		SURF_OWN +
+		/* glsl */ `
 #define WV_1 (uRes.x > 0.0 ? 1 : 0)   // 1, from a uniform: a loop bound D3D can't unroll
 
 int wv_repeat() {
@@ -469,5 +562,5 @@ GenOut gen(vec2 p) {
   if (own) return surf_own(V, rnd, min(best, 1e4), p1);
   return genOut(0.0, 1.0, rnd, min(best, 1e4));
 }
-`,
-}
+`
+};

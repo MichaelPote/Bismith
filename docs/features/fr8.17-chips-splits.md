@@ -3,32 +3,34 @@
 **Status:** done
 
 ## Goal
+
 Worn, hand-painted wood: boards whose ends are sawn a little crooked, chipped at the corners and split along the grain
 from the ends inward; slabs crazed with long cracks, short breaks across the grain and the stepped ends of fibre
 strips. The damage had to be reusable — the same chips knock the corners off stone setts or panels — so it is a
 generator of its own that works on a **mask** (the Shape mask by default), not a feature of the wood.
 
 ## Chips & splits (`chips`, `generators/chips.ts`)
-A shape-category SDF generator that reads the mask before it (`readsMask`: its *Write to* mask, or Shape when it writes
+
+A shape-category SDF generator that reads the mask before it (`readsMask`: its _Write to_ mask, or Shape when it writes
 none) and takes damage out of it. With nothing in the mask the whole texture counts as one piece (only the splits in
 the open and the nicks apply).
 
 - **Chips** — one spot per cell of 2.5 chip sizes; a spot within a chip size of the edge moves onto it along the
   field's normal (central differences on the mask), and an angular flake is cut around it: five half-planes at
   uneven angles, stretched along the edge, clipped to the spot's side of the edge so a chip never reaches across a gap
-  into the neighbouring piece. *Corners* adds chance where the distance bends beside the spot (0 on a straight edge,
-  ~0.4 at a right angle). *Depth* < 1 leaves a shallow flake with a floor.
-- **Splits** — lanes across the grain (*Spacing*), one spot per lane cell (*Length*). A spot whose nearest edge crosses
+  into the neighbouring piece. _Corners_ adds chance where the distance bends beside the spot (0 on a straight edge,
+  ~0.4 at a right angle). _Depth_ < 1 leaves a shallow flake with a floor.
+- **Splits** — lanes across the grain (_Spacing_), one spot per lane cell (_Length_). A spot whose nearest edge crosses
   the grain (normal within ~40° of it: board ends) starts a split where that edge crosses the lane, flared where it
-  opens and running inward, thin, narrowing late; a spot inside, away from such edges, may hold a split *in the open*,
-  tapered at both ends. Splits run straight between knots ~0.4 lengths apart with a gentle deflection (*Wobble*) at
+  opens and running inward, thin, narrowing late; a spot inside, away from such edges, may hold a split _in the open_,
+  tapered at both ends. Splits run straight between knots ~0.4 lengths apart with a gentle deflection (_Wobble_) at
   each — wood splits along straight lines. **Merging**: a split from an edge may veer gently into the split in the next
   lane and end on it — only when that split really is there where this one ends (its cell is evaluated, mask and
   all) and runs within 0.8 lanes — so two splits join into one (a Y) instead of crossing.
-- **Nicks** — short cracks across the grain inside the shape, zigzagging a little (*Nick length*, *Nick width*).
-- **Length jitter** — how much shorter than *Length* (or *Nick length*) each may be: 0 all full length, 1 anywhere from
+- **Nicks** — short cracks across the grain inside the shape, zigzagging a little (_Nick length_, _Nick width_).
+- **Length jitter** — how much shorter than _Length_ (or _Nick length_) each may be: 0 all full length, 1 anywhere from
   nothing to full; 0.55 by default (45–100 %, the spread before it had a control).
-- **Width jitter** — each split's and nick's width varies around *Width* (*Nick width*) by up to this share: 0 all the
+- **Width jitter** — each split's and nick's width varies around _Width_ (_Nick width_) by up to this share: 0 all the
   same, 0.3 (default) 0.7–1.3× — the spread before it had a control — 1 anywhere from a hairline to twice as wide.
 - **Bevel** (splits) — a rounded shoulder either side of each split and nick, narrowing with the crack (√ of its taper)
   so tips stay sharp, shaped by the layer's Profile (Flat counts as Linear): 0 a hard crack, more a soft groove. In
@@ -37,7 +39,7 @@ the open and the nicks apply).
   split shoulders were as wide as the shape's own bevel).
 
 Every feature is a cut `c` (px, > 0 inside it) and a depth `f`. Two outputs, both writing the chipped shape to the
-mask in *Write to* (Shape by default):
+mask in _Write to_ (Shape by default):
 
 - **Carve what is below** (default) — value = how much of the surface is left (1 untouched … 0 cut away), covering only
   the damage, inside the original shape. Height › Multiply carves it out of whatever relief is below; Diffuse ›
@@ -48,7 +50,7 @@ mask in *Write to* (Shape by default):
   break into rounded fingers.
 
 A layer can have only one bevel, so a wide pillow bevel for the boards turns hairline cracks into dimples. Use a
-*Chipped shape* layer for the chips and end splits and a second *Carve* layer (narrow bevel) for fine cracks and nicks.
+_Chipped shape_ layer for the chips and end splits and a second _Carve_ layer (narrow bevel) for fine cracks and nicks.
 
 Defaults follow the output (`linkedDefaults`): Carve — Height multiply × 1, Diffuse multiply (dark → white);
 Chipped shape — Height add 0.4, Diffuse off.
@@ -58,6 +60,7 @@ split for a merge is evaluated only when the pixel lies on a merging split. Cold
 **1.8 s** (1.6 s before the split Bevel and Length jitter).
 
 ### Following the shape (round 2)
+
 - **Split starts** were found by dividing the distance at a split's spot by the edge normal's grain component. On a
   wobbly end the normal tilts, the division overshoots, and splits started tens of px off the edge — inside the next
   board. They now step along the grain by the distance (sphere tracing on the mask, ≤ 8 fetches) until on the edge,
@@ -77,12 +80,14 @@ split for a merge is evaluated only when the pixel lies on a merging split. Cold
   `genOutShaded`, which applies the bevel (with aspect, and the combined shape for the other mask modes).
 
 ## `genOutOwn`
+
 `GenOut` gained `own`: an SDF generator that paints its own value and coverage but still has a shape. The wrapper
-writes the distance to the mask in *Write to* (by the Mode) and leaves value and coverage alone. Wood's `wood`
+writes the distance to the mask in _Write to_ (by the Mode) and leaves value and coverage alone. Wood's `wood`
 output now uses it, so a single Wood layer puts its plank outline in the Shape mask for Chips & splits and limits
 (`sdfShowIf` hides the shape params for Grain only and for one slab, which have no outline).
 
 ## Wood
+
 - **End wobble** (`end_wobble` px, `end_wobble_px` bend spacing): board ends — the cuts across the grain — wander. Per
   plank column, the nearest joint's offset (1D noise across the plank, keyed by column and joint) shifts the along
   coordinate before the box test, so only the ends bend; both boards at a joint share the line (the gap keeps its
@@ -104,6 +109,7 @@ output now uses it, so a single Wood layer puts its plank outline in the Shape m
   recipes and templates that set only it) to `gap_y`.
 
 ### Quality pass
+
 - **Editor defaults that follow the texture** (`fresh`): with k = max(1, mean side / 128), gaps round(√k) px, bevel
   max(1, round(2.2·k^0.75 − 1.2)), grain spacing 2·k^0.35, ring spacing 4·√k, knot size 3·k^0.95, wobble size 32·√k,
   Rings 0.6 → 0.8 and Fine grain 0.6 → 0.45 between 128 and 512 px — the plain defaults up to 128 px (pixel art); at
@@ -113,7 +119,7 @@ output now uses it, so a single Wood layer puts its plank outline in the Shape m
   profile and Height › Per-feature variation 0.25.
 - **Ranges**: Gap slider to 8 px, Grain spacing to 64 (slider 16), Ring spacing to 256 (slider 32), Arch length to 64
   (slider 16), Knot size to 128 (slider 32), Knots to 4.
-- **Figure** (`cut`): *Cathedral arches* or *Ovals*. Cathedral: rings are cylinders round a heart running along the
+- **Figure** (`cut`): _Cathedral arches_ or _Ovals_. Cathedral: rings are cylinders round a heart running along the
   board at depth D, ρ = √(dx² + D²); a ring shows where D < ρ and its two lines meet in an arch tip where D = ρ. On
   boards with end joints D grows along the board (1 / Arch length, a random direction) with two broad swells, so the
   arches nest, point one way and stay open; full-length boards repeat along the texture, so D rises and falls once
@@ -121,13 +127,13 @@ output now uses it, so a single Wood layer puts its plank outline in the Shape m
   the board. The ring wobble is sampled at an offset per board, so the figure doesn't carry on across an end joint. One
   slab gets a heart of its own: its across distance wrapped (the far side mirrors, as in a book-matched slab), wandering
   0.12 + 0.05 of the width sideways along the texture (two harmonics), D rising and falling along it, scaled by Arches
-  (0 straight lines, 1 twice a board's rise). *Ovals*: rings closed round a point once per board; with no planks, lines
+  (0 straight lines, 1 twice a board's rise). _Ovals_: rings closed round a point once per board; with no planks, lines
   folded by a broad wobble — gentle waves up to Arches 0.5, then steeply stronger (0.25·f → 0.125 + 1.75·(f − 0.5) of
   the width) while the fold's finer octaves fade (gain 0.5 → 0.1), the fine streaks following the extra fold.
 - **Rings**: each ring its own latewood width (0.4…1.6×) and darkness (0.25…1); its dark part fades in from deep in the
-  earlywood (*Earlywood fade*: up to 0.8 × the earlywood earlier) along a convex ramp (exponent 1 + 2·fade) to a sharp
+  earlywood (_Earlywood fade_: up to 0.8 × the earlywood earlier) along a convex ramp (exponent 1 + 2·fade) to a sharp
   outer edge. Where the face runs nearly along a ring (arch tips, oval centres) the latewood width and soft edge are
-  capped at 1.5× their usual px width, so tips stay lines. *Ring irregularity*: r through a smooth monotonic remap —
+  capped at 1.5× their usual px width, so tips stay lines. _Ring irregularity_: r through a smooth monotonic remap —
   noise over 2.5 rings (0.45 spacings) plus one over 9 (3.5 spacings), slope ≤ 0.85, periodic round a tiled slab — so
   widths run about 3:1 and tight years cluster in bands. Height takes the rings with their sharp edge eased over ≥ 2 px,
   so a lit render doesn't stair-step along sloping rings.
@@ -137,7 +143,7 @@ output now uses it, so a single Wood layer puts its plank outline in the Shape m
   octave's creases alias into a grid of dots); anti-aliased over at least the noise's typical slope per px (a billowed
   noise's own derivative vanishes at its crease and is one per 2×2 pixels). Each streak its own width (±60 %) and
   darkness (0.4…1) from a noise at ~1.7 grain spacings; a slow noise over 5 spacings thickens and darkens them in some
-  bands; *Streak grouping* runs their across coordinate through a monotonic remap (noise over 6.4 spacings, slope ≤
+  bands; _Streak grouping_ runs their across coordinate through a monotonic remap (noise over 6.4 spacings, slope ≤
   0.75), so tight streaks bunch with sparser stretches between. On a Cathedral figure the across coordinate is the
   ring field itself, so the streaks run in the rings' flow; its gradient, worked out exactly (across `dx/ρ`, along
   `(dx·dx′ + D·D′)/ρ`) rather than from screen derivatives (2 px blocks), fades them where |∇ρ| < 0.75 (they would
@@ -159,29 +165,32 @@ output now uses it, so a single Wood layer puts its plank outline in the Shape m
 
 - **Source › Shape** (every generator output): with Roughness › Pattern, Wood's roughness followed the full-contrast
   grain, so every dark grain line was near-mirror and the rest matte — pinpoint glints in the troughs, and raising
-  roughness only dulled it. *Shape* is the inside of the layer's own shape (the distance the wrapper combines, before
+  roughness only dulled it. _Shape_ is the inside of the layer's own shape (the distance the wrapper combines, before
   the mask write: `coverage(d)`; for `sdf: 'mask'` layers `clamp(0.5 − d)`; 1 for layers without a shape), so At 0
   sets the gaps and At 1 the boards and the grain is ignored. On a project with a 4.9 key light, Roughness › Shape at
   0.9 (gaps) / 0.35 (boards) gives the broad sheen along the grain ridges that the hand-painted reference has. (A
   "highlight hold" that keeps rough highlights bright was considered and left out: the dullness came from the
   roughness mapping, and holding peaks would brighten every matte surface.)
 - **Shape by default for new shape layers**: a shape layer (`sdf: true`) added in the editor starts with Roughness and
-  Specular on *Shape* (`freshParams` in `layers/registry.ts`, before the type's own `fresh`) — on a shape, Pattern is
+  Specular on _Shape_ (`freshParams` in `layers/registry.ts`, before the type's own `fresh`) — on a shape, Pattern is
   the bevel's ramp (and Wood's grain), which nobody expects a roughness to follow. Noise-type layers keep Pattern (their
   pattern is the point; Shape would be 1 everywhere), as do mask-only shapes (Drips), layers built in code (recipes,
   templates, presets) and stored projects.
 
 ## Wood smart material
-New *Wear* group: **Chips** and **Splits** macros (0.3 / 0.4). They build a *Chips & splits* relief layer (Carve, Height
-multiply, after the board and grain relief) and a *Chip shading* paint layer (Carve, Diffuse multiply), both writing no
+
+New _Wear_ group: **Chips** and **Splits** macros (0.3 / 0.4). They build a _Chips & splits_ relief layer (Carve, Height
+multiply, after the board and grain relief) and a _Chip shading_ paint layer (Carve, Diffuse multiply), both writing no
 mask so each reads the boards' outlines from the Shape mask; sizes follow the boards (chips 6 % of a board's width,
 splits a third of its length). Materials added before keep their layers.
 
 ## Specular tint default
+
 `render.specularTint` defaults to 1: glints take the surface's hue, which reads as the material; white glints look
 like a clear coat. Projects that set it keep it; files without it now get tinted highlights.
 
 ## Checklist
+
 - [x] Chips & splits generator: chips (corners, depth, one-sided), splits from edges and in the open, nicks
 - [x] Gentle knotted deflection; merging into the neighbouring split
 - [x] Carve and Chipped shape outputs; `genOutOwn`; Wood's output writes the register (now its mask)

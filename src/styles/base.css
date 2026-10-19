@@ -1,216 +1,216 @@
 *,
 *::before,
 *::after {
-  box-sizing: border-box;
+	box-sizing: border-box;
 }
 
 html,
 body,
 #app {
-  margin: 0;
-  height: 100%;
+	margin: 0;
+	height: 100%;
 }
 
 body {
-  background: var(--void);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.35;
-  -webkit-font-smoothing: antialiased;
-  overflow: hidden;
+	background: var(--void);
+	color: var(--text);
+	font-family: var(--font-sans);
+	font-size: 13px;
+	line-height: 1.35;
+	-webkit-font-smoothing: antialiased;
+	overflow: hidden;
 }
 
 button,
 input,
 select,
 textarea {
-  font: inherit;
-  color: inherit;
+	font: inherit;
+	color: inherit;
 }
 
 button {
-  cursor: pointer;
+	cursor: pointer;
 }
 
 a {
-  color: var(--e400);
+	color: var(--e400);
 }
 a:hover {
-  color: var(--e100);
+	color: var(--e100);
 }
 
 :focus-visible {
-  outline: 1px solid var(--e400);
-  outline-offset: 1px;
+	outline: 1px solid var(--e400);
+	outline-offset: 1px;
 }
 
 ::selection {
-  background: rgba(246, 110, 16, 0.35);
+	background: rgba(246, 110, 16, 0.35);
 }
 
 /* Scrollbars: thin, cool */
 * {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+	scrollbar-width: thin;
+	scrollbar-color: var(--line) transparent;
 }
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+	width: 8px;
+	height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border-radius: 4px;
+	background: var(--line);
+	border-radius: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+	background: transparent;
 }
 
 /* Shared editor primitives */
 .cf-panel {
-  background: var(--panel);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-field);
-  min-height: 0;
-  min-width: 0;
+	background: var(--panel);
+	border: 1px solid var(--hairline);
+	border-radius: var(--r-field);
+	min-height: 0;
+	min-width: 0;
 }
 
 .cf-label {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-lo);
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--text-lo);
 }
 
 .cf-mono {
-  font-family: var(--font-mono);
+	font-family: var(--font-mono);
 }
 
 /* Eyedropper (ui/eyedropper.ts): while a pick is on, a crosshair over everything a colour can be taken from. */
 html.picking [data-pick],
 html.picking [data-pick] * {
-  cursor: crosshair !important;
+	cursor: crosshair !important;
 }
 
 /* Icons: @tabler/icons-vue components, used directly (`<IconEye :size="12" />`, `:color` for a hue). The UI's line
    weight is 1.75 in Tabler's 24-unit grid; CSS beats the SVG attribute, so the `stroke` prop has no effect — set
    another weight in CSS, as NumberField's chevrons do. */
 .tabler-icon {
-  flex: none;
-  stroke-width: 1.75;
+	flex: none;
+	stroke-width: 1.75;
 }
 
 /* Stud (Forged keys v2): row and panel-header icon buttons — invisible until touched, a flat Hairline plate on hover,
    latched = Sunken plate with Ember 300 ink. */
 .cf-ico-btn {
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-lo);
+	width: 22px;
+	height: 22px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	padding: 0;
+	border: 0;
+	border-radius: 3px;
+	background: transparent;
+	color: var(--text-lo);
 }
 .cf-ico-btn:hover {
-  background: var(--hairline);
-  box-shadow: inset 0 0 0 1px var(--line);
-  color: var(--text-hi);
+	background: var(--hairline);
+	box-shadow: inset 0 0 0 1px var(--line);
+	color: var(--text-hi);
 }
 .cf-ico-btn:active,
 .cf-ico-btn.latched {
-  background: var(--sunken);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-  color: var(--text);
+	background: var(--sunken);
+	box-shadow: inset 0 0 0 1px var(--hairline);
+	color: var(--text);
 }
 .cf-ico-btn.latched {
-  color: var(--e300);
+	color: var(--e300);
 }
 .cf-ico-btn:disabled {
-  opacity: 0.35;
-  pointer-events: none;
+	opacity: 0.35;
+	pointer-events: none;
 }
 .cf-ico-btn:focus-visible,
 .fk:focus-visible {
-  outline: 1px solid var(--e100);
-  outline-offset: 3px;
+	outline: 1px solid var(--e100);
+	outline-offset: 3px;
 }
 
 .cf-field {
-  height: 22px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-field);
-  background: var(--sunken);
-  color: var(--text-hi);
-  padding: 0 8px;
-  font-size: 12px;
-  min-width: 0;
+	height: 22px;
+	border: 1px solid var(--hairline);
+	border-radius: var(--r-field);
+	background: var(--sunken);
+	color: var(--text-hi);
+	padding: 0 8px;
+	font-size: 12px;
+	min-width: 0;
 }
 .cf-field:hover {
-  border-color: var(--line);
+	border-color: var(--line);
 }
 .cf-field:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: var(--halo);
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: var(--halo);
 }
 
 .cf-btn {
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--raised);
-  color: var(--text);
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+	height: 24px;
+	padding: 0 10px;
+	border: 1px solid var(--line);
+	border-radius: 0;
+	background: var(--raised);
+	color: var(--text);
+	font-size: 12px;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
 }
 .cf-btn:hover {
-  border-color: var(--line-strong);
-  color: var(--text-hi);
-  background: #333940;
+	border-color: var(--line-strong);
+	color: var(--text-hi);
+	background: #333940;
 }
 .cf-btn:disabled {
-  opacity: 0.4;
-  pointer-events: none;
+	opacity: 0.4;
+	pointer-events: none;
 }
 
 /* Toggle: a Sunken plate with a Hairline outline that lights up when on (`.on`: Accent outline, Ember 100 ink, halo) —
    the texture-size presets, the viewport view toggles. Text by default; set width / height / padding for an icon square. */
 .cf-toggle {
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  padding: 0 7px;
-  border: 1px solid var(--hairline);
-  border-radius: 0;
-  background: var(--sunken);
-  color: var(--text-mid);
+	height: 22px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	padding: 0 7px;
+	border: 1px solid var(--hairline);
+	border-radius: 0;
+	background: var(--sunken);
+	color: var(--text-mid);
 }
 .cf-toggle:hover {
-  border-color: var(--line);
-  color: var(--text-hi);
+	border-color: var(--line);
+	color: var(--text-hi);
 }
 .cf-toggle.on {
-  border-color: var(--accent);
-  color: var(--accent-hi);
-  box-shadow: var(--halo);
+	border-color: var(--accent);
+	color: var(--accent-hi);
+	box-shadow: var(--halo);
 }
 .cf-toggle:focus-visible {
-  outline: 1px solid var(--e100);
-  outline-offset: 3px;
+	outline: 1px solid var(--e100);
+	outline-offset: 3px;
 }
 .cf-toggle:disabled {
-  opacity: 0.4;
-  pointer-events: none;
+	opacity: 0.4;
+	pointer-events: none;
 }
 
 /* Forged keys (Cinderforge buttons v2): two flat layers — a 2px lip and a face above it. States swap the fill,
@@ -218,233 +218,243 @@ html.picking [data-pick] * {
    lit key's small glow.
    <button class="fk [lit|latched]"><span class="fk-face">…<span class="kc">1</span></span></button> */
 .fk {
-  position: relative;
-  flex: none;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-mid);
-  cursor: pointer;
+	position: relative;
+	flex: none;
+	height: 28px;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--text-mid);
+	cursor: pointer;
 }
 .fk::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 2px;
-  bottom: 0;
-  border-radius: 4px;
-  background: var(--deep);
+	content: '';
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 2px;
+	bottom: 0;
+	border-radius: 4px;
+	background: var(--deep);
 }
 .fk-face {
-  position: relative;
-  top: 0;
-  height: calc(100% - 2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 0 10px;
-  border-radius: 4px;
-  background: var(--raised);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-  color: var(--text-mid);
-  font-size: 12px;
-  white-space: nowrap;
+	position: relative;
+	top: 0;
+	height: calc(100% - 2px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 0 10px;
+	border-radius: 4px;
+	background: var(--raised);
+	box-shadow: inset 0 0 0 1px var(--hairline);
+	color: var(--text-mid);
+	font-size: 12px;
+	white-space: nowrap;
 }
 .fk:hover > .fk-face {
-  background: var(--hairline);
-  box-shadow: inset 0 0 0 1px var(--line);
-  color: var(--text-hi);
+	background: var(--hairline);
+	box-shadow: inset 0 0 0 1px var(--line);
+	color: var(--text-hi);
 }
 .fk:active > .fk-face {
-  top: 2px;
-  background: var(--base);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-  color: var(--text);
+	top: 2px;
+	background: var(--base);
+	box-shadow: inset 0 0 0 1px var(--hairline);
+	color: var(--text);
 }
 /* Lit: the one active tool / workspace / view of a rail. */
 .fk.lit {
-  box-shadow: 0 0 8px rgba(246, 110, 16, 0.35);
+	box-shadow: 0 0 8px rgba(246, 110, 16, 0.35);
 }
 .fk.lit::before {
-  background: var(--e500);
+	background: var(--e500);
 }
 .fk.lit > .fk-face {
-  background: linear-gradient(rgba(246, 110, 16, 0.16), rgba(246, 110, 16, 0.16)), var(--raised);
-  box-shadow: inset 0 0 0 1px var(--e400);
-  color: var(--e100);
+	background: linear-gradient(rgba(246, 110, 16, 0.16), rgba(246, 110, 16, 0.16)), var(--raised);
+	box-shadow: inset 0 0 0 1px var(--e400);
+	color: var(--e100);
 }
 .fk.lit:hover {
-  box-shadow: 0 0 10px rgba(246, 110, 16, 0.5);
+	box-shadow: 0 0 10px rgba(246, 110, 16, 0.5);
 }
 .fk.lit:hover > .fk-face {
-  background: linear-gradient(rgba(246, 110, 16, 0.24), rgba(246, 110, 16, 0.24)), var(--hairline);
-  box-shadow: inset 0 0 0 1px var(--e300);
-  color: var(--e50);
+	background: linear-gradient(rgba(246, 110, 16, 0.24), rgba(246, 110, 16, 0.24)), var(--hairline);
+	box-shadow: inset 0 0 0 1px var(--e300);
+	color: var(--e50);
 }
 .fk.lit:active > .fk-face {
-  top: 2px;
+	top: 2px;
 }
 /* Latched: an on/off toggle that is on — dropped onto its lip, Sunken, Ember 300 ink, pilot lamp lit. No glow. */
 .fk.latched > .fk-face {
-  top: 2px;
-  background: var(--sunken);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-  color: var(--e300);
+	top: 2px;
+	background: var(--sunken);
+	box-shadow: inset 0 0 0 1px var(--hairline);
+	color: var(--e300);
 }
 .fk.latched:hover > .fk-face {
-  color: var(--e200);
+	color: var(--e200);
 }
 .fk-lamp {
-  position: absolute;
-  left: 50%;
-  bottom: 3px;
-  width: 10px;
-  height: 2px;
-  margin-left: -5px;
-  border-radius: 1px;
-  background: var(--raised);
+	position: absolute;
+	left: 50%;
+	bottom: 3px;
+	width: 10px;
+	height: 2px;
+	margin-left: -5px;
+	border-radius: 1px;
+	background: var(--raised);
 }
 .fk:hover .fk-lamp {
-  background: var(--hairline);
+	background: var(--hairline);
 }
 .fk.latched .fk-lamp {
-  background: var(--e400);
+	background: var(--e400);
 }
 .fk:disabled {
-  cursor: default;
+	cursor: default;
 }
 .fk:disabled::before {
-  background: var(--base);
+	background: var(--base);
 }
 .fk:disabled > .fk-face {
-  top: 2px;
-  background: var(--base);
-  box-shadow: inset 0 0 0 1px var(--raised);
-  color: var(--line);
+	top: 2px;
+	background: var(--base);
+	box-shadow: inset 0 0 0 1px var(--raised);
+	color: var(--line);
 }
 
 /* Primary (forge): the one ember-faced key per screen. */
 .fk.primary {
-  height: 30px;
+	height: 30px;
 }
 .fk.primary::before {
-  background: var(--e700);
+	background: var(--e700);
 }
 .fk.primary > .fk-face {
-  padding: 0 14px;
-  background: var(--e500);
-  box-shadow: inset 0 0 0 1px var(--e600);
-  color: var(--text-hi);
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+	padding: 0 14px;
+	background: var(--e500);
+	box-shadow: inset 0 0 0 1px var(--e600);
+	color: var(--text-hi);
+	font-weight: 700;
+	font-size: 12px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
 }
 .fk.primary:hover {
-  box-shadow: 0 0 8px rgba(246, 110, 16, 0.35);
+	box-shadow: 0 0 8px rgba(246, 110, 16, 0.35);
 }
 .fk.primary:hover > .fk-face {
-  background: var(--e400);
-  box-shadow: inset 0 0 0 1px var(--e500);
-  color: var(--text-hi);
+	background: var(--e400);
+	box-shadow: inset 0 0 0 1px var(--e500);
+	color: var(--text-hi);
 }
 .fk.primary:active > .fk-face {
-  top: 2px;
-  background: var(--e500);
+	top: 2px;
+	background: var(--e500);
 }
 .fk.primary:disabled {
-  box-shadow: none;
+	box-shadow: none;
 }
 .fk.primary:disabled::before {
-  background: var(--base);
+	background: var(--base);
 }
 .fk.primary:disabled > .fk-face {
-  top: 2px;
-  background: var(--base);
-  box-shadow: inset 0 0 0 1px var(--raised);
-  color: var(--line);
+	top: 2px;
+	background: var(--base);
+	box-shadow: inset 0 0 0 1px var(--raised);
+	color: var(--line);
 }
 
 /* A rail of keys: keys side by side, no tray. */
 .fk-rail {
-  display: flex;
-  align-items: center;
-  gap: 3px;
+	display: flex;
+	align-items: center;
+	gap: 3px;
 }
 
 /* Keycap chip: shortcut hints inside keys, menus and the status bar; lights with its key. */
 .kc {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: var(--raised);
-  box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 0 var(--deep);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--text);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 16px;
+	height: 16px;
+	padding: 0 4px;
+	border-radius: 3px;
+	background: var(--raised);
+	box-shadow:
+		inset 0 0 0 1px var(--hairline),
+		0 1px 0 var(--deep);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	font-weight: 400;
+	letter-spacing: 0;
+	color: var(--text);
 }
 .fk.lit .kc {
-  background: linear-gradient(rgba(246, 110, 16, 0.16), rgba(246, 110, 16, 0.16)), var(--raised);
-  box-shadow: inset 0 0 0 1px var(--e400), 0 1px 0 var(--e500);
-  color: var(--e100);
+	background: linear-gradient(rgba(246, 110, 16, 0.16), rgba(246, 110, 16, 0.16)), var(--raised);
+	box-shadow:
+		inset 0 0 0 1px var(--e400),
+		0 1px 0 var(--e500);
+	color: var(--e100);
 }
 
 /* Tooltips (Tippy.js, theme "cinder"): a Raised plate, Line edge, no arrow. */
 .tippy-box[data-theme~='cinder'] {
-  background: var(--raised);
-  border: 1px solid var(--line);
-  border-radius: var(--r-field);
-  box-shadow: 0 6px 18px rgba(8, 9, 10, 0.55);
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.45;
+	background: var(--raised);
+	border: 1px solid var(--line);
+	border-radius: var(--r-field);
+	box-shadow: 0 6px 18px rgba(8, 9, 10, 0.55);
+	color: var(--text);
+	font-size: 12px;
+	line-height: 1.45;
 }
 .tippy-box[data-theme~='cinder'] > .tippy-content {
-  padding: 6px 9px 7px;
+	padding: 6px 9px 7px;
 }
 .tip-title {
-  font-weight: 500;
-  color: var(--text-hi);
+	font-weight: 500;
+	color: var(--text-hi);
 }
 .tip-body {
-  margin-top: 2px;
-  color: var(--text);
+	margin-top: 2px;
+	color: var(--text);
 }
 .tip-text {
-  color: var(--text);
+	color: var(--text);
 }
 .tip-list {
-  margin: 4px 0 0;
-  padding: 0;
-  list-style: none;
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
 }
 .tip-list li {
-  margin-top: 2px;
+	margin-top: 2px;
 }
 .tip-list b {
-  font-weight: 500;
-  color: var(--text-hi);
+	font-weight: 500;
+	color: var(--text-hi);
 }
 .tip-meta {
-  margin-top: 5px;
-  white-space: pre-line;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--text-lo);
+	margin-top: 5px;
+	white-space: pre-line;
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	color: var(--text-lo);
 }
 
 .cf-faded-rule {
-  height: 1px;
-  background: linear-gradient(90deg, rgba(126, 169, 176, 0) 0%, var(--sigil) 18%, var(--sigil) 82%, rgba(126, 169, 176, 0) 100%);
-  opacity: 0.6;
+	height: 1px;
+	background: linear-gradient(
+		90deg,
+		rgba(126, 169, 176, 0) 0%,
+		var(--sigil) 18%,
+		var(--sigil) 82%,
+		rgba(126, 169, 176, 0) 100%
+	);
+	opacity: 0.6;
 }

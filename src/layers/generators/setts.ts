@@ -8,43 +8,81 @@
 // with a little hand-laid irregularity (size, position). Exact radial distances, near-exact tangential ones: crisp
 // joints, working bevels.
 
-import { P, gradient } from '@/core/params'
-import type { LayerDef } from '../types'
-import { geoGlsl, rndModeParam } from './geometricCommon'
+import { P, gradient } from '@/core/params';
+import type { LayerDef } from '../types';
+import { geoGlsl, rndModeParam } from './geometricCommon';
 
 export const settsLayer: LayerDef = {
-  type: 'setts',
-  label: 'Setts (fans & rings)',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Small paving stones laid in concentric arcs: fan (scale) paving in offset rows, or ring rosettes per cell. Even joints, setts cut where fans meet, hand-laid irregularity. Tileable.',
-  params: [
-    P.enum('layout', 'Layout', 'fan', [['fan', 'Fans (scales)'], ['rings', 'Rings (rosettes)']]),
-    P.float('scale', 'Fans across', 2, 0.5, 32, { softMax: 8, step: 0.01, hint: 'Fans (or rosettes) across the width — whole counts when tiling' }),
-    P.float('aspect', 'Row height', 1, 0.5, 2, { step: 0.01, hint: 'Fans: row spacing × half a fan width (1 = the classic fan). Rings: cell height ÷ width' }),
-    P.float('courses', 'Courses', 6, 1, 32, { softMax: 16, step: 0.01, hint: 'Arcs of setts from a fan’s point to its rim (sets the sett size)' }),
-    P.float('length', 'Sett length', 1, 0.4, 4, { step: 0.01, hint: 'Along the arc, in course widths (1 = square setts)' }),
-    P.float('stagger', 'Joint stagger', 1, 0, 1, { step: 0.001, hint: 'Random turn of each course: 0 = joints line up along the radii' }),
-    P.float('irregular', 'Irregularity', 0.2, 0, 1, { step: 0.001, hint: 'Hand-laid look: setts vary in size and sit slightly off their place' }),
-    P.enum('dir', 'Direction', 'up', [['up', 'Up'], ['right', 'Right'], ['down', 'Down'], ['left', 'Left']], { hint: 'Which way the fans open (their round rims face)' }),
-    P.float('gap', 'Gap', 1, 0, 32, { softMax: 4, unit: 'px', step: 0.1, hint: 'Joint width (whole px stay crisp)' }),
-    P.float('round', 'Corner rounding', 0.5, 0, 16, { softMax: 3, unit: 'px', step: 0.1 }),
-    rndModeParam(['Per sett', 'Per course', 'Per fan'], 'Random value per sett, per course (rings outward 0 → 1) or per fan. Use with Diffuse source = random'),
-    P.seed(),
-  ],
-  defaults: {
-    h_on: true,
-    h_amount: 0.4,
-    bevel: 1,
-    profile: 'smooth',
-    dif_on: true,
-    dif_src: 'random',
-    dif_grad: gradient('#3c3a36', '#5a5650', '#76716a'),
-  },
-  glsl:
-    geoGlsl(4) +
-    /* glsl */ `
+	type: 'setts',
+	label: 'Setts (fans & rings)',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Small paving stones laid in concentric arcs: fan (scale) paving in offset rows, or ring rosettes per cell. Even joints, setts cut where fans meet, hand-laid irregularity. Tileable.',
+	params: [
+		P.enum('layout', 'Layout', 'fan', [
+			['fan', 'Fans (scales)'],
+			['rings', 'Rings (rosettes)']
+		]),
+		P.float('scale', 'Fans across', 2, 0.5, 32, {
+			softMax: 8,
+			step: 0.01,
+			hint: 'Fans (or rosettes) across the width — whole counts when tiling'
+		}),
+		P.float('aspect', 'Row height', 1, 0.5, 2, {
+			step: 0.01,
+			hint: 'Fans: row spacing × half a fan width (1 = the classic fan). Rings: cell height ÷ width'
+		}),
+		P.float('courses', 'Courses', 6, 1, 32, {
+			softMax: 16,
+			step: 0.01,
+			hint: 'Arcs of setts from a fan’s point to its rim (sets the sett size)'
+		}),
+		P.float('length', 'Sett length', 1, 0.4, 4, {
+			step: 0.01,
+			hint: 'Along the arc, in course widths (1 = square setts)'
+		}),
+		P.float('stagger', 'Joint stagger', 1, 0, 1, {
+			step: 0.001,
+			hint: 'Random turn of each course: 0 = joints line up along the radii'
+		}),
+		P.float('irregular', 'Irregularity', 0.2, 0, 1, {
+			step: 0.001,
+			hint: 'Hand-laid look: setts vary in size and sit slightly off their place'
+		}),
+		P.enum(
+			'dir',
+			'Direction',
+			'up',
+			[
+				['up', 'Up'],
+				['right', 'Right'],
+				['down', 'Down'],
+				['left', 'Left']
+			],
+			{ hint: 'Which way the fans open (their round rims face)' }
+		),
+		P.float('gap', 'Gap', 1, 0, 32, { softMax: 4, unit: 'px', step: 0.1, hint: 'Joint width (whole px stay crisp)' }),
+		P.float('round', 'Corner rounding', 0.5, 0, 16, { softMax: 3, unit: 'px', step: 0.1 }),
+		rndModeParam(
+			['Per sett', 'Per course', 'Per fan'],
+			'Random value per sett, per course (rings outward 0 → 1) or per fan. Use with Diffuse source = random'
+		),
+		P.seed()
+	],
+	defaults: {
+		h_on: true,
+		h_amount: 0.4,
+		bevel: 1,
+		profile: 'smooth',
+		dif_on: true,
+		dif_src: 'random',
+		dif_grad: gradient('#3c3a36', '#5a5650', '#76716a')
+	},
+	glsl:
+		geoGlsl(4) +
+		/* glsl */ `
 // Bevel aspect (GLSL_BEVEL): a frame distance across an edge with frame normal n, in px of Bevel.
 float st_line(float d, vec2 n) { return bevelLine(d, geo_toScreen(n)); }
 
@@ -172,5 +210,5 @@ GenOut gen(vec2 p) {
   if (asp) g.bdist = sd < 0.0 ? max(sdS, regS) : sd;
   return g;
 }
-`,
-}
+`
+};

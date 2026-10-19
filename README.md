@@ -27,14 +27,14 @@ Chrome, Edge, Firefox or Safari with hardware acceleration.
 
 ## Scripts
 
-| Command             | What it does                                                          |
-| ------------------- | --------------------------------------------------------------------- |
-| `npm run dev`       | Vite dev server with HMR                                              |
-| `npm run build`     | Type-check (`vue-tsc`) and build to `dist/`                           |
-| `npm run typecheck` | Type-check only                                                       |
-| `npm test`          | Unit tests (Vitest)                                                   |
-| `npm run lint`      | oxlint                                                                |
-| `npm run harness -- <cmd>` | Headless render / compare / optimise harness (see below)       |
+| Command                    | What it does                                             |
+| -------------------------- | -------------------------------------------------------- |
+| `npm run dev`              | Vite dev server with HMR                                 |
+| `npm run build`            | Type-check (`vue-tsc`) and build to `dist/`              |
+| `npm run typecheck`        | Type-check only                                          |
+| `npm test`                 | Unit tests (Vitest)                                      |
+| `npm run lint`             | oxlint                                                   |
+| `npm run harness -- <cmd>` | Headless render / compare / optimise harness (see below) |
 
 ## Using the editor
 

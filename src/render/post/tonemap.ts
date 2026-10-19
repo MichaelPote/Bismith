@@ -1,22 +1,26 @@
-import { P } from '@/core/params'
-import type { PostDef } from './types'
+import { P } from '@/core/params';
+import type { PostDef } from './types';
 
 export const tonemapPost: PostDef = {
-  type: 'tonemap',
-  label: 'Tonemap',
-  description: 'Exposure and an HDR → display tone curve. Put it after Glow and before Palette.',
-  params: [
-    P.float('exposure', 'Exposure', 0, -10, 10, { softMin: -4, softMax: 4, unit: 'EV', step: 0.01 }),
-    P.enum('operator', 'Operator', 'aces', [
-      ['clamp', 'Clamp (none)'],
-      ['reinhard', 'Reinhard'],
-      ['aces', 'ACES (fitted)'],
-      ['agx', 'AgX'],
-      ['uncharted', 'Uncharted 2'],
-    ]),
-    P.float('white', 'White point', 4, 0.5, 64, { softMax: 16, step: 0.01, showIf: (p) => p.operator === 'reinhard' || p.operator === 'uncharted' }),
-  ],
-  glsl: /* glsl */ `
+	type: 'tonemap',
+	label: 'Tonemap',
+	description: 'Exposure and an HDR → display tone curve. Put it after Glow and before Palette.',
+	params: [
+		P.float('exposure', 'Exposure', 0, -10, 10, { softMin: -4, softMax: 4, unit: 'EV', step: 0.01 }),
+		P.enum('operator', 'Operator', 'aces', [
+			['clamp', 'Clamp (none)'],
+			['reinhard', 'Reinhard'],
+			['aces', 'ACES (fitted)'],
+			['agx', 'AgX'],
+			['uncharted', 'Uncharted 2']
+		]),
+		P.float('white', 'White point', 4, 0.5, 64, {
+			softMax: 16,
+			step: 0.01,
+			showIf: (p) => p.operator === 'reinhard' || p.operator === 'uncharted'
+		})
+	],
+	glsl: /* glsl */ `
 vec3 acesFitted(vec3 c) {
   const mat3 ACESIn = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
   const mat3 ACESOut = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
@@ -57,5 +61,5 @@ vec4 post(ivec2 ip) {
   else y = uc2(x * 2.0) / uc2(vec3(u_white));
   return vec4(clamp(y, 0.0, 1.0), c.a);
 }
-`,
-}
+`
+};

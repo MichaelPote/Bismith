@@ -21,14 +21,14 @@ doesn't.)
 
 - **`<< out` breaks esbuild / `tsx`.** esbuild (used by `npx tsx`, so by every script in `tools/` and any ad-hoc
   script that imports `src/`) parses a left shift followed by an identifier named `out` — e.g. `1 << out[i]` — as
-  the start of a TypeScript variance modifier (`<out T>`) and fails with *The modifier "out" is not valid here*.
+  the start of a TypeScript variance modifier (`<out T>`) and fails with _The modifier "out" is not valid here_.
   Vite / Vitest and `vue-tsc` accept it, so tests and typechecks stay green while every `tsx` tool crashes on
   import. Parenthesise the operand — `1 << (out[i])` (see `src/layers/generators/traceLinks.ts`) — or don't name
   the variable `out`. (`i < out.length` and other single `<` are fine.)
-- **Masks are named and follow the stack** (docs/features/fr8.23-masks.md). A layer writes one (*Write to*:
+- **Masks are named and follow the stack** (docs/features/fr8.23-masks.md). A layer writes one (_Write to_:
   `mk_target`, '' = none; shape layers default to `Shape`) with `mk_op` (Normal = `replace`, Union, Subtract,
   Intersection, smooth variants — the option index + 1 is the `sdfCombine` op, so keep their order) and `mk_smooth`,
-  and is limited by *Limit to* (`lim_1`…`lim_4`, `lim_op2`…, `lim_out`). Masks reach only the layers after their
+  and is limited by _Limit to_ (`lim_1`…`lim_4`, `lim_op2`…, `lim_out`). Masks reach only the layers after their
   writer. Each mask texel is (distance, the feature's random `GenOut.fid`, feature flag); in shaders `maskIn()` is the
   mask before the layer (its target's, or Shape), `maskOp()` how its shape combines, `limitAt()` its limit. Which
   versions get a slot texture is planned per evaluation (`planMasks` in `src/layers/masks.ts`).
@@ -37,7 +37,7 @@ doesn't.)
   px) needs `perArea: true` (÷ k²) — otherwise raising the supersampling changes the texture (Scratches gained k² ×
   the scratches). Counts per texture or per cell ("cells across") need nothing.
 - **Featureless generators return `genOutSmooth(...)`.** `rnd` is meant to be one random per feature (brick, cell,
-  instance); Height's *Per-feature variation* hashes it with `fract(rnd · 61.37)`. A generator without features that
+  instance); Height's _Per-feature variation_ hashes it with `fract(rnd · 61.37)`. A generator without features that
   passes a continuous value as `rnd` (smooth noise, clouds) must use `genOutSmooth`, which switches that variation
   off — with `genOut` the hash turns into dozens of terraces along the pattern's contours.
 - **A mask is read at a distance, not only by its sign.** Bevel and Etch on a mask only shapes wrote read its

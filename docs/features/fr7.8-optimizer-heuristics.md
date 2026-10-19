@@ -7,27 +7,30 @@ optimiser's insert library (`DEFAULT_LIBRARY` in `optimizer.ts`), and the tied p
 history.
 
 ## Goal
+
 Hand-authoring textures against references (FR7.4–7.7) produced a list of lessons, most of them review corrections:
 looks the optimiser would happily wander into because the metric does not penalise them. Encode them so automatic
 matching starts from, and stays within, what reads right.
 
 ## Design (`src/match/heuristics.ts`)
+
 1. **Craft rules** — `conformProject(project)` applies deterministic, idempotent repairs; the optimiser conforms its
    start project and **every candidate** (after `applyParams`, and after structural mutations), so a repaired value
    can never win back in.
 
-   | Rule | Repair | Why (lesson) |
-   | ---- | ------ | ------------ |
-   | `fine-relief` | heightDepth → 1.5–3; \|h_amount\| ≤ 2.5 | deep bevels read as cliffs |
-   | `no-pixel-height` | pixel-scale noise (feature < 2 px): height ≤ 0.05, specular output off | lit pixel noise = "hard single bright pixels"; keep pixel texture in colour, glints smooth |
-   | `domain-warp` | Bricks wobble → whole-pattern domain warp | wobble makes joints wide and narrow; warp keeps their width |
-   | `no-tent` | bricks / Voronoi cells / hex with a steady profile (linear, smooth, round) whose bevel ≥ ½ the feature half-size → custom curve (steep edge, slow rise) | wide steady bevels tent up in the middle |
-   | `tinted-glints` | specular in use → tint ≥ 0.6 | highlights enrich the colour, not grey it |
-   | `ao-for-joints` | tight joints (mortar / gap ≤ 1 px) → AO ≥ 0.8 (the AO lever then searches from 0.8 up) | touching stones separate through occlusion, not wide mortar |
-   | `ledge-grid` | relief-driven Drips → source cells ≤ 3 px | every ledge (each rivet) must get candidates |
-   | `painted-light` | a game palette (quake / doom) present → cast shadows off | palettised game textures are hand-painted |
+   | Rule              | Repair                                                                                                                                                  | Why (lesson)                                                                               |
+   | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+   | `fine-relief`     | heightDepth → 1.5–3; \|h_amount\| ≤ 2.5                                                                                                                 | deep bevels read as cliffs                                                                 |
+   | `no-pixel-height` | pixel-scale noise (feature < 2 px): height ≤ 0.05, specular output off                                                                                  | lit pixel noise = "hard single bright pixels"; keep pixel texture in colour, glints smooth |
+   | `domain-warp`     | Bricks wobble → whole-pattern domain warp                                                                                                               | wobble makes joints wide and narrow; warp keeps their width                                |
+   | `no-tent`         | bricks / Voronoi cells / hex with a steady profile (linear, smooth, round) whose bevel ≥ ½ the feature half-size → custom curve (steep edge, slow rise) | wide steady bevels tent up in the middle                                                   |
+   | `tinted-glints`   | specular in use → tint ≥ 0.6                                                                                                                            | highlights enrich the colour, not grey it                                                  |
+   | `ao-for-joints`   | tight joints (mortar / gap ≤ 1 px) → AO ≥ 0.8 (the AO lever then searches from 0.8 up)                                                                  | touching stones separate through occlusion, not wide mortar                                |
+   | `ledge-grid`      | relief-driven Drips → source cells ≤ 3 px                                                                                                               | every ledge (each rivet) must get candidates                                               |
+   | `painted-light`   | a game palette (quake / doom) present → cast shadows off                                                                                                | palettised game textures are hand-painted                                                  |
+
 2. **Search-space priors** — `craftPrior` plugs into the new `SpaceOptions.prior` hook of `extractParams`
-   (exclude an entry, or narrow its numeric range keeping the current value inside): Bricks *wobble* excluded;
+   (exclude an entry, or narrow its numeric range keeping the current value inside): Bricks _wobble_ excluded;
    height / specular of pixel-scale noise excluded (they are repaired anyway); `h_amount` in −2…2; a steady-profile
    bevel at most 0.45 × the feature half-size.
 3. **Craft library** — `CRAFT_LIBRARY` replaces the default insert library when heuristics are on, each snippet
@@ -44,19 +47,19 @@ matching starts from, and stays within, what reads right.
    pattern", so independent layers get distinct seeds.
 5. **Templates rebuilt** (emulation, `src/match/templates.ts`) — the structural lessons became the templates
    themselves, so emulation starts from the recipes instead of hoping the search finds them:
-   - **Masonry** (bricks, vertical bricks, blocks, new *rubble*, new *carved*) and **cobbles**: the dressed-stone
+   - **Masonry** (bricks, vertical bricks, blocks, new _rubble_, new _carved_) and **cobbles**: the dressed-stone
      relief stack (one Stones layer writing the Shape mask, Mask area layers reading it: flat Pillow → height blur
      ≈ ¼ block → Edges with the crisp custom curve → Voronoi-facet Chips, Min, masked to the edge zone → Block heights `h_var` 1 → Lumps driving the glints → Pits), stone paint (dark
      joints outside the stones, multi-hue noise and per-stone colour ordered by **hue** so stones differ in hue,
      moss in the hollows when the palette has a green, colour-only speckle, crevice dirt / edge wear), thin mortar,
      AO 1, specular tint 0.75. Whole-pattern domain warp instead of wobble; courses never taller than the stones are
-     long (a misread period falls back to half-length courses). *Carved*: grooves × a noise relief mask,
+     long (a misread period falls back to half-length courses). _Carved_: grooves × a noise relief mask,
      joint paint from the same (tied) noise.
    - **Metal**: brushed streaks (`scale = W / len`, `stretch = width / len`, ≥ 2 px wide, levels widening contrast)
      in colour only; shallow Dents in relief with glints; plates / rivets / seams stay colour-coupled paint layers
      (seedless shapes can't be tied); **water stains + rust trails** from one seed — on riveted plates and panel
-     grids driven by the relief (sources on every ledge, fine grid), on new *brushed* scattered with paint
-     blisters. Rust only on a warm palette. New *hammered*: Hammered relief + the same pattern toning the
+     grids driven by the relief (sources on every ledge, fine grid), on new _brushed_ scattered with paint
+     blisters. Rust only on a warm palette. New _hammered_: Hammered relief + the same pattern toning the
      dents, patina only when the palette has a green, bare-metal ramp without the greens.
    - **Ground / rock**: relief Form or Ridges (+ Voronoi facets for rock) + lumps + pits; paint shade from the same
      (tied) noise, a hue tint, colour grain.
@@ -68,6 +71,7 @@ matching starts from, and stays within, what reads right.
      never paint, and a masonry template's layout is a single tied entry.
 
 ## Checklist
+
 - [x] Rules + `conformProject` (idempotent), applied to start, candidates, structural mutations
 - [x] `SpaceOptions.prior` hook + `craftPrior`
 - [x] Stack-aware craft library and structural mutations

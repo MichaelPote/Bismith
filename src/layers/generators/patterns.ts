@@ -4,9 +4,9 @@
 // channel outputs can vary them per brick / cell / tile. Every lattice wraps its indices when the project is
 // tileable, so the pattern repeats seamlessly. (Clouds, gradients and scratches live in patternsFill.ts.)
 
-import { P, gradient } from '@/core/params'
-import type { LayerDef } from '../types'
-import { cloudsLayer, gradientLayer, scratchesLayer } from './patternsFill'
+import { P, gradient } from '@/core/params';
+import type { LayerDef } from '../types';
+import { cloudsLayer, gradientLayer, scratchesLayer } from './patternsFill';
 
 /** Small GLSL helpers shared by the pattern layers (each layer compiles its own copy; names are prefixed). */
 export const PAT_GLSL = /* glsl */ `
@@ -60,7 +60,7 @@ float pat_cellSdf(float ms[PAT_K], vec2 ns[PAT_K], float r) {
   }
   return d - r;
 }
-`
+`;
 
 /**
  * Relief helpers of feature patterns (bricks, hex tiles, Voronoi cells; need their u_face / u_face_tilt): Height reads a
@@ -350,101 +350,228 @@ GenOut pat_bedOut(float rnd, float sdf, float drawn, float hv, float level, floa
   o.bdist = pat_bd;
   return o;
 }
-`
+`;
 
 /** Face relief params (PAT_FACE_GLSL), in a Relief section. */
 const faceParams = (what: string) => [
-  P.float('face', 'Face relief', 0, 0, 1, { step: 0.001, section: 'Relief', hint: `Lumps and hollows across each ${what}’s face, in Height only (× the bevel): worn, hand-made, uneven surfaces instead of flat tops. Each ${what} has its own — cloudy, pitted or veined, finer or coarser` }),
-  P.float('crown', 'Crown', 0, 0, 2, { step: 0.001, section: 'Relief', hint: `Domes each ${what}’s face, in Height only: its middle stays high and it falls away towards the edges (1 = by half, 2 = all the way down) — pillowed, worn ${what}s` }),
-  P.float('face_tilt', 'Face tilt', 0, 0, 1, { step: 0.001, section: 'Relief', hint: `Each ${what} leans a random way by a random share of this, in Height only: one side sits lower (at 1 down to 0.4 of the height) — unevenly laid, settled` }),
-]
+	P.float('face', 'Face relief', 0, 0, 1, {
+		step: 0.001,
+		section: 'Relief',
+		hint: `Lumps and hollows across each ${what}’s face, in Height only (× the bevel): worn, hand-made, uneven surfaces instead of flat tops. Each ${what} has its own — cloudy, pitted or veined, finer or coarser`
+	}),
+	P.float('crown', 'Crown', 0, 0, 2, {
+		step: 0.001,
+		section: 'Relief',
+		hint: `Domes each ${what}’s face, in Height only: its middle stays high and it falls away towards the edges (1 = by half, 2 = all the way down) — pillowed, worn ${what}s`
+	}),
+	P.float('face_tilt', 'Face tilt', 0, 0, 1, {
+		step: 0.001,
+		section: 'Relief',
+		hint: `Each ${what} leans a random way by a random share of this, in Height only: one side sits lower (at 1 down to 0.4 of the height) — unevenly laid, settled`
+	})
+];
 
 /**
  * Bricks, hex tiles and Voronoi cells with their own relief and wear off (face relief, crown, tilt, chips, the mortar /
  * grout bed, per-feature height): for recipes and templates that stack copies of one shape (pillow, edges, heights,
  * colour) and build the relief themselves. *_REGULAR also drops the bricks' irregular geometry (panels, plates).
  */
-const RELIEF_OFF = { face: 0, crown: 0, face_tilt: 0, h_var: 0 }
-export const BRICKS_PLAIN = { ...RELIEF_OFF, mortar_level: 0, chips: 0 }
-export const BRICKS_REGULAR = { ...BRICKS_PLAIN, len_var: 0, min_size: 0, rot_jitter: 0 }
-export const HEX_PLAIN = { ...RELIEF_OFF, grout_level: 0, chips: 0 }
-export const VORONOI_PLAIN = { ...RELIEF_OFF, grout_level: 0 }
+const RELIEF_OFF = { face: 0, crown: 0, face_tilt: 0, h_var: 0 };
+export const BRICKS_PLAIN = { ...RELIEF_OFF, mortar_level: 0, chips: 0 };
+export const BRICKS_REGULAR = { ...BRICKS_PLAIN, len_var: 0, min_size: 0, rot_jitter: 0 };
+export const HEX_PLAIN = { ...RELIEF_OFF, grout_level: 0, chips: 0 };
+export const VORONOI_PLAIN = { ...RELIEF_OFF, grout_level: 0 };
 
 // GenOut.sdf value meaning "no distance for this pixel" (the wrapper's NO_SDF is declared after gen()).
-const NO_SDF = '-1e5'
+const NO_SDF = '-1e5';
 
-const r1 = (v: number) => Math.round(v * 10) / 10
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+const r1 = (v: number) => Math.round(v * 10) / 10;
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 // ------------------------------------------------------------------------------------------------ bricks
 
 export const bricksLayer: LayerDef = {
-  type: 'bricks',
-  label: 'Bricks',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Running-bond brickwork with mortar, rounding and per-brick randomness — from crisp brick to hand-laid rubble; chipped corners, lumpy and tilted faces; distance to the brick edge.',
-  params: [
-    P.int('columns', 'Columns', 4, 1, 256, { softMax: 32, section: 'Layout', hint: 'Bricks across the texture width' }),
-    P.int('rows', 'Rows', 12, 1, 256, { softMax: 64, section: 'Layout', hint: 'Brick courses down the texture (use an even count with stagger to tile). Real bricks are about 3× as long as a course is tall' }),
-    P.float('stagger', 'Stagger', 0.5, 0, 1, { step: 0.001, section: 'Layout', hint: 'Offset of alternate rows, as a fraction of a brick' }),
-    P.float('mortar', 'Mortar', 2, -32, 256, { softMin: -8, softMax: 24, unit: 'px', step: 0.1, section: 'Layout', hint: 'Gap between bricks. Negative grows the bricks into each other so they touch in creases (with position jitter: dry-stone walls)' }),
-    P.float('joint_var', 'Joint variation', 0, 0, 1, { step: 0.001, section: 'Layout', hint: 'Each brick gets its own share of the mortar it carries (its left and top joints), of its bevel, and of its face relief and height variation: 0 = every joint as set, 1 = from fully shut to full width. Shut bricks sit flush against the next with no mortar and hardly any edge, so runs of them read as one stone' }),
-    P.float('round', 'Corner rounding', 1, 0, 256, { softMax: 32, unit: 'px', step: 0.1, section: 'Layout' }),
-    P.float('mortar_level', 'Mortar level', 0.2, 0, 1, { step: 0.001, section: 'Layout', hint: 'Height of the mortar bed as a share of the bricks’ (Height › Pattern only): 0 leaves the joints at the surface below; higher fills them with a level, slightly lumpy bed, so the bricks stand out less and chips fill up. On, Height skips Shaping › Value' }),
-    P.bool('vertical', 'Vertical courses', false, { section: 'Layout', hint: 'Run the courses up the texture (columns then count along a course, rows across)' }),
-    P.float('row_jitter', 'Row offset jitter', 0, 0, 1, { step: 0.001, section: 'Irregularity', hint: 'Random horizontal shift per row, fraction of a brick' }),
-    P.float('len_var', 'Length variation', 0.25, 0, 1, { step: 0.001, section: 'Irregularity', hint: 'Randomly moves the joints so bricks differ in length' }),
-    P.float('row_var', 'Course height variation', 0, 0, 1, { step: 0.001, section: 'Irregularity', hint: 'Randomly moves the bed joints so courses differ in height (rubble / ashlar walls)' }),
-    P.float('min_size', 'Smallest piece', 0.5, 0, 1, { step: 0.001, section: 'Irregularity', showIf: (p) => Number(p.len_var) > 0 || Number(p.row_var) > 0, hint: 'Keeps the variations from making slivers: the shortest brick and the lowest course are at least 0.1 + 0.9 × this of the regular size' }),
-    P.float('size_jitter', 'Edge jitter', 0, 0, 64, { softMax: 16, unit: 'px', step: 0.1, section: 'Irregularity', hint: 'Random inset of each brick side: uneven joints, hand-laid look. Up to a third of a course for rubble' }),
-    P.float('pos_jitter', 'Position jitter', 0, 0, 64, { softMax: 24, unit: 'px', step: 0.05, section: 'Irregularity', hint: 'Random x/y shift per brick — hand-placed stone walls. Overlapping stones meet in a crease, not mortar' }),
-    P.float('rot_jitter', 'Rotation jitter', 0.5, 0, 45, { softMax: 20, unit: '°', step: 0.1, section: 'Irregularity', hint: 'Random tilt per brick' }),
-    P.float('shape_var', 'Stone shape', 0, 0, 1, { step: 0.001, section: 'Irregularity', hint: 'Breaks the rectangles into stones: corners cut off at random angles (mostly a little, now and then deeply), ends slanted, tops and bottoms sagging and bowed — rubble, dry-stone and flagstone walls instead of bricks' }),
-    P.bool('close', 'Close gaps', true, { section: 'Irregularity', showIf: (p) => p.crease === true && Number(p.mortar) < 0, hint: 'Dry stone (Straight creases, negative Mortar): the gaps the creases leave between stones close — each stone grows into them up to their middle, meeting its neighbour in the same thin groove — no open mortar' }),
-    P.bool('crease', 'Straight creases', true, { section: 'Irregularity', hint: 'Where stones overlap (negative Mortar, Position / Rotation jitter), split them along one straight line across the overlap — the tight joints of dry-stone walls. Off, each overlap follows the nearer outline, which can leave a corner poking into its neighbour' }),
-    P.float('wobble', 'Wobble', 0, 0, 32, { softMax: 8, unit: 'px', step: 0.05, section: 'Irregularity', hint: 'Noisy, uneven brick outlines (the joints change width; Shaping › Domain warp bends them keeping their width)' }),
-    P.float('wobble_var', 'Wobble variation', 0.7, 0, 1, { step: 0.001, section: 'Irregularity', showIf: (p) => Number(p.wobble) > 0, hint: 'Each brick gets its own share of the wobble (1 = anywhere from none to full): some crisp, some ragged' }),
-    P.float('wobble_scale', 'Wobble scale', 1, 0.05, 16, { softMin: 0.1, softMax: 4, step: 0.01, section: 'Irregularity', showIf: (p) => Number(p.wobble) > 0 || Number(p.chips) > 0, hint: 'Size of the wobble’s bumps (and of the chips’ ragged outline): 1 ≈ half a course; smaller is finer and crumblier' }),
-    P.float('chips', 'Chipped corners', 0.4, 0, 1, { step: 0.001, section: 'Relief', hint: 'Share of corners (and long sides) broken out of each brick: ragged hollows in its height, deepest at the edge (the outline stays — Stone shape, Edge jitter and Wobble break that)' }),
-    P.float('chip_size', 'Chip size', 0.3, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.chips) > 0, hint: 'Radius of the largest chips, as a share of each brick’s height (each varies down to about a third of it)' }),
-    P.float('chip_depth', 'Chip depth', 0.6, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.chips) > 0, hint: 'How deep the chips break in, as a share of the brick’s height: 1 = down to the mortar at the broken edge' }),
-    P.float('chip_break', 'Broken outline', 0.35, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.chips) > 0, hint: 'How much of each chip breaks right through, notching the brick’s outline down to the mortar (0 = the outline stays, the chips only dent the face)' }),
-    P.float('chip_dust', 'Chip dust', 0.45, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.chips) > 0, hint: 'The chips’ broken floors turn paler — with Diffuse › Source Random, this share of the way to the ramp’s light end: a freshly broken face — so the chips read in colour as well as in relief (where a chip breaks through, the mortar shows anyway)' }),
-    ...faceParams('brick'),
-    P.seed(),
-  ],
-  // A brick wall added in the editor, sized to the texture: bricks about 3:1 (an even row count from the aspect), a
-  // bevel that domes them at this size, edge jitter and wobble in proportion to the courses.
-  fresh: ({ width, height }) => {
-    const columns = 4
-    const rows = Math.max(2, 2 * Math.round((columns * 3 * height) / width / 2))
-    const course = height / rows
-    return {
-      columns,
-      rows,
-      bevel: r1(clamp(course * 0.2, 1, 64)),
-      size_jitter: r1(clamp(course * 0.03, 0, 8)),
-      wobble: r1(clamp(course * 0.02, 0.2, 4)),
-    }
-  },
-  defaults: {
-    face: 0.35,
-    face_tilt: 0.5,
-    h_var: 0.3,
-    h_on: true,
-    h_amount: 0.5,
-    bevel: 2,
-    profile: 'round',
-    dif_on: true,
-    dif_src: 'random',
-    dif_grad: gradient('#4e2419', '#7a3a27', '#93513a', '#a8674c'),
-  },
-  glsl:
-    PAT_GLSL +
-    PAT_FACE_GLSL +
-    /* glsl */ `
+	type: 'bricks',
+	label: 'Bricks',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Running-bond brickwork with mortar, rounding and per-brick randomness — from crisp brick to hand-laid rubble; chipped corners, lumpy and tilted faces; distance to the brick edge.',
+	params: [
+		P.int('columns', 'Columns', 4, 1, 256, { softMax: 32, section: 'Layout', hint: 'Bricks across the texture width' }),
+		P.int('rows', 'Rows', 12, 1, 256, {
+			softMax: 64,
+			section: 'Layout',
+			hint: 'Brick courses down the texture (use an even count with stagger to tile). Real bricks are about 3× as long as a course is tall'
+		}),
+		P.float('stagger', 'Stagger', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Layout',
+			hint: 'Offset of alternate rows, as a fraction of a brick'
+		}),
+		P.float('mortar', 'Mortar', 2, -32, 256, {
+			softMin: -8,
+			softMax: 24,
+			unit: 'px',
+			step: 0.1,
+			section: 'Layout',
+			hint: 'Gap between bricks. Negative grows the bricks into each other so they touch in creases (with position jitter: dry-stone walls)'
+		}),
+		P.float('joint_var', 'Joint variation', 0, 0, 1, {
+			step: 0.001,
+			section: 'Layout',
+			hint: 'Each brick gets its own share of the mortar it carries (its left and top joints), of its bevel, and of its face relief and height variation: 0 = every joint as set, 1 = from fully shut to full width. Shut bricks sit flush against the next with no mortar and hardly any edge, so runs of them read as one stone'
+		}),
+		P.float('round', 'Corner rounding', 1, 0, 256, { softMax: 32, unit: 'px', step: 0.1, section: 'Layout' }),
+		P.float('mortar_level', 'Mortar level', 0.2, 0, 1, {
+			step: 0.001,
+			section: 'Layout',
+			hint: 'Height of the mortar bed as a share of the bricks’ (Height › Pattern only): 0 leaves the joints at the surface below; higher fills them with a level, slightly lumpy bed, so the bricks stand out less and chips fill up. On, Height skips Shaping › Value'
+		}),
+		P.bool('vertical', 'Vertical courses', false, {
+			section: 'Layout',
+			hint: 'Run the courses up the texture (columns then count along a course, rows across)'
+		}),
+		P.float('row_jitter', 'Row offset jitter', 0, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			hint: 'Random horizontal shift per row, fraction of a brick'
+		}),
+		P.float('len_var', 'Length variation', 0.25, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			hint: 'Randomly moves the joints so bricks differ in length'
+		}),
+		P.float('row_var', 'Course height variation', 0, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			hint: 'Randomly moves the bed joints so courses differ in height (rubble / ashlar walls)'
+		}),
+		P.float('min_size', 'Smallest piece', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			showIf: (p) => Number(p.len_var) > 0 || Number(p.row_var) > 0,
+			hint: 'Keeps the variations from making slivers: the shortest brick and the lowest course are at least 0.1 + 0.9 × this of the regular size'
+		}),
+		P.float('size_jitter', 'Edge jitter', 0, 0, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			section: 'Irregularity',
+			hint: 'Random inset of each brick side: uneven joints, hand-laid look. Up to a third of a course for rubble'
+		}),
+		P.float('pos_jitter', 'Position jitter', 0, 0, 64, {
+			softMax: 24,
+			unit: 'px',
+			step: 0.05,
+			section: 'Irregularity',
+			hint: 'Random x/y shift per brick — hand-placed stone walls. Overlapping stones meet in a crease, not mortar'
+		}),
+		P.float('rot_jitter', 'Rotation jitter', 0.5, 0, 45, {
+			softMax: 20,
+			unit: '°',
+			step: 0.1,
+			section: 'Irregularity',
+			hint: 'Random tilt per brick'
+		}),
+		P.float('shape_var', 'Stone shape', 0, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			hint: 'Breaks the rectangles into stones: corners cut off at random angles (mostly a little, now and then deeply), ends slanted, tops and bottoms sagging and bowed — rubble, dry-stone and flagstone walls instead of bricks'
+		}),
+		P.bool('close', 'Close gaps', true, {
+			section: 'Irregularity',
+			showIf: (p) => p.crease === true && Number(p.mortar) < 0,
+			hint: 'Dry stone (Straight creases, negative Mortar): the gaps the creases leave between stones close — each stone grows into them up to their middle, meeting its neighbour in the same thin groove — no open mortar'
+		}),
+		P.bool('crease', 'Straight creases', true, {
+			section: 'Irregularity',
+			hint: 'Where stones overlap (negative Mortar, Position / Rotation jitter), split them along one straight line across the overlap — the tight joints of dry-stone walls. Off, each overlap follows the nearer outline, which can leave a corner poking into its neighbour'
+		}),
+		P.float('wobble', 'Wobble', 0, 0, 32, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.05,
+			section: 'Irregularity',
+			hint: 'Noisy, uneven brick outlines (the joints change width; Shaping › Domain warp bends them keeping their width)'
+		}),
+		P.float('wobble_var', 'Wobble variation', 0.7, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			showIf: (p) => Number(p.wobble) > 0,
+			hint: 'Each brick gets its own share of the wobble (1 = anywhere from none to full): some crisp, some ragged'
+		}),
+		P.float('wobble_scale', 'Wobble scale', 1, 0.05, 16, {
+			softMin: 0.1,
+			softMax: 4,
+			step: 0.01,
+			section: 'Irregularity',
+			showIf: (p) => Number(p.wobble) > 0 || Number(p.chips) > 0,
+			hint: 'Size of the wobble’s bumps (and of the chips’ ragged outline): 1 ≈ half a course; smaller is finer and crumblier'
+		}),
+		P.float('chips', 'Chipped corners', 0.4, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Share of corners (and long sides) broken out of each brick: ragged hollows in its height, deepest at the edge (the outline stays — Stone shape, Edge jitter and Wobble break that)'
+		}),
+		P.float('chip_size', 'Chip size', 0.3, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.chips) > 0,
+			hint: 'Radius of the largest chips, as a share of each brick’s height (each varies down to about a third of it)'
+		}),
+		P.float('chip_depth', 'Chip depth', 0.6, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.chips) > 0,
+			hint: 'How deep the chips break in, as a share of the brick’s height: 1 = down to the mortar at the broken edge'
+		}),
+		P.float('chip_break', 'Broken outline', 0.35, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.chips) > 0,
+			hint: 'How much of each chip breaks right through, notching the brick’s outline down to the mortar (0 = the outline stays, the chips only dent the face)'
+		}),
+		P.float('chip_dust', 'Chip dust', 0.45, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.chips) > 0,
+			hint: 'The chips’ broken floors turn paler — with Diffuse › Source Random, this share of the way to the ramp’s light end: a freshly broken face — so the chips read in colour as well as in relief (where a chip breaks through, the mortar shows anyway)'
+		}),
+		...faceParams('brick'),
+		P.seed()
+	],
+	// A brick wall added in the editor, sized to the texture: bricks about 3:1 (an even row count from the aspect), a
+	// bevel that domes them at this size, edge jitter and wobble in proportion to the courses.
+	fresh: ({ width, height }) => {
+		const columns = 4;
+		const rows = Math.max(2, 2 * Math.round((columns * 3 * height) / width / 2));
+		const course = height / rows;
+		return {
+			columns,
+			rows,
+			bevel: r1(clamp(course * 0.2, 1, 64)),
+			size_jitter: r1(clamp(course * 0.03, 0, 8)),
+			wobble: r1(clamp(course * 0.02, 0.2, 4))
+		};
+	},
+	defaults: {
+		face: 0.35,
+		face_tilt: 0.5,
+		h_var: 0.3,
+		h_on: true,
+		h_amount: 0.5,
+		bevel: 2,
+		profile: 'round',
+		dif_on: true,
+		dif_src: 'random',
+		dif_grad: gradient('#4e2419', '#7a3a27', '#93513a', '#a8674c')
+	},
+	glsl:
+		PAT_GLSL +
+		PAT_FACE_GLSL +
+		/* glsl */ `
 // Joint k of a row, in brick units. A shift < 0.45 keeps joints ordered (length variation).
 float pat_joint(int k, int rw) {
   if (u_len_var <= 0.0) return float(k);
@@ -754,57 +881,119 @@ GenOut gen(vec2 p) {
   if (u_mortar_level > 0.0) return pat_bedOut(bestRnd, best, d, hv, u_mortar_level, n);
   return pat_out(bestRnd, best, d, hv, faced);
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ hex tiles
 
 export const hexLayer: LayerDef = {
-  type: 'hex',
-  label: 'Hex tiles',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Hexagonal tiling with grout gap and per-tile random. Tiles exactly when the project is tileable (see hint).',
-  params: [
-    P.float('scale', 'Scale', 6, 1, 256, { softMax: 32, step: 0.01, hint: 'Hexes across the texture width. When tiling, whole counts with an even row count are needed; the nearest choice that keeps hexes regular is used (count may differ by 1–2, slight stretch possible)' }),
-    P.enum('orient', 'Orientation', 'pointy', [['pointy', 'Pointy top'], ['flat', 'Flat top']]),
-    P.float('gap', 'Gap', 2, 0, 256, { softMax: 24, unit: 'px', step: 0.1 }),
-    P.float('round', 'Corner rounding', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1 }),
-    P.bool('round_bevel', 'Round bevel corners', true, { showIf: (p) => Number(p.round) > 0, hint: 'Keeps the bevel’s inner contours as round as the corners, however wide the bevel — otherwise, deeper than the rounding, they sharpen into mitre lines from each corner' }),
-    P.float('grout_level', 'Grout level', 0.2, 0, 1, { step: 0.001, hint: 'Height of the grout bed as a share of the tiles’ (Height › Pattern only): 0 leaves the joints at the surface below; higher fills them with a level, slightly lumpy bed. On, Height skips Shaping › Value' }),
-    P.float('size_jitter', 'Size jitter', 0, 0, 128, { softMax: 16, unit: 'px', step: 0.1, section: 'Irregularity', hint: 'Moves each side of each tile in or out by its own random amount (up to half this either way; the mean joint stays, and never closes below a pixel): irregular hexagons, uneven grout. With Position and Rotation jitter: hand-set tiles' }),
-    P.float('pos_jitter', 'Position jitter', 0, 0, 64, { softMax: 16, unit: 'px', step: 0.05, section: 'Irregularity', hint: 'Random shift per tile within its place; a tile that would need more room than the grout gives is shrunk to fit' }),
-    P.float('rot_jitter', 'Rotation jitter', 0, 0, 30, { softMax: 10, unit: '°', step: 0.1, section: 'Irregularity', hint: 'Random turn per tile; a tile whose corners would need more room than the grout gives is shrunk to fit' }),
-    P.float('wobble', 'Wobble', 0, 0, 32, { softMax: 8, unit: 'px', step: 0.05, section: 'Irregularity', hint: 'Uneven tile sides — handmade or worn tiles; it fades out towards the corners, so they stay corners (Shaping › Domain warp bends the whole grid instead)' }),
-    P.float('chips', 'Chipped corners', 0.3, 0, 1, { step: 0.001, section: 'Relief', hint: 'Share of corners broken out of each tile: ragged hollows in its height, deepest at the corner (the outline stays)' }),
-    P.float('chip_size', 'Chip size', 0.25, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.chips) > 0, hint: 'Radius of the largest chips, as a share of the tile’s radius (centre to corner; each chip varies down to about a third of it)' }),
-    P.float('chip_depth', 'Chip depth', 0.7, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.chips) > 0, hint: 'How deep the chips break in, as a share of the tile’s height' }),
-    P.float('chip_break', 'Broken outline', 0.5, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.chips) > 0, hint: 'How much of each chip breaks right through, notching the tile’s outline down to the grout (0 = the outline stays, the chips only dent the face)' }),
-    P.float('chip_dust', 'Chip dust', 0.2, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.chips) > 0, hint: 'The chips’ broken floors turn paler — with Diffuse › Source Random, this share of the way to the ramp’s light end: a freshly broken face — so the chips read in colour as well as in relief (where a chip breaks through, the grout shows anyway)' }),
-    ...faceParams('tile'),
-    P.seed(),
-  ],
-  // Tiles added in the editor: a short bevel sized to the tiles; the strong crown (a default) domes the face on from
-  // it, so there is no flat plateau framed by the bevel's inner contour.
-  fresh: ({ width }) => ({ bevel: r1(clamp((width / 6) * 0.06, 1, 64)) }),
-  defaults: {
-    face: 0.2,
-    crown: 1.2,
-    face_tilt: 0.25,
-    h_var: 0.25,
-    h_on: true,
-    h_amount: 0.5,
-    bevel: 2,
-    profile: 'smooth',
-    dif_on: true,
-    dif_src: 'random',
-    dif_grad: gradient('#3a4148', '#56606a', '#6f6a5e', '#8b8170'),
-  },
-  glsl:
-    PAT_GLSL +
-    PAT_FACE_GLSL +
-    /* glsl */ `
+	type: 'hex',
+	label: 'Hex tiles',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Hexagonal tiling with grout gap and per-tile random. Tiles exactly when the project is tileable (see hint).',
+	params: [
+		P.float('scale', 'Scale', 6, 1, 256, {
+			softMax: 32,
+			step: 0.01,
+			hint: 'Hexes across the texture width. When tiling, whole counts with an even row count are needed; the nearest choice that keeps hexes regular is used (count may differ by 1–2, slight stretch possible)'
+		}),
+		P.enum('orient', 'Orientation', 'pointy', [
+			['pointy', 'Pointy top'],
+			['flat', 'Flat top']
+		]),
+		P.float('gap', 'Gap', 2, 0, 256, { softMax: 24, unit: 'px', step: 0.1 }),
+		P.float('round', 'Corner rounding', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1 }),
+		P.bool('round_bevel', 'Round bevel corners', true, {
+			showIf: (p) => Number(p.round) > 0,
+			hint: 'Keeps the bevel’s inner contours as round as the corners, however wide the bevel — otherwise, deeper than the rounding, they sharpen into mitre lines from each corner'
+		}),
+		P.float('grout_level', 'Grout level', 0.2, 0, 1, {
+			step: 0.001,
+			hint: 'Height of the grout bed as a share of the tiles’ (Height › Pattern only): 0 leaves the joints at the surface below; higher fills them with a level, slightly lumpy bed. On, Height skips Shaping › Value'
+		}),
+		P.float('size_jitter', 'Size jitter', 0, 0, 128, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			section: 'Irregularity',
+			hint: 'Moves each side of each tile in or out by its own random amount (up to half this either way; the mean joint stays, and never closes below a pixel): irregular hexagons, uneven grout. With Position and Rotation jitter: hand-set tiles'
+		}),
+		P.float('pos_jitter', 'Position jitter', 0, 0, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			section: 'Irregularity',
+			hint: 'Random shift per tile within its place; a tile that would need more room than the grout gives is shrunk to fit'
+		}),
+		P.float('rot_jitter', 'Rotation jitter', 0, 0, 30, {
+			softMax: 10,
+			unit: '°',
+			step: 0.1,
+			section: 'Irregularity',
+			hint: 'Random turn per tile; a tile whose corners would need more room than the grout gives is shrunk to fit'
+		}),
+		P.float('wobble', 'Wobble', 0, 0, 32, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.05,
+			section: 'Irregularity',
+			hint: 'Uneven tile sides — handmade or worn tiles; it fades out towards the corners, so they stay corners (Shaping › Domain warp bends the whole grid instead)'
+		}),
+		P.float('chips', 'Chipped corners', 0.3, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Share of corners broken out of each tile: ragged hollows in its height, deepest at the corner (the outline stays)'
+		}),
+		P.float('chip_size', 'Chip size', 0.25, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.chips) > 0,
+			hint: 'Radius of the largest chips, as a share of the tile’s radius (centre to corner; each chip varies down to about a third of it)'
+		}),
+		P.float('chip_depth', 'Chip depth', 0.7, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.chips) > 0,
+			hint: 'How deep the chips break in, as a share of the tile’s height'
+		}),
+		P.float('chip_break', 'Broken outline', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.chips) > 0,
+			hint: 'How much of each chip breaks right through, notching the tile’s outline down to the grout (0 = the outline stays, the chips only dent the face)'
+		}),
+		P.float('chip_dust', 'Chip dust', 0.2, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.chips) > 0,
+			hint: 'The chips’ broken floors turn paler — with Diffuse › Source Random, this share of the way to the ramp’s light end: a freshly broken face — so the chips read in colour as well as in relief (where a chip breaks through, the grout shows anyway)'
+		}),
+		...faceParams('tile'),
+		P.seed()
+	],
+	// Tiles added in the editor: a short bevel sized to the tiles; the strong crown (a default) domes the face on from
+	// it, so there is no flat plateau framed by the bevel's inner contour.
+	fresh: ({ width }) => ({ bevel: r1(clamp((width / 6) * 0.06, 1, 64)) }),
+	defaults: {
+		face: 0.2,
+		crown: 1.2,
+		face_tilt: 0.25,
+		h_var: 0.25,
+		h_on: true,
+		h_amount: 0.5,
+		bevel: 2,
+		profile: 'smooth',
+		dif_on: true,
+		dif_src: 'random',
+		dif_grad: gradient('#3a4148', '#56606a', '#6f6a5e', '#8b8170')
+	},
+	glsl:
+		PAT_GLSL +
+		PAT_FACE_GLSL +
+		/* glsl */ `
 // Lattice centre of tile (c, r) in the working frame: rows run along x, odd rows shift half a cell.
 vec2 pat_hexCentre(int c, int r, vec2 cs) {
   return vec2((float(c) + 0.5 + 0.5 * float(r & 1)) * cs.x, (float(r) + 0.5) * cs.y);
@@ -965,161 +1154,280 @@ GenOut gen(vec2 p) {
   if (u_grout_level > 0.0) return pat_bedOut(rnd, d, drawn, hv, u_grout_level, nz);
   return pat_out(rnd, d, drawn, hv, faced);
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ voronoi
 
-const cellsOut = (p: Record<string, unknown>) => (p.output ?? 'cells') === 'cells'
+const cellsOut = (p: Record<string, unknown>) => (p.output ?? 'cells') === 'cells';
 
 // The shader's hashes (glsl/common.ts) and Voronoi cell points (glsl/noise.ts cellPoint), replicated on the CPU so the
 // cells to merge can be decided once per cell (Smallest cell).
 const pcg = (v: number): number => {
-  const state = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0
-  const word = Math.imul(((state >>> ((state >>> 28) + 4)) ^ state) >>> 0, 277803737) >>> 0
-  return ((word >>> 22) ^ word) >>> 0
-}
-const pcg3 = (x: number, y: number, z: number) => pcg((x ^ pcg((y ^ pcg(z >>> 0)) >>> 0)) >>> 0)
-const u2f = (h: number) => Math.fround(h) / 4294967296
-const seedU = (seed: number) => Math.trunc(Math.fround(seed)) >>> 0
-const hashI = (x: number, y: number, seed: number) => u2f(pcg3(x >>> 0, y >>> 0, seedU(seed)))
+	const state = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0;
+	const word = Math.imul(((state >>> ((state >>> 28) + 4)) ^ state) >>> 0, 277803737) >>> 0;
+	return ((word >>> 22) ^ word) >>> 0;
+};
+const pcg3 = (x: number, y: number, z: number) => pcg((x ^ pcg((y ^ pcg(z >>> 0)) >>> 0)) >>> 0);
+const u2f = (h: number) => Math.fround(h) / 4294967296;
+const seedU = (seed: number) => Math.trunc(Math.fround(seed)) >>> 0;
+const hashI = (x: number, y: number, seed: number) => u2f(pcg3(x >>> 0, y >>> 0, seedU(seed)));
 function cellPointCpu(x: number, y: number, seed: number, phase: number): [number, number] {
-  const h = pcg3(x >>> 0, y >>> 0, seedU(seed))
-  const p: [number, number] = [u2f(h), u2f(pcg(h))]
-  if (phase === 0) return p
-  const anim = (v: number, s: number) => {
-    const dir = hashI(x, y, Math.fround(Math.fround(s) + 7.31)) < 0.5 ? -1 : 1
-    const m = v + 2 * dir * phase
-    return 1 - Math.abs(1 - (m - 2 * Math.floor(m / 2)))
-  }
-  return [anim(p[0], seed + 41), anim(p[1], seed + 43)]
+	const h = pcg3(x >>> 0, y >>> 0, seedU(seed));
+	const p: [number, number] = [u2f(h), u2f(pcg(h))];
+	if (phase === 0) return p;
+	const anim = (v: number, s: number) => {
+		const dir = hashI(x, y, Math.fround(Math.fround(s) + 7.31)) < 0.5 ? -1 : 1;
+		const m = v + 2 * dir * phase;
+		return 1 - Math.abs(1 - (m - 2 * Math.floor(m / 2)));
+	};
+	return [anim(p[0], seed + 41), anim(p[1], seed + 43)];
 }
-const imodJs = (a: number, m: number) => ((a % m) + m) % m
+const imodJs = (a: number, m: number) => ((a % m) + m) % m;
 
 /**
  * Voronoi's per-cell data (t_cells, R = 255: merged away): with Smallest cell, a cell whose nearest edge comes closer
  * to its site than that (the same power-diagram edges as the shader, from its 5 × 5 neighbours) is left out of the
  * diagram, so its neighbours fill its place — decided once per cell, so every pixel agrees.
  */
-function voronoiCells(q: Record<string, unknown>, ctx: { width: number; height: number; tileable: boolean; seed: number }) {
-  const blank = { cells: { width: 1, height: 1, data: new Uint8Array(4) } }
-  const minCell = Number(q.min_cell ?? 0)
-  if (!(minCell > 0) || (q.output ?? 'cells') !== 'cells' || q.metric !== 'euclidean') return blank
-  const W = ctx.width, H = ctx.height
-  const scale = Number(q.scale ?? 6)
-  let cx = scale, cy = (scale * H) / W
-  if (ctx.tileable) { cx = Math.max(1, Math.floor(cx + 0.5)); cy = Math.max(1, Math.floor(cy + 0.5)) } else { cx = Math.max(cx, 1e-3); cy = Math.max(cy, 1e-3) }
-  const csx = W / cx, csy = H / cy
-  const L = Math.sqrt(csx * csy)
-  const jitter = Number(q.jitter ?? 0.8)
-  const W2 = Math.max(0, Number(q.size_var ?? 0)) * L * L
-  const g = 0.5 * Number(q.gap ?? 2)
-  const phase = Number(q.phase ?? 0)
-  const per = ctx.tileable ? [cx, cy] : [1 << 20, 1 << 20]
-  const M = ctx.tileable ? 0 : 3 + Math.ceil(Number(q.warp ?? 0) / Math.min(csx, csy))
-  const nx = ctx.tileable ? cx : Math.ceil(cx) + 2 * M, ny = ctx.tileable ? cy : Math.ceil(cy) + 2 * M
-  if (nx * ny > 1 << 20) return blank
-  const site = (x: number, y: number) => {
-    const cp = cellPointCpu(imodJs(x, per[0]), imodJs(y, per[1]), ctx.seed, phase)
-    const w = W2 * (cp[0] * 7.13 + cp[1] * 3.71 - Math.floor(cp[0] * 7.13 + cp[1] * 3.71))
-    return [(x + 0.5 + (cp[0] - 0.5) * jitter) * csx, (y + 0.5 + (cp[1] - 0.5) * jitter) * csy, w]
-  }
-  const data = new Uint8Array(nx * ny * 4)
-  for (let j = 0; j < ny; j++)
-    for (let i = 0; i < nx; i++) {
-      const x = i - M, y = j - M
-      const a = site(x, y)
-      let hmin = Infinity
-      for (let dj = -2; dj <= 2; dj++)
-        for (let di = -2; di <= 2; di++) {
-          if (di === 0 && dj === 0) continue
-          const b = site(x + di, y + dj)
-          const dl = Math.hypot(b[0] - a[0], b[1] - a[1])
-          if (dl > 1e-6) hmin = Math.min(hmin, 0.5 * dl + (0.5 * (a[2] - b[2])) / dl - g)
-        }
-      // Size jitter shrinks the cell by its own random share (the shader's hashI(cell, seed + 41)) — count that too.
-      const sj = Number(q.size_jitter ?? 0) > 0 ? Number(q.size_jitter) * hashI(imodJs(x, per[0]), imodJs(y, per[1]), Math.fround(Math.fround(ctx.seed) + 41)) : 0
-      if (hmin - sj < minCell) data[(j * nx + i) * 4] = 255
-    }
-  return { cells: { width: nx, height: ny, data } }
+function voronoiCells(
+	q: Record<string, unknown>,
+	ctx: { width: number; height: number; tileable: boolean; seed: number }
+) {
+	const blank = { cells: { width: 1, height: 1, data: new Uint8Array(4) } };
+	const minCell = Number(q.min_cell ?? 0);
+	if (!(minCell > 0) || (q.output ?? 'cells') !== 'cells' || q.metric !== 'euclidean') return blank;
+	const W = ctx.width,
+		H = ctx.height;
+	const scale = Number(q.scale ?? 6);
+	let cx = scale,
+		cy = (scale * H) / W;
+	if (ctx.tileable) {
+		cx = Math.max(1, Math.floor(cx + 0.5));
+		cy = Math.max(1, Math.floor(cy + 0.5));
+	} else {
+		cx = Math.max(cx, 1e-3);
+		cy = Math.max(cy, 1e-3);
+	}
+	const csx = W / cx,
+		csy = H / cy;
+	const L = Math.sqrt(csx * csy);
+	const jitter = Number(q.jitter ?? 0.8);
+	const W2 = Math.max(0, Number(q.size_var ?? 0)) * L * L;
+	const g = 0.5 * Number(q.gap ?? 2);
+	const phase = Number(q.phase ?? 0);
+	const per = ctx.tileable ? [cx, cy] : [1 << 20, 1 << 20];
+	const M = ctx.tileable ? 0 : 3 + Math.ceil(Number(q.warp ?? 0) / Math.min(csx, csy));
+	const nx = ctx.tileable ? cx : Math.ceil(cx) + 2 * M,
+		ny = ctx.tileable ? cy : Math.ceil(cy) + 2 * M;
+	if (nx * ny > 1 << 20) return blank;
+	const site = (x: number, y: number) => {
+		const cp = cellPointCpu(imodJs(x, per[0]), imodJs(y, per[1]), ctx.seed, phase);
+		const w = W2 * (cp[0] * 7.13 + cp[1] * 3.71 - Math.floor(cp[0] * 7.13 + cp[1] * 3.71));
+		return [(x + 0.5 + (cp[0] - 0.5) * jitter) * csx, (y + 0.5 + (cp[1] - 0.5) * jitter) * csy, w];
+	};
+	const data = new Uint8Array(nx * ny * 4);
+	for (let j = 0; j < ny; j++)
+		for (let i = 0; i < nx; i++) {
+			const x = i - M,
+				y = j - M;
+			const a = site(x, y);
+			let hmin = Infinity;
+			for (let dj = -2; dj <= 2; dj++)
+				for (let di = -2; di <= 2; di++) {
+					if (di === 0 && dj === 0) continue;
+					const b = site(x + di, y + dj);
+					const dl = Math.hypot(b[0] - a[0], b[1] - a[1]);
+					if (dl > 1e-6) hmin = Math.min(hmin, 0.5 * dl + (0.5 * (a[2] - b[2])) / dl - g);
+				}
+			// Size jitter shrinks the cell by its own random share (the shader's hashI(cell, seed + 41)) — count that too.
+			const sj =
+				Number(q.size_jitter ?? 0) > 0
+					? Number(q.size_jitter) * hashI(imodJs(x, per[0]), imodJs(y, per[1]), Math.fround(Math.fround(ctx.seed) + 41))
+					: 0;
+			if (hmin - sj < minCell) data[(j * nx + i) * 4] = 255;
+		}
+	return { cells: { width: nx, height: ny, data } };
 }
 
 export const voronoiLayer: LayerDef = {
-  type: 'voronoi',
-  noise: true,
-  label: 'Voronoi',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Cellular pattern: bevelled cells (cobbles, flagstones) or F1 / F2 / edge / crackle values.',
-  params: [
-    P.enum('output', 'Output', 'cells', [
-      ['cells', 'Cells (shape)'],
-      ['f1', 'F1 (distance to point)'],
-      ['f2', 'F2'],
-      ['edges', 'Edges (F2 − F1)'],
-      ['crackle', 'Crackle'],
-      ['facets', 'Facets (tilted planes)'],
-    ], { hint: 'Cells is a shape (bevelled by the Shape params); the others are plain values. Facets: each cell a flat plane tilted a random way — with height Min, broad faceted cuts (chipped stone edges)' }),
-    P.float('tilt', 'Facet tilt', 1, 0, 8, { softMax: 3, step: 0.01, showIf: (p) => p.output === 'facets', hint: 'Plane slope (value change across one cell)' }),
-    P.float('facet_soft', 'Facet edge', 3, 0.5, 64, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => p.output === 'facets' && p.facet_fit === true, hint: 'Width of the chamfer where two soft facets meet: a few px for crisp cut stone, more for worn, rounded ridges' }),
-    P.bool('facet_fit', 'Soft facets', true, { showIf: (p) => p.output === 'facets', hint: 'Keeps every plane in range (its slope capped, no clipped plateaus) and turns the cliff where two facets meet into a short slope — a faceted surface instead of a stack of cut-outs' }),
-    P.float('scale', 'Scale', 6, 0.25, 256, { softMax: 32, step: 0.01, hint: 'Cells across the texture width (rounded when tiling)' }),
-    P.float('jitter', 'Jitter', 0.8, 0, 1, { step: 0.001, hint: '0 = regular grid' }),
-    P.enum('metric', 'Metric', 'euclidean', [['euclidean', 'Euclidean'], ['manhattan', 'Manhattan'], ['chebyshev', 'Chebyshev']]),
-    P.float('gap', 'Gap', 2, 0, 256, { softMax: 24, unit: 'px', step: 0.1, showIf: (p) => p.output === 'cells' || p.output === 'crackle', hint: 'Cells: grout width. Crackle: crack falloff width' }),
-    P.float('crack_var', 'Crack variation', 0.6, 0, 1, { step: 0.001, showIf: (p) => p.output === 'crackle', hint: 'Each crack its own width and depth, both wandering along it (1 = from hairlines to the full Gap); the cracks become V-shaped' }),
-    P.float('crack_scale', 'Variation scale', 0.6, 0.1, 8, { softMax: 4, step: 0.01, showIf: (p) => p.output === 'crackle' && Number(p.crack_var) > 0, hint: 'How long the swells and narrows of the cracks are, in cells: small = each crack varies along its own length, large = whole regions of hairlines and of wide cracks' }),
-    P.float('crack_tone', 'Crack darkness', 0.7, 0, 1, { step: 0.001, showIf: (p) => p.output === 'crackle', hint: 'Darkens the cracks in Diffuse by their depth (with Source › Random: towards the ramp’s dark end), so they read as dark gaps' }),
-    P.float('round', 'Corner rounding', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1, showIf: (p) => p.output === 'cells' && p.metric === 'euclidean' }),
-    P.float('min_cell', 'Smallest cell', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1, showIf: (p) => cellsOut(p) && p.metric === 'euclidean', hint: 'Cells whose nearest edge comes closer to their middle than this are merged away — their neighbours fill the place — so no pebbles in the joints or needle slivers (0 = keep every cell)' }),
-    P.float('min_bevel', 'Smallest bevel', 0.5, 0, 1, { step: 0.001, showIf: (p) => cellsOut(p) && p.metric === 'euclidean', hint: 'A cell too small for the bevel gets a narrower one, scaled with its size down to this share of the Bevel, so small stones still dome up (1 = every cell the same bevel)' }),
-    P.bool('round_bevel', 'Round bevel corners', true, { showIf: (p) => p.output === 'cells' && p.metric === 'euclidean' && Number(p.round) > 0, hint: 'Keeps the bevel’s inner contours as round as the corners, however wide the bevel — otherwise, deeper than the rounding, they sharpen into mitre lines from each corner' }),
-    P.float('warp', 'Warp', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.05, hint: 'Noise displacement — irregular cell borders' }),
-    P.float('warp_scale', 'Warp scale', 8, 0.25, 128, { softMax: 32, step: 0.01, showIf: (p) => Number(p.warp) > 0 }),
-    P.float('grout_level', 'Grout level', 0.2, 0, 1, { step: 0.001, showIf: cellsOut, hint: 'Height of the bed between the cells as a share of theirs (Height › Pattern only): 0 leaves the joints at the surface below; higher fills them with a level, slightly lumpy bed. On, Height skips Shaping › Value' }),
-    P.float('size_var', 'Cell size variation', 0.5, 0, 1, { step: 0.001, showIf: (p) => p.metric === 'euclidean' && p.output !== 'facets', section: 'Irregularity', hint: 'Some cells grow at their neighbours’ expense (a power diagram: edges stay straight): big stones among small ones instead of cells all about the same size' }),
-    P.float('size_jitter', 'Size jitter', 0, 0, 128, { softMax: 16, unit: 'px', step: 0.1, showIf: cellsOut, section: 'Irregularity', hint: 'Shrinks each cell by a random amount up to this: joints of uneven width, loosely laid stones' }),
-    P.float('pos_jitter', 'Position jitter', 0, 0, 64, { softMax: 16, unit: 'px', step: 0.05, showIf: (p) => cellsOut(p) && p.metric === 'euclidean', section: 'Irregularity', hint: 'Random shift per cell within its place; a cell that would need more room than its joint gives is shrunk to fit' }),
-    P.float('rot_jitter', 'Rotation jitter', 2, 0, 30, { softMax: 10, unit: '°', step: 0.1, showIf: (p) => cellsOut(p) && p.metric === 'euclidean', section: 'Irregularity', hint: 'Random turn per cell; a cell whose corners would need more room than its joint gives is shrunk to fit' }),
-    ...faceParams('cell').map((d) => ({ ...d, showIf: cellsOut })),
-    P.seed(),
-  ],
-  sdfShowIf: cellsOut,
-  textures: ['cells'],
-  cpuData: voronoiCells,
-  // Crackle's lines are the high value: as Height they would stand up as ridges, so they cut in instead.
-  linkedDefaults: (p) => ({ h_mode: p.output === 'crackle' ? 'subtract' : 'add' }),
-  // Cells added in the editor: cobbles sized to the texture — bevel, gap, corner rounding, warp, size jitter and the
-  // smallest cell in proportion to the cells.
-  fresh: ({ width }) => {
-    const cell = width / 6
-    return {
-      bevel: r1(clamp(cell * 0.14, 1, 64)),
-      gap: r1(clamp(cell * 0.03, 1, 16)),
-      round: r1(clamp(cell * 0.08, 0, 32)),
-      warp: r1(clamp(cell * 0.05, 0.5, 16)),
-      size_jitter: r1(clamp(cell * 0.02, 0, 8)),
-      min_cell: r1(clamp(cell * 0.08, 1, 32)),
-    }
-  },
-  defaults: {
-    face: 0.35,
-    crown: 0.3,
-    face_tilt: 0.35,
-    h_var: 0.3,
-    h_on: true,
-    h_amount: 0.5,
-    bevel: 3,
-    profile: 'round',
-    dif_on: true,
-    dif_src: 'random',
-    dif_grad: gradient('#4a463f', '#6b655a', '#7f776a', '#958b7b'),
-  },
-  glsl:
-    PAT_GLSL +
-    PAT_FACE_GLSL +
-    /* glsl */ `
+	type: 'voronoi',
+	noise: true,
+	label: 'Voronoi',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description: 'Cellular pattern: bevelled cells (cobbles, flagstones) or F1 / F2 / edge / crackle values.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'cells',
+			[
+				['cells', 'Cells (shape)'],
+				['f1', 'F1 (distance to point)'],
+				['f2', 'F2'],
+				['edges', 'Edges (F2 − F1)'],
+				['crackle', 'Crackle'],
+				['facets', 'Facets (tilted planes)']
+			],
+			{
+				hint: 'Cells is a shape (bevelled by the Shape params); the others are plain values. Facets: each cell a flat plane tilted a random way — with height Min, broad faceted cuts (chipped stone edges)'
+			}
+		),
+		P.float('tilt', 'Facet tilt', 1, 0, 8, {
+			softMax: 3,
+			step: 0.01,
+			showIf: (p) => p.output === 'facets',
+			hint: 'Plane slope (value change across one cell)'
+		}),
+		P.float('facet_soft', 'Facet edge', 3, 0.5, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => p.output === 'facets' && p.facet_fit === true,
+			hint: 'Width of the chamfer where two soft facets meet: a few px for crisp cut stone, more for worn, rounded ridges'
+		}),
+		P.bool('facet_fit', 'Soft facets', true, {
+			showIf: (p) => p.output === 'facets',
+			hint: 'Keeps every plane in range (its slope capped, no clipped plateaus) and turns the cliff where two facets meet into a short slope — a faceted surface instead of a stack of cut-outs'
+		}),
+		P.float('scale', 'Scale', 6, 0.25, 256, {
+			softMax: 32,
+			step: 0.01,
+			hint: 'Cells across the texture width (rounded when tiling)'
+		}),
+		P.float('jitter', 'Jitter', 0.8, 0, 1, { step: 0.001, hint: '0 = regular grid' }),
+		P.enum('metric', 'Metric', 'euclidean', [
+			['euclidean', 'Euclidean'],
+			['manhattan', 'Manhattan'],
+			['chebyshev', 'Chebyshev']
+		]),
+		P.float('gap', 'Gap', 2, 0, 256, {
+			softMax: 24,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => p.output === 'cells' || p.output === 'crackle',
+			hint: 'Cells: grout width. Crackle: crack falloff width'
+		}),
+		P.float('crack_var', 'Crack variation', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.output === 'crackle',
+			hint: 'Each crack its own width and depth, both wandering along it (1 = from hairlines to the full Gap); the cracks become V-shaped'
+		}),
+		P.float('crack_scale', 'Variation scale', 0.6, 0.1, 8, {
+			softMax: 4,
+			step: 0.01,
+			showIf: (p) => p.output === 'crackle' && Number(p.crack_var) > 0,
+			hint: 'How long the swells and narrows of the cracks are, in cells: small = each crack varies along its own length, large = whole regions of hairlines and of wide cracks'
+		}),
+		P.float('crack_tone', 'Crack darkness', 0.7, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.output === 'crackle',
+			hint: 'Darkens the cracks in Diffuse by their depth (with Source › Random: towards the ramp’s dark end), so they read as dark gaps'
+		}),
+		P.float('round', 'Corner rounding', 4, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => p.output === 'cells' && p.metric === 'euclidean'
+		}),
+		P.float('min_cell', 'Smallest cell', 0, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => cellsOut(p) && p.metric === 'euclidean',
+			hint: 'Cells whose nearest edge comes closer to their middle than this are merged away — their neighbours fill the place — so no pebbles in the joints or needle slivers (0 = keep every cell)'
+		}),
+		P.float('min_bevel', 'Smallest bevel', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => cellsOut(p) && p.metric === 'euclidean',
+			hint: 'A cell too small for the bevel gets a narrower one, scaled with its size down to this share of the Bevel, so small stones still dome up (1 = every cell the same bevel)'
+		}),
+		P.bool('round_bevel', 'Round bevel corners', true, {
+			showIf: (p) => p.output === 'cells' && p.metric === 'euclidean' && Number(p.round) > 0,
+			hint: 'Keeps the bevel’s inner contours as round as the corners, however wide the bevel — otherwise, deeper than the rounding, they sharpen into mitre lines from each corner'
+		}),
+		P.float('warp', 'Warp', 0, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.05,
+			hint: 'Noise displacement — irregular cell borders'
+		}),
+		P.float('warp_scale', 'Warp scale', 8, 0.25, 128, { softMax: 32, step: 0.01, showIf: (p) => Number(p.warp) > 0 }),
+		P.float('grout_level', 'Grout level', 0.2, 0, 1, {
+			step: 0.001,
+			showIf: cellsOut,
+			hint: 'Height of the bed between the cells as a share of theirs (Height › Pattern only): 0 leaves the joints at the surface below; higher fills them with a level, slightly lumpy bed. On, Height skips Shaping › Value'
+		}),
+		P.float('size_var', 'Cell size variation', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.metric === 'euclidean' && p.output !== 'facets',
+			section: 'Irregularity',
+			hint: 'Some cells grow at their neighbours’ expense (a power diagram: edges stay straight): big stones among small ones instead of cells all about the same size'
+		}),
+		P.float('size_jitter', 'Size jitter', 0, 0, 128, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			showIf: cellsOut,
+			section: 'Irregularity',
+			hint: 'Shrinks each cell by a random amount up to this: joints of uneven width, loosely laid stones'
+		}),
+		P.float('pos_jitter', 'Position jitter', 0, 0, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			showIf: (p) => cellsOut(p) && p.metric === 'euclidean',
+			section: 'Irregularity',
+			hint: 'Random shift per cell within its place; a cell that would need more room than its joint gives is shrunk to fit'
+		}),
+		P.float('rot_jitter', 'Rotation jitter', 2, 0, 30, {
+			softMax: 10,
+			unit: '°',
+			step: 0.1,
+			showIf: (p) => cellsOut(p) && p.metric === 'euclidean',
+			section: 'Irregularity',
+			hint: 'Random turn per cell; a cell whose corners would need more room than its joint gives is shrunk to fit'
+		}),
+		...faceParams('cell').map((d) => ({ ...d, showIf: cellsOut })),
+		P.seed()
+	],
+	sdfShowIf: cellsOut,
+	textures: ['cells'],
+	cpuData: voronoiCells,
+	// Crackle's lines are the high value: as Height they would stand up as ridges, so they cut in instead.
+	linkedDefaults: (p) => ({ h_mode: p.output === 'crackle' ? 'subtract' : 'add' }),
+	// Cells added in the editor: cobbles sized to the texture — bevel, gap, corner rounding, warp, size jitter and the
+	// smallest cell in proportion to the cells.
+	fresh: ({ width }) => {
+		const cell = width / 6;
+		return {
+			bevel: r1(clamp(cell * 0.14, 1, 64)),
+			gap: r1(clamp(cell * 0.03, 1, 16)),
+			round: r1(clamp(cell * 0.08, 0, 32)),
+			warp: r1(clamp(cell * 0.05, 0.5, 16)),
+			size_jitter: r1(clamp(cell * 0.02, 0, 8)),
+			min_cell: r1(clamp(cell * 0.08, 1, 32))
+		};
+	},
+	defaults: {
+		face: 0.35,
+		crown: 0.3,
+		face_tilt: 0.35,
+		h_var: 0.3,
+		h_on: true,
+		h_amount: 0.5,
+		bevel: 3,
+		profile: 'round',
+		dif_on: true,
+		dif_src: 'random',
+		dif_grad: gradient('#4a463f', '#6b655a', '#7f776a', '#958b7b')
+	},
+	glsl:
+		PAT_GLSL +
+		PAT_FACE_GLSL +
+		/* glsl */ `
 float pat_metric(vec2 r) {
   return u_metric == 1 ? abs(r.x) + abs(r.y) : u_metric == 2 ? max(abs(r.x), abs(r.y)) : length(r);
 }
@@ -1397,49 +1705,64 @@ GenOut gen(vec2 p) {
   if (u_grout_level > 0.0) return pat_bedOut(rnd, d, drawn, hv, u_grout_level, nz);
   return pat_out(rnd, d, drawn, hv, faced);
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ grid lines
 
 export const gridLayer: LayerDef = {
-  type: 'grid',
-  label: 'Grid lines',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Grid of lines as a shape — panel seams, tile grout, etched guides. Per-panel random.',
-  params: [
-    P.int('count_x', 'Count X', 4, 0, 512, { softMax: 32, hint: 'Vertical lines across the width (0 = none)' }),
-    P.int('count_y', 'Count Y', 4, 0, 512, { softMax: 32, hint: 'Horizontal lines down the height (0 = none)' }),
-    P.float('width', 'Line width', 2, 0, 512, { softMax: 16, unit: 'px', step: 0.1 }),
-    P.float('offset_x', 'Offset X', 0, 0, 1, { step: 0.001, hint: 'Shift, as a fraction of a cell' }),
-    P.float('offset_y', 'Offset Y', 0, 0, 1, { step: 0.001 }),
-    P.float('round', 'Corner rounding', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1, hint: 'Rounds the panels’ corners where the lines cross: rounded tiles in their grout' }),
-    P.bool('snap', 'Whole-pixel lines', true, { hint: 'Where the count doesn’t divide the texture, puts every line on whole pixels (the remainder spread over the panels), so all lines look equally heavy. Moved or varied lines always are' }),
-    P.float('jitter', 'Spacing jitter', 0, 0, 1, { step: 0.001, section: 'Irregularity', hint: 'Moves the lines so the rows and columns get uneven widths: at 1 mostly from about 0.45 to 1.55 of a cell (never closer than two line widths plus the bevels), neighbouring panels not simply alternating narrow and wide. Moved lines sit on whole pixels. For staggered panels use Bricks' }),
-    P.float('width_var', 'Width variation', 0, 0, 1, { step: 0.001, section: 'Irregularity', hint: 'Each line gets its own width, from full down to (1 − this) × Line width — whole pixels, at least 1; thin lines keep the full groove depth' }),
-    P.seed(),
-  ],
-  // Lines added in the editor: grooves wide enough to read as grooves at this size, not ink lines.
-  fresh: ({ width, height }) => {
-    const w = Math.round(clamp(Math.min(width, height) / 96, 1, 8))
-    return { width: w, bevel: r1(clamp(w * 0.35, 0.5, 4)) }
-  },
-  defaults: {
-    h_on: true,
-    h_mode: 'subtract',
-    h_amount: 0.4,
-    bevel: 1,
-    profile: 'smooth',
-    dif_on: true,
-    dif_src: 'flat',
-    dif_opacity: 0.7,
-    dif_grad: gradient('#1d1b19'),
-  },
-  glsl:
-    PAT_GLSL +
-    /* glsl */ `
+	type: 'grid',
+	label: 'Grid lines',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description: 'Grid of lines as a shape — panel seams, tile grout, etched guides. Per-panel random.',
+	params: [
+		P.int('count_x', 'Count X', 4, 0, 512, { softMax: 32, hint: 'Vertical lines across the width (0 = none)' }),
+		P.int('count_y', 'Count Y', 4, 0, 512, { softMax: 32, hint: 'Horizontal lines down the height (0 = none)' }),
+		P.float('width', 'Line width', 2, 0, 512, { softMax: 16, unit: 'px', step: 0.1 }),
+		P.float('offset_x', 'Offset X', 0, 0, 1, { step: 0.001, hint: 'Shift, as a fraction of a cell' }),
+		P.float('offset_y', 'Offset Y', 0, 0, 1, { step: 0.001 }),
+		P.float('round', 'Corner rounding', 0, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Rounds the panels’ corners where the lines cross: rounded tiles in their grout'
+		}),
+		P.bool('snap', 'Whole-pixel lines', true, {
+			hint: 'Where the count doesn’t divide the texture, puts every line on whole pixels (the remainder spread over the panels), so all lines look equally heavy. Moved or varied lines always are'
+		}),
+		P.float('jitter', 'Spacing jitter', 0, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			hint: 'Moves the lines so the rows and columns get uneven widths: at 1 mostly from about 0.45 to 1.55 of a cell (never closer than two line widths plus the bevels), neighbouring panels not simply alternating narrow and wide. Moved lines sit on whole pixels. For staggered panels use Bricks'
+		}),
+		P.float('width_var', 'Width variation', 0, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			hint: 'Each line gets its own width, from full down to (1 − this) × Line width — whole pixels, at least 1; thin lines keep the full groove depth'
+		}),
+		P.seed()
+	],
+	// Lines added in the editor: grooves wide enough to read as grooves at this size, not ink lines.
+	fresh: ({ width, height }) => {
+		const w = Math.round(clamp(Math.min(width, height) / 96, 1, 8));
+		return { width: w, bevel: r1(clamp(w * 0.35, 0.5, 4)) };
+	},
+	defaults: {
+		h_on: true,
+		h_mode: 'subtract',
+		h_amount: 0.4,
+		bevel: 1,
+		profile: 'smooth',
+		dif_on: true,
+		dif_src: 'flat',
+		dif_opacity: 0.7,
+		dif_grad: gradient('#1d1b19')
+	},
+	glsl:
+		PAT_GLSL +
+		/* glsl */ `
 // Line k of an axis (0 = x, 1 = y) with m cells of cs px, the axis offset off (cells): where it starts (cells, jittered)
 // and its width (px). Moved or varied lines start and end on whole pixels (so equal lines look equal), and at full
 // jitter neighbouring lines stay at least 0.4 of a cell, two line widths plus the bevels and 2 px apart.
@@ -1511,50 +1834,107 @@ GenOut gen(vec2 p) {
   }
   return o;
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ stripes
 
-const stripeShape = (p: Record<string, unknown>) => p.mode === 'shape' || p.mode === 'square'
+const stripeShape = (p: Record<string, unknown>) => p.mode === 'shape' || p.mode === 'square';
 
 export const stripesLayer: LayerDef = {
-  type: 'stripes',
-  label: 'Stripes',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Parallel stripes at any angle (snapped to the nearest seamless angle when tiling); shape or wave value.',
-  params: [
-    P.enum('mode', 'Output', 'shape', [
-      ['shape', 'Stripes (shape)'],
-      ['square', 'Soft square'],
-      ['sine', 'Sine'],
-      ['triangle', 'Triangle'],
-      ['saw', 'Sawtooth'],
-    ], { hint: 'Shape makes each stripe an SDF for bevels; the others are plain values across the period' }),
-    P.float('count', 'Count', 8, 0.25, 512, { softMax: 64, step: 0.01, hint: 'Stripes per texture width (period = width / count). When tiling, whole cycles must fit across both axes, so a slanted count is rounded with the angle (e.g. 12 at 45° gives 8 crossings per edge, about 11.3)' }),
-    P.float('angle', 'Angle', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1, hint: 'Stripe direction, clockwise from horizontal. Snapped to a seamless angle when tiling' }),
-    P.float('duty', 'Width', 0.5, 0, 1, { step: 0.001, showIf: (p) => p.mode === 'shape' || p.mode === 'square', hint: 'Fraction of each period covered by the stripe' }),
-    P.float('soft', 'Softness', 3, 0, 256, { softMax: 32, unit: 'px', step: 0.1, showIf: (p) => p.mode === 'square' || p.mode === 'saw', hint: 'Soft square: the edge ramp. Sawtooth: the drop back to 0 takes this many px instead of one' }),
-    P.enum('soft_profile', 'Softness profile', 'smooth', [['linear', 'Linear'], ['smooth', 'Smooth']], { showIf: (p) => p.mode === 'square' || p.mode === 'saw', hint: 'Smooth: the softened edges ease in and out (no crease where a slope starts and stops)' }),
-    P.bool('fit_bevel', 'Fit the bevel', true, { showIf: (p) => p.mode === 'shape', hint: 'Keeps each stripe’s bevel to at most a third of its width (narrow stripes stay planks with flat tops, not rods), and puts its half height at the stripe’s edge — where the colour stops — so 0.5 looks half and half. Height then skips Shaping › Value' }),
-    P.float('offset', 'Phase', 0, 0, 1, { step: 0.001 }),
-    P.float('width_var', 'Width variation', 0, 0, 1, { step: 0.001, section: 'Irregularity', showIf: stripeShape, hint: 'Each stripe gets its own width, from (1 − this) to (1 + this) × Width — never thinner than a pixel and its bevels, never closing the gap to the next' }),
-    P.float('jitter', 'Spacing jitter', 0, 0, 1, { step: 0.001, section: 'Irregularity', showIf: stripeShape, hint: 'Moves each stripe a random way: within its period, and at 1 up to a quarter period into its neighbours’ (they may merge) — uneven spacing: planks, ruled lines, barcodes' }),
-    P.float('skip', 'Missing stripes', 0, 0, 1, { step: 0.001, section: 'Irregularity', showIf: stripeShape, hint: 'Chance of each stripe being left out: clusters and wide gaps (barcodes, sparse planks, worn markings)' }),
-    P.seed(),
-  ],
-  sdfShowIf: (p) => p.mode === 'shape',
-  // Diffuse: shape stripes are painted flat by their shape (the bevel only in Height, so no dark frame along every
-  // edge); the waves by their value.
-  linkedDefaults: (p) => ({ dif_src: p.mode === 'shape' ? 'shape' : 'value' }),
-  // Stripes added in the editor: a bevel that rounds each stripe into a band at this size.
-  fresh: ({ width }) => ({ bevel: r1(clamp((width / 8) * 0.5 * 0.25, 1, 32)) }),
-  defaults: { h_on: true, h_amount: 0.4, bevel: 2, profile: 'smooth' },
-  glsl:
-    PAT_GLSL +
-    /* glsl */ `
+	type: 'stripes',
+	label: 'Stripes',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Parallel stripes at any angle (snapped to the nearest seamless angle when tiling); shape or wave value.',
+	params: [
+		P.enum(
+			'mode',
+			'Output',
+			'shape',
+			[
+				['shape', 'Stripes (shape)'],
+				['square', 'Soft square'],
+				['sine', 'Sine'],
+				['triangle', 'Triangle'],
+				['saw', 'Sawtooth']
+			],
+			{ hint: 'Shape makes each stripe an SDF for bevels; the others are plain values across the period' }
+		),
+		P.float('count', 'Count', 8, 0.25, 512, {
+			softMax: 64,
+			step: 0.01,
+			hint: 'Stripes per texture width (period = width / count). When tiling, whole cycles must fit across both axes, so a slanted count is rounded with the angle (e.g. 12 at 45° gives 8 crossings per edge, about 11.3)'
+		}),
+		P.float('angle', 'Angle', 0, -360, 360, {
+			softMin: -180,
+			softMax: 180,
+			unit: '°',
+			step: 0.1,
+			hint: 'Stripe direction, clockwise from horizontal. Snapped to a seamless angle when tiling'
+		}),
+		P.float('duty', 'Width', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.mode === 'shape' || p.mode === 'square',
+			hint: 'Fraction of each period covered by the stripe'
+		}),
+		P.float('soft', 'Softness', 3, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => p.mode === 'square' || p.mode === 'saw',
+			hint: 'Soft square: the edge ramp. Sawtooth: the drop back to 0 takes this many px instead of one'
+		}),
+		P.enum(
+			'soft_profile',
+			'Softness profile',
+			'smooth',
+			[
+				['linear', 'Linear'],
+				['smooth', 'Smooth']
+			],
+			{
+				showIf: (p) => p.mode === 'square' || p.mode === 'saw',
+				hint: 'Smooth: the softened edges ease in and out (no crease where a slope starts and stops)'
+			}
+		),
+		P.bool('fit_bevel', 'Fit the bevel', true, {
+			showIf: (p) => p.mode === 'shape',
+			hint: 'Keeps each stripe’s bevel to at most a third of its width (narrow stripes stay planks with flat tops, not rods), and puts its half height at the stripe’s edge — where the colour stops — so 0.5 looks half and half. Height then skips Shaping › Value'
+		}),
+		P.float('offset', 'Phase', 0, 0, 1, { step: 0.001 }),
+		P.float('width_var', 'Width variation', 0, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			showIf: stripeShape,
+			hint: 'Each stripe gets its own width, from (1 − this) to (1 + this) × Width — never thinner than a pixel and its bevels, never closing the gap to the next'
+		}),
+		P.float('jitter', 'Spacing jitter', 0, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			showIf: stripeShape,
+			hint: 'Moves each stripe a random way: within its period, and at 1 up to a quarter period into its neighbours’ (they may merge) — uneven spacing: planks, ruled lines, barcodes'
+		}),
+		P.float('skip', 'Missing stripes', 0, 0, 1, {
+			step: 0.001,
+			section: 'Irregularity',
+			showIf: stripeShape,
+			hint: 'Chance of each stripe being left out: clusters and wide gaps (barcodes, sparse planks, worn markings)'
+		}),
+		P.seed()
+	],
+	sdfShowIf: (p) => p.mode === 'shape',
+	// Diffuse: shape stripes are painted flat by their shape (the bevel only in Height, so no dark frame along every
+	// edge); the waves by their value.
+	linkedDefaults: (p) => ({ dif_src: p.mode === 'shape' ? 'shape' : 'value' }),
+	// Stripes added in the editor: a bevel that rounds each stripe into a band at this size.
+	fresh: ({ width }) => ({ bevel: r1(clamp((width / 8) * 0.5 * 0.25, 1, 32)) }),
+	defaults: { h_on: true, h_amount: 0.4, bevel: 2, profile: 'smooth' },
+	glsl:
+		PAT_GLSL +
+		/* glsl */ `
 int pat_gcd(int a, int b) {
   a = abs(a); b = abs(b);
   for (int i = 0; i < 64; i++) { if (b == 0) break; int t = a % b; a = b; b = t; }
@@ -1651,18 +2031,18 @@ GenOut gen(vec2 p) {
   }
   return genOut(v, 1.0, rnd, ${NO_SDF});
 }
-`,
-}
+`
+};
 
 /** Pattern-category layers, in add-menu order. */
 export const PATTERN_LAYERS: LayerDef[] = [
-  bricksLayer,
-  hexLayer,
-  voronoiLayer,
-  gridLayer,
-  stripesLayer,
-  gradientLayer,
-  scratchesLayer,
-]
+	bricksLayer,
+	hexLayer,
+	voronoiLayer,
+	gridLayer,
+	stripesLayer,
+	gradientLayer,
+	scratchesLayer
+];
 
-export { cloudsLayer }
+export { cloudsLayer };

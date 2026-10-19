@@ -2,154 +2,291 @@
 // framed field. Pipes: runs of parallel cylinders or conduits with clamp straps. See greebleCommon.ts for the
 // relief / SDF output convention.
 
-import { P, gradient, type ParamValues } from '@/core/params'
-import { spacingParams } from '../commonParams'
-import type { LayerDef } from '../types'
-import { GRB_GLSL, ORIENT } from './greebleCommon'
+import { P, gradient, type ParamValues } from '@/core/params';
+import { spacingParams } from '../commonParams';
+import type { LayerDef } from '../types';
+import { FASTENER_HEADS, GRB_GLSL, ORIENT } from './greebleCommon';
 
-const r1 = (v: number) => Math.round(v * 10) / 10
-const isFins = (p: ParamValues) => p.mode === 'louvers' || p.mode === 'hoods'
-const framed = (p: ParamValues) => Number(p.margin) > 0
+const r1 = (v: number) => Math.round(v * 10) / 10;
+const isFins = (p: ParamValues) => p.mode === 'louvers' || p.mode === 'hoods';
+const framed = (p: ParamValues) => Number(p.margin) > 0;
 /** The largest fastener radius the frame takes: 0.3 × its flat (as the shader clamps it). */
 const fastenerCap = (p: ParamValues) => {
-  const m = Number(p.margin)
-  const flat = Math.max(m - Math.min(Math.max(Number(p.outer ?? 1), 0), 0.5 * m) - Math.min(Math.max(Number(p.bevel ?? 1), 0), 0.5 * m), 1)
-  return Math.max(0.3 * flat, 1.25)
-}
-const isConduit = (p: ParamValues) => p.shape === 'conduit'
+	const m = Number(p.margin);
+	const flat = Math.max(
+		m - Math.min(Math.max(Number(p.outer ?? 1), 0), 0.5 * m) - Math.min(Math.max(Number(p.bevel ?? 1), 0), 0.5 * m),
+		1
+	);
+	return Math.max(0.3 * flat, 1.25);
+};
+const isConduit = (p: ParamValues) => p.shape === 'conduit';
 
 // ------------------------------------------------------------------------------------------------ vents
 
 export const ventsLayer: LayerDef = {
-  type: 'vents',
-  label: 'Vents & grilles',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Grille of slots (round, square, pointed or hex ends), louvres (sunken fins, blade grilles or pressed hoods) or perforated holes (round, square, hex), staggered or in a framed panel with fasteners. Tileable.',
-  params: [
-    P.enum('output', 'Output', 'relief', [
-      ['relief', 'Relief (all, value)'],
-      ['slots', 'Slots / holes (shape)'],
-      ['plate', 'Plate between slots (shape)'],
-      ['frame', 'Border frame (shape)'],
-    ], { hint: 'Relief: the plate with its openings, louvres, frame and fasteners as one height (the Edge bevel and profile shape the frame step, Slot rim the openings). Shapes give one element as an SDF' }),
-    P.enum('mode', 'Mode', 'slots', [
-      ['slots', 'Slots'],
-      ['louvers', 'Louvres (sunken fins / blades)', 'angled fins inside each opening, below the plate; several Blades make a blade grille'],
-      ['holes', 'Holes'],
-      ['hoods', 'Pressed louvres (hoods)', 'a hood pressed up out of the plate over each opening, a dark slit under its lip'],
-    ]),
-    P.int('cols', 'Columns', 2, 1, 256, { softMax: 64, hint: 'Cells across the field (one slot or hole each)' }),
-    P.int('rows', 'Rows', 8, 1, 256, { softMax: 128, hint: 'Cells down the field (even with stagger to tile)' }),
-    ...spacingParams(),
-    P.enum('orient', 'Slot direction', 'horizontal', ORIENT, { showIf: (p) => p.mode !== 'holes' }),
-    P.float('length', 'Slot length', 24, 1, 4096, { softMax: 512, unit: 'px', step: 0.5, showIf: (p) => p.mode !== 'holes', hint: 'Clamped to the cell: as long as the cell (or more), slots join into continuous bars. Whole px stays crisp' }),
-    P.float('width', 'Slot width', 3, 0.5, 1024, { softMax: 64, unit: 'px', step: 0.5, hint: 'Slot thickness, or hole diameter (hex holes: across the flats). Keeps at least a 1 px bar to the next row' }),
-    P.enum('ends', 'Ends', 'round', [
-      ['round', 'Round'],
-      ['square', 'Square'],
-      ['pointed', 'Pointed (both sides)'],
-      ['angled', 'Angled (one diagonal cut)'],
-      ['hex', 'Hex (60° points)'],
-    ], {
-      hint: 'Slot ends. Pointed ends taper to a point (Point length); staggered they leave bow-tie tabs. Angled ends cut both ends on the same diagonal; hex ends make elongated hexagons. Holes: round, square or hex (standing on a point: with Stagger 0.5 and rows ≈ 0.87 × the column spacing they pack into a honeycomb)',
-    }),
-    P.float('tip', 'Point length', 1.5, 0.1, 8, { softMax: 4, step: 0.01, showIf: (p) => p.mode !== 'holes' && (p.ends === 'pointed' || p.ends === 'angled'), hint: 'Length of the pointed or angled ends, in slot widths: 0.5 = 45°, 2 = long tapers' }),
-    P.float('stagger', 'Stagger', 0, 0, 1, { step: 0.001, hint: 'Shift alternate rows along the slots, fraction of a cell (0.5 = brick / hex packing)' }),
-    P.float('louver', 'Fin slant', 0.8, -1, 1, { step: 0.001, showIf: isFins, hint: 'Sign: which side the fins open to. Size: 0 = rounded bars (fins) or domed hoods, 1 = straight ramps' }),
-    P.int('blades', 'Blades', 1, 1, 16, { showIf: isFins, hint: 'Fins (or hoods) side by side in each opening. Two or more sunken fins make a blade grille: slats with their top edge just under the plate, a rounded lip and a dark gap behind' }),
-    P.float('rise', 'Hood rise', 0.3, 0, 1, { step: 0.001, showIf: (p) => p.mode === 'hoods', hint: 'How far the hoods rise above the plate at their lip (relief; 1 = as far as the frame stands above 0)' }),
-    P.float('depth', 'Depth', 1, 0, 1, { step: 0.001, hint: 'How far the openings sink below the plate (relief): 1 = right through (the darkest colour inside), lower = shallow pressed recesses' }),
-    P.float('rim', 'Slot rim', 1, 0, 256, { softMax: 16, unit: 'px', step: 0.25, hint: 'A bevel round each opening, on the plate outside it: the plate slopes down into the opening over this width with the Edge profile (the opening keeps its width). 0 = cut sharp' }),
-    P.float('bead', 'Rim bead', 0, 0, 1, { step: 0.001, showIf: (p) => Number(p.rim) > 0, hint: 'An embossed bead raised on the rim round each opening (relief; 1 = as high as the frame stands)' }),
-    P.enum('mask', 'Shape for the mask', 'plate', [
-      ['none', 'None', 'the relief leaves its mask as it was'],
-      ['plate', 'Plate', 'the metal: plate, frame and fasteners, the openings cut out'],
-      ['slots', 'Openings', 'the slots or holes'],
-      ['frame', 'Frame', 'the border frame (needs a Frame width)'],
-    ], {
-      showIf: (p) => (p.output ?? 'relief') === 'relief',
-      hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (paint only the plate, or only inside the slots) or bevel from',
-    }),
-    P.seed(),
-    P.float('margin', 'Frame', 0, 0, 1024, { softMax: 128, unit: 'px', step: 0.5, group: 'frame', hint: 'Border with no slots round the tile (0 = an endless grille). The Edge bevel slopes it down to the field' }),
-    P.float('field_level', 'Field level', 0.8, 0, 1, { step: 0.001, group: 'frame', hint: 'Height of the plate inside the frame (the frame is 1): how deep the field sits, and the headroom for hoods and beads. Later layers that read the heights (Height mask, cavity) see these levels' }),
-    P.float('clear', 'Edge clearance', 0, 0, 512, { softMax: 64, unit: 'px', step: 0.5, group: 'frame', showIf: framed, hint: 'Space kept clear inside the field’s edge: the openings are laid out over the rest, so the outermost bars are as wide as the others (or wider)' }),
-    P.float('outer', 'Outer bevel', 1, 0, 256, { softMax: 32, unit: 'px', step: 0.25, group: 'frame', showIf: framed, hint: 'The frame slopes down to the wall at the tile edge over this width (Edge profile), so the panel stands on its own and tiled panels meet in a groove. 0 = the frame runs flat to the edge' }),
-    P.float('round', 'Corner radius', 2, 0, 512, { softMax: 64, unit: 'px', step: 0.5, group: 'frame', showIf: framed, hint: 'Rounds the field’s corners; the panel’s outer corners follow at the frame’s width further out' }),
-    P.enum('fasteners', 'Fasteners', 'none', [['none', 'None'], ['corners', 'Corners'], ['sides', 'Corners and sides']], { group: 'frame', showIf: framed, hint: 'Screw or rivet heads on the frame' }),
-    P.float('fast_size', 'Fastener radius', 3, 0.5, 128, {
-      softMax: 24,
-      unit: 'px',
-      step: 0.25,
-      group: 'frame',
-      showIf: (p) => framed(p) && (p.fasteners ?? 'none') !== 'none',
-      note: (p) => {
-        const cap = fastenerCap(p)
-        return Number(p.fast_size) > cap ? `capped at ${r1(cap)} px: 0.3 × the frame’s flat` : undefined
-      },
-      hint: 'Head radius, at most 0.3 × the frame’s flat (Frame less the outer bevel and the step to the field)',
-    }),
-    P.enum('fast_style', 'Fastener head', 'slotted', [['dome', 'Dome (rivet)'], ['slotted', 'Slotted screw'], ['cross', 'Cross screw']], {
-      group: 'frame',
-      showIf: (p) => framed(p) && (p.fasteners ?? 'none') !== 'none',
-      hint: 'Screw slots are turned at random (by the seed)',
-    }),
-    P.float('depth_var', 'Depth variation', 0, 0, 1, { step: 0.001, group: 'wear', hint: 'Each opening its own random depth (1 = anywhere from full to none): partly filled ones dish like dents' }),
-    P.float('missing', 'Missing', 0, 0, 1, { step: 0.001, group: 'wear', hint: 'Share of the openings left out at random: broken bars, gappy perforation' }),
-    P.bool('plugs', 'Show plugs', true, { group: 'wear', showIf: (p) => Number(p.missing) > 0, hint: 'Missing openings show as blanking plugs: a fine seam round a slightly sunk patch. Off: no trace' }),
-  ],
-  groups: [
-    { id: 'frame', label: 'Frame' },
-    { id: 'wear', label: 'Wear' },
-  ],
-  maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'plate') !== 'none' ? 'shape' : false),
-  defaults: {
-    h_on: true,
-    h_amount: 1,
-    bevel: 1,
-    profile: 'smooth',
-    dif_on: true,
-    dif_src: 'value',
-    // Black through the openings, dark walls, the field and frame as mid metal.
-    dif_grad: { stops: [{ pos: 0, color: '#080807' }, { pos: 0.3, color: '#2b2926' }, { pos: 0.6, color: '#615c54' }, { pos: 1, color: '#7c766b' }] },
-  },
-  // A new layer in the editor: a framed panel sized to the texture (cells about 1/20 of it tall, slots 80 % × 40 % of
-  // the cell) with a stepped-down field, edge clearance, rounded corners, an outer bevel, corner screws and chamfered
-  // slot rims in proportion.
-  fresh: ({ width, height }) => {
-    const s = Math.min(width, height)
-    const margin = s >= 128 ? Math.round(s / 16) : 0
-    // Cells about 1/20 of the texture tall (8…48 px); on strips and small panels (from 100 px) never below ~22 px, so a
-    // short side still gets a few bold rows rather than many hairlines.
-    const cy = Math.min(48, Math.max(8, height / 20, s >= 100 ? Math.min(s / 5.5, 22) : 0))
-    const rows = Math.max(1, Math.round((height - 2 * margin) / cy))
-    const cols = Math.max(1, Math.round((width - 2 * margin) / (cy * 5)))
-    const bevel = Math.max(1, Math.round(s / 128))
-    const w = Math.max(1, Math.round(((height - 2 * margin) / rows) * 0.4))
-    // Clear of the frame step by the bevel and half a bar more, so the outer bars match the inner ones.
-    const clear = margin > 0 ? Math.round(bevel + 0.5 * ((height - 2 * margin) / rows - w)) : 0
-    const cellX = (width - 2 * margin - 2 * clear) / cols
-    return {
-      cols,
-      rows,
-      length: Math.max(1, Math.round(cellX * 0.8)),
-      width: w,
-      rim: r1(Math.max(1, w * 0.3)),
-      margin,
-      clear,
-      field_level: margin > 0 ? 0.6 : 0.8,
-      outer: margin > 0 ? Math.max(1, Math.round(s / 170)) : 0,
-      round: margin > 0 ? Math.round(s / 64) : 0,
-      fasteners: margin >= 6 ? 'corners' : 'none',
-      fast_size: r1(Math.max(1.5, margin * 0.2)),
-      bevel,
-    }
-  },
-  glsl:
-    GRB_GLSL +
-    /* glsl */ `
+	type: 'vents',
+	label: 'Vents & grilles',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Grille of slots (round, square, pointed or hex ends), louvres (sunken fins, blade grilles or pressed hoods) or perforated holes (round, square, hex), staggered or in a framed panel with fasteners. Tileable.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'relief',
+			[
+				['relief', 'Relief (all, value)'],
+				['slots', 'Slots / holes (shape)'],
+				['plate', 'Plate between slots (shape)'],
+				['frame', 'Border frame (shape)']
+			],
+			{
+				hint: 'Relief: the plate with its openings, louvres, frame and fasteners as one height (the Edge bevel and profile shape the frame step, Slot rim the openings). Shapes give one element as an SDF'
+			}
+		),
+		P.enum('mode', 'Mode', 'slots', [
+			['slots', 'Slots'],
+			[
+				'louvers',
+				'Louvres (sunken fins / blades)',
+				'angled fins inside each opening, below the plate; several Blades make a blade grille'
+			],
+			['holes', 'Holes'],
+			[
+				'hoods',
+				'Pressed louvres (hoods)',
+				'a hood pressed up out of the plate over each opening, a dark slit under its lip'
+			]
+		]),
+		P.int('cols', 'Columns', 2, 1, 256, { softMax: 64, hint: 'Cells across the field (one slot or hole each)' }),
+		P.int('rows', 'Rows', 8, 1, 256, { softMax: 128, hint: 'Cells down the field (even with stagger to tile)' }),
+		...spacingParams(),
+		P.enum('orient', 'Slot direction', 'horizontal', ORIENT, { showIf: (p) => p.mode !== 'holes' }),
+		P.float('length', 'Slot length', 24, 1, 4096, {
+			softMax: 512,
+			unit: 'px',
+			step: 0.5,
+			showIf: (p) => p.mode !== 'holes',
+			hint: 'Clamped to the cell: as long as the cell (or more), slots join into continuous bars. Whole px stays crisp'
+		}),
+		P.float('width', 'Slot width', 3, 0.5, 1024, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.5,
+			hint: 'Slot thickness, or hole diameter (hex holes: across the flats). Keeps at least a 1 px bar to the next row'
+		}),
+		P.enum(
+			'ends',
+			'Ends',
+			'round',
+			[
+				['round', 'Round'],
+				['square', 'Square'],
+				['pointed', 'Pointed (both sides)'],
+				['angled', 'Angled (one diagonal cut)'],
+				['hex', 'Hex (60° points)']
+			],
+			{
+				hint: 'Slot ends. Pointed ends taper to a point (Point length); staggered they leave bow-tie tabs. Angled ends cut both ends on the same diagonal; hex ends make elongated hexagons. Holes: round, square or hex (standing on a point: with Stagger 0.5 and rows ≈ 0.87 × the column spacing they pack into a honeycomb)'
+			}
+		),
+		P.float('tip', 'Point length', 1.5, 0.1, 8, {
+			softMax: 4,
+			step: 0.01,
+			showIf: (p) => p.mode !== 'holes' && (p.ends === 'pointed' || p.ends === 'angled'),
+			hint: 'Length of the pointed or angled ends, in slot widths: 0.5 = 45°, 2 = long tapers'
+		}),
+		P.float('stagger', 'Stagger', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Shift alternate rows along the slots, fraction of a cell (0.5 = brick / hex packing)'
+		}),
+		P.float('louver', 'Fin slant', 0.8, -1, 1, {
+			step: 0.001,
+			showIf: isFins,
+			hint: 'Sign: which side the fins open to. Size: 0 = rounded bars (fins) or domed hoods, 1 = straight ramps'
+		}),
+		P.int('blades', 'Blades', 1, 1, 16, {
+			showIf: isFins,
+			hint: 'Fins (or hoods) side by side in each opening. Two or more sunken fins make a blade grille: slats with their top edge just under the plate, a rounded lip and a dark gap behind'
+		}),
+		P.float('rise', 'Hood rise', 0.3, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.mode === 'hoods',
+			hint: 'How far the hoods rise above the plate at their lip (relief; 1 = as far as the frame stands above 0)'
+		}),
+		P.float('depth', 'Depth', 1, 0, 1, {
+			step: 0.001,
+			hint: 'How far the openings sink below the plate (relief): 1 = right through (the darkest colour inside), lower = shallow pressed recesses'
+		}),
+		P.float('rim', 'Slot rim', 1, 0, 256, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.25,
+			hint: 'A bevel round each opening, on the plate outside it: the plate slopes down into the opening over this width with the Edge profile (the opening keeps its width). 0 = cut sharp'
+		}),
+		P.float('bead', 'Rim bead', 0, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.rim) > 0,
+			hint: 'An embossed bead raised on the rim round each opening (relief; 1 = as high as the frame stands)'
+		}),
+		P.enum(
+			'mask',
+			'Shape for the mask',
+			'plate',
+			[
+				['none', 'None', 'the relief leaves its mask as it was'],
+				['plate', 'Plate', 'the metal: plate, frame and fasteners, the openings cut out'],
+				['slots', 'Openings', 'the slots or holes'],
+				['frame', 'Frame', 'the border frame (needs a Frame width)']
+			],
+			{
+				showIf: (p) => (p.output ?? 'relief') === 'relief',
+				hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (paint only the plate, or only inside the slots) or bevel from'
+			}
+		),
+		P.seed(),
+		P.float('margin', 'Frame', 0, 0, 1024, {
+			softMax: 128,
+			unit: 'px',
+			step: 0.5,
+			group: 'frame',
+			hint: 'Border with no slots round the tile (0 = an endless grille). The Edge bevel slopes it down to the field'
+		}),
+		P.float('field_level', 'Field level', 0.8, 0, 1, {
+			step: 0.001,
+			group: 'frame',
+			hint: 'Height of the plate inside the frame (the frame is 1): how deep the field sits, and the headroom for hoods and beads. Later layers that read the heights (Height mask, cavity) see these levels'
+		}),
+		P.float('clear', 'Edge clearance', 0, 0, 512, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.5,
+			group: 'frame',
+			showIf: framed,
+			hint: 'Space kept clear inside the field’s edge: the openings are laid out over the rest, so the outermost bars are as wide as the others (or wider)'
+		}),
+		P.float('outer', 'Outer bevel', 1, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.25,
+			group: 'frame',
+			showIf: framed,
+			hint: 'The frame slopes down to the wall at the tile edge over this width (Edge profile), so the panel stands on its own and tiled panels meet in a groove. 0 = the frame runs flat to the edge'
+		}),
+		P.float('round', 'Corner radius', 2, 0, 512, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.5,
+			group: 'frame',
+			showIf: framed,
+			hint: 'Rounds the field’s corners; the panel’s outer corners follow at the frame’s width further out'
+		}),
+		P.enum(
+			'fasteners',
+			'Fasteners',
+			'none',
+			[
+				['none', 'None'],
+				['corners', 'Corners'],
+				['sides', 'Corners and sides']
+			],
+			{ group: 'frame', showIf: framed, hint: 'Screw or rivet heads on the frame' }
+		),
+		P.float('fast_size', 'Fastener radius', 3, 0.5, 128, {
+			softMax: 24,
+			unit: 'px',
+			step: 0.25,
+			group: 'frame',
+			showIf: (p) => framed(p) && (p.fasteners ?? 'none') !== 'none',
+			note: (p) => {
+				const cap = fastenerCap(p);
+				return Number(p.fast_size) > cap ? `capped at ${r1(cap)} px: 0.3 × the frame’s flat` : undefined;
+			},
+			hint: 'Head radius, at most 0.3 × the frame’s flat (Frame less the outer bevel and the step to the field)'
+		}),
+		P.enum('fast_style', 'Fastener head', 'slotted', FASTENER_HEADS, {
+			group: 'frame',
+			showIf: (p) => framed(p) && (p.fasteners ?? 'none') !== 'none',
+			hint: 'Heads are turned at random (by the seed); the sunk kinds stand in a round counterbore'
+		}),
+		P.float('depth_var', 'Depth variation', 0, 0, 1, {
+			step: 0.001,
+			group: 'wear',
+			hint: 'Each opening its own random depth (1 = anywhere from full to none): partly filled ones dish like dents'
+		}),
+		P.float('missing', 'Missing', 0, 0, 1, {
+			step: 0.001,
+			group: 'wear',
+			hint: 'Share of the openings left out at random: broken bars, gappy perforation'
+		}),
+		P.bool('plugs', 'Show plugs', true, {
+			group: 'wear',
+			showIf: (p) => Number(p.missing) > 0,
+			hint: 'Missing openings show as blanking plugs: a fine seam round a slightly sunk patch. Off: no trace'
+		})
+	],
+	groups: [
+		{ id: 'frame', label: 'Frame' },
+		{ id: 'wear', label: 'Wear' }
+	],
+	maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'plate') !== 'none' ? 'shape' : false),
+	defaults: {
+		h_on: true,
+		h_amount: 1,
+		bevel: 1,
+		profile: 'smooth',
+		dif_on: true,
+		dif_src: 'value',
+		// Black through the openings, dark walls, the field and frame as mid metal.
+		dif_grad: {
+			stops: [
+				{ pos: 0, color: '#080807' },
+				{ pos: 0.3, color: '#2b2926' },
+				{ pos: 0.6, color: '#615c54' },
+				{ pos: 1, color: '#7c766b' }
+			]
+		}
+	},
+	// A new layer in the editor: a framed panel sized to the texture (cells about 1/20 of it tall, slots 80 % × 40 % of
+	// the cell) with a stepped-down field, edge clearance, rounded corners, an outer bevel, corner screws and chamfered
+	// slot rims in proportion.
+	fresh: ({ width, height }) => {
+		const s = Math.min(width, height);
+		const margin = s >= 128 ? Math.round(s / 16) : 0;
+		// Cells about 1/20 of the texture tall (8…48 px); on strips and small panels (from 100 px) never below ~22 px, so a
+		// short side still gets a few bold rows rather than many hairlines.
+		const cy = Math.min(48, Math.max(8, height / 20, s >= 100 ? Math.min(s / 5.5, 22) : 0));
+		const rows = Math.max(1, Math.round((height - 2 * margin) / cy));
+		const cols = Math.max(1, Math.round((width - 2 * margin) / (cy * 5)));
+		const bevel = Math.max(1, Math.round(s / 128));
+		const w = Math.max(1, Math.round(((height - 2 * margin) / rows) * 0.4));
+		// Clear of the frame step by the bevel and half a bar more, so the outer bars match the inner ones.
+		const clear = margin > 0 ? Math.round(bevel + 0.5 * ((height - 2 * margin) / rows - w)) : 0;
+		const cellX = (width - 2 * margin - 2 * clear) / cols;
+		return {
+			cols,
+			rows,
+			length: Math.max(1, Math.round(cellX * 0.8)),
+			width: w,
+			rim: r1(Math.max(1, w * 0.3)),
+			margin,
+			clear,
+			field_level: margin > 0 ? 0.6 : 0.8,
+			outer: margin > 0 ? Math.max(1, Math.round(s / 170)) : 0,
+			round: margin > 0 ? Math.round(s / 64) : 0,
+			fasteners: margin >= 6 ? 'corners' : 'none',
+			fast_size: r1(Math.max(1.5, margin * 0.2)),
+			bevel
+		};
+	},
+	glsl:
+		GRB_GLSL +
+		/* glsl */ `
+// 1, read from a uniform: loops bounded by it are not unrolled by D3D (one copy of the body; see ORG_1).
+#define VNT_1 (uRes.x > 0.0 ? 1 : 0)
+
 // One slot centred at the origin (x along it): round / square ends, pointed (tapering to a point Point length × W long:
 // 0.5 = 45°), angled (both ends cut on the same diagonal) or hex (60° points). Holes (L across x, W across y): round,
 // square, or a hexagon standing on a point (L across the flats, W point to point).
@@ -168,6 +305,21 @@ float vent_slot(vec2 d, float L, float W, float rad) {
     return max(a.y - 0.5 * W, e * inversesqrt(1.0 + k * k));
   }
   return sdRoundBox(d, 0.5 * vec2(L, W), vec4(rad));
+}
+// Bevel aspect (greebleCommon): the pointed, angled and hex slots' sides as lines in the stretched space (k along the
+// local axes) — exact inside, as vent_slot is.
+float vent_slotK(vec2 d, float L, float W, vec2 k) {
+  vec2 a = abs(d);
+  if (u_ends == 4) {
+    bool hole = u_mode == 2;
+    vec2 b = hole ? a.yx : a;
+    vec2 s = hole ? vec2(W, L) : vec2(L, W);
+    vec2 kb = hole ? k.yx : k;
+    return max((b.y - 0.5 * s.y) * kb.y, (b.x * 0.8660254 + b.y * 0.5 - 0.4330127 * s.x) / length(vec2(0.8660254, 0.5) / kb));
+  }
+  float t = 2.0 * max(u_tip, 0.01);
+  float e = u_ends == 2 ? a.x + t * a.y - 0.5 * L : abs(d.x + t * d.y) - 0.5 * L + 0.5 * t * W;
+  return max((a.y - 0.5 * W) * k.y, e / length(vec2(1.0, t) / k));
 }
 
 GenOut gen(vec2 p) {
@@ -203,8 +355,8 @@ GenOut gen(vec2 p) {
   // The slots' area: the field, less the edge clearance.
   float ci = 0.5 * gin;
   float dClip = ci > 0.0 ? grb_rbox(q, flo + ci, fhi - ci, max(rr - ci, 0.0)) : dField;
-  float best = 1e9, bestRnd = 0.0, bestDep = 1.0, plug = 1e9;
-  vec2 bestC = vec2(0.0);
+  float best = 1e9, bestRnd = 0.0, bestDep = 1.0, plug = 1e9, best2 = 1e9;
+  vec2 bestC = vec2(0.0), bestC2 = vec2(0.0);   // (and the next nearest, for the plate's Bevel aspect)
   // The slots within a step of the pixel (repGrid), centred on the field, with copies round the torus when wrapping;
   // unwrapped, each row has a slot past either end that the stagger can bring into the field. One flat loop with a
   // pixel-dependent bound: D3D unrolls constant bounds, and every unrolled copy of the slot's distance costs compile
@@ -226,13 +378,37 @@ GenOut gen(vec2 p) {
     if (!wrap) d = max(d, dClip);   // staggered slots (and the spares past the row ends) are clipped by the field
     // Left out (Missing): a plug, if shown. (No continue: ANGLE / D3D can miscompile it in a loop.)
     if (hv.x < u_missing) plug = min(plug, d);
-    else if (d < best) { best = d; bestRnd = hashI(id, uSeed); bestC = ctr; bestDep = 1.0 - u_depth_var * hv.y; }
+    else if (d < best) { best2 = best; bestC2 = bestC; best = d; bestRnd = hashI(id, uSeed); bestC = ctr; bestDep = 1.0 - u_depth_var * hv.y; }
+    else if (d < best2) { best2 = d; bestC2 = ctr; }
   }
 
   float dFrame = m > 0.0 ? max(-dField, dO) : 1e4;
-  if (u_output == 1) return genOut(0.0, 1.0, bestRnd, best);
-  if (u_output == 2) return genOut(0.0, 1.0, bestRnd, wrap ? -best : max(-best, dField));
-  if (u_output == 3) return genOut(0.0, 1.0, bestRnd, dFrame);
+  if (u_output > 0) {
+    GenOut g = genOut(0.0, 1.0, bestRnd, u_output == 1 ? best : u_output == 2 ? (wrap ? -best : max(-best, dField)) : dFrame);
+    if (grb_bevOn()) {
+      // Bevel aspect: the same shapes in the stretched space — the nearest slot (and the next, round which the plate
+      // also bevels), the slots' clip, the field and the panel's outline — one rounded box in the loop, the pointed /
+      // angled / hex slots as lines.
+      vec2 k = grb_bevK(vert);
+      float sS = 1e9, sS2 = 1e9, sClip = -1e4, sField = -1e4, sO = -1e4;
+      for (int i = 0; i < 5 * VNT_1; i++) {
+        bool slot = i < 2;
+        vec2 dc = q - (i == 0 ? bestC : i == 1 ? bestC2 : i == 4 ? 0.5 * res : mid);
+        vec2 hb = slot ? 0.5 * vec2(L, W) : i == 4 ? 0.5 * res : 0.5 * (fhi - flo) - (i == 2 ? ci : 0.0);
+        float rb = slot ? rad : i == 2 ? max(rr - ci, 0.0) : i == 3 ? rr : (rr > 0.0 ? rr + m : 0.0);
+        float e = grb_bevRBox(dc, hb, rb, k);
+        if (slot && full) e = (abs(dc.y) - 0.5 * W) * k.y;
+        else if (slot && (u_ends == 4 || (u_mode != 2 && (u_ends == 2 || u_ends == 3)))) e = vent_slotK(dc, L, W, k);
+        if (i == 0) sS = e; else if (i == 1) sS2 = e; else if (i == 2) sClip = e; else if (i == 3) sField = e; else sO = e;
+      }
+      if (!wrap) { sS = max(sS, sClip); sS2 = max(sS2, sClip); }
+      sS = best < 1e8 ? sS : best;
+      sS2 = best2 < 1e8 ? sS2 : best2;
+      g.bdist = u_output == 1 ? sS : u_output == 2 ? (wrap ? -min(sS, sS2) : max(-min(sS, sS2), sField))
+              : m > 0.0 ? max(-sField, sO) : 1e4;
+    }
+    return g;
+  }
 
   // The plate: the frame (1) stepping down to the field over the Edge bevel, sloping to the wall at the outline over
   // the outer bevel. Heights above 1 (hoods, beads, fasteners) are normalised by the highest reachable (top).
@@ -342,25 +518,17 @@ GenOut gen(vec2 p) {
     float fr = clamp(u_fast_size, 0.5, max(0.3 * fw, 1.25));
     F = vec2(grb_snapC(F.x, 2.0 * fr), grb_snapC(F.y, 2.0 * fr));
     vec2 fd = q - F;
-    float fl = length(fd);
-    float head = grb_dome(fl, fr) * grb_cov(fl - fr);
-    if (u_fast_style > 0) {
-      // A slot (or a cross) across the head, turned at random per fastener.
-      float a = hashI(ivec2(floor(F)), uSeed + 13.0) * 3.1415927;
-      vec2 dir = vec2(cos(a), sin(a));
-      float gw = max(1.0, 0.22 * fr);
-      float g = grb_cov(abs(dot(fd, vec2(-dir.y, dir.x))) - 0.5 * gw);
-      if (u_fast_style == 2) g = max(g, grb_cov(abs(dot(fd, dir)) - 0.5 * gw));
-      head *= 1.0 - 0.75 * g * grb_cov(fl - 0.75 * fr);
-      pv = mix(pv, 0.5 + 0.45 * head - 0.4 * g, grb_cov(fl - fr));   // steel heads shaded by their dome, slots dark
-    } else {
-      pv = mix(pv, 0.5 + 0.5 * head, grb_cov(fl - fr));
-    }
+    // The head (greebleCommon: FASTENER_HEADS), turned at random per fastener; the sunk kinds in a counterbore.
+    float a = hashI(ivec2(floor(F)), uSeed + 13.0) * 3.1415927;
+    vec3 fz = grb_fastener(u_fast_style, rot2(a) * fd, fr, 0.5);
+    float head = max(fz.x, 0.0);
+    // Steel heads shaded by their height, slots, sockets and holes dark.
+    pv = mix(pv, 0.5 + 0.45 * head - 0.4 * fz.y, grb_cov(fz.z));
     // A dark seat ring round each head, slightly sunk.
-    float seat = grb_cov(abs(fl - fr - 0.5) - 0.6) * (1.0 - grb_cov(fl - fr));
+    float seat = grb_cov(abs(fz.z - 0.5) - 0.6) * (1.0 - grb_cov(fz.z));   // (round the head, or its counterbore)
     pv = mix(pv, 0.3, seat);
     v -= 0.06 * seat;
-    if (head > 0.0) v = max(v, plate + 0.6 * head);
+    v = fz.x > 0.0 ? max(v, plate + 0.6 * fz.x) : v + 0.6 * fz.x;
     top = max(top, 1.6);
   }
   // Height: normalised by the highest the relief can reach; the paint keeps the frame at 1 whatever rises above it.
@@ -378,107 +546,232 @@ GenOut gen(vec2 p) {
   o.feat = 0.0;
   return o;
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ pipes
 
 export const pipesLayer: LayerDef = {
-  type: 'pipes',
-  label: 'Pipes & conduits',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Runs of parallel pipes (round) or conduits (flat trunking), optionally bundled, with couplings, flanges or welds, and clamp straps with bolted feet. Tileable.',
-  params: [
-    P.enum('output', 'Output', 'relief', [
-      ['relief', 'Relief (all, value)'],
-      ['pipes', 'Pipes (shape)'],
-      ['clamps', 'Clamps (shape)'],
-      ['both', 'Pipes + clamps (shape)'],
-    ], { hint: 'Relief: true half-cylinder heights (round) or bevelled conduits, with their joints and clamps. Pipes as a shape (joints included): use the Round profile with bevel ≈ radius' }),
-    P.enum('orient', 'Direction', 'horizontal', ORIENT),
-    P.enum('shape', 'Profile', 'round', [['round', 'Round pipe'], ['conduit', 'Flat conduit (bevel)']]),
-    P.float('crown', 'Crown', 0.4, 0, 1, { step: 0.001, showIf: isConduit, hint: 'Domes the conduit’s top (1 = 30 % higher in the middle than at its edges)' }),
-    P.bool('lid', 'Lid seams', true, { showIf: isConduit, hint: 'A seam along each side of the conduit’s top, where its lid sits' }),
-    P.int('count', 'Count', 3, 1, 256, { softMax: 64, hint: 'Pipes (or bundles) across the tile' }),
-    P.int('bundle', 'Bundle', 1, 1, 8, { hint: 'Pipes side by side in each run' }),
-    P.float('bundle_gap', 'Bundle gap', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.5, showIf: (p) => Number(p.bundle) > 1, hint: 'Space between the pipes of a bundle (0 = touching)' }),
-    P.float('diameter', 'Diameter', 8, 1, 1024, { softMax: 256, unit: 'px', step: 0.5, hint: 'Clamped so that the runs fit their spacing (tile ÷ Count) side by side' }),
-    P.float('dia_var', 'Diameter variation', 0.35, 0, 0.9, { step: 0.001, hint: 'Random reduction per run (0.9 = some runs a tenth as thick)' }),
-    P.float('pipe_var', 'Per-pipe variation', 0, 0, 0.9, { step: 0.001, showIf: (p) => Number(p.bundle) > 1, hint: 'Each pipe of a bundle its own random reduction, centred in its place' }),
-    P.float('jitter', 'Position jitter', 2, 0, 256, { softMax: 64, unit: 'px', step: 0.5, hint: 'Random shift of each run across, at most into the free space beside it: runs may touch, never overlap' }),
-    P.float('offset', 'Offset', 0, 0, 1, { step: 0.001, hint: 'Shift across, fraction of the spacing' }),
-    P.enum('scale', 'Relief height', 'true', [
-      ['unit', 'Tallest pipe = Amount', 'the relief runs 0..1: the tallest pipe (with its clamps) rises the Height amount, whatever its size'],
-      ['true', 'True to size', 'heights in px of the pipes’ own radius: Height amount 1 = round pipes as tall as their radius (the project’s Height depth converts), 0.5 = half as tall, so big pipes stay round at any size. Levels and Gamma don’t apply to it'],
-    ], { showIf: (p) => (p.output ?? 'relief') === 'relief', hint: 'How the relief’s heights scale' }),
-    P.enum('mask', 'Shape for the mask', 'all', [
-      ['none', 'None', 'the relief leaves its mask as it was'],
-      ['all', 'Pipes + clamps'],
-      ['pipes', 'Pipes'],
-      ['clamps', 'Clamps'],
-    ], {
-      showIf: (p) => (p.output ?? 'relief') === 'relief',
-      hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (rust on the pipes only, grime on the wall between) or bevel from. Pipes include their joints',
-    }),
-    P.seed(),
-    P.int('joints', 'Joints', 1, 0, 64, { softMax: 16, group: 'joints', hint: 'Joints per pipe along the tile (0 = none), at a random place on each run' }),
-    P.enum('joint_style', 'Style', 'coupling', [
-      ['coupling', 'Coupling', 'a sleeve about 0.7 diameters long: chamfered shoulders, a groove near each end'],
-      ['flange', 'Flanges', 'two discs standing well proud, a seam between'],
-      ['weld', 'Weld bead', 'a raised rippled bead round the pipe'],
-    ], { group: 'joints', showIf: (p) => Number(p.joints) > 0 }),
-    P.bool('flange_bolts', 'Flange bolts', true, { group: 'joints', showIf: (p) => Number(p.joints) > 0 && p.joint_style === 'flange', hint: 'Hex nuts on the flanges’ outer faces' }),
-    P.float('joint_size', 'Size', 1, 0.25, 4, { step: 0.01, group: 'joints', showIf: (p) => Number(p.joints) > 0, hint: 'Scales the joint, which is in proportion to its pipe' }),
-    P.float('joint_jitter', 'Phase jitter', 1, 0, 1, { step: 0.001, group: 'joints', showIf: (p) => Number(p.joints) > 0, hint: 'Random shift of the joints per run, fraction of their spacing (0 = all in line). In a bundle the joints are staggered, each pipe’s a joint’s length plus a gap along from its neighbour’s. Joints keep clear of the clamps (centred between two when the gap is short)' }),
-    P.float('joint_spread', 'Spacing jitter', 0.5, 0, 1, { step: 0.001, group: 'joints', showIf: (p) => Number(p.joints) > 1, hint: 'Each joint its own random shift along the pipe, so they aren’t evenly spaced (1 = up to ± 0.3 of their spacing)' }),
-    P.int('clamps', 'Clamps', 2, 0, 256, { softMax: 32, group: 'clamps', hint: 'Clamp straps per pipe along the tile (0 = none)' }),
-    P.float('clamp_width', 'Width', 3, 1, 256, { softMax: 64, unit: 'px', step: 0.5, group: 'clamps' }),
-    P.float('clamp_lip', 'Lip', 1, 0, 64, { softMax: 24, unit: 'px', step: 0.5, group: 'clamps', hint: 'How far the strap stands proud of the pipe (its thickness)' }),
-    P.float('clamp_foot', 'Feet', 2, 0, 256, { softMax: 64, unit: 'px', step: 0.5, group: 'clamps', hint: 'Flat tabs where the strap meets the wall, reaching this far past the run’s sides (0 = a plain ring)' }),
-    P.bool('bolts', 'Bolts', true, { group: 'clamps', showIf: (p) => Number(p.clamp_foot) > 0, hint: 'A bolt head on each foot' }),
-    P.float('clamp_offset', 'Offset', 0, 0, 1, { step: 0.001, group: 'clamps', hint: 'Shift of the straps along the pipes, fraction of their spacing' }),
-    P.float('clamp_jitter', 'Phase jitter', 0, 0, 1, { step: 0.001, group: 'clamps', hint: 'Random shift of the straps per run, fraction of their spacing (0 = all in line, as on shared supports)' }),
-    P.bool('clamp_seeded', 'Shift with the seed', true, { group: 'clamps', hint: 'The seed also moves all the straps along the pipes, so each seed puts the supports somewhere else' }),
-    P.bool('clamp_rel', 'Size with each pipe', true, { group: 'clamps', hint: 'Width, Lip and Feet are for a pipe of the full Diameter: thinner runs (Diameter variation) get proportionally smaller clamps' }),
-  ],
-  groups: [
-    { id: 'joints', label: 'Joints' },
-    { id: 'clamps', label: 'Clamps' },
-  ],
-  maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'all') !== 'none' ? 'shape' : false),
-  defaults: {
-    h_on: true,
-    h_amount: 0.5,
-    bevel: 2,
-    profile: 'round',
-    dif_on: true,
-    dif_src: 'value',
-    // A dark wall (not black) under brighter metal.
-    dif_grad: gradient('#17150f', '#3a342c', '#5c5344', '#85775f'),
-  },
-  // A new layer in the editor: runs about 110 px apart (at least three) with a jitter of 12 % of the spacing, pipes
-  // half the spacing thick, clamps and joints in proportion.
-  fresh: ({ width, height }) => {
-    void width
-    const count = Math.min(24, Math.max(height < 48 ? 2 : 3, Math.round(height / 110)))
-    const per = height / count
-    const d = Math.max(3, Math.round(per * 0.5))
-    return {
-      count,
-      diameter: d,
-      jitter: Math.round(per * 0.12),
-      joints: d >= 8 ? 1 : 0,
-      clamp_width: Math.max(2, Math.round(d * 0.25)),
-      clamp_lip: r1(Math.max(1, d * 0.08)),
-      clamp_foot: d >= 8 ? Math.round(d * 0.3) : 0,   // no feet on tiny pipes (they'd crowd the strap)
-      bevel: Math.max(2, Math.round(d * 0.15)),
-    }
-  },
-  glsl:
-    GRB_GLSL +
-    /* glsl */ `
+	type: 'pipes',
+	label: 'Pipes & conduits',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Runs of parallel pipes (round) or conduits (flat trunking), optionally bundled, with couplings, flanges or welds, and clamp straps with bolted feet. Tileable.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'relief',
+			[
+				['relief', 'Relief (all, value)'],
+				['pipes', 'Pipes (shape)'],
+				['clamps', 'Clamps (shape)'],
+				['both', 'Pipes + clamps (shape)']
+			],
+			{
+				hint: 'Relief: true half-cylinder heights (round) or bevelled conduits, with their joints and clamps. Pipes as a shape (joints included): use the Round profile with bevel ≈ radius'
+			}
+		),
+		P.enum('orient', 'Direction', 'horizontal', ORIENT),
+		P.enum('shape', 'Profile', 'round', [
+			['round', 'Round pipe'],
+			['conduit', 'Flat conduit (bevel)']
+		]),
+		P.float('crown', 'Crown', 0.4, 0, 1, {
+			step: 0.001,
+			showIf: isConduit,
+			hint: 'Domes the conduit’s top (1 = 30 % higher in the middle than at its edges)'
+		}),
+		P.bool('lid', 'Lid seams', true, {
+			showIf: isConduit,
+			hint: 'A seam along each side of the conduit’s top, where its lid sits'
+		}),
+		P.int('count', 'Count', 3, 1, 256, { softMax: 64, hint: 'Pipes (or bundles) across the tile' }),
+		P.int('bundle', 'Bundle', 1, 1, 8, { hint: 'Pipes side by side in each run' }),
+		P.float('bundle_gap', 'Bundle gap', 0, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.5,
+			showIf: (p) => Number(p.bundle) > 1,
+			hint: 'Space between the pipes of a bundle (0 = touching)'
+		}),
+		P.float('diameter', 'Diameter', 8, 1, 1024, {
+			softMax: 256,
+			unit: 'px',
+			step: 0.5,
+			hint: 'Clamped so that the runs fit their spacing (tile ÷ Count) side by side'
+		}),
+		P.float('dia_var', 'Diameter variation', 0.35, 0, 0.9, {
+			step: 0.001,
+			hint: 'Random reduction per run (0.9 = some runs a tenth as thick)'
+		}),
+		P.float('pipe_var', 'Per-pipe variation', 0, 0, 0.9, {
+			step: 0.001,
+			showIf: (p) => Number(p.bundle) > 1,
+			hint: 'Each pipe of a bundle its own random reduction, centred in its place'
+		}),
+		P.float('jitter', 'Position jitter', 2, 0, 256, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.5,
+			hint: 'Random shift of each run across, at most into the free space beside it: runs may touch, never overlap'
+		}),
+		P.float('offset', 'Offset', 0, 0, 1, { step: 0.001, hint: 'Shift across, fraction of the spacing' }),
+		P.enum(
+			'scale',
+			'Relief height',
+			'true',
+			[
+				[
+					'unit',
+					'Tallest pipe = Amount',
+					'the relief runs 0..1: the tallest pipe (with its clamps) rises the Height amount, whatever its size'
+				],
+				[
+					'true',
+					'True to size',
+					'heights in px of the pipes’ own radius: Height amount 1 = round pipes as tall as their radius (the project’s Height depth converts), 0.5 = half as tall, so big pipes stay round at any size. Levels and Gamma don’t apply to it'
+				]
+			],
+			{ showIf: (p) => (p.output ?? 'relief') === 'relief', hint: 'How the relief’s heights scale' }
+		),
+		P.enum(
+			'mask',
+			'Shape for the mask',
+			'all',
+			[
+				['none', 'None', 'the relief leaves its mask as it was'],
+				['all', 'Pipes + clamps'],
+				['pipes', 'Pipes'],
+				['clamps', 'Clamps']
+			],
+			{
+				showIf: (p) => (p.output ?? 'relief') === 'relief',
+				hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (rust on the pipes only, grime on the wall between) or bevel from. Pipes include their joints'
+			}
+		),
+		P.seed(),
+		P.int('joints', 'Joints', 1, 0, 64, {
+			softMax: 16,
+			group: 'joints',
+			hint: 'Joints per pipe along the tile (0 = none), at a random place on each run'
+		}),
+		P.enum(
+			'joint_style',
+			'Style',
+			'coupling',
+			[
+				['coupling', 'Coupling', 'a sleeve about 0.7 diameters long: chamfered shoulders, a groove near each end'],
+				['flange', 'Flanges', 'two discs standing well proud, a seam between'],
+				['weld', 'Weld bead', 'a raised rippled bead round the pipe']
+			],
+			{ group: 'joints', showIf: (p) => Number(p.joints) > 0 }
+		),
+		P.bool('flange_bolts', 'Flange bolts', true, {
+			group: 'joints',
+			showIf: (p) => Number(p.joints) > 0 && p.joint_style === 'flange',
+			hint: 'Hex nuts on the flanges’ outer faces'
+		}),
+		P.float('joint_size', 'Size', 1, 0.25, 4, {
+			step: 0.01,
+			group: 'joints',
+			showIf: (p) => Number(p.joints) > 0,
+			hint: 'Scales the joint, which is in proportion to its pipe'
+		}),
+		P.float('joint_jitter', 'Phase jitter', 1, 0, 1, {
+			step: 0.001,
+			group: 'joints',
+			showIf: (p) => Number(p.joints) > 0,
+			hint: 'Random shift of the joints per run, fraction of their spacing (0 = all in line). In a bundle the joints are staggered, each pipe’s a joint’s length plus a gap along from its neighbour’s. Joints keep clear of the clamps (centred between two when the gap is short)'
+		}),
+		P.float('joint_spread', 'Spacing jitter', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'joints',
+			showIf: (p) => Number(p.joints) > 1,
+			hint: 'Each joint its own random shift along the pipe, so they aren’t evenly spaced (1 = up to ± 0.3 of their spacing)'
+		}),
+		P.int('clamps', 'Clamps', 2, 0, 256, {
+			softMax: 32,
+			group: 'clamps',
+			hint: 'Clamp straps per pipe along the tile (0 = none)'
+		}),
+		P.float('clamp_width', 'Width', 3, 1, 256, { softMax: 64, unit: 'px', step: 0.5, group: 'clamps' }),
+		P.float('clamp_lip', 'Lip', 1, 0, 64, {
+			softMax: 24,
+			unit: 'px',
+			step: 0.5,
+			group: 'clamps',
+			hint: 'How far the strap stands proud of the pipe (its thickness)'
+		}),
+		P.float('clamp_foot', 'Feet', 2, 0, 256, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.5,
+			group: 'clamps',
+			hint: 'Flat tabs where the strap meets the wall, reaching this far past the run’s sides (0 = a plain ring)'
+		}),
+		P.bool('bolts', 'Bolts', true, {
+			group: 'clamps',
+			showIf: (p) => Number(p.clamp_foot) > 0,
+			hint: 'A bolt head on each foot'
+		}),
+		P.float('clamp_offset', 'Offset', 0, 0, 1, {
+			step: 0.001,
+			group: 'clamps',
+			hint: 'Shift of the straps along the pipes, fraction of their spacing'
+		}),
+		P.float('clamp_jitter', 'Phase jitter', 0, 0, 1, {
+			step: 0.001,
+			group: 'clamps',
+			hint: 'Random shift of the straps per run, fraction of their spacing (0 = all in line, as on shared supports)'
+		}),
+		P.bool('clamp_seeded', 'Shift with the seed', true, {
+			group: 'clamps',
+			hint: 'The seed also moves all the straps along the pipes, so each seed puts the supports somewhere else'
+		}),
+		P.bool('clamp_rel', 'Size with each pipe', true, {
+			group: 'clamps',
+			hint: 'Width, Lip and Feet are for a pipe of the full Diameter: thinner runs (Diameter variation) get proportionally smaller clamps'
+		})
+	],
+	groups: [
+		{ id: 'joints', label: 'Joints' },
+		{ id: 'clamps', label: 'Clamps' }
+	],
+	maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'all') !== 'none' ? 'shape' : false),
+	defaults: {
+		h_on: true,
+		h_amount: 0.5,
+		bevel: 2,
+		profile: 'round',
+		dif_on: true,
+		dif_src: 'value',
+		// A dark wall (not black) under brighter metal.
+		dif_grad: gradient('#17150f', '#3a342c', '#5c5344', '#85775f')
+	},
+	// A new layer in the editor: runs about 110 px apart (at least three) with a jitter of 12 % of the spacing, pipes
+	// half the spacing thick, clamps and joints in proportion.
+	fresh: ({ width, height }) => {
+		void width;
+		const count = Math.min(24, Math.max(height < 48 ? 2 : 3, Math.round(height / 110)));
+		const per = height / count;
+		const d = Math.max(3, Math.round(per * 0.5));
+		return {
+			count,
+			diameter: d,
+			jitter: Math.round(per * 0.12),
+			joints: d >= 8 ? 1 : 0,
+			clamp_width: Math.max(2, Math.round(d * 0.25)),
+			clamp_lip: r1(Math.max(1, d * 0.08)),
+			clamp_foot: d >= 8 ? Math.round(d * 0.3) : 0, // no feet on tiny pipes (they'd crowd the strap)
+			bevel: Math.max(2, Math.round(d * 0.15))
+		};
+	},
+	glsl:
+		GRB_GLSL +
+		/* glsl */ `
 // Cross-section height (px) at y across a pipe of radius R: a half-cylinder, or a bevelled slab (conduit) with a crown.
 float pp_sec(float R, float y) {
   if (u_shape == 0) return sqrt(max(R * R - y * y, 0.0));
@@ -525,6 +818,10 @@ GenOut gen(vec2 p) {
 
   int k0 = int(floor(q.y / per - u_offset));
   float dP = 1e9, dC = 1e4, dJ = 1e4, hBest = 0.0, pBest = 0.0, dSel = 1e9, rnd = 0.0;
+  // Bevel aspect (greebleCommon): the pipes, joints and straps are strips and boxes along the local axes, so in the
+  // stretched space each of their distances just scales by its axis's k (exact).
+  vec2 bk = grb_bevK(vert);
+  float dPk = 1e9, dCk = 1e4, dJk = 1e4;
   for (int j = -K; j <= K; j++) {
     int k = k0 + j;
     int kw = uTile ? imod(k, n) : k;
@@ -569,8 +866,10 @@ GenOut gen(vec2 p) {
         if (di < da) { da = di; xs = x0 + 0.5 * cw; }
       }
       dC = min(dC, max(da, by - lip - foot));
+      dCk = min(dCk, max(da * bk.x, (by - lip - foot) * bk.y));
     }
     dP = min(dP, d);
+    dPk = min(dPk, d * bk.y);
 
     // Joints: on this pixel's pipe and, in a bundle, its neighbours (a sleeve stands over the pipe beside it, each joint
     // its own circle, combined by height); per pipe the two nearest joints (spacing jitter can push one across). A
@@ -642,6 +941,7 @@ GenOut gen(vec2 p) {
         }
         hj = max(hj, h);
         dJ = min(dJ, max(dx - ext, abs(yl) - rl - jl0));
+        dJk = min(dJk, max((dx - ext) * bk.x, (abs(yl) - rl - jl0) * bk.y));
       }
     }
 
@@ -682,9 +982,12 @@ GenOut gen(vec2 p) {
   }
 
   float dPJ = min(dP, dJ);
-  if (u_output == 1) return genOut(0.0, 1.0, rnd, dPJ);
-  if (u_output == 2) return genOut(0.0, 1.0, rnd, dC);
-  if (u_output == 3) return genOut(0.0, 1.0, rnd, min(dPJ, dC));
+  if (u_output > 0) {
+    GenOut g = genOut(0.0, 1.0, rnd, u_output == 1 ? dPJ : u_output == 2 ? dC : min(dPJ, dC));
+    float dPJk = min(dPk, dJk);
+    if (grb_bevOn()) g.bdist = u_output == 1 ? dPJk : u_output == 2 ? dCk : min(dPJk, dCk);
+    return g;
+  }
 
   float v = clamp(pBest / Rmax, 0.0, 1.0);
   GenOut o;
@@ -695,5 +998,5 @@ GenOut gen(vec2 p) {
   if (u_scale == 1) o.height = max(hBest, 1e-4) / max(uDepth, 1e-3);
   return o;
 }
-`,
-}
+`
+};

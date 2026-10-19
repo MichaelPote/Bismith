@@ -3,11 +3,13 @@
 **Status:** done — before screening in emulation (`--no-colour-fit` to skip), in Suggest (FR8.4)
 
 ## Goal
+
 Colour is the one thing that can be solved directly instead of left to random search. Fit it first, so template
 rankings compare shapes rather than starting colours (on a stone wall, rubble lost to marble on colour, 0.40 vs
 0.32, not shape) and the optimiser spends its budget on relief and structure.
 
 ## Design (`src/match/colourFit.ts`)
+
 - Render → per-channel OKLab quantile maps (256 quantiles) from the render's colour distribution to the target's →
   push every **absolute** colour of the project through them: base colour, normal-blend `dif_grad` stops and colour
   params of enabled paint layers / channels. Modulators (multiply / overlay / screen … gradients, where white means
@@ -31,6 +33,7 @@ rankings compare shapes rather than starting colours (on a stone wall, rubble lo
 - Engine-agnostic: the caller passes `render(project) → MatchImage` and a Matcher.
 
 ## Checklist
+
 - [x] Slots, quantile maps, colour map, iterative fit (`colourFit.test.ts`)
 - [x] Tone fit (`fit: 'tones'`, the Liquid lump)
 - [x] Emulation (before screening), Suggest gallery

@@ -2,74 +2,98 @@
    Charcoal ground, cool grey lines, a single stroke of ember. */
 
 :root {
-  /* Ground */
-  --void: #17191c;
-  --base: #1e2124;
-  --panel: #24282c;
-  --raised: #2c3136;
-  --sunken: #1a1d20;
-  --deep: #111316;
+	/* Ground */
+	--void: #17191c;
+	--base: #1e2124;
+	--panel: #24282c;
+	--raised: #2c3136;
+	--sunken: #1a1d20;
+	--deep: #111316;
 
-  /* Lines */
-  --hairline: #363c41;
-  --line: #4a5259;
-  --line-strong: #6b757d;
-  --sigil: #7ea9b0;
-  --pill: #9ed0d6;
+	/* Lines */
+	--hairline: #363c41;
+	--line: #4a5259;
+	--line-strong: #6b757d;
+	--sigil: #7ea9b0;
+	--pill: #9ed0d6;
 
-  /* Text */
-  --text-hi: #f1efe9;
-  --text: #d7d6d0;
-  --text-mid: #b9bfc2;
-  --text-lo: #8f989e;
-  --gold: #e9b45a;
-  --blood: #e0503f;
-  --readout: #8fd0d8;
+	/* Text */
+	--text-hi: #f1efe9;
+	--text: #d7d6d0;
+	--text-mid: #b9bfc2;
+	--text-lo: #8f989e;
+	--gold: #e9b45a;
+	--blood: #e0503f;
+	--readout: #8fd0d8;
 
-  /* Ember ramp — Ember 500 is the one true orange */
-  --e50: #ffffd9;
-  --e100: #ffe3a9;
-  --e200: #ffc879;
-  --e300: #ffac49;
-  --e400: #ff9019;
-  --e500: #f66e10;
-  --e600: #e25c0a;
-  --e700: #ac3b00;
-  --e800: #933101;
-  --e900: #692205;
-  --accent: var(--e500);
-  --accent-hi: var(--e100);
+	/* Ember ramp — Ember 500 is the one true orange */
+	--e50: #ffffd9;
+	--e100: #ffe3a9;
+	--e200: #ffc879;
+	--e300: #ffac49;
+	--e400: #ff9019;
+	--e500: #f66e10;
+	--e600: #e25c0a;
+	--e700: #ac3b00;
+	--e800: #933101;
+	--e900: #692205;
+	--accent: var(--e500);
+	--accent-hi: var(--e100);
 
-  /* Category hues — stroke only, never a fill */
-  --cat-stone: #b5b0a4;
-  --cat-gold: #e9b45a;
-  --cat-moss: #8fbf7f;
-  --cat-teal: #7fc7cf;
-  --cat-sky: #86bdea;
-  --cat-indigo: #8b93e0;
-  --cat-violet: #a98ee0;
-  --cat-rose: #d693b8;
-  --cat-crimson: #d97b7b;
-  --cat-slate: #9fb0c2;
+	/* Category hues — stroke only, never a fill */
+	--cat-stone: #b5b0a4;
+	--cat-gold: #e9b45a;
+	--cat-moss: #8fbf7f;
+	--cat-teal: #7fc7cf;
+	--cat-sky: #86bdea;
+	--cat-indigo: #8b93e0;
+	--cat-violet: #a98ee0;
+	--cat-rose: #d693b8;
+	--cat-crimson: #d97b7b;
+	--cat-slate: #9fb0c2;
 
-  /* Type */
-  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
-  --font-serif: 'Cormorant Garamond', Georgia, serif;
+	/* Type */
+	--font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+	--font-serif: 'Cormorant Garamond', Georgia, serif;
 
-  /* Space & edge */
-  --row: 24px;
-  --r-field: 3px;
-  --gap-app: 3px;
+	/* Space & edge */
+	--row: 24px;
+	--r-field: 3px;
+	--gap-app: 3px;
 
-  /* Light */
-  --halo: 0 0 7px rgba(246, 110, 16, 0.5), inset 0 0 10px rgba(246, 110, 16, 0.18);
-  --glow: 0 0 0 1px rgba(246, 110, 16, 0.3), 0 0 5px rgba(246, 110, 16, 0.4);
-  --drop-halo: drop-shadow(0 0 3.5px rgba(246, 110, 16, 0.5));
-  --under-bar: linear-gradient(90deg, rgba(246, 110, 16, 0) 0%, #f66e10 34%, #ffe3a9 50%, #f66e10 66%, rgba(246, 110, 16, 0) 100%);
-  --under-body: radial-gradient(ellipse 42% 58% at 50% 100%, rgba(246, 110, 16, 0.34) 0%, rgba(246, 110, 16, 0.08) 50%, rgba(246, 110, 16, 0) 74%);
-  --under-spill: radial-gradient(ellipse 34% 100% at 50% 0%, rgba(246, 110, 16, 0.5) 0%, rgba(246, 110, 16, 0.14) 45%, rgba(246, 110, 16, 0) 72%);
-  --heat-core: radial-gradient(ellipse 44% 70% at 50% 50%, rgba(255, 144, 25, 0.18) 0%, rgba(246, 110, 16, 0.08) 45%, rgba(246, 110, 16, 0) 80%), #2c3136;
+	/* Light */
+	--halo: 0 0 7px rgba(246, 110, 16, 0.5), inset 0 0 10px rgba(246, 110, 16, 0.18);
+	--glow: 0 0 0 1px rgba(246, 110, 16, 0.3), 0 0 5px rgba(246, 110, 16, 0.4);
+	--drop-halo: drop-shadow(0 0 3.5px rgba(246, 110, 16, 0.5));
+	--under-bar: linear-gradient(
+		90deg,
+		rgba(246, 110, 16, 0) 0%,
+		#f66e10 34%,
+		#ffe3a9 50%,
+		#f66e10 66%,
+		rgba(246, 110, 16, 0) 100%
+	);
+	--under-body: radial-gradient(
+		ellipse 42% 58% at 50% 100%,
+		rgba(246, 110, 16, 0.34) 0%,
+		rgba(246, 110, 16, 0.08) 50%,
+		rgba(246, 110, 16, 0) 74%
+	);
+	--under-spill: radial-gradient(
+		ellipse 34% 100% at 50% 0%,
+		rgba(246, 110, 16, 0.5) 0%,
+		rgba(246, 110, 16, 0.14) 45%,
+		rgba(246, 110, 16, 0) 72%
+	);
+	--heat-core:
+		radial-gradient(
+			ellipse 44% 70% at 50% 50%,
+			rgba(255, 144, 25, 0.18) 0%,
+			rgba(246, 110, 16, 0.08) 45%,
+			rgba(246, 110, 16, 0) 80%
+		),
+		#2c3136;
 
-  color-scheme: dark;
+	color-scheme: dark;
 }

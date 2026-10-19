@@ -2,7 +2,7 @@
 // prefixed `org_`; each layer compiles its own copy (one shader per layer type).
 
 /** Value of GenOut.sdf meaning "no distance for this pixel" (the wrapper's NO_SDF is -9e4). */
-export const ORG_NO_SDF = '-1e5'
+export const ORG_NO_SDF = '-1e5';
 
 export const ORG_GLSL = /* glsl */ `
 // 1, read from a uniform: loop bounds written with it can't be unrolled. D3D (Chrome's default backend on Windows)
@@ -119,7 +119,7 @@ vec4 org_cellDist(vec2 p, vec2 cells, float jitter, float sizeVar, float k, floa
   float dr = k > 0.0 ? m - kk * log(max(acc, 1.0)) : m;
   return vec4(dr, m, hashI(imod(bc, per), seed + 17.0), length(p - bs) / max(f2, 1e-4));
 }
-`
+`;
 
 /** Extra helpers for SDF layers only (they read the Shape-group uniforms u_bevel / u_profile). */
 export const ORG_GLSL_SDF = /* glsl */ `
@@ -129,4 +129,4 @@ float org_edgeProfile(float d) {
   if (u_bevel <= 0.0 || u_profile == 0) return 1.0;
   return profileCurve(u_profile, max(-d, 0.0) / u_bevel);
 }
-`
+`;

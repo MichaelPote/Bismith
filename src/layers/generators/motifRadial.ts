@@ -3,9 +3,9 @@
 // placement + repeat-grid wrapper modelled on the shape layers (3×3 neighbourhood of repeat cells, torus
 // copies when tiling), with a cheap bounding-circle test so far instances cost one length().
 
-import { P, type ParamDef } from '@/core/params'
-import { spacingParams } from '../commonParams'
-import type { LayerDef } from '../types'
+import { P, type ParamDef } from '@/core/params';
+import { spacingParams } from '../commonParams';
+import type { LayerDef } from '../types';
 
 /**
  * Layer seed for hashing. uSeed can arrive negative (mixSeed in gpu/uniforms.ts returns a signed remainder) and
@@ -50,25 +50,51 @@ float mot_discS(vec2 v, float r) {
   float e = bevelEllipse(M * v, M, vec2(r));
   return length(v) < r ? -e : e;
 }
-`
+`;
 
 const PLACEMENT: ParamDef[] = [
-  P.float('x', 'X', 0.5, -2, 3, { softMin: 0, softMax: 1, step: 0.001, hint: 'Centre, 0..1 across (within each repeat cell)' }),
-  P.float('y', 'Y', 0.5, -2, 3, { softMin: 0, softMax: 1, step: 0.001, hint: 'Centre, 0..1 down (within each repeat cell)' }),
-  P.float('rotation', 'Rotation', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1 }),
-]
+	P.float('x', 'X', 0.5, -2, 3, {
+		softMin: 0,
+		softMax: 1,
+		step: 0.001,
+		hint: 'Centre, 0..1 across (within each repeat cell)'
+	}),
+	P.float('y', 'Y', 0.5, -2, 3, {
+		softMin: 0,
+		softMax: 1,
+		step: 0.001,
+		hint: 'Centre, 0..1 down (within each repeat cell)'
+	}),
+	P.float('rotation', 'Rotation', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1 })
+];
 
 const REPEAT: ParamDef[] = [
-  P.int('rep_x', 'Count X', 1, 1, 256, { softMax: 16, group: 'repeat' }),
-  P.int('rep_y', 'Count Y', 1, 1, 256, { softMax: 16, group: 'repeat' }),
-  ...spacingParams({ group: 'repeat' }),
-  P.float('rep_stagger', 'Row offset', 0, 0, 1, { step: 0.001, group: 'repeat', hint: 'Shift odd rows (use an even row count to tile)' }),
-  P.float('rep_rot', 'Rotation jitter', 0, 0, 180, { unit: '°', step: 0.1, group: 'repeat' }),
-  P.float('rep_scale', 'Size jitter', 0, 0, 1, { step: 0.001, group: 'repeat', hint: 'Shrinks each instance by its own random share: 0.5 = anywhere from half to full size (line widths and bevels shrink with it)' }),
-  P.float('rep_jit', 'Position jitter', 0, 0, 1, { step: 0.001, group: 'repeat', hint: 'Moves each instance off its cell centre at random, up to half a cell at 1 (scattered medallions, uneven rune text)' }),
-  P.float('rep_drop', 'Drop out', 0, 0, 1, { step: 0.001, group: 'repeat', hint: 'Fraction of instances removed at random' }),
-  P.seed(),
-]
+	P.int('rep_x', 'Count X', 1, 1, 256, { softMax: 16, group: 'repeat' }),
+	P.int('rep_y', 'Count Y', 1, 1, 256, { softMax: 16, group: 'repeat' }),
+	...spacingParams({ group: 'repeat' }),
+	P.float('rep_stagger', 'Row offset', 0, 0, 1, {
+		step: 0.001,
+		group: 'repeat',
+		hint: 'Shift odd rows (use an even row count to tile)'
+	}),
+	P.float('rep_rot', 'Rotation jitter', 0, 0, 180, { unit: '°', step: 0.1, group: 'repeat' }),
+	P.float('rep_scale', 'Size jitter', 0, 0, 1, {
+		step: 0.001,
+		group: 'repeat',
+		hint: 'Shrinks each instance by its own random share: 0.5 = anywhere from half to full size (line widths and bevels shrink with it)'
+	}),
+	P.float('rep_jit', 'Position jitter', 0, 0, 1, {
+		step: 0.001,
+		group: 'repeat',
+		hint: 'Moves each instance off its cell centre at random, up to half a cell at 1 (scattered medallions, uneven rune text)'
+	}),
+	P.float('rep_drop', 'Drop out', 0, 0, 1, {
+		step: 0.001,
+		group: 'repeat',
+		hint: 'Fraction of instances removed at random'
+	}),
+	P.seed()
+];
 
 /**
  * Instancing wrapper. The layer supplies:
@@ -165,7 +191,7 @@ GenOut gen(vec2 p0) {
   if (str) g0.bdist = bd;
   return g0;
 }
-`
+`;
 
 const GLSL_TRAPEZOID = /* glsl */ `
 // Isosceles trapezoid along y (after Inigo Quilez): half width r1 at y = -he, r2 at y = +he.
@@ -193,18 +219,18 @@ vec2 mot_polarFold(vec2 q, int n, float off) {
   a -= s * floor(a / s + 0.5);
   return length(q) * vec2(sin(a), cos(a));
 }
-`
+`;
 
 // ------------------------------------------------------------------------------------------------ rosette
 
 const STAR_MODES: [string, string][] = [
-  ['filled', 'Filled star'],
-  ['outline', 'Star outline'],
-  ['lines', 'Star polygon lines {n/k}'],
-]
+	['filled', 'Filled star'],
+	['outline', 'Star outline'],
+	['lines', 'Star polygon lines {n/k}']
+];
 
-const has = (key: string) => (p: Record<string, unknown>) => Number(p[key]) > 0
-const r1 = (v: number) => Math.round(v * 10) / 10
+const has = (key: string) => (p: Record<string, unknown>) => Number(p[key]) > 0;
+const r1 = (v: number) => Math.round(v * 10) / 10;
 
 /**
  * Rosette's linked bevel: half its narrowest line (rings, spokes, star lines, bead rings, petal outlines), so every
@@ -212,116 +238,324 @@ const r1 = (v: number) => Math.round(v * 10) / 10
  * shoulders; a fiftieth of the radius when it only has filled elements.
  */
 export function rosetteBevel(p: Record<string, unknown>): number {
-  const n = (k: string) => Number(p[k] ?? 0)
-  const lines = [
-    n('rings') > 0 ? n('ring_w') * (n('rings') > 1 ? Math.min(1, Number(p.ring_w_in ?? 1)) : 1) : 0,
-    n('spokes') > 0 ? n('spoke_w') : 0,
-    n('star') > 0 && p.star_mode !== 'filled' ? n('star_w') : 0,
-    n('dots') > 0 ? n('dot_w') : 0,
-    n('petals') > 0 ? n('petal_line') : 0,
-  ].filter((w) => w > 0)
-  return r1(Math.min(64, Math.max(0.5, lines.length ? 0.5 * Math.min(...lines) : 0.02 * n('radius'))))
+	const n = (k: string) => Number(p[k] ?? 0);
+	const lines = [
+		n('rings') > 0 ? n('ring_w') * (n('rings') > 1 ? Math.min(1, Number(p.ring_w_in ?? 1)) : 1) : 0,
+		n('spokes') > 0 ? n('spoke_w') : 0,
+		n('star') > 0 && p.star_mode !== 'filled' ? n('star_w') : 0,
+		n('dots') > 0 ? n('dot_w') : 0,
+		n('petals') > 0 ? n('petal_line') : 0
+	].filter((w) => w > 0);
+	return r1(Math.min(64, Math.max(0.5, lines.length ? 0.5 * Math.min(...lines) : 0.02 * n('radius'))));
 }
 
 export const rosetteLayer: LayerDef = {
-  type: 'rosette',
-  label: 'Rosette',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Radial motifs: concentric rings, spokes / rays, stars and star polygons, petals and bead rings — teleporter discs, light fixtures, medallions. Repeatable.',
-  params: [
-    P.enum('output', 'Output', 'shape', [
-      ['shape', 'Shape (SDF)'],
-      ['glow', 'Glow (falloff from shape)'],
-      ['radial', 'Radial (1 at centre → 0 at radius)'],
-    ], { hint: 'Glow and radial are plain values for emissive / colour ramps' }),
-    P.float('glow', 'Glow width', 6, 0.1, 256, { softMax: 64, unit: 'px', step: 0.1, showIf: (p) => p.output === 'glow' }),
-    P.float('glow_soft', 'Glow softness', 0.6, 0, 1, { step: 0.001, showIf: (p) => p.output === 'glow', hint: 'Blurs the glow into a bloom: 0 = the exact falloff from the shape (creases where two elements are equally near), 1 = blurred across about half the glow width' }),
-    P.enum('relief', 'Relief', 'sculpted', [
-      ['bevel', 'Bevel', 'the Edge bevel round the whole rosette: every element at one height, one profile'],
-      ['sculpted', 'Sculpted', 'each element its own section and height: lines, beads and the hub domed, rays, solid petals and filled stars ridged along their spine (faceted)'],
-    ], { showIf: (p) => p.output === 'shape', hint: 'How Height › Pattern shapes the rosette. Sculpted needs Mask › Mode Normal (or no mask written): combined with a mask, the Edge bevel applies' }),
-    P.float('blend', 'Fillet', 0, 0, 256, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => p.output !== 'radial', hint: 'Rounds the joins between elements (a smooth union): fills the slivers and teeth where petals, rays, stars and the hub meet' }),
-    P.float('radius', 'Radius', 28, 0, 4096, { softMax: 512, unit: 'px', step: 0.1, hint: 'Outer radius; the elements below are placed in fractions of it' }),
-    ...PLACEMENT,
-    P.float('hub', 'Hub', 0.1, 0, 1, { step: 0.001, hint: 'Filled centre disc, fraction of the radius (0 = none)' }),
-    P.float('hub_gap', 'Hub clearance', 0, 0, 1024, { softMax: 64, unit: 'px', step: 0.1, hint: 'Clears a ring this wide round the hub (a disc at the centre without one): spokes, star, petals and beads stop short of it — a clean moat instead of a tangle where they converge' }),
-    P.float('hub_h', 'Hub height', 0.9, 0, 1, { step: 0.001, showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && Number(p.hub) > 0, hint: 'The hub’s height in the sculpted relief (a domed boss)' }),
-    P.int('rings', 'Rings', 2, 0, 32, { softMax: 8, group: 'rings' }),
-    P.float('ring_w', 'Ring width', 2, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'rings', showIf: has('rings') }),
-    P.float('ring_in', 'Innermost ring', 0.8, 0, 1, { step: 0.001, group: 'rings', showIf: has('rings'), hint: 'Rings are spread evenly from this fraction of the radius out to the rim' }),
-    P.float('ring_h', 'Height', 1, 0, 1, { step: 0.001, group: 'rings', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('rings')(p), hint: 'The rings’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
-    P.float('ring_w_in', 'Innermost width', 1, 0, 8, { softMax: 3, step: 0.001, group: 'rings', showIf: (p) => Number(p.rings) > 1, hint: 'Width of the innermost ring as a multiple of Ring width, the rings between graded: 0.3 = a heavy rim with fine inner rings, 2 = the reverse' }),
-    P.int('spokes', 'Spokes', 0, 0, 256, { softMax: 96, group: 'spokes' }),
-    P.float('spoke_w', 'Width', 2, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'spokes', showIf: has('spokes') }),
-    P.float('spoke_taper', 'Taper', 0, -1, 1, { step: 0.001, group: 'spokes', showIf: has('spokes'), hint: '1 = sharp at the tip (rays), −1 = sharp at the centre' }),
-    P.float('spoke_in', 'From', 0.15, 0, 2, { softMax: 1, step: 0.001, group: 'spokes', showIf: has('spokes'), hint: 'Start, fraction of the radius' }),
-    P.float('spoke_out', 'To', 1, 0, 2, { softMax: 1.5, step: 0.001, group: 'spokes', showIf: has('spokes') }),
-    P.float('spoke_off', 'Offset', 0, 0, 1, { step: 0.001, group: 'spokes', showIf: has('spokes'), hint: 'Angular offset, fraction of a step (0.5 puts spokes between star points)' }),
-    P.float('spoke_h', 'Height', 0.55, 0, 1, { step: 0.001, group: 'spokes', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('spokes')(p), hint: 'The spokes’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
-    P.float('spoke_alt', 'Alternate length', 0, 0, 1, { step: 0.001, group: 'spokes', showIf: has('spokes'), hint: 'Shortens every other spoke by this share of its length (compass roses, sunbursts; needs an even spoke count)' }),
-    P.int('star', 'Star points', 8, 0, 32, { softMax: 16, group: 'star', hint: '0 = none' }),
-    P.enum('star_mode', 'Style', 'lines', STAR_MODES, { group: 'star', showIf: has('star') }),
-    P.float('star_r', 'Size', 0.77, 0, 2, { softMax: 1.2, step: 0.001, group: 'star', showIf: has('star'), hint: 'Fraction of the radius' }),
-    P.float('star_off', 'Offset', 0, 0, 1, { step: 0.001, group: 'star', showIf: has('star'), hint: 'Turns the star by this fraction of a point step (0.5 puts its points between the spokes)' }),
-    P.float('star_h', 'Height', 0.65, 0, 1, { step: 0.001, group: 'star', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('star')(p), hint: 'The star’s height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
-    P.float('star_inner', 'Inner ratio', 0.45, 0.02, 1, { step: 0.001, group: 'star', showIf: (p) => has('star')(p) && p.star_mode !== 'lines' }),
-    P.int('star_skip', 'Skip (k)', 3, 1, 15, { group: 'star', showIf: (p) => has('star')(p) && p.star_mode === 'lines', hint: 'Each vertex joins the k-th next: {7/3} heptagram, {5/2} pentagram, 1 = polygon' }),
-    P.bool('star_sharp', 'Sharp tips', true, { group: 'star', showIf: (p) => has('star')(p) && p.star_mode === 'lines', hint: 'Mitre the points (else the strokes end round)' }),
-    P.float('star_w', 'Line width', 2, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'star', showIf: (p) => has('star')(p) && p.star_mode !== 'filled' }),
-    P.int('petals', 'Petals', 0, 0, 64, { softMax: 24, group: 'petals' }),
-    P.enum('petal_shape', 'Shape', 'pointed', [['pointed', 'Pointed (vesica)'], ['round', 'Round (ellipse)']], { group: 'petals', showIf: has('petals') }),
-    P.float('petal_pos', 'Position', 0.55, 0, 2, { softMax: 1, step: 0.001, group: 'petals', showIf: has('petals'), hint: 'Petal centre, fraction of the radius' }),
-    P.float('petal_len', 'Length', 0.7, 0, 2, { softMax: 1, step: 0.001, group: 'petals', showIf: has('petals') }),
-    P.float('petal_w', 'Width', 0.25, 0, 2, { softMax: 1, step: 0.001, group: 'petals', showIf: has('petals') }),
-    P.float('petal_off', 'Offset', 0, 0, 1, { step: 0.001, group: 'petals', showIf: has('petals'), hint: 'Angular offset, fraction of a step' }),
-    P.float('petal_line', 'Outline', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1, group: 'petals', showIf: has('petals'), hint: '0 = solid petals; otherwise petal outlines this wide (overlapping petals cross into a lattice, fused at one height: no over-and-under weave)' }),
-    P.float('petal_h', 'Height', 0.8, 0, 1, { step: 0.001, group: 'petals', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('petals')(p), hint: 'The petals’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
-    P.int('dots', 'Beads', 24, 0, 128, { softMax: 48, group: 'dots', hint: 'A ring of round beads / rivets (0 = none)' }),
-    P.float('dot_r', 'Bead radius', 1.5, 0, 1024, { softMax: 64, unit: 'px', step: 0.1, group: 'dots', showIf: has('dots') }),
-    P.float('dot_w', 'Ring width', 0, 0, 256, { softMax: 16, unit: 'px', step: 0.1, group: 'dots', showIf: has('dots'), hint: '0 = solid beads; otherwise rings (overlapping rings make flower-of-life rosettes)' }),
-    P.float('dot_pos', 'Position', 0.9, 0, 2, { softMax: 1.2, step: 0.001, group: 'dots', showIf: has('dots'), hint: 'Fraction of the radius' }),
-    P.float('dot_off', 'Offset', 0, 0, 1, { step: 0.001, group: 'dots', showIf: has('dots'), hint: 'Angular offset, fraction of a step' }),
-    P.float('dot_h', 'Height', 0.8, 0, 1, { step: 0.001, group: 'dots', showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('dots')(p), hint: 'The beads’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both' }),
-    ...REPEAT,
-  ],
-  groups: [
-    { id: 'rings', label: 'Rings' },
-    { id: 'spokes', label: 'Spokes / rays', collapsed: true },
-    { id: 'star', label: 'Star' },
-    { id: 'petals', label: 'Petals', collapsed: true },
-    { id: 'dots', label: 'Beads', collapsed: true },
-    { id: 'repeat', label: 'Repeat', collapsed: true },
-  ],
-  defaults: {
-    h_on: true,
-    h_amount: 0.4,
-    bevel: 1,
-    profile: 'round',
-    dif_on: true,
-    dif_src: 'flat',
-    dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] },
-  },
-  // The bevel follows the line widths (domed lines), and the glow / radial outputs are light: emissive, not paint
-  // (Diffuse would paint the whole texture) nor relief.
-  linkedDefaults: (p) => ({
-    bevel: rosetteBevel(p),
-    ...(p.output === 'glow' || p.output === 'radial' ? { dif_on: false, h_on: false, e_on: true } : { dif_on: true, h_on: true, e_on: false }),
-  }),
-  // Added in the editor: the medallion (two rings with a bead ring between them, an {8/3} star whose tips end in
-  // the inner ring, a hub) filling most of the texture, its lines in proportion.
-  fresh: ({ width, height }) => {
-    const R = r1(Math.max(4, 0.4 * Math.min(width, height)))
-    const w = r1(Math.max(1, 0.035 * R))
-    return {
-      radius: R, ring_w: w, spoke_w: w, star_w: w, dot_r: r1(Math.max(1, 0.026 * R)),
-    }
-  },
-  glsl:
-    GLSL_MOT_SEED +
-    GLSL_TRAPEZOID +
-    /* glsl */ `
+	type: 'rosette',
+	label: 'Rosette',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Radial motifs: concentric rings, spokes / rays, stars and star polygons, petals and bead rings — teleporter discs, light fixtures, medallions. Repeatable.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'shape',
+			[
+				['shape', 'Shape (SDF)'],
+				['glow', 'Glow (falloff from shape)'],
+				['radial', 'Radial (1 at centre → 0 at radius)']
+			],
+			{ hint: 'Glow and radial are plain values for emissive / colour ramps' }
+		),
+		P.float('glow', 'Glow width', 6, 0.1, 256, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => p.output === 'glow'
+		}),
+		P.float('glow_soft', 'Glow softness', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.output === 'glow',
+			hint: 'Blurs the glow into a bloom: 0 = the exact falloff from the shape (creases where two elements are equally near), 1 = blurred across about half the glow width'
+		}),
+		P.enum(
+			'relief',
+			'Relief',
+			'sculpted',
+			[
+				['bevel', 'Bevel', 'the Edge bevel round the whole rosette: every element at one height, one profile'],
+				[
+					'sculpted',
+					'Sculpted',
+					'each element its own section and height: lines, beads and the hub domed, rays, solid petals and filled stars ridged along their spine (faceted)'
+				]
+			],
+			{
+				showIf: (p) => p.output === 'shape',
+				hint: 'How Height › Pattern shapes the rosette. Sculpted needs Mask › Mode Normal (or no mask written): combined with a mask, the Edge bevel applies'
+			}
+		),
+		P.float('blend', 'Fillet', 0, 0, 256, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => p.output !== 'radial',
+			hint: 'Rounds the joins between elements (a smooth union): fills the slivers and teeth where petals, rays, stars and the hub meet'
+		}),
+		P.float('radius', 'Radius', 28, 0, 4096, {
+			softMax: 512,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Outer radius; the elements below are placed in fractions of it'
+		}),
+		...PLACEMENT,
+		P.float('hub', 'Hub', 0.1, 0, 1, { step: 0.001, hint: 'Filled centre disc, fraction of the radius (0 = none)' }),
+		P.float('hub_gap', 'Hub clearance', 0, 0, 1024, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Clears a ring this wide round the hub (a disc at the centre without one): spokes, star, petals and beads stop short of it — a clean moat instead of a tangle where they converge'
+		}),
+		P.float('hub_h', 'Hub height', 0.9, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && Number(p.hub) > 0,
+			hint: 'The hub’s height in the sculpted relief (a domed boss)'
+		}),
+		P.int('rings', 'Rings', 2, 0, 32, { softMax: 8, group: 'rings' }),
+		P.float('ring_w', 'Ring width', 2, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			group: 'rings',
+			showIf: has('rings')
+		}),
+		P.float('ring_in', 'Innermost ring', 0.8, 0, 1, {
+			step: 0.001,
+			group: 'rings',
+			showIf: has('rings'),
+			hint: 'Rings are spread evenly from this fraction of the radius out to the rim'
+		}),
+		P.float('ring_h', 'Height', 1, 0, 1, {
+			step: 0.001,
+			group: 'rings',
+			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('rings')(p),
+			hint: 'The rings’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both'
+		}),
+		P.float('ring_w_in', 'Innermost width', 1, 0, 8, {
+			softMax: 3,
+			step: 0.001,
+			group: 'rings',
+			showIf: (p) => Number(p.rings) > 1,
+			hint: 'Width of the innermost ring as a multiple of Ring width, the rings between graded: 0.3 = a heavy rim with fine inner rings, 2 = the reverse'
+		}),
+		P.int('spokes', 'Spokes', 0, 0, 256, { softMax: 96, group: 'spokes' }),
+		P.float('spoke_w', 'Width', 2, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			group: 'spokes',
+			showIf: has('spokes')
+		}),
+		P.float('spoke_taper', 'Taper', 0, -1, 1, {
+			step: 0.001,
+			group: 'spokes',
+			showIf: has('spokes'),
+			hint: '1 = sharp at the tip (rays), −1 = sharp at the centre'
+		}),
+		P.float('spoke_in', 'From', 0.15, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			group: 'spokes',
+			showIf: has('spokes'),
+			hint: 'Start, fraction of the radius'
+		}),
+		P.float('spoke_out', 'To', 1, 0, 2, { softMax: 1.5, step: 0.001, group: 'spokes', showIf: has('spokes') }),
+		P.float('spoke_off', 'Offset', 0, 0, 1, {
+			step: 0.001,
+			group: 'spokes',
+			showIf: has('spokes'),
+			hint: 'Angular offset, fraction of a step (0.5 puts spokes between star points)'
+		}),
+		P.float('spoke_h', 'Height', 0.55, 0, 1, {
+			step: 0.001,
+			group: 'spokes',
+			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('spokes')(p),
+			hint: 'The spokes’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both'
+		}),
+		P.float('spoke_alt', 'Alternate length', 0, 0, 1, {
+			step: 0.001,
+			group: 'spokes',
+			showIf: has('spokes'),
+			hint: 'Shortens every other spoke by this share of its length (compass roses, sunbursts; needs an even spoke count)'
+		}),
+		P.int('star', 'Star points', 8, 0, 32, { softMax: 16, group: 'star', hint: '0 = none' }),
+		P.enum('star_mode', 'Style', 'lines', STAR_MODES, { group: 'star', showIf: has('star') }),
+		P.float('star_r', 'Size', 0.77, 0, 2, {
+			softMax: 1.2,
+			step: 0.001,
+			group: 'star',
+			showIf: has('star'),
+			hint: 'Fraction of the radius'
+		}),
+		P.float('star_off', 'Offset', 0, 0, 1, {
+			step: 0.001,
+			group: 'star',
+			showIf: has('star'),
+			hint: 'Turns the star by this fraction of a point step (0.5 puts its points between the spokes)'
+		}),
+		P.float('star_h', 'Height', 0.65, 0, 1, {
+			step: 0.001,
+			group: 'star',
+			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('star')(p),
+			hint: 'The star’s height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both'
+		}),
+		P.float('star_inner', 'Inner ratio', 0.45, 0.02, 1, {
+			step: 0.001,
+			group: 'star',
+			showIf: (p) => has('star')(p) && p.star_mode !== 'lines'
+		}),
+		P.int('star_skip', 'Skip (k)', 3, 1, 15, {
+			group: 'star',
+			showIf: (p) => has('star')(p) && p.star_mode === 'lines',
+			hint: 'Each vertex joins the k-th next: {7/3} heptagram, {5/2} pentagram, 1 = polygon'
+		}),
+		P.bool('star_sharp', 'Sharp tips', true, {
+			group: 'star',
+			showIf: (p) => has('star')(p) && p.star_mode === 'lines',
+			hint: 'Mitre the points (else the strokes end round)'
+		}),
+		P.float('star_w', 'Line width', 2, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			group: 'star',
+			showIf: (p) => has('star')(p) && p.star_mode !== 'filled'
+		}),
+		P.int('petals', 'Petals', 0, 0, 64, { softMax: 24, group: 'petals' }),
+		P.enum(
+			'petal_shape',
+			'Shape',
+			'pointed',
+			[
+				['pointed', 'Pointed (vesica)'],
+				['round', 'Round (ellipse)']
+			],
+			{ group: 'petals', showIf: has('petals') }
+		),
+		P.float('petal_pos', 'Position', 0.55, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			group: 'petals',
+			showIf: has('petals'),
+			hint: 'Petal centre, fraction of the radius'
+		}),
+		P.float('petal_len', 'Length', 0.7, 0, 2, { softMax: 1, step: 0.001, group: 'petals', showIf: has('petals') }),
+		P.float('petal_w', 'Width', 0.25, 0, 2, { softMax: 1, step: 0.001, group: 'petals', showIf: has('petals') }),
+		P.float('petal_off', 'Offset', 0, 0, 1, {
+			step: 0.001,
+			group: 'petals',
+			showIf: has('petals'),
+			hint: 'Angular offset, fraction of a step'
+		}),
+		P.float('petal_line', 'Outline', 0, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			group: 'petals',
+			showIf: has('petals'),
+			hint: '0 = solid petals; otherwise petal outlines this wide (overlapping petals cross into a lattice, fused at one height: no over-and-under weave)'
+		}),
+		P.float('petal_h', 'Height', 0.8, 0, 1, {
+			step: 0.001,
+			group: 'petals',
+			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('petals')(p),
+			hint: 'The petals’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both'
+		}),
+		P.int('dots', 'Beads', 24, 0, 128, {
+			softMax: 48,
+			group: 'dots',
+			hint: 'A ring of round beads / rivets (0 = none)'
+		}),
+		P.float('dot_r', 'Bead radius', 1.5, 0, 1024, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.1,
+			group: 'dots',
+			showIf: has('dots')
+		}),
+		P.float('dot_w', 'Ring width', 0, 0, 256, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			group: 'dots',
+			showIf: has('dots'),
+			hint: '0 = solid beads; otherwise rings (overlapping rings make flower-of-life rosettes)'
+		}),
+		P.float('dot_pos', 'Position', 0.9, 0, 2, {
+			softMax: 1.2,
+			step: 0.001,
+			group: 'dots',
+			showIf: has('dots'),
+			hint: 'Fraction of the radius'
+		}),
+		P.float('dot_off', 'Offset', 0, 0, 1, {
+			step: 0.001,
+			group: 'dots',
+			showIf: has('dots'),
+			hint: 'Angular offset, fraction of a step'
+		}),
+		P.float('dot_h', 'Height', 0.8, 0, 1, {
+			step: 0.001,
+			group: 'dots',
+			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('dots')(p),
+			hint: 'The beads’ height in the sculpted relief (the others’ against it): a raised rim over a lower star, beads below both'
+		}),
+		...REPEAT
+	],
+	groups: [
+		{ id: 'rings', label: 'Rings' },
+		{ id: 'spokes', label: 'Spokes / rays', collapsed: true },
+		{ id: 'star', label: 'Star' },
+		{ id: 'petals', label: 'Petals', collapsed: true },
+		{ id: 'dots', label: 'Beads', collapsed: true },
+		{ id: 'repeat', label: 'Repeat', collapsed: true }
+	],
+	defaults: {
+		h_on: true,
+		h_amount: 0.4,
+		bevel: 1,
+		profile: 'round',
+		dif_on: true,
+		dif_src: 'flat',
+		dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] }
+	},
+	// The bevel follows the line widths (domed lines), and the glow / radial outputs are light: emissive, not paint
+	// (Diffuse would paint the whole texture) nor relief.
+	linkedDefaults: (p) => ({
+		bevel: rosetteBevel(p),
+		...(p.output === 'glow' || p.output === 'radial'
+			? { dif_on: false, h_on: false, e_on: true }
+			: { dif_on: true, h_on: true, e_on: false })
+	}),
+	// Added in the editor: the medallion (two rings with a bead ring between them, an {8/3} star whose tips end in
+	// the inner ring, a hub) filling most of the texture, its lines in proportion.
+	fresh: ({ width, height }) => {
+		const R = r1(Math.max(4, 0.4 * Math.min(width, height)));
+		const w = r1(Math.max(1, 0.035 * R));
+		return {
+			radius: R,
+			ring_w: w,
+			spoke_w: w,
+			star_w: w,
+			dot_r: r1(Math.max(1, 0.026 * R))
+		};
+	},
+	glsl:
+		GLSL_MOT_SEED +
+		GLSL_TRAPEZOID +
+		/* glsl */ `
 float motifBound() {
   float R = u_radius;
   float b = R + 0.5 * u_ring_w;
@@ -621,90 +855,218 @@ GenOut motifOut(float d, float rnd, vec2 nearQ, float h) {
 // Bevel aspect applies to the shape only.
 #define MOT_STRETCH (u_output == 0)
 ` +
-    MOT_REPEAT,
-}
+		MOT_REPEAT
+};
 
 // ------------------------------------------------------------------------------------------------ glyph
 
 /** Glyph's linked bevel: half the stroke width (domed strokes), or an eighth of a block cell (at least 1 px). */
 export function glyphBevel(p: Record<string, unknown>): number {
-  const n = (k: string, d: number) => Number(p[k] ?? d)
-  if (p.style === 'blocks') return r1(Math.min(32, Math.max(1, (0.12 * n('size', 32)) / Math.max(2, n('rows', 5)))))
-  return r1(Math.min(64, Math.max(0.5, 0.5 * n('width', 2))))
+	const n = (k: string, d: number) => Number(p[k] ?? d);
+	if (p.style === 'blocks') return r1(Math.min(32, Math.max(1, (0.12 * n('size', 32)) / Math.max(2, n('rows', 5)))));
+	return r1(Math.min(64, Math.max(0.5, 0.5 * n('width', 2))));
 }
 
 export const glyphLayer: LayerDef = {
-  type: 'glyph',
-  label: 'Glyph / Sigil',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Procedural emblems, runes and sigils: random strokes (or blocks) on a small node grid, mirrored left–right and / or top–bottom. Repeat with variation for rune borders and alien text.',
-  params: [
-    P.enum('style', 'Style', 'strokes', [['strokes', 'Strokes (runes, sigils)'], ['blocks', 'Blocks (pixel insignia)']]),
-    P.int('cols', 'Columns', 5, 2, 9, { hint: 'Nodes (strokes) or cells (blocks) across; odd counts give a centre column' }),
-    P.int('rows', 'Rows', 5, 2, 9),
-    P.float('size', 'Size', 32, 1, 4096, { softMax: 512, unit: 'px', step: 0.1, hint: 'Glyph height (node span for strokes, cell span for blocks)' }),
-    P.float('jitter', 'Node jitter', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Moves each node off the grid at random, up to half a node spacing at 1. Strokes that share a node still meet there' }),
-    P.float('width', 'Stroke width', 2, 0, 256, { softMax: 48, unit: 'px', step: 0.1, showIf: (p) => p.style === 'strokes' }),
-    P.float('width_var', 'Width variation', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Each stroke gets its own share of the width (1 = anywhere from a tenth to full): bold main strokes, fine secondary ones' }),
-    P.float('pen', 'Calligraphy', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Broad-nib pen: strokes running along the nib thin out, strokes across it stay full width (1 = hairlines along the nib)' }),
-    P.float('pen_angle', 'Nib angle', 30, -180, 180, { softMin: -90, softMax: 90, unit: '°', step: 0.1, showIf: (p) => p.style === 'strokes' && (Number(p.pen) > 0 || p.cap === 'pen'), hint: 'Direction of the pen’s thin stroke, anticlockwise from horizontal (the same on both sides of a mirror, as a pen would draw it)' }),
-    P.float('taper', 'Taper', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Thin each stroke towards its ends: full width in the middle of the stroke, 1 = pointed tips' }),
-    P.enum('cap', 'Ends', 'round', [
-      ['round', 'Round', 'round caps (pen, wire)'],
-      ['square', 'Square', 'cut square half a width past the end node (chiselled runes)'],
-      ['flat', 'Flat', 'cut square at the end node'],
-      ['pen', 'Pen', 'every stroke cut along the nib at its ends and joints, as a broad pen leaves it (with Calligraphy)'],
-    ], { showIf: (p) => p.style === 'strokes', hint: 'How the free stroke ends look. Ends where strokes meet (or meet their mirror image) follow Joins' }),
-    P.enum('join', 'Joins', 'round', [
-      ['round', 'Round', 'round corners where segments meet'],
-      ['mitre', 'Mitre', 'sharp corners: within a stroke and where a stroke meets its mirror image on the axis (turns sharper than about 130° stay round)'],
-    ], { showIf: (p) => p.style === 'strokes' && p.line !== 'spline' && p.cap !== 'pen', hint: 'How segments meet at a node' }),
-    P.int('strokes', 'Strokes', 4, 1, 8, { showIf: (p) => p.style === 'strokes', hint: 'Random walks per glyph' }),
-    P.int('steps', 'Steps', 3, 1, 8, { showIf: (p) => p.style === 'strokes', hint: 'Segments per stroke' }),
-    P.float('diag', 'Diagonals', 0.4, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a turn goes diagonal. 0 = none at all (a stroke boxed in stops rather than step diagonally)' }),
-    P.float('straight', 'Straightness', 0.35, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a stroke keeps its direction' }),
-    P.float('overlap', 'Overlaps', 0.3, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a step may land on a node already drawn (by any stroke, or a mirror image). At 0 strokes never run back into the glyph, and stop early when boxed in. Splines never run back along a drawn line or turn back sharply' }),
-    P.float('connect', 'Connected', 0.85, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes', hint: 'Chance a stroke starts on a node already drawn, so the glyph hangs together instead of falling into separate marks (1 = one connected figure). Above 0 the first stroke starts at the centre node — on the axis with Mirror X and an odd column count, joining the halves' }),
-    P.enum('line', 'Lines', 'straight', [['straight', 'Straight (and arcs)'], ['spline', 'Splines (hand-drawn)']], { showIf: (p) => p.style === 'strokes', hint: 'Splines draw each stroke as one smooth curve through its nodes' }),
-    P.float('curve', 'Curves', 0, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes' && p.line !== 'spline', hint: 'Chance a segment bows into an arc' }),
-    P.float('roundness', 'Roundness', 1, 0, 2, { step: 0.001, showIf: (p) => p.style === 'strokes' && p.line === 'spline', hint: 'How far the splines swing through the nodes: 0 = straight, 1 = natural, 2 = loopy' }),
-    P.float('dots', 'End dots', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1, showIf: (p) => p.style === 'strokes', hint: 'Radius of a dot at each stroke end (0 = none)' }),
-    P.float('dot_chance', 'Dot chance', 1, 0, 1, { step: 0.001, showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0, hint: 'Chance each stroke end gets its dot (1 = all of them): some strokes end in a dot or ring, others plain' }),
-    P.bool('dot_joins', 'Dots at joins', false, { showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0, hint: 'Also put dots on stroke ends that meet another stroke (or their mirror image); off, only free ends get them' }),
-    P.bool('dot_ring', 'Ring dots', false, { showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0, hint: 'Draw the end dots as open rings that the strokes stop at (sigil style). The ring line is the stroke width, thinned to half the radius on small dots' }),
-    P.float('density', 'Fill', 0.5, 0, 1, { step: 0.001, showIf: (p) => p.style === 'blocks', hint: 'Fraction of cells filled' }),
-    P.float('gap', 'Gap', 0, 0, 256, { softMax: 16, unit: 'px', step: 0.1, showIf: (p) => p.style === 'blocks', hint: 'Space between the cells: 0 merges neighbouring cells into one shape; more gives separate tiles (mosaic, LED panel)' }),
-    P.bool('mirror', 'Mirror X', true, { hint: 'Left–right symmetry' }),
-    P.bool('mirror_y', 'Mirror Y', false, { hint: 'Top–bottom symmetry' }),
-    P.bool('centre', 'Centre glyph', true, { hint: 'Centre the drawn glyph on its origin (placement point and rotation pivot) instead of the full node grid' }),
-    P.bool('vary', 'Vary per instance', true, { hint: 'Each repeat gets its own glyph (rune text); off repeats one emblem' }),
-    P.bool('snap', 'Pixel snap', true, { hint: 'Puts nodes on the pixel grid so 1–2 px strokes stay crisp' }),
-    ...PLACEMENT,
-    ...REPEAT,
-  ],
-  groups: [{ id: 'repeat', label: 'Repeat', collapsed: true }],
-  defaults: {
-    h_on: true,
-    h_amount: 0.4,
-    bevel: 1,
-    profile: 'round',
-    dif_on: true,
-    dif_src: 'flat',
-    dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] },
-  },
-  // The bevel follows the strokes (half their width: a round, domed section) or the blocks' cells.
-  // The pen's strokes end as the pen leaves them.
-  linkedDefaults: (p) => ({ bevel: glyphBevel(p), cap: Number(p.pen) > 0 ? 'pen' : 'round' }),
-  // Added in the editor: one emblem across about half the texture, its strokes in proportion.
-  fresh: ({ width, height }) => {
-    const size = r1(Math.max(8, 0.45 * Math.min(width, height)))
-    return { size, width: Math.max(1, Math.round(size / 18)) }
-  },
-  glsl:
-    GLSL_MOT_SEED +
-    /* glsl */ `
+	type: 'glyph',
+	label: 'Glyph / Sigil',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Procedural emblems, runes and sigils: random strokes (or blocks) on a small node grid, mirrored left–right and / or top–bottom. Repeat with variation for rune borders and alien text.',
+	params: [
+		P.enum('style', 'Style', 'strokes', [
+			['strokes', 'Strokes (runes, sigils)'],
+			['blocks', 'Blocks (pixel insignia)']
+		]),
+		P.int('cols', 'Columns', 5, 2, 9, {
+			hint: 'Nodes (strokes) or cells (blocks) across; odd counts give a centre column'
+		}),
+		P.int('rows', 'Rows', 5, 2, 9),
+		P.float('size', 'Size', 32, 1, 4096, {
+			softMax: 512,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Glyph height (node span for strokes, cell span for blocks)'
+		}),
+		P.float('jitter', 'Node jitter', 0, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes',
+			hint: 'Moves each node off the grid at random, up to half a node spacing at 1. Strokes that share a node still meet there'
+		}),
+		P.float('width', 'Stroke width', 2, 0, 256, {
+			softMax: 48,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => p.style === 'strokes'
+		}),
+		P.float('width_var', 'Width variation', 0, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes',
+			hint: 'Each stroke gets its own share of the width (1 = anywhere from a tenth to full): bold main strokes, fine secondary ones'
+		}),
+		P.float('pen', 'Calligraphy', 0, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes',
+			hint: 'Broad-nib pen: strokes running along the nib thin out, strokes across it stay full width (1 = hairlines along the nib)'
+		}),
+		P.float('pen_angle', 'Nib angle', 30, -180, 180, {
+			softMin: -90,
+			softMax: 90,
+			unit: '°',
+			step: 0.1,
+			showIf: (p) => p.style === 'strokes' && (Number(p.pen) > 0 || p.cap === 'pen'),
+			hint: 'Direction of the pen’s thin stroke, anticlockwise from horizontal (the same on both sides of a mirror, as a pen would draw it)'
+		}),
+		P.float('taper', 'Taper', 0, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes',
+			hint: 'Thin each stroke towards its ends: full width in the middle of the stroke, 1 = pointed tips'
+		}),
+		P.enum(
+			'cap',
+			'Ends',
+			'round',
+			[
+				['round', 'Round', 'round caps (pen, wire)'],
+				['square', 'Square', 'cut square half a width past the end node (chiselled runes)'],
+				['flat', 'Flat', 'cut square at the end node'],
+				[
+					'pen',
+					'Pen',
+					'every stroke cut along the nib at its ends and joints, as a broad pen leaves it (with Calligraphy)'
+				]
+			],
+			{
+				showIf: (p) => p.style === 'strokes',
+				hint: 'How the free stroke ends look. Ends where strokes meet (or meet their mirror image) follow Joins'
+			}
+		),
+		P.enum(
+			'join',
+			'Joins',
+			'round',
+			[
+				['round', 'Round', 'round corners where segments meet'],
+				[
+					'mitre',
+					'Mitre',
+					'sharp corners: within a stroke and where a stroke meets its mirror image on the axis (turns sharper than about 130° stay round)'
+				]
+			],
+			{
+				showIf: (p) => p.style === 'strokes' && p.line !== 'spline' && p.cap !== 'pen',
+				hint: 'How segments meet at a node'
+			}
+		),
+		P.int('strokes', 'Strokes', 4, 1, 8, { showIf: (p) => p.style === 'strokes', hint: 'Random walks per glyph' }),
+		P.int('steps', 'Steps', 3, 1, 8, { showIf: (p) => p.style === 'strokes', hint: 'Segments per stroke' }),
+		P.float('diag', 'Diagonals', 0.4, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes',
+			hint: 'Chance a turn goes diagonal. 0 = none at all (a stroke boxed in stops rather than step diagonally)'
+		}),
+		P.float('straight', 'Straightness', 0.35, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes',
+			hint: 'Chance a stroke keeps its direction'
+		}),
+		P.float('overlap', 'Overlaps', 0.3, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes',
+			hint: 'Chance a step may land on a node already drawn (by any stroke, or a mirror image). At 0 strokes never run back into the glyph, and stop early when boxed in. Splines never run back along a drawn line or turn back sharply'
+		}),
+		P.float('connect', 'Connected', 0.85, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes',
+			hint: 'Chance a stroke starts on a node already drawn, so the glyph hangs together instead of falling into separate marks (1 = one connected figure). Above 0 the first stroke starts at the centre node — on the axis with Mirror X and an odd column count, joining the halves'
+		}),
+		P.enum(
+			'line',
+			'Lines',
+			'straight',
+			[
+				['straight', 'Straight (and arcs)'],
+				['spline', 'Splines (hand-drawn)']
+			],
+			{ showIf: (p) => p.style === 'strokes', hint: 'Splines draw each stroke as one smooth curve through its nodes' }
+		),
+		P.float('curve', 'Curves', 0, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes' && p.line !== 'spline',
+			hint: 'Chance a segment bows into an arc'
+		}),
+		P.float('roundness', 'Roundness', 1, 0, 2, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes' && p.line === 'spline',
+			hint: 'How far the splines swing through the nodes: 0 = straight, 1 = natural, 2 = loopy'
+		}),
+		P.float('dots', 'End dots', 0, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => p.style === 'strokes',
+			hint: 'Radius of a dot at each stroke end (0 = none)'
+		}),
+		P.float('dot_chance', 'Dot chance', 1, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0,
+			hint: 'Chance each stroke end gets its dot (1 = all of them): some strokes end in a dot or ring, others plain'
+		}),
+		P.bool('dot_joins', 'Dots at joins', false, {
+			showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0,
+			hint: 'Also put dots on stroke ends that meet another stroke (or their mirror image); off, only free ends get them'
+		}),
+		P.bool('dot_ring', 'Ring dots', false, {
+			showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0,
+			hint: 'Draw the end dots as open rings that the strokes stop at (sigil style). The ring line is the stroke width, thinned to half the radius on small dots'
+		}),
+		P.float('density', 'Fill', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'blocks',
+			hint: 'Fraction of cells filled'
+		}),
+		P.float('gap', 'Gap', 0, 0, 256, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => p.style === 'blocks',
+			hint: 'Space between the cells: 0 merges neighbouring cells into one shape; more gives separate tiles (mosaic, LED panel)'
+		}),
+		P.bool('mirror', 'Mirror X', true, { hint: 'Left–right symmetry' }),
+		P.bool('mirror_y', 'Mirror Y', false, { hint: 'Top–bottom symmetry' }),
+		P.bool('centre', 'Centre glyph', true, {
+			hint: 'Centre the drawn glyph on its origin (placement point and rotation pivot) instead of the full node grid'
+		}),
+		P.bool('vary', 'Vary per instance', true, {
+			hint: 'Each repeat gets its own glyph (rune text); off repeats one emblem'
+		}),
+		P.bool('snap', 'Pixel snap', true, { hint: 'Puts nodes on the pixel grid so 1–2 px strokes stay crisp' }),
+		...PLACEMENT,
+		...REPEAT
+	],
+	groups: [{ id: 'repeat', label: 'Repeat', collapsed: true }],
+	defaults: {
+		h_on: true,
+		h_amount: 0.4,
+		bevel: 1,
+		profile: 'round',
+		dif_on: true,
+		dif_src: 'flat',
+		dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] }
+	},
+	// The bevel follows the strokes (half their width: a round, domed section) or the blocks' cells.
+	// The pen's strokes end as the pen leaves them.
+	linkedDefaults: (p) => ({ bevel: glyphBevel(p), cap: Number(p.pen) > 0 ? 'pen' : 'round' }),
+	// Added in the editor: one emblem across about half the texture, its strokes in proportion.
+	fresh: ({ width, height }) => {
+		const size = r1(Math.max(8, 0.45 * Math.min(width, height)));
+		return { size, width: Math.max(1, Math.round(size / 18)) };
+	},
+	glsl:
+		GLSL_MOT_SEED +
+		/* glsl */ `
 const ivec2 MOT_DIRS[8] = ivec2[8](ivec2(1, 0), ivec2(1, 1), ivec2(0, 1), ivec2(-1, 1),
                                     ivec2(-1, 0), ivec2(-1, -1), ivec2(0, -1), ivec2(1, -1));
 
@@ -1114,5 +1476,6 @@ GenOut motifOut(float d, float rnd, vec2 nearQ, float h) { return genOut(0.0, 1.
 #define MOT_BLUR 0.0
 #define MOT_EXACT 1e9
 #define MOT_STRETCH true
-` + MOT_REPEAT,
-}
+` +
+		MOT_REPEAT
+};

@@ -3,11 +3,13 @@
 **Status:** done (v1)
 
 ## Goal
+
 The core compositing model: an ordered stack of generator and filter layers that build the Diffuse, Height,
 Roughness, Emissive (and Opacity) channels, with named masks for SDF operators and limits (architecture §5.2–5.4,
 FR8.23).
 
 ## Plan
+
 - `src/layers/registry.ts` — `LayerDef` registry, categories, lookup, `createLayer(type)`.
 - `src/layers/glsl/common.ts` — hashing (PCG), wrap helpers, user→GL conversion, gradient ramp lookup,
   blend modes, profile curves, SDF combine operators.
@@ -21,6 +23,7 @@ FR8.23).
 - Uniform upload from params: float/int/bool/enum/color(→linear)/seed/gradient(→vec4[8]).
 
 ## Checklist
+
 - [x] LayerDef registry + categories
 - [x] Generator wrapper: SDF combine, profiles, shaping, mask, outputs
 - [x] Diffuse blend modes (9) + gradient ramp + random jitter — blending happens in sRGB space like a paint program

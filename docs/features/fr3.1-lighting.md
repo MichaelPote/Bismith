@@ -3,9 +3,11 @@
 **Status:** done (v1)
 
 ## Goal
+
 Global lighting as a project setting: sky light, ambient strength, and individually placed lights.
 
 ## Plan
+
 - `project.lighting = { sky, ambient, lights[] }` (architecture §6).
 - Sky: zenith and horizon colours + intensity, sampled by escaping BSDF rays.
 - Ambient: un-shadowed constant fill (colour × intensity) at the primary hit.
@@ -16,13 +18,14 @@ Global lighting as a project setting: sky light, ambient strength, and individua
 - Lighting presets: "Top-left key (UI)", "Overhead + sky", "Torch-lit (Quake)".
 
 ## Checklist
+
 - [x] Lighting model + defaults
 - [x] Sky + ambient settings UI
 - [x] Directional lights
 - [x] Point lights
 - [x] Light list in outliner + properties
 - [x] Draggable point-light gizmos — directional lights get a handle too, on a sky map about the texture centre: the
-  angle is the azimuth, the distance the elevation (linear: 90° at the centre, 0° on a horizon ring just outside the
-  texture). Dragging it sets the azimuth; Shift-drag puts it under the cursor (elevation too); Ctrl (⌘) snaps both
-  to 15° steps
+      angle is the azimuth, the distance the elevation (linear: 90° at the centre, 0° on a horizon ring just outside the
+      texture). Dragging it sets the azimuth; Shift-drag puts it under the cursor (elevation too); Ctrl (⌘) snaps both
+      to 15° steps
 - [x] Lighting presets — UI key, Overhead, Torch-lit, Raking, Flat

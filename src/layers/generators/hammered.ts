@@ -9,86 +9,173 @@
 // lets them run on past it, thinning out. Height's Per-feature variation varies each dent's depth (hval).
 // Writing a mask (Mask › Write to), the dents are discs (Mask size × their radius).
 
-import { P, type ParamValues } from '@/core/params'
-import type { LayerDef } from '../types'
+import { P, type ParamValues } from '@/core/params';
+import type { LayerDef } from '../types';
 
 /** Whether the dents' discs go to a mask (else the layer leaves the masks alone). */
-const writesShape = (p: ParamValues) => String(p.mk_target ?? '').trim() !== ''
+const writesShape = (p: ParamValues) => String(p.mk_target ?? '').trim() !== '';
 
 /** Keys only layers from after the quality pass have (stored files keep every param). */
-const NEW_KEYS = ['region_var', 'wobble', 'course_var', 'size_var', 'depth_var', 'tilt', 'stretch', 'crease', 'rim', 'overlap', 'mask_r']
+const NEW_KEYS = [
+	'region_var',
+	'wobble',
+	'course_var',
+	'size_var',
+	'depth_var',
+	'tilt',
+	'stretch',
+	'crease',
+	'rim',
+	'overlap',
+	'mask_r'
+];
 
 /**
  * Files from before the quality pass gave Jitter in px; it is now a share of the spacing. (Only the unit is converted:
  * such layers take the current defaults for everything they lack.)
  */
 function migrateHammered(p: ParamValues): ParamValues {
-  if (typeof p.jitter !== 'number' || NEW_KEYS.some((k) => k in p)) return p
-  const ring = typeof p.ring === 'number' ? p.ring : 24.4
-  const spacing = typeof p.spacing === 'number' ? p.spacing : 20.2
-  return { ...p, jitter: Math.round((1000 * p.jitter) / Math.max(0.5, Math.min(ring, spacing))) / 1000 }
+	if (typeof p.jitter !== 'number' || NEW_KEYS.some((k) => k in p)) return p;
+	const ring = typeof p.ring === 'number' ? p.ring : 24.4;
+	const spacing = typeof p.spacing === 'number' ? p.spacing : 20.2;
+	return { ...p, jitter: Math.round((1000 * p.jitter) / Math.max(0.5, Math.min(ring, spacing))) / 1000 };
 }
 
 export const hammeredLayer: LayerDef = {
-  type: 'hammered',
-  label: 'Hammered',
-  category: 'pattern',
-  kind: 'generator',
-  description: 'Hand-hammered metal: overlapping dish dents in wandering courses round a few centres whose regions interlock along arcs.',
-  params: [
-    P.int('centres', 'Centres', 4, 1, 64, { softMax: 16, hint: 'Hammering centres; each owns a region of courses (rings) of dents' }),
-    P.float('weight_var', 'Arc boundaries', 0.6, 0, 4, { softMax: 1.5, step: 0.001, hint: 'Weight variation between centres: 0 = straight region edges, higher = curved, interlocking arcs, and small regions become islands inside big ones' }),
-    P.float('region_var', 'Region variation', 0.35, 0, 1, { step: 0.001, hint: 'Each region its own dent size, depth and shade (1 = from 0.7× to 1.4× the size), so the regions read as separate passes of the hammer' }),
-    P.float('ring', 'Ring spacing', 24.4, 1, 512, { softMax: 64, unit: 'px', step: 0.05, hint: 'Distance between the courses (rings) of dents' }),
-    P.float('spacing', 'Dent spacing', 20.2, 1, 512, { softMax: 64, unit: 'px', step: 0.05, hint: 'Distance between dents along a course' }),
-    P.float('wobble', 'Ring wobble', 0.5, 0, 6, { softMax: 3, step: 0.001, hint: 'How far each course wanders from its circle, in ring spacings: 0 = perfect circles, higher = hand-guided, wavy courses that drift apart and together' }),
-    P.float('course_var', 'Course variation', 0.4, 0, 2, { softMax: 1, step: 0.001, hint: 'Courses set in or out, changing gradually from course to course (1 = up to half a ring spacing): the gaps between them widen and narrow' }),
-    P.float('jitter', 'Jitter', 0.1, 0, 4, { softMax: 0.5, step: 0.001, hint: 'Random offset of each dent, as a share of the spacing: 0 = strict rows, 0.1 keeps the courses readable, 0.4 scatters them' }),
-    P.float('size', 'Dent size', 1.9, 0.1, 4, { softMin: 0.3, softMax: 2.5, step: 0.001, hint: 'Dent radius relative to half the spacing: below 1 = separate dimples on flat metal, 1 = touching, above = overlapping facets that cover the sheet' }),
-    P.float('size_var', 'Size variation', 0.4, 0, 1, { step: 0.001, hint: 'Each dent its own size: 1 = from half to twice the radius' }),
-    P.float('shape', 'Dent shape', 2.4, 0.5, 16, { softMin: 1, softMax: 10, step: 0.01, hint: '1 = cone, 2 = round dish, 2–3 = planished bowls, higher = flat-bottomed punch marks with steep walls and a raised burr of displaced metal round them (from about 5 they strike to much the same depth: Depth variation counts for a third) — set Dent size below 1 to leave metal between the punches; below 1: pointed pits' }),
-    P.float('depth_var', 'Depth variation', 0.5, 0, 1, { step: 0.001, hint: 'Each dent its own depth, in colour and height: 1 = from full depth to barely touched (Height › Per-feature variation varies the height alone)' }),
-    P.float('tilt', 'Tilt', 1, 0, 1, { step: 0.001, hint: 'Each dent’s deepest point moved towards one side, as from a blow struck at an angle: a long, gentle slope one way and a short, steep one the other, so the facets catch the light differently (floors stay level)' }),
-    P.float('stretch', 'Stretch', 1.15, 0.2, 5, { softMin: 0.5, softMax: 3, step: 0.01, hint: 'Dents lengthened along their course (above 1, as a hammer drawn along it) or across it (below 1); the other way they keep their width' }),
-    P.float('crease', 'Crease softness', 0.02, 0, 1, { step: 0.001, hint: 'Where overlapping dents meet: 0 = sharp creases, higher = rounded ridges (most of the change is in the first tenth)' }),
-    P.float('rim', 'Rim', 0.1, 0, 1, { softMax: 0.5, step: 0.001, hint: 'A raised lip of displaced metal round each dent, as a share of its depth — it shows on untouched metal and on the ridges between dents' }),
-    P.float('overlap', 'Edge overlap', 2, 0, 8, { softMax: 4, step: 0.01, hint: 'How far each region’s dents run on past its edge, in dent radii, thinning out over the band (sparse dents skip blows where the neighbour already struck): 0 = every region stops at its edge (seams and wedges of untouched metal where courses meet), higher = the passes mesh and hide the seams' }),
-    P.float('mask_r', 'Mask size', 1, 0, 2, {
-      step: 0.001,
-      showIf: writesShape,
-      hint: 'Writing a mask (Mask › Write to): the shape is a disc per dent, this times its radius — 1 = the whole dent, lower = round its deepest point (its floor); large, overlapping dents still join up below about 0.5',
-    }),
-    P.seed(),
-  ],
-  // The dents as discs, for a mask (opt-in: a hammered sheet usually works inside a plate's shape); the generator shapes
-  // its own value.
-  sdf: 'mask',
-  migrate: migrateHammered,
-  defaults: {
-    mk_target: '',
-    h_on: true,
-    h_amount: 1.4,
-    dif_on: true,
-    // A copper ramp that darkens the dents only a little.
-    dif_grad: { stops: [{ pos: 0, color: '#985230' }, { pos: 1, color: '#aa673e' }] },
-  },
-  // Added in the editor: the courses sized to the texture — about 21 across, but on small textures fewer, larger dents
-  // (5 courses across at 64 px, none closer than 14 px below 300 px) with fewer centres and deeper relief, so each dent
-  // keeps a highlight and a shadow. At 512 px this is the plain default.
-  fresh: ({ width, height }) => {
-    const r1 = (v: number) => Math.round(v * 10) / 10
-    const side = Math.sqrt(width * height)
-    const u = Math.max(3, side / 21, Math.min(side / 5, 14))
-    const small = Math.min(1, Math.max(0, (256 - side) / 192))
-    return {
-      ring: r1(u), spacing: r1(u * 0.83),
-      centres: side >= 384 ? 4 : side >= 192 ? 3 : 2,
-      // Small textures: sharp creases and flatter, steeper dents, so each keeps one lit and one dark edge in a few px.
-      crease: Math.round(20 * (1 - small)) / 1000, shape: r1(2.4 + 0.8 * small),
-      h_amount: r1(1.4 * Math.max(Math.pow(512 / side, 0.25), Math.sqrt(side / 512))),
-    }
-  },
-  glsl: /* glsl */ `
+	type: 'hammered',
+	label: 'Hammered',
+	category: 'pattern',
+	kind: 'generator',
+	description:
+		'Hand-hammered metal: overlapping dish dents in wandering courses round a few centres whose regions interlock along arcs.',
+	params: [
+		P.int('centres', 'Centres', 4, 1, 64, {
+			softMax: 16,
+			hint: 'Hammering centres; each owns a region of courses (rings) of dents'
+		}),
+		P.float('weight_var', 'Arc boundaries', 0.6, 0, 4, {
+			softMax: 1.5,
+			step: 0.001,
+			hint: 'Weight variation between centres: 0 = straight region edges, higher = curved, interlocking arcs, and small regions become islands inside big ones'
+		}),
+		P.float('region_var', 'Region variation', 0.35, 0, 1, {
+			step: 0.001,
+			hint: 'Each region its own dent size, depth and shade (1 = from 0.7× to 1.4× the size), so the regions read as separate passes of the hammer'
+		}),
+		P.float('ring', 'Ring spacing', 24.4, 1, 512, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.05,
+			hint: 'Distance between the courses (rings) of dents'
+		}),
+		P.float('spacing', 'Dent spacing', 20.2, 1, 512, {
+			softMax: 64,
+			unit: 'px',
+			step: 0.05,
+			hint: 'Distance between dents along a course'
+		}),
+		P.float('wobble', 'Ring wobble', 0.5, 0, 6, {
+			softMax: 3,
+			step: 0.001,
+			hint: 'How far each course wanders from its circle, in ring spacings: 0 = perfect circles, higher = hand-guided, wavy courses that drift apart and together'
+		}),
+		P.float('course_var', 'Course variation', 0.4, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			hint: 'Courses set in or out, changing gradually from course to course (1 = up to half a ring spacing): the gaps between them widen and narrow'
+		}),
+		P.float('jitter', 'Jitter', 0.1, 0, 4, {
+			softMax: 0.5,
+			step: 0.001,
+			hint: 'Random offset of each dent, as a share of the spacing: 0 = strict rows, 0.1 keeps the courses readable, 0.4 scatters them'
+		}),
+		P.float('size', 'Dent size', 1.9, 0.1, 4, {
+			softMin: 0.3,
+			softMax: 2.5,
+			step: 0.001,
+			hint: 'Dent radius relative to half the spacing: below 1 = separate dimples on flat metal, 1 = touching, above = overlapping facets that cover the sheet'
+		}),
+		P.float('size_var', 'Size variation', 0.4, 0, 1, {
+			step: 0.001,
+			hint: 'Each dent its own size: 1 = from half to twice the radius'
+		}),
+		P.float('shape', 'Dent shape', 2.4, 0.5, 16, {
+			softMin: 1,
+			softMax: 10,
+			step: 0.01,
+			hint: '1 = cone, 2 = round dish, 2–3 = planished bowls, higher = flat-bottomed punch marks with steep walls and a raised burr of displaced metal round them (from about 5 they strike to much the same depth: Depth variation counts for a third) — set Dent size below 1 to leave metal between the punches; below 1: pointed pits'
+		}),
+		P.float('depth_var', 'Depth variation', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'Each dent its own depth, in colour and height: 1 = from full depth to barely touched (Height › Per-feature variation varies the height alone)'
+		}),
+		P.float('tilt', 'Tilt', 1, 0, 1, {
+			step: 0.001,
+			hint: 'Each dent’s deepest point moved towards one side, as from a blow struck at an angle: a long, gentle slope one way and a short, steep one the other, so the facets catch the light differently (floors stay level)'
+		}),
+		P.float('stretch', 'Stretch', 1.15, 0.2, 5, {
+			softMin: 0.5,
+			softMax: 3,
+			step: 0.01,
+			hint: 'Dents lengthened along their course (above 1, as a hammer drawn along it) or across it (below 1); the other way they keep their width'
+		}),
+		P.float('crease', 'Crease softness', 0.02, 0, 1, {
+			step: 0.001,
+			hint: 'Where overlapping dents meet: 0 = sharp creases, higher = rounded ridges (most of the change is in the first tenth)'
+		}),
+		P.float('rim', 'Rim', 0.1, 0, 1, {
+			softMax: 0.5,
+			step: 0.001,
+			hint: 'A raised lip of displaced metal round each dent, as a share of its depth — it shows on untouched metal and on the ridges between dents'
+		}),
+		P.float('overlap', 'Edge overlap', 2, 0, 8, {
+			softMax: 4,
+			step: 0.01,
+			hint: 'How far each region’s dents run on past its edge, in dent radii, thinning out over the band (sparse dents skip blows where the neighbour already struck): 0 = every region stops at its edge (seams and wedges of untouched metal where courses meet), higher = the passes mesh and hide the seams'
+		}),
+		P.float('mask_r', 'Mask size', 1, 0, 2, {
+			step: 0.001,
+			showIf: writesShape,
+			hint: 'Writing a mask (Mask › Write to): the shape is a disc per dent, this times its radius — 1 = the whole dent, lower = round its deepest point (its floor); large, overlapping dents still join up below about 0.5'
+		}),
+		P.seed()
+	],
+	// The dents as discs, for a mask (opt-in: a hammered sheet usually works inside a plate's shape); the generator shapes
+	// its own value.
+	sdf: 'mask',
+	migrate: migrateHammered,
+	defaults: {
+		mk_target: '',
+		h_on: true,
+		h_amount: 1.4,
+		dif_on: true,
+		// A copper ramp that darkens the dents only a little.
+		dif_grad: {
+			stops: [
+				{ pos: 0, color: '#985230' },
+				{ pos: 1, color: '#aa673e' }
+			]
+		}
+	},
+	// Added in the editor: the courses sized to the texture — about 21 across, but on small textures fewer, larger dents
+	// (5 courses across at 64 px, none closer than 14 px below 300 px) with fewer centres and deeper relief, so each dent
+	// keeps a highlight and a shadow. At 512 px this is the plain default.
+	fresh: ({ width, height }) => {
+		const r1 = (v: number) => Math.round(v * 10) / 10;
+		const side = Math.sqrt(width * height);
+		const u = Math.max(3, side / 21, Math.min(side / 5, 14));
+		const small = Math.min(1, Math.max(0, (256 - side) / 192));
+		return {
+			ring: r1(u),
+			spacing: r1(u * 0.83),
+			centres: side >= 384 ? 4 : side >= 192 ? 3 : 2,
+			// Small textures: sharp creases and flatter, steeper dents, so each keeps one lit and one dark edge in a few px.
+			crease: Math.round(20 * (1 - small)) / 1000,
+			shape: r1(2.4 + 0.8 * small),
+			h_amount: r1(1.4 * Math.max(Math.pow(512 / side, 0.25), Math.sqrt(side / 512)))
+		};
+	},
+	glsl: /* glsl */ `
 vec2 hmCentre(int i) { return hash2I(ivec2(i, 3), uSeed) * uRes; }
 // 1 / (1 + 2v·h): positive at any Arc boundaries v.
 float hmWeight(int i) { return 1.0 / (1.0 + 2.0 * u_weight_var * hashI(ivec2(i, 5), uSeed)); }
@@ -417,5 +504,5 @@ GenOut gen(vec2 p) {
   g.hval = hval;
   return g;
 }
-`,
-}
+`
+};

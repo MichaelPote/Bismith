@@ -23,23 +23,36 @@
 // Drips added in the editor start as streaky runnels sized to the texture, hanging from the ledges (LayerDef.fresh;
 // pixel streaks below 128 px); layers built in code keep the streak style unless they ask.
 
-import type { Texture } from 'three'
-import { P, type Gradient } from '@/core/params'
-import { DISTANCE_SOURCE, jumpFlood } from '@/gpu/jfa'
-import type { LayerDef } from '../types'
+import type { Texture } from 'three';
+import { P, type Gradient } from '@/core/params';
+import { DISTANCE_SOURCE, jumpFlood } from '@/gpu/jfa';
+import type { LayerDef } from '../types';
 
-const stains = (p: Record<string, unknown>) => p.output !== 'source'
-const sources = (p: Record<string, unknown>) => p.output === 'source'
-const isRunnels = (p: Record<string, unknown>) => stains(p) && p.style === 'runnels'
+const stains = (p: Record<string, unknown>) => p.output !== 'source';
+const sources = (p: Record<string, unknown>) => p.output === 'source';
+const isRunnels = (p: Record<string, unknown>) => stains(p) && p.style === 'runnels';
 
 /** Margins of the per-cell source texture: columns either side, rows above (the most a trail search looks up). */
-const DR_MX = 8
-const DR_ROWS = 96
+const DR_MX = 8;
+const DR_ROWS = 96;
 
 /** The editor's paint for new stains (a brown multiply darkening) and for Sources switched to from them (rust). */
-const FRESH_STAIN: Gradient = { stops: [{ pos: 0, color: '#7a6a58' }, { pos: 1, color: '#3e3024' }] }
-const FRESH_RUST: Gradient = { stops: [{ pos: 0, color: '#4a2412' }, { pos: 1, color: '#8a4a22' }] }
-const stopsKey = (g: unknown) => (g && typeof g === 'object' && Array.isArray((g as Gradient).stops) ? (g as Gradient).stops.map((s) => `${s.pos}${s.color}`).join() : '')
+const FRESH_STAIN: Gradient = {
+	stops: [
+		{ pos: 0, color: '#7a6a58' },
+		{ pos: 1, color: '#3e3024' }
+	]
+};
+const FRESH_RUST: Gradient = {
+	stops: [
+		{ pos: 0, color: '#4a2412' },
+		{ pos: 1, color: '#8a4a22' }
+	]
+};
+const stopsKey = (g: unknown) =>
+	g && typeof g === 'object' && Array.isArray((g as Gradient).stops)
+		? (g as Gradient).stops.map((s) => `${s.pos}${s.color}`).join()
+		: '';
 
 /** The ledge test, shared by the sources' relief drive, the blisters and the ledge flood (prepare). */
 const LEDGE_GLSL = /* glsl */ `
@@ -67,19 +80,23 @@ vec2 dr_cellsLA() {
   vec2 cs = uRes / vec2(float(u_cols), float(u_rows));
   return max(vec2(1.0), floor(uRes / max(vec2(1.0), min(uRes / dr_cellsB(), vec2(0.5 * min(cs.x, cs.y)))) + 0.5));
 }
-`
+`;
 
 /** The ledge flood's source (gpu/jfa.ts, custom): inside where the drop counts as a ledge. */
-const LEDGE_FLOOD = LEDGE_GLSL + /* glsl */ `
+const LEDGE_FLOOD =
+	LEDGE_GLSL +
+	/* glsl */ `
 float jfaCustom(ivec2 c) { return dr_ledgeOk(dr_drop(c)) - 0.5; }
-`
+`;
 
 /**
  * The ledge pass: one texel per ledge cell (Ledge spacing px; blisters at least half a radius) — the strongest ledge
  * pixel in it, every pixel tried: (its position, user px; its drop). The source pass picks drips from it: set B
  * directly, set A the best of those in each grid cell.
  */
-const LEDGE_CELLS_GLSL = LEDGE_GLSL + /* glsl */ `
+const LEDGE_CELLS_GLSL =
+	LEDGE_GLSL +
+	/* glsl */ `
 uniform int uWhich;  // 0: the grid's search cells (dr_cellsLA), 1: set B's (dr_cellsB)
 void main() {
   ivec2 l = ivec2(floor(gl_FragCoord.xy));
@@ -97,13 +114,15 @@ void main() {
   }
   oColor = vec4(pos, max(best, 0.0), 1.0);
 }
-`
+`;
 
 /**
  * The source pass: texel (c + margins) holds cell c's drip — (source position, user px; its ledge drop; 1 if it
  * drips). Stains and blisters both read it, so the same seed puts them in the same places.
  */
-const CELLS_GLSL = LEDGE_GLSL + /* glsl */ `
+const CELLS_GLSL =
+	LEDGE_GLSL +
+	/* glsl */ `
 uniform sampler2D tLedgeA;  // the grid's search cells
 uniform sampler2D tLedgeB;  // set B's
 // Clustering: the drip chance at pos (user px) swells and fades over patches a few grid cells (cs; at least 1/8 of
@@ -208,7 +227,7 @@ void main() {
   // a: 0 no drip, else 0.5 + half the ledge's span.
   oColor = vec4(src, drop, ok ? 0.5 + 0.5 * cov : 0.0);
 }
-`
+`;
 
 /** Surface flow, first pass: the rise from each pixel to the one below it (user space), past a little grain. */
 const FLOW_INIT = /* glsl */ `
@@ -216,7 +235,7 @@ void main() {
   ivec2 c = ivec2(floor(gl_FragCoord.xy));
   oColor = vec4(max(fetchT(tSurface, c - ivec2(0, 1)).r - fetchT(tSurface, c).r - 0.025, 0.0), 0.0, 0.0, 1.0);
 }
-`
+`;
 /** Then a prefix sum down each column from the top (Hillis–Steele: log2 H passes, each adding the texel uStep above). */
 const FLOW_SCAN = /* glsl */ `
 uniform sampler2D tFlow;
@@ -227,184 +246,459 @@ void main() {
   if (c.y + uStep < int(uRes.y)) a += texelFetch(tFlow, c + ivec2(0, uStep), 0).r;
   oColor = vec4(a, 0.0, 0.0, 1.0);
 }
-`
+`;
 
 export const dripsLayer: LayerDef = {
-  type: 'drips',
-  label: 'Drips',
-  category: 'pattern',
-  kind: 'generator',
-  description: 'Water, rust or blood stains running down from scattered sources, staining what is beneath; or the sources themselves: blisters of peeling paint (a mask, with a lifted, torn edge).',
-  params: [
-    P.enum('output', 'Output', 'stain', [['stain', 'Stains (trails)'], ['source', 'Sources (blisters)']], {
-      hint: 'Sources: ragged blisters of peeling paint at the drip origins and along ledges — a mask for the rust beneath, with the paint lifting at the torn edge and a hole below the surface as height',
-    }),
-    P.enum('style', 'Style', 'streak', [
-      ['streak', 'Streak (pixel)', 'a narrow trail, tapering and fading — crisp at 1 px'],
-      ['runnels', 'Runnels (detailed)', 'a wandering wash of water with tide-marked edges and thin runnels inside that split, merge and end in beads — for higher resolutions and wide stains'],
-    ], { showIf: stains }),
-    P.int('cols', 'Columns', 12, 1, 1024, { softMax: 128, hint: 'Grid cells across the texture, each holding at most one drip (at Drips from 0.5 a fine grid puts a drip under nearly every ledge)' }),
-    P.int('rows', 'Rows', 6, 1, 1024, { softMax: 128, hint: 'Source cells down the texture' }),
-    P.float('spawn', 'Drips from', 0, 0, 1, {
-      step: 0.001,
-      hint: 'Where drips start. 0: the grid (Columns × Rows), scattered. Towards 0.5 more and more grid cells drip from the strongest ledge inside them instead (one without a ledge stays scattered, then dry at 0.5), and drips start to appear along the ledges themselves. Towards 1 the grid drips give way to those: at 1 drips start anywhere along every ledge, whatever the grid. How many: up to 0.5 about Density × the grid cells; the ledge drips come Density × one per Ledge spacing px of ledge, so a base full of lips and rivets gets more — widen Ledge spacing for fewer. Ledges are the lower edges of raised features (rivets, lips, seams): see Relief',
-    }),
-    P.float('density', 'Density', 0.5, 0, 1, { step: 0.001, hint: 'Chance that a grid cell (or a spot along a ledge) holds a drip' }),
-    P.float('bare', 'Off-ledge drips', 0.4, 0, 1, { step: 0.001, showIf: (p) => Number(p.spawn) > 0, hint: 'Grid cells with no ledge in them drip where they are by this chance, even at Drips from 0.5 and up (below 0.5 more of them do anyway) — so a flat stretch is not bare. For coarse grids: on a fine one (cells under a tenth of the texture across) fewer of its cells do' }),
-    P.float('cluster', 'Clustering', 0.35, 0, 1, { step: 0.001, hint: 'Sources gather in groups with bare stretches between (along a ledge: runs of drips and dry gaps); 0 = evenly scattered' }),
-    P.float('blister', 'Blister radius', 2, 0, 512, {
-      softMax: 48,
-      unit: 'px',
-      step: 0.05,
-      showIf: sources,
-      section: 'Blisters',
-      hint: 'Grows the blisters from specks (and the ledges from thin lines) to patches that merge into whole areas',
-    }),
-    P.float('blister_var', 'Size variation', 0.5, 0, 1, { step: 0.001, showIf: sources, section: 'Blisters', hint: 'Each blister its own share of the radius (1 = anywhere from none to full)' }),
-    P.float('ragged', 'Raggedness', 0.8, 0, 1, { step: 0.001, showIf: sources, section: 'Blisters', hint: 'How torn the edge is: lobes from the blister\'s own size down to bays a few px across, a fine tear along it, and paint lifting unevenly' }),
-    P.float('lift', 'Lift', 0.8, 0, 8, { softMax: 3, step: 0.01, showIf: sources, section: 'Blisters', hint: 'How high the paint curls up at the torn edge (× the Height amount)' }),
-    P.float('lift_width', 'Lift width', 2, 0, 128, { softMax: 24, unit: 'px', step: 0.05, showIf: sources, section: 'Blisters', hint: 'How far out from the edge the paint is lifted; it rises steeply only near the edge' }),
-    P.float('depth', 'Depth', 1, 0, 8, { softMax: 3, step: 0.01, showIf: sources, section: 'Blisters', hint: 'How far the hole falls below the surface (× the Height amount): the rust beneath, rough' }),
-    P.float('len_min', 'Min length', 4, 0, 4096, { softMax: 512, unit: 'px', step: 0.5, showIf: stains }),
-    P.float('len_max', 'Max length', 20, 0, 4096, { softMax: 512, unit: 'px', step: 0.5, showIf: stains }),
-    P.float('width', 'Width', 1, 0.25, 512, { softMax: 96, unit: 'px', step: 0.05, showIf: stains, hint: 'Trail width at the head (streaks taper to half; runnels: the width of the wash, see Taper)' }),
-    P.float('width_var', 'Width variation', 0.65, 0, 1, { step: 0.001, showIf: stains }),
-    P.float('head', 'Head', 0, 0, 128, { softMax: 16, unit: 'px', step: 0.05, showIf: stains, hint: 'A drop blob at the origin (0 = none — water and blood have none)' }),
-    P.float('start', 'Trail strength', 0.8, 0, 1, { step: 0.001, showIf: stains, hint: 'Strength where the trail starts (it fades to 0)' }),
-    P.float('str_var', 'Strength variation', 0.45, 0, 1, { step: 0.001, showIf: stains, hint: 'Each trail its own share of the strength (1 = anywhere from none to full): faint old stains among fresh dark ones' }),
-    P.float('fade', 'Fade', 1, 0.1, 8, { softMax: 4, step: 0.01, showIf: stains, hint: 'How quickly the trail fades: 1 linear, < 1 stays strong longer, > 1 fades early' }),
-    P.float('wobble', 'Wobble', 0.4, 0, 256, { softMax: 32, unit: 'px', step: 0.05, showIf: stains, hint: 'Sideways meander along the trail (runnels: how far the whole stain wanders)' }),
-    P.float('soft', 'Softness', 0, 0, 64, { softMax: 16, unit: 'px', step: 0.05, showIf: (p) => stains(p) && !p.hard, hint: 'Blurs every edge of the stain over this many px: the trail, the wash, the runnels, their ends (0 = crisp, anti-aliased)' }),
-    P.float('wander', 'Meander length', 28, 2, 2048, { softMax: 512, unit: 'px', step: 0.5, showIf: stains, hint: 'Length of one sideways swing of the trail (streaks: with a smaller swing a third as long; runnels: they swing about twice as often)' }),
-    P.float('seep', 'Seep width', 0.8, 0.05, 1, { step: 0.001, showIf: isRunnels, section: 'Wash', hint: 'How wide the stain is where it seeps out, as a share of its width: low = a point (a bolt, a hole), 1 = a whole line (a crack, a lip), its edge ragged' }),
-    P.float('fan', 'Fan-out', 0.1, 0, 1, { step: 0.001, showIf: isRunnels, section: 'Wash', hint: 'How far down the stain widens from its seep to its full width: 0 = within about its own width, 1 = all the way down (a straight V)' }),
-    P.float('taper', 'Taper', 0.45, -1, 1, { step: 0.01, showIf: isRunnels, section: 'Wash', hint: 'Width change past the fan-out, down to the end: 1 narrows to a point, 0 keeps it, below 0 it spreads' }),
-    P.float('shape_var', 'Shape variation', 0.8, 0, 1, { step: 0.001, showIf: isRunnels, section: 'Wash', hint: 'Each stain its own seep width, fan-out and taper around the settings: points and lines, Vs and columns side by side' }),
-    P.float('feather', 'Feather', 0.4, 0, 1, { step: 0.001, showIf: isRunnels, section: 'Wash', hint: 'How far in from its sides (and down from its seep) the wash fades in, as a share of its width: 0 = an even sheet with crisp sides, 1 = darkest along its middle, fading out to its edges' }),
-    P.float('sheet', 'Wash', 1, 0, 1, { step: 0.001, showIf: isRunnels, section: 'Wash', hint: 'The faint stain of the water sheet between the runnels' }),
-    P.float('edge', 'Tide marks', 0.25, 0, 2, { step: 0.001, showIf: isRunnels, section: 'Wash', hint: 'The darker deposit along the wash\'s sides, where it dried (wider on broad stains); above 1 a strong rim' }),
-    P.float('breakup', 'Dry patches', 0.2, 0, 1, { step: 0.001, showIf: isRunnels, section: 'Wash', hint: 'Breaks the wash up into patches' }),
-    P.float('streaks', 'Streaks', 0.55, 0, 1, { step: 0.001, showIf: isRunnels, section: 'Wash', hint: 'Fine streaks running down through the wash, lighter and darker, each running out at its own length (a ragged lower end)' }),
-    P.float('streak_w', 'Streak width', 2, 0.5, 64, { softMax: 16, unit: 'px', step: 0.05, showIf: (p) => isRunnels(p) && Number(p.streaks) > 0, section: 'Wash', hint: 'How far apart the streaks run' }),
-    P.int('runnels', 'Runnels', 3, 0, 16, { showIf: isRunnels, section: 'Runnels', hint: 'Most runnels in one stain (each stain draws 1 to this many; narrow stains hold fewer; 0 = the wash alone)' }),
-    P.float('runnel_width', 'Runnel width', 1.5, 0.5, 64, { softMax: 16, unit: 'px', step: 0.05, showIf: isRunnels, section: 'Runnels', hint: 'Width of each runnel where it starts; it thins to half' }),
-    P.float('runnel_str', 'Runnel strength', 0.5, 0, 1, { step: 0.001, showIf: isRunnels, section: 'Runnels', hint: 'How dark the runnels and their beads are, × the trail strength: low = faint trickles within the wash' }),
-    P.float('braid', 'Braiding', 0.35, 0, 2, { step: 0.001, showIf: isRunnels, section: 'Runnels', hint: 'How far the runnels wander across the wash: 0 = straight, side by side; 1 = across most of it, crossing and merging' }),
-    P.float('beads', 'Beads', 0.15, 0, 1, { step: 0.001, showIf: isRunnels, section: 'Runnels', hint: 'Chance a runnel ends in a drop' }),
-    P.float('ledge_gap', 'Ledge spacing', 4, 1, 512, { softMax: 128, unit: 'px', step: 0.5, group: 'relief', showIf: (p) => Number(p.spawn) > 0, hint: 'How far apart drips can start along a ledge — Density picks among those spots (Sources: at least half the blister radius)' }),
-    P.float('ledge', 'Ledge threshold', 0.15, 0, 8, { softMax: 1, step: 0.001, group: 'relief', hint: 'Height drop (height units, over the ledge reach) that counts as a ledge — raise it until shallow bumps stop sprouting drips' }),
-    P.float('ledge_reach', 'Ledge reach', 2, 1, 64, { softMax: 16, unit: 'px', step: 0.5, group: 'relief', hint: 'How far below a point the drop is measured: short = only hard, sharp steps count; long = soft, gradual edges count too' }),
-    P.float('ledge_soft', 'Ledge softness', 0.15, 0, 1, { step: 0.001, group: 'relief', hint: 'Acceptance around the threshold: 0 = hard cut-off, 1 = a gradual ramp (weaker ledges drip less often)' }),
-    P.float('relief_len', 'Height → length', 0, 0, 32, { softMax: 16, step: 0.01, group: 'relief', showIf: stains, hint: 'Trails lengthen with the ledge they fall from: length × (1 + this × drop, in height units) — taller rivets, longer tails' }),
-    P.float('flow', 'Surface flow', 0.6, 0, 1, { step: 0.001, group: 'relief', showIf: stains, hint: 'Trails react to the relief beneath, wherever they start: grooves and raised features (seams, rivets, lips) catch the water — it pools against them and runs on weaker below (a dry shadow under each rivet)' }),
-    P.float('ledge_mix', 'Ledges', 0.5, 0, 1, {
-      step: 0.001,
-      group: 'relief',
-      showIf: sources,
-      hint: 'Blisters along every ledge too (the lower edges of raised features, by the ledge settings above), growing with the radius: 0 = only at the sources, 1 = as fast as the spots',
-    }),
-    P.bool('hard', 'Hard edges', true, { hint: 'No anti-aliasing (pixel art)' }),
-    P.seed(),
-  ],
-  groups: [{ id: 'relief', label: 'Relief' }],
-  // Sources: the blisters' outline goes to its mask; Drips shapes the peel itself.
-  sdf: 'mask',
-  sdfShowIf: sources,
-  textures: ['ledges', 'cells', 'flow'],
-  prepare(ctx, layer): Record<string, Texture> {
-    const p = layer.params
-    const out: Record<string, Texture> = {}
-    // Every cell's drip, once (cells beyond the texture too, for trails that run in from outside it).
-    // Set A (the grid) first, then set B (the ledge cells, from Drips from 0.5 up), each with its margins.
-    const gap = p.output === 'source' ? Math.max(Number(p.ledge_gap), 0.5 * Number(p.blister)) : Number(p.ledge_gap)
-    const bx = Math.max(1, Math.floor(ctx.width / gap + 0.5)) + 1
-    const spawn = Number(p.spawn)
-    const setB = spawn > 0
-    const by = setB ? Math.max(1, Math.floor(ctx.height / gap + 0.5)) + 1 + DR_ROWS + DR_MX : 0
-    const cells = ctx.scratch('drips-cells', Math.max(Number(p.cols), by ? bx : 0) + 2 * DR_MX, Number(p.rows) + DR_ROWS + DR_MX + by)
-    // The ledge cells first (each one's strongest ledge pixel), when either set drips from ledges.
-    // The ledge cells first (each one's strongest ledge pixel): set B's, and the grid's search cells (no bigger than
-    // half a grid cell), when either set drips from ledges.
-    const ledgeMat = ctx.material('drips:lcells', LEDGE_CELLS_GLSL, { uWhich: { value: 0 } })
-    const csA = Math.min(ctx.width / Number(p.cols), ctx.height / Number(p.rows))
-    const gapA = Math.max(1, Math.min(gap, 0.5 * csA))
-    const lb = setB ? ctx.scratch('drips-lcells:b', bx, Math.max(1, Math.floor(ctx.height / gap + 0.5)) + 1) : ctx.scratch('drips-lcells:b', 1, 1)
-    const searchA = spawn > 0
-    const la = searchA ? ctx.scratch('drips-lcells:a', Math.floor(ctx.width / gapA + 0.5) + 2, Math.floor(ctx.height / gapA + 0.5) + 2) : ctx.scratch('drips-lcells:a', 1, 1)
-    if (setB) {
-      ledgeMat.uniforms.uWhich.value = 1
-      ctx.run(ledgeMat, lb)
-    }
-    if (searchA) {
-      ledgeMat.uniforms.uWhich.value = 0
-      ctx.run(ledgeMat, la)
-    }
-    const cellMat = ctx.material('drips:cells', CELLS_GLSL, { tLedgeA: { value: null }, tLedgeB: { value: null } })
-    cellMat.uniforms.tLedgeA.value = la.texture
-    cellMat.uniforms.tLedgeB.value = lb.texture
-    ctx.run(cellMat, cells)
-    out.cells = cells.texture
-    // Surface flow: the rises crossed going down each column, summed from the top.
-    if (p.output !== 'source' && Number(p.flow) > 0) {
-      let src = ctx.scratch('drips-flow:a')
-      let dst = ctx.scratch('drips-flow:b')
-      ctx.run(ctx.material('drips:flow0', FLOW_INIT), src)
-      const scan = ctx.material('drips:flow', FLOW_SCAN, { tFlow: { value: null }, uStep: { value: 1 } })
-      for (let k = 1; k < ctx.height; k *= 2) {
-        scan.uniforms.tFlow.value = src.texture
-        scan.uniforms.uStep.value = k
-        ctx.run(scan, dst)
-        ;[src, dst] = [dst, src]
-      }
-      out.flow = src.texture
-    }
-    // Blisters along the ledges: the distance to every ledge pixel, flooded from the heights beneath.
-    const r = Number(p.blister)
-    const mix = Number(p.ledge_mix)
-    if (p.output === 'source' && r > 0 && mix > 0) {
-      // Only as far as a blister along a ledge can reach: its growth (which varies along the ledge), raggedness and lip.
-      const ragged = Number(p.ragged)
-      const reach = 1.7 * r * mix + 0.5 * Number(p.ledge_reach) + 0.5 + ragged * (0.8 * r + 2.4) + 1.6 * Number(p.lift_width) + 2
-      out.ledges = jumpFlood(ctx, { source: DISTANCE_SOURCE.custom, custom: LEDGE_FLOOD, threshold: 0, maxDistance: reach, name: 'drips-ledges' }).texture
-    }
-    return out
-  },
-  // Sources are relief first: the peel is their height. A layer still on the editor's paint swaps it with the output:
-  // the brown multiply darkening for stains, rust for the blisters.
-  linkedDefaults: (p) => {
-    const src = p.output === 'source'
-    const g = stopsKey(p.dif_grad)
-    const paired = g === stopsKey(FRESH_STAIN) || g === stopsKey(FRESH_RUST)
-    return { h_on: src, ...(paired ? { dif_blend: src ? 'normal' : 'multiply', dif_grad: src ? FRESH_RUST : FRESH_STAIN } : {}) }
-  },
-  migrate: (p) => {
-    let q = p
-    // Before the blisters had their own radius, Sources used the head size (at least 0.75 px).
-    if (q.output === 'source' && q.blister === undefined && q.head !== undefined) q = { ...q, blister: Math.max(Number(q.head), 0.75) }
-    // Relief drive (0 scattered … 1 grid cells at their ledges) is the first half of Drips from (… 1 every ledge).
-    if (q.relief !== undefined) {
-      const { relief, ...rest } = q
-      q = { ...rest, spawn: Number(relief) / 2 }
-    }
-    return q
-  },
-  // Added in the editor: a detailed water stain sized to the texture — seeping from points and short lines, fanning
-  // out, breaking into streaks, each stain its own — darkening what is beneath; below 128 px, crisp pixel streaks.
-  fresh: ({ width }) => {
-    const k = Math.max(0.5, width / 128)
-    const r1 = (v: number) => Math.round(v * 10) / 10
-    const stain = { dif_blend: 'multiply', dif_grad: FRESH_STAIN, spawn: 0.5 }
-    if (width < 128) return { ...stain, style: 'streak', density: 0.45, len_min: r1(width / 8), len_max: r1(width / 2.5), start: 0.8, fade: 1, wobble: 0.8 }
-    return {
-      ...stain,
-      style: 'runnels', cols: 7, rows: 3, density: 0.75, ledge_gap: r1(14 * k), len_min: r1(14 * k), len_max: r1(80 * k), width: r1(10 * k), wobble: r1(1.2 * k),
-      wander: r1(64 * k), streak_w: r1(Math.max(1, 0.75 * k)), runnel_width: r1(Math.max(1, 0.8 * k)), soft: r1(0.75 * k), start: 0.9, fade: 1.1, hard: false,
-      // Sources, should the output be switched: blisters sized to the texture too.
-      blister: r1(1.5 * k), lift_width: r1(1.2 * k),
-    }
-  },
-  defaults: { h_on: false, dif_on: true, dif_grad: { stops: [{ pos: 0, color: '#5a1e10' }, { pos: 1, color: '#7a2a14' }] } },
-  glsl: /* glsl */ `
+	type: 'drips',
+	label: 'Drips',
+	category: 'pattern',
+	kind: 'generator',
+	description:
+		'Water, rust or blood stains running down from scattered sources, staining what is beneath; or the sources themselves: blisters of peeling paint (a mask, with a lifted, torn edge).',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'stain',
+			[
+				['stain', 'Stains (trails)'],
+				['source', 'Sources (blisters)']
+			],
+			{
+				hint: 'Sources: ragged blisters of peeling paint at the drip origins and along ledges — a mask for the rust beneath, with the paint lifting at the torn edge and a hole below the surface as height'
+			}
+		),
+		P.enum(
+			'style',
+			'Style',
+			'streak',
+			[
+				['streak', 'Streak (pixel)', 'a narrow trail, tapering and fading — crisp at 1 px'],
+				[
+					'runnels',
+					'Runnels (detailed)',
+					'a wandering wash of water with tide-marked edges and thin runnels inside that split, merge and end in beads — for higher resolutions and wide stains'
+				]
+			],
+			{ showIf: stains }
+		),
+		P.int('cols', 'Columns', 12, 1, 1024, {
+			softMax: 128,
+			hint: 'Grid cells across the texture, each holding at most one drip (at Drips from 0.5 a fine grid puts a drip under nearly every ledge)'
+		}),
+		P.int('rows', 'Rows', 6, 1, 1024, { softMax: 128, hint: 'Source cells down the texture' }),
+		P.float('spawn', 'Drips from', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Where drips start. 0: the grid (Columns × Rows), scattered. Towards 0.5 more and more grid cells drip from the strongest ledge inside them instead (one without a ledge stays scattered, then dry at 0.5), and drips start to appear along the ledges themselves. Towards 1 the grid drips give way to those: at 1 drips start anywhere along every ledge, whatever the grid. How many: up to 0.5 about Density × the grid cells; the ledge drips come Density × one per Ledge spacing px of ledge, so a base full of lips and rivets gets more — widen Ledge spacing for fewer. Ledges are the lower edges of raised features (rivets, lips, seams): see Relief'
+		}),
+		P.float('density', 'Density', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'Chance that a grid cell (or a spot along a ledge) holds a drip'
+		}),
+		P.float('bare', 'Off-ledge drips', 0.4, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.spawn) > 0,
+			hint: 'Grid cells with no ledge in them drip where they are by this chance, even at Drips from 0.5 and up (below 0.5 more of them do anyway) — so a flat stretch is not bare. For coarse grids: on a fine one (cells under a tenth of the texture across) fewer of its cells do'
+		}),
+		P.float('cluster', 'Clustering', 0.35, 0, 1, {
+			step: 0.001,
+			hint: 'Sources gather in groups with bare stretches between (along a ledge: runs of drips and dry gaps); 0 = evenly scattered'
+		}),
+		P.float('blister', 'Blister radius', 2, 0, 512, {
+			softMax: 48,
+			unit: 'px',
+			step: 0.05,
+			showIf: sources,
+			section: 'Blisters',
+			hint: 'Grows the blisters from specks (and the ledges from thin lines) to patches that merge into whole areas'
+		}),
+		P.float('blister_var', 'Size variation', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: sources,
+			section: 'Blisters',
+			hint: 'Each blister its own share of the radius (1 = anywhere from none to full)'
+		}),
+		P.float('ragged', 'Raggedness', 0.8, 0, 1, {
+			step: 0.001,
+			showIf: sources,
+			section: 'Blisters',
+			hint: "How torn the edge is: lobes from the blister's own size down to bays a few px across, a fine tear along it, and paint lifting unevenly"
+		}),
+		P.float('lift', 'Lift', 0.8, 0, 8, {
+			softMax: 3,
+			step: 0.01,
+			showIf: sources,
+			section: 'Blisters',
+			hint: 'How high the paint curls up at the torn edge (× the Height amount)'
+		}),
+		P.float('lift_width', 'Lift width', 2, 0, 128, {
+			softMax: 24,
+			unit: 'px',
+			step: 0.05,
+			showIf: sources,
+			section: 'Blisters',
+			hint: 'How far out from the edge the paint is lifted; it rises steeply only near the edge'
+		}),
+		P.float('depth', 'Depth', 1, 0, 8, {
+			softMax: 3,
+			step: 0.01,
+			showIf: sources,
+			section: 'Blisters',
+			hint: 'How far the hole falls below the surface (× the Height amount): the rust beneath, rough'
+		}),
+		P.float('len_min', 'Min length', 4, 0, 4096, { softMax: 512, unit: 'px', axis: 'y', step: 0.5, showIf: stains }),
+		P.float('len_max', 'Max length', 20, 0, 4096, { softMax: 512, unit: 'px', axis: 'y', step: 0.5, showIf: stains }),
+		P.float('width', 'Width', 1, 0.25, 512, {
+			softMax: 96,
+			unit: 'px',
+			axis: 'x',
+			step: 0.05,
+			showIf: stains,
+			hint: 'Trail width at the head (streaks taper to half; runnels: the width of the wash, see Taper)'
+		}),
+		P.float('width_var', 'Width variation', 0.65, 0, 1, { step: 0.001, showIf: stains }),
+		P.float('head', 'Head', 0, 0, 128, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			showIf: stains,
+			hint: 'A drop blob at the origin (0 = none — water and blood have none)'
+		}),
+		P.float('start', 'Trail strength', 0.8, 0, 1, {
+			step: 0.001,
+			showIf: stains,
+			hint: 'Strength where the trail starts (it fades to 0)'
+		}),
+		P.float('str_var', 'Strength variation', 0.45, 0, 1, {
+			step: 0.001,
+			showIf: stains,
+			hint: 'Each trail its own share of the strength (1 = anywhere from none to full): faint old stains among fresh dark ones'
+		}),
+		P.float('fade', 'Fade', 1, 0.1, 8, {
+			softMax: 4,
+			step: 0.01,
+			showIf: stains,
+			hint: 'How quickly the trail fades: 1 linear, < 1 stays strong longer, > 1 fades early'
+		}),
+		P.float('wobble', 'Wobble', 0.4, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			axis: 'x',
+			step: 0.05,
+			showIf: stains,
+			hint: 'Sideways meander along the trail (runnels: how far the whole stain wanders)'
+		}),
+		P.float('soft', 'Softness', 0, 0, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			showIf: (p) => stains(p) && !p.hard,
+			hint: 'Blurs every edge of the stain over this many px: the trail, the wash, the runnels, their ends (0 = crisp, anti-aliased)'
+		}),
+		P.float('wander', 'Meander length', 28, 2, 2048, {
+			softMax: 512,
+			unit: 'px',
+			axis: 'y',
+			step: 0.5,
+			showIf: stains,
+			hint: 'Length of one sideways swing of the trail (streaks: with a smaller swing a third as long; runnels: they swing about twice as often)'
+		}),
+		P.float('seep', 'Seep width', 0.8, 0.05, 1, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Wash',
+			hint: 'How wide the stain is where it seeps out, as a share of its width: low = a point (a bolt, a hole), 1 = a whole line (a crack, a lip), its edge ragged'
+		}),
+		P.float('fan', 'Fan-out', 0.1, 0, 1, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Wash',
+			hint: 'How far down the stain widens from its seep to its full width: 0 = within about its own width, 1 = all the way down (a straight V)'
+		}),
+		P.float('taper', 'Taper', 0.45, -1, 1, {
+			step: 0.01,
+			showIf: isRunnels,
+			section: 'Wash',
+			hint: 'Width change past the fan-out, down to the end: 1 narrows to a point, 0 keeps it, below 0 it spreads'
+		}),
+		P.float('shape_var', 'Shape variation', 0.8, 0, 1, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Wash',
+			hint: 'Each stain its own seep width, fan-out and taper around the settings: points and lines, Vs and columns side by side'
+		}),
+		P.float('feather', 'Feather', 0.4, 0, 1, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Wash',
+			hint: 'How far in from its sides (and down from its seep) the wash fades in, as a share of its width: 0 = an even sheet with crisp sides, 1 = darkest along its middle, fading out to its edges'
+		}),
+		P.float('sheet', 'Wash', 1, 0, 1, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Wash',
+			hint: 'The faint stain of the water sheet between the runnels'
+		}),
+		P.float('edge', 'Tide marks', 0.25, 0, 2, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Wash',
+			hint: "The darker deposit along the wash's sides, where it dried (wider on broad stains); above 1 a strong rim"
+		}),
+		P.float('breakup', 'Dry patches', 0.2, 0, 1, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Wash',
+			hint: 'Breaks the wash up into patches'
+		}),
+		P.float('streaks', 'Streaks', 0.55, 0, 1, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Wash',
+			hint: 'Fine streaks running down through the wash, lighter and darker, each running out at its own length (a ragged lower end)'
+		}),
+		P.float('streak_w', 'Streak width', 2, 0.5, 64, {
+			softMax: 16,
+			unit: 'px',
+			axis: 'x',
+			step: 0.05,
+			showIf: (p) => isRunnels(p) && Number(p.streaks) > 0,
+			section: 'Wash',
+			hint: 'How far apart the streaks run'
+		}),
+		P.int('runnels', 'Runnels', 3, 0, 16, {
+			showIf: isRunnels,
+			section: 'Runnels',
+			hint: 'Most runnels in one stain (each stain draws 1 to this many; narrow stains hold fewer; 0 = the wash alone)'
+		}),
+		P.float('runnel_width', 'Runnel width', 1.5, 0.5, 64, {
+			softMax: 16,
+			unit: 'px',
+			axis: 'x',
+			step: 0.05,
+			showIf: isRunnels,
+			section: 'Runnels',
+			hint: 'Width of each runnel where it starts; it thins to half'
+		}),
+		P.float('runnel_str', 'Runnel strength', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Runnels',
+			hint: 'How dark the runnels and their beads are, × the trail strength: low = faint trickles within the wash'
+		}),
+		P.float('braid', 'Braiding', 0.35, 0, 2, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Runnels',
+			hint: 'How far the runnels wander across the wash: 0 = straight, side by side; 1 = across most of it, crossing and merging'
+		}),
+		P.float('beads', 'Beads', 0.15, 0, 1, {
+			step: 0.001,
+			showIf: isRunnels,
+			section: 'Runnels',
+			hint: 'Chance a runnel ends in a drop'
+		}),
+		P.float('ledge_gap', 'Ledge spacing', 4, 1, 512, {
+			softMax: 128,
+			unit: 'px',
+			step: 0.5,
+			group: 'relief',
+			showIf: (p) => Number(p.spawn) > 0,
+			hint: 'How far apart drips can start along a ledge — Density picks among those spots (Sources: at least half the blister radius)'
+		}),
+		P.float('ledge', 'Ledge threshold', 0.15, 0, 8, {
+			softMax: 1,
+			step: 0.001,
+			group: 'relief',
+			hint: 'Height drop (height units, over the ledge reach) that counts as a ledge — raise it until shallow bumps stop sprouting drips'
+		}),
+		P.float('ledge_reach', 'Ledge reach', 2, 1, 64, {
+			softMax: 16,
+			unit: 'px',
+			axis: 'y',
+			step: 0.5,
+			group: 'relief',
+			hint: 'How far below a point the drop is measured: short = only hard, sharp steps count; long = soft, gradual edges count too'
+		}),
+		P.float('ledge_soft', 'Ledge softness', 0.15, 0, 1, {
+			step: 0.001,
+			group: 'relief',
+			hint: 'Acceptance around the threshold: 0 = hard cut-off, 1 = a gradual ramp (weaker ledges drip less often)'
+		}),
+		P.float('relief_len', 'Height → length', 0, 0, 32, {
+			softMax: 16,
+			step: 0.01,
+			group: 'relief',
+			showIf: stains,
+			hint: 'Trails lengthen with the ledge they fall from: length × (1 + this × drop, in height units) — taller rivets, longer tails'
+		}),
+		P.float('flow', 'Surface flow', 0.6, 0, 1, {
+			step: 0.001,
+			group: 'relief',
+			showIf: stains,
+			hint: 'Trails react to the relief beneath, wherever they start: grooves and raised features (seams, rivets, lips) catch the water — it pools against them and runs on weaker below (a dry shadow under each rivet)'
+		}),
+		P.float('ledge_mix', 'Ledges', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'relief',
+			showIf: sources,
+			hint: 'Blisters along every ledge too (the lower edges of raised features, by the ledge settings above), growing with the radius: 0 = only at the sources, 1 = as fast as the spots'
+		}),
+		P.bool('hard', 'Hard edges', true, { hint: 'No anti-aliasing (pixel art)' }),
+		P.seed()
+	],
+	groups: [{ id: 'relief', label: 'Relief' }],
+	// Sources: the blisters' outline goes to its mask; Drips shapes the peel itself.
+	sdf: 'mask',
+	sdfShowIf: sources,
+	textures: ['ledges', 'cells', 'flow'],
+	prepare(ctx, layer): Record<string, Texture> {
+		const p = layer.params;
+		const out: Record<string, Texture> = {};
+		// Every cell's drip, once (cells beyond the texture too, for trails that run in from outside it).
+		// Set A (the grid) first, then set B (the ledge cells, from Drips from 0.5 up), each with its margins.
+		const gap = p.output === 'source' ? Math.max(Number(p.ledge_gap), 0.5 * Number(p.blister)) : Number(p.ledge_gap);
+		const bx = Math.max(1, Math.floor(ctx.width / gap + 0.5)) + 1;
+		const spawn = Number(p.spawn);
+		const setB = spawn > 0;
+		const by = setB ? Math.max(1, Math.floor(ctx.height / gap + 0.5)) + 1 + DR_ROWS + DR_MX : 0;
+		const cells = ctx.scratch(
+			'drips-cells',
+			Math.max(Number(p.cols), by ? bx : 0) + 2 * DR_MX,
+			Number(p.rows) + DR_ROWS + DR_MX + by
+		);
+		// The ledge cells first (each one's strongest ledge pixel), when either set drips from ledges.
+		// The ledge cells first (each one's strongest ledge pixel): set B's, and the grid's search cells (no bigger than
+		// half a grid cell), when either set drips from ledges.
+		const ledgeMat = ctx.material('drips:lcells', LEDGE_CELLS_GLSL, { uWhich: { value: 0 } });
+		const csA = Math.min(ctx.width / Number(p.cols), ctx.height / Number(p.rows));
+		const gapA = Math.max(1, Math.min(gap, 0.5 * csA));
+		const lb = setB
+			? ctx.scratch('drips-lcells:b', bx, Math.max(1, Math.floor(ctx.height / gap + 0.5)) + 1)
+			: ctx.scratch('drips-lcells:b', 1, 1);
+		const searchA = spawn > 0;
+		const la = searchA
+			? ctx.scratch('drips-lcells:a', Math.floor(ctx.width / gapA + 0.5) + 2, Math.floor(ctx.height / gapA + 0.5) + 2)
+			: ctx.scratch('drips-lcells:a', 1, 1);
+		if (setB) {
+			ledgeMat.uniforms.uWhich.value = 1;
+			ctx.run(ledgeMat, lb);
+		}
+		if (searchA) {
+			ledgeMat.uniforms.uWhich.value = 0;
+			ctx.run(ledgeMat, la);
+		}
+		const cellMat = ctx.material('drips:cells', CELLS_GLSL, { tLedgeA: { value: null }, tLedgeB: { value: null } });
+		cellMat.uniforms.tLedgeA.value = la.texture;
+		cellMat.uniforms.tLedgeB.value = lb.texture;
+		ctx.run(cellMat, cells);
+		out.cells = cells.texture;
+		// Surface flow: the rises crossed going down each column, summed from the top.
+		if (p.output !== 'source' && Number(p.flow) > 0) {
+			let src = ctx.scratch('drips-flow:a');
+			let dst = ctx.scratch('drips-flow:b');
+			ctx.run(ctx.material('drips:flow0', FLOW_INIT), src);
+			const scan = ctx.material('drips:flow', FLOW_SCAN, { tFlow: { value: null }, uStep: { value: 1 } });
+			for (let k = 1; k < ctx.height; k *= 2) {
+				scan.uniforms.tFlow.value = src.texture;
+				scan.uniforms.uStep.value = k;
+				ctx.run(scan, dst);
+				[src, dst] = [dst, src];
+			}
+			out.flow = src.texture;
+		}
+		// Blisters along the ledges: the distance to every ledge pixel, flooded from the heights beneath.
+		const r = Number(p.blister);
+		const mix = Number(p.ledge_mix);
+		if (p.output === 'source' && r > 0 && mix > 0) {
+			// Only as far as a blister along a ledge can reach: its growth (which varies along the ledge), raggedness and lip.
+			const ragged = Number(p.ragged);
+			const reach =
+				1.7 * r * mix + 0.5 * Number(p.ledge_reach) + 0.5 + ragged * (0.8 * r + 2.4) + 1.6 * Number(p.lift_width) + 2;
+			out.ledges = jumpFlood(ctx, {
+				source: DISTANCE_SOURCE.custom,
+				custom: LEDGE_FLOOD,
+				threshold: 0,
+				maxDistance: reach,
+				name: 'drips-ledges'
+			}).texture;
+		}
+		return out;
+	},
+	// Sources are relief first: the peel is their height. A layer still on the editor's paint swaps it with the output:
+	// the brown multiply darkening for stains, rust for the blisters.
+	linkedDefaults: (p) => {
+		const src = p.output === 'source';
+		const g = stopsKey(p.dif_grad);
+		const paired = g === stopsKey(FRESH_STAIN) || g === stopsKey(FRESH_RUST);
+		return {
+			h_on: src,
+			...(paired ? { dif_blend: src ? 'normal' : 'multiply', dif_grad: src ? FRESH_RUST : FRESH_STAIN } : {})
+		};
+	},
+	migrate: (p) => {
+		let q = p;
+		// Before the blisters had their own radius, Sources used the head size (at least 0.75 px).
+		if (q.output === 'source' && q.blister === undefined && q.head !== undefined)
+			q = { ...q, blister: Math.max(Number(q.head), 0.75) };
+		// Relief drive (0 scattered … 1 grid cells at their ledges) is the first half of Drips from (… 1 every ledge).
+		if (q.relief !== undefined) {
+			const { relief, ...rest } = q;
+			q = { ...rest, spawn: Number(relief) / 2 };
+		}
+		return q;
+	},
+	// Added in the editor: a detailed water stain sized to the texture — seeping from points and short lines, fanning
+	// out, breaking into streaks, each stain its own — darkening what is beneath; below 128 px, crisp pixel streaks.
+	fresh: ({ width }) => {
+		const k = Math.max(0.5, width / 128);
+		const r1 = (v: number) => Math.round(v * 10) / 10;
+		const stain = { dif_blend: 'multiply', dif_grad: FRESH_STAIN, spawn: 0.5 };
+		if (width < 128)
+			return {
+				...stain,
+				style: 'streak',
+				density: 0.45,
+				len_min: r1(width / 8),
+				len_max: r1(width / 2.5),
+				start: 0.8,
+				fade: 1,
+				wobble: 0.8
+			};
+		return {
+			...stain,
+			style: 'runnels',
+			cols: 7,
+			rows: 3,
+			density: 0.75,
+			ledge_gap: r1(14 * k),
+			len_min: r1(14 * k),
+			len_max: r1(80 * k),
+			width: r1(10 * k),
+			wobble: r1(1.2 * k),
+			wander: r1(64 * k),
+			streak_w: r1(Math.max(1, 0.75 * k)),
+			runnel_width: r1(Math.max(1, 0.8 * k)),
+			soft: r1(0.75 * k),
+			start: 0.9,
+			fade: 1.1,
+			hard: false,
+			// Sources, should the output be switched: blisters sized to the texture too.
+			blister: r1(1.5 * k),
+			lift_width: r1(1.2 * k)
+		};
+	},
+	defaults: {
+		h_on: false,
+		dif_on: true,
+		dif_grad: {
+			stops: [
+				{ pos: 0, color: '#5a1e10' },
+				{ pos: 1, color: '#7a2a14' }
+			]
+		}
+	},
+	glsl: /* glsl */ `
 ${LEDGE_GLSL}
 // Cell c's drip, from the source pass (unwrapped, so it lies near the caller): false when the cell holds none. cells:
 // its set's cells across and down, row0: the set's first texel row, cseed: the set's seed. cw: the cell wrapped (for
@@ -796,5 +1090,5 @@ GenOut gen(vec2 p) {
   // blisters have one).
   return genOut(acc, acc, bestRnd, NO_SDF);
 }
-`,
-}
+`
+};

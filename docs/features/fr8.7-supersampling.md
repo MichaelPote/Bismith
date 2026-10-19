@@ -1,16 +1,22 @@
 # FR8.7 — Supersampling
 
-**Status:** done — Project › Path tracer › *Supersample* (1–4, default 1; shown as @Nx in the outliner)
+**Status:** done — Project › Path tracer › _Supersample_ (1–4, default 1; shown as @Nx in the outliner)
 
 The material stack and the path tracer run at k× the texture size; the traced (linear HDR) image is box-filtered
 down to the texture size before the post stack (tonemap, palette snap) — fine features such as 1 px highlights, thin
 joints and small bolt holes are computed at k× and averaged instead of being decided by one sample per texel.
 
-- `core/supersample.ts` — `scaleProject(p, k)`: width / height, every pixel-unit param (ParamDef `unit: 'px'`:
-  bevels, joints, radii, widths, white-noise block sizes, stamp pixel sizes, path vertex lists in px), heightDepth,
-  AO radius and point-light px params × k, so patterns keep their size in texture pixels and slopes stay the same.
-  Counts per pixel area (ParamDef `perArea`: Scratches' density, per 64×64 px) ÷ k², so the texture keeps as many
-  features — before, raising the supersampling multiplied the scratches by k².
+- `core/supersample.ts` — `scaleProject(p, k)`: width / height × k and every pixel-measured value scaled by k through
+  `core/pixelScale.ts` (`scalePixels`): ParamDef `unit: 'px'` params (bevels, joints, radii, widths, white-noise block
+  sizes, stamp pixel sizes, path vertex lists in px), heightDepth, AO radius and point-light px params × k, so
+  patterns keep their size in texture pixels and slopes stay the same. Counts per pixel area (ParamDef `perArea`:
+  Scratches' density, per 64×64 px) ÷ k², so the texture keeps as many features — before, raising the supersampling
+  multiplied the scratches by k² — and per-px quantities (`perPx`: Cavity's gain per px of curvature) ÷ k.
+- Resizing the canvas uses the same scaling (`resizeProject`, the store's `resize`): Width / Height, the size
+  buttons and Match's size-to-reference rescale the stored values — post filters and smart-material macros too — so
+  a texture keeps its look at any size and the sliders still read true pixels. Lengths scale by √(kx·ky) (the side
+  of the area, so the steps of a change compose), offsets (`sliderSpan`) and vertex lists per axis. A run of resizes
+  scales from the project before the first, so rounding and clamping don't compound.
 - Engine: keeps the k× project for material + tracer; `traced()` box-filters into a texture-size target that post,
   the display ("final") and `readRender` use. Channel views show the k× maps (display `uSS` texel scale); map
   readback (`readMap`, `readAO`) is box-filtered to the texture size so exports match the final image; the cursor
@@ -18,5 +24,7 @@ joints and small bolt holes are computed at k× and averaged instead of being de
 - Cost ≈ k² per evaluation; 3× is the sweet spot for 64–128 px textures.
 
 ## Checklist
+
 - [x] scaleProject (+ test), engine downsample, display, readback, probe
+- [x] Canvas resize scales the same values (resizeProject + test)
 - [ ] Optional supersampled channel-view averaging (shows the k× maps today)

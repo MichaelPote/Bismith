@@ -5,45 +5,58 @@
 // combine params work. rnd is per tile, or per tile kind (cube face, H/V brick, octagon/square…). The Tones output
 // paints each tile kind its own tone instead (a two-tone checkerboard on squares), blurred by Softness.
 
-import { P } from '@/core/params'
-import type { LayerDef } from '../types'
-import { geoGlsl, orientParam, rndModeParam } from './geometricCommon'
+import { P } from '@/core/params';
+import type { LayerDef } from '../types';
+import { geoGlsl, orientParam, rndModeParam } from './geometricCommon';
 
 export const TILE_MODES: [string, string][] = [
-  ['squares', 'Squares / checkerboard'],
-  ['diamonds', 'Diamonds (argyle)'],
-  ['rhombille', 'Rhombille (tumbling blocks)'],
-  ['herringbone', 'Herringbone'],
-  ['basketweave', 'Basketweave'],
-  ['cross', 'Interlocking crosses / hexes'],
-  ['plus', 'Plus (Greek cross)'],
-  ['octagon', 'Octagon + square'],
-  ['triangles', 'Triangles'],
-  ['hopscotch', 'Hopscotch (offset squares)'],
-  ['pinwheel', 'Pinwheel'],
-  ['cairo', 'Cairo pentagons'],
-]
+	['squares', 'Squares / checkerboard'],
+	['diamonds', 'Diamonds (argyle)'],
+	['rhombille', 'Rhombille (tumbling blocks)'],
+	['herringbone', 'Herringbone'],
+	['basketweave', 'Basketweave'],
+	['cross', 'Interlocking crosses / hexes'],
+	['plus', 'Plus (Greek cross)'],
+	['octagon', 'Octagon + square'],
+	['triangles', 'Triangles'],
+	['hopscotch', 'Hopscotch (offset squares)'],
+	['pinwheel', 'Pinwheel'],
+	['cairo', 'Cairo pentagons']
+];
 
-const modeIs = (...m: string[]) => (p: Record<string, unknown>) => m.includes(String(p.mode))
-const isValue = (p: Record<string, unknown>) => p.output === 'value'
-const splitShown = (p: Record<string, unknown>) => p.mode === 'squares' && Number(p.split ?? 0) > 0
+const modeIs =
+	(...m: string[]) =>
+	(p: Record<string, unknown>) =>
+		m.includes(String(p.mode));
+const isValue = (p: Record<string, unknown>) => p.output === 'value';
+const splitShown = (p: Record<string, unknown>) => p.mode === 'squares' && Number(p.split ?? 0) > 0;
 
 /** Tiles drawn: every tile, or one kind (option index = kind + 1 in the shader). */
 const TILE_KINDS: [string, string][] = [
-  ['all', 'Every tile'],
-  ['1', 'Kind 1 only'],
-  ['2', 'Kind 2 only'],
-  ['3', 'Kind 3 only'],
-  ['4', 'Kind 4 only'],
-  ['5', 'Kind 5 only'],
-]
+	['all', 'Every tile'],
+	['1', 'Kind 1 only'],
+	['2', 'Kind 2 only'],
+	['3', 'Kind 3 only'],
+	['4', 'Kind 4 only'],
+	['5', 'Kind 5 only']
+];
 /** Linked default of Kind contrast per tiling (see linkedDefaults). */
 const KIND_CONTRAST: Record<string, number> = {
-  squares: 0, diamonds: 0.8, rhombille: 1, herringbone: 0.35, basketweave: 0.35, cross: 0.4,
-  plus: 0.4, octagon: 0.8, triangles: 0.3, hopscotch: 0.6, pinwheel: 0.5, cairo: 0.4,
-}
+	squares: 0,
+	diamonds: 0.8,
+	rhombille: 1,
+	herringbone: 0.35,
+	basketweave: 0.35,
+	cross: 0.4,
+	plus: 0.4,
+	octagon: 0.8,
+	triangles: 0.3,
+	hopscotch: 0.6,
+	pinwheel: 0.5,
+	cairo: 0.4
+};
 const KIND_HINT =
-  'Tile kinds: squares and diamonds alternate 1, 2 (checker), split squares\' small tiles 3, 4; blocks: 1 top, 2 left, 3 right faces; herringbone, basketweave: 1 horizontal, 2 vertical bricks; crosses: two interleaved sets; plus: five; octagon: 1 octagons, 2 squares; triangles: 1 up, 2 down; hopscotch: 1 big, 2 small squares; pinwheel: 1 horizontal, 2 vertical rectangles, 3 centre squares; Cairo: four orientations'
+	"Tile kinds: squares and diamonds alternate 1, 2 (checker), split squares' small tiles 3, 4; blocks: 1 top, 2 left, 3 right faces; herringbone, basketweave: 1 horizontal, 2 vertical bricks; crosses: two interleaved sets; plus: five; octagon: 1 octagons, 2 squares; triangles: 1 up, 2 down; hopscotch: 1 big, 2 small squares; pinwheel: 1 horizontal, 2 vertical rectangles, 3 centre squares; Cairo: four orientations";
 
 // ---------------------------------------------------------------- tile shapes as data
 // Each tiling's tile shapes (unit coords, y up, CCW), every vertex linear in the tiling's own params t:
@@ -51,64 +64,101 @@ const KIND_HINT =
 // and signed shoulder; pinwheel centre square; Cairo's e). The shader builds a shape in one loop over this table —
 // no branch per tiling, which D3D would compile once for each.
 
-type Lin = [number, number, number]
-type Vtx = [Lin, Lin]
-const c = (v: number): Lin => [v, 0, 0]
-const lx = (a: number, b: number): Lin => [a, b, 0]
-const ly = (a: number, cc: number): Lin => [a, 0, cc]
-const v = (x: Lin | number, y: Lin | number): Vtx => [typeof x === 'number' ? c(x) : x, typeof y === 'number' ? c(y) : y]
-const rect = (lo: Vtx, hi: Vtx): Vtx[] => [lo, [hi[0], lo[1]], hi, [lo[0], hi[1]]]
-const poly = (...pts: [number, number][]): Vtx[] => pts.map(([x, y]) => v(x, y))
+type Lin = [number, number, number];
+type Vtx = [Lin, Lin];
+const c = (v: number): Lin => [v, 0, 0];
+const lx = (a: number, b: number): Lin => [a, b, 0];
+const ly = (a: number, cc: number): Lin => [a, 0, cc];
+const v = (x: Lin | number, y: Lin | number): Vtx => [
+	typeof x === 'number' ? c(x) : x,
+	typeof y === 'number' ? c(y) : y
+];
+const rect = (lo: Vtx, hi: Vtx): Vtx[] => [lo, [hi[0], lo[1]], hi, [lo[0], hi[1]]];
+const poly = (...pts: [number, number][]): Vtx[] => pts.map(([x, y]) => v(x, y));
 
-interface Shape { verts: Vtx[]; rect?: boolean }
-const R = (lo: Vtx, hi: Vtx): Shape => ({ verts: rect(lo, hi), rect: true })
-const n = lx(0, 1)
-const n1 = lx(1, 1) // n + 1
-const cut = lx(0, 1), cut1 = lx(1, -1) // c, 1 − c
-const pA = lx(0.5, 0.5), pB = lx(0.5, -0.5) // pinwheel: (1 ± inner) / 2
-const e = lx(0, 1), e1 = lx(1, -1) // Cairo: e, 1 − e
-const S6 = 1 / 6, S3 = 1 / 3
+interface Shape {
+	verts: Vtx[];
+	rect?: boolean;
+}
+const R = (lo: Vtx, hi: Vtx): Shape => ({ verts: rect(lo, hi), rect: true });
+const n = lx(0, 1);
+const n1 = lx(1, 1); // n + 1
+const cut = lx(0, 1),
+	cut1 = lx(1, -1); // c, 1 − c
+const pA = lx(0.5, 0.5),
+	pB = lx(0.5, -0.5); // pinwheel: (1 ± inner) / 2
+const e = lx(0, 1),
+	e1 = lx(1, -1); // Cairo: e, 1 − e
+const S6 = 1 / 6,
+	S3 = 1 / 3;
 
 /** Shapes per tiling, in TILE_MODES order. Squares: whole, then a quarter (split cells). Rhombille: three faces, then
  * the whole block (faces joined). */
 const SHAPES: Shape[][] = [
-  [R(v(0, 0), v(1, 1)), R(v(0, 0), v(0.5, 0.5))],
-  [{ verts: poly([0, -0.5], [0.5, 0], [0, 0.5], [-0.5, 0]) }],
-  [
-    { verts: poly([0, 0], [0.5, S6], [0, S3], [-0.5, S6]) },
-    { verts: poly([0, 0], [-0.5, S6], [-0.5, -S6], [0, -S3]) },
-    { verts: poly([0, 0], [0, -S3], [0.5, -S6], [0.5, S6]) },
-    { verts: poly([0.5, S6], [0, S3], [-0.5, S6], [-0.5, -S6], [0, -S3], [0.5, -S6]) },
-  ],
-  [R(v(0, 0), v(n, 1)), R(v(n, lx(1, -1)), v(n1, 1))],
-  [R(v(0, 0), v(n, 1)), R(v(0, 0), v(1, n))],
-  [
-    {
-      // Hex topology on a centred 4×2 lattice: side vertex V1 (2 − 2p, 0), shoulders S1 / S2 (1 ± s, .5), top corner
-      // V2 (2p, 1), mirrored round (t = plateau p, signed shoulder s).
-      verts: [
-        v(lx(2, -2), 0), v(ly(1, 1), 0.5), v(ly(1, -1), 0.5), v(lx(0, 2), 1),
-        v(lx(0, -2), 1), v(ly(-1, 1), 0.5), v(ly(-1, -1), 0.5), v(lx(-2, 2), 0),
-        v(ly(-1, -1), -0.5), v(ly(-1, 1), -0.5), v(lx(0, -2), -1),
-        v(lx(0, 2), -1), v(ly(1, -1), -0.5), v(ly(1, 1), -0.5),
-      ],
-    },
-  ],
-  [{ verts: poly([0.5, -1.5], [0.5, -0.5], [1.5, -0.5], [1.5, 0.5], [0.5, 0.5], [0.5, 1.5], [-0.5, 1.5], [-0.5, 0.5], [-1.5, 0.5], [-1.5, -0.5], [-0.5, -0.5], [-0.5, -1.5]) }],
-  [
-    { verts: [v(cut, 0), v(cut1, 0), v(1, cut), v(1, cut1), v(cut1, 1), v(cut, 1), v(0, cut1), v(0, cut)] },
-    { verts: [v(0, lx(0, -1)), v(cut, 0), v(0, cut), v(lx(0, -1), 0)] },
-  ],
-  [{ verts: poly([0, 0], [1, 0], [0.5, 0.5]) }, { verts: poly([0, 0], [0.5, 0.5], [-0.5, 0.5]) }],
-  [R(v(0, 0), v(n, n)), R(v(n, 0), v(n1, 1))],
-  [R(v(0, 0), v(pA, pB)), R(v(pA, 0), v(1, pA)), R(v(pB, pA), v(1, 1)), R(v(0, pB), v(pB, 1)), R(v(pB, pB), v(pA, pA))],
-  [
-    { verts: [v(0, 0), v(0.5, e), v(0.5, e1), v(0, 1), v(lx(0, -1), 0.5)] },
-    { verts: [v(0, 0), v(e, 0.5), v(0, 1), v(-0.5, e1), v(-0.5, e)] },
-    { verts: [v(0, 0), v(e, -0.5), v(e1, -0.5), v(1, 0), v(0.5, e)] },
-    { verts: [v(0, 0), v(0.5, lx(0, -1)), v(1, 0), v(e1, 0.5), v(e, 0.5)] },
-  ],
-]
+	[R(v(0, 0), v(1, 1)), R(v(0, 0), v(0.5, 0.5))],
+	[{ verts: poly([0, -0.5], [0.5, 0], [0, 0.5], [-0.5, 0]) }],
+	[
+		{ verts: poly([0, 0], [0.5, S6], [0, S3], [-0.5, S6]) },
+		{ verts: poly([0, 0], [-0.5, S6], [-0.5, -S6], [0, -S3]) },
+		{ verts: poly([0, 0], [0, -S3], [0.5, -S6], [0.5, S6]) },
+		{ verts: poly([0.5, S6], [0, S3], [-0.5, S6], [-0.5, -S6], [0, -S3], [0.5, -S6]) }
+	],
+	[R(v(0, 0), v(n, 1)), R(v(n, lx(1, -1)), v(n1, 1))],
+	[R(v(0, 0), v(n, 1)), R(v(0, 0), v(1, n))],
+	[
+		{
+			// Hex topology on a centred 4×2 lattice: side vertex V1 (2 − 2p, 0), shoulders S1 / S2 (1 ± s, .5), top corner
+			// V2 (2p, 1), mirrored round (t = plateau p, signed shoulder s).
+			verts: [
+				v(lx(2, -2), 0),
+				v(ly(1, 1), 0.5),
+				v(ly(1, -1), 0.5),
+				v(lx(0, 2), 1),
+				v(lx(0, -2), 1),
+				v(ly(-1, 1), 0.5),
+				v(ly(-1, -1), 0.5),
+				v(lx(-2, 2), 0),
+				v(ly(-1, -1), -0.5),
+				v(ly(-1, 1), -0.5),
+				v(lx(0, -2), -1),
+				v(lx(0, 2), -1),
+				v(ly(1, -1), -0.5),
+				v(ly(1, 1), -0.5)
+			]
+		}
+	],
+	[
+		{
+			verts: poly(
+				[0.5, -1.5],
+				[0.5, -0.5],
+				[1.5, -0.5],
+				[1.5, 0.5],
+				[0.5, 0.5],
+				[0.5, 1.5],
+				[-0.5, 1.5],
+				[-0.5, 0.5],
+				[-1.5, 0.5],
+				[-1.5, -0.5],
+				[-0.5, -0.5],
+				[-0.5, -1.5]
+			)
+		}
+	],
+	[
+		{ verts: [v(cut, 0), v(cut1, 0), v(1, cut), v(1, cut1), v(cut1, 1), v(cut, 1), v(0, cut1), v(0, cut)] },
+		{ verts: [v(0, lx(0, -1)), v(cut, 0), v(0, cut), v(lx(0, -1), 0)] }
+	],
+	[{ verts: poly([0, 0], [1, 0], [0.5, 0.5]) }, { verts: poly([0, 0], [0.5, 0.5], [-0.5, 0.5]) }],
+	[R(v(0, 0), v(n, n)), R(v(n, 0), v(n1, 1))],
+	[R(v(0, 0), v(pA, pB)), R(v(pA, 0), v(1, pA)), R(v(pB, pA), v(1, 1)), R(v(0, pB), v(pB, 1)), R(v(pB, pB), v(pA, pA))],
+	[
+		{ verts: [v(0, 0), v(0.5, e), v(0.5, e1), v(0, 1), v(lx(0, -1), 0.5)] },
+		{ verts: [v(0, 0), v(e, 0.5), v(0, 1), v(-0.5, e1), v(-0.5, e)] },
+		{ verts: [v(0, 0), v(e, -0.5), v(e1, -0.5), v(1, 0), v(0.5, e)] },
+		{ verts: [v(0, 0), v(0.5, lx(0, -1)), v(1, 0), v(e1, 0.5), v(e, 0.5)] }
+	]
+];
 
 /**
  * The table as GLSL: every coefficient is a multiple of 1/6 within ±2, so a vertex's six (a, b, c × x, y) pack into one
@@ -116,207 +166,320 @@ const SHAPES: Shape[][] = [
  * dynamically indexed constant array into every pixel's registers, so the smaller the better.
  */
 function shapeTable(): string {
-  const V: string[] = [], head: string[] = [], first: number[] = []
-  for (const shapes of SHAPES) {
-    first.push(head.length)
-    for (const s of shapes) {
-      head.push(`ivec3(${V.length}, ${s.verts.length}, ${s.rect ? 1 : 0})`)
-      for (const [x, y] of s.verts) {
-        let w = 0
-        ;[x[0], y[0], x[1], y[1], x[2], y[2]].forEach((v, i) => {
-          const q = Math.round(v * 6)
-          if (Math.abs(q - v * 6) > 1e-9 || Math.abs(q) > 12) throw new Error(`tile vertex coefficient ${v} is not a sixth within ±2`)
-          w += (q + 12) * 2 ** (5 * i)
-        })
-        V.push(String(w))
-      }
-    }
-  }
-  const arr = (type: string, name: string, items: string[]) => `const ${type} ${name}[${items.length}] = ${type}[${items.length}](\n  ${items.join(', ')});`
-  return [
-    `// Vertex coefficients, packed: 5 bits each of a.x, a.y, b.x, b.y, c.x, c.y, in sixths + 12.`,
-    arr('int', 'TILE_V', V),
-    `// Per shape: first vertex, vertex count, axis-aligned rectangle (1).`,
-    arr('ivec3', 'TILE_SHAPE', head),
-    `const int TILE_MODE0[${first.length}] = int[${first.length}](${first.join(', ')});   // each tiling's first shape`,
-  ].join('\n')
+	const V: string[] = [],
+		head: string[] = [],
+		first: number[] = [];
+	for (const shapes of SHAPES) {
+		first.push(head.length);
+		for (const s of shapes) {
+			head.push(`ivec3(${V.length}, ${s.verts.length}, ${s.rect ? 1 : 0})`);
+			for (const [x, y] of s.verts) {
+				let w = 0;
+				[x[0], y[0], x[1], y[1], x[2], y[2]].forEach((v, i) => {
+					const q = Math.round(v * 6);
+					if (Math.abs(q - v * 6) > 1e-9 || Math.abs(q) > 12)
+						throw new Error(`tile vertex coefficient ${v} is not a sixth within ±2`);
+					w += (q + 12) * 2 ** (5 * i);
+				});
+				V.push(String(w));
+			}
+		}
+	}
+	const arr = (type: string, name: string, items: string[]) =>
+		`const ${type} ${name}[${items.length}] = ${type}[${items.length}](\n  ${items.join(', ')});`;
+	return [
+		`// Vertex coefficients, packed: 5 bits each of a.x, a.y, b.x, b.y, c.x, c.y, in sixths + 12.`,
+		arr('int', 'TILE_V', V),
+		`// Per shape: first vertex, vertex count, axis-aligned rectangle (1).`,
+		arr('ivec3', 'TILE_SHAPE', head),
+		`const int TILE_MODE0[${first.length}] = int[${first.length}](${first.join(', ')});   // each tiling's first shape`
+	].join('\n');
 }
 
 export const tilesLayer: LayerDef = {
-  type: 'tiles',
-  label: 'Tiles',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description:
-    'Square tiles and checkerboards, tumbling blocks, herringbone, basketweave, interlocking crosses, octagons, triangles, pinwheel, Cairo… Exact tile distances with gap and rounding, per-tile or per-face random — or each kind of tile its own tone (a soft two-tone checker).',
-  params: [
-    P.enum('mode', 'Tiling', 'rhombille', TILE_MODES),
-    P.enum('output', 'Output', 'tiles', [['tiles', 'Tiles (shape)'], ['value', 'Tones (value)']], {
-      hint: 'Tiles: every tile a bevelled shape, its Random value per tile or kind (Diffuse › Source Random). Tones: no shape — each kind of tile its own tone, 0 to 1 for a colour ramp (a two-tone checkerboard on Squares; light, mid and dark block faces), blurred by Softness; the joints take the Joint tone',
-    }),
-    P.float('scale', 'Scale', 7, 0.25, 256, {
-      softMax: 32,
-      step: 0.01,
-      hint: 'Pattern repeats across the width (whole counts when tiling). One repeat = 1 square / diamond pair / cube column / 2×2 herringbone or basket block / cross pair / 5 plus tiles / octagon / triangle pair / pinwheel / 2×2 Cairo cells. A checkerboard (Squares whose kinds show: Tones, a kind filter or a kind-weighted random) keeps even counts when tiling',
-    }),
-    P.float('aspect', 'Aspect', 1, 0.1, 10, { softMin: 0.25, softMax: 4, step: 0.01, hint: 'Stretch the repeat vertically (rows are rounded to whole counts when tiling)' }),
-    orientParam('Multiples of 45°; diagonal frames repeat over gcd(width, height) so they stay seamless'),
-    P.float('gap', 'Gap', 2, 0, 256, { softMax: 16, unit: 'px', step: 0.1, hint: 'Grout between tiles (whole even/odd px stay crisp: odd gaps shift the lattice half a pixel)' }),
-    P.float('round', 'Corner rounding', 0, 0, 256, { softMax: 48, unit: 'px', step: 0.1, hint: 'Radius of the convex corners — as far as the tile allows; the gap is kept' }),
-    P.int('ratio', 'Length ratio', 2, 2, 12, { showIf: modeIs('herringbone', 'basketweave', 'hopscotch'), hint: 'Herringbone: brick length in widths. Basketweave: bricks per block. Hopscotch: big square side in small squares' }),
-    P.float('stagger', 'Row offset', 0, 0, 1, { step: 0.001, showIf: modeIs('squares'), hint: 'Shift alternate rows (fraction of a square); rows are made even when tiling' }),
-    P.float('split', 'Split squares', 0, 0, 1, {
-      step: 0.001,
-      showIf: modeIs('squares'),
-      hint: 'Chance that a square (where Split where allows) is split into 2 × 2 small squares: mixed big and small tiles, small checkerboards inside big ones. Split squares make kinds 3 and 4 (small light, small dark), so small tiles can take their own colours',
-    }),
-    P.enum('split_rule', 'Split where', 'any', [['any', 'Any square'], ['columns', 'Column bands'], ['rows', 'Row bands'], ['crossings', 'Where bands cross']], {
-      showIf: splitShown,
-      hint: 'Which squares may split: any, or bands of columns / rows (Band every, Band width, shifted by Band shift), or only where a column band crosses a row band (blocks of small tiles at the crossings). Bands repeat seamlessly: counts become multiples of Band every when tiling',
-    }),
-    P.enum('split_kinds', 'Kinds', 'both', [['both', 'Checker and size'], ['size', 'Size only']], {
-      showIf: splitShown,
-      hint: 'Tile kinds of split squares: checker and size (1, 2 big light / dark; 3, 4 small light / dark), or size only (1 big, 2 small) — when the checker doesn\'t matter, two kinds leave each its own wide band of the colour ramp (Random value: tile kind + random)',
-    }),
-    P.int('split_every', 'Band every', 4, 2, 32, { softMax: 12, showIf: (p) => splitShown(p) && p.split_rule !== 'any', hint: 'A band starts every this many squares' }),
-    P.int('split_run', 'Band width', 2, 1, 31, { softMax: 8, showIf: (p) => splitShown(p) && p.split_rule !== 'any', hint: 'Squares across a band (less than Band every)' }),
-    P.int('split_x', 'Band shift X', 0, 0, 31, { softMax: 8, showIf: (p) => splitShown(p) && p.split_rule !== 'any' && p.split_rule !== 'rows', hint: 'Moves the column bands right by this many squares' }),
-    P.int('split_y', 'Band shift Y', 0, 0, 31, { softMax: 8, showIf: (p) => splitShown(p) && p.split_rule !== 'any' && p.split_rule !== 'columns', hint: 'Moves the row bands down by this many squares' }),
-    P.float('plateau', 'Plateau', 0.25, 0, 1, { step: 0.001, showIf: modeIs('cross'), hint: 'Top edge width: 0 = diamonds, 0.25 = stretched hexes, 0.5 = squares in half-offset columns, > 0.5 = bow ties' }),
-    P.float('step', 'Step', 0.6, 0, 1, { step: 0.001, showIf: modeIs('cross'), hint: 'Shoulder in the slanted sides — 0 = straight (hexes), 1 = right-angled arms (plus crosses)' }),
-    P.float('cut', 'Corner cut', 0.293, 0, 0.5, { step: 0.001, showIf: modeIs('octagon'), hint: 'Fraction of the cell cut off each corner (0.293 = regular octagons)' }),
-    P.float('inner', 'Centre square', 0.33, 0.02, 0.98, { step: 0.001, showIf: modeIs('pinwheel'), hint: 'Size of the centre square (fraction of the repeat)' }),
-    P.float('cairo', 'Pentagon shape', 0.274, 0, 0.45, { step: 0.001, showIf: modeIs('cairo'), hint: '0 = squares on the diagonal, 0.274 = equilateral-sided Cairo' }),
-    P.float('block_j', 'Joints inside blocks', 0, 0, 1, {
-      step: 0.001,
-      showIf: modeIs('rhombille'),
-      hint: 'The joints between a block’s three faces, as a share of the Gap: 1 = like the outline (three loose rhombi), 0 = no joint — one solid block, its faces meeting at an edge (Crease depth). Below 1 a block’s faces share one height, lean, crown and tone',
-    }),
-    P.float('crease', 'Crease depth', 0.25, 0, 1, {
-      step: 0.001,
-      showIf: (p) => p.mode === 'rhombille' && !isValue(p) && Number(p.block_j ?? 1) <= 0,
-      hint: 'Solid blocks: how far the edges between a block’s faces dip, as a share of its height, over the Bevel width — 0 = a sharp arris, 1 = down to the joint',
-    }),
-    P.float('block_iso', 'Block relief', 0.5, 0, 1, {
-      step: 0.001,
-      showIf: (p) => p.mode === 'rhombille' && !isValue(p),
-      hint: 'Height: the top face stays level and the two side faces slope down to the block’s bottom corner by this share of its height — each block raised like a box seen from above',
-    }),
-    P.bool('fit', 'Keep tile shape', true, {
-      hint: 'Tiling needs whole repeats across and down. On: the count across may move off Scale a little so that the rows fit — tiles keep their shape (regular blocks and triangles) and Aspect holds at any scale. Off: exactly Scale across, the rows rounded (tiles may stretch or squash)',
-    }),
-    P.float('soft', 'Softness', 1.5, 0, 256, {
-      softMax: 32,
-      unit: 'px',
-      step: 0.1,
-      showIf: isValue,
-      hint: 'Blurs the tones over this many px — on rectangles a smooth 2D blur, so corners where four squares meet stay crossed, not mitred (0 = crisp edges, anti-aliased by Edge › Anti-alias)',
-    }),
-    P.float('vary', 'Tone variation', 0.3, 0, 1, {
-      step: 0.001,
-      showIf: isValue,
-      hint: 'Each tile shifts its tone by its own random amount, towards the middle of the ramp (at 1 up to 0.45 of the step between kinds, so kinds never cross): worn, unevenly fired or dyed tiles',
-    }),
-    P.float('joint_tone', 'Joint tone', 1, 0, 1, { step: 0.001, showIf: isValue, hint: 'The tone of the joints and of tiles not drawn (0 = the first kind’s end of the ramp, 1 = the last kind’s)' }),
-    P.float('laid', 'Hand-laid shift', 0, 0, 64, {
-      softMax: 8,
-      unit: 'px',
-      step: 0.1,
-      section: 'Per tile',
-      showIf: (p) => !isValue(p),
-      hint: 'Hand-laid: each tile sits off its place by a random amount up to this. Within the joint the tiles keep their size; a tile that needs more room than its joint gives comes out a little smaller, so tiles never overlap',
-    }),
-    P.float('laid_turn', 'Hand-laid turn', 0, 0, 64, {
-      softMax: 8,
-      unit: 'px',
-      step: 0.1,
-      section: 'Per tile',
-      showIf: (p) => !isValue(p),
-      hint: 'Hand-laid: each tile turns a random way about its middle, its corners moving up to this many px — long tiles turn by less, small ones by more. Follows Hand-laid shift until set by hand',
-    }),
-    P.float('size_var', 'Size variation', 0, 0, 64, {
-      softMax: 8,
-      unit: 'px',
-      step: 0.1,
-      section: 'Per tile',
-      showIf: (p) => !isValue(p),
-      hint: 'Each tile comes out smaller by a random amount up to this (handmade tiles, worn setts): joints of uneven width',
-    }),
-    P.float('tilt', 'Tilt', 0.5, 0, 1, {
-      step: 0.001,
-      section: 'Per tile',
-      showIf: (p) => !isValue(p),
-      hint: 'Height: each tile leans a random way, its low side down by up to three quarters of its own height at 1 (lippage) — never into the joint, so every edge keeps its bevel. With Per-feature variation, tiles at their own heights and angles',
-    }),
-    P.float('crown', 'Crown', 0.3, 0, 1, {
-      step: 0.001,
-      section: 'Per tile',
-      showIf: (p) => !isValue(p),
-      hint: 'Height: each tile domes towards its middle, its corners down by up to three quarters of its height at 1 (pillowed tiles; the bevel still marks the edge)',
-    }),
-    P.float('crown_shape', 'Crown shape', 0.3, 0, 1, {
-      step: 0.001,
-      section: 'Per tile',
-      showIf: (p) => !isValue(p) && Number(p.crown) > 0,
-      hint: '0 = a round dome over the whole tile; 1 = a flat top with a firm shoulder near the edge (cushioned setts)',
-    }),
-    P.float('missing', 'Missing tiles', 0, 0, 1, { step: 0.001, section: 'Per tile', hint: 'Share of tiles left out at random (the seed picks which): gaps in a floor, scattered inlays. Their place is outside the shape (its mask: Limit to, Outside); in Tones, the Joint tone' }),
-    P.enum('only', 'Tiles drawn', 'all', TILE_KINDS, { section: 'Per tile', hint: KIND_HINT }),
-    P.bool('only_inv', 'All but that kind', false, { section: 'Per tile', showIf: (p) => (p.only ?? 'all') !== 'all', hint: 'Draw every tile except that kind (pinwheel rectangles without their centre squares, two faces of each block…)' }),
-    { ...rndModeParam(['Per tile', 'Per tile kind', 'Tile kind + random'], `${KIND_HINT}. Use with Diffuse source = random`), section: 'Per tile' },
-    P.float('kind_w', 'Kind contrast', 1, 0, 1, {
-      step: 0.001,
-      section: 'Per tile',
-      showIf: (p) => (p.rnd_mode ?? 'class_random') === 'class_random',
-      hint: 'How far the tile kind sets the random value: 1 = each kind its own band of the ramp (block faces, octagons and squares apart); lower, the kinds\' bands widen and overlap towards the middle of the ramp; 0 = kinds ignored, every tile its own tone across most of the ramp. Follows the tiling until set by hand: 1 for blocks, 0.8 octagons and argyle, 0.3–0.6 for most, 0 for plain squares',
-    }),
-    P.seed(),
-  ],
-  // Tones has no shape: only Anti-alias of the Edge controls (its crisp edges use it).
-  sdfShowIf: (p, key) => !isValue(p) || key === 'aa',
-  // Kinds that make the motif (block faces, argyle, octagons and squares, big and small squares, pinwheel centres) keep
-  // their own tones; elsewhere a kind is only a sub-lattice (checker squares, H / V bricks, interleaved crosses).
-  // The turn follows the shift (no shift, no turn) until set by hand; Diffuse paints tiles by their random, tones by
-  // the value.
-  linkedDefaults: (p) => ({
-    kind_w: KIND_CONTRAST[String(p.mode)] ?? 1,
-    laid_turn: Number(p.laid ?? 0),
-    dif_src: isValue(p) ? 'value' : 'random',
-  }),
-  fresh: ({ width, height }) => {
-    // Joints and bevels that read at the texture's size: 2 px grout and a 3 px bevel at 512 px; hand-laid by about a
-    // pixel there (shift and turn), so each seed lays the tiles differently.
-    const px = Math.min(width, height) / 512
-    const r1 = (v: number) => Math.round(v * 10) / 10
-    return { gap: Math.max(1, Math.round(2 * px)), bevel: Math.max(1, Math.round(3 * px * 2) / 2), laid: r1(Math.max(0.3, 0.75 * px)) }
-  },
-  defaults: {
-    rnd_mode: 'class_random',
-    h_on: true,
-    h_amount: 0.4,
-    bevel: 3,
-    h_var: 0.3,
-    profile: 'smooth',
-    dif_on: true,
-    // Light → dark, so by kind the blocks' top faces are the lightest and their right faces (away from the default
-    // light, top left) the darkest. A stop at each end of the three kind bands of Tile kind + random ((kind + .15 …
-    // .85) / 3): the faces of one kind differ tile by tile, the kinds never blur into each other.
-    dif_grad: {
-      stops: [
-        { pos: 0.05, color: '#c0b39a' },
-        { pos: 0.283, color: '#958a77' },
-        { pos: 0.383, color: '#7c7366' },
-        { pos: 0.617, color: '#5f574d' },
-        { pos: 0.717, color: '#4a443c' },
-        { pos: 0.95, color: '#2e2a25' },
-      ],
-    },
-  },
-  glsl:
-    geoGlsl(16) +
-    shapeTable() +
-    /* glsl */ `
+	type: 'tiles',
+	label: 'Tiles',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Square tiles and checkerboards, tumbling blocks, herringbone, basketweave, interlocking crosses, octagons, triangles, pinwheel, Cairo… Exact tile distances with gap and rounding, per-tile or per-face random — or each kind of tile its own tone (a soft two-tone checker).',
+	params: [
+		P.enum('mode', 'Tiling', 'rhombille', TILE_MODES),
+		P.enum(
+			'output',
+			'Output',
+			'tiles',
+			[
+				['tiles', 'Tiles (shape)'],
+				['value', 'Tones (value)']
+			],
+			{
+				hint: 'Tiles: every tile a bevelled shape, its Random value per tile or kind (Diffuse › Source Random). Tones: no shape — each kind of tile its own tone, 0 to 1 for a colour ramp (a two-tone checkerboard on Squares; light, mid and dark block faces), blurred by Softness; the joints take the Joint tone'
+			}
+		),
+		P.float('scale', 'Scale', 7, 0.25, 256, {
+			softMax: 32,
+			step: 0.01,
+			hint: 'Pattern repeats across the width (whole counts when tiling). One repeat = 1 square / diamond pair / cube column / 2×2 herringbone or basket block / cross pair / 5 plus tiles / octagon / triangle pair / pinwheel / 2×2 Cairo cells. A checkerboard (Squares whose kinds show: Tones, a kind filter or a kind-weighted random) keeps even counts when tiling'
+		}),
+		P.float('aspect', 'Aspect', 1, 0.1, 10, {
+			softMin: 0.25,
+			softMax: 4,
+			step: 0.01,
+			hint: 'Stretch the repeat vertically (rows are rounded to whole counts when tiling)'
+		}),
+		orientParam('Multiples of 45°; diagonal frames repeat over gcd(width, height) so they stay seamless'),
+		P.float('gap', 'Gap', 2, 0, 256, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Grout between tiles (whole even/odd px stay crisp: odd gaps shift the lattice half a pixel)'
+		}),
+		P.float('round', 'Corner rounding', 0, 0, 256, {
+			softMax: 48,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Radius of the convex corners — as far as the tile allows; the gap is kept'
+		}),
+		P.int('ratio', 'Length ratio', 2, 2, 12, {
+			showIf: modeIs('herringbone', 'basketweave', 'hopscotch'),
+			hint: 'Herringbone: brick length in widths. Basketweave: bricks per block. Hopscotch: big square side in small squares'
+		}),
+		P.float('stagger', 'Row offset', 0, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('squares'),
+			hint: 'Shift alternate rows (fraction of a square); rows are made even when tiling'
+		}),
+		P.float('split', 'Split squares', 0, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('squares'),
+			hint: 'Chance that a square (where Split where allows) is split into 2 × 2 small squares: mixed big and small tiles, small checkerboards inside big ones. Split squares make kinds 3 and 4 (small light, small dark), so small tiles can take their own colours'
+		}),
+		P.enum(
+			'split_rule',
+			'Split where',
+			'any',
+			[
+				['any', 'Any square'],
+				['columns', 'Column bands'],
+				['rows', 'Row bands'],
+				['crossings', 'Where bands cross']
+			],
+			{
+				showIf: splitShown,
+				hint: 'Which squares may split: any, or bands of columns / rows (Band every, Band width, shifted by Band shift), or only where a column band crosses a row band (blocks of small tiles at the crossings). Bands repeat seamlessly: counts become multiples of Band every when tiling'
+			}
+		),
+		P.enum(
+			'split_kinds',
+			'Kinds',
+			'both',
+			[
+				['both', 'Checker and size'],
+				['size', 'Size only']
+			],
+			{
+				showIf: splitShown,
+				hint: "Tile kinds of split squares: checker and size (1, 2 big light / dark; 3, 4 small light / dark), or size only (1 big, 2 small) — when the checker doesn't matter, two kinds leave each its own wide band of the colour ramp (Random value: tile kind + random)"
+			}
+		),
+		P.int('split_every', 'Band every', 4, 2, 32, {
+			softMax: 12,
+			showIf: (p) => splitShown(p) && p.split_rule !== 'any',
+			hint: 'A band starts every this many squares'
+		}),
+		P.int('split_run', 'Band width', 2, 1, 31, {
+			softMax: 8,
+			showIf: (p) => splitShown(p) && p.split_rule !== 'any',
+			hint: 'Squares across a band (less than Band every)'
+		}),
+		P.int('split_x', 'Band shift X', 0, 0, 31, {
+			softMax: 8,
+			showIf: (p) => splitShown(p) && p.split_rule !== 'any' && p.split_rule !== 'rows',
+			hint: 'Moves the column bands right by this many squares'
+		}),
+		P.int('split_y', 'Band shift Y', 0, 0, 31, {
+			softMax: 8,
+			showIf: (p) => splitShown(p) && p.split_rule !== 'any' && p.split_rule !== 'columns',
+			hint: 'Moves the row bands down by this many squares'
+		}),
+		P.float('plateau', 'Plateau', 0.25, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('cross'),
+			hint: 'Top edge width: 0 = diamonds, 0.25 = stretched hexes, 0.5 = squares in half-offset columns, > 0.5 = bow ties'
+		}),
+		P.float('step', 'Step', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('cross'),
+			hint: 'Shoulder in the slanted sides — 0 = straight (hexes), 1 = right-angled arms (plus crosses)'
+		}),
+		P.float('cut', 'Corner cut', 0.293, 0, 0.5, {
+			step: 0.001,
+			showIf: modeIs('octagon'),
+			hint: 'Fraction of the cell cut off each corner (0.293 = regular octagons)'
+		}),
+		P.float('inner', 'Centre square', 0.33, 0.02, 0.98, {
+			step: 0.001,
+			showIf: modeIs('pinwheel'),
+			hint: 'Size of the centre square (fraction of the repeat)'
+		}),
+		P.float('cairo', 'Pentagon shape', 0.274, 0, 0.45, {
+			step: 0.001,
+			showIf: modeIs('cairo'),
+			hint: '0 = squares on the diagonal, 0.274 = equilateral-sided Cairo'
+		}),
+		P.float('block_j', 'Joints inside blocks', 0, 0, 1, {
+			step: 0.001,
+			showIf: modeIs('rhombille'),
+			hint: 'The joints between a block’s three faces, as a share of the Gap: 1 = like the outline (three loose rhombi), 0 = no joint — one solid block, its faces meeting at an edge (Crease depth). Below 1 a block’s faces share one height, lean, crown and tone'
+		}),
+		P.float('crease', 'Crease depth', 0.25, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.mode === 'rhombille' && !isValue(p) && Number(p.block_j ?? 1) <= 0,
+			hint: 'Solid blocks: how far the edges between a block’s faces dip, as a share of its height, over the Bevel width — 0 = a sharp arris, 1 = down to the joint'
+		}),
+		P.float('block_iso', 'Block relief', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.mode === 'rhombille' && !isValue(p),
+			hint: 'Height: the top face stays level and the two side faces slope down to the block’s bottom corner by this share of its height — each block raised like a box seen from above'
+		}),
+		P.bool('fit', 'Keep tile shape', true, {
+			hint: 'Tiling needs whole repeats across and down. On: the count across may move off Scale a little so that the rows fit — tiles keep their shape (regular blocks and triangles) and Aspect holds at any scale. Off: exactly Scale across, the rows rounded (tiles may stretch or squash)'
+		}),
+		P.float('soft', 'Softness', 1.5, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			showIf: isValue,
+			hint: 'Blurs the tones over this many px — on rectangles a smooth 2D blur, so corners where four squares meet stay crossed, not mitred (0 = crisp edges, anti-aliased by Edge › Anti-alias)'
+		}),
+		P.float('vary', 'Tone variation', 0.3, 0, 1, {
+			step: 0.001,
+			showIf: isValue,
+			hint: 'Each tile shifts its tone by its own random amount, towards the middle of the ramp (at 1 up to 0.45 of the step between kinds, so kinds never cross): worn, unevenly fired or dyed tiles'
+		}),
+		P.float('joint_tone', 'Joint tone', 1, 0, 1, {
+			step: 0.001,
+			showIf: isValue,
+			hint: 'The tone of the joints and of tiles not drawn (0 = the first kind’s end of the ramp, 1 = the last kind’s)'
+		}),
+		P.float('laid', 'Hand-laid shift', 0, 0, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.1,
+			section: 'Per tile',
+			showIf: (p) => !isValue(p),
+			hint: 'Hand-laid: each tile sits off its place by a random amount up to this. Within the joint the tiles keep their size; a tile that needs more room than its joint gives comes out a little smaller, so tiles never overlap'
+		}),
+		P.float('laid_turn', 'Hand-laid turn', 0, 0, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.1,
+			section: 'Per tile',
+			showIf: (p) => !isValue(p),
+			hint: 'Hand-laid: each tile turns a random way about its middle, its corners moving up to this many px — long tiles turn by less, small ones by more. Follows Hand-laid shift until set by hand'
+		}),
+		P.float('size_var', 'Size variation', 0, 0, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.1,
+			section: 'Per tile',
+			showIf: (p) => !isValue(p),
+			hint: 'Each tile comes out smaller by a random amount up to this (handmade tiles, worn setts): joints of uneven width'
+		}),
+		P.float('tilt', 'Tilt', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Per tile',
+			showIf: (p) => !isValue(p),
+			hint: 'Height: each tile leans a random way, its low side down by up to three quarters of its own height at 1 (lippage) — never into the joint, so every edge keeps its bevel. With Per-feature variation, tiles at their own heights and angles'
+		}),
+		P.float('crown', 'Crown', 0.3, 0, 1, {
+			step: 0.001,
+			section: 'Per tile',
+			showIf: (p) => !isValue(p),
+			hint: 'Height: each tile domes towards its middle, its corners down by up to three quarters of its height at 1 (pillowed tiles; the bevel still marks the edge)'
+		}),
+		P.float('crown_shape', 'Crown shape', 0.3, 0, 1, {
+			step: 0.001,
+			section: 'Per tile',
+			showIf: (p) => !isValue(p) && Number(p.crown) > 0,
+			hint: '0 = a round dome over the whole tile; 1 = a flat top with a firm shoulder near the edge (cushioned setts)'
+		}),
+		P.float('missing', 'Missing tiles', 0, 0, 1, {
+			step: 0.001,
+			section: 'Per tile',
+			hint: 'Share of tiles left out at random (the seed picks which): gaps in a floor, scattered inlays. Their place is outside the shape (its mask: Limit to, Outside); in Tones, the Joint tone'
+		}),
+		P.enum('only', 'Tiles drawn', 'all', TILE_KINDS, { section: 'Per tile', hint: KIND_HINT }),
+		P.bool('only_inv', 'All but that kind', false, {
+			section: 'Per tile',
+			showIf: (p) => (p.only ?? 'all') !== 'all',
+			hint: 'Draw every tile except that kind (pinwheel rectangles without their centre squares, two faces of each block…)'
+		}),
+		{
+			...rndModeParam(
+				['Per tile', 'Per tile kind', 'Tile kind + random'],
+				`${KIND_HINT}. Use with Diffuse source = random`
+			),
+			section: 'Per tile'
+		},
+		P.float('kind_w', 'Kind contrast', 1, 0, 1, {
+			step: 0.001,
+			section: 'Per tile',
+			showIf: (p) => (p.rnd_mode ?? 'class_random') === 'class_random',
+			hint: "How far the tile kind sets the random value: 1 = each kind its own band of the ramp (block faces, octagons and squares apart); lower, the kinds' bands widen and overlap towards the middle of the ramp; 0 = kinds ignored, every tile its own tone across most of the ramp. Follows the tiling until set by hand: 1 for blocks, 0.8 octagons and argyle, 0.3–0.6 for most, 0 for plain squares"
+		}),
+		P.seed()
+	],
+	// Tones has no shape: only Anti-alias of the Edge controls (its crisp edges use it).
+	sdfShowIf: (p, key) => !isValue(p) || key === 'aa',
+	// Kinds that make the motif (block faces, argyle, octagons and squares, big and small squares, pinwheel centres) keep
+	// their own tones; elsewhere a kind is only a sub-lattice (checker squares, H / V bricks, interleaved crosses).
+	// The turn follows the shift (no shift, no turn) until set by hand; Diffuse paints tiles by their random, tones by
+	// the value.
+	linkedDefaults: (p) => ({
+		kind_w: KIND_CONTRAST[String(p.mode)] ?? 1,
+		laid_turn: Number(p.laid ?? 0),
+		dif_src: isValue(p) ? 'value' : 'random'
+	}),
+	fresh: ({ width, height }) => {
+		// Joints and bevels that read at the texture's size: 2 px grout and a 3 px bevel at 512 px; hand-laid by about a
+		// pixel there (shift and turn), so each seed lays the tiles differently.
+		const px = Math.min(width, height) / 512;
+		const r1 = (v: number) => Math.round(v * 10) / 10;
+		return {
+			gap: Math.max(1, Math.round(2 * px)),
+			bevel: Math.max(1, Math.round(3 * px * 2) / 2),
+			laid: r1(Math.max(0.3, 0.75 * px))
+		};
+	},
+	defaults: {
+		rnd_mode: 'class_random',
+		h_on: true,
+		h_amount: 0.4,
+		bevel: 3,
+		h_var: 0.3,
+		profile: 'smooth',
+		dif_on: true,
+		// Light → dark, so by kind the blocks' top faces are the lightest and their right faces (away from the default
+		// light, top left) the darkest. A stop at each end of the three kind bands of Tile kind + random ((kind + .15 …
+		// .85) / 3): the faces of one kind differ tile by tile, the kinds never blur into each other.
+		dif_grad: {
+			stops: [
+				{ pos: 0.05, color: '#c0b39a' },
+				{ pos: 0.283, color: '#958a77' },
+				{ pos: 0.383, color: '#7c7366' },
+				{ pos: 0.617, color: '#5f574d' },
+				{ pos: 0.717, color: '#4a443c' },
+				{ pos: 0.95, color: '#2e2a25' }
+			]
+		}
+	},
+	glsl:
+		geoGlsl(16) +
+		shapeTable() +
+		/* glsl */ `
 
 // ---------------------------------------------------------------- modes (unit coords, y up, CCW polygons)
 // Every mode is a few tile shapes (the table above), each tried at a list of anchors: tile_shape(k) builds shape k
@@ -864,5 +1027,5 @@ GenOut gen(vec2 p) {
   }
   return g;
 }
-`,
-}
+`
+};

@@ -5,103 +5,286 @@
 // ridges, between flat patches of the original face. Joints are thin; here and there one opens into a dark gap at a
 // corner. Joints, gaps and scars are outputs of their own, for paint; the relief puts the stones in the mask it writes.
 
-import { P, gradient } from '@/core/params'
-import type { LayerDef } from '../types'
-import { ORG_GLSL, ORG_GLSL_SDF, ORG_NO_SDF } from './organicShared'
+import { P, gradient } from '@/core/params';
+import type { LayerDef } from '../types';
+import { ORG_GLSL, ORG_GLSL_SDF, ORG_NO_SDF } from './organicShared';
 
 export const stoneBlocksLayer: LayerDef = {
-  type: 'stone_blocks',
-  label: 'Stone blocks',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  // Only the relief has a shape (the masks return no distance).
-  sdfShowIf: (p) => p.output === 'relief',
-  description: 'A wall of rock-faced stone blocks: courses of varying height, blocks of varying length split into slabs and smaller pieces, faces chipped into flake scars, thin joints that open into gaps here and there — plus masks of the joints and the scars to paint.',
-  params: [
-    P.enum('output', 'Output', 'relief', [
-      ['relief', 'Relief', 'the wall: the faces with their scars, margins and joints, as a height (and a colour by height)'],
-      ['joints', 'Joints', '1 in the joints and open gaps, fading over the Joint reach onto the faces: dirt, damp and moss along the joints'],
-      ['scars', 'Scars', 'how deep the flake scars cut into each face (0 on the untouched face): paint the fresh, paler breaks or the shaded hollows'],
-      ['gaps', 'Gaps', '1 in the open gaps only: paint them dark, damp or mossy apart from the joints'],
-    ], { hint: 'Every output comes from the same wall (same settings, same seed). Relief puts the stones in the mask it writes; the others write what they paint — to any mask but Shape, which they leave as it was' }),
-    P.float('course', 'Course height', 40, 4, 512, { softMax: 128, unit: 'px', step: 0.1, hint: 'Height of a course before any splits (whole courses down the texture when tiling)' }),
-    P.float('row_var', 'Course variation', 0.4, 0, 1, { step: 0.001, hint: 'How much the courses differ in height' }),
-    P.float('length', 'Block length', 3.2, 0.5, 8, { softMax: 5, step: 0.01, hint: 'Block length ÷ course height, before splits' }),
-    P.float('len_var', 'Length variation', 0.7, 0, 1, { step: 0.001, hint: 'Spread of block lengths, within a course and from course to course' }),
-    P.float('bond', 'Bond', 0, 0, 1, { step: 0.001, hint: '0: each course starts at a random place; 1: every other course shifts half a block (a running bond)' }),
-    P.float('tall', 'Through stones', 0.25, 0, 1, { step: 0.001, hint: 'Chance that a block runs on through the course above it: tall stones that break the course lines' }),
-    P.float('split', 'Splits', 0.4, 0, 1, { step: 0.001, hint: 'Chance that a block (and then each of its parts) is split again: stacked slabs and short pieces among whole blocks — random ashlar' }),
-    P.int('levels', 'Split levels', 2, 0, 3, { hint: 'How many times a block may be split' }),
-    P.float('slabs', 'Slabs', 0.6, 0, 1, { step: 0.001, showIf: (p) => Number(p.levels) > 0, hint: 'Share of the splits that run along the course (thin slabs stacked in it) rather than across it (short pieces)' }),
-    P.float('min_size', 'Smallest piece', 16, 2, 256, { softMax: 48, unit: 'px', step: 0.1, showIf: (p) => Number(p.levels) > 0, hint: 'No split leaves a piece thinner than this' }),
-    P.float('gap', 'Joint width', 1, 0, 32, { softMax: 6, unit: 'px', step: 0.05, hint: 'Width of the joints between stones (whole px stay crisp)' }),
-    P.float('joint_var', 'Joint variation', 0, 0, 1, { step: 0.001, hint: 'Each stone gets its own share of the joint (width, depth, edge rounding, its step from its neighbours, the Joints mask): 0 = every joint as set, 1 = from fully shut to full width. Shut stones sit flush and share their scars, so two meeting read as one rock with a hairline between; beside an open stone a half joint is left' }),
-    P.float('corner', 'Corner rounding', 0.5, 0, 32, { softMax: 6, unit: 'px', step: 0.05 }),
-    P.float('jag', 'Jaggedness', 0.8, 0, 8, { softMax: 3, unit: 'px', step: 0.01, hint: 'Raggedness of the stones’ edges' }),
+	type: 'stone_blocks',
+	label: 'Stone blocks',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	// Only the relief has a shape (the masks return no distance).
+	sdfShowIf: (p) => p.output === 'relief',
+	description:
+		'A wall of rock-faced stone blocks: courses of varying height, blocks of varying length split into slabs and smaller pieces, faces chipped into flake scars, thin joints that open into gaps here and there — plus masks of the joints and the scars to paint.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'relief',
+			[
+				[
+					'relief',
+					'Relief',
+					'the wall: the faces with their scars, margins and joints, as a height (and a colour by height)'
+				],
+				[
+					'joints',
+					'Joints',
+					'1 in the joints and open gaps, fading over the Joint reach onto the faces: dirt, damp and moss along the joints'
+				],
+				[
+					'scars',
+					'Scars',
+					'how deep the flake scars cut into each face (0 on the untouched face): paint the fresh, paler breaks or the shaded hollows'
+				],
+				['gaps', 'Gaps', '1 in the open gaps only: paint them dark, damp or mossy apart from the joints']
+			],
+			{
+				hint: 'Every output comes from the same wall (same settings, same seed). Relief puts the stones in the mask it writes; the others write what they paint — to any mask but Shape, which they leave as it was'
+			}
+		),
+		P.float('course', 'Course height', 40, 4, 512, {
+			softMax: 128,
+			unit: 'px',
+			axis: 'y',
+			step: 0.1,
+			hint: 'Height of a course before any splits (whole courses down the texture when tiling)'
+		}),
+		P.float('row_var', 'Course variation', 0.4, 0, 1, { step: 0.001, hint: 'How much the courses differ in height' }),
+		P.float('length', 'Block length', 3.2, 0.5, 8, {
+			softMax: 5,
+			step: 0.01,
+			hint: 'Block length ÷ course height, before splits'
+		}),
+		P.float('len_var', 'Length variation', 0.7, 0, 1, {
+			step: 0.001,
+			hint: 'Spread of block lengths, within a course and from course to course'
+		}),
+		P.float('bond', 'Bond', 0, 0, 1, {
+			step: 0.001,
+			hint: '0: each course starts at a random place; 1: every other course shifts half a block (a running bond)'
+		}),
+		P.float('tall', 'Through stones', 0.25, 0, 1, {
+			step: 0.001,
+			hint: 'Chance that a block runs on through the course above it: tall stones that break the course lines'
+		}),
+		P.float('split', 'Splits', 0.4, 0, 1, {
+			step: 0.001,
+			hint: 'Chance that a block (and then each of its parts) is split again: stacked slabs and short pieces among whole blocks — random ashlar'
+		}),
+		P.int('levels', 'Split levels', 2, 0, 3, { hint: 'How many times a block may be split' }),
+		P.float('slabs', 'Slabs', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.levels) > 0,
+			hint: 'Share of the splits that run along the course (thin slabs stacked in it) rather than across it (short pieces)'
+		}),
+		P.float('min_size', 'Smallest piece', 16, 2, 256, {
+			softMax: 48,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => Number(p.levels) > 0,
+			hint: 'No split leaves a piece thinner than this'
+		}),
+		P.float('gap', 'Joint width', 1, 0, 32, {
+			softMax: 6,
+			unit: 'px',
+			step: 0.05,
+			hint: 'Width of the joints between stones (whole px stay crisp)'
+		}),
+		P.float('joint_var', 'Joint variation', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Each stone gets its own share of the joint (width, depth, edge rounding, its step from its neighbours, the Joints mask): 0 = every joint as set, 1 = from fully shut to full width. Shut stones sit flush and share their scars, so two meeting read as one rock with a hairline between; beside an open stone a half joint is left'
+		}),
+		P.float('corner', 'Corner rounding', 0.5, 0, 32, { softMax: 6, unit: 'px', step: 0.05 }),
+		P.float('jag', 'Jaggedness', 0.8, 0, 8, {
+			softMax: 3,
+			unit: 'px',
+			step: 0.01,
+			hint: 'Raggedness of the stones’ edges'
+		}),
 
-    P.float('heights', 'Height variation', 0.1, 0, 2, { softMax: 1, step: 0.001, section: 'Relief', hint: 'How much the stones differ in height' }),
-    P.float('recess', 'Set-back stones', 0.1, 0, 1, { step: 0.001, section: 'Relief', hint: 'Share of the stones set back into the wall' }),
-    P.float('recess_depth', 'Set-back depth', 0.5, 0, 2, { softMax: 1, step: 0.001, section: 'Relief', showIf: (p) => Number(p.recess) > 0 }),
-    P.float('tilt', 'Tilt', 0.15, 0, 1, { step: 0.001, section: 'Relief', hint: 'Random slope of each face' }),
-    P.float('margin', 'Margin width', 6, 0, 64, { softMax: 24, unit: 'px', step: 0.05, section: 'Relief', hint: 'How far in from its edge a face starts to fall to the joint (varies along the edge): the pitched margin of a rock-faced stone' }),
-    P.float('pitch', 'Margin drop', 0.8, 0, 2, { softMax: 1, step: 0.001, section: 'Relief', showIf: (p) => Number(p.margin) > 0, hint: 'How far the face falls over the margin, in a rounded shoulder' }),
-    P.float('scars', 'Flake scars', 0.95, 0, 1, { step: 0.001, section: 'Relief', hint: 'How much of the face is knocked off in flake scars: shallow bowls whose rims meet in crisp ridges, between flat patches of the original face' }),
-    P.float('scar_size', 'Scar size', 68, 2, 512, { softMax: 96, unit: 'px', step: 0.1, section: 'Relief', showIf: (p) => Number(p.scars) > 0, hint: 'Spacing of the big scars (each 0.55–0.95 of it across, stretched up to 1.6×)' }),
-    P.float('scar_depth', 'Scar depth', 3.2, 0, 8, { softMax: 4, step: 0.001, section: 'Relief', showIf: (p) => Number(p.scars) > 0, hint: 'How deep the scars cut, in proportion to their size: bigger scars cut deeper, at the same slopes' }),
-    P.float('scar_stretch', 'Scar stretch', 1, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.scars) > 0, hint: 'How elongated the scars are along the direction they were struck (up to 2.4×)' }),
-    P.float('scar_edge', 'Edge flaking', 0.8, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.scars) > 0, hint: 'Share of the scars struck from the stone’s nearest edge — deep at the edge, running inward, as a mason pitches a rock face — rather than lying any which way' }),
-    P.float('scar_detail', 'Small scars', 0.5, 0, 1, { step: 0.001, section: 'Relief', showIf: (p) => Number(p.scars) > 0, hint: 'Strength of a second, finer set of scars (under half the size) chipped into the faces and the big scars' }),
-    P.float('rough', 'Roughness', 0.06, 0, 1, { step: 0.001, section: 'Relief', hint: 'Fine grainy unevenness over every face' }),
-    P.float('rough_scale', 'Roughness size', 3, 1, 64, { softMax: 16, unit: 'px', step: 0.05, section: 'Relief', showIf: (p) => Number(p.rough) > 0 }),
-    P.float('joint_depth', 'Joint depth', 0.3, 0, 2, { softMax: 1, step: 0.001, section: 'Relief', hint: 'How far the joints sink below the faces' }),
+		P.float('heights', 'Height variation', 0.1, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'How much the stones differ in height'
+		}),
+		P.float('recess', 'Set-back stones', 0.1, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Share of the stones set back into the wall'
+		}),
+		P.float('recess_depth', 'Set-back depth', 0.5, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.recess) > 0
+		}),
+		P.float('tilt', 'Tilt', 0.15, 0, 1, { step: 0.001, section: 'Relief', hint: 'Random slope of each face' }),
+		P.float('margin', 'Margin width', 6, 0, 64, {
+			softMax: 24,
+			unit: 'px',
+			step: 0.05,
+			section: 'Relief',
+			hint: 'How far in from its edge a face starts to fall to the joint (varies along the edge): the pitched margin of a rock-faced stone'
+		}),
+		P.float('pitch', 'Margin drop', 0.8, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.margin) > 0,
+			hint: 'How far the face falls over the margin, in a rounded shoulder'
+		}),
+		P.float('scars', 'Flake scars', 0.95, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'How much of the face is knocked off in flake scars: shallow bowls whose rims meet in crisp ridges, between flat patches of the original face'
+		}),
+		P.float('scar_size', 'Scar size', 68, 2, 512, {
+			softMax: 96,
+			unit: 'px',
+			step: 0.1,
+			section: 'Relief',
+			showIf: (p) => Number(p.scars) > 0,
+			hint: 'Spacing of the big scars (each 0.55–0.95 of it across, stretched up to 1.6×)'
+		}),
+		P.float('scar_depth', 'Scar depth', 3.2, 0, 8, {
+			softMax: 4,
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.scars) > 0,
+			hint: 'How deep the scars cut, in proportion to their size: bigger scars cut deeper, at the same slopes'
+		}),
+		P.float('scar_stretch', 'Scar stretch', 1, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.scars) > 0,
+			hint: 'How elongated the scars are along the direction they were struck (up to 2.4×)'
+		}),
+		P.float('scar_edge', 'Edge flaking', 0.8, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.scars) > 0,
+			hint: 'Share of the scars struck from the stone’s nearest edge — deep at the edge, running inward, as a mason pitches a rock face — rather than lying any which way'
+		}),
+		P.float('scar_detail', 'Small scars', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.scars) > 0,
+			hint: 'Strength of a second, finer set of scars (under half the size) chipped into the faces and the big scars'
+		}),
+		P.float('rough', 'Roughness', 0.06, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Fine grainy unevenness over every face'
+		}),
+		P.float('rough_scale', 'Roughness size', 3, 1, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			section: 'Relief',
+			showIf: (p) => Number(p.rough) > 0
+		}),
+		P.float('joint_depth', 'Joint depth', 0.3, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Relief',
+			hint: 'How far the joints sink below the faces'
+		}),
 
-    P.float('gaps', 'Open gaps', 0.12, 0, 1, { step: 0.001, section: 'Gaps', hint: 'Share of the stones with a joint opened into a dark gap at one corner, along one or both of its edges' }),
-    P.float('gap_w', 'Gap width', 3, 0.5, 32, { softMax: 8, unit: 'px', step: 0.05, section: 'Gaps', showIf: (p) => Number(p.gaps) > 0, hint: 'Widest a gap opens, at its corner, tapering along the edge' }),
-    P.float('gap_len', 'Gap length', 0.5, 0.05, 1, { step: 0.001, section: 'Gaps', showIf: (p) => Number(p.gaps) > 0, hint: 'How far along the stone’s edge a gap runs (each 40–100 % of this)' }),
+		P.float('gaps', 'Open gaps', 0.12, 0, 1, {
+			step: 0.001,
+			section: 'Gaps',
+			hint: 'Share of the stones with a joint opened into a dark gap at one corner, along one or both of its edges'
+		}),
+		P.float('gap_w', 'Gap width', 3, 0.5, 32, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.05,
+			section: 'Gaps',
+			showIf: (p) => Number(p.gaps) > 0,
+			hint: 'Widest a gap opens, at its corner, tapering along the edge'
+		}),
+		P.float('gap_len', 'Gap length', 0.5, 0.05, 1, {
+			step: 0.001,
+			section: 'Gaps',
+			showIf: (p) => Number(p.gaps) > 0,
+			hint: 'How far along the stone’s edge a gap runs (each 40–100 % of this)'
+		}),
 
-    P.float('reach', 'Joint reach', 3, 0.5, 64, { softMax: 16, unit: 'px', step: 0.05, showIf: (p) => p.output === 'joints', hint: 'How far the joint mask fades out onto the faces' }),
-    P.float('patch', 'Patchiness', 0.3, 0, 1, { step: 0.001, showIf: (p) => p.output === 'joints', hint: 'Breaks the joint mask into patches a few stones across: 0 = every joint, 1 = only here and there' }),
-    // Not a control: 1 px of the texture in shader px (supersampling scales the px params; joints snap to texture pixels).
-    P.float('px_scale', 'Pixel scale', 1, 1, 8, { unit: 'px', step: 1, optimize: false, showIf: () => false }),
-    P.enum('rnd_mode', 'Random value', 'piece', [
-      ['piece', 'Per stone', 'each stone (after splits) its own value'],
-      ['block', 'Per block', 'the pieces split from one block share a value'],
-      ['course', 'Per course', 'each course its own value: colour bands along the wall'],
-    ], { hint: 'The random value Diffuse › Random and Random jitter read' }),
-    P.seed(),
-  ],
-  defaults: {
-    bevel: 0,
-    profile: 'round',
-    aa: true,
-    h_on: true,
-    h_amount: 9,
-    dif_on: true,
-    dif_src: 'random',
-    dif_grad: gradient('#a48a68', '#b8a07c', '#c6ae8a'),
-  },
-  // Added in the editor: courses about a ninth of the texture's mean side; scars, margins, the smallest piece and the
-  // relief in proportion.
-  fresh: ({ width, height }) => {
-    const course = Math.round(Math.min(96, Math.max(8, Math.sqrt(width * height) * 0.11)) * 10) / 10
-    const r = (x: number) => Math.round(x * 10) / 10
-    return { course, scar_size: r(course * 1.7), margin: r(course * 0.15), min_size: r(Math.max(3, course * 0.4)), h_amount: r(Math.max(2, course * 0.22)) }
-  },
-  // Relief is the height; joints and scars are masks for paint (their coverage is their value, so a colour lands only on
-  // them): dark joints, scars a little paler than the faces.
-  linkedDefaults: (p) =>
-    p.output === 'joints'
-      ? { h_on: false, dif_src: 'value', dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#4a4038') }
-      : p.output === 'gaps'
-        ? { h_on: false, dif_src: 'value', dif_blend: 'normal', dif_grad: gradient('#1c201c', '#2e3428') }
-        : p.output === 'scars'
-        ? { h_on: false, dif_src: 'value', dif_blend: 'screen', dif_grad: gradient('#000000', '#3a3428') }
-        : { h_on: true, dif_src: 'random', dif_blend: 'normal', dif_grad: gradient('#a48a68', '#b8a07c', '#c6ae8a') },
-  glsl:
-    ORG_GLSL +
-    ORG_GLSL_SDF +
-    /* glsl */ `
+		P.float('reach', 'Joint reach', 3, 0.5, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			showIf: (p) => p.output === 'joints',
+			hint: 'How far the joint mask fades out onto the faces'
+		}),
+		P.float('patch', 'Patchiness', 0.3, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.output === 'joints',
+			hint: 'Breaks the joint mask into patches a few stones across: 0 = every joint, 1 = only here and there'
+		}),
+		// Not a control: 1 px of the texture in shader px (supersampling scales the px params; joints snap to texture pixels).
+		P.float('px_scale', 'Pixel scale', 1, 1, 8, {
+			unit: 'px',
+			outputPx: true,
+			step: 1,
+			optimize: false,
+			showIf: () => false
+		}),
+		P.enum(
+			'rnd_mode',
+			'Random value',
+			'piece',
+			[
+				['piece', 'Per stone', 'each stone (after splits) its own value'],
+				['block', 'Per block', 'the pieces split from one block share a value'],
+				['course', 'Per course', 'each course its own value: colour bands along the wall']
+			],
+			{ hint: 'The random value Diffuse › Random and Random jitter read' }
+		),
+		P.seed()
+	],
+	defaults: {
+		bevel: 0,
+		profile: 'round',
+		aa: true,
+		h_on: true,
+		h_amount: 9,
+		dif_on: true,
+		dif_src: 'random',
+		dif_grad: gradient('#a48a68', '#b8a07c', '#c6ae8a')
+	},
+	// Added in the editor: courses about a ninth of the texture's mean side; scars, margins, the smallest piece and the
+	// relief in proportion.
+	fresh: ({ width, height }) => {
+		const course = Math.round(Math.min(96, Math.max(8, Math.sqrt(width * height) * 0.11)) * 10) / 10;
+		const r = (x: number) => Math.round(x * 10) / 10;
+		return {
+			course,
+			scar_size: r(course * 1.7),
+			margin: r(course * 0.15),
+			min_size: r(Math.max(3, course * 0.4)),
+			h_amount: r(Math.max(2, course * 0.22))
+		};
+	},
+	// Relief is the height; joints and scars are masks for paint (their coverage is their value, so a colour lands only on
+	// them): dark joints, scars a little paler than the faces.
+	linkedDefaults: (p) =>
+		p.output === 'joints'
+			? { h_on: false, dif_src: 'value', dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#4a4038') }
+			: p.output === 'gaps'
+				? { h_on: false, dif_src: 'value', dif_blend: 'normal', dif_grad: gradient('#1c201c', '#2e3428') }
+				: p.output === 'scars'
+					? { h_on: false, dif_src: 'value', dif_blend: 'screen', dif_grad: gradient('#000000', '#3a3428') }
+					: { h_on: true, dif_src: 'random', dif_blend: 'normal', dif_grad: gradient('#a48a68', '#b8a07c', '#c6ae8a') },
+	glsl:
+		ORG_GLSL +
+		ORG_GLSL_SDF +
+		/* glsl */ `
 float sb_px(float x, float s) { return floor(x / s + 0.5) * s; }
 float sb_h(uint h, uint k) { return u2f(pcg(h + k * 0x9E3779B9u)); }
 
@@ -346,5 +529,5 @@ GenOut gen(vec2 p) {
   // Only the relief hands its stones to the mask; the other outputs write their coverage (any mask but Shape).
   return genOutOwn(clamp(val, 0.0, 1.0), cov, rnd, u_output == 0 ? sd : ${ORG_NO_SDF});
 }
-`,
-}
+`
+};

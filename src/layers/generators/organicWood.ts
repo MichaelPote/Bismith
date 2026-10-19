@@ -9,104 +9,247 @@
 //   - "shape": the plank / scale SDF for its mask (bevel, limit, etch); value = wrapper profile.
 //   - wood only, "grain": the grain value without gaps or edges (stack it over a "shape" layer).
 
-import { P, gradient } from '@/core/params'
-import type { LayerDef } from '../types'
-import { ORG_GLSL, ORG_GLSL_SDF, ORG_NO_SDF } from './organicShared'
+import { P, gradient } from '@/core/params';
+import type { LayerDef } from '../types';
+import { ORG_GLSL, ORG_GLSL_SDF, ORG_NO_SDF } from './organicShared';
 
 // ------------------------------------------------------------------------------------------------ wood
 
-const planksOn = (p: Record<string, unknown>) => p.planks !== false
-const jointsOn = (p: Record<string, unknown>) => p.planks !== false && Number(p.joints) > 0
-const ringsOn = (p: Record<string, unknown>) => Number(p.rings) > 0
+const planksOn = (p: Record<string, unknown>) => p.planks !== false;
+const jointsOn = (p: Record<string, unknown>) => p.planks !== false && Number(p.joints) > 0;
+const ringsOn = (p: Record<string, unknown>) => Number(p.rings) > 0;
 
 export const woodLayer: LayerDef = {
-  type: 'wood',
-  noise: true,
-  label: 'Wood planks',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  // The plank outline goes to its mask from the Wood and Plank shapes outputs (not Grain only, nor one slab).
-  sdfShowIf: (p) => p.planks !== false && p.output !== 'grain',
-  description: 'Wooden planks with staggered end joints and grain: fine streaks, ring figure (cathedral arches) and knots.',
-  params: [
-    P.enum('output', 'Output', 'wood', [
-      ['wood', 'Wood (grain × plank edges)'],
-      ['shape', 'Plank shapes (SDF)'],
-      ['grain', 'Grain only'],
-    ], { hint: 'Wood: grain value with gaps = 0 and the Shape bevel darkening plank edges. Shape: the outline of the planks for the mask it writes (bevel / limit). Grain: per-board grain without gaps' }),
-    P.bool('planks', 'Planks', true, { hint: 'Off: one continuous piece of wood (no gaps, joints or boards)' }),
-    P.enum('direction', 'Direction', 'vertical', [['vertical', 'Vertical'], ['horizontal', 'Horizontal']], { hint: 'Which way the planks (and grain) run' }),
-    P.int('count', 'Planks', 4, 1, 128, { softMax: 16, showIf: planksOn, hint: 'Planks across the texture' }),
-    P.float('gap', 'Gap X', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1, showIf: planksOn, join: { with: 'gap_y', as: 'pair', label: 'Gap X · Y' }, hint: 'Width of the gaps across the texture (X: the up-and-down gaps — between vertical planks, at the ends of horizontal ones) and down it (Y: the gaps that run across)' }),
-    P.float('gap_y', 'Gap Y', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1, showIf: planksOn }),
-    P.float('joint_var', 'Joint variation', 0, 0, 1, { step: 0.001, showIf: planksOn, hint: 'Each board gets its own share of the gaps it carries (along its left / top side and at its start), of its bevel, crown and height variation: 0 = every gap as set, 1 = from fully shut to full width. Shut boards butt tight against the next, flush, with hardly any edge' }),
-    P.int('joints', 'End joints', 1, 0, 32, { softMax: 8, showIf: planksOn, hint: 'Board ends per plank along the texture (0 = full-length boards)' }),
-    P.float('stagger', 'Stagger', 0.5, 0, 1, { step: 0.001, showIf: jointsOn, hint: 'Regular joint offset from one plank to the next (fraction of a board)' }),
-    P.float('joint_rand', 'Joint randomness', 0.6, 0, 1, { step: 0.001, showIf: jointsOn, hint: 'Random joint offset per plank' }),
-    P.float('width_var', 'Width variation', 0, 0, 1, { step: 0.001, showIf: planksOn, hint: 'Uneven plank widths' }),
-    P.float('end_wobble', 'End wobble', 0, 0, 64, { softMax: 8, unit: 'px', step: 0.05, showIf: jointsOn, hint: 'Board ends — the cuts across the grain — wander by up to this much, as if sawn by hand. Both sides of a joint follow the same line (mostly), so the gap keeps its width; the long edges stay straight' }),
-    P.float('end_wobble_px', 'Wobble size', 32, 2, 1024, { softMax: 128, unit: 'px', step: 0.1, showIf: (p) => jointsOn(p) && Number(p.end_wobble) > 0, hint: 'Distance between the wobble\'s bends along a board end (long: gently slanted cuts; short: wavy ones)' }),
-    P.float('end_var', 'End fit', 0.1, 0, 1, { step: 0.001, showIf: (p) => jointsOn(p) && Number(p.end_wobble) > 0, hint: 'How much each side of a joint wanders on its own, opening and closing the end gap: 0 the two ends fit exactly (the gap keeps its width), 1 each side wanders as much as the shared line' }),
-    P.float('crown', 'Crown', 0.25, -1, 1, { step: 0.001, showIf: planksOn, hint: 'Height only: boards domed across their width (> 0: the edges sink by this share of the height) or cupped (< 0: the middle sinks)' }),
-    P.float('grain_px', 'Grain spacing', 2, 0.5, 64, { softMax: 16, unit: 'px', step: 0.05, group: 'grain', hint: 'Distance between fine grain streaks' }),
-    P.float('grain_stretch', 'Grain length', 24, 1, 64, { softMax: 32, step: 0.1, group: 'grain', hint: 'How elongated the fine grain is along the plank' }),
-    P.float('grain_depth', 'Grain depth', 0.35, 0, 1, { step: 0.001, group: 'grain', hint: 'How deep the grain cuts in Height, as a share of the layer\'s height: the plank surface is (1 − depth) + depth × grain, so at 1 dark grain sinks as low as the gaps, at 0.2 it is a fine texture on a full-height board, at 0 the boards are smooth. The gaps and bevels always span the full height; colours keep the full grain' }),
-    P.float('fine', 'Fine grain', 0.6, 0, 1, { step: 0.001, group: 'grain' }),
-    P.float('rings', 'Rings', 0.6, 0, 1, { step: 0.001, group: 'grain', hint: 'Strength of the growth-ring lines' }),
-    P.float('ring_px', 'Ring spacing', 4, 1, 256, { softMax: 32, unit: 'px', step: 0.05, group: 'grain' }),
-    P.float('ring_line', 'Latewood', 0.4, 0.02, 1, { step: 0.001, group: 'grain', hint: 'Width of the dark part of each ring (fraction of the spacing)' }),
-    P.float('ring_ramp', 'Earlywood fade', 0.6, 0, 1, { step: 0.001, group: 'grain', showIf: (p) => ringsOn(p), hint: 'How each ring darkens: 0 the latewood rises evenly across its width; 1 it fades in slowly from deep in the light earlywood and darkens steeply towards its sharp outer edge. Each ring also gets its own latewood width and darkness' }),
-    P.float('grain_soft', 'Softness', 0.4, 0, 1, { step: 0.001, group: 'grain', showIf: (p) => ringsOn(p) || Number(p.fine) > 0, hint: 'How soft the rings and grain streaks are — in Height above all. 0: crisp (ring edges anti-aliased to the pixel unless Anti-alias is off, then hard pixel-art steps); 1: soft, rounded bands that rise and fall gently instead of little cliffs' }),
-    P.enum('cut', 'Figure', 'cathedral', [['ovals', 'Ovals'], ['cathedral', 'Cathedral arches']], { group: 'grain', hint: 'How the rings show on a board cut near the heart. Ovals: rings closed round a point once per board (and, with no planks, lines folded by a broad wobble). Cathedral arches: the heart dives into the board along it, so the rings open into nested arches that point one way, with a swell or two; one slab gets a heart of its own' }),
-    P.float('figure', 'Arches', 0.5, 0, 1, { step: 0.001, group: 'grain', hint: 'Planks: fraction of boards sawn through the heart (arches / ovals); the rest show straight lines. No planks: how strongly the lines fold into arches (Ovals) or how wide the arched middle is (Cathedral)' }),
-    P.float('ring_stretch', 'Arch length', 6, 1, 64, { softMax: 16, step: 0.1, group: 'grain', hint: 'Elongation of the rings along the board: how far apart the nested arch tips are' }),
-    P.float('ring_var', 'Ring irregularity', 0.5, 0, 1, { step: 0.001, group: 'grain', showIf: ringsOn, hint: 'Growth rings of uneven width — wide years and narrow ones, and bands of several tight years between runs of wide ones — instead of an even spacing' }),
-    P.float('grain_group', 'Streak grouping', 0.6, 0, 1, { step: 0.001, group: 'grain', showIf: (p) => Number(p.fine) > 0, hint: 'The fine streaks bunch into bands of tight lines with sparser stretches between, instead of an even comb' }),
-    P.float('board_var', 'Board variety', 0.6, 0, 1, { step: 0.001, group: 'grain', showIf: planksOn, hint: 'How much the grain differs from board to board: streak contrast and density, ring spacing, and a slight slant of the grain (boards with end joints)' }),
-    P.float('ring_warp', 'Ring warp', 0.5, 0, 4, { softMax: 2, step: 0.001, group: 'grain', hint: 'Wobble of the ring lines' }),
-    P.float('knots', 'Knots', 0.15, 0, 4, { softMax: 2, step: 0.001, group: 'grain', hint: 'Knots per board: up to 1 the chance of one; above, that many on average (2.5: two on every board, a third on half of them; at most 4). No planks: per texture-sized piece' }),
-    P.float('knot_size', 'Knot size', 3, 0.5, 128, { softMax: 32, unit: 'px', step: 0.05, group: 'grain', showIf: (p) => Number(p.knots) > 0, hint: 'Knot radius across the grain (it is ~1.7× longer along it); clamped to the board' }),
-    P.seed(),
-  ],
-  groups: [{ id: 'grain', label: 'Grain' }],
-  // Added in the editor: px sizes that grow with the texture — the plain defaults up to 128 px (pixel art), at 512 px 2 px
-  // gaps, a 5 px bevel, 8 px rings and knots that read on 128 px boards instead of hairlines and pinholes.
-  fresh: ({ width, height }) => {
-    const k = Math.max(1, Math.sqrt(width * height) / 128)
-    const r1 = (x: number) => Math.round(x * 10) / 10
-    const gap = Math.round(Math.sqrt(k))
-    // On big textures the many fine streaks would drown the ring figure: rings up, streaks down (from 512 px on).
-    const big = Math.min(1, (k - 1) / 3)
-    return {
-      rings: Math.round((0.6 + 0.2 * big) * 100) / 100,
-      fine: Math.round((0.6 - 0.15 * big) * 100) / 100,
-      gap,
-      gap_y: gap,
-      bevel: Math.max(1, Math.round(2.2 * k ** 0.75 - 1.2)),
-      grain_px: r1(2 * k ** 0.35),
-      ring_px: r1(4 * Math.sqrt(k)),
-      knot_size: r1(3 * k ** 0.95),
-      end_wobble_px: Math.round(32 * Math.sqrt(k)),
-    }
-  },
-  // One gap for both directions before Gap Y: an older (or recipe-built) layer's gap keeps applying to both.
-  migrate: (p) => (p.gap !== undefined && p.gap_y === undefined ? { ...p, gap_y: p.gap } : p),
-  defaults: {
-    bevel: 1,
-    profile: 'smooth',
-    // Boards a little uneven in height.
-    h_var: 0.25,
-    h_on: true,
-    h_amount: 0.3,
-    dif_on: true,
-    dif_grad: gradient('#24140a', '#4f321b', '#7a5530', '#9c7343', '#b48a55'),
-    dif_jitter: 0.2,
-  },
-  glsl:
-    ORG_GLSL +
-    ORG_GLSL_SDF +
-    /* glsl */ `
+	type: 'wood',
+	noise: true,
+	label: 'Wood planks',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	// The plank outline goes to its mask from the Wood and Plank shapes outputs (not Grain only, nor one slab).
+	sdfShowIf: (p) => p.planks !== false && p.output !== 'grain',
+	description:
+		'Wooden planks with staggered end joints and grain: fine streaks, ring figure (cathedral arches) and knots.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'wood',
+			[
+				['wood', 'Wood (grain × plank edges)'],
+				['shape', 'Plank shapes (SDF)'],
+				['grain', 'Grain only']
+			],
+			{
+				hint: 'Wood: grain value with gaps = 0 and the Shape bevel darkening plank edges. Shape: the outline of the planks for the mask it writes (bevel / limit). Grain: per-board grain without gaps'
+			}
+		),
+		P.bool('planks', 'Planks', true, { hint: 'Off: one continuous piece of wood (no gaps, joints or boards)' }),
+		P.enum(
+			'direction',
+			'Direction',
+			'vertical',
+			[
+				['vertical', 'Vertical'],
+				['horizontal', 'Horizontal']
+			],
+			{ hint: 'Which way the planks (and grain) run' }
+		),
+		P.int('count', 'Planks', 4, 1, 128, { softMax: 16, showIf: planksOn, hint: 'Planks across the texture' }),
+		P.float('gap', 'Gap X', 1, 0, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.1,
+			showIf: planksOn,
+			join: { with: 'gap_y', as: 'pair', label: 'Gap X · Y' },
+			hint: 'Width of the gaps across the texture (X: the up-and-down gaps — between vertical planks, at the ends of horizontal ones) and down it (Y: the gaps that run across)'
+		}),
+		P.float('gap_y', 'Gap Y', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1, showIf: planksOn }),
+		P.float('joint_var', 'Joint variation', 0, 0, 1, {
+			step: 0.001,
+			showIf: planksOn,
+			hint: 'Each board gets its own share of the gaps it carries (along its left / top side and at its start), of its bevel, crown and height variation: 0 = every gap as set, 1 = from fully shut to full width. Shut boards butt tight against the next, flush, with hardly any edge'
+		}),
+		P.int('joints', 'End joints', 1, 0, 32, {
+			softMax: 8,
+			showIf: planksOn,
+			hint: 'Board ends per plank along the texture (0 = full-length boards)'
+		}),
+		P.float('stagger', 'Stagger', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: jointsOn,
+			hint: 'Regular joint offset from one plank to the next (fraction of a board)'
+		}),
+		P.float('joint_rand', 'Joint randomness', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: jointsOn,
+			hint: 'Random joint offset per plank'
+		}),
+		P.float('width_var', 'Width variation', 0, 0, 1, { step: 0.001, showIf: planksOn, hint: 'Uneven plank widths' }),
+		P.float('end_wobble', 'End wobble', 0, 0, 64, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.05,
+			showIf: jointsOn,
+			hint: 'Board ends — the cuts across the grain — wander by up to this much, as if sawn by hand. Both sides of a joint follow the same line (mostly), so the gap keeps its width; the long edges stay straight'
+		}),
+		P.float('end_wobble_px', 'Wobble size', 32, 2, 1024, {
+			softMax: 128,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => jointsOn(p) && Number(p.end_wobble) > 0,
+			hint: "Distance between the wobble's bends along a board end (long: gently slanted cuts; short: wavy ones)"
+		}),
+		P.float('end_var', 'End fit', 0.1, 0, 1, {
+			step: 0.001,
+			showIf: (p) => jointsOn(p) && Number(p.end_wobble) > 0,
+			hint: 'How much each side of a joint wanders on its own, opening and closing the end gap: 0 the two ends fit exactly (the gap keeps its width), 1 each side wanders as much as the shared line'
+		}),
+		P.float('crown', 'Crown', 0.25, -1, 1, {
+			step: 0.001,
+			showIf: planksOn,
+			hint: 'Height only: boards domed across their width (> 0: the edges sink by this share of the height) or cupped (< 0: the middle sinks)'
+		}),
+		P.float('grain_px', 'Grain spacing', 2, 0.5, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.05,
+			group: 'grain',
+			hint: 'Distance between fine grain streaks'
+		}),
+		P.float('grain_stretch', 'Grain length', 24, 1, 64, {
+			softMax: 32,
+			step: 0.1,
+			group: 'grain',
+			hint: 'How elongated the fine grain is along the plank'
+		}),
+		P.float('grain_depth', 'Grain depth', 0.35, 0, 1, {
+			step: 0.001,
+			group: 'grain',
+			hint: "How deep the grain cuts in Height, as a share of the layer's height: the plank surface is (1 − depth) + depth × grain, so at 1 dark grain sinks as low as the gaps, at 0.2 it is a fine texture on a full-height board, at 0 the boards are smooth. The gaps and bevels always span the full height; colours keep the full grain"
+		}),
+		P.float('fine', 'Fine grain', 0.6, 0, 1, { step: 0.001, group: 'grain' }),
+		P.float('rings', 'Rings', 0.6, 0, 1, { step: 0.001, group: 'grain', hint: 'Strength of the growth-ring lines' }),
+		P.float('ring_px', 'Ring spacing', 4, 1, 256, { softMax: 32, unit: 'px', step: 0.05, group: 'grain' }),
+		P.float('ring_line', 'Latewood', 0.4, 0.02, 1, {
+			step: 0.001,
+			group: 'grain',
+			hint: 'Width of the dark part of each ring (fraction of the spacing)'
+		}),
+		P.float('ring_ramp', 'Earlywood fade', 0.6, 0, 1, {
+			step: 0.001,
+			group: 'grain',
+			showIf: (p) => ringsOn(p),
+			hint: 'How each ring darkens: 0 the latewood rises evenly across its width; 1 it fades in slowly from deep in the light earlywood and darkens steeply towards its sharp outer edge. Each ring also gets its own latewood width and darkness'
+		}),
+		P.float('grain_soft', 'Softness', 0.4, 0, 1, {
+			step: 0.001,
+			group: 'grain',
+			showIf: (p) => ringsOn(p) || Number(p.fine) > 0,
+			hint: 'How soft the rings and grain streaks are — in Height above all. 0: crisp (ring edges anti-aliased to the pixel unless Anti-alias is off, then hard pixel-art steps); 1: soft, rounded bands that rise and fall gently instead of little cliffs'
+		}),
+		P.enum(
+			'cut',
+			'Figure',
+			'cathedral',
+			[
+				['ovals', 'Ovals'],
+				['cathedral', 'Cathedral arches']
+			],
+			{
+				group: 'grain',
+				hint: 'How the rings show on a board cut near the heart. Ovals: rings closed round a point once per board (and, with no planks, lines folded by a broad wobble). Cathedral arches: the heart dives into the board along it, so the rings open into nested arches that point one way, with a swell or two; one slab gets a heart of its own'
+			}
+		),
+		P.float('figure', 'Arches', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'grain',
+			hint: 'Planks: fraction of boards sawn through the heart (arches / ovals); the rest show straight lines. No planks: how strongly the lines fold into arches (Ovals) or how wide the arched middle is (Cathedral)'
+		}),
+		P.float('ring_stretch', 'Arch length', 6, 1, 64, {
+			softMax: 16,
+			step: 0.1,
+			group: 'grain',
+			hint: 'Elongation of the rings along the board: how far apart the nested arch tips are'
+		}),
+		P.float('ring_var', 'Ring irregularity', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'grain',
+			showIf: ringsOn,
+			hint: 'Growth rings of uneven width — wide years and narrow ones, and bands of several tight years between runs of wide ones — instead of an even spacing'
+		}),
+		P.float('grain_group', 'Streak grouping', 0.6, 0, 1, {
+			step: 0.001,
+			group: 'grain',
+			showIf: (p) => Number(p.fine) > 0,
+			hint: 'The fine streaks bunch into bands of tight lines with sparser stretches between, instead of an even comb'
+		}),
+		P.float('board_var', 'Board variety', 0.6, 0, 1, {
+			step: 0.001,
+			group: 'grain',
+			showIf: planksOn,
+			hint: 'How much the grain differs from board to board: streak contrast and density, ring spacing, and a slight slant of the grain (boards with end joints)'
+		}),
+		P.float('ring_warp', 'Ring warp', 0.5, 0, 4, {
+			softMax: 2,
+			step: 0.001,
+			group: 'grain',
+			hint: 'Wobble of the ring lines'
+		}),
+		P.float('knots', 'Knots', 0.15, 0, 4, {
+			softMax: 2,
+			step: 0.001,
+			group: 'grain',
+			hint: 'Knots per board: up to 1 the chance of one; above, that many on average (2.5: two on every board, a third on half of them; at most 4). No planks: per texture-sized piece'
+		}),
+		P.float('knot_size', 'Knot size', 3, 0.5, 128, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.05,
+			group: 'grain',
+			showIf: (p) => Number(p.knots) > 0,
+			hint: 'Knot radius across the grain (it is ~1.7× longer along it); clamped to the board'
+		}),
+		P.seed()
+	],
+	groups: [{ id: 'grain', label: 'Grain' }],
+	// Added in the editor: px sizes that grow with the texture — the plain defaults up to 128 px (pixel art), at 512 px 2 px
+	// gaps, a 5 px bevel, 8 px rings and knots that read on 128 px boards instead of hairlines and pinholes.
+	fresh: ({ width, height }) => {
+		const k = Math.max(1, Math.sqrt(width * height) / 128);
+		const r1 = (x: number) => Math.round(x * 10) / 10;
+		const gap = Math.round(Math.sqrt(k));
+		// On big textures the many fine streaks would drown the ring figure: rings up, streaks down (from 512 px on).
+		const big = Math.min(1, (k - 1) / 3);
+		return {
+			rings: Math.round((0.6 + 0.2 * big) * 100) / 100,
+			fine: Math.round((0.6 - 0.15 * big) * 100) / 100,
+			gap,
+			gap_y: gap,
+			bevel: Math.max(1, Math.round(2.2 * k ** 0.75 - 1.2)),
+			grain_px: r1(2 * k ** 0.35),
+			ring_px: r1(4 * Math.sqrt(k)),
+			knot_size: r1(3 * k ** 0.95),
+			end_wobble_px: Math.round(32 * Math.sqrt(k))
+		};
+	},
+	// One gap for both directions before Gap Y: an older (or recipe-built) layer's gap keeps applying to both.
+	migrate: (p) => (p.gap !== undefined && p.gap_y === undefined ? { ...p, gap_y: p.gap } : p),
+	defaults: {
+		bevel: 1,
+		profile: 'smooth',
+		// Boards a little uneven in height.
+		h_var: 0.25,
+		h_on: true,
+		h_amount: 0.3,
+		dif_on: true,
+		dif_grad: gradient('#24140a', '#4f321b', '#7a5530', '#9c7343', '#b48a55'),
+		dif_jitter: 0.2
+	},
+	glsl:
+		ORG_GLSL +
+		ORG_GLSL_SDF +
+		/* glsl */ `
 // Plank boundary k across the texture (px, whole pixels). Width variation moves boundaries randomly.
 float org_plankEdge(int k, int n, float pw) {
   float j = 0.0;
@@ -493,71 +636,150 @@ GenOut gen(vec2 p) {
   o.feat *= bestJs;
   return o;
 }
-`,
-}
+`
+};
 
 // ------------------------------------------------------------------------------------------------ scales
 
 export const scalesLayer: LayerDef = {
-  type: 'scales',
-  label: 'Scales',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Overlapping fish / dragon scales: rows of arches, each row offset by half and overlapping the row behind.',
-  params: [
-    P.enum('output', 'Output', 'scales', [
-      ['scales', 'Scales (shading × edges)'],
-      ['shape', 'Scale shapes (SDF)'],
-    ], { hint: 'Scales: the shading (Dome, Tilt, Keel) with bevelled rims and outlines; the outline of the scales goes to the mask it writes too. Shape: the outline of each visible scale for that mask, drawn as the bevel' }),
-    P.int('columns', 'Columns', 4, 1, 128, { softMax: 24, hint: 'Scales per row' }),
-    P.int('rows', 'Rows', 0, 0, 256, { softMax: 32, hint: '0 = auto (row spacing = the scale\'s length: classic fish scales). Rounded up to even when tiling' }),
-    P.float('radius', 'Radius', 0.5, 0.25, 1.5, { step: 0.001, hint: 'Scale radius as a fraction of the column width (0.5 = neighbours touch; more and they lap over each other)' }),
-    P.float('aspect', 'Aspect', 1, 0.3, 3, { softMin: 0.5, softMax: 2, step: 0.001, hint: 'Length of a scale along the rows\' direction over its width: below 1 broad, flat scales, above 1 long ones. Rows on auto follow it, so the scales still overlap' }),
-    P.enum('direction', 'Direction', 'up', [['up', 'Arches up'], ['down', 'Arches down']], { hint: 'Up: lower rows lie on top. Down: upper rows lie on top (roof tiles)' }),
-    P.float('point', 'Point', 0, 0, 1, { step: 0.001, hint: 'Shape of the free edge: 0 round (fish scales, shingles), 1 a pointed arch (dragon, pine-cone or armour scales)' }),
-    P.float('wobble', 'Edge wobble', 0.5, 0, 1, { step: 0.001, hint: 'Each scale\'s outline bulges and flattens a little in its own way (up to ~10 % of its radius), and its dome sits a little off-centre: grown, not stamped' }),
-    P.enum('edges', 'Edges', 'lapped', [['lapped', 'Lapped'], ['grooved', 'Grooved']], { hint: 'Lapped: each scale\'s rim is bevelled down onto the scale beneath it and the outline is a crevice line there — scales lie on one another. Grooved: every visible edge, the hidden side too, is bevelled down into an outline gap (tiles in grout)' }),
-    P.float('jitter', 'Irregularity', 0.35, 0, 1, { step: 0.001, hint: 'Hand-laid instead of stamped: each scale shifts (up to a quarter of a column across, 0.3 of a row along) and turns (up to 12°), growing a little so no holes open. 0 is exactly regular (Edge wobble, separate, still bends the outlines)' }),
-    P.float('size_var', 'Size variation', 0.3, 0, 1, { step: 0.001, hint: 'Some scales grow larger than Radius (up to 1.5× at 1) and lap further over their neighbours' }),
-    P.float('outline', 'Outline', 1, 0, 32, { softMax: 8, unit: 'px', step: 0.05, hint: 'Dark line along each visible scale edge (Lapped: the crevice just beyond each rim)' }),
-    P.float('dome', 'Dome', 0.6, 0, 1, { step: 0.001, hint: 'Rounded bulge around each scale centre' }),
-    P.float('tilt', 'Tilt', 0.4, 0, 1, { step: 0.001, hint: 'Scales rise from where they come out from under the row in front to their free edge (shingle-like): the hidden end sits at 1 − Tilt of the height, so each row steps up over the next' }),
-    P.float('keel', 'Keel', 0, 0, 1, { step: 0.001, hint: 'A ridge down the middle of each scale (keeled snake scales, ridged tiles): two sloping flanks that fall to 30 % of the height at 1' }),
-    P.float('keel_w', 'Keel width', 0.6, 0.05, 1, { step: 0.001, showIf: (p) => Number(p.keel) > 0, hint: 'How far out the keel\'s flanks reach, as a share of the scale\'s radius: small a narrow ridge on a flat scale, 1 the whole scale one V' }),
-    P.float('lip', 'Lip', 0.5, 0, 1, { step: 0.001, showIf: (p) => p.edges !== 'grooved', hint: 'A rolled, slightly raised band just inside each free edge, the plate\'s thickness catching the light' }),
-    P.float('growth', 'Growth lines', 0.15, 0, 1, { step: 0.001, showIf: (p) => p.edges !== 'grooved', hint: 'Fine lines that follow each scale\'s edge, wavering and unevenly spaced, fading towards its centre (growth rings of fish scales, layered horn)' }),
-    P.float('growth_sp', 'Growth spacing', 0.08, 0.03, 0.4, { step: 0.001, showIf: (p) => p.edges !== 'grooved' && Number(p.growth) > 0, hint: 'Distance between growth lines as a share of the scale\'s radius (lines closer than ~2 px fade out)' }),
-    P.seed(),
-  ],
-  defaults: {
-    bevel: 2,
-    profile: 'smooth',
-    h_on: true,
-    h_amount: 0.5,
-    // A height per scale.
-    h_var: 0.3,
-    dif_on: true,
-    // A light top: Dome × Tilt keep most of a scale below full value.
-    dif_grad: gradient('#101412', '#2a3530', '#4a5a51', '#7a8a7e', '#a2b0a2'),
-    dif_jitter: 0.15,
-    // Rows curving gently.
-    dw_amount: 2.5,
-    dw_scale: 2,
-  },
-  // Added in the editor: an outline, bevel and row curve that grow with the texture (the plain defaults up to 128 px).
-  fresh: ({ width, height }) => {
-    const k = Math.max(1, Math.sqrt(width * height) / 128)
-    return {
-      outline: Math.round(Math.sqrt(k)),
-      bevel: Math.round(2 * k ** 0.3),
-      dw_amount: Math.round(2.5 * Math.sqrt(k) * 10) / 10,
-    }
-  },
-  glsl:
-    ORG_GLSL +
-    ORG_GLSL_SDF +
-    /* glsl */ `
+	type: 'scales',
+	label: 'Scales',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Overlapping fish / dragon scales: rows of arches, each row offset by half and overlapping the row behind.',
+	params: [
+		P.enum(
+			'output',
+			'Output',
+			'scales',
+			[
+				['scales', 'Scales (shading × edges)'],
+				['shape', 'Scale shapes (SDF)']
+			],
+			{
+				hint: 'Scales: the shading (Dome, Tilt, Keel) with bevelled rims and outlines; the outline of the scales goes to the mask it writes too. Shape: the outline of each visible scale for that mask, drawn as the bevel'
+			}
+		),
+		P.int('columns', 'Columns', 4, 1, 128, { softMax: 24, hint: 'Scales per row' }),
+		P.int('rows', 'Rows', 0, 0, 256, {
+			softMax: 32,
+			hint: "0 = auto (row spacing = the scale's length: classic fish scales). Rounded up to even when tiling"
+		}),
+		P.float('radius', 'Radius', 0.5, 0.25, 1.5, {
+			step: 0.001,
+			hint: 'Scale radius as a fraction of the column width (0.5 = neighbours touch; more and they lap over each other)'
+		}),
+		P.float('aspect', 'Aspect', 1, 0.3, 3, {
+			softMin: 0.5,
+			softMax: 2,
+			step: 0.001,
+			hint: "Length of a scale along the rows' direction over its width: below 1 broad, flat scales, above 1 long ones. Rows on auto follow it, so the scales still overlap"
+		}),
+		P.enum(
+			'direction',
+			'Direction',
+			'up',
+			[
+				['up', 'Arches up'],
+				['down', 'Arches down']
+			],
+			{ hint: 'Up: lower rows lie on top. Down: upper rows lie on top (roof tiles)' }
+		),
+		P.float('point', 'Point', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Shape of the free edge: 0 round (fish scales, shingles), 1 a pointed arch (dragon, pine-cone or armour scales)'
+		}),
+		P.float('wobble', 'Edge wobble', 0.5, 0, 1, {
+			step: 0.001,
+			hint: "Each scale's outline bulges and flattens a little in its own way (up to ~10 % of its radius), and its dome sits a little off-centre: grown, not stamped"
+		}),
+		P.enum(
+			'edges',
+			'Edges',
+			'lapped',
+			[
+				['lapped', 'Lapped'],
+				['grooved', 'Grooved']
+			],
+			{
+				hint: "Lapped: each scale's rim is bevelled down onto the scale beneath it and the outline is a crevice line there — scales lie on one another. Grooved: every visible edge, the hidden side too, is bevelled down into an outline gap (tiles in grout)"
+			}
+		),
+		P.float('jitter', 'Irregularity', 0.35, 0, 1, {
+			step: 0.001,
+			hint: 'Hand-laid instead of stamped: each scale shifts (up to a quarter of a column across, 0.3 of a row along) and turns (up to 12°), growing a little so no holes open. 0 is exactly regular (Edge wobble, separate, still bends the outlines)'
+		}),
+		P.float('size_var', 'Size variation', 0.3, 0, 1, {
+			step: 0.001,
+			hint: 'Some scales grow larger than Radius (up to 1.5× at 1) and lap further over their neighbours'
+		}),
+		P.float('outline', 'Outline', 1, 0, 32, {
+			softMax: 8,
+			unit: 'px',
+			step: 0.05,
+			hint: 'Dark line along each visible scale edge (Lapped: the crevice just beyond each rim)'
+		}),
+		P.float('dome', 'Dome', 0.6, 0, 1, { step: 0.001, hint: 'Rounded bulge around each scale centre' }),
+		P.float('tilt', 'Tilt', 0.4, 0, 1, {
+			step: 0.001,
+			hint: 'Scales rise from where they come out from under the row in front to their free edge (shingle-like): the hidden end sits at 1 − Tilt of the height, so each row steps up over the next'
+		}),
+		P.float('keel', 'Keel', 0, 0, 1, {
+			step: 0.001,
+			hint: 'A ridge down the middle of each scale (keeled snake scales, ridged tiles): two sloping flanks that fall to 30 % of the height at 1'
+		}),
+		P.float('keel_w', 'Keel width', 0.6, 0.05, 1, {
+			step: 0.001,
+			showIf: (p) => Number(p.keel) > 0,
+			hint: "How far out the keel's flanks reach, as a share of the scale's radius: small a narrow ridge on a flat scale, 1 the whole scale one V"
+		}),
+		P.float('lip', 'Lip', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.edges !== 'grooved',
+			hint: "A rolled, slightly raised band just inside each free edge, the plate's thickness catching the light"
+		}),
+		P.float('growth', 'Growth lines', 0.15, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.edges !== 'grooved',
+			hint: "Fine lines that follow each scale's edge, wavering and unevenly spaced, fading towards its centre (growth rings of fish scales, layered horn)"
+		}),
+		P.float('growth_sp', 'Growth spacing', 0.08, 0.03, 0.4, {
+			step: 0.001,
+			showIf: (p) => p.edges !== 'grooved' && Number(p.growth) > 0,
+			hint: "Distance between growth lines as a share of the scale's radius (lines closer than ~2 px fade out)"
+		}),
+		P.seed()
+	],
+	defaults: {
+		bevel: 2,
+		profile: 'smooth',
+		h_on: true,
+		h_amount: 0.5,
+		// A height per scale.
+		h_var: 0.3,
+		dif_on: true,
+		// A light top: Dome × Tilt keep most of a scale below full value.
+		dif_grad: gradient('#101412', '#2a3530', '#4a5a51', '#7a8a7e', '#a2b0a2'),
+		dif_jitter: 0.15,
+		// Rows curving gently.
+		dw_amount: 2.5,
+		dw_scale: 2
+	},
+	// Added in the editor: an outline, bevel and row curve that grow with the texture (the plain defaults up to 128 px).
+	fresh: ({ width, height }) => {
+		const k = Math.max(1, Math.sqrt(width * height) / 128);
+		return {
+			outline: Math.round(Math.sqrt(k)),
+			bevel: Math.round(2 * k ** 0.3),
+			dw_amount: Math.round(2.5 * Math.sqrt(k) * 10) / 10
+		};
+	},
+	glsl:
+		ORG_GLSL +
+		ORG_GLSL_SDF +
+		/* glsl */ `
 #define SC_MAXW 24
 // A scale's shape around its centre: u = q − centre in the scale's frame (user space, y down: the free edge up, u.y < 0),
 // r across, s along (Aspect). Round: an ellipse; with Point its free half is a pointed arch — two arcs centred o px to
@@ -809,5 +1031,5 @@ GenOut gen(vec2 p) {
   o.feat = 0.0;
   return o;
 }
-`,
-}
+`
+};

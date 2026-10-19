@@ -1,10 +1,10 @@
 // Distance-based filters: bevel and etch. The edge comes from a thresholded channel (jump-flood signed
 // distance, gpu/jfa.ts) or a mask (FR8.23): read directly where only shape layers wrote it (exact), else by jump flood.
 
-import { P } from '@/core/params'
-import { PROFILES, bevelCurveParam } from '../commonParams'
-import type { LayerDef } from '../types'
-import { GLSL_SOURCE_DIST, SMOOTH_PARAM, SOURCE_PARAMS, edgeMaskSource, sourceDistance } from './shared'
+import { P } from '@/core/params';
+import { PROFILES, bevelCurveParam } from '../commonParams';
+import type { LayerDef } from '../types';
+import { GLSL_SOURCE_DIST, SMOOTH_PARAM, SOURCE_PARAMS, edgeMaskSource, sourceDistance } from './shared';
 
 const BEVEL_APPLY = /* glsl */ `
 ${GLSL_SOURCE_DIST}
@@ -28,46 +28,57 @@ void main() {
   oSurface = S;
   oEmissive = E;
 }
-`
+`;
 
 export const bevelLayer: LayerDef = {
-  type: 'bevel',
-  channels: { height: true },
-  label: 'Bevel',
-  category: 'filter',
-  kind: 'filter',
-  description: 'Raises (or sinks) a thresholded area or a mask with a profiled bevel along its edge.',
-  maskSource: edgeMaskSource,
-  params: [
-    ...SOURCE_PARAMS,
-    SMOOTH_PARAM,
-    P.bool('invert', 'Invert', false, { hint: 'Bevel the outside of the mask (holes, wells) instead' }),
-    P.float('width', 'Width', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1 }),
-    P.enum('profile', 'Profile', 'round', PROFILES),
-    bevelCurveParam(),
-    P.float('depth', 'Depth', 0.5, -16, 16, { softMin: -2, softMax: 2, step: 0.001, hint: 'Height at the top of the bevel (negative sinks)' }),
-    P.enum('direction', 'Direction', 'inner', [
-      ['inner', 'Inner (inside the edge)'],
-      ['outer', 'Outer (skirt outside)'],
-      ['both', 'Centred on the edge'],
-    ]),
-    P.enum('combine', 'Combine', 'add', [
-      ['add', 'Add'],
-      ['max', 'Max'],
-      ['min', 'Min (round off)'],
-      ['replace', 'Replace'],
-    ], { hint: 'How depth × profile meets the existing height inside the bevelled region' }),
-  ],
-  run(ctx, layer) {
-    const p = layer.params
-    const w = Math.max(0, Number(p.width ?? 0))
-    const src = sourceDistance(ctx, p, w + 2, Boolean(p.invert))
-    const mat = ctx.mrtMaterial('apply', BEVEL_APPLY, { tDist: { value: null }, uDistSign: { value: 1 } })
-    mat.uniforms.tDist.value = src.texture
-    mat.uniforms.uDistSign.value = src.sign
-    ctx.runMRT(mat)
-  },
-}
+	type: 'bevel',
+	channels: { height: true },
+	label: 'Bevel',
+	category: 'filter',
+	kind: 'filter',
+	description: 'Raises (or sinks) a thresholded area or a mask with a profiled bevel along its edge.',
+	maskSource: edgeMaskSource,
+	params: [
+		...SOURCE_PARAMS,
+		SMOOTH_PARAM,
+		P.bool('invert', 'Invert', false, { hint: 'Bevel the outside of the mask (holes, wells) instead' }),
+		P.float('width', 'Width', 4, 0, 256, { softMax: 32, unit: 'px', step: 0.1 }),
+		P.enum('profile', 'Profile', 'round', PROFILES),
+		bevelCurveParam(),
+		P.float('depth', 'Depth', 0.5, -16, 16, {
+			softMin: -2,
+			softMax: 2,
+			step: 0.001,
+			hint: 'Height at the top of the bevel (negative sinks)'
+		}),
+		P.enum('direction', 'Direction', 'inner', [
+			['inner', 'Inner (inside the edge)'],
+			['outer', 'Outer (skirt outside)'],
+			['both', 'Centred on the edge']
+		]),
+		P.enum(
+			'combine',
+			'Combine',
+			'add',
+			[
+				['add', 'Add'],
+				['max', 'Max'],
+				['min', 'Min (round off)'],
+				['replace', 'Replace']
+			],
+			{ hint: 'How depth × profile meets the existing height inside the bevelled region' }
+		)
+	],
+	run(ctx, layer) {
+		const p = layer.params;
+		const w = Math.max(0, Number(p.width ?? 0));
+		const src = sourceDistance(ctx, p, w + 2, Boolean(p.invert));
+		const mat = ctx.mrtMaterial('apply', BEVEL_APPLY, { tDist: { value: null }, uDistSign: { value: 1 } });
+		mat.uniforms.tDist.value = src.texture;
+		mat.uniforms.uDistSign.value = src.sign;
+		ctx.runMRT(mat);
+	}
+};
 
 const ETCH_APPLY = /* glsl */ `
 ${GLSL_SOURCE_DIST}
@@ -89,45 +100,56 @@ void main() {
   oSurface = S;
   oEmissive = E;
 }
-`
+`;
 
 export const etchLayer: LayerDef = {
-  type: 'etch',
-  channels: { diffuse: 'dif_on', height: true },
-  label: 'Etch',
-  category: 'filter',
-  kind: 'filter',
-  description: 'Cuts a groove along an edge: panel seams, engraved outlines (optionally darkened, glossed or glowing).',
-  maskSource: edgeMaskSource,
-  params: [
-    ...SOURCE_PARAMS,
-    SMOOTH_PARAM,
-    P.float('width', 'Width', 2, 0, 128, { softMax: 16, unit: 'px', step: 0.1 }),
-    P.float('depth', 'Depth', 0.3, -16, 16, { softMin: -1, softMax: 1, step: 0.001, hint: 'Height removed at the groove centre (negative = ridge)' }),
-    P.float('softness', 'Softness', 0.3, 0, 1, { step: 0.001, hint: '0 = crisp flat-bottomed cut, 1 = V groove' }),
-    P.float('offset', 'Offset', 0, -128, 128, { softMin: -16, softMax: 16, unit: 'px', step: 0.1, hint: 'Moves the groove inside (+) or outside (−) the edge; ±0.5 centres an odd width on a pixel row' }),
-    P.bool('dif_on', 'Diffuse', true, { group: 'diffuse' }),
-    P.color('dif_color', 'Colour', '#16120e', { group: 'diffuse' }),
-    P.float('dif_amount', 'Amount', 0.6, 0, 1, { step: 0.001, group: 'diffuse' }),
-    P.bool('r_on', 'Roughness', false, { group: 'roughness' }),
-    P.float('r_value', 'Roughness', 0.9, 0, 1, { step: 0.001, group: 'roughness' }),
-    P.float('r_amount', 'Amount', 1, 0, 1, { step: 0.001, group: 'roughness' }),
-    P.bool('e_on', 'Emissive', false, { group: 'emissive' }),
-    P.color('e_color', 'Colour', '#ff9019', { group: 'emissive' }),
-    P.float('e_intensity', 'Intensity', 2, 0, 1000, { softMax: 20, step: 0.01, group: 'emissive' }),
-  ],
-  groups: [
-    { id: 'diffuse', label: 'Diffuse', toggleKey: 'dif_on' },
-    { id: 'roughness', label: 'Roughness', toggleKey: 'r_on' },
-    { id: 'emissive', label: 'Emissive', toggleKey: 'e_on' },
-  ],
-  run(ctx, layer) {
-    const p = layer.params
-    const reach = Math.max(0, Number(p.width ?? 0)) * 0.5 + Math.abs(Number(p.offset ?? 0)) + 2
-    const src = sourceDistance(ctx, p, reach)
-    const mat = ctx.mrtMaterial('apply', ETCH_APPLY, { tDist: { value: null }, uDistSign: { value: 1 } })
-    mat.uniforms.tDist.value = src.texture
-    mat.uniforms.uDistSign.value = src.sign
-    ctx.runMRT(mat)
-  },
-}
+	type: 'etch',
+	channels: { diffuse: 'dif_on', height: true },
+	label: 'Etch',
+	category: 'filter',
+	kind: 'filter',
+	description: 'Cuts a groove along an edge: panel seams, engraved outlines (optionally darkened, glossed or glowing).',
+	maskSource: edgeMaskSource,
+	params: [
+		...SOURCE_PARAMS,
+		SMOOTH_PARAM,
+		P.float('width', 'Width', 2, 0, 128, { softMax: 16, unit: 'px', step: 0.1 }),
+		P.float('depth', 'Depth', 0.3, -16, 16, {
+			softMin: -1,
+			softMax: 1,
+			step: 0.001,
+			hint: 'Height removed at the groove centre (negative = ridge)'
+		}),
+		P.float('softness', 'Softness', 0.3, 0, 1, { step: 0.001, hint: '0 = crisp flat-bottomed cut, 1 = V groove' }),
+		P.float('offset', 'Offset', 0, -128, 128, {
+			softMin: -16,
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Moves the groove inside (+) or outside (−) the edge; ±0.5 centres an odd width on a pixel row'
+		}),
+		P.bool('dif_on', 'Diffuse', true, { group: 'diffuse' }),
+		P.color('dif_color', 'Colour', '#16120e', { group: 'diffuse' }),
+		P.float('dif_amount', 'Amount', 0.6, 0, 1, { step: 0.001, group: 'diffuse' }),
+		P.bool('r_on', 'Roughness', false, { group: 'roughness' }),
+		P.float('r_value', 'Roughness', 0.9, 0, 1, { step: 0.001, group: 'roughness' }),
+		P.float('r_amount', 'Amount', 1, 0, 1, { step: 0.001, group: 'roughness' }),
+		P.bool('e_on', 'Emissive', false, { group: 'emissive' }),
+		P.color('e_color', 'Colour', '#ff9019', { group: 'emissive' }),
+		P.float('e_intensity', 'Intensity', 2, 0, 1000, { softMax: 20, step: 0.01, group: 'emissive' })
+	],
+	groups: [
+		{ id: 'diffuse', label: 'Diffuse', toggleKey: 'dif_on' },
+		{ id: 'roughness', label: 'Roughness', toggleKey: 'r_on' },
+		{ id: 'emissive', label: 'Emissive', toggleKey: 'e_on' }
+	],
+	run(ctx, layer) {
+		const p = layer.params;
+		const reach = Math.max(0, Number(p.width ?? 0)) * 0.5 + Math.abs(Number(p.offset ?? 0)) + 2;
+		const src = sourceDistance(ctx, p, reach);
+		const mat = ctx.mrtMaterial('apply', ETCH_APPLY, { tDist: { value: null }, uDistSign: { value: 1 } });
+		mat.uniforms.tDist.value = src.texture;
+		mat.uniforms.uDistSign.value = src.sign;
+		ctx.runMRT(mat);
+	}
+};

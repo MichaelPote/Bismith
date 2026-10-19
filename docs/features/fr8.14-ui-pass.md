@@ -4,14 +4,16 @@
 behaviours, tooltips, Forged keys v2
 
 ## Goal
+
 A UI pass after daily use: the split into Materials, Paint and Relief sections didn't match how a texture is built,
 fields lacked the small conveniences of a Blender-style editor (snap, reset, wheel), and the main buttons still used
 the old ember-underline styling instead of Cinderforge's Forged keys v2.
 
 ## Design
+
 - **One layer list.** `project.relief` is gone: `project.layers` is the whole stack in evaluation order (first =
   earliest). A "relief" layer is simply one with its colour outputs off. The relief → paint reset pass is removed.
-  - *Migration* (`normalizeProject`): a legacy relief stack leads the list with its colour toggles unticked
+  - _Migration_ (`normalizeProject`): a legacy relief stack leads the list with its colour toggles unticked
     (`reliefOnly`: dif_on / op_on / e_on, blur's diffuse / emissive / opacity), which reproduces the old reset for
     everything but a colour-only filter placed in the relief stack (Diffuse adjust, Cavity, Glass) — none of the
     recipes, templates or recreations do that. All 66 recreations render pixel-identically.
@@ -43,8 +45,8 @@ the old ember-underline styling instead of Cinderforge's Forged keys v2.
   swallowed, so the surface doesn't react too. Clicks elsewhere behave as usual (and close the picker); scrolling a
   sidebar keeps it open, following its swatch. Samplers read the data behind the surface, not the screen, so the
   browser's display colour management never leaks into a pick.
-- **Channel outputs**: Source · Mode share one row; Source reads *Pattern / Solid / Random* (was *Pattern value /
-  Flat (1.0) / Per-feature random*); roughness and specular *At 0 / At 1* are one grey **Ramp** (`RampField`: drag
+- **Channel outputs**: Source · Mode share one row; Source reads _Pattern / Solid / Random_ (was _Pattern value /
+  Flat (1.0) / Per-feature random_); roughness and specular _At 0 / At 1_ are one grey **Ramp** (`RampField`: drag
   the gems or type; ⇄ swaps). Joins are declared on the ParamDef (`join: { with, as: 'pair' | 'ramp', label }`).
 - **Icons**: Tabler (`@tabler/icons-vue`, MIT) components used directly (`<IconEye :size="12" />`, `:color` for a
   category hue; the 1.75 line weight is `.tabler-icon` in base.css). Layer types and recipes map to their icons in
@@ -53,11 +55,12 @@ the old ember-underline styling instead of Cinderforge's Forged keys v2.
   heads; selecting it opens the project panel (selection kind `base`).
 - **No automatic linking**: editing a layer never changes another; new layers get a seed no other layer has.
 - **Forged keys v2** (`.fk` in base.css: lip + face, lit / latched / primary, `.fk-rail`, `.kc` keycap chips): the
-  workspace switcher (*Create* / *Match*) and channel tabs are rails of keys without a tray, one lit; viewport overlays are latched toggle keys with a
+  workspace switcher (_Create_ / _Match_) and channel tabs are rails of keys without a tray, one lit; viewport overlays are latched toggle keys with a
   pilot lamp; Export and Optimise are primary keys; menu-bar items are plates with an Ember 400 underline when open;
   icon buttons are studs. Channel keys shrink (ellipsis) instead of scrolling.
 
 ## Checklist
+
 - [x] Single list: model, migration, pipeline, engine key, store ops, recipes, optimiser / heuristics / templates
 - [x] Regression: recreations identical; single-material recipe projects identical or within 0.4 / 255 mean, two
       materials within 3 / 255 (a material's relief now lands just before its own paint, after free and earlier

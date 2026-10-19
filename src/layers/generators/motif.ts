@@ -4,38 +4,63 @@
 // negative inside) so the common bevel / etch / emissive machinery applies; every lattice wraps when the
 // project is tileable.
 
-import { P, type ParamValues } from '@/core/params'
-import type { CpuTexture, LayerDef } from '../types'
-import { GLSL_MOT_SEED, glyphLayer, rosetteLayer } from './motifRadial'
+import { P, type ParamValues } from '@/core/params';
+import type { CpuTexture, LayerDef } from '../types';
+import { GLSL_MOT_SEED, glyphLayer, rosetteLayer } from './motifRadial';
 
 // ------------------------------------------------------------------------------------------------ truchet
 
 const STYLES: [string, string][] = [
-  ['arcs', 'Truchet arcs'],
-  ['diagonal', 'Diagonal (10 PRINT)'],
-  ['maze', 'Maze walls (random)'],
-  ['rooms', 'Rooms (polyomino walls)'],
-  ['meander', 'Greek key / meander'],
-  ['circuit', 'Circuit traces'],
-  ['labyrinth', 'Labyrinth (perfect maze)'],
-]
+	['arcs', 'Truchet arcs'],
+	['diagonal', 'Diagonal (10 PRINT)'],
+	['maze', 'Maze walls (random)'],
+	['rooms', 'Rooms (polyomino walls)'],
+	['meander', 'Greek key / meander'],
+	['circuit', 'Circuit traces'],
+	['labyrinth', 'Labyrinth (perfect maze)']
+];
 
 const DRAW: [string, string, string][] = [
-  ['lines', 'Lines', 'the lines are the shape (raised wires, inlay)'],
-  ['grooves', 'Grooves', 'everything but the lines: the lines are cut into a solid surface (Rooms: slabs, each with its own random — per-feature height, random colour)'],
-  ['tone', 'Two-tone', 'Truchet arcs: every other region between the lines is filled (the classic two-colour Truchet), the lines are the gaps. Other styles: as Grooves'],
-  ['tone2', 'Two-tone, swapped', 'as Two-tone, the other regions filled'],
-]
+	['lines', 'Lines', 'the lines are the shape (raised wires, inlay)'],
+	[
+		'grooves',
+		'Grooves',
+		'everything but the lines: the lines are cut into a solid surface (Rooms: slabs, each with its own random — per-feature height, random colour)'
+	],
+	[
+		'tone',
+		'Two-tone',
+		'Truchet arcs: every other region between the lines is filled (the classic two-colour Truchet), the lines are the gaps. Other styles: as Grooves'
+	],
+	['tone2', 'Two-tone, swapped', 'as Two-tone, the other regions filled']
+];
 
 /** Density's label per style (it means something different in each). */
-const DENSITY_LABEL: Record<string, string> = { arcs: 'Tiles drawn', diagonal: 'Tiles drawn', maze: 'Walls', rooms: 'Room size', labyrinth: 'Perfection' }
+const DENSITY_LABEL: Record<string, string> = {
+	arcs: 'Tiles drawn',
+	diagonal: 'Tiles drawn',
+	maze: 'Walls',
+	rooms: 'Room size',
+	labyrinth: 'Perfection'
+};
 
 /** Cells across each style starts with (linked: they follow the style until set by hand). */
-const STYLE_CELLS: Record<string, number> = { arcs: 8, diagonal: 12, maze: 12, rooms: 8, meander: 15, circuit: 32, labyrinth: 16 }
+const STYLE_CELLS: Record<string, number> = {
+	arcs: 8,
+	diagonal: 12,
+	maze: 12,
+	rooms: 8,
+	meander: 15,
+	circuit: 32,
+	labyrinth: 16
+};
 
-const isStyle = (...s: string[]) => (p: Record<string, unknown>) => s.includes(String(p.style))
-const isTone = (p: Record<string, unknown>) => p.style === 'arcs' && String(p.draw).startsWith('tone')
-const r1 = (v: number) => Math.round(v * 10) / 10
+const isStyle =
+	(...s: string[]) =>
+	(p: Record<string, unknown>) =>
+		s.includes(String(p.style));
+const isTone = (p: Record<string, unknown>) => p.style === 'arcs' && String(p.draw).startsWith('tone');
+const r1 = (v: number) => Math.round(v * 10) / 10;
 
 // ---- CPU side (cpuData): the layouts that need the whole grid — the maze's, rooms' and labyrinth's walls with a
 // random per room (per cell for the maze and labyrinth), and the circuit's traces, chips and vias. Texture of
@@ -44,44 +69,54 @@ const r1 = (v: number) => Math.round(v * 10) / 10
 
 /** The shaders' pcg hash (glsl/common.ts) in JS. */
 function pcg(v: number): number {
-  const s = (Math.imul(v, 747796405) + 2891336453) >>> 0
-  const w = Math.imul(((s >>> ((s >>> 28) + 4)) ^ s) >>> 0, 277803737) >>> 0
-  return ((w >>> 22) ^ w) >>> 0
+	const s = (Math.imul(v, 747796405) + 2891336453) >>> 0;
+	const w = Math.imul(((s >>> ((s >>> 28) + 4)) ^ s) >>> 0, 277803737) >>> 0;
+	return ((w >>> 22) ^ w) >>> 0;
 }
-const pcg3 = (x: number, y: number, z: number) => pcg((x ^ pcg((y ^ pcg(z >>> 0)) >>> 0)) >>> 0)
-const u2f = (h: number) => Math.fround(h) / 4294967296
+const pcg3 = (x: number, y: number, z: number) => pcg((x ^ pcg((y ^ pcg(z >>> 0)) >>> 0)) >>> 0);
+const u2f = (h: number) => Math.fround(h) / 4294967296;
 
 /** The shader's cell counts (mot_cellCount without the meander's rounding, which these styles don't use). */
 function cellCount(p: ParamValues, w: number, h: number): [number, number] {
-  const nx = Math.max(1, Math.round(Number(p.cells ?? 8)))
-  const ny = Number(p.cells_y ?? 0) > 0 ? Number(p.cells_y) : (nx * h) / w
-  return [nx, Math.max(1, Math.floor(ny + 0.5))]
+	const nx = Math.max(1, Math.round(Number(p.cells ?? 8)));
+	const ny = Number(p.cells_y ?? 0) > 0 ? Number(p.cells_y) : (nx * h) / w;
+	return [nx, Math.max(1, Math.floor(ny + 0.5))];
 }
 
-const D4 = [[1, 0], [0, 1], [-1, 0], [0, -1]]
-const NODE_CELL = [[0, -1], [-1, 0], [-1, -1], [-1, -1]]
-const NODE_AXIS = [1, 0, 1, 0]
+const D4 = [
+	[1, 0],
+	[0, 1],
+	[-1, 0],
+	[0, -1]
+];
+const NODE_CELL = [
+	[0, -1],
+	[-1, 0],
+	[-1, -1],
+	[-1, -1]
+];
+const NODE_AXIS = [1, 0, 1, 0];
 
 /** A small seeded PRNG (mulberry32) for the CPU-side layouts. */
 function prng(seed: number): () => number {
-  let st = (seed * 2654435761 + 0x6d2b79f5) >>> 0
-  return () => {
-    st = (st + 0x6d2b79f5) >>> 0
-    let t = st
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
+	let st = (seed * 2654435761 + 0x6d2b79f5) >>> 0;
+	return () => {
+		st = (st + 0x6d2b79f5) >>> 0;
+		let t = st;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
 }
 
 /** Union-find over n items. */
 function unionFind(n: number) {
-  const parent = new Int32Array(n).map((_, i) => i)
-  const find = (i: number): number => {
-    while (parent[i] !== i) i = parent[i] = parent[parent[i]]
-    return i
-  }
-  return { find, join: (a: number, b: number) => (parent[find(a)] = find(b)) }
+	const parent = new Int32Array(n).map((_, i) => i);
+	const find = (i: number): number => {
+		while (parent[i] !== i) i = parent[i] = parent[parent[i]];
+		return i;
+	};
+	return { find, join: (a: number, b: number) => (parent[find(a)] = find(b)) };
 }
 
 /**
@@ -92,75 +127,83 @@ function unionFind(n: number) {
  * pass), the last pass with the fractional chance. Returns per padded cell the room's random and the walls between
  * different rooms (bit 0 +x, bit 1 +y: no stubs inside a room).
  */
-function roomCells(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): { rnd: Float32Array; walls: Uint8Array } {
-  const thr = Math.fround(Math.fround(0.6) * Math.fround(Number(p.density ?? 1)))
-  const ls = (seed + 3) >>> 0
-  const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x)
-  const linkCache = new Map<number, number>()
-  const link = (x: number, y: number) => {
-    x = wrap(x, nx)
-    y = wrap(y, ny)
-    const key = (y + 8) * (nx + 16) + x + 8
-    let v = linkCache.get(key)
-    if (v === undefined) {
-      const h = pcg3(x >>> 0, y >>> 0, ls)
-      v = u2f(h) < thr ? Math.floor(u2f(pcg(h)) * 4) : -1
-      linkCache.set(key, v)
-    }
-    return v
-  }
-  const linked = (x: number, y: number, axis: number) => link(x, y) === axis || link(x + D4[axis][0], y + D4[axis][1]) === axis + 2
-  const nodeOpen = (x: number, y: number, dir: number) => linked(x + NODE_CELL[dir][0], y + NODE_CELL[dir][1], NODE_AXIS[dir])
-  const lonely = (x: number, y: number, dir: number) => [1, 2, 3].every((k) => nodeOpen(x, y, (dir + k) % 4))
-  const wall = (x: number, y: number, axis: number) => {
-    if (linked(x, y, axis)) return false
-    const da = axis === 0 ? 1 : 0
-    return !lonely(x + (axis === 0 ? 1 : 0), y + (axis === 0 ? 0 : 1), da) && !lonely(x + 1, y + 1, da + 2)
-  }
-  const W = nx + 2
-  const H = ny + 2
-  const uf = unionFind(W * H)
-  // Cells -1 … n (untiled: the border cells too), or 0 … n − 1 wrapping round; the edges between them.
-  const lo = tile ? 0 : -1
-  const hiX = tile ? nx - 1 : nx
-  const hiY = tile ? ny - 1 : ny
-  const edges: [number, number, number][] = []   // cell, neighbour (padded indices), axis
-  for (let y = lo; y <= hiY; y++)
-    for (let x = lo; x <= hiX; x++)
-      for (let axis = 0; axis < 2; axis++) {
-        let bx = x + D4[axis][0]
-        let by = y + D4[axis][1]
-        if (tile) {
-          bx = wrap(bx, nx)
-          by = wrap(by, ny)
-        } else if (bx > hiX || by > hiY) continue
-        const a = (y + 1) * W + x + 1
-        const b = (by + 1) * W + bx + 1
-        edges.push([a, b, axis])
-        if (!wall(x, y, axis)) uf.join(a, b)
-      }
-  const merge = Math.min(3, Math.max(0, Number(p.merge ?? 1)))
-  const rand = prng(seed + 29)
-  for (let pass = 0; pass < Math.ceil(merge); pass++) {
-    const chance = Math.min(1, merge - pass)
-    for (let i = edges.length - 1; i > 0; i--) {
-      const j = Math.floor(rand() * (i + 1))
-      ;[edges[i], edges[j]] = [edges[j], edges[i]]
-    }
-    const joined = new Set<number>()
-    for (const [a, b] of edges) {
-      const ra = uf.find(a)
-      const rb = uf.find(b)
-      if (ra === rb || joined.has(ra) || joined.has(rb) || rand() >= chance) continue
-      uf.join(ra, rb)
-      joined.add(uf.find(ra))
-    }
-  }
-  const walls = new Uint8Array(W * H)
-  for (const [a, b, axis] of edges) if (uf.find(a) !== uf.find(b)) walls[a] |= 1 << axis
-  const rnd = new Float32Array(W * H)
-  for (let i = 0; i < W * H; i++) rnd[i] = u2f(pcg3(uf.find(i), 7, (seed + 17) >>> 0))
-  return { rnd, walls }
+function roomCells(
+	p: ParamValues,
+	nx: number,
+	ny: number,
+	tile: boolean,
+	seed: number
+): { rnd: Float32Array; walls: Uint8Array } {
+	const thr = Math.fround(Math.fround(0.6) * Math.fround(Number(p.density ?? 1)));
+	const ls = (seed + 3) >>> 0;
+	const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x);
+	const linkCache = new Map<number, number>();
+	const link = (x: number, y: number) => {
+		x = wrap(x, nx);
+		y = wrap(y, ny);
+		const key = (y + 8) * (nx + 16) + x + 8;
+		let v = linkCache.get(key);
+		if (v === undefined) {
+			const h = pcg3(x >>> 0, y >>> 0, ls);
+			v = u2f(h) < thr ? Math.floor(u2f(pcg(h)) * 4) : -1;
+			linkCache.set(key, v);
+		}
+		return v;
+	};
+	const linked = (x: number, y: number, axis: number) =>
+		link(x, y) === axis || link(x + D4[axis][0], y + D4[axis][1]) === axis + 2;
+	const nodeOpen = (x: number, y: number, dir: number) =>
+		linked(x + NODE_CELL[dir][0], y + NODE_CELL[dir][1], NODE_AXIS[dir]);
+	const lonely = (x: number, y: number, dir: number) => [1, 2, 3].every((k) => nodeOpen(x, y, (dir + k) % 4));
+	const wall = (x: number, y: number, axis: number) => {
+		if (linked(x, y, axis)) return false;
+		const da = axis === 0 ? 1 : 0;
+		return !lonely(x + (axis === 0 ? 1 : 0), y + (axis === 0 ? 0 : 1), da) && !lonely(x + 1, y + 1, da + 2);
+	};
+	const W = nx + 2;
+	const H = ny + 2;
+	const uf = unionFind(W * H);
+	// Cells -1 … n (untiled: the border cells too), or 0 … n − 1 wrapping round; the edges between them.
+	const lo = tile ? 0 : -1;
+	const hiX = tile ? nx - 1 : nx;
+	const hiY = tile ? ny - 1 : ny;
+	const edges: [number, number, number][] = []; // cell, neighbour (padded indices), axis
+	for (let y = lo; y <= hiY; y++)
+		for (let x = lo; x <= hiX; x++)
+			for (let axis = 0; axis < 2; axis++) {
+				let bx = x + D4[axis][0];
+				let by = y + D4[axis][1];
+				if (tile) {
+					bx = wrap(bx, nx);
+					by = wrap(by, ny);
+				} else if (bx > hiX || by > hiY) continue;
+				const a = (y + 1) * W + x + 1;
+				const b = (by + 1) * W + bx + 1;
+				edges.push([a, b, axis]);
+				if (!wall(x, y, axis)) uf.join(a, b);
+			}
+	const merge = Math.min(3, Math.max(0, Number(p.merge ?? 1)));
+	const rand = prng(seed + 29);
+	for (let pass = 0; pass < Math.ceil(merge); pass++) {
+		const chance = Math.min(1, merge - pass);
+		for (let i = edges.length - 1; i > 0; i--) {
+			const j = Math.floor(rand() * (i + 1));
+			[edges[i], edges[j]] = [edges[j], edges[i]];
+		}
+		const joined = new Set<number>();
+		for (const [a, b] of edges) {
+			const ra = uf.find(a);
+			const rb = uf.find(b);
+			if (ra === rb || joined.has(ra) || joined.has(rb) || rand() >= chance) continue;
+			uf.join(ra, rb);
+			joined.add(uf.find(ra));
+		}
+	}
+	const walls = new Uint8Array(W * H);
+	for (const [a, b, axis] of edges) if (uf.find(a) !== uf.find(b)) walls[a] |= 1 << axis;
+	const rnd = new Float32Array(W * H);
+	for (let i = 0; i < W * H; i++) rnd[i] = u2f(pcg3(uf.find(i), 7, (seed + 17) >>> 0));
+	return { rnd, walls };
 }
 
 /**
@@ -172,113 +215,118 @@ function roomCells(p: ParamValues, nx: number, ny: number, tile: boolean, seed: 
  * floating are then dropped. Returns the wall bits of the padded grid.
  */
 function labyrinthWalls(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): Uint8Array {
-  const rand = prng(seed)
-  const twist = Math.min(1, Math.max(0, Number(p.twist ?? 0.5)))
-  const maxRun = 2 + Math.round(6 * (1 - twist))
-  const density = Math.min(1, Math.max(0, Number(p.density ?? 1)))
-  const braid = Math.min(1, 2 * (1 - density))
-  const knock = Math.max(0, 0.5 - density)
-  const n = nx * ny
-  const walls = new Uint8Array(n).fill(3)
-  const step = (c: number, d: number) => {
-    let x = (c % nx) + D4[d][0]
-    let y = Math.floor(c / nx) + D4[d][1]
-    if (tile) {
-      x = (x + nx) % nx
-      y = (y + ny) % ny
-    } else if (x < 0 || y < 0 || x >= nx || y >= ny) return -1
-    return y * nx + x
-  }
-  const shut = (c: number, d: number) => {
-    const b = step(c, d)
-    return b >= 0 && (d < 2 ? walls[c] & (1 << d) : walls[b] & (1 << (d - 2))) !== 0
-  }
-  // Open the wall between c and its neighbour in direction d (a cell holds its +x and +y walls).
-  const open = (c: number, d: number) => {
-    const b = step(c, d)
-    if (d < 2) walls[c] &= ~(1 << d)
-    else walls[b] &= ~(1 << (d - 2))
-  }
-  const seen = new Uint8Array(n)
-  const from = new Int8Array(n)
-  const run = new Uint8Array(n)
-  const active = [Math.floor(rand() * n)]
-  seen[active[0]] = 1
-  from[active[0]] = Math.floor(rand() * 4)
-  const free: number[] = []
-  while (active.length) {
-    const ai = rand() < 0.85 ? active.length - 1 : Math.floor(rand() * active.length)
-    const c = active[ai]
-    free.length = 0
-    for (let d = 0; d < 4; d++) {
-      const b = step(c, d)
-      if (b >= 0 && !seen[b]) free.push(d)
-    }
-    if (!free.length) {
-      active[ai] = active[active.length - 1]
-      active.pop()
-      continue
-    }
-    const straight = free.includes(from[c])
-    const turns = straight && run[c] >= maxRun && free.length > 1 ? free.filter((d) => d !== from[c]) : free
-    const d = straight && run[c] < maxRun && rand() >= twist ? from[c] : turns[Math.floor(rand() * turns.length)]
-    const b = step(c, d)
-    open(c, d)
-    seen[b] = 1
-    from[b] = d
-    run[b] = d === from[c] ? run[c] + 1 : 1
-    active.push(b)
-  }
-  if (braid > 0) {
-    for (let c = 0; c < n; c++) {
-      const closed: number[] = []
-      let sides = 0
-      for (let d = 0; d < 4; d++) {
-        if (step(c, d) < 0) continue
-        sides++
-        if (shut(c, d)) closed.push(d)
-      }
-      // A dead end has one open side: every other side with a neighbour is shut.
-      if (closed.length === sides - 1 && closed.length && rand() < braid) open(c, closed[Math.floor(rand() * closed.length)])
-    }
-  }
-  if (knock > 0) for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (shut(c, d) && rand() < knock) open(c, d)
-  if (density < 1) {
-    // Floating fragments: union-find over the lattice nodes the walls join (untiled, the frame is one big piece).
-    const NX = tile ? nx : nx + 1
-    const NY = tile ? ny : ny + 1
-    const node = (x: number, y: number) => (tile ? (y % ny) * nx + (x % nx) : y * NX + x)
-    const uf = unionFind(NX * NY)
-    if (!tile) {
-      for (let x = 0; x < NX - 1; x++) (uf.join(node(x, 0), node(x + 1, 0)), uf.join(node(x, NY - 1), node(x + 1, NY - 1)))
-      for (let y = 0; y < NY - 1; y++) (uf.join(node(0, y), node(0, y + 1)), uf.join(node(NX - 1, y), node(NX - 1, y + 1)))
-    }
-    const ends = (c: number, d: number): [number, number] => {
-      const x = c % nx
-      const y = Math.floor(c / nx)
-      return d === 0 ? [node(x + 1, y), node(x + 1, y + 1)] : [node(x, y + 1), node(x + 1, y + 1)]
-    }
-    for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (walls[c] & (1 << d)) uf.join(...ends(c, d))
-    const count = new Map<number, number>()
-    for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (walls[c] & (1 << d)) count.set(uf.find(ends(c, d)[0]), (count.get(uf.find(ends(c, d)[0])) ?? 0) + 1)
-    const frame = tile ? -1 : uf.find(node(0, 0))
-    for (let c = 0; c < n; c++)
-      for (let d = 0; d < 2; d++) {
-        if (!(walls[c] & (1 << d))) continue
-        const r = uf.find(ends(c, d)[0])
-        if (r !== frame && (count.get(r) ?? 0) < 5) walls[c] &= ~(1 << d)
-      }
-  }
-  // Padded. Untiled, the last column's +x and the last row's +y walls stay shut (no neighbour); the frame's other two
-  // sides are the +x walls of the column left of the maze and the +y walls of the row above it.
-  const W = nx + 2
-  const out = new Uint8Array(W * (ny + 2))
-  for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) out[(y + 1) * W + x + 1] = walls[y * nx + x]
-  if (!tile) {
-    for (let y = 0; y < ny; y++) out[(y + 1) * W] |= 1
-    for (let x = 0; x < nx; x++) out[x + 1] |= 2
-  }
-  return out
+	const rand = prng(seed);
+	const twist = Math.min(1, Math.max(0, Number(p.twist ?? 0.5)));
+	const maxRun = 2 + Math.round(6 * (1 - twist));
+	const density = Math.min(1, Math.max(0, Number(p.density ?? 1)));
+	const braid = Math.min(1, 2 * (1 - density));
+	const knock = Math.max(0, 0.5 - density);
+	const n = nx * ny;
+	const walls = new Uint8Array(n).fill(3);
+	const step = (c: number, d: number) => {
+		let x = (c % nx) + D4[d][0];
+		let y = Math.floor(c / nx) + D4[d][1];
+		if (tile) {
+			x = (x + nx) % nx;
+			y = (y + ny) % ny;
+		} else if (x < 0 || y < 0 || x >= nx || y >= ny) return -1;
+		return y * nx + x;
+	};
+	const shut = (c: number, d: number) => {
+		const b = step(c, d);
+		return b >= 0 && (d < 2 ? walls[c] & (1 << d) : walls[b] & (1 << (d - 2))) !== 0;
+	};
+	// Open the wall between c and its neighbour in direction d (a cell holds its +x and +y walls).
+	const open = (c: number, d: number) => {
+		const b = step(c, d);
+		if (d < 2) walls[c] &= ~(1 << d);
+		else walls[b] &= ~(1 << (d - 2));
+	};
+	const seen = new Uint8Array(n);
+	const from = new Int8Array(n);
+	const run = new Uint8Array(n);
+	const active = [Math.floor(rand() * n)];
+	seen[active[0]] = 1;
+	from[active[0]] = Math.floor(rand() * 4);
+	const free: number[] = [];
+	while (active.length) {
+		const ai = rand() < 0.85 ? active.length - 1 : Math.floor(rand() * active.length);
+		const c = active[ai];
+		free.length = 0;
+		for (let d = 0; d < 4; d++) {
+			const b = step(c, d);
+			if (b >= 0 && !seen[b]) free.push(d);
+		}
+		if (!free.length) {
+			active[ai] = active[active.length - 1];
+			active.pop();
+			continue;
+		}
+		const straight = free.includes(from[c]);
+		const turns = straight && run[c] >= maxRun && free.length > 1 ? free.filter((d) => d !== from[c]) : free;
+		const d = straight && run[c] < maxRun && rand() >= twist ? from[c] : turns[Math.floor(rand() * turns.length)];
+		const b = step(c, d);
+		open(c, d);
+		seen[b] = 1;
+		from[b] = d;
+		run[b] = d === from[c] ? run[c] + 1 : 1;
+		active.push(b);
+	}
+	if (braid > 0) {
+		for (let c = 0; c < n; c++) {
+			const closed: number[] = [];
+			let sides = 0;
+			for (let d = 0; d < 4; d++) {
+				if (step(c, d) < 0) continue;
+				sides++;
+				if (shut(c, d)) closed.push(d);
+			}
+			// A dead end has one open side: every other side with a neighbour is shut.
+			if (closed.length === sides - 1 && closed.length && rand() < braid)
+				open(c, closed[Math.floor(rand() * closed.length)]);
+		}
+	}
+	if (knock > 0) for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (shut(c, d) && rand() < knock) open(c, d);
+	if (density < 1) {
+		// Floating fragments: union-find over the lattice nodes the walls join (untiled, the frame is one big piece).
+		const NX = tile ? nx : nx + 1;
+		const NY = tile ? ny : ny + 1;
+		const node = (x: number, y: number) => (tile ? (y % ny) * nx + (x % nx) : y * NX + x);
+		const uf = unionFind(NX * NY);
+		if (!tile) {
+			for (let x = 0; x < NX - 1; x++)
+				(uf.join(node(x, 0), node(x + 1, 0)), uf.join(node(x, NY - 1), node(x + 1, NY - 1)));
+			for (let y = 0; y < NY - 1; y++)
+				(uf.join(node(0, y), node(0, y + 1)), uf.join(node(NX - 1, y), node(NX - 1, y + 1)));
+		}
+		const ends = (c: number, d: number): [number, number] => {
+			const x = c % nx;
+			const y = Math.floor(c / nx);
+			return d === 0 ? [node(x + 1, y), node(x + 1, y + 1)] : [node(x, y + 1), node(x + 1, y + 1)];
+		};
+		for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (walls[c] & (1 << d)) uf.join(...ends(c, d));
+		const count = new Map<number, number>();
+		for (let c = 0; c < n; c++)
+			for (let d = 0; d < 2; d++)
+				if (walls[c] & (1 << d)) count.set(uf.find(ends(c, d)[0]), (count.get(uf.find(ends(c, d)[0])) ?? 0) + 1);
+		const frame = tile ? -1 : uf.find(node(0, 0));
+		for (let c = 0; c < n; c++)
+			for (let d = 0; d < 2; d++) {
+				if (!(walls[c] & (1 << d))) continue;
+				const r = uf.find(ends(c, d)[0]);
+				if (r !== frame && (count.get(r) ?? 0) < 5) walls[c] &= ~(1 << d);
+			}
+	}
+	// Padded. Untiled, the last column's +x and the last row's +y walls stay shut (no neighbour); the frame's other two
+	// sides are the +x walls of the column left of the maze and the +y walls of the row above it.
+	const W = nx + 2;
+	const out = new Uint8Array(W * (ny + 2));
+	for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) out[(y + 1) * W + x + 1] = walls[y * nx + x];
+	if (!tile) {
+		for (let y = 0; y < ny; y++) out[(y + 1) * W] |= 1;
+		for (let x = 0; x < nx; x++) out[x + 1] |= 2;
+	}
+	return out;
 }
 
 /**
@@ -287,58 +335,58 @@ function labyrinthWalls(p: ParamValues, nx: number, ny: number, tile: boolean, s
  * Returns them as cell walls (bit 0 the cell's +x wall, bit 1 its +y wall) of the padded grid.
  */
 function mazeWalls(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): Uint8Array {
-  const density = Math.fround(Number(p.density ?? 1))
-  const prune = p.prune !== false
-  // Nodes −2 … n + 2 when untiled (beyond the padded grid's walls), 0 … n − 1 wrapping when tiled.
-  const lo = tile ? 0 : -2
-  const hiX = tile ? nx - 1 : nx + 2
-  const hiY = tile ? ny - 1 : ny + 2
-  const NW = hiX - lo + 1
-  const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x)
-  const node = (x: number, y: number) => (wrap(y, ny) - lo) * NW + wrap(x, nx) - lo
-  const inside = (x: number, y: number) => tile || (x >= lo && x <= hiX && y >= lo && y <= hiY)
-  const uf = unionFind(NW * (hiY - lo + 1))
-  const walls = new Map<string, [number, number, number, number]>()
-  for (let y = lo; y <= hiY; y++)
-    for (let x = lo; x <= hiX; x++) {
-      const h = hash3I(wrap(x, nx), wrap(y, ny), seed + 3)
-      const k = Math.floor(h[1] * 4)
-      if (!(h[0] < density) || k > 3) continue
-      const bx = x + D4[k][0]
-      const by = y + D4[k][1]
-      if (!inside(bx, by)) continue
-      const a = node(x, y)
-      const b = node(bx, by)
-      walls.set(a < b ? `${a},${b}` : `${b},${a}`, [x, y, bx, by])
-      uf.join(a, b)
-    }
-  const size = new Map<number, number>()
-  for (const [x, y] of walls.values()) size.set(uf.find(node(x, y)), (size.get(uf.find(node(x, y))) ?? 0) + 1)
-  const W = nx + 2
-  const out = new Uint8Array(W * (ny + 2))
-  const cellBit = (cx: number, cy: number, bit: number) => {
-    cx = wrap(cx, nx)
-    cy = wrap(cy, ny)
-    if (cx >= -1 && cy >= -1 && cx <= nx && cy <= ny) out[(cy + 1) * W + cx + 1] |= bit
-  }
-  for (const [x, y, bx, by] of walls.values()) {
-    if (prune && (size.get(uf.find(node(x, y))) ?? 0) < 5) continue
-    // Horizontal (a, b)–(a + 1, b): cell (a, b − 1)'s +y wall; vertical (a, b)–(a, b + 1): cell (a − 1, b)'s +x wall.
-    if (y === by) cellBit(Math.min(x, bx), y - 1, 2)
-    else cellBit(x - 1, Math.min(y, by), 1)
-  }
-  return out
+	const density = Math.fround(Number(p.density ?? 1));
+	const prune = p.prune !== false;
+	// Nodes −2 … n + 2 when untiled (beyond the padded grid's walls), 0 … n − 1 wrapping when tiled.
+	const lo = tile ? 0 : -2;
+	const hiX = tile ? nx - 1 : nx + 2;
+	const hiY = tile ? ny - 1 : ny + 2;
+	const NW = hiX - lo + 1;
+	const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x);
+	const node = (x: number, y: number) => (wrap(y, ny) - lo) * NW + wrap(x, nx) - lo;
+	const inside = (x: number, y: number) => tile || (x >= lo && x <= hiX && y >= lo && y <= hiY);
+	const uf = unionFind(NW * (hiY - lo + 1));
+	const walls = new Map<string, [number, number, number, number]>();
+	for (let y = lo; y <= hiY; y++)
+		for (let x = lo; x <= hiX; x++) {
+			const h = hash3I(wrap(x, nx), wrap(y, ny), seed + 3);
+			const k = Math.floor(h[1] * 4);
+			if (!(h[0] < density) || k > 3) continue;
+			const bx = x + D4[k][0];
+			const by = y + D4[k][1];
+			if (!inside(bx, by)) continue;
+			const a = node(x, y);
+			const b = node(bx, by);
+			walls.set(a < b ? `${a},${b}` : `${b},${a}`, [x, y, bx, by]);
+			uf.join(a, b);
+		}
+	const size = new Map<number, number>();
+	for (const [x, y] of walls.values()) size.set(uf.find(node(x, y)), (size.get(uf.find(node(x, y))) ?? 0) + 1);
+	const W = nx + 2;
+	const out = new Uint8Array(W * (ny + 2));
+	const cellBit = (cx: number, cy: number, bit: number) => {
+		cx = wrap(cx, nx);
+		cy = wrap(cy, ny);
+		if (cx >= -1 && cy >= -1 && cx <= nx && cy <= ny) out[(cy + 1) * W + cx + 1] |= bit;
+	};
+	for (const [x, y, bx, by] of walls.values()) {
+		if (prune && (size.get(uf.find(node(x, y))) ?? 0) < 5) continue;
+		// Horizontal (a, b)–(a + 1, b): cell (a, b − 1)'s +y wall; vertical (a, b)–(a, b + 1): cell (a − 1, b)'s +x wall.
+		if (y === by) cellBit(Math.min(x, bx), y - 1, 2);
+		else cellBit(x - 1, Math.min(y, by), 1);
+	}
+	return out;
 }
 
 /** GLSL's hashI / hash2I / hash3I (glsl/common.ts) on an integer cell, bit for bit. */
-const hashI = (x: number, y: number, seed: number) => u2f(pcg3(x >>> 0, y >>> 0, seed >>> 0))
+const hashI = (x: number, y: number, seed: number) => u2f(pcg3(x >>> 0, y >>> 0, seed >>> 0));
 function hash3I(x: number, y: number, seed: number): [number, number, number] {
-  const h = pcg3(x >>> 0, y >>> 0, seed >>> 0)
-  const h2 = pcg(h)
-  return [u2f(h), u2f(h2), u2f(pcg(h2))]
+	const h = pcg3(x >>> 0, y >>> 0, seed >>> 0);
+	const h2 = pcg(h);
+	return [u2f(h), u2f(h2), u2f(pcg(h2))];
 }
 /** The sides (bits R U L D) each bus direction wants on even / odd tiles (the shader's MOT_WANT). */
-const WANT = [15, 15, 5, 5, 10, 10, 6, 9, 12, 3]
+const WANT = [15, 15, 5, 5, 10, 10, 6, 9, 12, 3];
 
 /**
  * The circuit board. Tiles are centred on lattice nodes; a trace crosses a tile edge at its midpoint.
@@ -361,416 +409,507 @@ const WANT = [15, 15, 5, 5, 10, 10, 6, 9, 12, 3]
  * tile's place in its chip (x | y << 4).
  */
 function circuitTiles(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): Uint8Array {
-  const W = nx + 2
-  const H = ny + 2
-  const lo = tile ? 0 : -1
-  const hiX = tile ? nx - 1 : nx
-  const hiY = tile ? ny - 1 : ny
-  const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x)
-  const inside = (x: number, y: number) => tile || (x >= lo && x <= hiX && y >= lo && y <= hiY)
-  const idx = (x: number, y: number) => (wrap(y, ny) + 1) * W + wrap(x, nx) + 1
-  const f = Math.fround
-  // Chips.
-  const S = [Math.min(16, Math.max(1, Math.round(Number(p.chip_w ?? 2)))), Math.min(16, Math.max(1, Math.round(Number(p.chip_h ?? 2))))]
-  const sc = Math.min(32, Math.max(0, Math.round(Number(p.chip_scatter ?? 4))))
-  const place = new Uint8Array(W * H)   // the tile's place in its chip
-  const chips = f(Number(p.chips ?? 0))
-  const chipOf = (x: number, y: number): number => {
-    if (chips <= 0) return -1
-    const B = [S[0] + 2 + sc, S[1] + 2 + sc]
-    const m = [Math.floor(x / B[0]), Math.floor(y / B[1])]
-    const h = hash3I(m[0], m[1], seed + 71)
-    if (tile && ((m[0] + 1) * B[0] > nx || (m[1] + 1) * B[1] > ny)) return -1
-    if (h[0] >= chips) return -1
-    const ox = m[0] * B[0] + 1 + Math.min(Math.floor(f(h[1] * (sc + 1))), sc) - x
-    const oy = m[1] * B[1] + 1 + Math.min(Math.floor(f(h[2] * (sc + 1))), sc) - y
-    if (!(ox <= 0 && oy <= 0 && ox + S[0] > 0 && oy + S[1] > 0)) return -1
-    place[idx(x, y)] = -ox | (-oy << 4)
-    return (m[1] * 4096 + m[0]) & 0xffffff
-  }
-  const chip = new Int32Array(W * H).fill(-1)
-  for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) chip[idx(x, y)] = chipOf(wrap(x, nx), wrap(y, ny))
-  // Empty board: blobs of value noise over a coarse grid (about six tiles a cell), the given share of the tiles.
-  const empty = new Uint8Array(W * H)
-  const share = Math.min(0.9, Math.max(0, Number(p.empty ?? 0.25)))
-  const rand = prng(seed + 53)
-  if (share > 0) {
-    const cx = Math.max(2, Math.round(nx / 6))
-    const cy = Math.max(2, Math.round(ny / 6))
-    const g = Array.from({ length: (cx + 1) * (cy + 1) }, () => rand())
-    if (tile) for (let i = 0; i <= cx; i++) for (let j = 0; j <= cy; j++) g[j * (cx + 1) + i] = g[(j % cy) * (cx + 1) + (i % cx)]
-    const sm = (t: number) => t * t * (3 - 2 * t)
-    const val: [number, number][] = []
-    for (let y = lo; y <= hiY; y++)
-      for (let x = lo; x <= hiX; x++) {
-        const u = (Math.min(Math.max(x, 0), nx - 1) + 0.5) / nx * cx
-        const v = (Math.min(Math.max(y, 0), ny - 1) + 0.5) / ny * cy
-        const i = Math.floor(u)
-        const j = Math.floor(v)
-        const a = sm(u - i)
-        const b = sm(v - j)
-        const at = (di: number, dj: number) => g[Math.min(j + dj, cy) * (cx + 1) + Math.min(i + di, cx)]
-        val.push([idx(x, y), (at(0, 0) * (1 - a) + at(1, 0) * a) * (1 - b) + (at(0, 1) * (1 - a) + at(1, 1) * a) * b])
-      }
-    const sorted = val.map((v) => v[1]).sort((a, b) => a - b)
-    const thr = sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]
-    for (const [i, v] of val) if (v < thr && chip[i] < 0) empty[i] = 1
-  }
-  const out = new Uint8Array(W * H)
-  const setEdge = (x: number, y: number, d: number) => {
-    // d: 0 R, 1 U, 2 L, 3 D — stored on the tile whose +x / +y edge it is.
-    if (d < 2) out[idx(x, y)] |= 1 << d
-    else out[idx(x + D4[d][0], y + D4[d][1])] |= 1 << (d - 2)
-  }
-  const regions = Number(p.regions ?? 6)
-  const traces = f(Number(p.traces ?? 0.85))
-  const uf = unionFind(W * H)
-  // A chip is one node: traces between two of its pins would close a loop through it.
-  const chipRoot = new Map<number, number>()
-  for (let i = 0; i < W * H; i++) {
-    if (chip[i] < 0) continue
-    const r = chipRoot.get(chip[i])
-    if (r === undefined) chipRoot.set(chip[i], i)
-    else uf.join(i, r)
-  }
-  const dir = new Int8Array(W * H).fill(-1)
-  if (regions > 0) {
-    // Bus directions from the regions' Voronoi (the nearest site's random picks the direction), then the edges.
-    const bend = f(Number(p.bend ?? 0.5))
-    const cnt = [Math.max(1, Math.floor(nx / regions + 0.5)), Math.max(1, Math.floor(ny / regions + 0.5))]
-    const dirOf = (x: number, y: number) => {
-      const X = [((x + 0.5) / nx) * cnt[0], ((y + 0.5) / ny) * cnt[1]]
-      const ip = [Math.floor(X[0]), Math.floor(X[1])]
-      let best = 1e9
-      let rnd = 0
-      for (let j = -1; j <= 1; j++)
-        for (let i = -1; i <= 1; i++) {
-          const gx = tile ? (((ip[0] + i) % cnt[0]) + cnt[0]) % cnt[0] : ip[0] + i
-          const gy = tile ? (((ip[1] + j) % cnt[1]) + cnt[1]) % cnt[1] : ip[1] + j
-          const hh = pcg3(gx >>> 0, gy >>> 0, (seed + 31) >>> 0)
-          const rx = ip[0] + i + 0.5 + (u2f(hh) - 0.5) * 0.9 - X[0]
-          const ry = ip[1] + j + 0.5 + (u2f(pcg(hh)) - 0.5) * 0.9 - X[1]
-          const d = rx * rx + ry * ry
-          if (d < best) {
-            best = d
-            rnd = hashI(gx, gy, seed + 37)
-          }
-        }
-      if (rnd < bend) return rnd < 0.5 * bend ? 2 : 3
-      return rnd - bend < 0.5 * (1 - bend) ? 0 : 1
-    }
-    const wants = (dir: number, x: number, y: number, side: number) => ((WANT[(dir + 1) * 2 + ((x + y) & 1)] >> side) & 1) !== 0
-    for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) dir[idx(x, y)] = dirOf(wrap(x, nx), wrap(y, ny))
-    const live: [number, number, number, number, boolean][] = []   // x, y, side (0 R / 1 U), neighbour index, pin
-    for (let y = lo; y <= hiY; y++)
-      for (let x = lo; x <= hiX; x++)
-        for (let axis = 0; axis < 2; axis++) {
-          const bx = x + D4[axis][0]
-          const by = y + D4[axis][1]
-          if (!inside(bx, by)) continue
-          const a = idx(x, y)
-          const b = idx(bx, by)
-          const ca = chip[a] >= 0
-          const cb = chip[b] >= 0
-          if (ca && cb) continue
-          const h = hashI(wrap(x, nx), wrap(y, ny), seed + (axis === 0 ? 11 : 13))
-          const on = ca || cb ? h < 0.85 : wants(dir[a], x, y, axis) && wants(dir[b], bx, by, axis + 2) && h < traces
-          if (on && !empty[a] && !empty[b]) live.push([x, y, axis, b, ca || cb])
-        }
-    // Kept first: pins, then edges between tiles of at most two edges (the runs of a bus), then those at junctions,
-    // each group in a random order; an edge that would close a loop is dropped.
-    const degree = new Uint8Array(W * H)
-    for (const [x, y, , b] of live) (degree[idx(x, y)]++, degree[b]++)
-    for (let i = live.length - 1; i > 0; i--) {
-      const j = Math.floor(rand() * (i + 1))
-      ;[live[i], live[j]] = [live[j], live[i]]
-    }
-    const rank = (e: (typeof live)[number]) => (e[4] ? 0 : degree[idx(e[0], e[1])] <= 2 && degree[e[3]] <= 2 ? 1 : 2)
-    live.sort((a, b) => rank(a) - rank(b))
-    const par = new Int32Array(W * H).map((_, i) => i)
-    const off = new Int32Array(2 * W * H)
-    const path: number[] = []
-    const root = (i: number): number => {
-      // Walk up, then point every node on the way at the root with its offset summed (iterative: no deep recursion).
-      path.length = 0
-      while (par[i] !== i) (path.push(i), (i = par[i]))
-      for (let k = path.length - 2; k >= 0; k--) {
-        const v = path[k]
-        const up = par[v]
-        off[2 * v] += off[2 * up]
-        off[2 * v + 1] += off[2 * up + 1]
-        par[v] = i
-      }
-      return i
-    }
-    // Chips are single nodes here too, each tile at its true offset (a chip never straddles the seam), so a loop
-    // through a chip counts as one.
-    for (let i = 0; i < W * H; i++) {
-      const r = chip[i] >= 0 ? chipRoot.get(chip[i])! : i
-      if (r === i) continue
-      par[i] = r
-      off[2 * i] = (i % W) - (r % W)
-      off[2 * i + 1] = Math.floor(i / W) - Math.floor(r / W)
-    }
-    for (const [x, y, axis, b] of live) {
-      const a = idx(x, y)
-      const ra = root(a)
-      const rb = root(b)
-      const sx = D4[axis][0]
-      const sy = D4[axis][1]
-      if (ra === rb) {
-        const wraps = off[2 * a] + sx !== off[2 * b] || off[2 * a + 1] + sy !== off[2 * b + 1]
-        if (!wraps) continue
-      } else {
-        par[ra] = rb
-        off[2 * ra] = off[2 * b] - sx - off[2 * a]
-        off[2 * ra + 1] = off[2 * b + 1] - sy - off[2 * a + 1]
-      }
-      uf.join(a, b)
-      setEdge(x, y, axis)
-    }
-  } else {
-    // Routed traces: no tile is used twice, so traces never meet.
-    const used = new Uint8Array(W * H)
-    for (let i = 0; i < W * H; i++) if (chip[i] >= 0 || empty[i]) used[i] = 1
-    let free = 0
-    for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) if (!used[idx(x, y)]) free++
-    let filled = 0
-    const walk = (x: number, y: number, d: number) => {
-      const start = idx(x, y)
-      used[start] = 1
-      filled++
-      for (let steps = 0; steps < 4 * (nx + ny) && rand() < traces; steps++) {
-        // Straight on mostly, else a turn either way; never back.
-        const turn = rand() < 0.5 ? 1 : 3
-        const order = rand() < 0.75 ? [d, (d + turn) % 4, (d + 4 - turn) % 4] : [(d + turn) % 4, d, (d + 4 - turn) % 4]
-        let moved = false
-        for (const e of order) {
-          const bx = x + D4[e][0]
-          const by = y + D4[e][1]
-          if (!inside(bx, by) || used[idx(bx, by)]) continue
-          setEdge(x, y, e)
-          uf.join(idx(x, y), idx(bx, by))
-          x = bx
-          y = by
-          d = e
-          used[idx(x, y)] = 1
-          filled++
-          moved = true
-          break
-        }
-        if (!moved) break
-      }
-    }
-    // From the chip pins outwards (85 % of the outline sides), then from random free tiles.
-    for (let y = lo; y <= hiY; y++)
-      for (let x = lo; x <= hiX; x++) {
-        if (chip[idx(x, y)] < 0) continue
-        for (let d = 0; d < 4; d++) {
-          const bx = x + D4[d][0]
-          const by = y + D4[d][1]
-          if (!inside(bx, by) || chip[idx(bx, by)] >= 0 || used[idx(bx, by)] || rand() >= 0.85) continue
-          setEdge(x, y, d)
-          uf.join(idx(x, y), idx(bx, by))
-          walk(bx, by, d)
-        }
-      }
-    for (let tries = 0; tries < 20 * free && filled < 0.6 * free; tries++) {
-      const x = lo + Math.floor(rand() * (hiX - lo + 1))
-      const y = lo + Math.floor(rand() * (hiY - lo + 1))
-      if (!used[idx(x, y)]) walk(x, y, Math.floor(rand() * 4))
-    }
-  }
-  // Lone vias (bit 3) on tiles without traces, outside the empty blobs.
-  const vias = Number(p.vias ?? 0.3) * 0.3
-  for (let y = lo; y <= hiY; y++)
-    for (let x = lo; x <= hiX; x++) {
-      const i = idx(x, y)
-      const left = out[idx(x - 1, y)] & 1
-      const down = out[idx(x, y - 1)] & 2
-      if (!(out[i] & 3) && !(inside(x - 1, y) && left) && !(inside(x, y - 1) && down) && chip[i] < 0 && !empty[i] && rand() < vias) out[i] |= 8
-    }
-  // Wide traces: whole connected pieces without a chip, at least six tiles long (no fat stubs).
-  const wide = Math.min(1, Math.max(0, Number(p.wide ?? 0.12)))
-  if (wide > 0) {
-    const pick = new Map<number, boolean>()
-    const tiles = new Map<number, number>()
-    for (let i = 0; i < W * H; i++) tiles.set(uf.find(i), (tiles.get(uf.find(i)) ?? 0) + 1)
-    for (const [r, k] of tiles) if (k < 6) pick.set(r, false)
-    for (let i = 0; i < W * H; i++) if (chip[i] >= 0) pick.set(uf.find(i), false)
-    for (let y = lo; y <= hiY; y++)
-      for (let x = lo; x <= hiX; x++) {
-        const i = idx(x, y)
-        const r = uf.find(i)
-        if (!pick.has(r)) pick.set(r, rand() < wide)
-        if (pick.get(r)) out[i] |= 4
-      }
-  }
-  const data = new Uint8Array(W * H * 4)
-  for (let i = 0; i < W * H; i++) {
-    const v = Math.min(65535, Math.floor(u2f(pcg3(uf.find(i), 5, seed)) * 65536))
-    data.set([v >> 8, v & 255, out[i] | ((dir[i] + 1) << 4) | (chip[i] >= 0 ? 128 : 0), place[i]], i * 4)
-  }
-  return data
+	const W = nx + 2;
+	const H = ny + 2;
+	const lo = tile ? 0 : -1;
+	const hiX = tile ? nx - 1 : nx;
+	const hiY = tile ? ny - 1 : ny;
+	const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x);
+	const inside = (x: number, y: number) => tile || (x >= lo && x <= hiX && y >= lo && y <= hiY);
+	const idx = (x: number, y: number) => (wrap(y, ny) + 1) * W + wrap(x, nx) + 1;
+	const f = Math.fround;
+	// Chips.
+	const S = [
+		Math.min(16, Math.max(1, Math.round(Number(p.chip_w ?? 2)))),
+		Math.min(16, Math.max(1, Math.round(Number(p.chip_h ?? 2))))
+	];
+	const sc = Math.min(32, Math.max(0, Math.round(Number(p.chip_scatter ?? 4))));
+	const place = new Uint8Array(W * H); // the tile's place in its chip
+	const chips = f(Number(p.chips ?? 0));
+	const chipOf = (x: number, y: number): number => {
+		if (chips <= 0) return -1;
+		const B = [S[0] + 2 + sc, S[1] + 2 + sc];
+		const m = [Math.floor(x / B[0]), Math.floor(y / B[1])];
+		const h = hash3I(m[0], m[1], seed + 71);
+		if (tile && ((m[0] + 1) * B[0] > nx || (m[1] + 1) * B[1] > ny)) return -1;
+		if (h[0] >= chips) return -1;
+		const ox = m[0] * B[0] + 1 + Math.min(Math.floor(f(h[1] * (sc + 1))), sc) - x;
+		const oy = m[1] * B[1] + 1 + Math.min(Math.floor(f(h[2] * (sc + 1))), sc) - y;
+		if (!(ox <= 0 && oy <= 0 && ox + S[0] > 0 && oy + S[1] > 0)) return -1;
+		place[idx(x, y)] = -ox | (-oy << 4);
+		return (m[1] * 4096 + m[0]) & 0xffffff;
+	};
+	const chip = new Int32Array(W * H).fill(-1);
+	for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) chip[idx(x, y)] = chipOf(wrap(x, nx), wrap(y, ny));
+	// Empty board: blobs of value noise over a coarse grid (about six tiles a cell), the given share of the tiles.
+	const empty = new Uint8Array(W * H);
+	const share = Math.min(0.9, Math.max(0, Number(p.empty ?? 0.25)));
+	const rand = prng(seed + 53);
+	if (share > 0) {
+		const cx = Math.max(2, Math.round(nx / 6));
+		const cy = Math.max(2, Math.round(ny / 6));
+		const g = Array.from({ length: (cx + 1) * (cy + 1) }, () => rand());
+		if (tile)
+			for (let i = 0; i <= cx; i++)
+				for (let j = 0; j <= cy; j++) g[j * (cx + 1) + i] = g[(j % cy) * (cx + 1) + (i % cx)];
+		const sm = (t: number) => t * t * (3 - 2 * t);
+		const val: [number, number][] = [];
+		for (let y = lo; y <= hiY; y++)
+			for (let x = lo; x <= hiX; x++) {
+				const u = ((Math.min(Math.max(x, 0), nx - 1) + 0.5) / nx) * cx;
+				const v = ((Math.min(Math.max(y, 0), ny - 1) + 0.5) / ny) * cy;
+				const i = Math.floor(u);
+				const j = Math.floor(v);
+				const a = sm(u - i);
+				const b = sm(v - j);
+				const at = (di: number, dj: number) => g[Math.min(j + dj, cy) * (cx + 1) + Math.min(i + di, cx)];
+				val.push([idx(x, y), (at(0, 0) * (1 - a) + at(1, 0) * a) * (1 - b) + (at(0, 1) * (1 - a) + at(1, 1) * a) * b]);
+			}
+		const sorted = val.map((v) => v[1]).sort((a, b) => a - b);
+		const thr = sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))];
+		for (const [i, v] of val) if (v < thr && chip[i] < 0) empty[i] = 1;
+	}
+	const out = new Uint8Array(W * H);
+	const setEdge = (x: number, y: number, d: number) => {
+		// d: 0 R, 1 U, 2 L, 3 D — stored on the tile whose +x / +y edge it is.
+		if (d < 2) out[idx(x, y)] |= 1 << d;
+		else out[idx(x + D4[d][0], y + D4[d][1])] |= 1 << (d - 2);
+	};
+	const regions = Number(p.regions ?? 6);
+	const traces = f(Number(p.traces ?? 0.85));
+	const uf = unionFind(W * H);
+	// A chip is one node: traces between two of its pins would close a loop through it.
+	const chipRoot = new Map<number, number>();
+	for (let i = 0; i < W * H; i++) {
+		if (chip[i] < 0) continue;
+		const r = chipRoot.get(chip[i]);
+		if (r === undefined) chipRoot.set(chip[i], i);
+		else uf.join(i, r);
+	}
+	const dir = new Int8Array(W * H).fill(-1);
+	if (regions > 0) {
+		// Bus directions from the regions' Voronoi (the nearest site's random picks the direction), then the edges.
+		const bend = f(Number(p.bend ?? 0.5));
+		const cnt = [Math.max(1, Math.floor(nx / regions + 0.5)), Math.max(1, Math.floor(ny / regions + 0.5))];
+		const dirOf = (x: number, y: number) => {
+			const X = [((x + 0.5) / nx) * cnt[0], ((y + 0.5) / ny) * cnt[1]];
+			const ip = [Math.floor(X[0]), Math.floor(X[1])];
+			let best = 1e9;
+			let rnd = 0;
+			for (let j = -1; j <= 1; j++)
+				for (let i = -1; i <= 1; i++) {
+					const gx = tile ? (((ip[0] + i) % cnt[0]) + cnt[0]) % cnt[0] : ip[0] + i;
+					const gy = tile ? (((ip[1] + j) % cnt[1]) + cnt[1]) % cnt[1] : ip[1] + j;
+					const hh = pcg3(gx >>> 0, gy >>> 0, (seed + 31) >>> 0);
+					const rx = ip[0] + i + 0.5 + (u2f(hh) - 0.5) * 0.9 - X[0];
+					const ry = ip[1] + j + 0.5 + (u2f(pcg(hh)) - 0.5) * 0.9 - X[1];
+					const d = rx * rx + ry * ry;
+					if (d < best) {
+						best = d;
+						rnd = hashI(gx, gy, seed + 37);
+					}
+				}
+			if (rnd < bend) return rnd < 0.5 * bend ? 2 : 3;
+			return rnd - bend < 0.5 * (1 - bend) ? 0 : 1;
+		};
+		const wants = (dir: number, x: number, y: number, side: number) =>
+			((WANT[(dir + 1) * 2 + ((x + y) & 1)] >> side) & 1) !== 0;
+		for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) dir[idx(x, y)] = dirOf(wrap(x, nx), wrap(y, ny));
+		const live: [number, number, number, number, boolean][] = []; // x, y, side (0 R / 1 U), neighbour index, pin
+		for (let y = lo; y <= hiY; y++)
+			for (let x = lo; x <= hiX; x++)
+				for (let axis = 0; axis < 2; axis++) {
+					const bx = x + D4[axis][0];
+					const by = y + D4[axis][1];
+					if (!inside(bx, by)) continue;
+					const a = idx(x, y);
+					const b = idx(bx, by);
+					const ca = chip[a] >= 0;
+					const cb = chip[b] >= 0;
+					if (ca && cb) continue;
+					const h = hashI(wrap(x, nx), wrap(y, ny), seed + (axis === 0 ? 11 : 13));
+					const on = ca || cb ? h < 0.85 : wants(dir[a], x, y, axis) && wants(dir[b], bx, by, axis + 2) && h < traces;
+					if (on && !empty[a] && !empty[b]) live.push([x, y, axis, b, ca || cb]);
+				}
+		// Kept first: pins, then edges between tiles of at most two edges (the runs of a bus), then those at junctions,
+		// each group in a random order; an edge that would close a loop is dropped.
+		const degree = new Uint8Array(W * H);
+		for (const [x, y, , b] of live) (degree[idx(x, y)]++, degree[b]++);
+		for (let i = live.length - 1; i > 0; i--) {
+			const j = Math.floor(rand() * (i + 1));
+			[live[i], live[j]] = [live[j], live[i]];
+		}
+		const rank = (e: (typeof live)[number]) => (e[4] ? 0 : degree[idx(e[0], e[1])] <= 2 && degree[e[3]] <= 2 ? 1 : 2);
+		live.sort((a, b) => rank(a) - rank(b));
+		const par = new Int32Array(W * H).map((_, i) => i);
+		const off = new Int32Array(2 * W * H);
+		const path: number[] = [];
+		const root = (i: number): number => {
+			// Walk up, then point every node on the way at the root with its offset summed (iterative: no deep recursion).
+			path.length = 0;
+			while (par[i] !== i) (path.push(i), (i = par[i]));
+			for (let k = path.length - 2; k >= 0; k--) {
+				const v = path[k];
+				const up = par[v];
+				off[2 * v] += off[2 * up];
+				off[2 * v + 1] += off[2 * up + 1];
+				par[v] = i;
+			}
+			return i;
+		};
+		// Chips are single nodes here too, each tile at its true offset (a chip never straddles the seam), so a loop
+		// through a chip counts as one.
+		for (let i = 0; i < W * H; i++) {
+			const r = chip[i] >= 0 ? chipRoot.get(chip[i])! : i;
+			if (r === i) continue;
+			par[i] = r;
+			off[2 * i] = (i % W) - (r % W);
+			off[2 * i + 1] = Math.floor(i / W) - Math.floor(r / W);
+		}
+		for (const [x, y, axis, b] of live) {
+			const a = idx(x, y);
+			const ra = root(a);
+			const rb = root(b);
+			const sx = D4[axis][0];
+			const sy = D4[axis][1];
+			if (ra === rb) {
+				const wraps = off[2 * a] + sx !== off[2 * b] || off[2 * a + 1] + sy !== off[2 * b + 1];
+				if (!wraps) continue;
+			} else {
+				par[ra] = rb;
+				off[2 * ra] = off[2 * b] - sx - off[2 * a];
+				off[2 * ra + 1] = off[2 * b + 1] - sy - off[2 * a + 1];
+			}
+			uf.join(a, b);
+			setEdge(x, y, axis);
+		}
+	} else {
+		// Routed traces: no tile is used twice, so traces never meet.
+		const used = new Uint8Array(W * H);
+		for (let i = 0; i < W * H; i++) if (chip[i] >= 0 || empty[i]) used[i] = 1;
+		let free = 0;
+		for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) if (!used[idx(x, y)]) free++;
+		let filled = 0;
+		const walk = (x: number, y: number, d: number) => {
+			const start = idx(x, y);
+			used[start] = 1;
+			filled++;
+			for (let steps = 0; steps < 4 * (nx + ny) && rand() < traces; steps++) {
+				// Straight on mostly, else a turn either way; never back.
+				const turn = rand() < 0.5 ? 1 : 3;
+				const order = rand() < 0.75 ? [d, (d + turn) % 4, (d + 4 - turn) % 4] : [(d + turn) % 4, d, (d + 4 - turn) % 4];
+				let moved = false;
+				for (const e of order) {
+					const bx = x + D4[e][0];
+					const by = y + D4[e][1];
+					if (!inside(bx, by) || used[idx(bx, by)]) continue;
+					setEdge(x, y, e);
+					uf.join(idx(x, y), idx(bx, by));
+					x = bx;
+					y = by;
+					d = e;
+					used[idx(x, y)] = 1;
+					filled++;
+					moved = true;
+					break;
+				}
+				if (!moved) break;
+			}
+		};
+		// From the chip pins outwards (85 % of the outline sides), then from random free tiles.
+		for (let y = lo; y <= hiY; y++)
+			for (let x = lo; x <= hiX; x++) {
+				if (chip[idx(x, y)] < 0) continue;
+				for (let d = 0; d < 4; d++) {
+					const bx = x + D4[d][0];
+					const by = y + D4[d][1];
+					if (!inside(bx, by) || chip[idx(bx, by)] >= 0 || used[idx(bx, by)] || rand() >= 0.85) continue;
+					setEdge(x, y, d);
+					uf.join(idx(x, y), idx(bx, by));
+					walk(bx, by, d);
+				}
+			}
+		for (let tries = 0; tries < 20 * free && filled < 0.6 * free; tries++) {
+			const x = lo + Math.floor(rand() * (hiX - lo + 1));
+			const y = lo + Math.floor(rand() * (hiY - lo + 1));
+			if (!used[idx(x, y)]) walk(x, y, Math.floor(rand() * 4));
+		}
+	}
+	// Lone vias (bit 3) on tiles without traces, outside the empty blobs.
+	const vias = Number(p.vias ?? 0.3) * 0.3;
+	for (let y = lo; y <= hiY; y++)
+		for (let x = lo; x <= hiX; x++) {
+			const i = idx(x, y);
+			const left = out[idx(x - 1, y)] & 1;
+			const down = out[idx(x, y - 1)] & 2;
+			if (
+				!(out[i] & 3) &&
+				!(inside(x - 1, y) && left) &&
+				!(inside(x, y - 1) && down) &&
+				chip[i] < 0 &&
+				!empty[i] &&
+				rand() < vias
+			)
+				out[i] |= 8;
+		}
+	// Wide traces: whole connected pieces without a chip, at least six tiles long (no fat stubs).
+	const wide = Math.min(1, Math.max(0, Number(p.wide ?? 0.12)));
+	if (wide > 0) {
+		const pick = new Map<number, boolean>();
+		const tiles = new Map<number, number>();
+		for (let i = 0; i < W * H; i++) tiles.set(uf.find(i), (tiles.get(uf.find(i)) ?? 0) + 1);
+		for (const [r, k] of tiles) if (k < 6) pick.set(r, false);
+		for (let i = 0; i < W * H; i++) if (chip[i] >= 0) pick.set(uf.find(i), false);
+		for (let y = lo; y <= hiY; y++)
+			for (let x = lo; x <= hiX; x++) {
+				const i = idx(x, y);
+				const r = uf.find(i);
+				if (!pick.has(r)) pick.set(r, rand() < wide);
+				if (pick.get(r)) out[i] |= 4;
+			}
+	}
+	const data = new Uint8Array(W * H * 4);
+	for (let i = 0; i < W * H; i++) {
+		const v = Math.min(65535, Math.floor(u2f(pcg3(uf.find(i), 5, seed)) * 65536));
+		data.set([v >> 8, v & 255, out[i] | ((dir[i] + 1) << 4) | (chip[i] >= 0 ? 128 : 0), place[i]], i * 4);
+	}
+	return data;
 }
 
-export function truchetCells(p: ParamValues, ctx: { width: number; height: number; tileable: boolean; seed: number }): Record<string, CpuTexture> {
-  const style = String(p.style)
-  if (!['maze', 'rooms', 'labyrinth', 'circuit'].includes(style)) return { cells: { width: 1, height: 1, data: new Uint8Array(4) } }
-  const [nx, ny] = cellCount(p, ctx.width, ctx.height)
-  const seed = Math.abs(ctx.seed)
-  const W = nx + 2
-  const H = ny + 2
-  if (style === 'circuit') return { cells: { width: W, height: H, data: circuitTiles(p, nx, ny, ctx.tileable, seed) } }
-  // Walls (B) and a random per room — per cell for the maze and the labyrinth (R, G: 16 bits).
-  const data = new Uint8Array(W * H * 4)
-  const room = style === 'rooms' ? roomCells(p, nx, ny, ctx.tileable, seed) : null
-  const walls = room ? room.walls : style === 'maze' ? mazeWalls(p, nx, ny, ctx.tileable, seed) : labyrinthWalls(p, nx, ny, ctx.tileable, seed)
-  for (let i = 0; i < W * H; i++) {
-    const v = Math.min(65535, Math.floor((room ? room.rnd[i] : u2f(pcg3(i, 11, seed))) * 65536))
-    data.set([v >> 8, v & 255, walls[i], 255], i * 4)
-  }
-  return { cells: { width: W, height: H, data } }
+export function truchetCells(
+	p: ParamValues,
+	ctx: { width: number; height: number; tileable: boolean; seed: number }
+): Record<string, CpuTexture> {
+	const style = String(p.style);
+	if (!['maze', 'rooms', 'labyrinth', 'circuit'].includes(style))
+		return { cells: { width: 1, height: 1, data: new Uint8Array(4) } };
+	const [nx, ny] = cellCount(p, ctx.width, ctx.height);
+	const seed = Math.abs(ctx.seed);
+	const W = nx + 2;
+	const H = ny + 2;
+	if (style === 'circuit') return { cells: { width: W, height: H, data: circuitTiles(p, nx, ny, ctx.tileable, seed) } };
+	// Walls (B) and a random per room — per cell for the maze and the labyrinth (R, G: 16 bits).
+	const data = new Uint8Array(W * H * 4);
+	const room = style === 'rooms' ? roomCells(p, nx, ny, ctx.tileable, seed) : null;
+	const walls = room
+		? room.walls
+		: style === 'maze'
+			? mazeWalls(p, nx, ny, ctx.tileable, seed)
+			: labyrinthWalls(p, nx, ny, ctx.tileable, seed);
+	for (let i = 0; i < W * H; i++) {
+		const v = Math.min(65535, Math.floor((room ? room.rnd[i] : u2f(pcg3(i, 11, seed))) * 65536));
+		data.set([v >> 8, v & 255, walls[i], 255], i * 4);
+	}
+	return { cells: { width: W, height: H, data } };
 }
 
 export const truchetLayer: LayerDef = {
-  type: 'truchet',
-  label: 'Truchet / Lines',
-  category: 'pattern',
-  kind: 'generator',
-  sdf: true,
-  description: 'Tile-based line networks: truchet arcs (with crossings, over-under weave, two-tone fills), 10-PRINT diagonals, maze walls, polyomino rooms, Greek-key meanders and circuit-board traces with pads, buses and chips — drawn as raised lines or cut in as grooves.',
-  params: [
-    P.enum('style', 'Style', 'arcs', STYLES),
-    P.enum('draw', 'Draw', 'lines', DRAW, { hint: 'What the shape is: the lines, the surface between them, or (arcs) alternate regions' }),
-    P.int('cells', 'Cells across', 8, 1, 1024, { softMax: 128, hint: 'Grid cells across the width. Meanders round to a multiple of the key period when tiling' }),
-    P.int('cells_y', 'Cells down', 0, 0, 1024, { softMax: 128, hint: '0 = follow the aspect ratio (square cells)' }),
-    P.float('width', 'Line width', 1, 0, 256, {
-      softMax: 32,
-      unit: 'px',
-      step: 0.1,
-      hint: 'Grooves: the groove width. Two-tone: the gap between the filled regions. Whole-pixel widths on whole-pixel cells give crisp lines with anti-aliasing off',
-    }),
-    P.enum('caps', 'Caps', 'square', [['round', 'Round', 'round line ends and outer corners'], ['square', 'Square', 'square ends and mitred corners']], {
-      showIf: isStyle('maze', 'rooms', 'meander', 'labyrinth'),
-      hint: 'Line ends and corners of the lattice styles (maze, rooms, meander, labyrinth)',
-    }),
-    P.float('offset_x', 'Offset X', 0, 0, 1, { step: 0.001, hint: 'Shift the lattice, fraction of a cell' }),
-    P.float('offset_y', 'Offset Y', 0, 0, 1, { step: 0.001 }),
-    P.float('density', 'Density', 1, 0, 1, {
-      step: 0.001,
-      showIf: (p) => isStyle('arcs', 'diagonal', 'maze', 'rooms', 'labyrinth')(p) && !isTone(p),
-      labelFor: (p) => DENSITY_LABEL[String(p.style)] ?? 'Density',
-      hint: 'Arcs / diagonal (Tiles drawn): share of the tiles that get their lines. Maze (Walls): share of the grid nodes that grow a wall. Rooms (Room size): how readily cells join into a room (1 = rooms of about three cells; Merge rooms for bigger ones). Labyrinth (Perfection): 1 = a perfect maze; lower opens dead ends into loops (all of them by 0.5), then knocks out walls (half of them at 0)',
-    }),
-    P.float('twist', 'Twist', 0.5, 0, 1, { step: 0.001, uniform: false, showIf: isStyle('labyrinth'), hint: 'Chance the labyrinth’s corridors turn at each cell (0 = long straight runs, 1 = winding)' }),
-    P.float('cross', 'Crossings', 0, 0, 1, {
-      step: 0.001,
-      showIf: isStyle('arcs', 'diagonal'),
-      hint: 'Share of tiles whose lines cross instead: a + of straight lines (arcs) or an X (diagonal). All crossings: a grid, or a weave with Over-under',
-    }),
-    P.float('weave', 'Over-under', 0, 0, 64, {
-      softMax: 16,
-      unit: 'px',
-      step: 0.1,
-      showIf: (p) => isStyle('arcs', 'diagonal')(p) && Number(p.cross) > 0 && !isTone(p),
-      hint: 'At crossings the under strand breaks this far either side of the over strand, alternating like a weave or knotwork (0 = the lines simply cross; a fraction of a pixel = an unbroken weave, the strands only rising and sinking)',
-    }),
-    P.float('dip', 'Over-under depth', 0.6, 0, 1, {
-      step: 0.001,
-      showIf: (p) => isStyle('arcs', 'diagonal')(p) && Number(p.cross) > 0 && Number(p.weave) > 0 && !isTone(p),
-      hint: 'Height of the weave: the over strand rises to a crown at its crossing, the under strand sinks to its cut ends (0 = flat strands)',
-    }),
-    P.bool('prune', 'Drop fragments', true, {
-      uniform: false,
-      showIf: isStyle('maze'),
-      hint: 'Leave out wall pieces of fewer than five walls (floating dashes, small crosses), so the walls form a network',
-    }),
-    P.float('merge', 'Merge rooms', 1, 0, 3, {
-      step: 0.001,
-      uniform: false,
-      showIf: isStyle('rooms'),
-      hint: 'Joins neighbouring rooms into bigger, more varied ones: each whole step pairs every room with a neighbour, the fraction a share of them (0 = the plain polyomino net). Merged rooms have no stub walls inside',
-    }),
-    P.int('key', 'Key size', 2, 1, 12, {
-      showIf: isStyle('meander'),
-      hint: 'Spirals: cells the key spans (its first arm; it spirals in from there), period key + 1. Running key: turns in (and out), period 2·key + 2 cells along the band, 2·key + 2 across (+ 1 with Border lines)',
-    }),
-    P.enum('key_style', 'Key', 'running', [
-      ['spiral', 'Spirals on a rail', 'square spirals hanging from a rail (period key + 1)'],
-      ['running', 'Running key', 'one continuous line spiralling in and back out of every key — the classic Greek key (period 2·key + 2 cells along the band; across it 2·key + 2, + 1 with Border lines)'],
-    ], { showIf: isStyle('meander') }),
-    P.bool('borders', 'Border lines', true, { showIf: isStyle('meander'), hint: 'Spirals: the rail every key hangs from (also the next band’s top). Running key: a rail one cell below each band' }),
-    P.bool('vertical', 'Vertical', false, { showIf: isStyle('meander'), hint: 'Run the bands down instead of across' }),
-    P.float('regions', 'Bus regions', 6, 0, 256, {
-      softMax: 32,
-      step: 0.1,
-      uniform: false,
-      showIf: isStyle('circuit'),
-      hint: 'Size (cells) of regions whose traces run parallel — horizontal, vertical or diagonal buses that bend together. 0 = routed traces: wandering, never meeting, from the chips outwards',
-    }),
-    P.float('traces', 'Trace density', 0.85, 0, 1, { step: 0.001, uniform: false, showIf: isStyle('circuit'), hint: 'Chance that a trace continues across each cell edge (lower = shorter traces, more pads)' }),
-    P.float('bend', 'Diagonals', 0.5, 0, 1, {
-      step: 0.001,
-      showIf: isStyle('circuit'),
-      hint: 'With regions: share of diagonal buses. Without: chance a turn cuts the corner at 45° (else a right angle)',
-    }),
-    P.float('empty', 'Empty board', 0.25, 0, 0.9, {
-      step: 0.001,
-      uniform: false,
-      showIf: isStyle('circuit'),
-      hint: 'Share of the board left without traces, in blobs a few tiles across (chips stay)',
-    }),
-    P.float('wide', 'Wide traces', 0.12, 0, 1, {
-      step: 0.001,
-      uniform: false,
-      showIf: isStyle('circuit'),
-      hint: 'Share of traces (whole connected traces, not those to chips) drawn at 2.5 × the width — power lines',
-    }),
-    P.float('junctions', 'Junctions', 0.2, 0, 1, {
-      step: 0.001,
-      showIf: (p) => p.style === 'circuit' && Number(p.regions) > 0,
-      hint: 'Where buses meet: chance a tile with three or four traces joins them (T or + junction); otherwise the odd trace stops in a pad short of the other, or the four turn in pairs — 0 = no merges, like a real board',
-    }),
-    P.float('pad', 'Pad radius', 1, 0, 64, { softMax: 16, unit: 'px', step: 0.1, showIf: isStyle('circuit'), hint: 'Round pads at trace ends and vias (follows the line width until set)' }),
-    P.float('vias', 'Vias', 0.3, 0, 1, { step: 0.001, uniform: false, showIf: isStyle('circuit'), hint: 'Lone vias: on 0.3 × this share of the cells without traces (outside the empty blobs)' }),
-    P.float('chips', 'Chips', 0, 0, 1, { step: 0.001, uniform: false, showIf: isStyle('circuit'), hint: 'Chance of a chip (with pins) in each block of chip size + 2 + scatter cells' }),
-    P.int('chip_w', 'Chip width', 2, 1, 16, { showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0, hint: 'Cells across each chip; a one-cell margin of traces runs round it' }),
-    P.int('chip_h', 'Chip height', 2, 1, 16, { showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0, hint: 'Cells down each chip' }),
-    P.enum('chip_style', 'Chip style', 'ic', [['plain', 'Plain', 'a slab, the traces running in under it'], ['ic', 'IC', 'square legs on every side (traces meet them), a notch at one end']], {
-      showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
-    }),
-    P.int('chip_scatter', 'Chip scatter', 4, 0, 32, {
-      softMax: 8,
-      uniform: false,
-      showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
-      hint: 'Extra cells in each chip’s block, the chip at a random place in it: sparser, irregular placement (0 = a regular grid)',
-    }),
-    P.seed(),
-  ],
-  // Lines read as rounded wires: the bevel spans half the line (at least 1 px) and pads are a line width in radius;
-  // each style starts at a cell count that suits it (circuits fine, arcs coarse) — until set by hand.
-  linkedDefaults: (p) => ({
-    bevel: r1(Math.max(1, 0.5 * Number(p.width))),
-    pad: r1(Math.max(1, Number(p.width))),
-    cells: STYLE_CELLS[String(p.style)] ?? 8,
-  }),
-  // Added in the editor: lines thick enough to read as raised wires at the texture's size (6 px at 512).
-  fresh: ({ width, height }) => ({ width: Math.max(1, Math.round(Math.min(width, height) / 85)) }),
-  textures: ['cells'],
-  cpuData: truchetCells,
-  defaults: {
-    h_on: true,
-    h_amount: 0.4,
-    bevel: 1,
-    profile: 'round',
-    dif_on: true,
-    dif_src: 'flat',
-    dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] },
-  },
-  glsl:
-    GLSL_MOT_SEED +
-    /* glsl */ `
+	type: 'truchet',
+	label: 'Truchet / Lines',
+	category: 'pattern',
+	kind: 'generator',
+	sdf: true,
+	description:
+		'Tile-based line networks: truchet arcs (with crossings, over-under weave, two-tone fills), 10-PRINT diagonals, maze walls, polyomino rooms, Greek-key meanders and circuit-board traces with pads, buses and chips — drawn as raised lines or cut in as grooves.',
+	params: [
+		P.enum('style', 'Style', 'arcs', STYLES),
+		P.enum('draw', 'Draw', 'lines', DRAW, {
+			hint: 'What the shape is: the lines, the surface between them, or (arcs) alternate regions'
+		}),
+		P.int('cells', 'Cells across', 8, 1, 1024, {
+			softMax: 128,
+			hint: 'Grid cells across the width. Meanders round to a multiple of the key period when tiling'
+		}),
+		P.int('cells_y', 'Cells down', 0, 0, 1024, { softMax: 128, hint: '0 = follow the aspect ratio (square cells)' }),
+		P.float('width', 'Line width', 1, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Grooves: the groove width. Two-tone: the gap between the filled regions. Whole-pixel widths on whole-pixel cells give crisp lines with anti-aliasing off'
+		}),
+		P.enum(
+			'caps',
+			'Caps',
+			'square',
+			[
+				['round', 'Round', 'round line ends and outer corners'],
+				['square', 'Square', 'square ends and mitred corners']
+			],
+			{
+				showIf: isStyle('maze', 'rooms', 'meander', 'labyrinth'),
+				hint: 'Line ends and corners of the lattice styles (maze, rooms, meander, labyrinth)'
+			}
+		),
+		P.float('offset_x', 'Offset X', 0, 0, 1, { step: 0.001, hint: 'Shift the lattice, fraction of a cell' }),
+		P.float('offset_y', 'Offset Y', 0, 0, 1, { step: 0.001 }),
+		P.float('density', 'Density', 1, 0, 1, {
+			step: 0.001,
+			showIf: (p) => isStyle('arcs', 'diagonal', 'maze', 'rooms', 'labyrinth')(p) && !isTone(p),
+			labelFor: (p) => DENSITY_LABEL[String(p.style)] ?? 'Density',
+			hint: 'Arcs / diagonal (Tiles drawn): share of the tiles that get their lines. Maze (Walls): share of the grid nodes that grow a wall. Rooms (Room size): how readily cells join into a room (1 = rooms of about three cells; Merge rooms for bigger ones). Labyrinth (Perfection): 1 = a perfect maze; lower opens dead ends into loops (all of them by 0.5), then knocks out walls (half of them at 0)'
+		}),
+		P.float('twist', 'Twist', 0.5, 0, 1, {
+			step: 0.001,
+			uniform: false,
+			showIf: isStyle('labyrinth'),
+			hint: 'Chance the labyrinth’s corridors turn at each cell (0 = long straight runs, 1 = winding)'
+		}),
+		P.float('cross', 'Crossings', 0, 0, 1, {
+			step: 0.001,
+			showIf: isStyle('arcs', 'diagonal'),
+			hint: 'Share of tiles whose lines cross instead: a + of straight lines (arcs) or an X (diagonal). All crossings: a grid, or a weave with Over-under'
+		}),
+		P.float('weave', 'Over-under', 0, 0, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => isStyle('arcs', 'diagonal')(p) && Number(p.cross) > 0 && !isTone(p),
+			hint: 'At crossings the under strand breaks this far either side of the over strand, alternating like a weave or knotwork (0 = the lines simply cross; a fraction of a pixel = an unbroken weave, the strands only rising and sinking)'
+		}),
+		P.float('dip', 'Over-under depth', 0.6, 0, 1, {
+			step: 0.001,
+			showIf: (p) => isStyle('arcs', 'diagonal')(p) && Number(p.cross) > 0 && Number(p.weave) > 0 && !isTone(p),
+			hint: 'Height of the weave: the over strand rises to a crown at its crossing, the under strand sinks to its cut ends (0 = flat strands)'
+		}),
+		P.bool('prune', 'Drop fragments', true, {
+			uniform: false,
+			showIf: isStyle('maze'),
+			hint: 'Leave out wall pieces of fewer than five walls (floating dashes, small crosses), so the walls form a network'
+		}),
+		P.float('merge', 'Merge rooms', 1, 0, 3, {
+			step: 0.001,
+			uniform: false,
+			showIf: isStyle('rooms'),
+			hint: 'Joins neighbouring rooms into bigger, more varied ones: each whole step pairs every room with a neighbour, the fraction a share of them (0 = the plain polyomino net). Merged rooms have no stub walls inside'
+		}),
+		P.int('key', 'Key size', 2, 1, 12, {
+			showIf: isStyle('meander'),
+			hint: 'Spirals: cells the key spans (its first arm; it spirals in from there), period key + 1. Running key: turns in (and out), period 2·key + 2 cells along the band, 2·key + 2 across (+ 1 with Border lines)'
+		}),
+		P.enum(
+			'key_style',
+			'Key',
+			'running',
+			[
+				['spiral', 'Spirals on a rail', 'square spirals hanging from a rail (period key + 1)'],
+				[
+					'running',
+					'Running key',
+					'one continuous line spiralling in and back out of every key — the classic Greek key (period 2·key + 2 cells along the band; across it 2·key + 2, + 1 with Border lines)'
+				]
+			],
+			{ showIf: isStyle('meander') }
+		),
+		P.bool('borders', 'Border lines', true, {
+			showIf: isStyle('meander'),
+			hint: 'Spirals: the rail every key hangs from (also the next band’s top). Running key: a rail one cell below each band'
+		}),
+		P.bool('vertical', 'Vertical', false, { showIf: isStyle('meander'), hint: 'Run the bands down instead of across' }),
+		P.float('regions', 'Bus regions', 6, 0, 256, {
+			softMax: 32,
+			step: 0.1,
+			uniform: false,
+			showIf: isStyle('circuit'),
+			hint: 'Size (cells) of regions whose traces run parallel — horizontal, vertical or diagonal buses that bend together. 0 = routed traces: wandering, never meeting, from the chips outwards'
+		}),
+		P.float('traces', 'Trace density', 0.85, 0, 1, {
+			step: 0.001,
+			uniform: false,
+			showIf: isStyle('circuit'),
+			hint: 'Chance that a trace continues across each cell edge (lower = shorter traces, more pads)'
+		}),
+		P.float('bend', 'Diagonals', 0.5, 0, 1, {
+			step: 0.001,
+			showIf: isStyle('circuit'),
+			hint: 'With regions: share of diagonal buses. Without: chance a turn cuts the corner at 45° (else a right angle)'
+		}),
+		P.float('empty', 'Empty board', 0.25, 0, 0.9, {
+			step: 0.001,
+			uniform: false,
+			showIf: isStyle('circuit'),
+			hint: 'Share of the board left without traces, in blobs a few tiles across (chips stay)'
+		}),
+		P.float('wide', 'Wide traces', 0.12, 0, 1, {
+			step: 0.001,
+			uniform: false,
+			showIf: isStyle('circuit'),
+			hint: 'Share of traces (whole connected traces, not those to chips) drawn at 2.5 × the width — power lines'
+		}),
+		P.float('junctions', 'Junctions', 0.2, 0, 1, {
+			step: 0.001,
+			showIf: (p) => p.style === 'circuit' && Number(p.regions) > 0,
+			hint: 'Where buses meet: chance a tile with three or four traces joins them (T or + junction); otherwise the odd trace stops in a pad short of the other, or the four turn in pairs — 0 = no merges, like a real board'
+		}),
+		P.float('pad', 'Pad radius', 1, 0, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.1,
+			showIf: isStyle('circuit'),
+			hint: 'Round pads at trace ends and vias (follows the line width until set)'
+		}),
+		P.float('vias', 'Vias', 0.3, 0, 1, {
+			step: 0.001,
+			uniform: false,
+			showIf: isStyle('circuit'),
+			hint: 'Lone vias: on 0.3 × this share of the cells without traces (outside the empty blobs)'
+		}),
+		P.float('chips', 'Chips', 0, 0, 1, {
+			step: 0.001,
+			uniform: false,
+			showIf: isStyle('circuit'),
+			hint: 'Chance of a chip (with pins) in each block of chip size + 2 + scatter cells'
+		}),
+		P.int('chip_w', 'Chip width', 2, 1, 16, {
+			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+			hint: 'Cells across each chip; a one-cell margin of traces runs round it'
+		}),
+		P.int('chip_h', 'Chip height', 2, 1, 16, {
+			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+			hint: 'Cells down each chip'
+		}),
+		P.enum(
+			'chip_style',
+			'Chip style',
+			'ic',
+			[
+				['plain', 'Plain', 'a slab, the traces running in under it'],
+				['ic', 'IC', 'square legs on every side (traces meet them), a notch at one end']
+			],
+			{
+				showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0
+			}
+		),
+		P.int('chip_scatter', 'Chip scatter', 4, 0, 32, {
+			softMax: 8,
+			uniform: false,
+			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+			hint: 'Extra cells in each chip’s block, the chip at a random place in it: sparser, irregular placement (0 = a regular grid)'
+		}),
+		P.seed()
+	],
+	// Lines read as rounded wires: the bevel spans half the line (at least 1 px) and pads are a line width in radius;
+	// each style starts at a cell count that suits it (circuits fine, arcs coarse) — until set by hand.
+	linkedDefaults: (p) => ({
+		bevel: r1(Math.max(1, 0.5 * Number(p.width))),
+		pad: r1(Math.max(1, Number(p.width))),
+		cells: STYLE_CELLS[String(p.style)] ?? 8
+	}),
+	// Added in the editor: lines thick enough to read as raised wires at the texture's size (6 px at 512).
+	fresh: ({ width, height }) => ({ width: Math.max(1, Math.round(Math.min(width, height) / 85)) }),
+	textures: ['cells'],
+	cpuData: truchetCells,
+	defaults: {
+		h_on: true,
+		h_amount: 0.4,
+		bevel: 1,
+		profile: 'round',
+		dif_on: true,
+		dif_src: 'flat',
+		dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] }
+	},
+	glsl:
+		GLSL_MOT_SEED +
+		/* glsl */ `
 ivec2 mot_wrap(ivec2 c, ivec2 n) { return uTile ? imod(c, n) : c; }
 
 // Per-cell data from the CPU (truchetCells): cell c at texel c + 1; none (0) outside the texture.
@@ -1198,8 +1337,8 @@ GenOut gen(vec2 p) {
     g.hval = (u_bevel > 0.0 && u_profile != 0 ? profileCurve(u_profile, max(-bd, 0.0) / u_bevel) : 1.0) * hgt;
   return g;
 }
-`,
-}
+`
+};
 
 /** Motif-family layers, in add-menu order. */
-export const MOTIF_LAYERS: LayerDef[] = [truchetLayer, rosetteLayer, glyphLayer]
+export const MOTIF_LAYERS: LayerDef[] = [truchetLayer, rosetteLayer, glyphLayer];
