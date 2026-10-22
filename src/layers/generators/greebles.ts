@@ -282,7 +282,7 @@ export const greeblesLayer: LayerDef = {
 		P.enum(
 			'junction',
 			'Crossings',
-			'box',
+			'over',
 			[
 				['box', 'Junction box', 'a box over each crossing (Box size), the down route’s tubes passing over the other’s round it'],
 				['over', 'Over and under', 'no box: the down route’s tubes pass over the across route’s']
@@ -292,7 +292,7 @@ export const greeblesLayer: LayerDef = {
 		P.float('junction_size', 'Box size', 0.9, 0.2, 1.5, {
 			step: 0.001,
 			group: 'chan',
-			showIf: (p) => Number(p.routes) > 1 && (p.junction ?? 'box') === 'box',
+			showIf: (p) => Number(p.routes) > 1 && p.junction === 'box',
 			hint: 'The junction box’s side as a share of the channel width (1: as wide as the channels; above, wider)'
 		}),
 		P.float('chan_chance', 'Chance', 0, 0, 1, {
@@ -2466,6 +2466,7 @@ GenOut gen(vec2 p) {
   // (Where two routes' channels cross, both bundles: pass 0 the down route's, pass 1 the across route's, a little lower
   // so it passes under.)
   bool bOn2 = cell.kind == 3 && dRt < 0.0 && rte2 < 0.0 && rteS.w >= 0.0;
+  float cov0 = 0.0;   // the over bundle's tube coverage (the under one stays beneath it)
   for (int pass = 0; pass < 2 * GRB_1; pass++) {
    if (pass == 0 ? bOn : bOn2) {
     bool p2 = pass == 1;
@@ -2473,7 +2474,9 @@ GenOut gen(vec2 p) {
     uint bId = p2 ? pcg(uint(uSeed) + uint(rteS.w) * 0x632BE5ABu + 0x2F1A5B3Du) : bId0;
     float chlP = p2 ? rteL2 : cell.chl;
     // (In a crossing the over bundle stands clearly higher, the under one dips: no woven look.)
-    float sink = bOn2 ? (p2 ? 0.6 : 1.15) : 1.0;
+    // (Ramped over about a pipe's width in from the other channel's wall, not a step at it.)
+    float rmp = smoothstep(0.0, max(u_tube_big, 3.0), -(p2 ? dRt : rte2));
+    float sink = bOn2 ? mix(1.0, p2 ? 0.6 : 1.15, rmp) : 1.0;
     float inner = 2.0 * bHw - 2.0, tot = 0.0;
     bool top2g = cell.kind != 3 && pass == 0;   // (laid on top: separate hoses with gaps)
     for (int i = 0; i < u_tube_count; i++) {
@@ -2496,7 +2499,8 @@ GenOut gen(vec2 p) {
     bool top2 = cell.kind != 3 && !p2;
     float ce = top2 ? min(bT - cell.ovt.x, cell.ovt.y - bT) : 1e4;
     float bl = max(4.0, 1.4 * u_tube_big), fe = max(2.0, 0.7 * u_tube_big);
-    float atE = (1.0 - smoothstep(bl + fe - 1.0, bl + fe, ce)) * step(bl, ce);
+    // The fitting at each end: a round collar on each tube, 1.3 × its diameter, flat-topped like a short cylinder.
+    float atE = top2 ? 1.0 - smoothstep(bl - 1.0, bl, ce) : 0.0;
     float vl = v;   // the surface under the run
     // (Laid on top: on the top plate level, covering what is under them — the panels' detail doesn't print through.)
     float base = bBase;
@@ -2509,7 +2513,7 @@ GenOut gen(vec2 p) {
         float r = 0.5 * dm;
         float tc = pos + r;
         // (Couplings: a ring a fifth wider on the thick tubes; collars a quarter wider.)
-        float rr2 = r * (1.0 + (cs == 1 && dm >= u_tube_big ? 0.2 * atC : 0.0) + 0.25 * atE);
+        float rr2 = r * (1.0 + (cs == 1 && dm >= u_tube_big ? 0.2 * atC : 0.0) + 0.3 * atE);
         float x = abs(bU - tc);
         // Its height in proportion to its radius (round cables, Pipe lift: a thick pipe level with the plates at 1).
         float rk = clamp(rr2 / max(0.5 * u_tube_big, 0.5), 0.15, 1.3) * u_tube_lift;
@@ -2520,7 +2524,7 @@ GenOut gen(vec2 p) {
         // (A collar is a cylinder, not a dome: flattened.)
         dmh = mix(dmh, min(1.0, 1.6 * dmh), atE);
         // (Only under the tube itself: no flat bed beside it.)
-        float on = step(top2 ? bl : -1.0, ce);
+        float on = 1.0;
         env = max(env, (base + (ht - base) * dmh * (1.0 - br)) * on * step(x, rr2 + 0.5));
         cov2 = max(cov2, on * (1.0 - smoothstep(rr2 - 0.5, rr2 + 0.5, x)));
         mtop = max(mtop, ht);
@@ -2534,18 +2538,15 @@ GenOut gen(vec2 p) {
     if (cs == 0) env = max(env, (mtop + 0.04 * (bTop - bBase)) * atC * onB * step(top2 ? bl + fe : -1.0, ce));
     // The connector blocks: a rounded box a little wider than the bundle, standing as high as its tallest tube.
     if (top2) {
-      float dB = max(max(x0 - 2.0 - bU, bU - xe - 2.0), ce - bl);
-      env = max(env, mix(vl, mtop + 0.1 * u_inset_depth, smoothstep(0.0, 1.0, -dB / max(1.0, min(u_bevel, 0.3 * bl)))));
-      dTube = min(dTube, dB);
     }
     // Laid on top: the tubes replace the surface under them (and a dark contact groove lies between and beside them);
     // in a channel they stand on its floor.
     if (top2) {
-      float gw = 1.0 - smoothstep(0.0, 1.5, max(x0 - 1.5 - bU, bU - xe - 1.5));
-      v = mix(v, min(v, 0.6 * base), gw * step(bl, ce) * (1.0 - cov2));
+      // (A soft contact line 1–2 px beside each tube, a little below the surface — not a trench.)
+      v -= 0.06 * base * (1.0 - smoothstep(0.5, 2.5, dTube)) * (1.0 - cov2);
       v = mix(v, env, cov2);
-      v = max(v, env * (1.0 - step(bl, ce)));
-    } else v = max(v, env);
+    } else v = max(v, env * (p2 ? 1.0 - cov0 : 1.0));
+    if (!p2) cov0 = cov2;
     dD = min(dD, dTube);
    }
   }
@@ -2560,6 +2561,12 @@ GenOut gen(vec2 p) {
     float jb = max(1.0, min(u_bevel + 1.0, 5.0));
     // (A flat lid replacing what is under it, just above the tallest tube the settings allow, so none prints through.)
     v = mix(v, jtop, smoothstep(0.0, 1.0, -dJ / jb));
+    // A screw in each corner of the lid (the shared heads: an Allen bolt), and a fine lid seam inset from its edge.
+    // The box's half sides, from the crossing's middle: each channel's own half width (Width variation) and the margin.
+    vec2 hsJ = vec2(rte.z, rteS.z) + jm2;
+    float sr = clamp(0.1 * min(hsJ.x, hsJ.y), 1.5, 5.0);
+    v -= 0.15 * u_inset_depth * grb_cov(abs(dJ + jb + 1.5) - 0.5) * step(dJ, 0.0);
+    if (dJ < -jb && rteS.w >= 0.0) v += 0.4 * u_inset_depth * grb_fastener(1, vec2(rte.x, rteS.x) - sign(vec2(rte.x, rteS.x)) * (hsJ - jb - sr - 1.0), sr, 0.0).x;
     dD = min(dD, dJ);
     if (dJ < 0.0) dP = min(dP, dJ);
   }
@@ -2670,7 +2677,8 @@ GenOut gen(vec2 p) {
     // (Pipe runs laid on top stand up to twice Inset depth above the top plates.)
     if (u_chan_chance > 0.0 && u_chan_surface > 0.0) peak = max(peak, 0.8 + 2.6 * u_inset_depth * u_tube_lift);
     if (u_chan_chance > 0.0 || u_routes > 0) peak = max(peak, 0.75 * 1.3 * u_tube_lift);
-    if (u_routes > 1 && u_junction == 0) peak = max(peak, max(0.75 + u_inset_depth, (0.75 + 0.75 * u_inset_depth) * 1.3 * u_tube_lift) + 0.1 * u_inset_depth);
+    // (The junction lid, and its screws standing on it.)
+    if (u_routes > 1 && u_junction == 0) peak = max(peak, max(0.75 + u_inset_depth, (0.75 + 0.75 * u_inset_depth) * 1.3 * u_tube_lift) + 0.55 * u_inset_depth);
     v = clamp(v / max(peak, 1.0), 0.0, 1.0);
     if (u_mask == 0) return genOut(v, 1.0, rnd, NO_SDF);
     float dm = u_mask == 1 ? max(max(dP, -dHole), -dSunk) : u_mask == 2 ? dP : u_mask == 3 ? -dP : u_mask == 4 ? dF
