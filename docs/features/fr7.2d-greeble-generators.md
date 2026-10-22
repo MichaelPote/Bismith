@@ -151,11 +151,40 @@ raised top).
   that wrap round the tile) or segments up to the tile's short side; they follow the relief under them (negative height
   sinks channels).
 
+- **Pipe channels** (`chan` group). A cut in the top *Levels* may sink into a channel carrying a pipe run (*Chance*),
+  or a run laid on top of the pieces (*Laid on top*: hoses crossing panels, draped on the top plates, a connector block
+  and collar at each end). *Routes* are channels straight across the whole tile (down, across or mixed), cutting
+  through every panel they cross and wrapping onto themselves so tiled copies continue them; *Wander* steps them at 45°.
+  A run is a bundle of up to *Tubes* side by side — thick pipes (*Pipe size*) and cables (*Cable size*) by *Thick
+  share*, centred or against a wall — standing *Pipe lift* high in proportion to their radius, with clamp bands or
+  couplings every *Clamp spacing* (jittered, only on straight level runs), optional *Braid*. The floor sits *Floor*
+  of the top plate level, independent of the panel underneath.
+- **Bends.** A stepping line (`grb_jog`) is straight runs and true circular arcs of *Bend radius* (fitted to the room),
+  measured exactly — so the tubes of a run, at fixed offsets from its middle, are concentric round every bend. Zero
+  radius gives crisp corners through the same code. It also reports whether a point is on a level run (clamps).
+- **Crossings.** A route keeps level across the band where a route of the other direction can run, so crossings are
+  square. Inside a crossing both bundles are drawn — the down route's over, the across route's dipped under (showing
+  between the down cables), the taller tube on top — and the channel walls open. *Crossings*: *Junction box* (a flat
+  lid, *Box size* × the channel width, above the tallest tube) or *Over and under*.
+- **Dark pockets** (`pocket`, `pocket_part`, `pocket_max`). A piece below the top (at least 1.5 × Min panel across,
+  at most *Max pocket* long) may sink nearly to the floor and stop splitting. Its floor is a circuit board laid over its
+  real (stepping) outline and masked to its walls: a hero chip, long chips, pairs of small surface parts, capacitors,
+  pin headers, traces, chips with a raised lit rim, standing *Pocket parts* high (low keeps them in a height ramp's dark
+  band); 20 % get heatsink fins instead. Every pocket at least 60 × 24 px gets a connector with 2–4 wires stepping
+  aside at 45°.
+- **Hardware details**: switch rows (toggles or rockers), plug sockets (D-shell or round), sliders, keypads, fans —
+  chosen by *Hardware share* when one fits — besides vents, lights, recesses, perforation, ribs, pipes, mesh grilles,
+  circuit pockets and heatsink fins.
+
 The _Tech plates_ preset shows the octilinear look (jogs, cut corners, fill plates, borders, strips).
 
-Compile time (D3D11, cold): ~3.1 s against ~1.8 s for the old Panels (docs/shader-compilation.md has what was tried). The descent's bevels (a piece's rise, a border's
-step) share one profile evaluation, as do the final plate's (`grb_rise3`); recess walls, ribs and beams use a plain
-smooth ramp.
+**Shader variants.** The optional parts — pipe channels and routes (`GRB_CHAN`), cut jogs (`GRB_JOG`), beams
+(`GRB_BEAMS`), dark pockets (`GRB_POCKET`), hardware details (`GRB_HW`) — are `#ifdef`'d in the GLSL and compiled only
+into the variant of a layer that uses them (`LayerDef.shaderFeatures`, `shaderKey` in `src/render/materialPipeline.ts`;
+the editor compiles a variant in the background and runs the plain shader meanwhile). Cold compile (D3D11): ~4.1 s
+plain, ~4.6 s with hardware (the default layer), ~7.9 s with every part on; renders are identical to the single shader.
+The descent's bevels (a piece's rise, a border's step) share one profile evaluation, as do the final plate's
+(`grb_rise3`); recess walls, ribs and beams use a plain smooth ramp.
 
 Like vents and trim, the relief **writes a shape to its mask** (`mask`, _Shape for the mask_, default plate tops;
 `none` leaves the mask alone; `maskWrite` tells the mask analysis): plates, panels, seams, frames, rivets, details or

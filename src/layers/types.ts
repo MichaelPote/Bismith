@@ -91,6 +91,12 @@ export interface LayerDef {
 	 * hand stays.
 	 */
 	linkedDefaults?: (params: ParamValues) => ParamValues;
+	/**
+	 * Optional parts of the generator's shader that these params use: each name becomes a `#define` in a variant compiled
+	 * for the layers that need it (shaderKey), so a layer that leaves them off compiles without them. D3D11's cold compile
+	 * grows faster than the shader (docs/shader-compilation.md); keep the names few and stable.
+	 */
+	shaderFeatures?: (params: ParamValues) => string[];
 	/** Rewrites params stored before a change to this type's params (after the common migrations). */
 	migrate?: (params: ParamValues) => ParamValues;
 	/** Overrides for common param defaults (e.g. which channel outputs start enabled). */

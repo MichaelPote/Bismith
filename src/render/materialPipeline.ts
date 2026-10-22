@@ -140,18 +140,31 @@ export interface HeightStats {
 }
 
 const ASPECT_KEY = '~aspect';
+const FEATURES_KEY = '~f:';
 
 /**
- * The shader a generator layer runs, for compiling ahead (uncompiled / precompile): its type, or — an SDF layer with
- * Bevel aspect off 1 — the variant that also carries the exact stretched bevels (`#define BEVEL_ASPECT`, GLSL_BEVEL's
- * bevelAspectOn). At aspect 1 they would give the plain bevel anyway, so the usual shader leaves all that code out.
+ * The shader a generator layer runs, for compiling ahead (uncompiled / precompile): its type, plus the variant's parts —
+ * an SDF layer with Bevel aspect off 1 carries the exact stretched bevels (`#define BEVEL_ASPECT`, GLSL_BEVEL's
+ * bevelAspectOn; at aspect 1 they would give the plain bevel anyway), and a type's optional parts its params use
+ * (LayerDef.shaderFeatures, a `#define` each). The usual shader leaves all that code out.
  */
 export function shaderKey(layer: Pick<Layer, 'type' | 'params'>): string {
-	return getLayerDef(layer.type)?.sdf === true && Number(layer.params.bevel_aspect ?? 1) !== 1
-		? layer.type + ASPECT_KEY
-		: layer.type;
+	const def = getLayerDef(layer.type);
+	let key = layer.type;
+	if (def?.sdf === true && Number(layer.params.bevel_aspect ?? 1) !== 1) key += ASPECT_KEY;
+	const f = def?.shaderFeatures?.(layer.params) ?? [];
+	if (f.length) key += FEATURES_KEY + [...f].sort().join(',');
+	return key;
 }
-const shaderType = (key: string) => (key.endsWith(ASPECT_KEY) ? key.slice(0, -ASPECT_KEY.length) : key);
+const shaderType = (key: string) => key.split('~')[0];
+/** The `#define`s a shader key asks for. */
+function keyDefines(key: string): string {
+	const f = key.split(FEATURES_KEY)[1];
+	return (
+		(key.includes(ASPECT_KEY) ? '#define BEVEL_ASPECT\n' : '') +
+		(f ? f.split(',').map((n) => `#define ${n}\n`).join('') : '')
+	);
+}
 
 export class MaterialPipeline {
 	private gpu: Gpu;
@@ -163,10 +176,10 @@ export class MaterialPipeline {
 	/** Generator shaders compiled (run, or precompiled), by shaderKey. */
 	private compiled = new Set<string>();
 	/**
-	 * Compile a Bevel aspect variant (shaderKey) in the background where the browser can, running the plain shader
-	 * meanwhile (its bevel steps at the mitres) and calling onVariantReady to re-run when it is done: the editor, so the
-	 * first move of the slider off 1 doesn't freeze the page for a cold compile. Off for headless renders, which must
-	 * come out exact.
+	 * Compile a variant (shaderKey: Bevel aspect, a type's optional parts) in the background where the browser can,
+	 * running the plain shader meanwhile (its bevel steps at the mitres, the optional parts missing) and calling
+	 * onVariantReady to re-run when it is done: the editor, so the first move of such a slider doesn't freeze the page
+	 * for a cold compile. Off for headless renders, which must come out exact.
 	 */
 	deferVariants = false;
 	onVariantReady?: () => void;
@@ -538,7 +551,7 @@ ${fetches}
 		let done = 0;
 		await Promise.all(
 			todo.map(async (k) => {
-				await this.gpu.compile([this.generatorMaterial(getLayerDef(shaderType(k))!, k !== shaderType(k))]);
+				await this.gpu.compile([this.generatorMaterial(getLayerDef(shaderType(k))!, k)]);
 				this.compiled.add(k);
 				onProgress?.(++done, todo.length);
 			})
@@ -548,22 +561,22 @@ ${fetches}
 	private compileVariant(def: LayerDef, key: string): void {
 		if (this.pendingVariants.has(key)) return;
 		this.pendingVariants.add(key);
-		void this.gpu.compile([this.generatorMaterial(def, true)]).then(() => {
+		void this.gpu.compile([this.generatorMaterial(def, key)]).then(() => {
 			this.pendingVariants.delete(key);
 			this.compiled.add(key);
 			this.onVariantReady?.();
 		});
 	}
 
-	/** aspect: the variant with Bevel aspect's exact stretched bevels (BEVEL_ASPECT, see shaderKey). */
-	private generatorMaterial(def: LayerDef, aspect = false): THREE.RawShaderMaterial {
-		const key = `gen:${def.type}${aspect ? ASPECT_KEY : ''}${this.salt}`;
+	/** shader: the shaderKey of the variant (default: the plain shader). */
+	private generatorMaterial(def: LayerDef, shader: string = def.type): THREE.RawShaderMaterial {
+		const key = `gen:${shader}${this.salt}`;
 		let mat = this.materials.get(key);
 		if (!mat) {
 			const defs = layerParamDefs(def.type);
 			const frag =
 				(this.salt ? `// salt ${this.salt}\n` : '') +
-				(aspect ? '#define BEVEL_ASPECT\n' : '') +
+				keyDefines(shader) +
 				bevelCurveDefine(defs) +
 				MATERIAL_PRELUDE +
 				MRT_OUTS +
@@ -696,7 +709,7 @@ ${fetches}
 						this.compileVariant(def, key);
 						key = layer.type;
 					}
-					const mat = this.generatorMaterial(def, key !== layer.type);
+					const mat = this.generatorMaterial(def, key);
 					updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params);
 					this.bindTextures(def, layer, project, seed, mat);
 					this.setCommon(mat, project, seed);

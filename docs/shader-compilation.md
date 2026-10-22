@@ -200,7 +200,9 @@ at draw time, [doc](https://chromium.googlesource.com/angle/angle/+/HEAD/doc/Dyn
   [`passthrough_program_cache.h`](https://chromium.googlesource.com/chromium/src/+/195019cd1a4900bbdf372939132fe94de57f6885/gpu/command_buffer/service/passthrough_program_cache.h)),
   keyed by source, so a second visit is fast but any change to the source (a `#define`, a salt) is a cold compile.
   Specialising shaders with `#define`s multiplies cold compiles; Bismith keeps "everything is a uniform"
-  (docs/architecture.md).
+  (docs/architecture.md), except for optional parts a big generator compiles only when a layer uses them
+  (`LayerDef.shaderFeatures`, Bevel aspect's `BEVEL_ASPECT`): one extra cold compile when they are first switched on,
+  done in the background, against seconds off every plain compile.
 - Chrome's GPU watchdog kills a GPU process that stalls too long (10 s by default in 2017,
   [Ken Russell](https://groups.google.com/g/webgl-dev-list/c/9caMjxg7xO8)); the Traces and Cable shaders hung the page
   here before they were restructured.
@@ -229,6 +231,7 @@ Cold D3D11 compiles (RTX 5080), output unchanged unless noted:
 | Cable                                | page hang → ~0.5 s                         | one flat loop over rows × strands × chords; fibres in a loop over the surfaces                                                                                                                                                                                                                                                                                                                  | fr7.5  |
 | Custom bevel curve (every SDF layer) | Greebles 3.5 → 3.1 s, Bricks 1.45 → 1.35 s | `curve_<key>()` (`src/gpu/uniforms.ts`) looped to the constant capacity with `break` / `return`, and is inlined at every bevel-profile call site; now loops to the uniform count with a found flag (renders identical)                                                                                                                                                                          | —      |
 | Greebles                             | 3.7 → 3.1 s                                | the above; a pinwheel's two cut positions through one loop (one copy of the cut helpers); randoms packed four to a hash; the 8-way nearest-sides search as flat vector math; one tube composition for detail and strip pipes; the recess wall a plain ramp (one fewer profile site). No measurable effect: a lookup table for the pinwheel's child rects, a done flag instead of `break` (kept) | fr7.2d |
+| Greebles, optional parts             | 7.9 → 4.6 s (default layer), 4.1 s plain | pipe channels and routes, jogs, beams, dark pockets and hardware details `#ifdef`'d and compiled only into the variant of a layer that uses them (`LayerDef.shaderFeatures` → `shaderKey`, a `#define` each; the editor compiles a variant in the background, like Bevel aspect's). Renders identical. Flattening the connector's wires into one loop and merging the jog's crisp and arc paths gave ≤ 0.4 s | fr7.2d |
 
 - The fixed overhead of a generator shader is ~0.2 s (fr7.2a).
 - Not every flattening helps: folding Drips' doubled-strike check into the main loop as a state machine compiled

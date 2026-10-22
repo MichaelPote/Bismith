@@ -224,7 +224,10 @@ export function traceLinks(o: TraceLinkOptions): TraceLinks {
 		for (let x = 0; x < nx; x++) {
 			const i = y * nx + x;
 			const linked = link(x, y, out[i]);
-			if (linked) links[i] = 1 << out[i]; // parenthesised: esbuild reads "<< out" as a TS variance modifier
+			// (Through a named shift, not `1 << out[i]`: esbuild reads "<< out" as a TS variance modifier, and a formatter
+			// strips the parentheses that used to guard it — AGENTS.md.)
+			const dir = out[i];
+			if (linked) links[i] = 1 << dir;
 			// Degree: the outgoing link plus the one accepted incoming link.
 			const a = acc[i];
 			finish(x, y, i, (linked ? 1 : 0) + (a >= 0 && link(x - KING[a][0], y - KING[a][1], a) ? 1 : 0));
