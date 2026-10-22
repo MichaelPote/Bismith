@@ -1159,6 +1159,15 @@ vec2 grb_wmLine(vec2 j, vec2 cw, uint id) {
 // at least a quarter of the top's — so seams between pieces always cut down, finer and shallower deeper in.
 float grb_lift(float hb, float g) { return hb + max(0.75 - hb, 0.1875) * g; }
 
+// The 45° cuts across the corners of the box lo..hi, legs k (x bottom-left, y bottom-right, z top-left, w top-right;
+// 0 = none): the distance out past the nearest (-1e4 where none).
+float grb_corners(vec2 p, vec2 lo, vec2 hi, vec4 k) {
+  vec2 pc = p - 0.5 * (lo + hi), h = 0.5 * (hi - lo);
+  vec4 dc = (vec4(-pc.x, pc.x, -pc.x, pc.x) + vec4(-pc.y, -pc.y, pc.y, pc.y) - (h.x + h.y) + k) * 0.70710678;
+  dc = mix(vec4(-1e4), dc, step(0.5, k));
+  return max(max(dc.x, dc.y), max(dc.z, dc.w));
+}
+
 // Bevel rises (grb_rise) of three distances, each over its own width, through one copy of the profile.
 vec3 grb_rise3(vec3 d, vec3 w) {
   vec3 r = vec3(0.0);
@@ -1311,6 +1320,13 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
     float mB = min(min(insB.x, insB.y), min(insB.z, insB.w));
     vec4 dSi = dS - insB;
     float dIn = min(min(min(dSi.x, dSi.y), min(dSi.z, dSi.w)), min(min(dG.x, dG.y), min(dG.z, dG.w)) - mB);
+    // (By Cut corners, a border's inside has its corners cut at 45° too: a large octagonal raised plate, its chamfered
+    // step following the cuts.)
+    if (grb_rand(id, 73u) < u_cut_chance) {
+      vec2 ilo = bb.xy + insB.xz, ihi = bb.zw - insB.yw;
+      float kc = floor(u_cut_size * min(ihi.x - ilo.x, ihi.y - ilo.y) + 0.5);
+      if (kc >= 3.0) dIn = min(dIn, -grb_corners(q, ilo, ihi, vec4(kc)));
+    }
     // (A border's step takes Borders › Step bevel if set: wide chamfered insets.)
     float bS = u_frame_bevel > 0.0 ? min(u_frame_bevel, max(0.45 * min(sz.x, sz.y) - u_frame_inset, 0.5)) : bN;
     vec2 rN = grb_rise3(vec3(-dNr, -dIn, 1e4), vec3(bN, bS, 1.0)).xy;
@@ -1574,14 +1590,6 @@ vec2 grb_stop(vec2 u, bvec3 tf, vec2 lo, vec2 hi) {
   return mix(lo + floor(u * (hi - lo) + 0.5), hi, step(0.9995, u));
 }
 
-// The 45° cuts across the corners of the box lo..hi, legs k (x bottom-left, y bottom-right, z top-left, w top-right;
-// 0 = none): the distance out past the nearest (-1e4 where none).
-float grb_corners(vec2 p, vec2 lo, vec2 hi, vec4 k) {
-  vec2 pc = p - 0.5 * (lo + hi), h = 0.5 * (hi - lo);
-  vec4 dc = (vec4(-pc.x, pc.x, -pc.x, pc.x) + vec4(-pc.y, -pc.y, pc.y, pc.y) - (h.x + h.y) + k) * 0.70710678;
-  dc = mix(vec4(-1e4), dc, step(0.5, k));
-  return max(max(dc.x, dc.y), max(dc.z, dc.w));
-}
 
 // One polygon edge a → b for the distance (d2: nearest squared) and the even-odd inside test (s).
 void grb_edge(vec2 p, vec2 a, vec2 b, inout float d2, inout float s) {
@@ -2050,7 +2058,7 @@ GenOut gen(vec2 p) {
       // Hardware: a row of switches, a plug socket, a slider (a long area), a keypad, a fan (a squarish one).
       bool f7 = u_det_switch && min(sl0.x, sl0.y) >= 6.0;
       bool f8 = u_det_socket && sl0.y >= 6.0 && sl0.x >= 1.25 * sl0.y;
-      bool f9 = u_det_slider && sl0.y >= 5.0 && sl0.x >= 3.0 * sl0.y;
+      bool f9 = u_det_slider && sl0.y >= 5.0 && sl0.x >= 2.0 * sl0.y;
       bool f10 = u_det_keypad && sl0.y >= 9.0;
       bool f11 = u_det_fan && sl0.y >= 12.0 && sl0.x <= 1.7 * sl0.y;
 #ifndef GRB_HW
@@ -2242,7 +2250,8 @@ GenOut gen(vec2 p) {
         // A row of switches along the area: toggles (a hex nut, a lever leaning up or down with a ball tip) or rockers
         // (a sunk bezel, a paddle tilted one way).
         bool rock = pb2.w < 0.4;
-        float n = clamp(floor(sl.x / max(1.1 * sl.y, 4.0)), 1.0, 5.0);
+        // (A bank: 2–5 across, so even a squarish module gets a row, not one lonely switch.)
+        float n = clamp(floor(sl.x / max(0.5 * sl.y, 4.0)), 2.0, 5.0);
         float pit = sl.x / n;
         float jx = clamp(floor((ql.x - lo2.x) / pit), 0.0, n - 1.0);
         float u0 = min(pit, sl.y);
@@ -2335,7 +2344,8 @@ GenOut gen(vec2 p) {
         v -= 0.9 * hd * grb_cov(dh);
         v += 0.35 * hd * grb_cov(abs(dh + rw) - rw);
         v += 0.8 * hd * blade * (1.0 - 1.4 * bf) * grb_cov(dh);
-        v = max(v, vh - 0.2 * hd + 0.8 * hd * grb_dome(rho, 0.26 * R));
+        // (The hub only at the centre: a max over the whole housing flattened the blades.)
+        if (rho < 0.28 * R) v = max(v, vh - 0.2 * hd + 0.8 * hd * grb_dome(rho, 0.26 * R));
         dD = dh;
 #endif
       } else if (kind == 12) {
@@ -2390,7 +2400,18 @@ GenOut gen(vec2 p) {
           pin = max(abs(abs(sq.x) - 0.36 * cp) - 0.07 * cp, abs(sq.y) - 0.12 * cp);
         }
         if (off || pt == 1) pin = 1e3;
-        if (off) dc2 = 1e3;
+        // (In a dark pocket, a part that would cross a 45° wall is left out, not cut into a triangle.)
+        if (pkt && !off) {
+          // (Corners in the screen's axes: the detail runs along its longer side, ql, maybe swapped.)
+          vec2 e2c = (pt == 1 ? vec2(0.38 * cp) : ch2) + 1.5;
+          float cw = -1e4;
+          for (int k = 0; k < 4 * GRB_1; k++) {
+            vec2 cq = ccen + e2c * vec2(k == 1 || k == 3 ? 1.0 : -1.0, k >= 2 ? 1.0 : -1.0);
+            cw = max(cw, grb_corners(horiz ? cq : cq.yx, pb.xy, pb.zw, pk));
+          }
+          if (cw > -1.0 - max(u_bevel, 1.0)) off = true;
+        }
+        if (off) { dc2 = 1e3; pin = 1e3; }
         // (In a dark pocket: none on its walls.)
         if (pkt) { dc2 = max(dc2, 2.0 + max(u_bevel, 1.0) - cA); pin = max(pin, 2.0 + max(u_bevel, 1.0) - cA); }
         // Traces: thin lines along the cell gaps.
@@ -2439,7 +2460,7 @@ GenOut gen(vec2 p) {
           dW = max(dW, 2.0 + max(u_bevel, 1.0) - cA);
           dCn = max(dCn, 2.0 + max(u_bevel, 1.0) - cA);
           // (Opaque, above the chips: a round wire covering whatever is under it.)
-          v = mix(v, flr + 1.9 * ph + 0.5 * ph * grb_dome(max(dW + wr, 0.0), wr), grb_cov(dW));
+          v = mix(v, flr + 1.0 * ph + 1.4 * ph * grb_dome(max(dW + wr, 0.0), wr), grb_cov(dW));
           v = mix(v, flr + 2.6 * ph, smoothstep(0.0, 1.0, -dCn / 1.5));
         }
 #endif
