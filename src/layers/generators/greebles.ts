@@ -2251,7 +2251,7 @@ GenOut gen(vec2 p) {
         // (a sunk bezel, a paddle tilted one way).
         bool rock = pb2.w < 0.4;
         // (A bank: 2–5 across, so even a squarish module gets a row, not one lonely switch.)
-        float n = clamp(floor(sl.x / max(0.5 * sl.y, 4.0)), 2.0, 5.0);
+        float n = clamp(floor(sl.x / max(0.8 * sl.y, 4.0)), 2.0, 5.0);
         float pit = sl.x / n;
         float jx = clamp(floor((ql.x - lo2.x) / pit), 0.0, n - 1.0);
         float u0 = min(pit, sl.y);
@@ -2542,8 +2542,8 @@ GenOut gen(vec2 p) {
         float wv = 3.14159 / max(0.7 * r, 0.8);
         float br = u_braid * (1.0 - atE) * 0.15 * (0.5 + 0.5 * sin((bT + bU - tc) * wv) * sin((bT - bU + tc) * wv));
         float dmh = grb_dome(x, rr2);
-        // (A collar is a cylinder, not a dome: flattened.)
-        dmh = mix(dmh, min(1.0, 1.6 * dmh), atE);
+        // (A collar keeps the tube's round profile, wider; a fine groove rings it halfway along.)
+        dmh *= 1.0 - 0.25 * atE * (1.0 - smoothstep(0.4, 1.2, abs(ce - 0.5 * bl)));
         // (Only under the tube itself: no flat bed beside it.)
         float on = 1.0;
         env = max(env, (base + (ht - base) * dmh * (1.0 - br)) * on * step(x, rr2 + 0.5));
