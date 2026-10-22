@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "name": "Rust patches",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 0.5,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_x4xrl3w",
+      "type": "noise",
+      "name": "Rust patches",
+      "enabled": true,
+      "params": {
+        "noise": "perlin",
+        "fractal": "fbm",
+        "scale": 6,
+        "stretch": 1,
+        "jitter": 1,
+        "metric": "euclidean",
+        "w_even": true,
+        "w_wall": 0.15,
+        "w_profile": "smooth",
+        "octaves": 7,
+        "lacunarity": 2,
+        "gain": 0.78,
+        "ridge": 0.4,
+        "crease": 0.5,
+        "hier": 0.7,
+        "warp": 0,
+        "warp_scale": 4,
+        "even": true,
+        "contrast": 1,
+        "bias": 0,
+        "soft": 0,
+        "block": 1,
+        "phase": 0,
+        "seed": 5,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0.6,
+        "sh_cut_soft": 0.06,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#b07848"
+            },
+            {
+              "pos": 1,
+              "color": "#c89058"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.25,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_xufmx6c",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_mltaw6d",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Blotchy rust staining",
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "id": "pr_awqbe6h",
+    "category": "Wear",
+    "kind": "layer",
+    "target": "noise"
+  }
+}

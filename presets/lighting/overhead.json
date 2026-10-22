@@ -1,0 +1,320 @@
+{
+  "version": 1,
+  "name": "Overhead",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_ka9mj5i",
+      "type": "noise",
+      "name": "Stage noise",
+      "enabled": true,
+      "params": {
+        "noise": "perlin",
+        "fractal": "fbm",
+        "scale": 3,
+        "stretch": 1,
+        "jitter": 1,
+        "metric": "euclidean",
+        "w_even": true,
+        "w_wall": 0.15,
+        "w_profile": "smooth",
+        "octaves": 4,
+        "lacunarity": 2,
+        "gain": 0.5,
+        "ridge": 0.4,
+        "crease": 0.5,
+        "hier": 0.7,
+        "warp": 0,
+        "warp_scale": 4,
+        "even": true,
+        "contrast": 1,
+        "bias": 0,
+        "soft": 0,
+        "block": 1,
+        "phase": 0,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": false,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#2a2622"
+            },
+            {
+              "pos": 1,
+              "color": "#b8ab98"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.12,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_tapba5j",
+      "type": "bricks",
+      "name": "Stage bricks",
+      "enabled": true,
+      "params": {
+        "columns": 2,
+        "rows": 4,
+        "stagger": 0.5,
+        "mortar": 3,
+        "joint_var": 0,
+        "round": 1,
+        "mortar_level": 0.2,
+        "vertical": false,
+        "row_jitter": 0,
+        "len_var": 0.25,
+        "row_var": 0,
+        "min_size": 0.5,
+        "size_jitter": 0,
+        "pos_jitter": 0,
+        "rot_jitter": 0.5,
+        "shape_var": 0,
+        "close": true,
+        "crease": true,
+        "wobble": 0,
+        "wobble_var": 0.7,
+        "wobble_scale": 1,
+        "chips": 0,
+        "chip_size": 0.3,
+        "chip_depth": 0.6,
+        "chip_break": 0.35,
+        "chip_dust": 0.45,
+        "face": 0.35,
+        "crown": 0,
+        "face_tilt": 0.5,
+        "seed": 1,
+        "bevel": 3,
+        "profile": "round",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": false,
+        "dif_src": "random",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#4e2419"
+            },
+            {
+              "pos": 0.3333333333333333,
+              "color": "#7a3a27"
+            },
+            {
+              "pos": 0.6666666666666666,
+              "color": "#93513a"
+            },
+            {
+              "pos": 1,
+              "color": "#a8674c"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.5,
+        "h_offset": 0,
+        "h_var": 0.3,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#9fb4c8",
+      "horizon": "#c8c2b8",
+      "intensity": 0.6
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_nlcrr5c",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e0",
+          "intensity": 1,
+          "azimuth": 330,
+          "elevation": 70,
+          "angle": 4
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_3h6bn5e",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "High sun and a bright sky — even, readable texture light",
+  "preview": "data:image/webp;base64,UklGRtICAABXRUJQVlA4WAoAAAAgAAAAfwAAfwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgg5AAAAHALAJ0BKoAAgAA+tVqkTyclJ6IhlVn48BaJaTsrWBieTWMAGJ8jqQNjfwB6HWT0lnrmUi1Uh4T0aCZ/30MTLnezAYs6iTsH2zJ6y8KU6aAArA8V3j3X1hil1QBnvxZ87MXRaMAA/r7Ud5w6prT/j1HIoQKhcgvowq78FjEXEbq2zGTAtSX4AfuULXecXyKXEv/0DnbtRCXSbWDyKhcBfiHLU25Rbr9VZfuOiBScOrVpEM6ZGquERurZ50DUR6NN6Xb6x53KsvmN/nWhQNwz40uUknQ/luY8ffRrgFSApGUGTSAAAA==",
+  "preset": {
+    "id": "lighting-overhead",
+    "category": "Lighting",
+    "kind": "lighting"
+  }
+}

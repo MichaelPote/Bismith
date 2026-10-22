@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { SHAPE_MASK, hiddenByMaterial, type Project } from '@/core/project';
 import { Gpu } from '@/gpu/context';
 import { GLSL_COMMON } from '@/layers/glsl/common';
-import { MaterialPipeline } from './materialPipeline';
+import { MaterialPipeline, shaderKey } from './materialPipeline';
 import { PathTracer } from './pathtracer';
 import { PostStack } from './post/stack';
 import { Display, type ChannelView, type DisplayOptions, type ViewTransform } from './display';
@@ -63,6 +63,14 @@ export interface ImageData32 {
 	height: number;
 	/** RGBA float, rows top-to-bottom. */
 	data: Float32Array;
+}
+
+/** After the next paint (or 100 ms, where a hidden page gets no frames). */
+function painted(): Promise<void> {
+	return new Promise((resolve) => {
+		requestAnimationFrame(() => setTimeout(resolve, 0));
+		setTimeout(resolve, 100);
+	});
 }
 
 export class Engine {
@@ -217,9 +225,22 @@ export class Engine {
 		return this.gpu.parallelCompile;
 	}
 
-	/** Compile generator shaders ahead of their first use (see MaterialPipeline.precompile). */
-	precompile(keys: string[], onProgress?: (done: number, total: number) => void): Promise<void> {
-		return this.material.precompile(keys, onProgress);
+	/**
+	 * Compile generator shaders ahead of their first use (see MaterialPipeline.precompile). Where the browser compiles
+	 * off the main thread they go as one parallel batch. Elsewhere (Firefox) each compile blocks the page, and a batch
+	 * would block for all of them at once with the progress jumping 0 → 100 % at the end: there they go one at a time
+	 * with a painted frame between, so a progress bar moves. `onProgress` hears the count done and, while one is
+	 * pending, the key compiling next.
+	 */
+	async precompile(keys: string[], onProgress?: (done: number, total: number, next?: string) => void): Promise<void> {
+		if (this.parallelCompile) return this.material.precompile(keys, onProgress);
+		const todo = this.uncompiled(keys);
+		for (let i = 0; i < todo.length; i++) {
+			onProgress?.(i, todo.length, todo[i]);
+			await painted();
+			await this.material.precompile([todo[i]]);
+		}
+		onProgress?.(todo.length, todo.length);
 	}
 
 	/** Make the next compiles cold (a fresh salt in the shaders): for measuring compile times only. */
@@ -429,6 +450,53 @@ export class Engine {
 		this.postDirty = false;
 		this.displayDirty = true;
 		this.kick();
+	}
+
+	/**
+	 * Render the project for an export (FR8.16a) and `read` the result: `samples` from zero (never fewer than its
+	 * maxSamples) at `supersample` (a project supersampled more keeps its own), with jitter on so edges are antialiased.
+	 * Unlike renderNow it traces in chunks with a painted frame between, so the page stays responsive and `onProgress`
+	 * (0..1) can show it; `signal` cancels (null is returned). `samples` 0 traces nothing: material maps only. The interactive loop is suspended meanwhile and resumed
+	 * with the user's project after.
+	 */
+	async renderExport<T>(
+		opts: { samples: number; supersample: number; signal?: AbortSignal; onProgress?: (f: number) => void },
+		read: () => T
+	): Promise<T | null> {
+		const project = this.project;
+		if (!project) throw new Error('No project');
+		const r = project.render;
+		const target = opts.samples > 0 ? Math.max(r.maxSamples, opts.samples) : 0;
+		const supersample = Math.max(supersampleFactor(project), Math.min(4, Math.max(1, Math.round(opts.supersample))));
+		const wasSuspended = this.suspended;
+		this.suspend();
+		try {
+			this.setProject({ ...project, render: { ...r, supersample, jitter: true } });
+			await this.precompile((this.inner ?? project).layers.map(shaderKey));
+			if (opts.signal?.aborted) return null;
+			this.prepare();
+			const gl = this.gpu.renderer.getContext();
+			gl.finish();
+			this.tracer.reset();
+			// Chunks sized to ~40 ms of GPU work, so a big texture doesn't block for long and a small one isn't held back
+			// by a frame per few samples.
+			let chunk = 2;
+			while (this.tracer.samples < target) {
+				const t0 = performance.now();
+				this.tracer.trace(Math.min(chunk, target - this.tracer.samples), target);
+				gl.finish();
+				const ms = performance.now() - t0;
+				chunk = Math.max(1, Math.min(256, Math.round(chunk * Math.min(4, 40 / Math.max(1, ms)))));
+				opts.onProgress?.(this.tracer.samples / target);
+				await painted();
+				if (opts.signal?.aborted) return null;
+			}
+			if (target > 0) this.post.run(this.project!, this.traced()!);
+			return read();
+		} finally {
+			if (wasSuspended) this.setProject(project);
+			else this.resume(project);
+		}
 	}
 
 	/** The traced image at the texture size: the tracer output, box-filtered down when supersampling. */

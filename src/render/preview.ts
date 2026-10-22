@@ -47,21 +47,3 @@ export function capturePreview(engine: Engine | null | undefined): string | unde
 		return undefined;
 	}
 }
-
-/** Decode a preview to RGBA8 pixels (for ImageCanvas). Browser only. */
-export async function decodePreview(
-	url: string
-): Promise<{ pixels: Uint8ClampedArray; width: number; height: number }> {
-	const bmp = await createImageBitmap(await (await fetch(url)).blob());
-	const canvas = document.createElement('canvas');
-	canvas.width = bmp.width;
-	canvas.height = bmp.height;
-	const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-	ctx.drawImage(bmp, 0, 0);
-	bmp.close();
-	return {
-		pixels: ctx.getImageData(0, 0, canvas.width, canvas.height).data,
-		width: canvas.width,
-		height: canvas.height
-	};
-}

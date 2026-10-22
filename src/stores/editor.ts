@@ -4,7 +4,10 @@ import { defineStore } from 'pinia';
 import { markRaw, ref, shallowRef } from 'vue';
 import type { Engine, EngineStats } from '@/render/engine';
 import type { ChannelView } from '@/render/display';
-import { SHAPE_MASK } from '@/core/project';
+import { SHAPE_MASK, type PresetKind } from '@/core/project';
+
+/** A card a preset is applied to or saved from. */
+export type PresetSource = { kind: 'layer' | 'material' | 'light' | 'post'; id: string } | { kind: 'lighting' };
 
 /** 'base' is the Base row of the layer list: the project panel, highlighted on that row. */
 export type SelectionKind = 'project' | 'base' | 'layer' | 'light' | 'post' | 'material';
@@ -53,11 +56,25 @@ export const useEditorStore = defineStore('editor', () => {
 	 * unless `instant` (when the work will freeze the page, the modal has to be on screen before it starts). `progress`
 	 * (0…1), when given, draws a progress bar: the share of the steps done, e.g. shaders compiled.
 	 */
-	const busy = ref<{ title: string; detail?: string; instant?: boolean; progress?: number } | null>(null);
+	const busy = ref<{
+		title: string;
+		detail?: string;
+		instant?: boolean;
+		progress?: number;
+		/** Shows a Cancel button that calls it. */
+		cancel?: () => void;
+	} | null>(null);
 	/** The open question (see ask), with the function that answers it. */
 	const question = shallowRef<(Question & { answer: (id: string | null) => void }) | null>(null);
 	/** The new-project wizard is open. */
 	const wizard = ref(false);
+	/**
+	 * The preset dialog (FR5.4): save a card as a preset (`source` names it), save the project as a template, or manage
+	 * the user's presets (of `kind`, or all).
+	 */
+	const presetDialog = ref<
+		{ mode: 'save'; source: PresetSource } | { mode: 'template' } | { mode: 'manage'; kind?: PresetKind } | null
+	>(null);
 	const shapeTool = ref<ShapeTool>('edit');
 
 	function select(kind: SelectionKind, id?: string): void {
@@ -92,6 +109,7 @@ export const useEditorStore = defineStore('editor', () => {
 
 	return {
 		wizard,
+		presetDialog,
 		shapeTool,
 		selection,
 		workspace,

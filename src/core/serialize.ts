@@ -18,6 +18,8 @@ import {
 	type Layer,
 	type Light,
 	type PostFilter,
+	type PresetInfo,
+	type PresetKind,
 	type Project,
 	type SmartMaterial
 } from './project';
@@ -65,6 +67,27 @@ const PREVIEW_PATTERN = /^data:image\/(webp|jpeg|png);base64,[A-Za-z0-9+/]+=*$/;
 /** A project preview (Project.preview): a base64 WebP, JPEG or PNG data URL of reasonable size. */
 export function isPreview(v: unknown): v is string {
 	return typeof v === 'string' && v.length <= PREVIEW_LIMIT && PREVIEW_PATTERN.test(v);
+}
+
+const PRESET_KINDS: PresetKind[] = ['project', 'layer', 'material', 'light', 'lighting', 'post'];
+const IMAGE_PATTERN = /^data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/]+=*$/;
+
+/** A valid preset header (Project.preset), or undefined; images that aren't base64 image data URLs are dropped. */
+function presetInfo(v: unknown): { preset: PresetInfo } | undefined {
+	if (!v || typeof v !== 'object') return undefined;
+	const r = v as Record<string, unknown>;
+	if (!PRESET_KINDS.includes(r.kind as PresetKind)) return undefined;
+	const preset: PresetInfo = { kind: r.kind as PresetKind, id: typeof r.id === 'string' && r.id ? r.id : newId() };
+	if (typeof r.target === 'string' && r.target) preset.target = r.target;
+	if (typeof r.category === 'string' && r.category.trim()) preset.category = r.category.trim();
+	if (Array.isArray(r.tags)) preset.tags = r.tags.filter((t): t is string => typeof t === 'string');
+	if (r.images && typeof r.images === 'object') {
+		const images = Object.entries(r.images as Record<string, unknown>).filter(
+			(e): e is [string, string] => typeof e[1] === 'string' && IMAGE_PATTERN.test(e[1])
+		);
+		if (images.length) preset.images = Object.fromEntries(images);
+	}
+	return { preset };
 }
 
 function num(v: unknown, def: number, min: number, max: number, int = false): number {
@@ -170,6 +193,7 @@ export function normalizeProject(input: unknown): Project {
 	return {
 		version: PROJECT_VERSION,
 		name: str(raw.name, 'Untitled'),
+		...(typeof raw.description === 'string' && raw.description.trim() ? { description: raw.description } : {}),
 		width: num(raw.width, 128, 1, MAX_SIZE, true),
 		height: num(raw.height, 128, 1, MAX_SIZE, true),
 		tileable: raw.tileable !== false,
@@ -208,11 +232,14 @@ export function normalizeProject(input: unknown): Project {
 			jitter: rr.jitter !== false,
 			clamp: num(rr.clamp, render.clamp, 0, 1000),
 			shadows: rr.shadows !== false,
-			supersample: num(rr.supersample, 1, 1, 4, true)
+			supersample: num(rr.supersample, 1, 1, 4, true),
+			exportSamples: num(rr.exportSamples, render.exportSamples, 1, 65536, true),
+			exportSupersample: num(rr.exportSupersample, render.exportSupersample, 1, 4, true)
 		},
 		post,
 		// Last, so the file's readable part comes first.
-		...(isPreview(raw.preview) ? { preview: raw.preview } : {})
+		...(isPreview(raw.preview) ? { preview: raw.preview } : {}),
+		...(presetInfo(raw.preset) ?? {})
 	};
 }
 

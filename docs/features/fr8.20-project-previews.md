@@ -18,13 +18,12 @@ project has one shows it at once.
 - **Writing**: Save project (Ctrl+S) and Export all maps capture it from what the viewport shows at that moment
   (`capturePreview` in `render/preview.ts`, the export's final pixels). Only the file gets it — the open project is left
   alone, so saving adds no undo step; if nothing has rendered yet the previous preview is kept.
-- **Wizard**: a card whose project has a preview decodes it once (`decodePreview`) and is left out of the shader batch
-  and the render queue; a preview that fails to decode drops out and the card renders as before. The suggestions take
-  fresh random colours each time, so they still render.
-- **Examples**: the presets are built in code, so `tools/previews.ts` renders each on the GPU harness and writes
-  `src/presets/previews.ts` (preset id → preview, ~25 KB for the 11); `PRESETS` attach them to the projects they build.
+- **Wizard**: every card shows its preset's preview as an image; since FR8.16a the wizard never compiles or renders
+  (a preset without one shows a placeholder).
+- **Examples**: the presets are files in `presets/` (FR5.4 v2), so each carries its own preview: `tools/previews.ts`
+  renders them on the GPU harness and writes the preview into the file (`--missing` for new ones).
   `presets.test.ts` checks every preset has one — after adding or changing a preset, run `npx tsx tools/previews.ts`
-  (`--only id1,id2` for some).
+  (`--only project/bricks,torch` for some).
 
 ## Checklist
 

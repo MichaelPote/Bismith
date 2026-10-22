@@ -60,5 +60,15 @@ export const RENDER_DEFS: ParamDef[] = [
 	}),
 	P.int('supersample', 'Supersample', 1, 1, 4, {
 		hint: 'Render the surface and lighting at 2–4× and average down: finer 1 px highlights, thin joints and small holes (costs k² time). Shown as @Nx beside the project in the outliner'
+	}),
+	P.int('exportSamples', 'Samples', 1024, 1, 65536, {
+		section: 'Export',
+		softMin: 1,
+		softMax: 4096,
+		hint: 'Samples File ▸ Export PNG traces (never fewer than Max samples): exports come out cleaner than the viewport'
+	}),
+	P.int('exportSupersample', 'Supersample', 2, 1, 4, {
+		section: 'Export',
+		hint: 'Exports render at this many × the size and average down (antialiased edges); a project supersampled more keeps its own'
 	})
 ];

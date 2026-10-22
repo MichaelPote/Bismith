@@ -111,6 +111,10 @@ export interface RenderSettings {
 	 * down before post, so 1 px details are computed finer and averaged (core/supersample.ts).
 	 */
 	supersample?: number;
+	/** Samples an export (File ▸ Export PNG, the Render map) traces: at least maxSamples (FR8.16a). */
+	exportSamples: number;
+	/** Supersampling of exports 1–4; a project already supersampled more keeps its own (FR8.16a). */
+	exportSupersample: number;
 }
 
 export interface PostFilter {
@@ -130,9 +134,28 @@ export interface MaterialBase {
 	opacity: number;
 }
 
+/** What a preset applies to (docs/features/fr5.4-presets.md). */
+export type PresetKind = 'project' | 'layer' | 'material' | 'light' | 'lighting' | 'post';
+
+/** The header that makes a project file a preset (Project.preset). */
+export interface PresetInfo {
+	kind: PresetKind;
+	/** The layer type, recipe id, light type or post filter type it applies to (none for project and lighting). */
+	target?: string;
+	/** Random; lets an import recognise a preset it already has. */
+	id: string;
+	/** How menus group it; none = Other. */
+	category?: string;
+	tags?: string[];
+	/** The images its item uses (Stamp › Image file), by name, as data URLs: the file carries the pixels. */
+	images?: Record<string, string>;
+}
+
 export interface Project {
 	version: number;
 	name: string;
+	/** Free text about the project, shown on hover in the wizard and preset menus. */
+	description?: string;
 	width: number;
 	height: number;
 	/** Wrap noise, shapes, filters and light rays so the texture repeats seamlessly. */
@@ -159,6 +182,8 @@ export interface Project {
 	 * Optional; rendering ignores it.
 	 */
 	preview?: string;
+	/** Present when the file is a preset (FR5.4): what it applies to and how it is listed. */
+	preset?: PresetInfo;
 }
 
 export const SIZE_PRESETS = [16, 32, 64, 128, 256, 512, 1024];
@@ -185,7 +210,9 @@ export function defaultRender(): RenderSettings {
 		jitter: true,
 		clamp: 8,
 		shadows: true,
-		supersample: 1
+		supersample: 1,
+		exportSamples: 1024,
+		exportSupersample: 2
 	};
 }
 

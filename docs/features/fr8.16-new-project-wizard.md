@@ -10,6 +10,10 @@ And one place to add anything to the layer list.
 
 ## Design
 
+> **Superseded in part by FR8.16a:** the Suggestions, Shuffle colours and the colour schemes (`match/schemes.ts`) are
+> gone, and so is the wizard's compile and render queue. It now shows Blank and the project presets (FR5.4) from
+> their stored previews. The design below is kept as a record.
+
 - **Add grid** (outliner +): Noise · Shapes · Patterns · **Smart materials** · Filters · Adjust as tile rows — the
   composites sit right after the generators they are made of. The separate ◆ button is gone.
 - **Wizard** (`ui/panels/NewProjectWizard.vue`, `editor.wizard`): Starters — Blank (no layers, base material only)

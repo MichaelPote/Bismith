@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "name": "Grass",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 0.375,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_uolpl4t",
+      "type": "grass",
+      "name": "Grass",
+      "enabled": true,
+      "params": {
+        "length": 1.26,
+        "length_var": 0.658,
+        "width": 0.31,
+        "width_var": 0.0185,
+        "shape": "blade",
+        "taper": 0.899,
+        "density": 0.578,
+        "angle": 269,
+        "spread": 93.6,
+        "bend": 23.4,
+        "curl": 209,
+        "wiggle": 79.1,
+        "clump": 0.0229,
+        "arch": 0.237,
+        "lift": 1.17,
+        "relief": 0.443,
+        "relief_scale": 17.4,
+        "depth": 0.313,
+        "shadow": 0.868,
+        "shadow_w": 0.1,
+        "fold": 0.173,
+        "light": 251,
+        "blade_var": 0.737,
+        "round": 0.279,
+        "kinds": false,
+        "kind_share": 0.4,
+        "gaps": "fill",
+        "bare": 0.2,
+        "bare_scale": 6.87,
+        "bare_detail": 0.878,
+        "bare_invert": false,
+        "patches": 0.153,
+        "patch_scale": 12.2,
+        "seed": 1,
+        "patch_seed": 1,
+        "ofs_x": 0,
+        "ofs_y": -4.225,
+        "dw_amount": 0.385,
+        "dw_scale": 1.57,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 0.967,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 0.979,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 0.746,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0.0746,
+              "color": "#495820"
+            },
+            {
+              "pos": 0.19,
+              "color": "#387923"
+            },
+            {
+              "pos": 0.667,
+              "color": "#76922f"
+            },
+            {
+              "pos": 1,
+              "color": "#95ad5b"
+            }
+          ]
+        },
+        "dif_jitter": 0.0206,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 1.14,
+        "h_offset": 0,
+        "h_var": 0.379,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_qnifs76",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_rax1t77",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Dense blades of grass",
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "id": "pr_nlgho7b",
+    "category": "Organic",
+    "kind": "layer",
+    "target": "grass"
+  }
+}

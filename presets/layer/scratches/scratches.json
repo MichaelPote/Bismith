@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "name": "Scratches",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 3,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_twgr506",
+      "type": "scratches",
+      "name": "Scratches",
+      "enabled": true,
+      "params": {
+        "density": 2.5,
+        "cap": 64,
+        "angle": 20,
+        "dirs": 2,
+        "dir_bal": 0.45,
+        "dir_spread": 30,
+        "angle_jitter": 70,
+        "clump": 0.3,
+        "clump_scale": 3,
+        "len_min": 6,
+        "len_max": 20,
+        "len_bias": 0.5,
+        "thickness": 1.2,
+        "th_len": 0.8,
+        "th_var": 0.6,
+        "fade": 0.6,
+        "taper": 0.8,
+        "taper_len": 0.35,
+        "blunt": 0.5,
+        "bend_bias": 0,
+        "bend": 0,
+        "bend_coh": 0,
+        "wobble": 0.7,
+        "breakup": 0.2,
+        "groove": 0.8,
+        "burr": 0.3,
+        "heap": 0.5,
+        "burr_width": 2,
+        "fine": true,
+        "mask_min": 0,
+        "hard": true,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "screen",
+        "dif_opacity": 0.35,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#000000"
+            },
+            {
+              "pos": 1,
+              "color": "#8c8070"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "subtract",
+        "h_amount": 0.2,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "value",
+        "r_mode": "min",
+        "r_a": 0.6,
+        "r_b": 0.25,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_j11h43d",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_cz67t3e",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Light scratches across a surface",
+  "preview": "data:image/webp;base64,UklGRnQCAABXRUJQVlA4WAoAAAAgAAAAfwAAfwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgghgAAALAHAJ0BKoAAgAA+tVqoUCclI6KgiIDgFolpANZsAW7Whd6y/+Lyr0GetyFwA6IOlGTHtnmYvZBs8zF7INnmVhbKR7MXoAAA/gyRo0GkVXQw582w4vKucp+B++xgEC8gDx5MkRr4hAzZ5xdMEQpqShLAAKgeNALyuP7MybzqBpi9cpDREMAA",
+  "preset": {
+    "id": "pr_w2ujt3i",
+    "category": "Wear",
+    "kind": "layer",
+    "target": "scratches"
+  }
+}

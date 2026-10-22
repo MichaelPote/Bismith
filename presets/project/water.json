@@ -1,0 +1,463 @@
+{
+  "version": 1,
+  "name": "Water caustics",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#04283a",
+    "roughness": 0.25,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_or2mc33",
+      "type": "causticlight",
+      "name": "Surface",
+      "enabled": false,
+      "params": {
+        "output": "surface",
+        "model": "gerstner",
+        "scale": 3,
+        "waves": 11,
+        "spread": 0.9,
+        "strength": 8,
+        "softness": 0.5,
+        "exposure": 0.45,
+        "contrast": 2,
+        "octave2": 0.4,
+        "meander": 0.8,
+        "steepness": 0.75,
+        "harmonic": 1,
+        "halo": 0.55,
+        "halo_size": 3,
+        "phase": 0,
+        "seed": 81,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": false,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#000010"
+            },
+            {
+              "pos": 0.5,
+              "color": "#0010a0"
+            },
+            {
+              "pos": 1,
+              "color": "#80a0ff"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": true,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0.2,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_ps0g934",
+      "type": "causticlight",
+      "name": "Liquid",
+      "enabled": true,
+      "params": {
+        "output": "light",
+        "model": "gerstner",
+        "scale": 3,
+        "waves": 11,
+        "spread": 0.9,
+        "strength": 8,
+        "softness": 0.5,
+        "exposure": 0.45,
+        "contrast": 2,
+        "octave2": 0.4,
+        "meander": 0.8,
+        "steepness": 0.75,
+        "harmonic": 1,
+        "halo": 0.55,
+        "halo_size": 3,
+        "phase": 0,
+        "seed": 81,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#021a2b"
+            },
+            {
+              "pos": 0.16666666666666666,
+              "color": "#06384d"
+            },
+            {
+              "pos": 0.3333333333333333,
+              "color": "#0b5a6e"
+            },
+            {
+              "pos": 0.5,
+              "color": "#138388"
+            },
+            {
+              "pos": 0.6666666666666666,
+              "color": "#2aa9a3"
+            },
+            {
+              "pos": 0.8333333333333334,
+              "color": "#7fdcd0"
+            },
+            {
+              "pos": 1,
+              "color": "#d4fbf3"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": false,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.5,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": true,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#d4fbf3",
+        "e_intensity": 0.06
+      }
+    },
+    {
+      "id": "ly_o7ayq35",
+      "type": "causticlight",
+      "name": "Highlights",
+      "enabled": true,
+      "params": {
+        "output": "light",
+        "model": "gerstner",
+        "scale": 3,
+        "waves": 11,
+        "spread": 0.9,
+        "strength": 8,
+        "softness": 0.5,
+        "exposure": 0.45,
+        "contrast": 2,
+        "octave2": 0.4,
+        "meander": 0.8,
+        "steepness": 0.75,
+        "harmonic": 1,
+        "halo": 0.55,
+        "halo_size": 3,
+        "phase": 0,
+        "seed": 81,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0.75,
+        "sh_hi": 1,
+        "sh_gamma": 1.3,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "lighten",
+        "dif_opacity": 0.55,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#000000"
+            },
+            {
+              "pos": 1,
+              "color": "#e6fffb"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": false,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.5,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": true,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#e6fffb",
+        "e_intensity": 0.03
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#cdeef4",
+      "horizon": "#a6d6de",
+      "intensity": 0.7
+    },
+    "ambient": {
+      "color": "#e6fbff",
+      "intensity": 0.06
+    },
+    "lights": [
+      {
+        "id": "lt_1dmbn2x",
+        "type": "directional",
+        "name": "Key",
+        "enabled": true,
+        "params": {
+          "color": "#f2fcff",
+          "intensity": 0.6,
+          "azimuth": 315,
+          "elevation": 62,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 128,
+    "bounces": 1,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0,
+    "aoRadius": 4,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": false,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_jbh842y",
+      "type": "glow",
+      "enabled": true,
+      "params": {
+        "threshold": 0.85,
+        "knee": 0.5,
+        "intensity": 0.5,
+        "radius": 0.5,
+        "levels": 6,
+        "tint": "#ffffff"
+      }
+    },
+    {
+      "id": "pf_j15ui2z",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0.15,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "materials": [
+    {
+      "id": "sm_umthk36",
+      "recipe": "liquid",
+      "name": "Water caustics",
+      "params": {
+        "style": "refraction",
+        "scale": 3,
+        "model": "gerstner",
+        "steepness": 0.75,
+        "strength": 8,
+        "softness": 0.5,
+        "exposure": 0.45,
+        "contrast": 2,
+        "waves": 11,
+        "meander": 0.8,
+        "halo": 0.55,
+        "rim": 1.8,
+        "warp": 0.3,
+        "variety": 0.9,
+        "phase": 0,
+        "relief": 0,
+        "colours": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#021a2b"
+            },
+            {
+              "pos": 0.16666666666666666,
+              "color": "#06384d"
+            },
+            {
+              "pos": 0.3333333333333333,
+              "color": "#0b5a6e"
+            },
+            {
+              "pos": 0.5,
+              "color": "#138388"
+            },
+            {
+              "pos": 0.6666666666666666,
+              "color": "#2aa9a3"
+            },
+            {
+              "pos": 0.8333333333333334,
+              "color": "#7fdcd0"
+            },
+            {
+              "pos": 1,
+              "color": "#d4fbf3"
+            }
+          ]
+        },
+        "glow": 0.06,
+        "highlight": 0.55,
+        "highlight_colour": "#e6fffb",
+        "seed": 81
+      },
+      "members": {
+        "relief": "ly_or2mc33",
+        "colour": "ly_ps0g934",
+        "highlights": "ly_o7ayq35"
+      }
+    }
+  ],
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "kind": "project",
+    "id": "water",
+    "category": "Nature"
+  }
+}

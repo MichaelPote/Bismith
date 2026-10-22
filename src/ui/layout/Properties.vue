@@ -33,6 +33,7 @@
 	import PostExtras from '@/ui/panels/PostExtras.vue';
 	import { getRecipe } from '@/recipes';
 	import LightingPresets from '@/ui/panels/LightingPresets.vue';
+	import PresetMenu from '@/ui/components/PresetMenu.vue';
 	import { vTip } from '@/ui/tooltip';
 
 	const store = useProjectStore();
@@ -186,6 +187,12 @@
 		else if (key === 'height') store.resize(p.width, Number(v));
 		else assign(p, key, v);
 	}
+
+	function setDescription(text: string): void {
+		const t = text.trim();
+		if (t) store.project.description = t;
+		else delete store.project.description;
+	}
 </script>
 
 <template>
@@ -199,6 +206,7 @@
 					:value="layer.name"
 					aria-label="Layer name"
 					@change="store.updateLayer(layer.id, { name: ($event.target as HTMLInputElement).value })" />
+				<PresetMenu kind="layer" :target="layer.type" :source="{ kind: 'layer', id: layer.id }" />
 				<label class="en" title="Enabled">
 					<input
 						type="checkbox"
@@ -316,6 +324,7 @@
 					:value="material.name"
 					aria-label="Material name"
 					@change="store.renameMaterial(material.id, ($event.target as HTMLInputElement).value)" />
+				<PresetMenu kind="material" :target="material.recipe" :source="{ kind: 'material', id: material.id }" />
 				<label v-tip="'Shown'" class="en">
 					<input
 						type="checkbox"
@@ -399,6 +408,7 @@
 					:value="light.name"
 					aria-label="Light name"
 					@change="store.updateLight(light.id, { name: ($event.target as HTMLInputElement).value })" />
+				<PresetMenu kind="light" :target="light.type" :source="{ kind: 'light', id: light.id }" />
 				<label class="en" title="Enabled">
 					<input
 						type="checkbox"
@@ -449,6 +459,7 @@
 			<div class="title">
 				<IconSparkles :size="15" :color="POST_HUE" />
 				<span class="name static">{{ postDef.label }}</span>
+				<PresetMenu kind="post" :target="post.type" :source="{ kind: 'post', id: post.id }" />
 				<label class="en" title="Enabled">
 					<input
 						type="checkbox"
@@ -511,6 +522,13 @@
 					@change="store.project.name = ($event.target as HTMLInputElement).value" />
 			</div>
 			<div v-if="sel.kind === 'base'" class="sub"><span class="type">Base</span></div>
+			<textarea
+				class="proj-desc"
+				rows="2"
+				placeholder="Description"
+				aria-label="Project description"
+				:value="store.project.description ?? ''"
+				@change="setDescription(($event.target as HTMLTextAreaElement).value)" />
 			<p class="desc">
 				Texture size and tiling, the base material every layer builds on, world lighting and the path tracer.
 			</p>
@@ -679,6 +697,25 @@
 		height: 14px;
 		margin: 0 3px;
 		background: var(--hairline);
+	}
+	.proj-desc {
+		flex: none;
+		margin: 8px 10px 6px;
+		min-height: 24px;
+		resize: vertical;
+		border: 1px solid var(--hairline);
+		border-radius: var(--r-field);
+		background: var(--sunken);
+		color: var(--text-hi);
+		padding: 4px 8px;
+		font: inherit;
+		font-size: 12px;
+		line-height: 1.4;
+	}
+	.proj-desc:focus {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: var(--halo);
 	}
 	.desc {
 		margin: 0;

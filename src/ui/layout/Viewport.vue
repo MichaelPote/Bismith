@@ -25,7 +25,8 @@ import {getRecipe} from '@/recipes';
 import SelectField from '@/ui/components/SelectField.vue';
 import {vTip} from '@/ui/tooltip';
 import {vPick} from '@/ui/eyedropper';
-import {layerParamDefs} from '@/layers/registry';
+import {getLayerDef, layerParamDefs} from '@/layers/registry';
+import type {Project} from '@/core/project';
 import {masksAbove} from '@/layers/masks';
 import {linearToSrgb1, rgbToHex} from '@/core/color';
 
@@ -440,31 +441,83 @@ onMounted(() => {
 });
 
 /**
- * Start rendering behind the busy modal. The first frame compiles every shader the project uses, which can take
- * seconds (D3D on Windows); started straight away, it ran before the first paint and left the page blank meanwhile.
+ * Compile `keys` (shaderKey) behind the busy modal, a step per shader plus one for the first frame (filters, tracer,
+ * post), then run `apply` and keep the modal up until the frame it causes has evaluated. A first compile can take
+ * seconds (D3D on Windows), and where the browser can't compile in the background (Firefox) it freezes the page; the
+ * modal says what is happening and, there, steps from shader to shader (Engine.precompile).
  */
-async function startEngine(e: Engine): Promise<void> {
-	const types = store.project.layers.map(shaderKey);
-	// Progress: a step per generator shader, and one for the first frame (filters, tracer, post).
-	const steps = e.uncompiled(types).length + 1;
+async function behindModal(e: Engine, keys: string[], title: string, apply: () => void): Promise<void> {
+	const steps = e.uncompiled(keys).length + 1;
+	const step = (done: number, next?: string) => {
+		if (!editor.busy) return;
+		editor.busy.progress = done / steps;
+		const type = next && getLayerDef(next.split('~')[0])?.label;
+		editor.busy.detail = type ? `Compiling shaders · ${done + 1} of ${steps - 1} — ${type}` : 'Rendering the first frame…';
+	};
 	editor.busy = {
-		title: 'Compiling shaders…',
-		detail: 'Setting up the renderer for this project. This can take a few seconds.',
+		title,
+		detail: 'This can take a few seconds the first time.',
 		// Without background compiling the page freezes during the compile, so the modal can't wait to fade in.
 		instant: !e.parallelCompile,
 		progress: 0
 	};
 	try {
 		await afterPaint();
-		await e.precompile(types, (done) => editor.busy && (editor.busy.progress = done / steps));
+		await e.precompile(keys, (done, _total, next) => step(done, next));
 		// Unmounted meanwhile: the engine is disposed.
 		if (engine !== e) return;
-		e.start();
+		apply();
 		// The first frame compiles the rest (filters, tracer, post): keep the modal up until it has run.
 		await e.settled();
 	} finally {
 		editor.busy = null;
 	}
+}
+
+/**
+ * Start rendering behind the busy modal. The first frame compiles every shader the project uses; started straight
+ * away, it ran before the first paint and left the page blank meanwhile.
+ */
+function startEngine(e: Engine): Promise<void> {
+	return behindModal(e, store.project.layers.map(shaderKey), 'Starting the renderer…', () => e.start());
+}
+
+/**
+ * Every change of the project reaches the engine here. One that brings generator types whose shaders haven't compiled
+ * (opening a file, the wizard, undo / redo, a preset, an import) is held behind the busy modal while they compile: the
+ * engine keeps showing the last frame, and changes made meanwhile are applied with it. Only plain types are checked —
+ * a type's shader variants (Bevel aspect, optional parts) compile in the background as they are used.
+ */
+let compiling = false;
+let held: Project | null = null;
+let seenGeneration = store.generation;
+function updateProject(p: Project): void {
+	const e = engine;
+	if (!e) return;
+	const opening = store.generation !== seenGeneration;
+	seenGeneration = store.generation;
+	if (compiling) {
+		held = p;
+		return;
+	}
+	const need = e.uncompiled(p.layers.map((l) => l.type));
+	if (!need.length) {
+		e.setProject(p);
+		return;
+	}
+	compiling = true;
+	held = p;
+	const title = opening ? `Opening “${p.name}”…` : 'Compiling shaders…';
+	void behindModal(e, need, title, () => {
+		e.setProject(held ?? p);
+		held = null;
+	}).finally(() => {
+		compiling = false;
+		// Changed while the first frame ran: apply that too (it may need more shaders).
+		const next = held;
+		held = null;
+		if (next) updateProject(next);
+	});
 }
 
 onBeforeUnmount(() => {
@@ -477,7 +530,7 @@ onBeforeUnmount(() => {
 
 watch(
 		() => store.project,
-		(p) => engine?.setProject(toRaw(p)),
+		(p) => updateProject(toRaw(p)),
 		{deep: true}
 );
 watch(

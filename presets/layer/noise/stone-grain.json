@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "name": "Stone grain",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 4,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_pwl8i0q",
+      "type": "noise",
+      "name": "Stone grain",
+      "enabled": true,
+      "params": {
+        "noise": "perlin",
+        "fractal": "fbm",
+        "scale": 10,
+        "stretch": 1,
+        "jitter": 1,
+        "metric": "euclidean",
+        "w_even": true,
+        "w_wall": 0.15,
+        "w_profile": "smooth",
+        "octaves": 3,
+        "lacunarity": 2,
+        "gain": 0.5,
+        "ridge": 0.4,
+        "crease": 0.5,
+        "hier": 0.7,
+        "warp": 0,
+        "warp_scale": 4,
+        "even": true,
+        "contrast": 1,
+        "bias": 0,
+        "soft": 0,
+        "block": 2,
+        "phase": 0,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "overlay",
+        "dif_opacity": 0.45,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#000000"
+            },
+            {
+              "pos": 1,
+              "color": "#ffffff"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.15,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_qw8xs52",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_p149w53",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Fine bumpy grain for stone",
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "id": "pr_cgmrj57",
+    "category": "Surface",
+    "kind": "layer",
+    "target": "noise"
+  }
+}

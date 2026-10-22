@@ -1,0 +1,429 @@
+{
+  "version": 1,
+  "name": "Sunken well",
+  "width": 192,
+  "height": 96,
+  "tileable": false,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#24282c",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0.6,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_6guou1v",
+      "type": "noise",
+      "name": "Panel grain",
+      "enabled": true,
+      "params": {
+        "noise": "value",
+        "fractal": "fbm",
+        "scale": 32,
+        "stretch": 4,
+        "jitter": 1,
+        "metric": "euclidean",
+        "w_even": true,
+        "w_wall": 0.15,
+        "w_profile": "smooth",
+        "octaves": 3,
+        "lacunarity": 2,
+        "gain": 0.5,
+        "ridge": 0.4,
+        "crease": 0.5,
+        "hier": 0.7,
+        "warp": 0,
+        "warp_scale": 4,
+        "even": true,
+        "contrast": 1,
+        "bias": 0,
+        "soft": 0,
+        "block": 1,
+        "phase": 0,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "overlay",
+        "dif_opacity": 0.12,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#000000"
+            },
+            {
+              "pos": 1,
+              "color": "#ffffff"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.015,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_p054l1w",
+      "type": "rect",
+      "name": "Well",
+      "enabled": true,
+      "params": {
+        "size_mode": "inset",
+        "inset_x": 14,
+        "inset_y": 14,
+        "width": 64,
+        "height": 32,
+        "radius": 10,
+        "corner_style": "chamfer",
+        "corners": "tl",
+        "dome": "off",
+        "x": 0.5,
+        "y": 0.5,
+        "rotation": 0,
+        "outline": 0,
+        "rep_x": 1,
+        "rep_y": 1,
+        "col_sp": 0,
+        "row_sp": 0,
+        "rep_stagger": 0,
+        "rep_jitter": 0,
+        "rep_rot": 0,
+        "rep_rot_step": 0,
+        "rep_flip": "none",
+        "rep_scale": 0,
+        "rep_scale_bevel": true,
+        "rep_drop": 0,
+        "rep_mirror": false,
+        "seed": 1,
+        "bevel": 4,
+        "profile": "cove",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": true,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "flat",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#1a1d20"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "flat",
+        "h_mode": "subtract",
+        "h_amount": 0.6,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_n2z4w1x",
+      "type": "rect",
+      "name": "Well rim",
+      "enabled": true,
+      "params": {
+        "size_mode": "inset",
+        "inset_x": 12,
+        "inset_y": 12,
+        "width": 64,
+        "height": 32,
+        "radius": 12,
+        "corner_style": "chamfer",
+        "corners": "tl",
+        "dome": "off",
+        "x": 0.5,
+        "y": 0.5,
+        "rotation": 0,
+        "outline": 1.5,
+        "rep_x": 1,
+        "rep_y": 1,
+        "col_sp": 0,
+        "row_sp": 0,
+        "rep_stagger": 0,
+        "rep_jitter": 0,
+        "rep_rot": 0,
+        "rep_rot_step": 0,
+        "rep_flip": "none",
+        "rep_scale": 0,
+        "rep_scale_bevel": true,
+        "rep_drop": 0,
+        "rep_mirror": false,
+        "seed": 1,
+        "bevel": 0.75,
+        "profile": "round",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "flat",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#4a5259"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.15,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.3
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.03
+    },
+    "lights": [
+      {
+        "id": "lt_2b50b1y",
+        "type": "directional",
+        "name": "Key",
+        "enabled": true,
+        "params": {
+          "color": "#fff3e2",
+          "intensity": 1.4,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 2
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 256,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0,
+    "aoRadius": 4,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_5ovcz1z",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0.6,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "preview": "data:image/webp;base64,UklGRnQCAABXRUJQVlA4WAoAAAAgAAAAfwAAPwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgghgAAALAHAJ0BKoAAQAA+tVSkTScko6IhDODgFolpANPYAmESYd3z+z81hFeI5znOhiffZjH9eD6kcBPgrWQJ0MAJ6MPedqX06AAA/vKU77+P4gfn5tkWR0rTqIyuKxb2DNWXl6E3pWsu4lEkgcs2bzSUV/Z9QDEgAFIxG9GM6oiKSnnQCzsaDAAA",
+  "preset": {
+    "kind": "project",
+    "id": "well",
+    "category": "UI surfaces"
+  }
+}

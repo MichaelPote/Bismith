@@ -1,0 +1,571 @@
+{
+  "version": 1,
+  "name": "Forged button",
+  "width": 192,
+  "height": 64,
+  "tileable": false,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#1e2124",
+    "roughness": 0.6,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_ldni41l",
+      "type": "rect",
+      "name": "Seat",
+      "enabled": true,
+      "params": {
+        "size_mode": "inset",
+        "inset_x": 4,
+        "inset_y": 5,
+        "width": 64,
+        "height": 32,
+        "radius": 9,
+        "corner_style": "round",
+        "corners": "all",
+        "dome": "off",
+        "x": 0.5,
+        "y": 0.5,
+        "rotation": 0,
+        "outline": 0,
+        "rep_x": 1,
+        "rep_y": 1,
+        "col_sp": 0,
+        "row_sp": 0,
+        "rep_stagger": 0,
+        "rep_jitter": 0,
+        "rep_rot": 0,
+        "rep_rot_step": 0,
+        "rep_flip": "none",
+        "rep_scale": 0,
+        "rep_scale_bevel": true,
+        "rep_drop": 0,
+        "rep_mirror": false,
+        "seed": 1,
+        "bevel": 2,
+        "profile": "smooth",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "flat",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#111316"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "subtract",
+        "h_amount": 0.35,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_fs9td1m",
+      "type": "rect",
+      "name": "Key face",
+      "enabled": true,
+      "params": {
+        "size_mode": "inset",
+        "inset_x": 8,
+        "inset_y": 9,
+        "width": 64,
+        "height": 32,
+        "radius": 6,
+        "corner_style": "round",
+        "corners": "all",
+        "dome": "off",
+        "x": 0.5,
+        "y": 0.5,
+        "rotation": 0,
+        "outline": 0,
+        "rep_x": 1,
+        "rep_y": 1,
+        "col_sp": 0,
+        "row_sp": 0,
+        "rep_stagger": 0,
+        "rep_jitter": 0,
+        "rep_rot": 0,
+        "rep_rot_step": 0,
+        "rep_flip": "none",
+        "rep_scale": 0,
+        "rep_scale_bevel": true,
+        "rep_drop": 0,
+        "rep_mirror": false,
+        "seed": 1,
+        "bevel": 4,
+        "profile": "round",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "shape",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#24282c"
+            },
+            {
+              "pos": 1,
+              "color": "#3a4046"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "max",
+        "h_amount": 1,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "flat",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.45,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_apsdn1n",
+      "type": "noise",
+      "name": "Face grain",
+      "enabled": true,
+      "params": {
+        "noise": "value",
+        "fractal": "fbm",
+        "scale": 24,
+        "stretch": 6,
+        "jitter": 1,
+        "metric": "euclidean",
+        "w_even": true,
+        "w_wall": 0.15,
+        "w_profile": "smooth",
+        "octaves": 3,
+        "lacunarity": 2,
+        "gain": 0.5,
+        "ridge": 0.4,
+        "crease": 0.5,
+        "hier": 0.7,
+        "warp": 0,
+        "warp_scale": 4,
+        "even": true,
+        "contrast": 1,
+        "bias": 0,
+        "soft": 0,
+        "block": 1,
+        "phase": 0,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "opacity": 1,
+        "lim_1": "Shape",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "overlay",
+        "dif_opacity": 0.15,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#000000"
+            },
+            {
+              "pos": 1,
+              "color": "#ffffff"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.02,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_1p2cw1o",
+      "type": "rect",
+      "name": "Underlight",
+      "enabled": true,
+      "params": {
+        "size_mode": "size",
+        "inset_x": 4,
+        "inset_y": 4,
+        "width": 110,
+        "height": 3,
+        "radius": 1.5,
+        "corner_style": "round",
+        "corners": "all",
+        "dome": "off",
+        "x": 0.5,
+        "y": 0.78,
+        "rotation": 0,
+        "outline": 0,
+        "rep_x": 1,
+        "rep_y": 1,
+        "col_sp": 0,
+        "row_sp": 0,
+        "rep_stagger": 0,
+        "rep_jitter": 0,
+        "rep_rot": 0,
+        "rep_rot_step": 0,
+        "rep_flip": "none",
+        "rep_scale": 0,
+        "rep_scale_bevel": true,
+        "rep_drop": 0,
+        "rep_mirror": false,
+        "seed": 1,
+        "bevel": 1,
+        "profile": "round",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "flat",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#ff9019"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.12,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": true,
+        "e_src": "flat",
+        "e_mode": "add",
+        "e_color": "#f66e10",
+        "e_intensity": 7
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.3
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.03
+    },
+    "lights": [
+      {
+        "id": "lt_xvwdw1p",
+        "type": "directional",
+        "name": "Key",
+        "enabled": true,
+        "params": {
+          "color": "#fff3e2",
+          "intensity": 1.4,
+          "azimuth": 315,
+          "elevation": 42,
+          "angle": 2
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 256,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0,
+    "aoRadius": 4,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_gp1kv1q",
+      "type": "glow",
+      "enabled": true,
+      "params": {
+        "threshold": 1,
+        "knee": 0.5,
+        "intensity": 1.2,
+        "radius": 0.6,
+        "levels": 6,
+        "tint": "#ffb066"
+      }
+    },
+    {
+      "id": "pf_nj7mt1r",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0.5,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "preview": "data:image/webp;base64,UklGRhYDAABXRUJQVlA4WAoAAAAgAAAAfwAAKgAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggKAEAAFAJAJ0BKoAAKwA+tVCiSqcooyGwFVlZEBaJQBl0iZfiVAp87wiuqNfgPoPn9SQUJ8LUbZu10q2NO7ZXsPONYbRwW6fqj87zd5FFNuQ+bAhMSmgQAP74UvbTdnlqFbKBifkuwxTTjrHv8YQGxgTU06PN0Nz3xloB6bn9qwAuG33hOdx6WFzLC4X/KgLD3Np6yb95CeqtW7icMbhOZsaIByqLZxNasTaPcpUIm5UcXJVx317HTbas6aJj+ML+1FPKDyakVBTKmO5AKvfwypQ1uiTDvPPzmK/Zl9idiivAXhco4seQqrlU1p3RXCZuEqBzRT4Q99HpUHpfhTiw1ERArixPiisNY5Cxkhy3oSC8YCi5g+oGjF83q59i8ySGxPwOmMwiI57PIMgA",
+  "preset": {
+    "kind": "project",
+    "id": "button",
+    "category": "UI surfaces"
+  }
+}

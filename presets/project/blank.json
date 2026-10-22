@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "name": "Blank noise",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#7a7570",
+    "roughness": 0.75,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_53idb51",
+      "type": "noise",
+      "name": "Noise",
+      "enabled": true,
+      "params": {
+        "noise": "perlin",
+        "fractal": "fbm",
+        "scale": 4,
+        "stretch": 1,
+        "jitter": 1,
+        "metric": "euclidean",
+        "w_even": true,
+        "w_wall": 0.15,
+        "w_profile": "smooth",
+        "octaves": 6,
+        "lacunarity": 2,
+        "gain": 0.5,
+        "ridge": 0.4,
+        "crease": 0.5,
+        "hier": 0.7,
+        "warp": 0,
+        "warp_scale": 4,
+        "even": true,
+        "contrast": 1,
+        "bias": 0,
+        "soft": 0,
+        "block": 1,
+        "phase": 0,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#3b342e"
+            },
+            {
+              "pos": 1,
+              "color": "#9a8c7a"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.6,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#9fb4c8",
+      "horizon": "#c8c2b8",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_enx6t52",
+        "type": "directional",
+        "name": "Directional",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e0",
+          "intensity": 1.2,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 256,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0,
+    "aoRadius": 4,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_wp8dx53",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "preview": "data:image/webp;base64,UklGRoAEAABXRUJQVlA4WAoAAAAgAAAAfwAAfwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggkgIAAJAdAJ0BKoAAgAA+tVCgTC4koyIrF0s5wBaJaWllXbghXY/5f/O4q+7nsCeZNP2IjIc/omru0wDvk/Z3HaN3WGyIL+ry819RnDq1F5toUt2Y84KGypwm2+ZfHMCy6NlDvcOE3OwBZ5PB5BdH1C39HulcWsFwPgwpZgVWHyQ2DbxB+zmLwJB6u4a4ti802SkW9tYESZxgxZyQjr8DIpO5Yut4Fheg/4hED78HyUyJXIZSPCUJgWic9v9r2MJLBEm4wV1lqNScT5RLM9WXCSIZnhI6jTR17zCIZWbKgf89U4swRazTItyIyQImRXzH4FPPrlTpTiAAAP7c6P4VE5taRB/X8eKYJytT2hIuEiG6Ti9/TIa41S9iKEd0RPaKPlp7X6FTpPJDdRm20aBaI73OOzqnHVmoOu9GfsnIkXapTqJqBA2on54vh6EfSnil0mgK1qQMLVJPA3bCFxU7sYKWl5kyLyGaXBcwn/kXkC2XEQRCDfOZ0/4IkPC4NDJ5RsqmxOrJgNSZUN4xCrjywHuPDp242RAcBEdzcMSmr5V/hjm4CGzbiJsPsBl24KlmO+VR2pElz3MhDipLa0zYz1aF3IWwft6CWe94MnNPQz423PkCSZ7SoNY91DFc1t1xNSN+xFjG9P9GrC3y4TUHfTyizyNlyh9o3jMSqCA8wIwF28/dNLaTbtuuQpHpCM2esIJvVoEn9JF+UAffGS+SL88R5DPfUtoaLlriFIPoV3XIcVcN9GE74XArnDsGfm+MKhcNwl1vNMcBiYiH9zTe1nLNnJzMUBHYbt2DQhzf7zI/eEpJF9ozgthPJMh8PiIg8J0/ylxeyg96BxHUibLM03x3GXsTYOSQT8f9UQke0uecwUmAAAA=",
+  "preset": {
+    "kind": "project",
+    "id": "blank",
+    "category": "Basics"
+  }
+}

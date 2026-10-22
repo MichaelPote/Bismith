@@ -17,6 +17,8 @@
 			{ label: 'New project…', shortcut: 'Ctrl+Alt+N', action: () => (editor.wizard = true) },
 			{ label: 'Open project…', shortcut: 'Ctrl+O', action: act.openProject },
 			{ label: 'Save project', shortcut: 'Ctrl+S', action: act.saveProject },
+			{ label: 'Save as template…', action: () => (editor.presetDialog = { mode: 'template' }) },
+			{ label: 'My presets…', action: () => (editor.presetDialog = { mode: 'manage' }) },
 			{ separator: true },
 			{ label: 'Export PNG', shortcut: 'Ctrl+E', action: () => act.exportFinal(1) },
 			{ label: 'Export PNG @4× (nearest)', action: () => act.exportFinal(4) },

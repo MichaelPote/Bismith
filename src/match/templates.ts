@@ -12,7 +12,7 @@
 //   • Light: specular as its own tinted term, ambient occlusion where blocks touch, painted light for game palettes.
 
 import type { ParamValues } from '@/core/params';
-import type { Layer, MaterialBase, Project, RenderSettings } from '@/core/project';
+import { defaultRender, type Layer, type MaterialBase, type Project, type RenderSettings } from '@/core/project';
 import { createLayer, createLight, createPostFilter, createProject, reliefOnly } from '@/core/serialize';
 import { freshParams, getLayerDef } from '@/layers/registry';
 import { DEFAULT_BEVEL_CURVE } from '@/layers/commonParams';
@@ -169,6 +169,7 @@ function base(a: Analysis, ctx: TemplateContext, name: string, stacks: Stacks, l
 			]
 		},
 		render: {
+			...defaultRender(),
 			samplesPerFrame: 4,
 			maxSamples: 64,
 			bounces: 1,

@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "name": "Cobblestones",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 4,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_p90s80p",
+      "type": "voronoi",
+      "name": "Cobblestones",
+      "enabled": true,
+      "params": {
+        "output": "cells",
+        "tilt": 1,
+        "facet_soft": 6,
+        "facet_fit": true,
+        "scale": 5,
+        "jitter": 0.85,
+        "metric": "euclidean",
+        "gap": 4,
+        "crack_var": 0.6,
+        "crack_scale": 0.6,
+        "crack_tone": 0.7,
+        "round": 4,
+        "min_cell": 0,
+        "min_bevel": 0.5,
+        "round_bevel": true,
+        "warp": 3,
+        "warp_scale": 6,
+        "grout_level": 0.2,
+        "size_var": 0.5,
+        "size_jitter": 0,
+        "pos_jitter": 0,
+        "rot_jitter": 2,
+        "face": 0.35,
+        "crown": 0.3,
+        "face_tilt": 0.35,
+        "phase": 0,
+        "seed": 1,
+        "bevel": 8,
+        "profile": "round",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": false,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "random",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#4a443c"
+            },
+            {
+              "pos": 0.5,
+              "color": "#6b6153"
+            },
+            {
+              "pos": 1,
+              "color": "#7f7464"
+            }
+          ]
+        },
+        "dif_jitter": 0.2,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 1,
+        "h_offset": 0,
+        "h_var": 0.3,
+        "r_on": true,
+        "r_src": "random",
+        "r_mode": "replace",
+        "r_a": 0.55,
+        "r_b": 0.8,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_1lkb40o",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_6ll7n0p",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Rounded cobbles packed in a Voronoi pattern",
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "id": "pr_7eqre0t",
+    "category": "Stone",
+    "kind": "layer",
+    "target": "voronoi"
+  }
+}

@@ -3,6 +3,7 @@
 	// layout="tiles" lays each section out as a wrapping row of square tiles; placement="right" pops the menu out
 	// beside the trigger (teleported to <body> so the panel it sits in can't clip it). placement="pointer" is a context
 	// menu: no trigger, opened at the cursor with `openAt(e.clientX, e.clientY)` from a contextmenu handler.
+	// placement="under" is "below" teleported (right-aligned under the trigger), for triggers in panels that clip.
 	import { computed, nextTick, onBeforeUnmount, ref, type Component } from 'vue';
 	import { IconSquareRotated } from '@tabler/icons-vue';
 	import { vTip } from '@/ui/tooltip';
@@ -30,7 +31,7 @@
 			items: MenuItem[];
 			label?: string;
 			align?: 'left' | 'right';
-			placement?: 'below' | 'right' | 'pointer';
+			placement?: 'below' | 'right' | 'pointer' | 'under';
 			layout?: 'list' | 'tiles';
 			triggerClass?: string;
 			ariaLabel?: string;
@@ -78,12 +79,21 @@
 		if (!list.value?.contains(e.target as Node)) close();
 	}
 
-	/** Pin the popover just right of the trigger, top-aligned (or at the pointer), nudged back inside the viewport. */
+	/**
+	 * Pin the popover just right of the trigger, top-aligned (under it, right-aligned, for "under"; or at the pointer),
+	 * nudged back inside the viewport.
+	 */
 	function place(): void {
 		const t = trigger.value?.getBoundingClientRect();
 		const el = list.value;
-		const anchor = props.placement === 'pointer' ? at : t && { x: t.right + 6, y: t.top };
-		if (!anchor || !el) return;
+		if (!el) return;
+		const anchor =
+			props.placement === 'pointer'
+				? at
+				: props.placement === 'under'
+					? t && { x: t.right - el.offsetWidth, y: t.bottom + 2 }
+					: t && { x: t.right + 6, y: t.top };
+		if (!anchor) return;
 		const m = 8;
 		const left = Math.max(m, Math.min(anchor.x, innerWidth - m - el.offsetWidth));
 		const top = Math.max(m, Math.min(anchor.y, innerHeight - m - el.offsetHeight));
@@ -154,7 +164,10 @@
 				v-if="open"
 				ref="list"
 				class="pop"
-				:class="[floating ? (placement === 'right' ? 'side' : 'pointer') : align, { tiled: layout === 'tiles' }]"
+				:class="[
+					floating ? (placement === 'pointer' ? 'pointer' : placement === 'under' ? 'under' : 'side') : align,
+					{ tiled: layout === 'tiles' }
+				]"
 				:style="floating ? (pos ?? { visibility: 'hidden' }) : undefined"
 				role="menu"
 				@contextmenu.prevent>
@@ -258,6 +271,7 @@
 		right: 0;
 	}
 	.pop.side,
+	.pop.under,
 	.pop.pointer {
 		position: fixed;
 		max-height: calc(100vh - 16px);
@@ -267,6 +281,9 @@
 	}
 	.pop.pointer {
 		min-width: 160px;
+	}
+	.pop.under.tiled {
+		width: min(calc(100vw - 16px), 356px);
 	}
 	.pop.tiled {
 		padding: 2px 12px 12px;

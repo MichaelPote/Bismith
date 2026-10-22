@@ -1,0 +1,345 @@
+{
+  "version": 1,
+  "name": "Ember gem",
+  "width": 64,
+  "height": 64,
+  "tileable": false,
+  "heightDepth": 3,
+  "seed": 1,
+  "base": {
+    "color": "#1e2124",
+    "roughness": 0.7,
+    "specular": 1,
+    "height": 0,
+    "opacity": 0
+  },
+  "layers": [
+    {
+      "id": "ly_uys4a2d",
+      "type": "polygon",
+      "name": "Setting",
+      "enabled": true,
+      "params": {
+        "sides": 6,
+        "radius": 26,
+        "star": false,
+        "inner_r": 0.5,
+        "tip_flat": 0,
+        "root_flat": 0,
+        "round": 2,
+        "round_in": 0,
+        "dome": "off",
+        "x": 0.5,
+        "y": 0.5,
+        "rotation": 30,
+        "outline": 0,
+        "rep_x": 1,
+        "rep_y": 1,
+        "col_sp": 0,
+        "row_sp": 0,
+        "rep_stagger": 0,
+        "rep_jitter": 0,
+        "rep_rot": 0,
+        "rep_rot_step": 0,
+        "rep_flip": "none",
+        "rep_scale": 0,
+        "rep_scale_bevel": true,
+        "rep_drop": 0,
+        "rep_mirror": false,
+        "seed": 1,
+        "bevel": 3,
+        "profile": "round",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "flat",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#4a5259"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": true,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.5,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "flat",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.35,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_qpkiu2e",
+      "type": "polygon",
+      "name": "Gem",
+      "enabled": true,
+      "params": {
+        "sides": 6,
+        "radius": 19,
+        "star": false,
+        "inner_r": 0.5,
+        "tip_flat": 0,
+        "root_flat": 0,
+        "round": 1,
+        "round_in": 0,
+        "dome": "off",
+        "x": 0.5,
+        "y": 0.5,
+        "rotation": 30,
+        "outline": 0,
+        "rep_x": 1,
+        "rep_y": 1,
+        "col_sp": 0,
+        "row_sp": 0,
+        "rep_stagger": 0,
+        "rep_jitter": 0,
+        "rep_rot": 0,
+        "rep_rot_step": 0,
+        "rep_flip": "none",
+        "rep_scale": 0,
+        "rep_scale_bevel": true,
+        "rep_drop": 0,
+        "rep_mirror": false,
+        "seed": 1,
+        "bevel": 12,
+        "profile": "round",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#692205"
+            },
+            {
+              "pos": 1,
+              "color": "#e25c0a"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.7,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "flat",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.08,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": true,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#f66e10",
+        "e_intensity": 1.6
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.4
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_ztj5o2f",
+        "type": "directional",
+        "name": "Key",
+        "enabled": true,
+        "params": {
+          "color": "#fff3e2",
+          "intensity": 1.6,
+          "azimuth": 315,
+          "elevation": 45,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 256,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0,
+    "aoRadius": 4,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_z2ckc2g",
+      "type": "glow",
+      "enabled": true,
+      "params": {
+        "threshold": 0.9,
+        "knee": 0.5,
+        "intensity": 1,
+        "radius": 0.6,
+        "levels": 6,
+        "tint": "#ffffff"
+      }
+    },
+    {
+      "id": "pf_xui5p2h",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0.4,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "kind": "project",
+    "id": "gem",
+    "category": "UI surfaces"
+  }
+}

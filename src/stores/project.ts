@@ -19,7 +19,7 @@ import { freshParams, linkedChanges } from '@/layers/registry';
 import { newId } from '@/core/ids';
 import { MAX_LIGHTS } from '@/core/project';
 import { resizeProject } from '@/core/pixelScale';
-import { PRESETS } from '@/presets';
+import { builtinProject } from '@/presets';
 
 const AUTOSAVE_KEY = 'bismith:project';
 /** Autosave key from before the rename to Bismith; read once if the new key is empty. */
@@ -49,7 +49,7 @@ function clone<T>(v: T): T {
 
 export const useProjectStore = defineStore('project', () => {
 	// First run opens a showcase preset rather than a blank project.
-	const project = ref<Project>(loadAutosave() ?? PRESETS.find((p) => p.id === 'bricks')?.build() ?? createProject());
+	const project = ref<Project>(loadAutosave() ?? builtinProject('bricks') ?? createProject());
 	const past = shallowRef<string[]>([]);
 	const future = shallowRef<string[]>([]);
 	let current = JSON.stringify(project.value);

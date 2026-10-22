@@ -14,6 +14,7 @@
 	import AskModal from '@/ui/components/AskModal.vue';
 	import EyedropperChip from '@/ui/components/EyedropperChip.vue';
 	import NewProjectWizard from '@/ui/panels/NewProjectWizard.vue';
+	import PresetDialog from '@/ui/panels/PresetDialog.vue';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
@@ -189,6 +190,7 @@
 			{{ editor.toast.text }}
 		</div>
 		<NewProjectWizard v-if="editor.wizard" />
+		<PresetDialog v-if="editor.presetDialog" />
 		<BusyModal />
 		<AskModal />
 		<EyedropperChip />

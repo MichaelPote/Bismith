@@ -1,0 +1,224 @@
+{
+  "version": 1,
+  "name": "Sandstone ashlar",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 0.5,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_esgsj37",
+      "type": "stone_blocks",
+      "name": "Sandstone ashlar",
+      "enabled": true,
+      "params": {
+        "output": "relief",
+        "course": 16,
+        "row_var": 0.4,
+        "length": 3.6,
+        "len_var": 0.7,
+        "bond": 0,
+        "tall": 0.25,
+        "split": 0.4,
+        "levels": 2,
+        "slabs": 0.6,
+        "min_size": 6.5,
+        "gap": 0.25,
+        "joint_var": 0,
+        "corner": 0.125,
+        "jag": 0.2,
+        "heights": 0.1,
+        "recess": 0.1,
+        "recess_depth": 0.5,
+        "tilt": 0.15,
+        "margin": 2.5,
+        "pitch": 0.8,
+        "scars": 0.95,
+        "scar_size": 27.5,
+        "scar_depth": 3.2,
+        "scar_stretch": 1,
+        "scar_edge": 0.8,
+        "scar_detail": 0.5,
+        "rough": 0.06,
+        "rough_scale": 1,
+        "joint_depth": 0.15,
+        "gaps": 0.15,
+        "gap_w": 0.875,
+        "gap_len": 0.5,
+        "reach": 0.75,
+        "patch": 0.3,
+        "px_scale": 1,
+        "rnd_mode": "piece",
+        "seed": 1,
+        "bevel": 0,
+        "profile": "round",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "random",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#d0ac5c"
+            },
+            {
+              "pos": 0.5,
+              "color": "#dcba6c"
+            },
+            {
+              "pos": 1,
+              "color": "#e6c67e"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 14,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": false,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.85,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_mg8uw15",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_bgw8416",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Rock-faced ashlar blocks in coursed rows",
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "id": "pr_p5k241a",
+    "category": "Stone",
+    "kind": "layer",
+    "target": "stone_blocks"
+  }
+}

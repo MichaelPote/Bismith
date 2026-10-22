@@ -2,7 +2,8 @@
 	// Modal over the app while blocking work runs (editor.busy), e.g. a generator's first shader compile. It blocks input
 	// at once but fades in after a short delay (unless `instant`), so quick work doesn't flash it. The spinner animates
 	// only transform, which browsers can run off the main thread, so it may keep turning while a compile stalls the page.
-	// With `progress` set, a bar shows the share of the steps done (e.g. 1 of 4 shaders compiled: 25%).
+	// With `progress` set, a bar shows the share of the steps done (e.g. 1 of 4 shaders compiled: 25%); with `cancel`, a
+	// Cancel button calls it (an export render).
 	import { computed } from 'vue';
 	import { useEditorStore } from '@/stores/editor';
 
@@ -38,6 +39,9 @@
 						<span class="fill" :style="{ transform: `scaleX(${pct / 100})` }" />
 					</div>
 					<span class="pct cf-mono">{{ pct }}%</span>
+				</div>
+				<div v-if="editor.busy.cancel" class="actions">
+					<button type="button" class="cf-btn" @click="editor.busy.cancel()">Cancel</button>
 				</div>
 			</div>
 		</div>
@@ -117,6 +121,11 @@
 		background: var(--accent);
 		transform-origin: left;
 		transition: transform 200ms ease-out;
+	}
+	.actions {
+		display: flex;
+		justify-content: flex-end;
+		margin-top: 10px;
 	}
 	.pct {
 		min-width: 3ch;
