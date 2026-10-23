@@ -387,11 +387,11 @@ export const greeblesLayer: LayerDef = {
 			],
 			{ group: 'chan', showIf: hasChan }
 		),
-		P.float('braid', 'Braid', 0, 0, 1, {
+		P.float('braid', 'Ribs', 0, 0, 1, {
 			step: 0.001,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'A woven ripple on the tubes: braided hoses'
+			hint: 'Ribs ringing the tubes square to their run, round the bends too: corrugated hoses'
 		}),
 
 		P.float('cut_chance', 'Cut corners', 0.2, 0, 1, {
@@ -1016,7 +1016,7 @@ export const greeblesLayer: LayerDef = {
 // stretches as if straight). kind 3: a pipe channel (dw wide) along a cut; ch: across it from its middle (signed) and
 // along it; chl: 1 where the channel's (or laid run's) line is level, clamps allowed. pk: the piece sank as a dark pocket. ov / ovid / ovt: a pipe run laid on top that the pixel lies under (across, along, width; its id; its ends
 // along the cut) — ov.z 0: none.
-struct GrbCell { vec2 lo; vec2 hi; vec2 dlo; vec2 dhi; uint id; vec4 gap; vec4 dS; vec4 dG; float dL; float vb; float hb; float jr; int kind; float dw; int side; int side2; int sel; float ls; float dLk; vec2 ch; vec3 ov; uint ovid; vec2 ovt; bool pk; float chl; vec4 jm4; vec4 hm; };
+struct GrbCell { vec2 lo; vec2 hi; vec2 dlo; vec2 dhi; uint id; vec4 gap; vec4 dS; vec4 dG; float dL; float vb; float hb; float jr; int kind; float dw; int side; int side2; int sel; float ls; float dLk; vec2 ch; vec3 ov; uint ovid; vec2 ovt; bool pk; float chl; vec4 jm4; vec4 hm; vec2 arc; };
 
 // Four randoms 0..1 (8 bits each) from one hash: key k of a feature id.
 vec4 grb_rand4(uint id, uint k) {
@@ -1052,6 +1052,15 @@ float grb_arcD(vec2 p, vec2 o, float r, vec2 a, vec2 b) {
   return inA ? abs(length(v) - r) : 1e9;
 }
 
+// A piece of a line nearer than ds so far: it takes over ds and the length along the line at its nearest point (sN).
+void grb_nearS(float d, float sv, inout float ds, inout float sN) { if (d < ds) { ds = d; sN = sv; } }
+// The distance from p to segment a..b (x) and the share of it along to the nearest point (y).
+vec2 grb_segH(vec2 p, vec2 a, vec2 b) {
+  vec2 ab = b - a, ap = p - a;
+  float h = clamp(dot(ap, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+  return vec2(length(ap - ab * h), h);
+}
+
 // A cut line's steps at (t along it, u across it from the cut) over the piece's extent tlo..thi along it: its offset at
 // t (x) and the distance from (t, u) to the line (y). It starts at a random offset within ±a and in each of Steps
 // stretches of the extent may step at 45° to another (whole px): a large Amount turns boxes into trapezoids, rhomboids
@@ -1060,13 +1069,14 @@ float grb_arcD(vec2 p, vec2 o, float r, vec2 a, vec2 b) {
 // bends and stay parallel; b = 0 keeps crisp corners. ex: a stretch along the line kept level (no bend in it — where
 // another route crosses; ex.x > ex.y: none). z: 1 on a level run (clear of the bends by a few px), else 0 —
 // where clamps may sit.
-vec3 grb_jog(float t, float u, float tlo, float thi, float per, uint id, float a, float b, vec2 ex) {
+vec4 grb_jog(float t, float u, float tlo, float thi, float per, uint id, float a, float b, vec2 ex) {
   float L = (thi - tlo) / float(max(u_jog_layers, 1));
   float f = floor(a * (2.0 * grb_rand(id, 77u) - 1.0) + 0.5);
   float f0 = f, off = f, ds = 1e9;   // the start; the offset as the line goes; the distance so far
   vec2 p = vec2(t, u);
   float runT = tlo;                   // where the level run before the next bend starts
   float lvl = 1.0;
+  float sa = 0.0, sN = 0.0;           // the length along the line to runT; at the point nearest (t, u) (w: what runs along it)
   // A line across the whole tile comes back to where it started, so it meets itself across the wrap.
   bool wrap = thi - tlo >= per - 0.5;
   for (int i = 0; i < u_jog_layers; i++) {
@@ -1100,10 +1110,16 @@ vec3 grb_jog(float t, float u, float tlo, float thi, float per, uint id, float a
       vec2 bd = vec2(0.70710678, 0.70710678 * sg);
       vec2 P1 = C1 - vec2(T, 0.0), P2 = C1 + bd * T, P3 = C2 - bd * T, P4 = C2 + vec2(T, 0.0);
       vec2 O1 = P1 + vec2(0.0, sg * R), O2 = P4 - vec2(0.0, sg * R);
-      ds = min(ds, grb_seg(p, vec2(runT, off), P1));
-      ds = min(ds, grb_arcD(p, O1, R, P1, P2));
-      ds = min(ds, grb_seg(p, P2, P3));
-      ds = min(ds, grb_arcD(p, O2, R, P3, P4));
+      // Each piece's distance, and the length along the line at its nearest point: level run, arc (R · the angle from
+      // its start), 45° stretch, arc.
+      float La = 0.78539816 * R, Ld = length(P3 - P2), s1 = sa + (P1.x - runT);
+      // (On an arc, the share along its chord: within a few % of the angle's over 45°.)
+      vec2 h0 = grb_segH(p, vec2(runT, off), P1), h2 = grb_segH(p, P2, P3);
+      grb_nearS(h0.x, sa + h0.y * (P1.x - runT), ds, sN);
+      grb_nearS(grb_arcD(p, O1, R, P1, P2), s1 + La * grb_segH(p, P1, P2).y, ds, sN);
+      grb_nearS(h2.x, s1 + La + h2.y * Ld, ds, sN);
+      grb_nearS(grb_arcD(p, O2, R, P3, P4), s1 + La + Ld + La * grb_segH(p, P3, P4).y, ds, sN);
+      sa = s1 + 2.0 * La + Ld;
       runT = P4.x;
       if (t > P1.x - 4.0 && t < P4.x + 4.0) lvl = 0.0;
       // The offset at t, piece by piece.
@@ -1115,8 +1131,11 @@ vec3 grb_jog(float t, float u, float tlo, float thi, float per, uint id, float a
     off += st;
   }
   // The last level run, to the end.
-  ds = min(ds, grb_seg(p, vec2(runT, off), vec2(thi, off)));
-  return vec3(f, ds, lvl);
+  // (Past the ends the level runs go on, so the length does too.)
+  grb_nearS(grb_seg(p, vec2(runT, off), vec2(thi, off)), sa + t - runT, ds, sN);
+  // (A line round the whole tile: scaled to the tile's length, so what repeats along it meets itself across the wrap.)
+  if (wrap) sN *= (thi - tlo) / max(sa + (thi - runT), 1.0);
+  return vec4(f, ds, lvl, sN);
 }
 
 // The bounding box (xy low, zw high) of the octagon lo..hi, x + y in dlo.x..dhi.x, x − y in dlo.y..dhi.y, and its corner
@@ -1217,13 +1236,14 @@ vec4 grb_routeLine(int i) {
               0.5 * u_chan_width * (1.0 - u_chan_var * rr.z), u_route_wander * 0.2 * per);
 }
 
-vec4 grb_route(vec2 q, out float e2, out float lv, out vec4 sec, out float lv2) {
+vec4 grb_route(vec2 q, out float e2, out float lv, out vec4 sec, out float lv2, out vec2 sArc) {
   vec4 best = vec4(1e9, 0.0, 0.0, -1.0);
   float be = 1e9;
   e2 = 1e9;   // the next-nearest route's channel edge
   lv = 1.0;   // the nearest on a level run
   sec = vec4(1e9, 0.0, 0.0, -1.0);   // the next-nearest, as best
   lv2 = 1.0;
+  sArc = vec2(0.0);   // the length along the nearest, the next-nearest
   for (int i = 0; i < u_routes; i++) {
     uint rid = pcg(uint(uSeed) * 0x9E3779B9u + uint(i) * 0x85EBCA6Bu + 0x7A3D2C11u);
     vec4 rl = grb_routeLine(i);
@@ -1240,14 +1260,14 @@ vec4 grb_route(vec2 q, out float e2, out float lv, out vec4 sec, out float lv2) 
     float t = vert ? q.y : q.x;
     float qu = (vert ? q.x : q.y) - c;
     qu -= per * floor(qu / per + 0.5);
-    vec3 jg = grb_jog(t, qu, 0.0, len, len, rid, rl.w, u_chan_bend, ex);
+    vec4 jg = grb_jog(t, qu, 0.0, len, len, rid, rl.w, u_chan_bend, ex);
     float sg = qu - jg.x;
     float dl = min(abs(sg), jg.y);
     // (Where two channels cross, the down route takes the pixel: its tubes pass over the across route's.)
     bool take = dl - hw < be;
     if (dl - hw < 0.0 && be < 0.0) take = vert;
-    if (take) { e2 = be; sec = best; lv2 = lv; be = dl - hw; best = vec4(sg >= 0.0 ? dl : -dl, t, hw, float(i)); lv = jg.z; }
-    else if (dl - hw < e2) { e2 = dl - hw; sec = vec4(sg >= 0.0 ? dl : -dl, t, hw, float(i)); lv2 = jg.z; }
+    if (take) { e2 = be; sec = best; lv2 = lv; be = dl - hw; best = vec4(sg >= 0.0 ? dl : -dl, t, hw, float(i)); lv = jg.z; sArc = vec2(jg.w, sArc.x); }
+    else if (dl - hw < e2) { e2 = dl - hw; sec = vec4(sg >= 0.0 ? dl : -dl, t, hw, float(i)); lv2 = jg.z; sArc.y = jg.w; }
   }
   return best;
 }
@@ -1321,6 +1341,7 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
   vec3 ov = vec3(0.0);
   uint ovid = 0u;
   vec2 ovt = vec2(0.0);
+  vec2 arc = vec2(0.0);   // the length along the channel's line (x), the laid hose's (y): for what runs along them
   // The deepest hose laid on top across the pixel's ancestors (its cut, jog reach, half width, flags: 1 the pixel's side
   // is above / right of it, 2 a horizontal cut; its parent's span along it, its id): how far it reaches into the final
   // box is measured at the end.
@@ -1539,9 +1560,9 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
       float jA = u_jog * max(min(c - lo1 - grb_pick(jm, a0i), hi1 - c - grb_pick(jm, a0i + 1)) - jmar - (chn ? hw : 0.0), 0.0);
       float qu = (cutY ? q.y : q.x) - c;
 #if defined(GRB_JOG) || defined(GRB_CHAN)
-      vec3 jg = jA >= 1.0 ? grb_jog(cutY ? q.x : q.y, qu, cutY ? bb.x : bb.y, cutY ? bb.z : bb.w, cutY ? uRes.x : uRes.y, id, jA, chn || surf ? u_chan_bend : 0.0, vec2(1.0, 0.0)) : vec3(0.0, 1e9, 1.0);
+      vec4 jg = jA >= 1.0 ? grb_jog(cutY ? q.x : q.y, qu, cutY ? bb.x : bb.y, cutY ? bb.z : bb.w, cutY ? uRes.x : uRes.y, id, jA, chn || surf ? u_chan_bend : 0.0, vec2(1.0, 0.0)) : vec4(0.0, 1e9, 1.0, cutY ? q.x : q.y);
 #else
-      vec3 jg = vec3(0.0, 1e9, 1.0);
+      vec4 jg = vec4(0.0, 1e9, 1.0, cutY ? q.x : q.y);
 #endif
       float s = qu - jg.x;
       float dl = min(abs(s), jg.y);
@@ -1552,6 +1573,7 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
         chl = jg.z;
         ovid = id;
         ovt = cutY ? bb.xz : bb.yw;
+        arc.y = jg.w;
       }
       if (surf) {
         hr = vec4(c, jA, hw, (upper ? 1.0 : 0.0) + (cutY ? 2.0 : 0.0));
@@ -1565,6 +1587,7 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
         ch = vec2(upper ? dl : -dl, cutY ? q.x : q.y);
         chl = jg.z;
         ovt = cutY ? bb.xz : bb.yw;   // its ends
+        arc.x = jg.w;
         done = true;
       } else {
       if (chn) dl -= hw;
@@ -1615,7 +1638,7 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
     hm = max(r, 0.0) * vec4(equal(ivec4((hY ? 2 : 0) + (hU ? 0 : 1)), ivec4(0, 1, 2, 3)));
   }
 #endif
-  return GrbCell(lo, hi, dlo, dhi, id, gap, dS, dG, dL, vb, hb, max(max(jm.x, jm.y), max(jm.z, jm.w)), kind, dw, side, side2, sel, ls, dLk, ch, ov, ovid, ovt, pkz, chl, jm, hm);
+  return GrbCell(lo, hi, dlo, dhi, id, gap, dS, dG, dL, vb, hb, max(max(jm.x, jm.y), max(jm.z, jm.w)), kind, dw, side, side2, sel, ls, dLk, ch, ov, ovid, ovt, pkz, chl, jm, hm, arc);
 }
 
 
@@ -1677,9 +1700,10 @@ GenOut gen(vec2 p) {
   // A pipe route's channel takes the pixel whatever the panels; its edge is a side of the pieces it crosses.
   float rte2 = 1e9;
   float rteL = 1.0, rteL2 = 1.0;
+  vec2 rteA = vec2(0.0);
   vec4 rteS = vec4(1e9, 0.0, 0.0, -1.0);
 #ifdef GRB_CHAN
-  vec4 rte = u_routes > 0 ? grb_route(q, rte2, rteL, rteS, rteL2) : vec4(1e9, 0.0, 0.0, -1.0);
+  vec4 rte = u_routes > 0 ? grb_route(q, rte2, rteL, rteS, rteL2, rteA) : vec4(1e9, 0.0, 0.0, -1.0);
 #else
   vec4 rte = vec4(1e9, 0.0, 0.0, -1.0);
 #endif
@@ -1693,6 +1717,7 @@ GenOut gen(vec2 p) {
     cell.chl = rteL;
     cell.dw = 2.0 * rte.z;
     cell.ovt = vec2(0.0);   // (a route runs on round the tile: no ends)
+    cell.arc.x = rteA.x;
     chId = pcg(uint(uSeed) + uint(rte.w) * 0x632BE5ABu + 0x2F1A5B3Du);
   }
   uint id = cell.id;
@@ -1940,7 +1965,7 @@ GenOut gen(vec2 p) {
   // The bundle under the pixel, if any: across from its middle, along, half width, id, the height it stands on, the
   // plate height its tubes measure against.
   bool bOn = false;
-  float bU0 = 0.0, bT0 = 0.0, bHw0 = 1.0, bBase = 0.0, bTop = 0.0;
+  float bU0 = 0.0, bT0 = 0.0, bHw0 = 1.0, bBase = 0.0, bTop = 0.0, bS0 = 0.0;   // (bS0: length along the line)
   uint bId0 = 0u;
 #ifdef GRB_CHAN
   if (cell.kind == 3) {
@@ -1958,6 +1983,7 @@ GenOut gen(vec2 p) {
     bOn = true;
     bU0 = cu;
     bT0 = cell.ch.y;
+    bS0 = cell.arc.x;
     bHw0 = hw - ww;
     bId0 = chId;
     bBase = fl;
@@ -1968,6 +1994,7 @@ GenOut gen(vec2 p) {
     bOn = true;
     bU0 = cell.ov.x;
     bT0 = cell.ov.y;
+    bS0 = cell.arc.y;
     bHw0 = 0.5 * cell.ov.z;
     bId0 = cell.ovid;
     bBase = 0.75;
@@ -2608,14 +2635,17 @@ GenOut gen(vec2 p) {
               }
             }
           }
-          dW = max(dW, 2.0 + max(u_bevel, 1.0) - cA);
+          // (Kept off the walls, except the end in its grommet, which is drawn whole like the ring round it.)
+          if (dE > 2.2 * wr) dW = max(dW, 2.0 + max(u_bevel, 1.0) - cA);
           // The header: a raised block, a dark gap round its foot, a socket per wire in its face.
           float dCn = grb_rbox(ql, vec2(x0, cy - 0.5 * nw * wsp - 1.5), vec2(x1, cy + 0.5 * nw * wsp + 1.5), 1.0);
           dCn = max(dCn, 2.0 + max(u_bevel, 1.0) - cA);
           v -= 0.4 * ph * grb_cov(abs(dCn - 1.0) - 0.8);
           // Round cables, their noses dipping into the grommets (aE: along, from the end back up the wire).
-          float nose = smoothstep(-wr, wr, aE);
-          v = mix(v, flr + 0.6 * ph + 2.4 * ph * grb_dome(max(dW + wr, 0.0), wr) * mix(0.3, 1.0, nose), grb_cov(dW));
+          // (Its round end whole, only a little lower, in the middle of its grommet: dimmed to the floor past the end it read
+          // as a wire cut off halfway through the ring.)
+          float nose = smoothstep(-wr, 0.0, aE);
+          v = mix(v, flr + 0.6 * ph + 2.4 * ph * grb_dome(max(dW + wr, 0.0), wr) * mix(0.8, 1.0, nose), grb_cov(dW));
           float gr = abs(dE - 1.6 * wr) - 0.55 * wr;   // the grommet ring round each end
           v = max(v, mix(v, flr + 1.1 * ph * grb_dome(abs(dE - 1.6 * wr), 0.6 * wr), grb_cov(gr) * (1.0 - grb_cov(dW + 0.3))));
           // (Stepped: a shell, a raised top 2 px in from its sides; at the face the wires plug into, a dark square socket
@@ -2660,6 +2690,7 @@ GenOut gen(vec2 p) {
     float bU = p2 ? rteS.x : bU0, bT = p2 ? rteS.y : bT0, bHw = p2 ? rteS.z - (0.5 * cell.dw - bHw0) : bHw0;
     uint bId = p2 ? pcg(uint(uSeed) + uint(rteS.w) * 0x632BE5ABu + 0x2F1A5B3Du) : bId0;
     float chlP = p2 ? rteL2 : cell.chl;
+    float bS = p2 ? rteA.y : bS0;
     // (In a crossing the over bundle stands clearly higher, the under one dips: no woven look.)
     // (Ramped over about a pipe's width in from the other channel's wall, not a step at it.)
     float rmp = smoothstep(0.0, max(u_tube_big, 3.0), -(p2 ? dRt : rte2));
@@ -2732,8 +2763,11 @@ GenOut gen(vec2 p) {
         // Its height in proportion to its radius (round cables, Pipe lift: a thick pipe level with the plates at 1).
         float rk = clamp(rr2 / max(0.5 * u_tube_big, 0.5), 0.15, 1.3) * u_tube_lift;
         float ht = top2 ? base + 2.0 * u_inset_depth * rk : bBase + (bTop - bBase) * 0.97 * rk * sink;
-        float wv = 3.14159 / max(0.7 * r, 0.8);
-        float br = u_braid * (1.0 - atE) * 0.15 * (0.5 + 0.5 * sin((bT + bU - tc) * wv) * sin((bT - bU + tc) * wv));
+        // Ribs: crisp grooves across the tube every 1.4 radii along its line (bS, the length along the bends), so they
+        // ring the hose square to it round every bend and on the 45° stretches.
+        float rp = max(1.4 * r, 3.0);
+        float rd = abs(fract(bS / rp + 0.5) - 0.5) * rp;
+        float br = u_braid * (1.0 - atE) * 0.2 * (1.0 - smoothstep(0.22 * rp - 0.5, 0.22 * rp + 0.5, rd));
         float dmh = grb_dome(x, rr2) * fall;
         // (A collar keeps the tube's round profile, wider; a fine groove rings it halfway along.)
         dmh *= 1.0 - 0.25 * atE * (1.0 - smoothstep(0.4, 1.2, abs(ce - 0.5 * bl)));
