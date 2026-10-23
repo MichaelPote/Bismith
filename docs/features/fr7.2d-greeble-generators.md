@@ -152,13 +152,19 @@ raised top).
   sinks channels).
 
 - **Pipe channels** (`chan` group). A cut in the top *Levels* may sink into a channel carrying a pipe run (*Chance*),
-  or a run laid on top of the pieces (*Laid on top*: hoses crossing panels, draped on the top plates, a connector block
-  and collar at each end). *Routes* are channels straight across the whole tile (down, across or mixed), cutting
+  or a run laid on top of the pieces (*Laid on top*: separate hoses crossing panels at one level on the top plates). *Routes* are channels straight across the whole tile (down, across or mixed), cutting
   through every panel they cross and wrapping onto themselves so tiled copies continue them; *Wander* steps them at 45°.
   A run is a bundle of up to *Tubes* side by side — thick pipes (*Pipe size*) and cables (*Cable size*) by *Thick
   share*, centred or against a wall — standing *Pipe lift* high in proportion to their radius, with clamp bands or
   couplings every *Clamp spacing* (jittered, only on straight level runs), optional *Braid*. The floor sits *Floor*
   of the top plate level, independent of the panel underneath.
+- **Pipes are solid.** Nothing lowers a tube: what meets it joins it (max), and the soft contact line and dark holes
+  beside laid hoses only touch bare plate. The panels a laid hose crosses keep their rivets and details off its path
+  (their usable box shrinks by the hose's band, bounded by its jog at the panel's middle).
+- **Run ends.** Each end of a laid run either dives into the panel (rounded noses falling into a dark hole, a raised
+  grommet ring round the thick tubes) or ends in collars seated in a socket boss on a module's side; it stops a seam's
+  width short of its run so nothing of it lies in the seam. A channel's bundle dives into the channel floor where its
+  cut ends. Routes wrap round the tile and have no ends.
 - **Bends.** A stepping line (`grb_jog`) is straight runs and true circular arcs of *Bend radius* (fitted to the room),
   measured exactly — so the tubes of a run, at fixed offsets from its middle, are concentric round every bend. Zero
   radius gives crisp corners through the same code. It also reports whether a point is on a level run (clamps).
@@ -171,10 +177,13 @@ raised top).
   real (stepping) outline and masked to its walls: a hero chip, long chips, pairs of small surface parts, capacitors,
   pin headers, traces, chips with a raised lit rim, standing *Pocket parts* high (low keeps them in a height ramp's dark
   band); 20 % get heatsink fins instead. Every pocket at least 60 × 24 px gets a connector with 2–4 wires stepping
-  aside at 45°.
-- **Hardware details**: switch rows (toggles or rockers), plug sockets (D-shell or round), sliders, keypads, fans —
+  aside at 45°: a stepped header with a dark socket per wire, round wires at constant spacing through the bend,
+  staggered ends diving through grommets.
+- **Hardware details**: switch rows (toggles in a dark well with a hex nut, a lever rising to a ball tip, some with a
+  U-guard; or two-tone rockers in a bezel), each on its own pad, plug sockets (D-shell or round), sliders, keypads, fans —
   chosen by *Hardware share* when one fits — besides vents, lights, recesses, perforation, ribs, pipes, mesh grilles,
-  circuit pockets and heatsink fins.
+  circuit pockets and heatsink fins. *Scattered details* split a big panel's free area into cells about *Scatter cell*
+  across, a share of which hold a small detail of their own (slot banks and dot fields spread over a large plate).
 
 The _Tech plates_ preset shows the octilinear look (jogs, cut corners, fill plates, borders, strips).
 

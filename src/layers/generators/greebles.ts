@@ -787,6 +787,20 @@ export const greeblesLayer: LayerDef = {
 			showIf: hasDetails,
 			hint: 'Share of the detailed panels that get two details side by side along their length (a lamp beside a grille), each its own kind'
 		}),
+		P.float('det_scatter', 'Scattered details', 0, 0, 1, {
+			step: 0.001,
+			group: 'details',
+			showIf: hasDetails,
+			hint: 'Panels at least two Scatter cells long split their free area into cells, this share of which hold a small detail of their own (slot banks, dot rows, recesses spread over a big plate) instead of one large one'
+		}),
+		P.float('det_cell', 'Scatter cell', 48, 8, 1024, {
+			softMax: 160,
+			unit: 'px',
+			step: 1,
+			group: 'details',
+			showIf: (p) => hasDetails(p) && (p.det_scatter as number) > 0,
+			hint: 'The size of the cells a scattered panel is split into'
+		}),
 		P.float('recess_wall', 'Recess wall', 1.5, 0, 256, {
 			softMax: 16,
 			unit: 'px',
@@ -992,7 +1006,7 @@ export const greeblesLayer: LayerDef = {
 // stretches as if straight). kind 3: a pipe channel (dw wide) along a cut; ch: across it from its middle (signed) and
 // along it; chl: 1 where the channel's (or laid run's) line is level, clamps allowed. pk: the piece sank as a dark pocket. ov / ovid / ovt: a pipe run laid on top that the pixel lies under (across, along, width; its id; its ends
 // along the cut) — ov.z 0: none.
-struct GrbCell { vec2 lo; vec2 hi; vec2 dlo; vec2 dhi; uint id; vec4 gap; vec4 dS; vec4 dG; float dL; float vb; float hb; float jr; int kind; float dw; int side; int side2; int sel; float ls; float dLk; vec2 ch; vec3 ov; uint ovid; vec2 ovt; bool pk; float chl; vec4 jm4; };
+struct GrbCell { vec2 lo; vec2 hi; vec2 dlo; vec2 dhi; uint id; vec4 gap; vec4 dS; vec4 dG; float dL; float vb; float hb; float jr; int kind; float dw; int side; int side2; int sel; float ls; float dLk; vec2 ch; vec3 ov; uint ovid; vec2 ovt; bool pk; float chl; vec4 jm4; vec4 hm; };
 
 // Four randoms 0..1 (8 bits each) from one hash: key k of a feature id.
 vec4 grb_rand4(uint id, uint k) {
@@ -1297,6 +1311,12 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
   vec3 ov = vec3(0.0);
   uint ovid = 0u;
   vec2 ovt = vec2(0.0);
+  // The deepest hose laid on top across the pixel's ancestors (its cut, jog reach, half width, flags: 1 the pixel's side
+  // is above / right of it, 2 a horizontal cut; its parent's span along it, its id): how far it reaches into the final
+  // box is measured at the end.
+  vec4 hr = vec4(0.0);
+  vec2 hbb = vec2(0.0);
+  uint hid = 0u;
   bool pkz = false;
   float chl = 1.0;
   float dw = 0.0, ls = 1e9;
@@ -1523,12 +1543,18 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
         ovid = id;
         ovt = cutY ? bb.xz : bb.yw;
       }
+      if (surf) {
+        hr = vec4(c, jA, hw, (upper ? 1.0 : 0.0) + (cutY ? 2.0 : 0.0));
+        hbb = cutY ? bb.xz : bb.yw;
+        hid = id;
+      }
       if (chn && dl < hw) {
         // In the channel: across it from its middle, along it.
         kind = 3;
         dw = 2.0 * hw;
         ch = vec2(upper ? dl : -dl, cutY ? q.x : q.y);
         chl = jg.z;
+        ovt = cutY ? bb.xz : bb.yw;   // its ends
         done = true;
       } else {
       if (chn) dl -= hw;
@@ -1566,7 +1592,20 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
    }
    }
   }
-  return GrbCell(lo, hi, dlo, dhi, id, gap, dS, dG, dL, vb, hb, max(max(jm.x, jm.y), max(jm.z, jm.w)), kind, dw, side, side2, sel, ls, dLk, ch, ov, ovid, ovt, pkz, chl, jm);
+  // The hose's reach into the final box, on the side facing it: its jog offset at the box's middle, which moves at most
+  // 1 px per px along (45° stretches), so within half the box's length of it (and within the jog's reach).
+  vec4 hm = vec4(0.0);
+#ifdef GRB_CHAN
+  if (hr.z > 0.0) {
+    bool hY = hr.w >= 2.0, hU = mod(hr.w, 2.0) >= 1.0;
+    float t0 = hY ? lo.x : lo.y, t1 = hY ? hi.x : hi.y, hL = 0.5 * (t1 - t0);
+    float off = hr.y >= 1.0 ? grb_jog(t0 + hL, 0.0, hbb.x, hbb.y, hY ? uRes.x : uRes.y, hid, hr.y, u_chan_bend, vec2(1.0, 0.0)).x : 0.0;
+    float e = hr.z + 1.0;
+    float r = hU ? hr.x + min(off + hL, hr.y) + e - (hY ? lo.y : lo.x) : (hY ? hi.y : hi.x) - (hr.x + max(off - hL, -hr.y) - e);
+    hm = max(r, 0.0) * vec4(equal(ivec4((hY ? 2 : 0) + (hU ? 0 : 1)), ivec4(0, 1, 2, 3)));
+  }
+#endif
+  return GrbCell(lo, hi, dlo, dhi, id, gap, dS, dG, dL, vb, hb, max(max(jm.x, jm.y), max(jm.z, jm.w)), kind, dw, side, side2, sel, ls, dLk, ch, ov, ovid, ovt, pkz, chl, jm, hm);
 }
 
 
@@ -1643,6 +1682,7 @@ GenOut gen(vec2 p) {
     cell.ch = rte.xy;
     cell.chl = rteL;
     cell.dw = 2.0 * rte.z;
+    cell.ovt = vec2(0.0);   // (a route runs on round the tile: no ends)
     chId = pcg(uint(uSeed) + uint(rte.w) * 0x632BE5ABu + 0x2F1A5B3Du);
   }
   uint id = cell.id;
@@ -1857,6 +1897,9 @@ GenOut gen(vec2 p) {
     // how far its sides step out — its floor follows the stepping sides, not the straight box.)
     plo = cell.pk ? pb.xy - cell.jm4.xz : ilo0 + jl;
     phi = cell.pk ? pb.zw + cell.jm4.yw : ihi0 - jh;
+    // (Clear of the hoses laid across it: its rivets and details shift off their path rather than vanish under them.)
+    if (!cell.pk) { plo = max(plo, cell.lo + cell.hm.xz); phi = max(min(phi, cell.hi - cell.hm.yw), plo);
+                    side = min(side, min(phi.x - plo.x, phi.y - plo.y)); area = min(area, sqrt((phi.x - plo.x) * (phi.y - plo.y))); }
     psz = phi - plo;
   }
   vec2 pcen = 0.5 * (plo + phi), phb = 0.5 * psz;
@@ -2005,9 +2048,12 @@ GenOut gen(vec2 p) {
   bool pkt = cell.pk && !deco && !none;
   if (pkt) { hasDet = true; hero = false; smallP = false; big = true; }
   if ((hasDet && big) || smallP) {
-    if (kmax > 0.0) keep = max(keep, ceil(0.5 * kmax) + 2.0);
+    // (Clear of the cut corners: a centred box misses a 45° cut of k when its margins across and along add up to k, so
+    // the margin goes along the longer side, where there is room, rather than half of it on every side.)
     float m0 = min(ceil(bev) + 2.0, floor(0.25 * side));
-    vec2 flo = plo + max(keep, m0), fhi = phi - max(keep, m0);
+    vec2 kk = vec2(max(keep, m0));
+    if (kmax > 0.0) { float kl = max(kk.x, ceil(kmax) + 2.0 - kk.x); kk = psz.y > psz.x ? vec2(kk.x, kl) : vec2(kl, kk.x); }
+    vec2 flo = plo + kk, fhi = phi - kk;
     vec2 fsz = max(fhi - flo, vec2(0.0));
     // A hardware module (Hardware share, rolled here, before the area is sized): the hardware fills nearly all of the
     // free area, centred, unpaired — a switch bank or socket sized to its module, not a speck on it.
@@ -2025,11 +2071,25 @@ GenOut gen(vec2 p) {
     bool ax = dc.x < 0.5;         // an edge across x (else y)
     vec2 pos = an == 0 ? vec2(0.5) : an == 2 ? sd : (ax ? vec2(sd.x, 0.5) : vec2(0.5, sd.y));
     vec2 rlo = flo + floor(slack * pos), rhi = rlo + asz;
-    // Paired: split along the longer side, a gap between, the pixel's part decides.
     uint pid = id;
+    // Scattered: the free area in cells about Scatter cell across, some holding a small detail at a size and spot of
+    // their own (rolled per cell), the rest plain plate.
+    bool scat = !smallP && !hero && !strip && !pkt && !hwMod && u_det_scatter > 0.0 && max(fsz.x, fsz.y) >= 2.0 * u_det_cell;
+    if (scat) {
+      vec2 nc = max(floor(fsz / u_det_cell + 0.3), vec2(1.0)), cs = fsz / nc;
+      vec2 ci = clamp(floor((q - flo) / cs), vec2(0.0), nc - 1.0);
+      pid = pcg(id ^ (uint(ci.x) * 0x9E3779B9u + uint(ci.y) * 0x85EBCA6Bu + 0x5BD1E995u));
+      vec4 sr = grb_rand4(pid, 97u), sr2 = grb_rand4(pid, 99u);
+      // (Long thin parts more often than squares: a slot bank or a dot row along the cell's longer way.)
+      vec2 fr = sr2.x < 0.5 ? vec2(mix(0.55, 0.9, sr.y), mix(0.3, 0.55, sr.z)) : vec2(mix(0.3, 0.55, sr.z), mix(0.55, 0.9, sr.y));
+      vec2 csz = max(floor((cs - 4.0) * fr), vec2(0.0));
+      rlo = flo + floor(ci * cs + 2.0 + (cs - 4.0 - csz) * sr2.yz);
+      rhi = sr.x < u_det_scatter ? rlo + csz : rlo;
+    }
+    // Paired: split along the longer side, a gap between, the pixel's part decides.
     bool lx = asz.x >= asz.y;
     float L = lx ? asz.x : asz.y;
-    if (!smallP && !hero && !strip && !pkt && !hwMod && dc.y < u_det_pair && L >= 12.0) {
+    if (!smallP && !hero && !strip && !pkt && !hwMod && !scat && dc.y < u_det_pair && L >= 12.0) {
       float g = max(2.0, floor(0.06 * L + 0.5));
       float cut = floor(L * mix(0.3, 0.5, dc.z) + 0.5);
       bool second = (lx ? q.x - rlo.x : q.y - rlo.y) >= cut + 0.5 * g;
@@ -2063,7 +2123,7 @@ GenOut gen(vec2 p) {
       // (A pipe or handle needs room to read as one, not as a letter: at least 4 tube diameters long.)
       bool f6 = u_det_pipes && !strip && 2.0 * (tr + fw) <= sl0.y && sl0.x >= max(2.0 * tr + 16.0, 8.0 * tr);
       // Hardware: a row of switches, a plug socket, a slider (a long area), a keypad, a fan (a squarish one).
-      bool f7 = u_det_switch && min(sl0.x, sl0.y) >= 6.0;
+      bool f7 = u_det_switch && min(sl0.x, sl0.y) >= 14.0;   // (smaller, a lever is a speck)
       bool f8 = u_det_socket && sl0.y >= 6.0 && sl0.x >= 1.25 * sl0.y;
       bool f9 = u_det_slider && sl0.y >= 5.0 && sl0.x >= 2.0 * sl0.y;
       bool f10 = u_det_keypad && sl0.y >= 9.0;
@@ -2264,21 +2324,38 @@ GenOut gen(vec2 p) {
         float u0 = min(pit, sl.y);
         vec2 lp = ql - vec2(lo2.x + (jx + 0.5) * pit, 0.5 * (lo2.y + hi2.y));
         float sg2 = fract(jx * 0.618 + pa.w) < 0.5 ? 1.0 : -1.0;   // which way it is thrown
+        // Each on its own pad, a step up from the module, so the bank reads as a row of parts.
+        vec2 phb = vec2(0.45 * pit - 0.5, 0.47 * sl.y - 0.5);
+        float dPad = grb_rbox(lp, -phb, phb, 0.15 * min(phb.x, phb.y));
+        v += 0.15 * hd * smoothstep(0.0, 1.0, -dPad);
         float vh = v;
         if (rock) {
-          vec2 hb2 = vec2(0.26, 0.4) * u0;
-          dD = grb_rbox(lp, -hb2, hb2, 0.08 * u0);
-          float dpad = dD + max(1.0, 0.06 * u0);
-          v -= 0.45 * hd * grb_cov(dD);
-          v = mix(v, vh + hd * (0.25 + 0.3 * sg2 * clamp(lp.y / hb2.y, -1.0, 1.0)), smoothstep(0.0, 1.0, -dpad));
+          // A rocker: a bezel round a paddle in two halves — the thrown half high, the other low, a dark split between.
+          vec2 hb2 = vec2(0.27, 0.42) * u0;
+          float dz = grb_rbox(lp, -hb2, hb2, 0.1 * u0);
+          float dpad = dz + max(1.0, 0.07 * u0);
+          dD = dz;
+          v += 0.3 * hd * grb_cov(dz) - 0.5 * hd * grb_cov(dpad + 0.5);
+          float hi = step(0.0, lp.y * sg2);
+          float pv = vh + hd * mix(0.2, 0.75, hi) * (1.0 - 0.25 * hi * clamp(abs(lp.y) / hb2.y, 0.0, 1.0));
+          v = mix(v, pv - 0.3 * hd * grb_cov(abs(lp.y) - 0.5), smoothstep(0.0, 1.0, -dpad));
         } else {
-          float nut = grb_hexagon(lp, 0.28 * u0);
-          float lr = max(0.11 * u0, 0.8);
-          vec2 tipc = vec2(0.0, 0.36 * u0 * sg2);
-          float lev = min(sdSegment(lp, vec2(0.0), tipc) - lr, length(lp - tipc) - 1.6 * lr);
-          dD = min(nut, lev);
-          v += 0.35 * hd * smoothstep(0.0, 1.0, -nut / max(0.07 * u0, 0.6));
-          v = mix(v, vh + hd * (0.8 + 0.3 * grb_dome(max(lev + 1.6 * lr, 0.0), 1.6 * lr)), grb_cov(lev));
+          // A toggle: a round washer, a hex nut, a lever thrown up or down rising to a ball tip (it leans out of the plate),
+          // on some banks a U-guard round each lever.
+          float wash = length(lp) - 0.33 * u0;
+          float nut = grb_hexagon(lp, 0.19 * u0);
+          float lr = max(0.085 * u0, 0.9);
+          vec2 tipc = vec2(0.0, 0.42 * u0 * sg2);
+          float tl = clamp(lp.y * sg2 / (0.42 * u0), 0.0, 1.0);
+          float lev = min(sdSegment(lp, vec2(0.0), tipc) - lr, length(lp - tipc) - 1.5 * lr);
+          float gw = max(0.06 * u0, 0.8), gy = 0.47 * u0;
+          float grd = pb2.z < 0.5 ? max(min(abs(abs(lp.x) - 0.3 * u0) - gw, abs(lp.y * sg2 - gy) - gw), max(abs(lp.x) - 0.3 * u0 - gw, abs(lp.y * sg2 - 0.5 * gy) - 0.5 * gy - gw)) : 1e4;
+          dD = min(min(wash, lev), grd);
+          // (In a dark well round the nut, as the panel's toggles are: the lever reads light against it.)
+          v = mix(v, vh - 0.9 * hd, grb_cov(wash));
+          v = mix(v, vh + 0.3 * hd, smoothstep(0.0, 1.0, -nut / max(0.06 * u0, 0.6)));
+          v = max(v, mix(v, vh + 0.6 * hd, grb_cov(grd)));
+          v = mix(v, vh + hd * (0.55 + 0.55 * tl + 0.25 * grb_dome(max(lev + 1.5 * lr, 0.0), 1.5 * lr)), grb_cov(lev));
         }
       } else if (kind == 8) {
         // A plug socket: a raised rim round a sunk face with pins — a D-shell (narrower at one side, two rows of pins)
@@ -2381,7 +2458,7 @@ GenOut gen(vec2 p) {
 #endif
         float cy = 0.5 * (sbl.y + sbh.y);
         bool atLo = cw4.y < 0.5;
-        float cl = max(6.0, 0.11 * sbs.x);
+        float cl = max(10.0, 0.14 * sbs.x);
         float x0 = atLo ? sbl.x + 0.12 * sbs.x : sbh.x - 0.12 * sbs.x - cl, x1 = x0 + cl;
         float nw = 2.0 + floor(cw4.z * 2.999);
         float wr = clamp(0.026 * sbs.y, 1.5, 3.5), wsp = max(3.0 * wr, 4.5);
@@ -2493,7 +2570,13 @@ GenOut gen(vec2 p) {
           v = mix(v, flr + 0.6 * ph + 2.4 * ph * grb_dome(max(dW + wr, 0.0), wr) * mix(0.3, 1.0, nose), grb_cov(dW));
           float gr = abs(dE - 1.6 * wr) - 0.55 * wr;   // the grommet ring round each end
           v = max(v, mix(v, flr + 1.1 * ph * grb_dome(abs(dE - 1.6 * wr), 0.6 * wr), grb_cov(gr) * (1.0 - grb_cov(dW + 0.3))));
-          v = mix(v, flr + 2.6 * ph - 0.6 * ph * grb_cov(length(vec2(ql.x - (atLo ? x1 - 1.0 : x0 + 1.0), fract((ql.y - cy) / wsp + 0.5 * nw + 0.5) * wsp - 0.5 * wsp)) - 0.7 * wr), smoothstep(0.0, 1.0, -dCn / 1.5));
+          // (Stepped: a shell, a raised top 2 px in from its sides; at the face the wires plug into, a dark square socket
+          // per wire, cut down to the shell's foot.)
+          float dTp = grb_rbox(ql, vec2(x0 + 2.0, cy - 0.5 * nw * wsp + 0.5), vec2(x1 - 2.0, cy + 0.5 * nw * wsp - 0.5), 1.0);
+          vec2 sp = vec2(ql.x - (atLo ? x1 - wr - 1.5 : x0 + wr + 1.5), fract((ql.y - cy) / wsp + 0.5 * nw + 0.5) * wsp - 0.5 * wsp);
+          float dSo = max(max(abs(sp.x) - wr - 0.5, abs(sp.y) - 0.85 * wr), abs(ql.y - cy) - 0.5 * nw * wsp);
+          float hh = flr + 2.2 * ph + 0.9 * ph * smoothstep(0.0, 1.0, -dTp) - 2.4 * ph * grb_cov(dSo);
+          v = mix(v, hh, smoothstep(0.0, 1.0, -dCn / 1.5));
         }
 #endif
         dD = dg;
@@ -2553,12 +2636,16 @@ GenOut gen(vec2 p) {
     // bundle), through a collar. It rests on the top plates (riding up only over higher ones), so the seams and steps it
     // crosses don't print through.
     bool top2 = cell.kind != 3 && !p2;
-    float ce = top2 ? min(bT - cell.ovt.x, cell.ovt.y - bT) : 1e4;
+    // (A channel's bundle ends where its cut does: diving into the channel floor, never cut off square.)
+    bool ends = !p2 && cell.ovt.y > cell.ovt.x;
+    // (A laid run stops a seam short of its parent's box, which takes in the seam at its far side: nothing of it lies in
+    // the seam to be cut off by the next piece.)
+    float ce = ends ? min(bT - cell.ovt.x, cell.ovt.y - bT) - (top2 ? u_gap : 0.0) : 1e4;
     float bl = max(4.0, 1.4 * u_tube_big), fe = max(2.0, 0.7 * u_tube_big);
     // How the run ends here (each end its own): diving into the panel below — the tubes' rounded noses going down
     // through a raised grommet — or into the side of a module — a collar on each tube seated in a socket boss.
     bool lowEnd = bT - cell.ovt.x < cell.ovt.y - bT;
-    bool dive = top2 && grb_rand(bId, lowEnd ? 131u : 132u) < 0.55;
+    bool dive = ends && (!top2 || grb_rand(bId, lowEnd ? 131u : 132u) < 0.55);
     float atE = top2 && !dive ? 1.0 - smoothstep(bl - 1.0, bl, ce) : 0.0;
     float rcap = 0.0, grom = 0.0, hole = 0.0;   // a dive's nose centre (along, from the end); the grommet height
     float vl = v;   // the surface under the run
@@ -2579,8 +2666,10 @@ GenOut gen(vec2 p) {
         float x = abs(bU - tc);
         // (Diving: the tube ends in a hemispherical nose rcap from the end, a grommet ring round it.)
         float fall = 1.0;
+        if (ce < 0.0) x = 1e4;
         if (dive) {
-          rcap = 1.6 * r + 2.0;
+          // (Far enough in that the grommet ring stays whole on the plate.)
+          rcap = max(1.6 * r + 2.0, r + 5.5);
           float dEn = length(vec2(x, max(rcap - ce, 0.0)));
           x = ce < rcap ? dEn : x;
           // The tube turns down: its height falls over its last diameter into the hole.
@@ -2615,7 +2704,7 @@ GenOut gen(vec2 p) {
     if (cs == 0) env = max(env, (mtop + 0.04 * (bTop - bBase)) * atC * onB * step(top2 ? bl + fe : -1.0, ce));
     // Into a module's side: a socket boss across the bundle's end, the collars seated in it.
     if (top2 && !dive) {
-      float dB = max(max(x0 - 2.0 - bU, bU - xe - 2.0), ce - 0.45 * bl);
+      float dB = max(max(max(x0 - 2.0 - bU, bU - xe - 2.0), ce - 0.45 * bl), -ce);
       env = max(env, mix(0.0, mtop - 0.15 * u_inset_depth, smoothstep(0.0, 1.0, -dB / 1.5)));
       cov2 = max(cov2, 1.0 - smoothstep(-0.5, 0.5, dB));
       dTube = min(dTube, dB);
