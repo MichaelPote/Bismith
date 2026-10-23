@@ -252,6 +252,26 @@ vec3 directLight(Mat m, vec3 p, vec3 n, vec3 v) {
   return sum;
 }
 
+// Specular anti-aliasing (Kaplanyan & Hoffman 2016, "Stable specular highlights"). The shading normal is one value
+// per pixel, but the relief's normal varies across the pixel. On a near-mirror that variation decides whether a pixel
+// reflects the sun's small disc or misses it, so steep fine relief (liquid rims) broke into isolated single-pixel
+// glints that no sample count averages away. Widen the GGX lobe by the normal's variance over the pixel, estimated
+// from its differences to the 8 neighbouring texels (to the centre, not central differences, so a crest — where both
+// sides tilt alike — counts too): alpha² += min(2σ², 0.18). Faded out from roughness 0.25 to 0.45, so the deliberate
+// per-pixel sparkle of satin and rough relief (stone grain, worn metal) stays; diffuse is untouched.
+float filteredRough(float rough, ivec2 ip, vec3 n) {
+  float sq = 0.0;
+  for (int i = 0; i < 8; i++) {
+    ivec2 o = ivec2(i < 3 ? -1 : i < 5 ? 0 : 1, i == 0 || i == 3 || i == 5 ? -1 : i == 1 || i == 6 ? 0 : 1);
+    vec3 d = fetchT(tNormal, ip + o).xyz - n;
+    // Diagonal neighbours are √2 px away: halve their squared difference to get it per px.
+    sq += dot(d, d) * (o.x != 0 && o.y != 0 ? 0.5 : 1.0);
+  }
+  // For a normal varying linearly by g per px, sq = 4|g|², and 2σ² (σ² = 0.25|g|², a 1 px footprint) = sq / 8.
+  float a2 = rough * rough * rough * rough + min(sq / 8.0, 0.18) * (1.0 - smoothstep(0.25, 0.45, rough));
+  return sqrt(sqrt(min(a2, 1.0)));
+}
+
 vec3 clampLum(vec3 c) {
   if (uClamp <= 0.0) return c;
   float l = luma(c);
@@ -267,6 +287,7 @@ void main() {
 
   Mat m = fetchMat(gl_FragCoord.xy);
   vec3 n = normalize(texelFetch(tNormal, ip, 0).xyz);
+  m.rough = filteredRough(m.rough, ip, n); // primary hit only: bounces are blurred anyway
   vec3 p = vec3(px, heightAt(px));
   vec3 v = vec3(0.0, 0.0, 1.0);
 
