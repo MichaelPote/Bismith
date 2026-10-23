@@ -12,11 +12,12 @@ joints and small bolt holes are computed at k× and averaged instead of being de
   patterns keep their size in texture pixels and slopes stay the same. Counts per pixel area (ParamDef `perArea`:
   Scratches' density, per 64×64 px) ÷ k², so the texture keeps as many features — before, raising the supersampling
   multiplied the scratches by k² — and per-px quantities (`perPx`: Cavity's gain per px of curvature) ÷ k.
-- Resizing the canvas uses the same scaling (`resizeProject`, the store's `resize`): Width / Height, the size
-  buttons and Match's size-to-reference rescale the stored values — post filters and smart-material macros too — so
-  a texture keeps its look at any size and the sliders still read true pixels. Lengths scale by √(kx·ky) (the side
-  of the area, so the steps of a change compose), offsets (`sliderSpan`) and vertex lists per axis. A run of resizes
-  scales from the project before the first, so rounding and clamping don't compound.
+- Resizing the canvas uses the same scaling (`resizeProject`, the store's `resize`): Width / Height, the size buttons
+  and Match's size-to-reference rescale the stored values — post filters and smart-material macros too — so a texture
+  keeps its look at any size and the sliders still read true pixels. Lengths scale by √(kx·ky) (the side of the area,
+  so the steps of a change compose), offsets (`sliderSpan`), lengths tied to an axis (ParamDef `axis`: rect width /
+  height, band width across its bands via `orientAxis`) and vertex lists per axis. A run of resizes scales from the
+  project before the first, so rounding and clamping don't compound.
 - Engine: keeps the k× project for material + tracer; `traced()` box-filters into a texture-size target that post,
   the display ("final") and `readRender` use. Channel views show the k× maps (display `uSS` texel scale); map
   readback (`readMap`, `readAO`) is box-filtered to the texture size so exports match the final image; the cursor

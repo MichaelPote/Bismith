@@ -4,9 +4,13 @@
 // one band with a gap round it — for trim sheets and trim bands across larger walls. See greebleCommon.ts for the
 // relief / SDF output convention.
 
-import { P, gradient, type ParamDef, type ParamValues } from '@/core/params';
+import { P, gradient, orientAxis, type ParamDef, type ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
 import { GRB_GLSL, ORIENT } from './greebleCommon';
+
+// Strip height is across the strips, element pitch and length along them.
+const stripAlong = orientAxis('orient', { horizontal: 'x', vertical: 'y' });
+const stripAcross = orientAxis('orient', { horizontal: 'x', vertical: 'y' }, true);
 
 // Option order is the uniform's index (the GLSL tests it): only append.
 export const BAND_PROFILES: [string, string][] = [
@@ -159,6 +163,7 @@ export const trimLayer: LayerDef = {
 		P.int('strip_h', 'Strip height', 0, 0, 4096, {
 			softMax: 256,
 			unit: 'px',
+			axis: stripAcross,
 			hint: 'Height of each strip; 0 fills its share. Smaller leaves a gap round it that the layer leaves alone — a trim band across a wall'
 		}),
 		P.float('strip_pos', 'Strip position', 0.5, 0, 1, {
@@ -312,6 +317,7 @@ export const trimLayer: LayerDef = {
 		P.float('elem_pitch', 'Pitch', 14.5, 0, 2048, {
 			softMax: 128,
 			unit: 'px',
+			axis: stripAlong,
 			step: 0.5,
 			note: fitNote,
 			group: 'elements',
@@ -339,6 +345,7 @@ export const trimLayer: LayerDef = {
 		P.float('elem_len', 'Slot length', 6, 1, 1024, {
 			softMax: 64,
 			unit: 'px',
+			axis: stripAlong,
 			step: 0.5,
 			note: fitNote,
 			group: 'elements',

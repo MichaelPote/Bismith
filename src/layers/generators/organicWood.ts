@@ -9,9 +9,12 @@
 //   - "shape": the plank / scale SDF for its mask (bevel, limit, etch); value = wrapper profile.
 //   - wood only, "grain": the grain value without gaps or edges (stack it over a "shape" layer).
 
-import { P, gradient } from '@/core/params';
+import { P, gradient, orientAxis } from '@/core/params';
 import type { LayerDef } from '../types';
 import { ORG_GLSL, ORG_GLSL_SDF, ORG_NO_SDF } from './organicShared';
+
+// Grain and ring spacing are across the planks.
+const woodAcross = orientAxis('direction', { vertical: 'y', horizontal: 'x' }, true);
 
 // ------------------------------------------------------------------------------------------------ wood
 
@@ -59,12 +62,13 @@ export const woodLayer: LayerDef = {
 		P.float('gap', 'Gap X', 1, 0, 64, {
 			softMax: 8,
 			unit: 'px',
+			axis: 'x',
 			step: 0.1,
 			showIf: planksOn,
 			join: { with: 'gap_y', as: 'pair', label: 'Gap X · Y' },
 			hint: 'Width of the gaps across the texture (X: the up-and-down gaps — between vertical planks, at the ends of horizontal ones) and down it (Y: the gaps that run across)'
 		}),
-		P.float('gap_y', 'Gap Y', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1, showIf: planksOn }),
+		P.float('gap_y', 'Gap Y', 1, 0, 64, { softMax: 8, unit: 'px', axis: 'y', step: 0.1, showIf: planksOn }),
 		P.float('joint_var', 'Joint variation', 0, 0, 1, {
 			step: 0.001,
 			showIf: planksOn,
@@ -113,6 +117,7 @@ export const woodLayer: LayerDef = {
 		P.float('grain_px', 'Grain spacing', 2, 0.5, 64, {
 			softMax: 16,
 			unit: 'px',
+			axis: woodAcross,
 			step: 0.05,
 			group: 'grain',
 			hint: 'Distance between fine grain streaks'
@@ -130,7 +135,13 @@ export const woodLayer: LayerDef = {
 		}),
 		P.float('fine', 'Fine grain', 0.6, 0, 1, { step: 0.001, group: 'grain' }),
 		P.float('rings', 'Rings', 0.6, 0, 1, { step: 0.001, group: 'grain', hint: 'Strength of the growth-ring lines' }),
-		P.float('ring_px', 'Ring spacing', 4, 1, 256, { softMax: 32, unit: 'px', step: 0.05, group: 'grain' }),
+		P.float('ring_px', 'Ring spacing', 4, 1, 256, {
+			softMax: 32,
+			unit: 'px',
+			axis: woodAcross,
+			step: 0.05,
+			group: 'grain'
+		}),
 		P.float('ring_line', 'Latewood', 0.4, 0.02, 1, {
 			step: 0.001,
 			group: 'grain',

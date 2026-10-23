@@ -2,10 +2,15 @@
 // framed field. Pipes: runs of parallel cylinders or conduits with clamp straps. See greebleCommon.ts for the
 // relief / SDF output convention.
 
-import { P, gradient, type ParamValues } from '@/core/params';
+import { P, gradient, orientAxis, type ParamValues } from '@/core/params';
 import { spacingParams } from '../commonParams';
 import type { LayerDef } from '../types';
 import { FASTENER_HEADS, GRB_GLSL, ORIENT } from './greebleCommon';
+
+// Slot length runs along the slots, slot width across them (holes: a diameter, both axes).
+const slotAlong = orientAxis('orient', { horizontal: 'x', vertical: 'y' });
+const slotAcross = (p: ParamValues) =>
+	p.mode === 'holes' ? null : orientAxis('orient', { horizontal: 'x', vertical: 'y' }, true)(p);
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const isFins = (p: ParamValues) => p.mode === 'louvers' || p.mode === 'hoods';
@@ -67,6 +72,7 @@ export const ventsLayer: LayerDef = {
 		P.float('length', 'Slot length', 24, 1, 4096, {
 			softMax: 512,
 			unit: 'px',
+			axis: slotAlong,
 			step: 0.5,
 			showIf: (p) => p.mode !== 'holes',
 			hint: 'Clamped to the cell: as long as the cell (or more), slots join into continuous bars. Whole px stays crisp'
@@ -74,6 +80,7 @@ export const ventsLayer: LayerDef = {
 		P.float('width', 'Slot width', 3, 0.5, 1024, {
 			softMax: 64,
 			unit: 'px',
+			axis: slotAcross,
 			step: 0.5,
 			hint: 'Slot thickness, or hole diameter (hex holes: across the flats). Keeps at least a 1 px bar to the next row'
 		}),

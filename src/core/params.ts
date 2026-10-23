@@ -218,6 +218,17 @@ export function gradient(...colors: string[]): Gradient {
 // Small helpers to keep ParamDef tables terse.
 type Extra = Partial<Omit<ParamDef, 'key' | 'label' | 'type' | 'default'>>;
 
+/**
+ * ParamDef axis for a px length tied to an orientation param: `along` maps each of `key`'s options to the texture axis
+ * it runs along (options left out, e.g. diagonals, scale with both); `across` gives the other axis.
+ */
+export function orientAxis(key: string, along: Record<string, 'x' | 'y'>, across = false) {
+	return (p: ParamValues): 'x' | 'y' | null => {
+		const a = along[String(p[key])] ?? null;
+		return a && across ? (a === 'x' ? 'y' : 'x') : a;
+	};
+}
+
 export const P = {
 	float: (key: string, label: string, def: number, min: number, max: number, extra: Extra = {}): ParamDef => ({
 		key,

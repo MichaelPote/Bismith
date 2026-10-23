@@ -13,8 +13,12 @@
 //     instead of reaching the edge, so the wrapper's bevel gives it a floor.
 // Both write the chipped shape to the mask when it writes one (genOutOwn for Carve), for later limits.
 
-import { P, gradient } from '@/core/params';
+import { P, gradient, orientAxis } from '@/core/params';
 import type { LayerDef } from '../types';
+
+// Splits run along the grain, their spacing across it (for resizing the canvas: core/pixelScale.ts).
+const grainAlong = orientAxis('grain', { vertical: 'y', horizontal: 'x' });
+const grainAcross = orientAxis('grain', { vertical: 'y', horizontal: 'x' }, true);
 
 const chipsOn = (p: Record<string, unknown>) => Number(p.chips) > 0 || Number(p.corners) > 0;
 const splitsOn = (p: Record<string, unknown>) => Number(p.splits) > 0 || Number(p.interior) > 0;
@@ -98,6 +102,7 @@ export const chipsLayer: LayerDef = {
 		P.float('split_len', 'Length', 48, 2, 2048, {
 			softMax: 192,
 			unit: 'px',
+			axis: grainAlong,
 			step: 0.1,
 			group: 'splits',
 			showIf: splitsOn,
@@ -134,6 +139,7 @@ export const chipsLayer: LayerDef = {
 		P.float('split_space', 'Spacing', 10, 1, 512, {
 			softMax: 48,
 			unit: 'px',
+			axis: grainAcross,
 			step: 0.1,
 			group: 'splits',
 			showIf: splitsOn,

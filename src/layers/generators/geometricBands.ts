@@ -2,9 +2,14 @@
 // nested chevrons, and tech-wall Z steps (low run → rise → high run, chamfered ends), optionally with rails along
 // the lane edges. Exact distances (px) so bevels, profiles and masks work; rnd per bar / piece / lane.
 
-import { P, gradient } from '@/core/params';
+import { P, gradient, orientAxis } from '@/core/params';
 import type { LayerDef } from '../types';
 import { geoGlsl } from './geometricCommon';
+
+// Band thickness, margins and rails are across the bands, the chamfer along them; diagonals scale with both.
+const BAND_AXIS: Record<string, 'x' | 'y'> = { '0': 'x', '180': 'x', '90': 'y', '270': 'y' };
+const bandsAlong = orientAxis('orient', BAND_AXIS);
+const bandsAcross = orientAxis('orient', BAND_AXIS, true);
 
 const modeIs =
 	(...m: string[]) =>
@@ -46,6 +51,7 @@ export const bandsLayer: LayerDef = {
 		P.float('width', 'Band width', 32, 0.5, 2048, {
 			softMax: 128,
 			unit: 'px',
+			axis: bandsAcross,
 			step: 0.1,
 			hint: 'Thickness across the band'
 		}),
@@ -56,6 +62,7 @@ export const bandsLayer: LayerDef = {
 		P.float('margin_top', 'Top margin', 20, 0, 1024, {
 			softMax: 128,
 			unit: 'px',
+			axis: bandsAcross,
 			step: 0.1,
 			showIf: modeIs('diagonal', 'zigzag', 'z'),
 			hint: 'Clear strip along the top of each lane (in the band frame). Diagonal bars with both margins 0 run through as seamless stripes'
@@ -63,6 +70,7 @@ export const bandsLayer: LayerDef = {
 		P.float('margin_bottom', 'Bottom margin', 20, 0, 1024, {
 			softMax: 128,
 			unit: 'px',
+			axis: bandsAcross,
 			step: 0.1,
 			showIf: modeIs('diagonal', 'zigzag', 'z'),
 			hint: 'Clear strip along the bottom of each lane'
@@ -70,6 +78,7 @@ export const bandsLayer: LayerDef = {
 		P.float('rail', 'Rails', 17, 0, 1024, {
 			softMax: 64,
 			unit: 'px',
+			axis: bandsAcross,
 			step: 0.1,
 			showIf: modeIs('diagonal', 'zigzag', 'z'),
 			hint: 'Strips this thick along the lane edges, shared by neighbouring lanes (centred on the edge, so they eat half into each margin): the horizontal rails of a tech wall. 0 = none'
@@ -111,6 +120,7 @@ export const bandsLayer: LayerDef = {
 		P.float('chamfer', 'End chamfer', 9, 0, 1024, {
 			softMax: 64,
 			unit: 'px',
+			axis: bandsAlong,
 			step: 0.1,
 			showIf: modeIs('z'),
 			hint: '45° chamfer on the band ends (up to half the band width: a pointed end)'

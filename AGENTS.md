@@ -32,10 +32,13 @@ doesn't.)
   writer. Each mask texel is (distance, the feature's random `GenOut.fid`, feature flag); in shaders `maskIn()` is the
   mask before the layer (its target's, or Shape), `maskOp()` how its shape combines, `limitAt()` its limit. Which
   versions get a slot texture is planned per evaluation (`planMasks` in `src/layers/masks.ts`).
-- **Pixel units and supersampling.** Supersampling renders the stack at k× and scales params by their declared
-  unit (`src/core/supersample.ts`): lengths need `unit: 'px'` (× k), and a count per pixel area (features per N×N
-  px) needs `perArea: true` (÷ k²) — otherwise raising the supersampling changes the texture (Scratches gained k² ×
-  the scratches). Counts per texture or per cell ("cells across") need nothing.
+- **Pixel units follow the canvas.** Supersampling (k× the stack) and resizing the canvas both rescale params by
+  their declared unit (`src/core/pixelScale.ts`): lengths need `unit: 'px'`, a count per pixel area (features per
+  N×N px) `perArea: true`, a quantity per px (gain per px of curvature) `perPx: true` — otherwise the texture changes
+  with its size (Scratches once gained k² × the scratches). A length tied to one axis declares `axis: 'x' | 'y'`, or
+  `orientAxis(...)` when the layer's orientation picks it (band width across the bands, slot length along them), so
+  a widening scales it by the width alone; other lengths take √(kx·ky). Counts per texture or per cell ("cells
+  across") need nothing. One output pixel (Rock's hidden pixel scale) is `outputPx`: supersampling only.
 - **Featureless generators return `genOutSmooth(...)`.** `rnd` is meant to be one random per feature (brick, cell,
   instance); Height's _Per-feature variation_ hashes it with `fract(rnd · 61.37)`. A generator without features that
   passes a continuous value as `rnd` (smooth noise, clouds) must use `genOutSmooth`, which switches that variation

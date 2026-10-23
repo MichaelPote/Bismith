@@ -288,6 +288,19 @@ describe('canvas resize', () => {
 		});
 		const aw = resizeProject(a, 128, 64).layers.map((l) => l.params);
 		expect([aw[0].len_max, aw[0].width, aw[1].radius, aw[2].radius]).toEqual([20, 4, 10, 20]);
+		// Orientation picks the axis: vertical bands' width is across them (x); a horizontal rect's height is y.
+		const b = createProject({
+			width: 64,
+			height: 64,
+			layers: [
+				createLayer('bands', { orient: '90', width: 10, chamfer: 4 }),
+				createLayer('bands', { orient: '45', width: 10 }),
+				createLayer('rect', { width: 20, height: 10 })
+			]
+		});
+		const bw = resizeProject(b, 128, 64).layers.map((l) => l.params);
+		expect([bw[0].width, bw[0].chamfer, bw[2].width, bw[2].height]).toEqual([20, 4, 40, 10]);
+		expect(bw[1].width).toBeCloseTo(10 * Math.SQRT2, 3);
 		// Ints round, values clamp to their hard limits.
 		expect(resizeProject(p, 80, 80).post[0].params.size).toBe(4);
 		expect(resizeProject(p, 1, 1).post[0].params.size).toBe(1);

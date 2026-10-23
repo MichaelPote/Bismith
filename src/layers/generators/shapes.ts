@@ -326,6 +326,7 @@ export const rectLayer = shape({
 			softMin: 0,
 			softMax: 128,
 			unit: 'px',
+			axis: 'x',
 			step: 0.5,
 			showIf: (p) => p.size_mode === 'inset',
 			hint: 'Margin left and right (from the texture, or from each repeat cell)'
@@ -334,6 +335,7 @@ export const rectLayer = shape({
 			softMin: 0,
 			softMax: 128,
 			unit: 'px',
+			axis: 'y',
 			step: 0.5,
 			showIf: (p) => p.size_mode === 'inset',
 			hint: 'Margin top and bottom (from the texture, or from each repeat cell)'
@@ -341,12 +343,14 @@ export const rectLayer = shape({
 		P.float('width', 'Width', 64, 0, 8192, {
 			softMax: 1024,
 			unit: 'px',
+			axis: 'x',
 			step: 0.5,
 			showIf: (p) => p.size_mode === 'size'
 		}),
 		P.float('height', 'Height', 32, 0, 8192, {
 			softMax: 1024,
 			unit: 'px',
+			axis: 'y',
 			step: 0.5,
 			showIf: (p) => p.size_mode === 'size'
 		}),
