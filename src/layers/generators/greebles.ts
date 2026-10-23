@@ -2499,6 +2499,13 @@ GenOut gen(vec2 p) {
         float o = (cw4.w < 0.5 ? -1.0 : 1.0) * clamp(0.5 * sbs.y - 0.5 * nw * wsp - wm, 0.0, 0.2 * sbs.y);
         // (The jog far enough from the header that no wire's shifted corner comes before its start.)
         float xj = xs + dir * max(abs(mix(xs, xe, 0.3 + 0.3 * fract(cw4.w * 7.0)) - xs), 0.414 * 0.5 * nw * wsp + 3.0 * wr);
+        // (And early enough that every wire's last run — a grommet long — still ends inside the pocket: in a short pocket
+        // the bend moves towards the header rather than the ends past the wall.)
+        float xjl = xe - dir * (abs(o) + 4.5 * wr + 0.41421356 * 0.5 * (nw - 1.0) * wsp);
+        xj = dir > 0.0 ? min(xj, xjl) : max(xj, xjl);
+        // (But never so early that a wire's corner comes before the header's face: none leaves it sideways.)
+        float xjh = xs + dir * (0.41421356 * 0.5 * (nw - 1.0) * wsp + wr);
+        xj = dir > 0.0 ? max(xj, xjh) : min(xj, xjh);
         // The bundle's lane, as its middle line and half width (plus the header).
         float lane = 0.5 * nw * wsp + 2.0 * wr + 2.0;
         vec2 cc = floor((ql - lo2) / cp);
@@ -2578,19 +2585,27 @@ GenOut gen(vec2 p) {
           // The cable bundle: from the header's face, along, a 45° jog (each wire's corners shifted by 0.414 × its offset,
           // so the spacing holds through the bend), along again, each wire ending a little short of the last (a staggered
           // row of ends) where it dives into the floor through a raised grommet. One flat loop over all segments.
-          float dW = 1e4, dE = 1e4, aE = 1e4;
+          // (Each wire's nose dips by its own end — aE from the wire nearest the pixel, not from the nearest end of any
+          // wire, or a wire passing a neighbour's end dips there too. dw1: the wire's own distance, over its 3 segments.)
+          float dW = 1e4, dE = 1e4, aE = 1e4, dw1 = 1e4;
           for (int k = 0; k < 12 * GRB_1; k++) {
             float kw2 = floor(float(k) / 3.0), sk = float(k) - 3.0 * kw2;
             if (kw2 < nw) {
               float yo = (kw2 - 0.5 * (nw - 1.0)) * wsp, y0 = cy + yo;
               float xjk = xj - dir * 0.41421356 * sign(o) * yo;
-              // (Staggered ends, but never before the wire's own last bend: no wire doubles back.)
+              // (Staggered ends, but never before the wire's own last bend, and its last run at least a grommet long, so
+              // the wire meets its grommet head on: no wire doubles back or enters its ring off centre.)
               float xek = xe - dir * kw2 * 1.6 * wsp;
-              xek = dir > 0.0 ? max(xek, xjk + abs(o) + 2.0 * wr) : min(xek, xjk - abs(o) - 2.0 * wr);
+              xek = dir > 0.0 ? max(xek, xjk + abs(o) + 4.5 * wr) : min(xek, xjk - abs(o) - 4.5 * wr);
               vec2 A = sk < 0.5 ? vec2(xs, y0) : sk < 1.5 ? vec2(xjk, y0) : vec2(xjk + dir * abs(o), y0 + o);
               vec2 B2 = sk < 0.5 ? vec2(xjk, y0) : sk < 1.5 ? vec2(xjk + dir * abs(o), y0 + o) : vec2(xek, y0 + o);
-              dW = min(dW, grb_seg(ql, A, B2) - wr);
-              if (sk > 1.5) { float e = length(ql - B2); if (e < dE) { dE = e; aE = dir * (B2.x - ql.x); } }
+              float ds = grb_seg(ql, A, B2) - wr;
+              dw1 = sk < 0.5 ? ds : min(dw1, ds);
+              if (sk > 1.5) {
+                float e = length(ql - B2);
+                dE = min(dE, e);
+                if (dw1 < dW) { dW = dw1; aE = dir * (B2.x - ql.x); }
+              }
             }
           }
           dW = max(dW, 2.0 + max(u_bevel, 1.0) - cA);
