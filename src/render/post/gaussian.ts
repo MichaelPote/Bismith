@@ -4,26 +4,25 @@
 import type * as THREE from 'three';
 import type { PostContext } from './types';
 
-/** Gaussian sigma (px) below which blurring is skipped. */
-export const MIN_SIGMA = 0.2;
+/** Smallest Gaussian sigma (px) used: smaller ones are raised to it (a near-identity blur). */
+const MIN_SIGMA = 0.2;
 /** Kernel half-width cap (taps each side). */
 const MAX_TAPS = 128;
 
 const BODY = /* glsl */ `
 uniform ivec2 uDir;
 uniform float uSigma;
-uniform bool uPremul;   // premultiply the input (first pass)
-uniform bool uUnpremul; // un-premultiply the result (second pass)
+uniform bool uFirst; // first pass: premultiply the input; second: un-premultiply the result
 
 vec4 gaussTap(ivec2 c) {
   vec4 v = fetchT(tInput, c);
-  return uPremul ? vec4(v.rgb * v.a, v.a) : v;
+  return uFirst ? vec4(v.rgb * v.a, v.a) : v;
 }
 
 void main() {
   ivec2 ip = ivec2(gl_FragCoord.xy);
-  int r = min(int(ceil(uSigma * 3.0)), ${MAX_TAPS});
-  float k = -0.5 / (uSigma * uSigma);
+  int r = gaussTaps(uSigma, ${MAX_TAPS});
+  float k = gaussK(uSigma);
   vec4 s = vec4(0.0);
   float wsum = 0.0;
   for (int i = -r; i <= r; i++) {
@@ -32,7 +31,7 @@ void main() {
     wsum += w;
   }
   s /= wsum;
-  if (uUnpremul) s.rgb = s.a > 1e-6 ? s.rgb / s.a : vec3(0.0);
+  if (!uFirst) s.rgb = s.a > 1e-6 ? s.rgb / s.a : vec3(0.0);
   oColor = s;
 }
 `;
@@ -47,17 +46,14 @@ export function gaussianBlur(
 	const mat = ctx.material('gauss', BODY, {
 		uDir: { value: [1, 0] },
 		uSigma: { value: 1 },
-		uPremul: { value: true },
-		uUnpremul: { value: false }
+		uFirst: { value: true }
 	});
 	const tmp = ctx.scratch('gauss-h');
 	mat.uniforms.uSigma.value = Math.max(sigma, MIN_SIGMA);
 	mat.uniforms.uDir.value = [1, 0];
-	mat.uniforms.uPremul.value = true;
-	mat.uniforms.uUnpremul.value = false;
+	mat.uniforms.uFirst.value = true;
 	ctx.run(mat, tmp, input);
 	mat.uniforms.uDir.value = [0, 1];
-	mat.uniforms.uPremul.value = false;
-	mat.uniforms.uUnpremul.value = true;
+	mat.uniforms.uFirst.value = false;
 	ctx.run(mat, output, tmp.texture);
 }

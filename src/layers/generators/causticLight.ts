@@ -16,8 +16,131 @@
 // Phase animates the surface: each wave travels along its direction by a whole number of wavelengths per loop (coarse
 // waves one, fine waves two — faster, as short water waves are), forwards or backwards, so 0 → 1 loops seamlessly.
 
-import { P } from '@/core/params';
-import type { LayerDef } from '../types';
+import { hashI } from '@/core/hash';
+import { P, type ParamValues } from '@/core/params';
+import { PHASE_PARAM } from '../commonParams';
+import type { CpuTexture, LayerDef } from '../types';
+
+const LC_MAX = 16;
+
+/**
+ * The wave table, from the params, seed and canvas size (the same for every pixel, so worked out here once): float32s
+ * as the bits of RGBA8 texels, 8 a row — rows 0–15 the waves (k.x, k.y, φ, a, q, w = a·|k|), rows 16–19 the meander
+ * waves (k.x, k.y, φ, a), row 20 Gerstner's largest shift Σ q and the height normaliser Σ w (1 + c).
+ */
+function waveTable(
+	p: ParamValues,
+	ctx: { width: number; height: number; tileable: boolean; seed: number }
+): CpuTexture {
+	const W = ctx.width,
+		H = ctx.height,
+		seed = ctx.seed;
+	const num = (k: string, d: number) => (typeof p[k] === 'number' ? (p[k] as number) : d);
+	const n = Math.max(1, Math.min(LC_MAX, Math.round(num('waves', 7))));
+	const scale = num('scale', 4),
+		spread = num('spread', 0.35),
+		oct2 = num('octave2', 0.25),
+		phase = num('phase', 0);
+	const ger = p.model === 'gerstner';
+	// c = 1/16 keeps the trough curvature at its maximum (1 − 4c) mid-trough — the sharpest crest without splitting cells.
+	const c = ger ? 0 : 0.0625 * num('harmonic', 1);
+	const f = new Float32Array(8 * 21);
+	const K: [number, number][] = [];
+	const A: number[] = [];
+	let norm = 0;
+	// Coarse and fine waves each take exactly evenly spaced directions (one random rotation per seed) — an uneven or
+	// duplicated set of directions stretches the cells along the dominant ones.
+	const nf = oct2 > 0 && n > 2 ? Math.max(1, Math.floor(n / 3)) : 0;
+	const nc = n - nf;
+	const rot = Math.PI * hashI(0, 9, seed);
+	for (let i = 0; i < n; i++) {
+		const h1 = hashI(i, 1, seed),
+			h3 = hashI(i, 3, seed);
+		const fine = i >= nc;
+		const m = fine ? nf : nc;
+		const th = rot + ((fine ? 0.5 : 0) * Math.PI) / m + (Math.PI * (fine ? i - nc : i)) / m;
+		const r = Math.max(scale * (fine ? 2 : 1) * (1 + 0.6 * spread * (2 * h1 - 1)), 1);
+		const ideal = [r * Math.cos(th), (r * Math.sin(th) * H) / W];
+		let v = ideal;
+		if (ctx.tileable) {
+			// Whole wave counts (to tile), picked for the closest direction (modulo 180°), then the closest length.
+			const ta = Math.atan2(ideal[1], ideal[0]);
+			const il = Math.hypot(ideal[0], ideal[1]);
+			let be = 1e9;
+			for (let a = -1; a <= 2; a++)
+				for (let b = -1; b <= 2; b++) {
+					const cx = Math.floor(ideal[0]) + a,
+						cy = Math.floor(ideal[1]) + b;
+					if (cx * cx + cy * cy < 0.5) continue;
+					const x = Math.atan2(cy, cx) - ta + Math.PI / 2;
+					let e = Math.abs(x - Math.PI * Math.floor(x / Math.PI) - Math.PI / 2);
+					e += (0.12 * Math.abs(Math.hypot(cx, cy) - il)) / il;
+					if (e < be) {
+						be = e;
+						v = [cx, cy];
+					}
+				}
+		}
+		const k: [number, number] = [(2 * Math.PI * v[0]) / W, (2 * Math.PI * v[1]) / H];
+		const kl = Math.hypot(k[0], k[1]);
+		// Travel: a whole number of wavelengths per loop (fine waves twice as fast), forwards or backwards.
+		const travel = (fine ? 2 : 1) * (hashI(i, 5, seed) < 0.5 ? -1 : 1);
+		K.push(k);
+		A.push((fine ? oct2 : 1) / kl);
+		f.set([k[0], k[1], 2 * Math.PI * (h3 + travel * phase)], i * 8);
+		// A wave's steepest slope is |k| (1 + 2c): normalise so the whole surface's slope stays ≤ 1.
+		norm += A[i] * kl * (1 + 2 * c);
+	}
+	// Gerstner steepness: wave i gathers the surface towards its crests by s_i = S · w_i / λ (w_i = a_i |k_i|, its share
+	// of the slope; q_i = s_i / |k_i| = S a_i / λ). λ, the largest eigenvalue of Σ w_i k̂_i k̂_iᵀ, bounds how far the
+	// waves together compress the surface along any direction where all their crests meet — so it folds over nowhere
+	// below S = 1, where the crests become cusps.
+	let mxx = 0,
+		mxy = 0,
+		myy = 0,
+		hn = 0,
+		dmax = 0;
+	for (let i = 0; i < n; i++) {
+		A[i] /= Math.max(norm, 1e-6);
+		const kl = Math.hypot(K[i][0], K[i][1]);
+		const w = A[i] * kl;
+		const [kx, ky] = [K[i][0] / kl, K[i][1] / kl];
+		mxx += w * kx * kx;
+		mxy += w * kx * ky;
+		myy += w * ky * ky;
+		hn += w * (1 + c);
+		f.set([A[i]], i * 8 + 3);
+		f.set([w], i * 8 + 5);
+	}
+	if (ger) {
+		const hd = 0.5 * (mxx - myy);
+		const lam = 0.5 * (mxx + myy) + Math.sqrt(hd * hd + mxy * mxy);
+		for (let i = 0; i < n; i++) {
+			const q = (num('steepness', 0.7) * A[i]) / Math.max(lam, 1e-6);
+			f[i * 8 + 4] = q;
+			dmax += q;
+		}
+	}
+	// Meander waves: about two cells long, whole cycles across (tiles); each bends its axis by at most 0.35·meander of
+	// slope, so the warped surface never folds over.
+	const rw = Math.PI * hashI(0, 19, seed);
+	for (let j = 0; j < 4; j++) {
+		const th = rw + (Math.PI / 4) * j + 0.4 * (hashI(j, 11, seed) - 0.5);
+		const r = Math.max(scale * (0.35 + 0.25 * hashI(j, 12, seed)), 0.75);
+		let v = [r * Math.cos(th), (r * Math.sin(th) * H) / W];
+		if (ctx.tileable) {
+			let cv = [Math.floor(v[0] + 0.5), Math.floor(v[1] + 0.5)];
+			if (cv[0] * cv[0] + cv[1] * cv[1] < 0.5)
+				cv = Math.abs(v[0]) > Math.abs(v[1]) ? [Math.sign(v[0]), 0] : [0, Math.sign(v[1])];
+			v = cv;
+		}
+		const k = [(2 * Math.PI * v[0]) / W, (2 * Math.PI * v[1]) / H];
+		const a = (0.35 * num('meander', 0.5)) / Math.max(Math.hypot(k[0], k[1]), 1e-6);
+		f.set([k[0], k[1], 2 * Math.PI * hashI(j, 13, seed), a], (16 + j) * 8);
+	}
+	f.set([dmax, hn], 20 * 8);
+	return { width: 8, height: 21, data: new Uint8Array(f.buffer) };
+}
 
 export const causticLightLayer: LayerDef = {
 	type: 'causticlight',
@@ -94,13 +217,10 @@ export const causticLightLayer: LayerDef = {
 			hint: "The same light spread wide, added where it is brighter: a glow around the filaments that keeps the cells' cores dark"
 		}),
 		P.float('halo_size', 'Halo radius', 3, 0.5, 16, { softMax: 8, unit: 'px', step: 0.05 }),
-		P.float('phase', 'Phase', 0, -10000, 10000, {
-			softMin: 0,
-			softMax: 1,
-			step: 0.001,
-			optimize: false,
+		{
+			...PHASE_PARAM,
 			hint: 'Moves the waves: 0 → 1 is one seamless loop (render frames at even steps); it repeats beyond 1'
-		}),
+		},
 		P.seed()
 	],
 	defaults: {
@@ -115,105 +235,45 @@ export const causticLightLayer: LayerDef = {
 			]
 		}
 	},
+	textures: ['waves'],
+	cpuData: (p, ctx) => ({ waves: waveTable(p, ctx) }),
 	glsl: /* glsl */ `
-const int LC_MAX = 16;
+// The wave table (waveTable, cpuData): float32 bits in RGBA8 texels.
+float lc_f(int x, int y) {
+  uvec4 b = uvec4(texelFetch(t_waves, ivec2(x, y), 0) * 255.0 + 0.5);
+  return uintBitsToFloat(b.r | (b.g << 8u) | (b.b << 16u) | (b.a << 24u));
+}
+const int LC_MAX = ${LC_MAX};
 vec2 lcK[LC_MAX];
 float lcPhi[LC_MAX];
-float lcPsi[LC_MAX];
 float lcA[LC_MAX];
+float lcW[LC_MAX]; // a |k|: the wave's share of the slope
+float lcQ[LC_MAX]; // Gerstner: each wave's horizontal amplitude (px)
 int lcN;
 float lcC; // second-harmonic amplitude (sines)
-float lcQ[LC_MAX]; // Gerstner: each wave's horizontal amplitude (px)
 float lcDmax; // Gerstner: the largest horizontal shift
+float lcHn; // the height's normaliser, Σ a |k| (1 + c)
 vec2 lcWk[4]; // meander: two slow sines per axis
 float lcWp[4];
 float lcWa[4];
 
 void lc_init() {
   lcN = clamp(u_waves, 1, LC_MAX);
-  // c = 1/16 keeps the trough curvature at its maximum (1 − 4c) mid-trough — the sharpest crest without splitting cells.
-  bool ger = u_model == 1;
-  lcC = ger ? 0.0 : 0.0625 * u_harmonic;
-  float norm = 0.0;
-  // Coarse and fine waves each take exactly evenly spaced directions (one random rotation per seed) — an uneven or
-  // duplicated set of directions stretches the cells along the dominant ones.
-  int nf = u_octave2 > 0.0 && lcN > 2 ? max(1, lcN / 3) : 0;
-  int nc = lcN - nf;
-  float rot = 3.14159265 * hashI(ivec2(0, 9), uSeed);
-  for (int i = 0; i < LC_MAX; i++) {
-    if (i >= lcN) break;
-    float h1 = hashI(ivec2(i, 1), uSeed);
-    float h3 = hashI(ivec2(i, 3), uSeed);
-    bool isFine = i >= nc;
-    int m = isFine ? nf : nc;
-    int ii = isFine ? i - nc : i;
-    float th = rot + (isFine ? 0.5 : 0.0) * 3.14159265 / float(m) + 3.14159265 * float(ii) / float(m);
-    float r = max(u_scale * (isFine ? 2.0 : 1.0) * (1.0 + 0.6 * u_spread * (2.0 * h1 - 1.0)), 1.0);
-    vec2 ideal = vec2(r * cos(th), r * sin(th) * uRes.y / uRes.x);
-    vec2 n = ideal;
-    if (uTile) {
-      // Whole wave counts (to tile), picked for the closest direction (modulo 180°), then the closest length.
-      float ta = atan(ideal.y, ideal.x);
-      float be = 1e9;
-      for (int a = -1; a <= 2; a++)
-        for (int b = -1; b <= 2; b++) {
-          vec2 c = floor(ideal) + vec2(float(a), float(b));
-          if (dot(c, c) < 0.5) continue;
-          float e = abs(mod(atan(c.y, c.x) - ta + 1.5707963, 3.14159265) - 1.5707963);
-          e += 0.12 * abs(length(c) - length(ideal)) / length(ideal);
-          if (e < be) { be = e; n = c; }
-        }
-    }
-    vec2 k = 6.28318531 * n / uRes;
-    lcK[i] = k;
-    // Travel: a whole number of wavelengths per loop (fine waves twice as fast), forwards or backwards.
-    float travel = (isFine ? 2.0 : 1.0) * (hashI(ivec2(i, 5), uSeed) < 0.5 ? -1.0 : 1.0);
-    lcPhi[i] = 6.28318531 * (h3 + travel * u_phase);
-    lcPsi[i] = 0.0; // coherent with the fundamental: a crest-sharpening profile, not new cells
-    lcA[i] = (isFine ? u_octave2 : 1.0) / length(k);
-    // A wave's steepest slope is |k| (1 + 2c): normalise so the whole surface's slope stays ≤ 1.
-    norm += lcA[i] * length(k) * (1.0 + 2.0 * lcC);
+  lcC = u_model == 1 ? 0.0 : 0.0625 * u_harmonic;
+  for (int i = 0; i < lcN; i++) {
+    lcK[i] = vec2(lc_f(0, i), lc_f(1, i));
+    lcPhi[i] = lc_f(2, i);
+    lcA[i] = lc_f(3, i);
+    lcQ[i] = lc_f(4, i);
+    lcW[i] = lc_f(5, i);
   }
-  for (int i = 0; i < LC_MAX; i++) {
-    if (i >= lcN) break;
-    lcA[i] /= max(norm, 1e-6);
+  for (int j = 0; j < 4 * UNI_1; j++) {
+    lcWk[j] = vec2(lc_f(0, 16 + j), lc_f(1, 16 + j));
+    lcWp[j] = lc_f(2, 16 + j);
+    lcWa[j] = lc_f(3, 16 + j);
   }
-  // Gerstner steepness: wave i gathers the surface towards its crests by s_i = S · w_i / λ (w_i = a_i |k_i|, its share
-  // of the slope; q_i = s_i / |k_i| = S a_i / λ). λ, the largest eigenvalue of Σ w_i k̂_i k̂_iᵀ, bounds how far the
-  // waves together compress the surface along any direction where all their crests meet — so it folds over nowhere
-  // below S = 1, where the crests become cusps.
-  lcDmax = 0.0;
-  if (ger) {
-    mat2 M = mat2(0.0);
-    for (int i = 0; i < LC_MAX; i++) {
-      if (i >= lcN) break;
-      vec2 kh = normalize(lcK[i]);
-      M += lcA[i] * length(lcK[i]) * outerProduct(kh, kh);
-    }
-    float hd = 0.5 * (M[0][0] - M[1][1]);
-    float lam = 0.5 * (M[0][0] + M[1][1]) + sqrt(hd * hd + M[0][1] * M[0][1]);
-    for (int i = 0; i < LC_MAX; i++) {
-      if (i >= lcN) break;
-      lcQ[i] = u_steepness * lcA[i] / max(lam, 1e-6);
-      lcDmax += lcQ[i];
-    }
-  }
-  // Meander waves: about two cells long, whole cycles across (tiles); each bends its axis by at most 0.35·meander of
-  // slope, so the warped surface never folds over.
-  float rw = 3.14159265 * hashI(ivec2(0, 19), uSeed);
-  for (int j = 0; j < 4; j++) {
-    float th = rw + 0.7853982 * float(j) + 0.4 * (hashI(ivec2(j, 11), uSeed) - 0.5);
-    float r = max(u_scale * (0.35 + 0.25 * hashI(ivec2(j, 12), uSeed)), 0.75);
-    vec2 n = vec2(r * cos(th), r * sin(th) * uRes.y / uRes.x);
-    if (uTile) {
-      vec2 c = floor(n + 0.5);
-      if (dot(c, c) < 0.5) c = abs(n.x) > abs(n.y) ? vec2(sign(n.x), 0.0) : vec2(0.0, sign(n.y));
-      n = c;
-    }
-    lcWk[j] = 6.28318531 * n / uRes;
-    lcWp[j] = 6.28318531 * hashI(ivec2(j, 13), uSeed);
-    lcWa[j] = 0.35 * u_meander / max(length(lcWk[j]), 1e-6);
-  }
+  lcDmax = lc_f(0, 20);
+  lcHn = lc_f(1, 20);
 }
 
 // Meander: the surface is read at q = p + w(p); the slope at p is then (I + J)^T ∇h(q) (chain rule).
@@ -234,11 +294,10 @@ vec2 lc_warp(vec2 p, out mat2 JT) {
 // Surface slope (∇h, |∇h| ≤ 1) and height.
 vec2 lc_grad(vec2 p) {
   vec2 g = vec2(0.0);
-  for (int i = 0; i < LC_MAX; i++) {
-    if (i >= lcN) break;
+  for (int i = 0; i < lcN; i++) {
     float ph = dot(lcK[i], p) + lcPhi[i];
-    // h_i = a (cos φ + c · cos(2φ + ψ)) → ∇h_i = −a k (sin φ + 2c · sin(2φ + ψ))
-    g -= lcA[i] * lcK[i] * (sin(ph) + 2.0 * lcC * sin(2.0 * ph + lcPsi[i]));
+    // h_i = a (cos φ + c · cos 2φ) → ∇h_i = −a k (sin φ + 2c · sin 2φ)
+    g -= lcA[i] * lcK[i] * (sin(ph) + 2.0 * lcC * sin(2.0 * ph));
   }
   return g;
 }
@@ -254,14 +313,11 @@ float lc_height(vec2 p) {
     p = lc_warp(p, JT);
   }
   float h = 0.0;
-  float m = 0.0;
-  for (int i = 0; i < LC_MAX; i++) {
-    if (i >= lcN) break;
+  for (int i = 0; i < lcN; i++) {
     float ph = dot(lcK[i], p) + lcPhi[i];
-    h += lcA[i] * length(lcK[i]) * (cos(ph) + lcC * cos(2.0 * ph + lcPsi[i]));
-    m += lcA[i] * length(lcK[i]) * (1.0 + lcC);
+    h += lcW[i] * (cos(ph) + lcC * cos(2.0 * ph));
   }
-  return h / max(m, 1e-6);
+  return h / max(lcHn, 1e-6);
 }
 
 // Gerstner surface point of parameter u: its horizontal position x, the slope ∇z there, and (returned) the horizontal
@@ -277,8 +333,7 @@ float lc_gerstner(vec2 u, out vec2 x, out vec2 slope) {
   vec2 gz = vec2(0.0);
   mat2 C = mat2(0.0);
   mat2 M = mat2(0.0);
-  for (int i = 0; i < LC_MAX; i++) {
-    if (i >= lcN) break;
+  for (int i = 0; i < lcN; i++) {
     vec2 kap = lcK[i] + JT * lcK[i];
     float kl = max(length(kap), 1e-6);
     vec2 kh = kap / kl;
@@ -306,34 +361,24 @@ float lc_gerstner(vec2 u, out vec2 x, out vec2 slope) {
 }
 
 // Gerstner height at horizontal position x: the parameter whose point lies there (u = x + Σ q_i κ̂_i sin θ_i(u), a
-// contraction while the steepness is below 1), then Z(u), normalised like lc_height.
+// contraction while the steepness is below 1), then Z(u) — lc_height, as c = 0.
 float lc_gerstner_height(vec2 x) {
   vec2 u = x;
-  for (int it = 0; it < 6; it++) {
+  for (int it = 0; it < 6 * UNI_1; it++) {
     vec2 X;
     vec2 sl;
     lc_gerstner(u, X, sl);
     u += x - X;
   }
-  if (u_meander > 0.0) {
-    mat2 JT;
-    u = lc_warp(u, JT);
-  }
-  float h = 0.0;
-  float m = 0.0;
-  for (int i = 0; i < LC_MAX; i++) {
-    if (i >= lcN) break;
-    h += lcA[i] * length(lcK[i]) * cos(dot(lcK[i], u) + lcPhi[i]);
-    m += lcA[i] * length(lcK[i]);
-  }
-  return h / max(m, 1e-6);
+  return lc_height(u);
 }
 
 // Light gathered at p: lattice samples (spacing ≤ dmax) displaced by the slope, splatted with a Gaussian of radius s.
 // Gerstner: the lattice is in the surface's parameter, each sample shifted to its point and weighted by its area; the
 // reach grows by the largest shift and by the steeper slopes near the crests. Near a cusp light can be thrown past the
 // lattice window; it fades out by its own throw before the window's edge, so every pixel sees the same light (a hard
-// cut-off would draw the window's straight edges).
+// cut-off would draw the window's straight edges). Sines' throw stays within the window unless its size is capped
+// (high Refraction, supersampling): it fades only then.
 float lc_gather(vec2 p, float s, float dmax) {
   bool ger = u_model == 1;
   float R = u_strength * (1.0 + 0.7 * u_meander) * (ger ? 1.0 + u_steepness : 1.0) + lcDmax + 3.0 * s;
@@ -342,35 +387,48 @@ float lc_gather(vec2 p, float s, float dmax) {
   vec2 base = (floor(p / d) + 0.5) * d;
   float inv = 1.0 / (2.0 * s * s);
   float throwMax = float(n) * d - 3.0 * s;
+  if (!ger && ceil(R / d) <= 48.0) throwMax = 1e9;
   float I = 0.0;
   for (int j = -n; j <= n; j++)
     for (int i = -n; i <= n; i++) {
       vec2 src = base + vec2(float(i), float(j)) * d;
+      vec2 t;
+      float area = 1.0;
       if (ger) {
         vec2 x;
         vec2 sl;
-        float area = lc_gerstner(src, x, sl);
-        vec2 t = x + u_strength * sl;
-        vec2 dd = p - t;
-        float fade = 1.0 - smoothstep(0.7 * throwMax, throwMax, length(t - src));
-        I += area * fade * exp(-dot(dd, dd) * inv);
+        area = lc_gerstner(src, x, sl);
+        t = x + u_strength * sl;
       } else {
-        vec2 t = src + u_strength * lc_slope(src);
-        vec2 dd = p - t;
-        I += exp(-dot(dd, dd) * inv);
+        t = src + u_strength * lc_slope(src);
       }
+      vec2 dd = p - t;
+      float fade = 1.0 - smoothstep(0.7 * throwMax, throwMax, length(t - src));
+      I += area * fade * exp(-dot(dd, dd) * inv);
     }
-  return I * d * d / (6.28318531 * s * s);
+  return I * d * d / (TAU * s * s);
 }
 
+// A smooth pattern without features: its "random" is the value itself.
 GenOut gen(vec2 p) {
   lc_init();
-  if (u_output == 1) return genOut(0.5 + 0.5 * (u_model == 1 ? lc_gerstner_height(p) : lc_height(p)), 1.0, 0.0, NO_SDF);
-  float I = lc_gather(p, max(u_softness, 0.3), 1.0);
-  // Halo: the light spread wide, added only where it exceeds the sharp light — a glow around the filaments that leaves
-  // the filaments and the cells' dark cores as they are. Its wide kernel tolerates a coarser lattice.
-  if (u_halo > 0.0) I += u_halo * max(lc_gather(p, max(u_halo_size, 0.5), 0.5 * max(u_halo_size, 0.5)) - I, 0.0);
-  return genOut(1.0 - exp(-u_exposure * pow(max(I, 0.0), u_contrast)), 1.0, 0.0, NO_SDF);
+  if (u_output == 1) {
+    float v = 0.5 + 0.5 * (u_model == 1 ? lc_gerstner_height(p) : lc_height(p));
+    return genOutSmooth(v, 1.0, v, NO_SDF);
+  }
+  // The sharp light, then the halo: the light spread wide, added only where it exceeds the sharp light — a glow around
+  // the filaments that leaves the filaments and the cells' dark cores as they are. Its wide kernel tolerates a coarser
+  // lattice. (One gather in a loop: D3D inlines each call.)
+  float I = 0.0;
+  int passes = 1 + int(u_halo > 0.0);
+  for (int pass = 0; pass < passes; pass++) {
+    bool halo = pass == 1;
+    float s = halo ? max(u_halo_size, 0.5) : max(u_softness, 0.3);
+    float g = lc_gather(p, s, halo ? 0.5 * s : 1.0);
+    I = halo ? I + u_halo * max(g - I, 0.0) : g;
+  }
+  float v = 1.0 - exp(-u_exposure * pow(max(I, 0.0), u_contrast));
+  return genOutSmooth(v, 1.0, v, NO_SDF);
 }
 `
 };

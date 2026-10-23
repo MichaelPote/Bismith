@@ -1,34 +1,16 @@
 // Pattern layers (FR2.4): the CPU side — the defaults (the finished looks), editor defaults sized to the texture,
-// params the shaders use, and which outputs have a shape.
+// and which outputs have a shape.
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createLayer, freshParams, layerParamDefs, linkedChanges } from '../registry';
-import { bricksLayer, gridLayer, hexLayer, stripesLayer, voronoiLayer } from './patterns';
-
-const LAYERS = [bricksLayer, hexLayer, voronoiLayer, gridLayer, stripesLayer];
+import { createLayer, freshParams, linkedChanges } from '../registry';
+import { bricksLayer, stripesLayer, voronoiLayer } from './patterns';
 
 describe('pattern layers', () => {
 	ensureBuiltins();
 
-	it('declare every param once (a type param named like a common one redefines its uniform)', () => {
-		for (const def of LAYERS) {
-			const keys = layerParamDefs(def.type).map((d) => d.key);
-			expect(
-				keys.filter((k, i) => keys.indexOf(k) !== i),
-				def.type
-			).toEqual([]);
-		}
-	});
-
-	it('leave Joint variation off by default, so walls made before it look the same', () => {
+	it('lay every joint as set by default (Joint variation off)', () => {
 		expect(bricksLayer.params.find((d) => d.key === 'joint_var')!.default).toBe(0);
-	});
-
-	it('use every param of their own in the shader', () => {
-		for (const def of LAYERS)
-			for (const d of def.params)
-				if (d.key !== 'seed') expect(def.glsl!.includes(`u_${d.key}`), `${def.type}: u_${d.key} unused`).toBe(true);
 	});
 
 	it('default to the finished looks: weathered bricks, hand-set tiles, cobbles, soft value edges', () => {

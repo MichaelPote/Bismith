@@ -1,4 +1,4 @@
-// Shape layers (FR2.3): every param reaches the shader, the editor's fresh layers are sized to the texture, and the
+// Shape layers (FR2.3): the editor's fresh layers are sized to the texture, and the
 // plain defaults are the clean ones (Diffuse from the shape, scaled bevels, the centred arc).
 
 import { describe, expect, it } from 'vitest';
@@ -8,13 +8,6 @@ import { SHAPE_LAYERS } from './shapes';
 
 describe('shape layers', () => {
 	ensureBuiltins();
-
-	it('use every param they declare in their shader', () => {
-		for (const def of SHAPE_LAYERS) {
-			for (const d of def.params)
-				if (d.key !== 'seed') expect(def.glsl!.includes(`u_${d.key}`), `${def.type}: u_${d.key} unused`).toBe(true);
-		}
-	});
 
 	it('give fresh editor layers a size and bevel that follow the texture', () => {
 		for (const def of SHAPE_LAYERS) {

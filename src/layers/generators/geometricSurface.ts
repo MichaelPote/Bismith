@@ -2,31 +2,14 @@
 // teardrops, diamonds) and woven strands (plain / twill / basket / satin / herringbone weaves, chain-link-style meshes
 // on a 45° frame).
 //
-// Both paint their own relief (genOutShaded) while the layer draws its own shape (no mask written, or Normal): the
-// Profile applied over a distance that can reach across a whole lozenge (Dome) blended towards a ridge (Crest); for
-// weaves, floats that arch down to a floor where they dive, flanks that rest on the strands beneath and lower
-// under-runs. In the mask's combine modes they hand the wrapper their exact distance (its plain bevel).
+// Both paint their own relief and coverage (genOutOwn) while the layer draws its own shape (no mask written, or
+// Normal): the Profile applied over a distance that can reach across a whole lozenge (Dome) blended towards a ridge
+// (Crest); for weaves, floats that arch down to a floor where they dive, flanks that rest on the strands beneath and
+// lower under-runs. In the mask's combine modes they hand the wrapper their exact distance (its plain bevel).
 
 import { P, gradient, type ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
-import { geoGlsl, orientParam } from './geometricCommon';
-
-/**
- * GLSL: the layer's own value v (0..1) on its exact shape d — genOutShaded with a bevel distance where the wrapper's
- * profile peaks (its bevel factor is then a constant, divided out) and the shape's own coverage. Only while the layer
- * draws its own shape (no mask written, or Normal), where the wrapper takes GenOut.bdist.
- */
-const SURF_OWN = /* glsl */ `
-// Where the profile peaks (Ridge: half way); p1 = the profile there (the caller evaluates it with its own profile
-// lookups: each profileCurve call site inlines the custom curve, so they share one).
-float surf_x1() { return u_profile == 5 ? 0.5 : 1.0; }
-GenOut surf_own(float v, float rnd, float d, float p1) {
-  if (u_bevel <= 0.0 || u_profile == 0) p1 = 1.0;
-  GenOut o = genOutShaded(p1 > 0.05 ? v / p1 : v, coverage(d, u_aa), rnd, d);
-  o.bdist = -u_bevel * surf_x1();
-  return o;
-}
-`;
+import { GEO_FRAME_GLSL, orientParam, rndModeParam } from './geometricCommon';
 
 // ------------------------------------------------------------------------------------------------ tread plate
 
@@ -53,7 +36,7 @@ export const treadplateLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Raised lozenges / bars in alternating orientation — diamond plate, 5-bar tread, stud, teardrop and diamond plate. Domed relief; per-lozenge random.',
+		'Raised lozenges / bars in alternating orientation — diamond plate, 5-bar tread, studs, teardrops and rhombus diamonds. Domed relief; per-lozenge random.',
 	params: [
 		P.enum('style', 'Style', 'lozenge', [
 			['lozenge', 'Lozenge (diamond plate)'],
@@ -158,11 +141,8 @@ export const treadplateLayer: LayerDef = {
 	fresh: () => ({ r_src: 'value', s_src: 'value' }),
 	linkedDefaults: (p) => TREAD_LOOKS[String(p.style)] ?? TREAD_LOOKS.lozenge,
 	glsl:
-		geoGlsl(4) +
-		SURF_OWN +
+		GEO_FRAME_GLSL +
 		/* glsl */ `
-#define TP_1 (uRes.x > 0.0 ? 1 : 0)   // 1, from a uniform: a loop bound D3D can't unroll
-
 // Pointed lens along x: tips at (±hl, 0), half-width hw (two circular arcs).
 float tp_vesica(vec2 p, float hl, float hw) {
   hw = max(hw, 1e-3);
@@ -216,18 +196,24 @@ GenOut gen(vec2 p) {
   float pitch = sqrt(cs.x * cs.y);           // non-square cells keep the lozenge proportions
   float hl0 = 0.5 * u_length * pitch;
   float hw0 = 0.5 * u_width * pitch;
+  // Cells searched either way: as far as a lug reaches from its cell's centre (bar groups: their corners) and Position
+  // jitter moves it, plus half a cell — more than ±1 only on long, narrow cells.
+  float reach = u_style == 2 ? 1.4142136 * hl0 : length(vec2(hl0, hw0));
+  ivec2 nr = clamp(ivec2(ceil(reach / cs + u_pos_jitter)), 1, 4);
+  int nw = 2 * nr.x + 1;
   int j0 = int(floor(f.y / cs.y));
   float best = 1e9;
   float bestRnd = 0.0;
   float bestIn = 1.0;                        // the winner's largest inside distance (its half-width), for the dome
-  for (int it = 0; it < 9 * TP_1; it++) {
-    int j = j0 + it / 3 - 1;
+  for (int it = 0; it < 81 * UNI_1; it++) {
+    if (it >= nw * (2 * nr.y + 1)) break;
+    int j = j0 + it / nw - nr.y;
     float sh = (offs && (j & 1) == 1) ? 0.5 : 0.0;
-    int i = int(floor(f.x / cs.x - sh)) + it % 3 - 1;
+    int i = int(floor(f.x / cs.x - sh)) + it % nw - nr.x;
     ivec2 id = geo_wrapCell(ivec2(i, j));
     int flip = u_layout == 0 ? ((i + j) & 1) : (u_layout == 1 || u_layout == 4) ? (j & 1) : u_layout == 2 ? (i & 1) : 0;
-    float ang = u_angle + 90.0 * float(flip) + (hashI(id, uSeed + 11.0) - 0.5) * 2.0 * u_jitter;
-    float s = 1.0 - u_size_var * hashI(id, uSeed + 23.0);
+    float ang = u_angle + 90.0 * float(flip) + (u_jitter > 0.0 ? (hashI(id, uSeed + 11.0) - 0.5) * 2.0 * u_jitter : 0.0);
+    float s = u_size_var > 0.0 ? 1.0 - u_size_var * hashI(id, uSeed + 23.0) : 1.0;
     float hl = hl0 * s, hw = hw0 * (0.5 + 0.5 * s);
     vec2 ctr = (vec2(float(i) + sh, float(j)) + 0.5) * cs;
     if (u_pos_jitter > 0.0) ctr += (vec2(hashI(id, uSeed + 37.0), hashI(id, uSeed + 41.0)) - 0.5) * 2.0 * u_pos_jitter * cs;
@@ -258,15 +244,45 @@ GenOut gen(vec2 p) {
   // Dome: the Profile over max(Bevel, Dome × half-width) in, blended towards the straight ridge by Crest.
   float B = max(u_bevel, u_crown * bestIn);
   float x = B > 0.0 ? clamp(-best / B, 0.0, 1.0) : 1.0;
-  float pv[2];                                 // the profile at x and at its peak, one call site
-  for (int e = 0; e < 2 * TP_1; e++) pv[e] = profileCurve(u_profile, e == 0 ? x : surf_x1());
-  float v = mix(u_profile == 0 || B <= 0.0 ? 1.0 : pv[0], x, u_crest);
-  return surf_own(v, bestRnd, best, pv[1]);
+  float v = mix(u_profile == 0 || B <= 0.0 ? 1.0 : profileCurve(u_profile, x), x, u_crest);
+  return genOutOwn(v, coverage(best, u_aa), bestRnd, best);
 }
 `
 };
 
 // ------------------------------------------------------------------------------------------------ weave
+
+/** Each weave's repeat (Weave option order, herringbone left out: it reads the 2/2 twill's): whether the horizontal
+ * strand j is over the vertical strand i. */
+const WEAVES: [number, (i: number, j: number) => boolean][] = [
+	[2, (i, j) => (i + j) % 2 === 0],
+	[4, (i, j) => (i + j) % 4 < 2],
+	[3, (i, j) => (i + j) % 3 < 2],
+	[4, (i, j) => (i + j) % 4 < 3],
+	[4, (i, j) => (Math.floor(i / 2) + Math.floor(j / 2)) % 2 === 0],
+	[5, (i, j) => (i + 2 * j) % 5 !== 0],
+	[1, () => true],
+	[6, (i, j) => (Math.floor(i / 3) + Math.floor(j / 3)) % 2 === 0]
+];
+
+/** WEAVES as GLSL tables: each repeat's rows of bits (bit i of row j), where each weave's rows start, its repeat. A
+ * lookup instead of a branch per weave, which D3D would inline at every call site. */
+function weaveTable(): string {
+	const rows: number[] = [],
+		first: number[] = [],
+		reps: number[] = [];
+	for (const [r, over] of WEAVES) {
+		first.push(rows.length);
+		reps.push(r);
+		for (let j = 0; j < r; j++) {
+			let bits = 0;
+			for (let i = 0; i < r; i++) if (over(i, j)) bits += 2 ** i;
+			rows.push(bits);
+		}
+	}
+	const arr = (name: string, a: number[]) => `const int ${name}[${a.length}] = int[${a.length}](${a.join(', ')});`;
+	return [arr('WV_ROWS', rows), arr('WV_OFF', first), arr('WV_R', reps)].join('\n');
+}
 
 export const weaveLayer: LayerDef = {
 	type: 'weave',
@@ -341,7 +357,7 @@ export const weaveLayer: LayerDef = {
 			softMax: 8,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Radius of a rivet / stud at every crossing (0 = none)'
+			hint: 'Radius of a rivet / stud at every crossing (0 = none; at most half the strand pitch)'
 		}),
 		P.float('stud_h', 'Stud height', 0.35, 0, 1, {
 			step: 0.001,
@@ -353,19 +369,11 @@ export const weaveLayer: LayerDef = {
 			showIf: (p) => Number(p.stud) > 0,
 			hint: 'Stud head shape: 0 = flat with the Bevel at its rim, 1 = domed all over (rivet heads)'
 		}),
-		P.enum(
-			'rnd_mode',
-			'Random value',
-			'strand',
-			[
-				['random', 'Per float'],
-				['class', 'Per direction (warp / weft)'],
-				['class_random', 'Direction + random'],
-				['strand', 'Per strand']
-			],
-			{
-				hint: 'rnd per visible float, 0.25 / 0.75 for horizontal / vertical strands, or one per strand along its whole length (each cane or thread its own tone)'
-			}
+		rndModeParam(
+			['Per float', 'Per direction (warp / weft)', 'Direction + random'],
+			'rnd per visible float, 0.25 / 0.75 for horizontal / vertical strands, or one per strand along its whole length (each cane or thread its own tone)',
+			[['strand', 'Per strand']],
+			'strand'
 		),
 		P.seed()
 	],
@@ -382,36 +390,27 @@ export const weaveLayer: LayerDef = {
 		dif_jitter: 0.35,
 		dif_grad: gradient('#5b4632', '#7d6246', '#9a7d5a')
 	},
-	// Files from before Run on under stored it as a negative Float ends ('dip'; > 0 was an end-bevel stretch, gone).
-	migrate: (p) => ('dip' in p && !('run_on' in p) ? { ...p, run_on: Math.max(0, -Number(p.dip) || 0) } : p),
 	glsl:
-		geoGlsl(4) +
-		SURF_OWN +
+		GEO_FRAME_GLSL +
+		weaveTable() +
 		/* glsl */ `
-#define WV_1 (uRes.x > 0.0 ? 1 : 0)   // 1, from a uniform: a loop bound D3D can't unroll
 
 int wv_repeat() {
-  int m = u_pattern;
   int hb = clamp(u_period, 1, 64);
-  return m == 0 ? 2 : m == 2 ? 3 : m == 5 ? 5 : m == 6 ? 1 : m == 7 ? 6 : m == 8 ? ((hb & 1) == 0 ? 2 * hb : 4 * hb) : 4;
+  return u_pattern == 8 ? ((hb & 1) == 0 ? 2 * hb : 4 * hb) : WV_R[clamp(u_pattern, 0, 7)];
 }
-// Is the horizontal strand j over the vertical strand i at their crossing?
+// Is the horizontal strand j over the vertical strand i at their crossing? (Herringbone: the 2/2 twill mirrored every
+// 'period' strands.)
 bool wv_overH(int i, int j) {
-  int m = u_pattern;
-  if (m == 0) return ((i + j) & 1) == 0;
-  if (m == 1) return imod(i + j, 4) < 2;
-  if (m == 2) return imod(i + j, 3) < 2;
-  if (m == 3) return imod(i + j, 4) < 3;
-  if (m == 4) return (((i >> 1) + (j >> 1)) & 1) == 0;
-  if (m == 5) return imod(i + 2 * j, 5) != 0;
-  if (m == 7) return ((((i - imod(i, 3)) / 3) + ((j - imod(j, 3)) / 3)) & 1) == 0;
-  if (m == 8) {
-    // 2/2 twill mirrored every 'period' strands.
+  int m = clamp(u_pattern, 0, 7);
+  if (u_pattern == 8) {
     int hb = clamp(u_period, 1, 64);
     int h = imod(i, 2 * hb);
-    return imod((h < hb ? h : 2 * hb - 1 - h) + j, 4) < 2;
+    i = h < hb ? h : 2 * hb - 1 - h;
+    m = 1;
   }
-  return true;
+  int R = WV_R[m];
+  return ((WV_ROWS[WV_OFF[m] + imod(j, R)] >> imod(i, R)) & 1) != 0;
 }
 // Strand 'line' of direction dir (0 = horizontal) is over the crossing strand 'c'.
 bool wv_over(int dir, int c, int line) { return dir == 0 ? wv_overH(c, line) : !wv_overH(line, c); }
@@ -444,11 +443,13 @@ GenOut gen(vec2 p) {
   int bestDir = 0, bestLine = 0, bestLo = 0, bestHi = 0;
   bool bestFloat = true, isStud = false;
   vec2 bestQ = vec2(0.0);
-  float bestHx = 1.0, bestHw = 1.0, bestA = 0.0, p1 = 1.0;
+  float bestHx = 1.0, bestHw = 1.0, bestA = 0.0;
+  // A float's ends: the nearest under-crossings either side, 1…8 out — within one repeat if the strand dives at all.
+  int ns = 2 * min(R, 8);
   // Candidates: 2 directions × 3 neighbouring strands × the float over this crossing, or (where the strand is under
   // here) the floats or under-runs either side of it — one flat loop, one float evaluation.
   // (No 'continue' in these loops: ANGLE / D3D11 can miscompile it — skipped candidates are wrapped in ifs instead.)
-  for (int it = 0; it < 12 * WV_1; it++) {
+  for (int it = 0; it < 12 * UNI_1; it++) {
     int dir = it / 6;
     int side = it & 1;
     int line = (dir == 0 ? c.y : c.x) + (it >> 1) % 3 - 1;
@@ -460,7 +461,7 @@ GenOut gen(vec2 p) {
     if (abs(bq) - hwA < best) {
       // Over here, and at the neighbouring crossing on this side (one wv_over call site: D3D inlines each).
       bool ovs[2];
-      for (int e = 0; e < 2 * WV_1; e++) ovs[e] = wv_over(dir, cr + e * (2 * side - 1), line);
+      for (int e = 0; e < 2 * UNI_1; e++) ovs[e] = wv_over(dir, cr + e * (2 * side - 1), line);
       bool ov = ovs[0];
       if (!ov || side == 0) {
         // The float over c0 runs to the nearest under-crossings either side; between two under-crossings the strand
@@ -472,8 +473,9 @@ GenOut gen(vec2 p) {
           lo = c0 - 8;
           hi = c0 + 8;
           bool gl = false, gh = false;
-          for (int s = 0; s < 16 * WV_1; s++) {
-            // Alternately below and above c0, 1…8 crossings out.
+          for (int s = 0; s < 16 * UNI_1; s++) {
+            if (s >= ns) break;
+            // Alternately below and above c0.
             bool down = (s & 1) == 0;
             int cs = down ? c0 - (s >> 1) - 1 : c0 + (s >> 1) + 1;
             if (!(down ? gl : gh) && !wv_over(dir, cs, line)) {
@@ -488,8 +490,7 @@ GenOut gen(vec2 p) {
           float hx = 0.5 * (x1 - x0);
           vec2 q = vec2(a - 0.5 * (x0 + x1), bq);
           float r = min(u_round, min(hx, hwA));
-          vec2 dq = abs(q) - vec2(hx, hwA) + r;
-          float d = min(max(dq.x, dq.y), 0.0) + length(max(dq, 0.0)) - r;
+          float d = sdBox(q, vec2(hx, hwA) - r) - r;
           // Running on: inside, only the sides bound it, so the strand reads as running on under its neighbour.
           if (d < 0.0) d = mix(d, abs(q.y) - hwA, u_run_on);
           if (d < best) {
@@ -512,9 +513,11 @@ GenOut gen(vec2 p) {
       }
     }
   }
-  // Studs at the crossings: inside its radius a stud replaces the strands.
+  // Studs at the crossings: inside its radius a stud replaces the strands. Only the pixel's own crossing is tried, so
+  // the radius stops at half a pitch.
   vec2 cc = (vec2(c) + 0.5) * sp;
-  float ds = length(geo_f - cc) - u_stud;
+  float rs = min(u_stud, 0.5 * min(sp.x, sp.y));
+  float ds = length(geo_f - cc) - rs;
   bool inStud = u_stud > 0.0 && (ds < 0.0 || ds < best);
   float V = 0.0;
   if (own && best < 1e4) {
@@ -526,12 +529,11 @@ GenOut gen(vec2 p) {
     // Stud height) to the top, domed by Stud dome.
     int dir = bestDir;
     float pa = dir == 0 ? sp.x : sp.y;
-    float Bc = max(u_bevel, u_crown * bestHw), Bs = max(u_bevel, u_stud_dome * u_stud);
+    float Bc = max(u_bevel, u_crown * bestHw), Bs = max(u_bevel, u_stud_dome * rs);
     float xc = Bc > 0.0 ? clamp((bestHw - abs(bestQ.y)) / Bc, 0.0, 1.0) : 1.0;
     float xs = Bs > 0.0 ? clamp(-ds / Bs, 0.0, 1.0) : 1.0;
-    float pv[3];                                 // the profile across the strand, over the stud, at its peak
-    for (int e = 0; e < 3 * WV_1; e++) pv[e] = profileCurve(u_profile, e == 0 ? xc : e == 1 ? xs : surf_x1());
-    p1 = pv[2];
+    float pv[2];                                 // the profile across the strand and over the stud, one call site
+    for (int e = 0; e < 2 * UNI_1; e++) pv[e] = profileCurve(u_profile, e == 0 ? xc : xs);
     float Pc = u_profile == 0 || Bc <= 0.0 ? 1.0 : pv[0];
     float U = 1.0 - 0.85 * u_under;
     if (!bestFloat) V = U * Pc;
@@ -559,8 +561,9 @@ GenOut gen(vec2 p) {
   if (u_rnd_mode == 1) rnd = bestDir == 0 ? 0.25 : 0.75;
   else if (u_rnd_mode == 2) rnd = (float(bestDir) + 0.15 + 0.7 * bestRnd) * 0.5;
   else if (u_rnd_mode == 3 && !isStud) rnd = hashI(ivec2(wv_strand(bestDir, bestLine), bestDir), uSeed + 47.0);
-  if (own) return surf_own(V, rnd, min(best, 1e4), p1);
-  return genOut(0.0, 1.0, rnd, min(best, 1e4));
+  best = min(best, 1e4);
+  if (own) return genOutOwn(V, coverage(best, u_aa), rnd, best);
+  return genOut(0.0, 1.0, rnd, best);
 }
 `
 };

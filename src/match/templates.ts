@@ -502,7 +502,7 @@ function stains(a: Analysis, opts: { ledges?: boolean; seed?: number; blisters?:
 				density: 0.9,
 				len_min: 3,
 				len_max: Math.round(a.height * 0.25),
-				relief: 1,
+				spawn: 0.5,
 				ledge: 0.15,
 				ledge_reach: 2,
 				ledge_soft: 0.15,

@@ -1,3 +1,4 @@
+import { pcg3, u2d } from '@/core/hash';
 import { P, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
 
@@ -48,14 +49,8 @@ export interface FractalStats {
 	hier: number;
 }
 
-function fsHash(x: number, y: number, s: number): number {
-	const pcg = (v: number) => {
-		const st = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0;
-		const w = Math.imul(((st >>> ((st >>> 28) + 4)) ^ st) >>> 0, 277803737) >>> 0;
-		return ((w >>> 22) ^ w) >>> 0;
-	};
-	return pcg((x >>> 0) ^ pcg((y >>> 0) ^ pcg(s >>> 0))) / 4294967296;
-}
+/** The shaders' hashI, unrounded: the quantiles need only its distribution. */
+const fsHash = (x: number, y: number, s: number) => u2d(pcg3(x, y, s));
 
 function fsNoise(basis: number, x: number, y: number, s: number): number {
 	const ix = Math.floor(x),
@@ -80,12 +75,26 @@ function fsNoise(basis: number, x: number, y: number, s: number): number {
 
 const STATS_N = 8192;
 
+/** fractalQuantiles' recent results, by their settings: cpuData runs on every param change (Levels, colours, …). */
+const statsCache = new Map<string, number[]>();
+
 /** The 17 quantiles (1 % … 99 %) of the fractal sum's value for these settings (the shaders' octave loop on the CPU). */
 export function fractalQuantiles(o: FractalStats): number[] {
+	const key = [o.basis, o.mode, o.octaves, o.gain, o.lacunarity, o.crease, o.ridgeOffset, o.hier].join();
+	let q = statsCache.get(key);
+	if (!q) {
+		q = measureQuantiles(o);
+		if (statsCache.size >= 16) statsCache.delete(statsCache.keys().next().value!);
+	} else statsCache.delete(key);
+	statsCache.set(key, q);
+	return q.slice();
+}
+
+function measureQuantiles(o: FractalStats): number[] {
 	const oct = o.mode === 0 ? 1 : Math.max(1, Math.min(12, Math.round(o.octaves)));
 	let rs = 12345;
 	const rnd = () => (rs = (Math.imul(rs, 1103515245) + 12345) >>> 0) / 4294967296;
-	const vals: number[] = [];
+	const vals = new Float64Array(STATS_N);
 	for (let i = 0; i < STATS_N; i++) {
 		let x = rnd() * 256,
 			y = rnd() * 256;
@@ -131,15 +140,15 @@ export function fractalQuantiles(o: FractalStats): number[] {
 			x *= o.lacunarity;
 			y *= o.lacunarity;
 		}
-		vals.push(o.mode === 0 ? sum : sum / Math.max(norm, 1e-6));
+		vals[i] = o.mode === 0 ? sum : sum / Math.max(norm, 1e-6);
 	}
-	vals.sort((a, b) => a - b);
-	return Array.from({ length: 17 }, (_, k) => vals[Math.round((0.01 + (0.98 * k) / 16) * (STATS_N - 1))]);
+	return quantilesOf(vals);
 }
 
 /** The 17 quantiles (1 % … 99 %) of a set of values (sorted in place). */
-export function quantilesOf(vals: number[]): number[] {
-	vals.sort((a, b) => a - b);
+export function quantilesOf(vals: number[] | Float64Array): number[] {
+	if (Array.isArray(vals)) vals.sort((a, b) => a - b);
+	else vals.sort();
 	return Array.from({ length: 17 }, (_, k) => vals[Math.round((0.01 + (0.98 * k) / 16) * (vals.length - 1))]);
 }
 
@@ -223,7 +232,8 @@ void rl_lattice(int o, float cells, int ilac, out ivec2 c1, out ivec2 c2) {
 }
 `;
 
-const isLattice = (p: Record<string, unknown>) => p.noise !== 'white';
+/** Every control but Pixel size: White hides them. */
+const notWhite = (p: Record<string, unknown>) => p.noise !== 'white';
 const isFractal = (p: Record<string, unknown>) => p.noise !== 'white' && p.fractal !== 'none';
 const isWorley = (p: Record<string, unknown>) => p.noise === 'worley' || p.noise === 'worley2' || p.noise === 'cells';
 
@@ -236,18 +246,18 @@ export const noiseLayer: LayerDef = {
 	description: 'Tileable lattice, cellular and white noise with fractal sums, domain warp and its own contrast.',
 	params: [
 		P.enum('noise', 'Type', 'perlin', NOISE_TYPES),
-		P.enum('fractal', 'Fractal', 'fbm', FRACTAL_MODES, { showIf: isLattice }),
+		P.enum('fractal', 'Fractal', 'fbm', FRACTAL_MODES, { showIf: notWhite }),
 		P.float('scale', 'Scale', 6, 0.25, 1024, {
 			softMax: 128,
 			step: 0.01,
-			showIf: isLattice,
+			showIf: notWhite,
 			hint: 'Cells across the texture width (rounded when tiling)'
 		}),
 		P.float('stretch', 'Stretch', 1, 0.02, 100, {
 			softMin: 0.1,
 			softMax: 16,
 			step: 0.01,
-			showIf: isLattice,
+			showIf: notWhite,
 			hint: '>1 elongates features horizontally (brushed metal, wood fibre: 8–30), <1 vertically'
 		}),
 		P.float('jitter', 'Jitter', 1, 0, 1, {
@@ -300,53 +310,53 @@ export const noiseLayer: LayerDef = {
 		P.float('ridge', 'Ridge offset', 0.4, 0, 2, {
 			softMax: 1,
 			step: 0.001,
-			showIf: (p) => isLattice(p) && p.fractal === 'ridged',
+			showIf: (p) => notWhite(p) && p.fractal === 'ridged',
 			hint: 'Lifts the valleys between the ridges and lets the finer octaves into them (at least this share of each): 0 = classic ridged multifractal (basins fall to flat black, detail only on the crests), 0.5 = shallower basins with half the fine detail, 1 = the detail everywhere'
 		}),
 		P.float('crease', 'Crease softness', 0.5, 0, 1, {
 			step: 0.001,
-			showIf: (p) => isLattice(p) && (p.fractal === 'ridged' || p.fractal === 'billow'),
+			showIf: (p) => notWhite(p) && (p.fractal === 'ridged' || p.fractal === 'billow'),
 			hint: 'Rounds the knife-sharp crests of Ridged and creases of Billow, the finer octaves more (their thin crests are what reads as wiry hair): 0 = sharp'
 		}),
 		P.float('hier', 'Ridge hierarchy', 0.7, 0, 1, {
 			step: 0.001,
-			showIf: (p) => isLattice(p) && p.fractal === 'ridged',
+			showIf: (p) => notWhite(p) && p.fractal === 'ridged',
 			hint: 'Main ridgelines with smaller ridges branching off them: the finer octaves only near the crests of the coarser ones (and wider), the flanks between left smooth — 0 = every scale at once, a tangle of crests (the classic ridged multifractal)'
 		}),
 		P.float('warp', 'Warp', 0, 0, 16, {
 			softMax: 3,
 			step: 0.001,
-			showIf: isLattice,
+			showIf: notWhite,
 			hint: 'Domain warp strength, in cells: swirls and marbling'
 		}),
 		P.float('warp_scale', 'Warp scale', 4, 0.25, 128, {
 			softMax: 32,
 			step: 0.01,
-			showIf: (p) => isLattice(p) && Number(p.warp) > 0,
+			showIf: (p) => notWhite(p) && Number(p.warp) > 0,
 			hint: 'Warp features across the texture (rounded when tiling)'
 		}),
 		P.bool('even', 'Even levels', true, {
 			section: 'Levels',
-			showIf: (p) => isLattice(p) && !isWorley(p),
+			showIf: (p) => notWhite(p) && !isWorley(p),
 			hint: 'Measures the spread of the values for these settings and evens it out: mid-grey is the median and the darks and lights balance, for every fractal mode — Billow and Ridged don’t sit dark, Contrast and Brightness act alike on all (off: the raw values)'
 		}),
 		P.float('contrast', 'Contrast', 1, 0, 64, {
 			softMax: 8,
 			step: 0.01,
 			section: 'Levels',
-			showIf: isLattice,
+			showIf: notWhite,
 			hint: 'Spreads the values about mid-grey (clipping at black and white): 1 = as the noise comes'
 		}),
 		P.float('bias', 'Brightness', 0, -1, 1, {
 			step: 0.001,
 			section: 'Levels',
-			showIf: isLattice,
+			showIf: notWhite,
 			hint: 'Shifts the values up or down (after Contrast): with Contrast, how much of the area clips to white'
 		}),
 		P.float('soft', 'Softness', 0, 0, 1, {
 			step: 0.001,
 			section: 'Levels',
-			showIf: (p) => isLattice(p) && (Number(p.contrast) !== 1 || Number(p.bias) !== 0),
+			showIf: (p) => notWhite(p) && (Number(p.contrast) !== 1 || Number(p.bias) !== 0),
 			hint: 'Rounds where the values clip to black and white, the mid-tones untouched: 0 = a hard cut (a crease round every flat plateau), 1 = shoulders that meet at mid-grey'
 		}),
 		P.int('block', 'Pixel size', 1, 1, 256, { softMax: 32, unit: 'px', showIf: (p) => p.noise === 'white' }),
@@ -357,8 +367,8 @@ export const noiseLayer: LayerDef = {
 	fresh: () => ({ contrast: 1.1, soft: 1 }),
 	textures: ['calib'],
 	cpuData: (p, ctx) => {
-		const lattice = p.noise !== 'white' && p.noise !== 'worley' && p.noise !== 'worley2' && p.noise !== 'cells';
-		if (p.even !== true || !lattice) return quantileTexture(null);
+		// Value, Perlin and simplex: Worley isn't levelled.
+		if (p.even !== true || !notWhite(p) || isWorley(p)) return quantileTexture(null);
 		const mode = Math.max(
 			0,
 			FRACTAL_MODES.findIndex(([v]) => v === p.fractal)
@@ -376,8 +386,6 @@ export const noiseLayer: LayerDef = {
 	},
 	defaults: { h_on: true, h_amount: 0.25 },
 	glsl: /* glsl */ `
-// 1, read from a uniform: a loop bound written with it can't be unrolled, so D3D keeps one copy of the body.
-#define NZ_1 (uRes.x > 0.0 ? 1 : 0)
 ${NZ_SHARED_GLSL}
 // worleyNoise() — the same F1, F2 and cell random — in one flat loop with a runtime bound: 9 cells for the nearest
 // points, then the 25 round the nearest one for its border. w = the distance to the nearest cell's border (cell units):
@@ -388,9 +396,11 @@ ${NZ_SHARED_GLSL}
 // |r| softened over 0.05 cells (sqrt(r² + ε²)), so the norm's gradient turns smoothly across the axes through each
 // point — g / |∇g| then has no kinks (straight lines across the cells).
 float nz_norm(vec2 r, float pw) { vec2 a = sqrt(r * r + 0.0025); return pow(pow(a.x, pw) + pow(a.y, pw), 1.0 / pw); }
-vec2 nz_normGrad(vec2 r, float pw) {
+// The norm (x) and its gradient (yz).
+vec3 nz_normGrad(vec2 r, float pw) {
   vec2 a = sqrt(r * r + 0.0025);
-  return (r / a) * pow(a, vec2(pw - 1.0)) / pow(nz_norm(r, pw), pw - 1.0);
+  float nm = pow(pow(a.x, pw) + pow(a.y, pw), 1.0 / pw);
+  return vec3(nm, (r / a) * pow(a, vec2(pw - 1.0)) / pow(nm, pw - 1.0));
 }
 vec4 nz_worley(vec2 x, ivec2 period, float jitter, int metric, float seed) {
   ivec2 ip = ivec2(floor(x));
@@ -399,7 +409,7 @@ vec4 nz_worley(vec2 x, ivec2 period, float jitter, int metric, float seed) {
   float F1 = 1e9, F2 = 1e9, acc = 0.0, na = 0.0;
   vec2 mr = vec2(0.0), ga = vec2(0.0);
   ivec2 mc = ip;
-  for (int e = 0; e < 34 * NZ_1; e++) {
+  for (int e = 0; e < 34 * UNI_1; e++) {
     bool near = e < 9;
     int f = near ? e : e - 9;
     ivec2 g = near ? ivec2(f % 3 - 1, f / 3 - 1) : mc - ip + ivec2(f % 5 - 2, f / 5 - 2);
@@ -410,12 +420,12 @@ vec4 nz_worley(vec2 x, ivec2 period, float jitter, int metric, float seed) {
       if (d < F1) { F2 = F1; F1 = d; mr = r; mc = ip + g; }
       else if (d < F2) { F2 = d; }
     } else {
-      if (e == 9 && metric != 0) { na = nz_norm(mr, pw); ga = nz_normGrad(mr, pw); }
+      if (e == 9 && metric != 0) { vec3 ng = nz_normGrad(mr, pw); na = ng.x; ga = ng.yz; }
       vec2 dr = r - mr;
       float l2 = dot(dr, dr);
       if (l2 > 1e-6) {
-        float d = metric == 0 ? dot(0.5 * (mr + r), dr * inversesqrt(l2))
-                              : (nz_norm(r, pw) - na) / max(length(ga - nz_normGrad(r, pw)), 1e-3);
+        vec3 ng = metric == 0 ? vec3(0.0) : nz_normGrad(r, pw);
+        float d = metric == 0 ? dot(0.5 * (mr + r), dr * inversesqrt(l2)) : (ng.x - na) / max(length(ga - ng.yz), 1e-3);
         acc += pow(max(d, 1e-4), -3.0);
       }
     }
@@ -443,9 +453,9 @@ GenOut gen(vec2 p) {
     ivec2 wper = uTile ? ivec2(wc) : NO_PERIOD;
     x += warpOffset(p / uRes * wc, wper, uSeed + 7.0) * u_warp * 2.0;
   }
-  // The fractal sum — the same values as fractalNoise(), but one flat loop with a runtime bound, so each base noise
-  // is compiled once (fractalNoise's generic dispatch inlines Worley in every unrolled octave), and Worley takes the
-  // layer's jitter, metric and cell profile. Worley's cell random (the per-feature rnd) comes from the first octave.
+  // The fractal sum in one flat loop with a runtime bound, so each base noise is compiled once (a generic dispatch
+  // would inline Worley in every unrolled octave), and Worley takes the layer's jitter, metric and cell profile.
+  // Worley's cell random (the per-feature rnd) comes from the first octave.
   bool worley = u_noise >= 3;
   int oct = u_fractal == 0 ? 1 : u_octaves;
   float sum = 0.0, amp = 1.0, norm = 0.0, weight = 1.0, rnd = 0.0, f0 = 1.0;
@@ -455,10 +465,11 @@ GenOut gen(vec2 p) {
   float ro = 1.0 + u_ridge;   // ridged: the offset the crest is measured from (1 = classic)
   // Value / Perlin on the turned tileable lattice: tiling, on a square grid of cells.
   bool turned = uTile && !worley && period.x == period.y;
-  for (int o = 0; o < 12 * NZ_1; o++) {
+  for (int o = 0; o < 12 * UNI_1; o++) {
     if (o >= oct) break;
     float s = uSeed + float(o) * 31.0;
-    // Decorrelated octaves: each octave's lattice shifted off the others (any shift keeps the period) and turned —
+    // Decorrelated octaves: each octave's lattice shifted off the others (any shift keeps the period; the first octave
+    // stays put on the axis-aligned lattice, while the turned one shifts every octave) and turned —
     // freely when the project doesn't tile; value and Perlin on a turned lattice that tiles (rl_noise) on a square
     // grid — so no grid lines, crests or octaves line up along the axes.
     vec2 qo = q;
@@ -487,8 +498,6 @@ GenOut gen(vec2 p) {
         float hf = max(kf - abs(w.y - w.x), 0.0) / kf;
         float fs = min(w.x, w.y) - hf * hf * kf * 0.25;
         b = 1.0 - clamp(fs / max(w.x + w.w, 0.15), 0.0, 1.0);
-      }
-      if (u_w_even && f1) {
         // Even F1's profiles are dish shapes over u (0 at the point, 1 at the rim): Linear a cone, Smooth a parabolic
         // dish (round bottom, the rim rounded by the soft-min — dimples packed edge to edge), Round a spherical dish
         // (sharp rims: hammered), Cove narrow pits in broad flats.

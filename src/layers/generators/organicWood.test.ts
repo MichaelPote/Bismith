@@ -1,17 +1,15 @@
-// Wood and Scales (FR7.2a, FR8.17): the CPU side — editor defaults sized to the texture, the plain defaults, and params
-// the shaders rely on.
+// Wood and Scales (FR7.2a, FR8.17): the CPU side — editor defaults sized to the texture and the plain defaults.
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createLayer, freshParams, getLayerDef, sanitizeLayer } from '../registry';
-import { scalesLayer, woodLayer } from './organicWood';
+import { createLayer, freshParams, getLayerDef } from '../registry';
+import { woodLayer } from './organicWood';
 
 describe('wood', () => {
 	ensureBuiltins();
 
-	it('leaves Joint variation off by default and uses it in the shader', () => {
+	it('leaves Joint variation off by default', () => {
 		expect(woodLayer.params.find((d) => d.key === 'joint_var')!.default).toBe(0);
-		expect(woodLayer.glsl!).toContain('u_joint_var');
 	});
 
 	it('keeps the plain px sizes up to 128 px and grows them with the texture', () => {
@@ -41,21 +39,10 @@ describe('wood', () => {
 		});
 	});
 
-	it('reads one old gap for both directions', () => {
-		expect(sanitizeLayer({ ...createLayer('wood'), params: { gap: 3 } }).params).toMatchObject({ gap: 3, gap_y: 3 });
-	});
-
 	it('allows several knots per board', () => {
 		const knots = woodLayer.params.find((d) => d.key === 'knots')!;
 		expect(knots.max).toBe(4);
 		expect(createLayer('wood', { knots: 2.5 }).params.knots).toBe(2.5);
-	});
-
-	it('uses every param it declares', () => {
-		for (const layer of [woodLayer, scalesLayer]) {
-			for (const d of layer.params)
-				if (d.key !== 'seed') expect(layer.glsl!.includes(`u_${d.key}`), `${layer.type}: u_${d.key} unused`).toBe(true);
-		}
 	});
 });
 

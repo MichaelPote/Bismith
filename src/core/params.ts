@@ -215,6 +215,12 @@ export function gradient(...colors: string[]): Gradient {
 	return { stops: colors.map((color, i) => ({ pos: n === 1 ? 0 : i / (n - 1), color })) };
 }
 
+/** Rounds to a tenth (linked and fresh param values). */
+export const round1 = (v: number) => Math.round(v * 10) / 10;
+
+/** Rounds a px length to a half pixel, at least `lo` (fresh param values sized to the texture). */
+export const halfPx = (v: number, lo = 0.5) => Math.max(lo, Math.round(v * 2) / 2);
+
 // Small helpers to keep ParamDef tables terse.
 type Extra = Partial<Omit<ParamDef, 'key' | 'label' | 'type' | 'default'>>;
 

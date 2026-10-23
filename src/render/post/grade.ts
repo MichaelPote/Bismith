@@ -46,7 +46,7 @@ vec4 post(ivec2 ip) {
   if (u_saturation != 0.0 || u_hue != 0.0) {
     vec3 lab = linearToOklab(x);
     float h = radians(u_hue);
-    lab.yz = mat2(cos(h), sin(h), -sin(h), cos(h)) * lab.yz * max(1.0 + u_saturation, 0.0);
+    lab.yz = rot2(h) * lab.yz * max(1.0 + u_saturation, 0.0);
     x = max(gradeOklabToLinear(lab), vec3(0.0));
   }
   return vec4(x, c.a);

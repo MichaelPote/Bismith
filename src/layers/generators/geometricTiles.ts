@@ -5,9 +5,10 @@
 // combine params work. rnd is per tile, or per tile kind (cube face, H/V brick, octagon/square…). The Tones output
 // paints each tile kind its own tone instead (a two-tone checkerboard on squares), blurred by Softness.
 
-import { P } from '@/core/params';
+import { P, round1 as r1 } from '@/core/params';
 import type { LayerDef } from '../types';
-import { geoGlsl, orientParam, rndModeParam } from './geometricCommon';
+import { modeIs } from '../commonParams';
+import { GEO_FRAME_GLSL, geoPolyGlsl, orientParam, rndModeParam } from './geometricCommon';
 
 export const TILE_MODES: [string, string][] = [
 	['squares', 'Squares / checkerboard'],
@@ -24,10 +25,6 @@ export const TILE_MODES: [string, string][] = [
 	['cairo', 'Cairo pentagons']
 ];
 
-const modeIs =
-	(...m: string[]) =>
-	(p: Record<string, unknown>) =>
-		m.includes(String(p.mode));
 const isValue = (p: Record<string, unknown>) => p.output === 'value';
 const splitShown = (p: Record<string, unknown>) => p.mode === 'squares' && Number(p.split ?? 0) > 0;
 
@@ -175,10 +172,10 @@ function shapeTable(): string {
 			head.push(`ivec3(${V.length}, ${s.verts.length}, ${s.rect ? 1 : 0})`);
 			for (const [x, y] of s.verts) {
 				let w = 0;
-				[x[0], y[0], x[1], y[1], x[2], y[2]].forEach((v, i) => {
-					const q = Math.round(v * 6);
-					if (Math.abs(q - v * 6) > 1e-9 || Math.abs(q) > 12)
-						throw new Error(`tile vertex coefficient ${v} is not a sixth within ±2`);
+				[x[0], y[0], x[1], y[1], x[2], y[2]].forEach((k, i) => {
+					const q = Math.round(k * 6);
+					if (Math.abs(q - k * 6) > 1e-9 || Math.abs(q) > 12)
+						throw new Error(`tile vertex coefficient ${k} is not a sixth within ±2`);
 					w += (q + 12) * 2 ** (5 * i);
 				});
 				V.push(String(w));
@@ -447,7 +444,6 @@ export const tilesLayer: LayerDef = {
 		// Joints and bevels that read at the texture's size: 2 px grout and a 3 px bevel at 512 px; hand-laid by about a
 		// pixel there (shift and turn), so each seed lays the tiles differently.
 		const px = Math.min(width, height) / 512;
-		const r1 = (v: number) => Math.round(v * 10) / 10;
 		return {
 			gap: Math.max(1, Math.round(2 * px)),
 			bevel: Math.max(1, Math.round(3 * px * 2) / 2),
@@ -477,7 +473,8 @@ export const tilesLayer: LayerDef = {
 		}
 	},
 	glsl:
-		geoGlsl(16) +
+		GEO_FRAME_GLSL +
+		geoPolyGlsl(Math.max(...SHAPES.flat().map((s) => s.verts.length))) +
 		shapeTable() +
 		/* glsl */ `
 
@@ -508,6 +505,7 @@ export const tilesLayer: LayerDef = {
 //                odd), joined to the cell corners; every grid edge then owns one pentagon (a triangle from one
 //                cell + a trapezoid from the next). Period 2×2
 
+vec2 geo_s;         // px per pattern unit
 int tile_mode, tile_n;
 vec2 tile_uu;
 vec2 tile_t;       // the mode's shape params (see the table)
@@ -522,6 +520,16 @@ bool tile_hex;      // rhombille, solid blocks: one hexagon per block, its faces
 bool tile_nb;       // Tones: rhombille, triangles and Cairo try their neighbourhood too (the blur needs the tile across)
 bool tile_valid;    // the anchor is a tile of the shape tried (Cairo's neighbourhood: its kind follows the parity; split squares)
 bool tile_split;    // squares: some cells split into 2 × 2
+float tile_inner;   // rhombille: how far the faces' inner edges (those at the block's centre) push out into the gap, px
+// The winning tile: its own position in its box (−1…1 across), for tilt and crown; its id (its block's, when a block's
+// faces meet); the pixel in its own frame (px from its anchor); and for Bevel aspect's outline its turn (cos, sin), its
+// shape (k) and growth (geo_r less its shrink).
+vec2 tile_bu;
+ivec2 tile_bid;
+vec2 tile_q;
+vec2 tile_cs;
+int tile_k;
+float tile_rr;
 
 // Squares: whether a cell splits — on the rule's bands (columns / rows / crossings, by the wrapped cell), by chance.
 bool tile_splits(ivec2 cell) {
@@ -531,13 +539,11 @@ bool tile_splits(ivec2 cell) {
   bool cand = u_split_rule == 0 || (u_split_rule == 1 && col) || (u_split_rule == 2 && row) || (u_split_rule == 3 && col && row);
   return cand && hashI(w, uSeed + 421.0) < u_split;
 }
-float tile_inner;   // rhombille: how far the faces' inner edges (those at the block's centre) push out into the gap, px
-vec2 tile_bu;   // the winning tile's own position in its box (−1…1 across), for tilt and crown
-ivec2 tile_bid; // and its id (its block's, when a block's faces meet)
-vec2 tile_q;    // and the pixel in its own frame (px from its anchor)
-vec2 tile_cs;   // and its turn (cos, sin), its shape (k) and growth (geo_r less its shrink): Bevel aspect's outline
-int tile_k;
-float tile_rr;
+
+// Rhombille's two hex sub-lattices: their centres in a unit cell.
+vec2 tile_hexOff(int h) { return h == 0 ? vec2(0.5, 0.25) : vec2(0.0, 0.75); }
+// Cairo: a pentagon's kind from its type (0: across a vertical cell edge, 1: a horizontal one) and its anchor's parity.
+int tile_cairoCls(int typ, ivec2 X) { return 2 * typ + ((X.x + X.y + 1) & 1); }
 
 void tile_pick() {
   int m = tile_mode;
@@ -548,17 +554,16 @@ void tile_pick() {
     // (0, .75) + Z² is rectangular and the metric axis-aligned, so its nearest centre rounds each axis.
     ivec2 cA = ivec2(floor(uu.x), floor(uu.y + 0.25));
     ivec2 cB = ivec2(floor(uu.x + 0.5), floor(uu.y - 0.25));
-    vec2 dA = uu - vec2(cA) - vec2(0.5, 0.25), dB = uu - vec2(cB) - vec2(0.0, 0.75);
+    vec2 dA = uu - vec2(cA) - tile_hexOff(0), dB = uu - vec2(cB) - tile_hexOff(1);
     bool b = dB.x * dB.x + 3.0 * dB.y * dB.y < dA.x * dA.x + 3.0 * dA.y * dA.y;
     tile_cell = b ? cB : cA;
-    tile_pos = vec2(tile_cell) + (b ? vec2(0.0, 0.75) : vec2(0.5, 0.25));
+    tile_pos = vec2(tile_cell) + tile_hexOff(b ? 1 : 0);
     tile_add = ivec2(b ? 1 : 0, 0);
     tile_koff = tile_hex ? 3 : 0;
   } else if (m == 4) {
     ivec2 b = ivec2(floor(uu / float(tile_n)));
     tile_koff = ((b.x + b.y) & 1) == 0 ? 0 : 1;
-  } else if (tile_nb) {
-  } else if (m == 8) {
+  } else if (!tile_nb && m == 8) {
     float ry = uu.y * 2.0;
     int r = int(floor(ry));
     float t = ry - float(r);
@@ -570,7 +575,7 @@ void tile_pick() {
     tile_pos = vec2(float(k) + o, 0.5 * float(r));
     tile_cell = ivec2(k, r);
     tile_koff = tile_cls;
-  } else if (m == 11) {
+  } else if (!tile_nb && m == 11) {
     float e = tile_t.x;
     ivec2 c = ivec2(floor(uu));
     vec2 l = uu - vec2(c);
@@ -587,7 +592,7 @@ void tile_pick() {
       else if (l.y > 1.0 - w) { typ = 1; X = c + ivec2(0, 1); }
       else { typ = 0; X = l.x < 0.5 ? c : c + ivec2(1, 0); }
     }
-    tile_cls = typ == 0 ? (((X.x - 1 + X.y) & 1) == 0 ? 0 : 1) : (((X.x + X.y - 1) & 1) == 0 ? 2 : 3);
+    tile_cls = tile_cairoCls(typ, X);
     tile_pos = vec2(X);
     tile_cell = X;
     tile_add = ivec2(typ, 0);
@@ -685,7 +690,7 @@ void tile_anchor(int k, int a, out vec2 pos, out int cls, out ivec2 cell, out iv
       if (m == 2) {
         int h = a % 2;
         cell = c0 + ivec2((a / 2) % 3 - 1, a / 6 - 1);
-        pos = vec2(cell) + (h == 0 ? vec2(0.5, 0.25) : vec2(0.0, 0.75));
+        pos = vec2(cell) + tile_hexOff(h);
         ad = ivec2(h, 0);
       } else if (m == 8) {
         int r = int(floor(uu.y * 2.0)) + d3.y;
@@ -698,7 +703,7 @@ void tile_anchor(int k, int a, out vec2 pos, out int cls, out ivec2 cell, out iv
         pos = vec2(cell);
         int typ = k / 2;
         ad = ivec2(typ, 0);
-        c = typ == 0 ? (((cell.x - 1 + cell.y) & 1) == 0 ? 0 : 1) : (((cell.x + cell.y - 1) & 1) == 0 ? 2 : 3);
+        c = tile_cairoCls(typ, cell);
         tile_valid = c == k;
       }
     }
@@ -808,7 +813,7 @@ GenOut gen(vec2 p) {
     float lo = max(1.0, floor(kx0 * 0.6 / fx)) * fx;
     float hi = min(max(ceil(kx0 * 1.6), floor(fy / rpc + 0.5)), lo + 47.0 * fx);
     float best = 1e9;
-    for (int i = 0; i < 48 * GEO_1; i++) {
+    for (int i = 0; i < 48 * UNI_1; i++) {
       float x = lo + float(i) * fx;
       if (x > hi) break;
       float y = max(1.0, floor(x * rpc / fy + 0.5)) * fy;
@@ -866,7 +871,7 @@ GenOut gen(vec2 p) {
   tile_cs = vec2(1.0, 0.0);
   tile_rr = 0.0;
   int k = -1, a = 0, na = 0;
-  for (int it = 0; it < 72 * GEO_1; it++) {
+  for (int it = 0; it < 72 * UNI_1; it++) {
     if (a >= na) {
       k++;
       if (k >= shapes) {
@@ -893,24 +898,26 @@ GenOut gen(vec2 p) {
       // test one tile stay exact. Blocks whose faces meet (Joints inside blocks < 1) go missing, move, tilt and dome
       // as one: the block's id, turned about its centre.
       ivec2 id = ivec2(key.x * 16 + (blk ? 0 : cls), key.y);
-      bool skip = !geo_ok || !tile_valid || (only >= 0 && ((cls == only) == u_only_inv)) || hashI(id, uSeed + 211.0) < u_missing;
+      vec2 ctr = blk ? vec2(0.0) : geo_bbC, ext = blk ? hexExt : geo_bbH;
+      // Before the tile's hashes, a bound that holds however it is laid: it moves by at most Hand-laid shift, turns
+      // about ctr, shrinks only, and lies within its box (+ the rounding) — far tiles drop out here.
+      bool far = length(geo_f - pos * geo_s - ctr) - length(geo_bbH) - length(geo_bbC - ctr) - laid - geo_r >= max(geo_bestD, reach);
+      bool skip = !geo_ok || !tile_valid || (only >= 0 && ((cls == only) == u_only_inv)) || far
+               || (u_missing > 0.0 && hashI(id, uSeed + 211.0) < u_missing);
       if (!skip) {
         vec3 hj = hash3I(id, uSeed + 101.0);
         vec3 hl = hash3I(id, uSeed + 307.0);
-        vec2 ctr = blk ? vec2(0.0) : geo_bbC, ext = blk ? hexExt : geo_bbH;
         float R = length(ext);
         vec2 tr = laid * sqrt(hl.x) * normalize(2.0 * hj.yz - 1.0 + vec2(1e-4, 0.0));
         float ang = min(turnPx / max(R, 1e-3), 0.785) * (2.0 * hl.y - 1.0);   // corners move ≤ the turn's px
-        vec2 cs = normalize(vec2(1.0, tan(ang)));
+        vec2 cs = vec2(cos(ang), sin(ang));
         float s = sizeVar * hj.x;
         s += max(length(tr) + R * abs(ang) - (halfGap + s), 0.0);
         vec2 q = geo_f - pos * geo_s - ctr - tr;
         q = vec2(cs.x * q.x + cs.y * q.y, cs.x * q.y - cs.y * q.x) + ctr;
-        vec2 bq = abs(q - geo_bbC) - geo_bbH;
-        if (length(max(bq, 0.0)) - geo_r + s < max(geo_bestD, reach)) {
-          float d = geo_sdPoly(q) - geo_r + s;
-          if (d < geo_bestD) {
-            geo_bestD = d; geo_bestCls = cls; geo_bestKey = key;
+        float d = geo_dist(q, max(geo_bestD, reach) - s) + s;
+        if (d < 1e8) {
+          if (geo_keep(d, cls, key)) {
             tile_bu = (q - ctr) / max(ext, vec2(1e-3));
             tile_q = q;
             tile_bid = id;
@@ -921,10 +928,10 @@ GenOut gen(vec2 p) {
           if (val) {
             // Its tone: the kinds evenly from 0 to 1, each tile moved towards the middle by its own random (a
             // middle kind either way), never as far as the next kind.
-            float h = hashI(blk ? id : ivec2(key.x * 16 + cls, key.y), uSeed);
+            float h = hashI(id, uSeed);
             float tn = float(mode == 0 ? cls & 1 : cls) / float(max(ntone - 1, 1));
             tn += (tn < 0.499 ? h : tn > 0.501 ? -h : 2.0 * h - 1.0) * dv;
-            vec3 rw = clamp(0.5 - vec3(bq - geo_r + s, d) / sb, 0.0, 1.0);
+            vec3 rw = clamp(0.5 - vec3(abs(q - geo_bbC) - geo_bbH - geo_r + s, d) / sb, 0.0, 1.0);
             if (u_soft > 0.0) rw = rw * rw * (3.0 - 2.0 * rw);
             float w = tile_isRect ? mix(rw.x * rw.y, rw.z, kr) : rw.z;
             if (u_soft <= 0.0 && !u_aa) w = d <= 0.0 ? 1.0 : 0.0;
@@ -952,9 +959,7 @@ GenOut gen(vec2 p) {
   if (tile_hex) {
     vec2 rA = vec2(0.5, 1.0 / 6.0) * geo_s, rB = vec2(-0.5, 1.0 / 6.0) * geo_s, rC = vec2(0.0, -geo_s.y / 3.0);
     vec2 bq0 = tile_q;
-    vec3 er = vec3(length(bq0 - rA * clamp(dot(bq0, rA) / dot(rA, rA), 0.0, 1.0)),
-                   length(bq0 - rB * clamp(dot(bq0, rB) / dot(rB, rB), 0.0, 1.0)),
-                   length(bq0 - rC * clamp(dot(bq0, rC) / dot(rC, rC), 0.0, 1.0)));
+    vec3 er = vec3(sdSegment(bq0, vec2(0.0), rA), sdSegment(bq0, vec2(0.0), rB), sdSegment(bq0, vec2(0.0), rC));
     eAll = min(er.x, min(er.y, er.z));
     eg = vec2(dFdx(eAll), dFdy(eAll));
     // Bevel aspect: the crease's distance in the stretched space (px of Bevel), in the units bevelAt divides by eg's.
@@ -980,7 +985,7 @@ GenOut gen(vec2 p) {
   // solid block's faces share one hash: the block is lighter or darker as a whole; on a one-hexagon block the face
   // edges blend into the face across over half a pixel each side (unless Height's per-feature variation reads the
   // random: its hash would turn the blend into speckle).
-  float h = hashI(blk ? tile_bid : ivec2(geo_bestKey.x * 16 + geo_bestCls, geo_bestKey.y), uSeed);
+  float h = hashI(tile_bid, uSeed);
   float nc = float(ncls);
   vec2 cc = vec2(float(geo_bestCls), max(across, 0.0));
   float w = clamp(u_kind_w, 0.0, 1.0);
@@ -1004,8 +1009,10 @@ GenOut gen(vec2 p) {
   float iso = mode == 2 ? clamp(u_block_iso, 0.0, 1.0) : 0.0;
   float crease = tile_hex ? clamp(u_crease, 0.0, 1.0) : 0.0;
   if (u_tilt > 0.0 || u_crown > 0.0 || iso > 0.0 || blkVar || crease > 0.0) {
+    // (Edge › Dilate grows the shape as the wrapper does: its distances shifted out before the combine.)
     int op = maskOp();
-    float dc = op == 0 ? D : sdfCombine(op, maskIn(ivec2(gl_FragCoord.xy)), D, u_mk_smooth);
+    float dil = max(u_dilate, 0.0);
+    float dc = op == 0 ? D - dil : sdfCombine(op, maskIn(ivec2(gl_FragCoord.xy)), D - dil, u_mk_smooth);
     vec2 dg = vec2(dFdx(dc), dFdy(dc));
     vec3 ht = hash3I(tile_bid, uSeed + 503.0);
     float ta = TAU * ht.x;
@@ -1019,9 +1026,9 @@ GenOut gen(vec2 p) {
     float fall = geo_bestCls == 0 ? 0.0 : clamp(abs(qu.x) - 3.0 * qu.y, 0.0, 1.0);
     float side = 1.0 - 0.5 * iso * fall;
     float crs = 1.0 - crease * (1.0 - bevelAt(-eAll, eg));
-    float hv = blkVar ? 1.0 - u_h_var * fract(hashI(tile_bid, uSeed + 601.0) * 61.37 + 0.123) : 1.0;
+    float hv = blkVar ? 1.0 - u_h_var * featVar(hashI(tile_bid, uSeed + 601.0)) : 1.0;
     // (Bevel aspect, drawn as its own shape: the stretched outline distance, as the wrapper takes it.)
-    float bev = bevelAt(asp && op <= 1 ? bd * bevelWidth(dg) / u_bevel : dc, dg);
+    float bev = bevelProfile(asp && op <= 1 ? max(dil - bd, 0.0) / u_bevel : max(-dc, 0.0) / bevelWidth(dg));
     g.hval = clamp(bev * plane * dome * side * crs * hv, 0.0, 1.0);
     if (blkVar) g.feat = 0.0;
   }

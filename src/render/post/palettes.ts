@@ -7,13 +7,15 @@
 import {
 	clamp01,
 	hexToRgb,
+	linearToSrgb,
 	linearToSrgb1,
-	oklabToLinear,
+	oklabToSrgb,
 	rgbToHex,
-	srgbToLinear1,
+	srgbToLinear,
 	srgbToOklab,
 	type RGB
 } from '@/core/color';
+import { mulberry32 } from '@/core/hash';
 
 /** Upper bound on palette size (the GPU lookup texture is 256 entries wide). */
 export const MAX_PALETTE = 256;
@@ -150,8 +152,7 @@ const HEX_TOKEN = /(#?)\b([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3})\b/gi;
 const RGB_TRIPLET = /^\s*(?:rgba?\s*\(\s*)?(\d{1,3})\s*[,\s]\s*(\d{1,3})\s*[,\s]\s*(\d{1,3})(?![\d.])/i;
 
 function byteHex(r: number, g: number, b: number): string | null {
-	if (r > 255 || g > 255 || b > 255) return null;
-	return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+	return r > 255 || g > 255 || b > 255 ? null : rgbToHex([r / 255, g / 255, b / 255]);
 }
 
 /**
@@ -223,7 +224,7 @@ export function preparePalette(colors: string[]): PreparedPalette {
 	return {
 		srgb,
 		oklab: srgb.map(srgbToOklab),
-		linear: srgb.map((c) => [srgbToLinear1(c[0]), srgbToLinear1(c[1]), srgbToLinear1(c[2])] as RGB),
+		linear: srgb.map(srgbToLinear),
 		spread: paletteSpread(srgb)
 	};
 }
@@ -307,11 +308,7 @@ export function palettizePixel(
 	palette: PreparedPalette,
 	opts: PalettizeOptions = {}
 ): number {
-	let e: RGB = [
-		linearToSrgb1(clamp01(linear[0])),
-		linearToSrgb1(clamp01(linear[1])),
-		linearToSrgb1(clamp01(linear[2]))
-	];
+	let e = linearToSrgb([clamp01(linear[0]), clamp01(linear[1]), clamp01(linear[2])]);
 	if (opts.bayer) {
 		const t = bayerThreshold(x, y, opts.bayer) * palette.spread * (opts.strength ?? 1);
 		e = [clamp01(e[0] + t), clamp01(e[1] + t), clamp01(e[2] + t)];
@@ -326,18 +323,6 @@ export interface LinearImage {
 	height: number;
 	/** Linear RGBA float, rows top-down (Engine.readFinal()). */
 	data: Float32Array;
-}
-
-/** Small deterministic PRNG so "Extract palette" gives the same answer for the same image. */
-function mulberry32(seed: number): () => number {
-	let a = seed >>> 0;
-	return () => {
-		a = (a + 0x6d2b79f5) >>> 0;
-		let t = a;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	};
 }
 
 const MAX_POINTS = 16384;
@@ -395,13 +380,11 @@ export function extractPalette(img: LinearImage, n: number): string[] {
 		w.push(bin.n);
 	}
 	const sortLight = (cs: RGB[]) => cs.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
-	const toHex = (lab: RGB) => {
-		const lin = oklabToLinear(lab);
-		return rgbToHex([linearToSrgb1(clamp01(lin[0])), linearToSrgb1(clamp01(lin[1])), linearToSrgb1(clamp01(lin[2]))]);
-	};
+	const toHex = (lab: RGB) => rgbToHex(oklabToSrgb(lab));
 	if (pts.length === 0) return [];
 	if (pts.length <= k && shift === 0) return [...new Set(sortLight(pts).map(toHex))];
 
+	// Deterministic, so "Extract palette" gives the same answer for the same image.
 	const rand = mulberry32(0x5eed + k);
 	const m = pts.length;
 	// k-means++ seeding (weighted by histogram counts).

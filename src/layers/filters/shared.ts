@@ -1,5 +1,5 @@
-// Helpers shared by the filter layers: the distance-source params (bevel / etch), a separable Gaussian
-// blur into scratch targets (cavity, height-from-diffuse) and the matching GLSL.
+// Helpers shared by the filter layers: the distance-source params and pass (bevel / etch), a separable Gaussian
+// blur into scratch targets (cavity, height-from-diffuse), the final MRT pass of run() filters and a state reader.
 
 import * as THREE from 'three';
 import { P, type ParamDef, type ParamValues } from '@/core/params';
@@ -7,8 +7,8 @@ import { SHAPE_MASK } from '@/core/project';
 import { DISTANCE_SOURCE, jumpFlood } from '@/gpu/jfa';
 import type { FilterContext } from '@/render/materialPipeline';
 
-/** Sources for distance-based filters; order matches DISTANCE_SOURCE in gpu/jfa.ts. */
-export const DISTANCE_SOURCES: [string, string][] = [
+/** Sources for distance-based filters; their indices come from DISTANCE_SOURCE in gpu/jfa.ts. */
+const DISTANCE_SOURCES: [keyof typeof DISTANCE_SOURCE, string][] = [
 	['height', 'Height above threshold'],
 	['opacity', 'Opacity above threshold'],
 	['luminance', 'Luminance above threshold'],
@@ -49,21 +49,14 @@ export const radiusToSigma = (radius: number) => Math.max(radius, 0) * 0.5;
 /** Hard cap on the taps either side of a separable blur pass. */
 export const MAX_BLUR_TAPS = 192;
 
-/** GLSL: Gaussian weight and tap count for σ = uSigma (declared by the caller). */
-export const GLSL_GAUSS = /* glsl */ `
-int gaussTaps(float sigma) { return min(int(ceil(sigma * 3.0)), ${MAX_BLUR_TAPS}); }
-float gaussK(float sigma) { return -0.5 / max(sigma * sigma, 1e-6); }
-`;
-
 const BLUR4 = /* glsl */ `
-${GLSL_GAUSS}
 uniform sampler2D tSrc;
 uniform vec2 uDir;
 uniform float uSigma;
 void main() {
   ivec2 c = ivec2(gl_FragCoord.xy);
   ivec2 dir = ivec2(uDir);
-  int R = gaussTaps(uSigma);
+  int R = gaussTaps(uSigma, ${MAX_BLUR_TAPS});
   float k = gaussK(uSigma);
   vec4 sum = vec4(0.0);
   float ws = 0.0;
@@ -78,23 +71,17 @@ void main() {
 
 /**
  * Separable Gaussian blur of all four components of `src` (wrap-aware) into a scratch target, which is
- * returned. `name` prefixes the two scratch targets used.
+ * returned. Its two scratch targets are shared by every caller: the result must be used before the next blur.
  */
-export function blurTexture(
-	ctx: FilterContext,
-	src: THREE.Texture,
-	radius: number,
-	name: string
-): THREE.WebGLRenderTarget {
-	const sigma = radiusToSigma(radius);
-	const h = ctx.scratch(`${name}:h`);
-	const v = ctx.scratch(`${name}:v`);
-	const mat = ctx.material('blur4', BLUR4, {
+export function blurTexture(ctx: FilterContext, src: THREE.Texture, radius: number): THREE.WebGLRenderTarget {
+	const h = ctx.scratch('blur:h');
+	const v = ctx.scratch('blur:v');
+	const mat = ctx.sharedMaterial('blur4', BLUR4, {
 		tSrc: { value: null },
 		uDir: { value: new THREE.Vector2(1, 0) },
 		uSigma: { value: 1 }
 	});
-	mat.uniforms.uSigma.value = Math.max(sigma, 1e-3);
+	mat.uniforms.uSigma.value = radiusToSigma(radius);
 	mat.uniforms.tSrc.value = src;
 	(mat.uniforms.uDir.value as THREE.Vector2).set(1, 0);
 	ctx.run(mat, h);
@@ -104,16 +91,14 @@ export function blurTexture(
 	return v;
 }
 
-export function sourceIndex(params: ParamValues): number {
-	const i = DISTANCE_SOURCES.findIndex(([v]) => v === params.source);
-	return i < 0 ? 0 : i;
-}
+const sourceIndex = (params: ParamValues): number =>
+	DISTANCE_SOURCE[params.source as keyof typeof DISTANCE_SOURCE] ?? DISTANCE_SOURCE.height;
 
 /**
  * Signed distance (px, negative inside) of the layer's source: a jump-flood field in a scratch target — or, for a mask
  * only shape layers wrote, the mask itself (its distance is exact), read with `sign` −1 when inverted.
  */
-export function sourceDistance(
+function sourceDistance(
 	ctx: FilterContext,
 	params: ParamValues,
 	maxDistance: number,
@@ -134,9 +119,62 @@ export function sourceDistance(
 	return { texture: field.texture, sign: 1 };
 }
 
-/** GLSL: the signed distance at a texel from `tDist` (× uDistSign). */
-export const GLSL_SOURCE_DIST = /* glsl */ `
+const GLSL_SOURCE_DIST = /* glsl */ `
 uniform sampler2D tDist;
 uniform float uDistSign;
 float sourceDist(ivec2 ip) { return uDistSign * texelFetch(tDist, ip, 0).r; }
+`;
+
+/**
+ * The main() of a run() filter's final MRT pass: the state through `applyFilter(A, S, E, ip)`, which `glsl` defines as
+ * a filterGlsl does (the limit is applied after the pass, by the pipeline).
+ */
+export const mrtApply = (glsl: string) => /* glsl */ `${glsl}
+void main() {
+  ivec2 ip = ivec2(gl_FragCoord.xy);
+  vec4 A = texelFetch(tAlbedo, ip, 0);
+  vec4 S = texelFetch(tSurface, ip, 0);
+  vec4 E = texelFetch(tEmissive, ip, 0);
+  applyFilter(A, S, E, ip);
+  oAlbedo = A;
+  oSurface = S;
+  oEmissive = E;
+}
+`;
+
+/**
+ * Bevel / etch: find the source's signed distance out to `reach` px, then run `glsl` (an applyFilter that reads it as
+ * `sourceDist(ip)`, in px, negative inside).
+ */
+export function runEdgeFilter(
+	ctx: FilterContext,
+	params: ParamValues,
+	glsl: string,
+	reach: number,
+	invert = false
+): void {
+	const src = sourceDistance(ctx, params, reach, invert);
+	const mat = ctx.mrtMaterial('apply', mrtApply(GLSL_SOURCE_DIST + glsl), {
+		tDist: { value: null },
+		uDistSign: { value: 1 }
+	});
+	mat.uniforms.tDist.value = src.texture;
+	mat.uniforms.uDistSign.value = src.sign;
+	ctx.runMRT(mat);
+}
+
+/** GLSL: the state at a source position q (px), nearest texel or bilinear, wrapping when tileable (warp, symmetry). */
+export const GLSL_READ_STATE = /* glsl */ `
+void readState(vec2 q, bool nearest, out vec4 A, out vec4 S, out vec4 E) {
+  if (nearest) {
+    ivec2 c = ivec2(floor(q));
+    A = fetchT(tAlbedo, c);
+    S = fetchT(tSurface, c);
+    E = fetchT(tEmissive, c);
+  } else {
+    A = sampleT(tAlbedo, q);
+    S = sampleT(tSurface, q);
+    E = sampleT(tEmissive, q);
+  }
+}
 `;

@@ -62,6 +62,6 @@ export const pixelatePost: PostDef = {
 		const expand = ctx.material('expand', EXPAND, { tBlocks: { value: null }, uBlocks: { value: [0, 0] } });
 		expand.uniforms.tBlocks.value = blocks.texture;
 		expand.uniforms.uBlocks.value = [bw, bh];
-		ctx.run(expand, output, null);
+		ctx.run(expand, output);
 	}
 };

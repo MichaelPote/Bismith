@@ -2,11 +2,13 @@
 //
 // Every greeble layer is an SDF generator with an `output` enum. Its "relief" output composes a complete
 // multi-level height value (0..1) from all of the layer's elements — using the layer's own Shape params
-// (bevel width + profile, anti-alias) for the main edges — and opts out of SDF handling (NO_SDF). The other
-// outputs return the signed distance of one element class (panels, rivets, slots, clamps…) so the common
-// bevel / profile / mask-combine / limit params apply to it. Stacking several instances of the same layer with
-// the same seed and different outputs gives one layout with several materials (e.g. relief → height,
-// rivets → brass diffuse, lights → emissive).
+// (bevel width + profile, anti-alias) for the main edges — and hands the mask it writes the distance of the element
+// class its Shape-for-the-mask param picks (genOutOwn), or NO_SDF when that is None. The other outputs return the
+// signed distance of one element class (panels, rivets, slots, clamps…) so the common bevel / profile / mask-combine /
+// limit params apply to it. Stacking several instances of the same layer with the same seed and different outputs gives
+// one layout with several materials (e.g. relief → height, rivets → brass diffuse, lights → emissive).
+
+import { orientAxis } from '@/core/params';
 
 /** GLSL helpers (prefixed `grb_`). Needs the SDF-layer uniforms u_aa / u_profile. */
 export const GRB_GLSL = /* glsl */ `
@@ -19,15 +21,15 @@ float grb_rise(float d, float w) {
   return profileCurve(u_profile, max(-d, 0.0) / w);
 }
 
-// Boxes from min / max corners (px).
-float grb_box(vec2 p, vec2 lo, vec2 hi) { return sdBox(p - 0.5 * (lo + hi), 0.5 * (hi - lo)); }
+// A rounded box from min / max corners (px).
 float grb_rbox(vec2 p, vec2 lo, vec2 hi, float r) {
   vec2 b = max(0.5 * (hi - lo), vec2(0.0));
   return sdRoundBox(p - 0.5 * (lo + hi), b, vec4(max(r, 0.0)));
 }
 
-// Random 0..1 for key k of a feature id.
-float grb_rand(uint id, uint k) { return u2f(pcg(id + k * 0x9E3779B9u)); }
+// 0 at a cut's edge rising to 1 inside over w px (at least half a px): a plain smooth ramp, not the Edge profile — each
+// profile call site costs D3D compile time.
+float grb_ramp(float d, float w) { return smoothstep(0.0, 1.0, -d / max(w, 0.5)); }
 
 // Centre for a feature s px wide whose leading edge is snapped to a pixel boundary (so whole-pixel sizes
 // give crisp edges: odd sizes centre on a pixel centre, even sizes on a pixel corner).
@@ -48,17 +50,26 @@ float grb_hexagon(vec2 p, float r) {
   return length(p) * sign(p.y);
 }
 
+// The round counterbore a sunk fastener head stands in: this × the head's radius.
+#define GRB_SINK_R 1.55
+// grb_fastener's own kinds (0 dome, 1 Allen, 2 hex, 3 slotted, 4 cross, 5 hole) for FASTENER_HEADS': a sunk kind is its
+// plain head (in a counterbore).
+const int GRB_FK[8] = int[8](0, 1, 1, 2, 2, 3, 4, 5);
+// How far a fastener's footprint reaches from its centre: the head, or a sunk kind's counterbore.
+float grb_fastenerReach(int kind, float r) { return (kind == 2 || kind == 4 ? GRB_SINK_R : 1.0) * r; }
+// A pan head's height (0..0.85) at x = distance ÷ radius: flat over most of it, rounding over at its rim.
+float grb_pan(float x) { return 0.85 * sqrt(max(1.0 - x * x * x * x, 0.0)); }
+
 // A fastener head (FASTENER_HEADS: 0 dome, 1 Allen bolt, 2 Allen bolt sunk, 3 hex head, 4 hex head sunk, 5 slotted
 // screw, 6 cross screw, 7 screw hole) at d from its centre — d already turned to the head's own angle — head radius r;
-// the sunk kinds stand in a round counterbore pk deep (in head heights; the caller's choice). Returns x: height relative to the surface round it, in head heights (1
-// the head's top; negative where sunk: the counterbore, a socket, slot or hole); y: how dark to paint it (sockets,
-// slots, holes, the counterbore's floor); z: the footprint's distance (the head, or its counterbore), for shape outputs.
+// the sunk kinds stand in a round counterbore pk deep (in head heights; the caller's choice). Returns x: height relative
+// to the surface round it, in head heights (1 the head's top; negative where sunk: the counterbore, a socket, slot or
+// hole); y: how dark to paint it (sockets, slots, holes, the counterbore's floor); z: the footprint's distance (the head,
+// or its counterbore), for shape outputs.
 vec3 grb_fastener(int kind, vec2 d, float r, float pk) {
   r = max(r, 0.5);
-  // The sunk kinds: the plain head (Allen 1, hex 2 below) in its counterbore; the rest none.
-  if (kind == 2 || kind == 4) { kind = kind == 2 ? 1 : 3; pk = max(pk, 0.0); }
-  else pk = 0.0;
-  kind = kind == 3 ? 2 : kind >= 5 ? kind - 2 : kind;   // to 0 dome, 1 Allen, 2 hex, 3 slotted, 4 cross, 5 hole
+  pk = kind == 2 || kind == 4 ? max(pk, 0.0) : 0.0;
+  kind = GRB_FK[clamp(kind, 0, 7)];
   float l = length(d);
   float e = max(0.6, 0.12 * r);   // edge softness
   if (kind == 5) {
@@ -66,23 +77,24 @@ vec3 grb_fastener(int kind, vec2 d, float r, float pk) {
     float h = 1.0 - smoothstep(r - e, r + 0.5, l);
     return vec3(-h, h, l - r);
   }
-  float pr = 1.55 * r;
+  float pr = GRB_SINK_R * r;
   float pocket = pk > 0.0 ? 1.0 - smoothstep(pr - 1.0, pr, l) : 0.0;
+  // (One hexagon: a hex head's flats, or an Allen bolt's socket.)
+  float hx = grb_hexagon(d, kind == 2 ? 0.87 * r : max(0.5 * r, 1.0));
   float head, dark = 0.0;
   if (kind == 2) {
     // A hex head: steep flats, its corners chamfered towards a flat top.
-    float side = smoothstep(0.0, 1.0, -grb_hexagon(d, 0.87 * r) / max(0.2 * r, 0.7));
-    head = side * mix(0.75, 1.0, clamp((1.0 * r - l) / max(0.3 * r, 0.5), 0.0, 1.0));
+    float side = smoothstep(0.0, 1.0, -hx / max(0.2 * r, 0.7));
+    head = side * mix(0.75, 1.0, clamp((r - l) / max(0.3 * r, 0.5), 0.0, 1.0));
   } else if (kind == 1) {
     // An Allen bolt: a flat cap with a rounded rim and a hex socket sunk deep in it.
     head = smoothstep(0.0, 1.0, (0.95 * r - l) / max(0.18 * r, 0.7));
-    float sock = 1.0 - smoothstep(-0.35, 0.35, grb_hexagon(d, max(0.5 * r, 1.0)));
-    head -= 1.0 * sock;
+    float sock = 1.0 - smoothstep(-0.35, 0.35, hx);
+    head -= sock;
     dark = sock;
   } else if (kind >= 3) {
     // A pan-head screw, a slot (or two, crossed) across it.
-    float x = clamp(l / r, 0.0, 1.0);
-    head = 0.85 * sqrt(max(1.0 - x * x * x * x, 0.0));
+    head = grb_pan(clamp(l / r, 0.0, 1.0));
     float gw = max(0.5, 0.11 * r);
     float g = 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.y));
     if (kind == 4) g = max(g, 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.x)));
@@ -96,7 +108,7 @@ vec3 grb_fastener(int kind, vec2 d, float r, float pk) {
   float x = -pk * pocket + (1.0 + pk) * head;
   dark = max(dark, 0.5 * pocket * (1.0 - smoothstep(0.0, 0.2, head)));
   // (The footprint: the counterbore, the hexagon itself, or the round head.)
-  return vec3(x, dark, pk > 0.0 ? l - pr : kind == 2 ? grb_hexagon(d, 0.87 * r) : l - r);
+  return vec3(x, dark, pk > 0.0 ? l - pr : kind == 2 ? hx : l - r);
 }
 
 // ---- Bevel aspect (Shaping › Edge) on the shape outputs. The wrapper takes a bevel's width from the distance's
@@ -104,8 +116,7 @@ vec3 grb_fastener(int kind, vec2 d, float r, float pk) {
 // pass their distance in the space the aspect stretches (GenOut.bdist, px of Bevel; GLSL_BEVEL), built from the same
 // pieces as the shape's own. The greebles are laid out along the screen's axes (some swapped), so that stretch is a
 // scale along each local axis: k (Bevel ÷ the bevel's width across that axis). Only while the aspect isn't 1, which
-// keeps the plain distance.
-bool grb_bevOn() { return bevelAspectOn(); }
+// keeps the plain distance (bevelAspectOn()).
 // The stretch along the local axes (swap: local x runs along the screen's y).
 vec2 grb_bevK(bool swap) { vec2 k = u_bevel / max(bevelWidths(), vec2(1e-6)); return swap ? k.yx : k; }
 // A box with corners rounded by r (half size b round d's origin), stretched by k: the stretch is symmetric about the
@@ -123,8 +134,8 @@ float grb_bevRBox(vec2 d, vec2 b, float r, vec2 k) {
 `;
 
 /**
- * Fastener heads shared by the greeble generators (Greebles' rivets, Vents' frame fasteners; Trim's elements carry the
- * same kinds). The order is the GLSL kind of grb_fastener: keep it.
+ * Fastener heads shared by the greeble generators (Greebles' rivets, Vents' frame fasteners; Trim draws its hex heads,
+ * Allen bolts and cross screws with them too). The order is the GLSL kind of grb_fastener: keep it.
  */
 export const FASTENER_HEADS: [string, string, string][] = [
 	['dome', 'Dome', 'a round rivet head'],
@@ -142,3 +153,6 @@ export const ORIENT: [string, string][] = [
 	['horizontal', 'Horizontal'],
 	['vertical', 'Vertical']
 ];
+/** A length along (or across) an ORIENT layer's runs, for pixel scaling (ParamDef.axis). */
+export const ORIENT_ALONG = orientAxis('orient', { horizontal: 'x', vertical: 'y' });
+export const ORIENT_ACROSS = orientAxis('orient', { horizontal: 'x', vertical: 'y' }, true);

@@ -73,14 +73,16 @@ export function layerWrites(def: LayerDef | undefined, params: ParamValues): Mas
 	return out;
 }
 
+/** A stored limit operator made valid: 'or', 'minus', else 'and'. */
+const toLimitOp = (v: unknown): LimitOp => (v === 'or' || v === 'minus' ? v : 'and');
+
 /** A layer's own Limit to expression (lim_1 … lim_4, Invert), or null for none. */
 export function layerLimit(params: ParamValues): LimitExpr | null {
 	const terms: LimitExpr['terms'] = [];
 	for (let n = 1; n <= MAX_LIMIT_TERMS; n++) {
 		const mask = name(params[`lim_${n}`]);
 		if (!mask) break;
-		const op = n === 1 ? 'and' : (String(params[`lim_op${n}`] ?? 'and') as LimitOp);
-		terms.push({ mask, op: op === 'or' || op === 'minus' ? op : 'and' });
+		terms.push({ mask, op: n === 1 ? 'and' : toLimitOp(params[`lim_op${n}`]) });
 	}
 	return terms.length ? { terms, outside: params.lim_out === true } : null;
 }
@@ -96,7 +98,10 @@ export function limitParams(e: LimitExpr | null): ParamValues {
 	return out;
 }
 
-/** A limit expression from short arguments: limitTo('Shape') · limitTo('Shape', { outside: true }) · ['Shape', '−', 'Opening']. */
+/**
+ * A limit expression from short arguments: limitTo('Shape') · limitTo('Shape', { outside: true }) · ['Shape', '−', 'Opening'].
+ * Operators may be spelled 'or' / 'and' / 'minus' too, so a mask literally named one of those can't be listed.
+ */
 export function limitTo(
 	spec: string | (string | LimitOp | '∪' | '∩' | '−')[],
 	opts: { outside?: boolean } = {}
@@ -410,7 +415,7 @@ export function sanitizeLimit(v: unknown): LimitExpr | undefined {
 	const terms = (Array.isArray(raw.terms) ? raw.terms : [])
 		.map((t: { mask?: unknown; op?: unknown }) => ({
 			mask: name(t?.mask),
-			op: (['or', 'and', 'minus'].includes(String(t?.op)) ? t.op : 'and') as LimitOp
+			op: toLimitOp(t?.op)
 		}))
 		.filter((t) => t.mask)
 		.slice(0, MAX_LIMIT_TERMS);

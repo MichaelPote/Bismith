@@ -32,14 +32,22 @@ vec4 glowBilin(sampler2D t, vec2 res, vec2 px) {
   vec4 d = glowFetch(t, r, i + ivec2(1, 1));
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
-// 3×3 tent (1 2 1) with taps one source texel apart.
+// 3×3 tent (1 2 1) of bilinear taps one source texel apart. They cover one 4×4 block of texels, so it is fetched
+// once with the combined weights per axis: (1 − f, 2 − f, 1 + f, f) / 4 at offsets −1 … 2 from the bilinear base.
 vec4 glowTent(sampler2D t, vec2 res, vec2 px) {
-  vec4 s = glowBilin(t, res, px) * 4.0;
-  s += (glowBilin(t, res, px + vec2(-1.0, 0.0)) + glowBilin(t, res, px + vec2(1.0, 0.0)) +
-        glowBilin(t, res, px + vec2(0.0, -1.0)) + glowBilin(t, res, px + vec2(0.0, 1.0))) * 2.0;
-  s += glowBilin(t, res, px + vec2(-1.0, -1.0)) + glowBilin(t, res, px + vec2(1.0, -1.0)) +
-       glowBilin(t, res, px + vec2(-1.0, 1.0)) + glowBilin(t, res, px + vec2(1.0, 1.0));
-  return s / 16.0;
+  ivec2 r = ivec2(res);
+  vec2 q = px - 0.5;
+  vec2 f = fract(q);
+  ivec2 i = ivec2(floor(q)) - 1;
+  vec4 wx = vec4(1.0 - f.x, 2.0 - f.x, 1.0 + f.x, f.x) * 0.25;
+  vec4 wy = vec4(1.0 - f.y, 2.0 - f.y, 1.0 + f.y, f.y) * 0.25;
+  vec4 s = vec4(0.0);
+  for (int y = 0; y < 4; y++) {
+    vec4 row = vec4(0.0);
+    for (int x = 0; x < 4; x++) row += glowFetch(t, r, i + ivec2(x, y)) * wx[x];
+    s += row * wy[y];
+  }
+  return s;
 }
 // Where this fragment's centre falls in the source texture (each level spans the whole image).
 vec2 glowSrcPos(vec2 srcRes) { return gl_FragCoord.xy * srcRes / uRes; }
@@ -117,13 +125,15 @@ export const glowPost: PostDef = {
 			step: 0.01,
 			hint: 'Spread: low = tight glow, high = wide halo (weights the coarser blur levels).'
 		}),
-		P.int('levels', 'Levels', 6, 1, 8, { hint: 'Blur levels (each halves the resolution); limits the widest halo.' }),
+		P.int('levels', 'Levels', 6, 1, 8, {
+			hint: 'Blur levels (each halves the resolution); limits the widest halo. Halo sizes are relative to the canvas, so a bigger canvas glows wider in px.'
+		}),
 		P.color('tint', 'Tint', '#ffffff')
 	],
 	run(ctx, input, output) {
 		const p = ctx.filter.params;
-		const levels = Math.max(1, Math.min(8, Math.round(Number(p.levels ?? 6))));
-		const scatter = Math.max(0, Math.min(0.98, Number(p.radius ?? 0.6)));
+		const levels = Number(p.levels ?? 6);
+		const scatter = Number(p.radius ?? 0.6);
 		const W = ctx.width;
 		const H = ctx.height;
 

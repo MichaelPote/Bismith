@@ -1,17 +1,8 @@
-// Drips' blisters: a shape for the mask only (no Edge card), written by the Sources output, and old Sources layers
-// keep their size.
+// Drips: its blisters (a shape for the mask, written by the Sources output), Height and paint following the output,
+// and the editor's defaults.
 import { describe, expect, it } from 'vitest';
-import type { ParamValues } from '@/core/params';
 import { ensureBuiltins } from '@/render/builtins';
-import {
-	createLayer,
-	freshParams,
-	getLayerDef,
-	layerGroups,
-	layerParamDefs,
-	linkedChanges,
-	sanitizeLayer
-} from '@/layers/registry';
+import { createLayer, freshParams, getLayerDef, layerGroups, layerParamDefs, linkedChanges } from '@/layers/registry';
 import { maskWriteKind } from '@/layers/masks';
 
 ensureBuiltins();
@@ -37,23 +28,6 @@ describe('drips blisters', () => {
 		expect(maskWriteKind(drips, { ...stains, mk_target: 'Wet' })).toBe('coverage');
 		expect(def('mk_smooth').showIf!({ ...sources, mk_op: 'smooth-union' })).toBe(true);
 		expect(def('mk_smooth').showIf!({ ...sources, mk_op: 'union' })).toBe(false);
-	});
-
-	it('takes an old Sources head size as the blister radius', () => {
-		const old: ParamValues = { ...createLayer('drips').params, output: 'source', head: 1.5 };
-		delete old.blister;
-		expect(sanitizeLayer({ id: 'a', type: 'drips', name: 'Blisters', enabled: true, params: old }).params.blister).toBe(
-			1.5
-		);
-		const tiny = { ...old, head: 0 };
-		expect(
-			sanitizeLayer({ id: 'b', type: 'drips', name: 'Blisters', enabled: true, params: tiny }).params.blister
-		).toBe(0.75);
-		// Stains and layers saved since keep theirs.
-		const stains = { ...old, output: 'stain' };
-		expect(sanitizeLayer({ id: 'c', type: 'drips', name: 'Drips', enabled: true, params: stains }).params.blister).toBe(
-			2
-		);
 	});
 });
 
@@ -89,14 +63,7 @@ describe('drips stains', () => {
 		});
 	});
 
-	it('reads an old Relief drive as the first half of Drips from (grid cells at their ledges = 0.5)', () => {
-		const old: ParamValues = { ...createLayer('drips').params, relief: 1 };
-		delete old.spawn;
-		const p = sanitizeLayer({ id: 'a', type: 'drips', name: 'Drips', enabled: true, params: old }).params;
-		expect(p.spawn).toBe(0.5);
-		expect(p.relief).toBeUndefined();
-		expect(createLayer('drips', { relief: 0.4 }).params.spawn).toBe(0.2);
-		expect(createLayer('drips', { relief: 1 }).params).not.toHaveProperty('relief');
+	it('shows Ledge spacing only when drips start from ledges', () => {
 		expect(def('ledge_gap').showIf!({ spawn: 0 })).toBe(false);
 		expect(def('ledge_gap').showIf!({ spawn: 0.3 })).toBe(true);
 	});

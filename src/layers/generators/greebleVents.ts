@@ -2,17 +2,14 @@
 // framed field. Pipes: runs of parallel cylinders or conduits with clamp straps. See greebleCommon.ts for the
 // relief / SDF output convention.
 
-import { P, gradient, orientAxis, type ParamValues } from '@/core/params';
+import { P, gradient, round1 as r1, type ParamValues } from '@/core/params';
 import { spacingParams } from '../commonParams';
 import type { LayerDef } from '../types';
-import { FASTENER_HEADS, GRB_GLSL, ORIENT } from './greebleCommon';
+import { FASTENER_HEADS, GRB_GLSL, ORIENT, ORIENT_ACROSS, ORIENT_ALONG } from './greebleCommon';
 
 // Slot length runs along the slots, slot width across them (holes: a diameter, both axes).
-const slotAlong = orientAxis('orient', { horizontal: 'x', vertical: 'y' });
-const slotAcross = (p: ParamValues) =>
-	p.mode === 'holes' ? null : orientAxis('orient', { horizontal: 'x', vertical: 'y' }, true)(p);
+const slotAcross = (p: ParamValues) => (p.mode === 'holes' ? null : ORIENT_ACROSS(p));
 
-const r1 = (v: number) => Math.round(v * 10) / 10;
 const isFins = (p: ParamValues) => p.mode === 'louvers' || p.mode === 'hoods';
 const framed = (p: ParamValues) => Number(p.margin) > 0;
 /** The largest fastener radius the frame takes: 0.3 × its flat (as the shader clamps it). */
@@ -72,7 +69,7 @@ export const ventsLayer: LayerDef = {
 		P.float('length', 'Slot length', 24, 1, 4096, {
 			softMax: 512,
 			unit: 'px',
-			axis: slotAlong,
+			axis: ORIENT_ALONG,
 			step: 0.5,
 			showIf: (p) => p.mode !== 'holes',
 			hint: 'Clamped to the cell: as long as the cell (or more), slots join into continuous bars. Whole px stays crisp'
@@ -291,30 +288,14 @@ export const ventsLayer: LayerDef = {
 	glsl:
 		GRB_GLSL +
 		/* glsl */ `
-// 1, read from a uniform: loops bounded by it are not unrolled by D3D (one copy of the body; see ORG_1).
-#define VNT_1 (uRes.x > 0.0 ? 1 : 0)
-
 // One slot centred at the origin (x along it): round / square ends, pointed (tapering to a point Point length × W long:
 // 0.5 = 45°), angled (both ends cut on the same diagonal) or hex (60° points). Holes (L across x, W across y): round,
 // square, or a hexagon standing on a point (L across the flats, W point to point).
 
-float vent_slot(vec2 d, float L, float W, float rad) {
-  vec2 a = abs(d);
-  if (u_ends == 4) {
-    bool hole = u_mode == 2;
-    vec2 b = hole ? a.yx : a;
-    vec2 s = hole ? vec2(W, L) : vec2(L, W);
-    return max(b.y - 0.5 * s.y, b.x * 0.8660254 + b.y * 0.5 - 0.4330127 * s.x);
-  }
-  if (u_mode != 2 && (u_ends == 2 || u_ends == 3)) {
-    float k = 2.0 * max(u_tip, 0.01);
-    float e = u_ends == 2 ? a.x + k * a.y - 0.5 * L : abs(d.x + k * d.y) - 0.5 * L + 0.5 * k * W;
-    return max(a.y - 0.5 * W, e * inversesqrt(1.0 + k * k));
-  }
-  return sdRoundBox(d, 0.5 * vec2(L, W), vec4(rad));
-}
-// Bevel aspect (greebleCommon): the pointed, angled and hex slots' sides as lines in the stretched space (k along the
-// local axes) — exact inside, as vent_slot is.
+// Pointed, angled or hex ends (else round or square ones, a rounded box).
+bool vent_ends() { return u_ends == 4 || (u_mode != 2 && (u_ends == 2 || u_ends == 3)); }
+// The pointed, angled and hex slots' sides as lines, here in the space Bevel aspect stretches (greebleCommon: k along
+// the local axes; k = 1, the slot itself) — exact inside.
 float vent_slotK(vec2 d, float L, float W, vec2 k) {
   vec2 a = abs(d);
   if (u_ends == 4) {
@@ -327,6 +308,9 @@ float vent_slotK(vec2 d, float L, float W, vec2 k) {
   float t = 2.0 * max(u_tip, 0.01);
   float e = u_ends == 2 ? a.x + t * a.y - 0.5 * L : abs(d.x + t * d.y) - 0.5 * L + 0.5 * t * W;
   return max((a.y - 0.5 * W) * k.y, e / length(vec2(1.0, t) / k));
+}
+float vent_slot(vec2 d, float L, float W, float rad) {
+  return vent_ends() ? vent_slotK(d, L, W, vec2(1.0)) : sdRoundBox(d, 0.5 * vec2(L, W), vec4(rad));
 }
 
 GenOut gen(vec2 p) {
@@ -388,29 +372,33 @@ GenOut gen(vec2 p) {
     else if (d < best) { best2 = best; bestC2 = bestC; best = d; bestRnd = hashI(id, uSeed); bestC = ctr; bestDep = 1.0 - u_depth_var * hv.y; }
     else if (d < best2) { best2 = d; bestC2 = ctr; }
   }
+  // (None in reach — a row or more beyond a frame's field, or all Missing: far, but above NO_SDF, which would read as "no
+  // shape".)
+  best = min(best, 1e4);
+  best2 = min(best2, 1e4);
 
   float dFrame = m > 0.0 ? max(-dField, dO) : 1e4;
   if (u_output > 0) {
     GenOut g = genOut(0.0, 1.0, bestRnd, u_output == 1 ? best : u_output == 2 ? (wrap ? -best : max(-best, dField)) : dFrame);
-    if (grb_bevOn()) {
+    if (bevelAspectOn()) {
       // Bevel aspect: the same shapes in the stretched space — the nearest slot (and the next, round which the plate
       // also bevels), the slots' clip, the field and the panel's outline — one rounded box in the loop, the pointed /
       // angled / hex slots as lines.
       vec2 k = grb_bevK(vert);
       float sS = 1e9, sS2 = 1e9, sClip = -1e4, sField = -1e4, sO = -1e4;
-      for (int i = 0; i < 5 * VNT_1; i++) {
+      for (int i = 0; i < 5 * UNI_1; i++) {
         bool slot = i < 2;
         vec2 dc = q - (i == 0 ? bestC : i == 1 ? bestC2 : i == 4 ? 0.5 * res : mid);
         vec2 hb = slot ? 0.5 * vec2(L, W) : i == 4 ? 0.5 * res : 0.5 * (fhi - flo) - (i == 2 ? ci : 0.0);
         float rb = slot ? rad : i == 2 ? max(rr - ci, 0.0) : i == 3 ? rr : (rr > 0.0 ? rr + m : 0.0);
         float e = grb_bevRBox(dc, hb, rb, k);
         if (slot && full) e = (abs(dc.y) - 0.5 * W) * k.y;
-        else if (slot && (u_ends == 4 || (u_mode != 2 && (u_ends == 2 || u_ends == 3)))) e = vent_slotK(dc, L, W, k);
+        else if (slot && vent_ends()) e = vent_slotK(dc, L, W, k);
         if (i == 0) sS = e; else if (i == 1) sS2 = e; else if (i == 2) sClip = e; else if (i == 3) sField = e; else sO = e;
       }
       if (!wrap) { sS = max(sS, sClip); sS2 = max(sS2, sClip); }
-      sS = best < 1e8 ? sS : best;
-      sS2 = best2 < 1e8 ? sS2 : best2;
+      sS = best < 1e4 ? sS : best;
+      sS2 = best2 < 1e4 ? sS2 : best2;
       g.bdist = u_output == 1 ? sS : u_output == 2 ? (wrap ? -min(sS, sS2) : max(-min(sS, sS2), sField))
               : m > 0.0 ? max(-sField, sO) : 1e4;
     }
@@ -426,7 +414,8 @@ GenOut gen(vec2 p) {
   // Partly filled openings (Depth variation) dish toward their middle, like dents.
   float floorV = plate * (1.0 - dep - 0.35 * u_depth * (1.0 - bestDep) * clamp(-best / max(0.5 * W, 1.0), 0.0, 1.0));
   // Recesses (openings not cut right through) meet their walls in a fillet: the floor curves up toward the edge.
-  if (dep < 0.999) floorV = mix(floorV, 0.5 * (floorV + plate), pow(1.0 - clamp(-best / clamp(0.3 * W, 1.0, 4.0), 0.0, 1.0), 2.0));
+  float fil = 1.0 - clamp(-best / clamp(0.3 * W, 1.0, 4.0), 0.0, 1.0);
+  if (dep < 0.999) floorV = mix(floorV, 0.5 * (floorV + plate), fil * fil);
   float inner = floorV;
   float innerP = -1.0;   // the paint inside, where it isn't the height (blade faces)
   if (fins) {
@@ -539,15 +528,14 @@ GenOut gen(vec2 p) {
     top = max(top, 1.6);
   }
   // Height: normalised by the highest the relief can reach; the paint keeps the frame at 1 whatever rises above it.
-  float hv = clamp(v / top, 0.0, 1.0);
+  float hgt = clamp(v / top, 0.0, 1.0);
   v = clamp(pv, 0.0, 1.0);
   // One random per slot inside it; the plate is one piece (so Diffuse jitter and Random don't tile it per slot).
   float rnd = best < 0.0 ? bestRnd : 0.5;
   GenOut o;
   if (u_mask == 0) o = genOut(v, 1.0, rnd, NO_SDF);
-  // (best is 1e9 a row or more beyond a frame's field: kept above NO_SDF, which would read as "no shape".)
-  else o = genOutOwn(v, 1.0, rnd, u_mask == 1 ? max(-min(best, 1e4), dO) : u_mask == 2 ? min(best, 1e4) : dFrame);
-  o.hval = hv;
+  else o = genOutOwn(v, 1.0, rnd, u_mask == 1 ? max(-best, dO) : u_mask == 2 ? best : dFrame);
+  o.hval = hgt;
   // The relief's random belongs to the slots but its value spans the plate: Per-feature variation would step the plate
   // per slot (Depth variation varies the slots instead).
   o.feat = 0.0;
@@ -600,6 +588,7 @@ export const pipesLayer: LayerDef = {
 		P.float('bundle_gap', 'Bundle gap', 0, 0, 256, {
 			softMax: 32,
 			unit: 'px',
+			axis: ORIENT_ACROSS,
 			step: 0.5,
 			showIf: (p) => Number(p.bundle) > 1,
 			hint: 'Space between the pipes of a bundle (0 = touching)'
@@ -607,6 +596,7 @@ export const pipesLayer: LayerDef = {
 		P.float('diameter', 'Diameter', 8, 1, 1024, {
 			softMax: 256,
 			unit: 'px',
+			axis: ORIENT_ACROSS,
 			step: 0.5,
 			hint: 'Clamped so that the runs fit their spacing (tile ÷ Count) side by side'
 		}),
@@ -622,6 +612,7 @@ export const pipesLayer: LayerDef = {
 		P.float('jitter', 'Position jitter', 2, 0, 256, {
 			softMax: 64,
 			unit: 'px',
+			axis: ORIENT_ACROSS,
 			step: 0.5,
 			hint: 'Random shift of each run across, at most into the free space beside it: runs may touch, never overlap'
 		}),
@@ -704,7 +695,13 @@ export const pipesLayer: LayerDef = {
 			group: 'clamps',
 			hint: 'Clamp straps per pipe along the tile (0 = none)'
 		}),
-		P.float('clamp_width', 'Width', 3, 1, 256, { softMax: 64, unit: 'px', step: 0.5, group: 'clamps' }),
+		P.float('clamp_width', 'Width', 3, 1, 256, {
+			softMax: 64,
+			unit: 'px',
+			axis: ORIENT_ALONG,
+			step: 0.5,
+			group: 'clamps'
+		}),
 		P.float('clamp_lip', 'Lip', 1, 0, 64, {
 			softMax: 24,
 			unit: 'px',
@@ -715,6 +712,7 @@ export const pipesLayer: LayerDef = {
 		P.float('clamp_foot', 'Feet', 2, 0, 256, {
 			softMax: 64,
 			unit: 'px',
+			axis: ORIENT_ACROSS,
 			step: 0.5,
 			group: 'clamps',
 			hint: 'Flat tabs where the strap meets the wall, reaching this far past the run’s sides (0 = a plain ring)'
@@ -760,8 +758,7 @@ export const pipesLayer: LayerDef = {
 	},
 	// A new layer in the editor: runs about 110 px apart (at least three) with a jitter of 12 % of the spacing, pipes
 	// half the spacing thick, clamps and joints in proportion.
-	fresh: ({ width, height }) => {
-		void width;
+	fresh: ({ height }) => {
 		const count = Math.min(24, Math.max(height < 48 ? 2 : 3, Math.round(height / 110)));
 		const per = height / count;
 		const d = Math.max(3, Math.round(per * 0.5));
@@ -791,12 +788,28 @@ float pp_sec(float R, float y) {
 // its spacing) and the bundle's width.
 vec3 pp_run(int k, int n, float per, float D0, float gap, int nb) {
   int kw = uTile ? imod(k, n) : k;
-  vec3 h = hash3I(ivec2(kw, 0), uSeed);
+  vec2 h = hash2I(ivec2(kw, 0), uSeed);
   float Ds = u_dia_var > 0.0 ? max(floor(D0 * (1.0 - u_dia_var * h.x) + 0.5), 1.0) : D0;
   float tot = Ds * float(nb) + gap * float(nb - 1);
   float cy = (float(k) + 0.5 + u_offset) * per + (h.y - 0.5) * 2.0 * min(u_jitter, 0.5 * max(per - tot, 0.0));
   return vec3(Ds, grb_snapC(cy, tot) - 0.5 * tot, tot);
 }
+
+// Pipe jj of run kw's bundle (its pipes' place Ds, the bundle from y0, pitch apart): its diameter (Per-pipe variation)
+// and its centre across.
+vec2 pp_pipe(int kw, float jj, float Ds, float y0, float pitch) {
+  float D = Ds;
+  if (u_pipe_var > 0.0 && u_bundle > 1) D = max(floor(Ds * (1.0 - u_pipe_var * hashI(ivec2(kw * 8 + int(jj), 5), uSeed)) + 0.5), 1.0);
+  float c = y0 + jj * pitch + 0.5 * Ds;
+  return vec2(D, D < Ds ? grb_snapC(c, D) : c);
+}
+
+// A joint's half length along a pipe D px thick (Size js): a coupling's sleeve, the two flange discs, a weld bead.
+float pp_jointLen(float D, float js) {
+  return u_joint_style == 0 ? 0.35 * js * D : u_joint_style == 1 ? max(0.12 * js * D, 1.0) + 0.5 : 0.5 * max(0.12 * js * D, 2.0);
+}
+// The radius of a flange's nuts on a pipe D px thick.
+float pp_nut(float D) { return max(1.0, 0.07 * D); }
 
 GenOut gen(vec2 p) {
   // Local frame: x along the pipes, y across.
@@ -829,18 +842,22 @@ GenOut gen(vec2 p) {
   // stretched space each of their distances just scales by its axis's k (exact).
   vec2 bk = grb_bevK(vert);
   float dPk = 1e9, dCk = 1e4, dJk = 1e4;
-  for (int j = -K; j <= K; j++) {
-    int k = k0 + j;
+  // The runs k0 - K … k0 + K, each between its neighbours (whose room limits its feet): a sliding window over the runs,
+  // each placed once (one copy of pp_run in the shader).
+  vec3 runP = vec3(0.0), run = vec3(0.0), runN = vec3(0.0);
+  for (int i = -K - 1; i <= K + 1; i++) {
+    runP = run;
+    run = runN;
+    runN = pp_run(k0 + i, n, per, D0, gap, nb);
+   if (i > -K) {
+    int k = k0 + i - 1;
     int kw = uTile ? imod(k, n) : k;
-    vec3 run = pp_run(k, n, per, D0, gap, nb);
     float Ds = run.x, y0 = run.y, tot = run.z;
     float pitch = Ds + gap;
     float jj = clamp(floor((q.y - y0 + 0.5 * gap) / pitch), 0.0, float(nb - 1));
     int pid = kw * 8 + int(jj);
-    float D = Ds;
-    if (u_pipe_var > 0.0 && nb > 1) D = max(floor(Ds * (1.0 - u_pipe_var * hashI(ivec2(pid, 5), uSeed)) + 0.5), 1.0);
-    float c = y0 + jj * pitch + 0.5 * Ds;
-    if (D < Ds) c = grb_snapC(c, D);
+    vec2 pc = pp_pipe(kw, jj, Ds, y0, pitch);
+    float D = pc.x, c = pc.y;
     float y = q.y - c;
     float r = 0.5 * D;
     float d = abs(y) - r;
@@ -855,7 +872,7 @@ GenOut gen(vec2 p) {
     // Feet reach at most half way to the next run on their side, and are left off where that is too little.
     float foot = max(foot0 * sc, min(foot0, 3.0));
     if (foot > 0.0) {
-      vec3 nr = pp_run(q.y < bc ? k - 1 : k + 1, n, per, D0, gap, nb);
+      vec3 nr = q.y < bc ? runP : runN;
       float room = q.y < bc ? y0 - (nr.y + nr.z) : nr.y - (y0 + tot);
       float fit = 0.5 * room - lip - 1.0;
       foot = fit >= max(2.0, 0.4 * foot) ? min(foot, fit) : 0.0;
@@ -888,23 +905,21 @@ GenOut gen(vec2 p) {
       int nl = nb > 1 ? 3 : 1;
       float spj = res.x / float(u_joints);
       // The group's step from pipe to pipe, by the run's largest joint (its pipes' place Ds), its direction at random.
-      float jLs = u_joint_style == 0 ? 0.35 * js * Ds : u_joint_style == 1 ? max(0.12 * js * Ds, 1.0) + 0.5 : 0.5 * max(0.12 * js * Ds, 2.0);
-      float extS = u_joint_style == 1 && u_flange_bolts ? jLs + 2.0 * max(1.0, 0.07 * Ds) : jLs;
+      bool nuts = u_joint_style == 1 && u_flange_bolts;
+      float jLs = pp_jointLen(Ds, js);
+      float extS = nuts ? jLs + 2.0 * pp_nut(Ds) : jLs;
       float stg = nb > 1 ? (2.0 * extS + max(3.0, 0.3 * Ds)) * (hashI(ivec2(kw, 6), uSeed) < 0.5 ? -1.0 : 1.0) : 0.0;
       float G = stg * float(nb - 1);   // from the first pipe's joint to the last's
       float phj = hashI(ivec2(kw, 4), uSeed) * u_joint_jitter;
       for (int e = 0; e < 2 * nl; e++) {
         float jl_ = clamp(jj + float(e / 2) - float(nl / 2), 0.0, float(nb - 1));
         int pl = kw * 8 + int(jl_);
-        float Dl = Ds;
-        if (u_pipe_var > 0.0 && nb > 1) Dl = max(floor(Ds * (1.0 - u_pipe_var * hashI(ivec2(pl, 5), uSeed)) + 0.5), 1.0);
-        float cl = y0 + jl_ * pitch + 0.5 * Ds;
-        if (Dl < Ds) cl = grb_snapC(cl, Dl);
-        float yl = q.y - cl, rl = 0.5 * Dl;
+        vec2 pcl = pp_pipe(kw, jl_, Ds, y0, pitch);
+        float Dl = pcl.x;
+        float yl = q.y - pcl.y, rl = 0.5 * Dl;
         float jl0 = jk * Dl;
-        float Lh = u_joint_style == 0 ? 0.35 * js * Dl : u_joint_style == 1 ? max(0.12 * js * Dl, 1.0) + 0.5 : 0.5 * max(0.12 * js * Dl, 2.0);
-        float ns = max(1.0, 0.07 * Dl);   // flange nut radius
-        bool nuts = u_joint_style == 1 && u_flange_bolts;
+        float Lh = pp_jointLen(Dl, js);
+        float ns = pp_nut(Dl);   // flange nut radius
         // Between dense clamps a coupling shortens to fit the gap (flange discs and welds keep their size).
         if (clamped && u_joint_style == 0 && nb == 1) Lh = min(Lh, max(0.5 * (sp - cw) - max(2.0, 0.1 * Dl), 1.0));
         float ext = nuts ? Lh + 2.0 * ns : Lh;
@@ -912,8 +927,10 @@ GenOut gen(vec2 p) {
         float lo = (jl_ - 0.5 * float(nb - 1)) * stg;
         float uj = (q.x - lo) / spj - phj;
         float ij = floor(uj + 0.5) + ((e & 1) == 0 ? 0.0 : (uj > floor(uj + 0.5) ? 1.0 : -1.0));
+        // (Its randoms by its index round the tile: the joint past one end is the one at the other.)
+        int ijw = uTile ? imod(int(ij), u_joints) : int(ij);
         float amp = min(0.3 * u_joint_spread, max(0.5 - (0.5 * abs(G) + extS + 1.0) / spj, 0.0));
-        float xg = (ij + phj + amp * 2.0 * (hashI(ivec2(kw, int(ij) + 4099), uSeed) - 0.5)) * spj;
+        float xg = (ij + phj + amp * 2.0 * (hashI(ivec2(kw, ijw + 4099), uSeed) - 0.5)) * spj;
         if (clamped) {
           float xc = floor((floor((xg - 0.5 * cw) / sp - ph + 0.5) + ph) * sp + 0.5) + 0.5 * cw;
           float keep = 0.5 * abs(G) + extS + 0.5 * cw + max(3.0, 0.6 * Ds);   // a clear stretch of pipe between
@@ -931,7 +948,7 @@ GenOut gen(vec2 p) {
           jl *= 1.0 - grb_cov(dx - 0.5);   // the seam between the two discs
         } else {
           // A rounded bead, rippled round the pipe, unevenly (two ripples, their phases per weld).
-          vec2 wph = 6.2831853 * vec2(hashI(ivec2(pl, int(ij) + 77), uSeed), hashI(ivec2(pl, int(ij) + 78), uSeed));
+          vec2 wph = 6.2831853 * vec2(hashI(ivec2(pl, ijw + 77), uSeed), hashI(ivec2(pl, ijw + 78), uSeed));
           float wa = 6.2831853 * yl / max(1.6 * Lh, 2.0);
           jl *= sqrt(max(1.0 - dx * dx / (Lh * Lh), 0.0)) * (0.85 + 0.1 * sin(wa + wph.x) + 0.05 * sin(2.7 * wa + wph.y));
         }
@@ -986,13 +1003,14 @@ GenOut gen(vec2 p) {
       hBest = hr; pBest = pr; dSel = d;
       rnd = hashI(ivec2(pid, 1), uSeed);
     }
+   }
   }
 
   float dPJ = min(dP, dJ);
   if (u_output > 0) {
     GenOut g = genOut(0.0, 1.0, rnd, u_output == 1 ? dPJ : u_output == 2 ? dC : min(dPJ, dC));
     float dPJk = min(dPk, dJk);
-    if (grb_bevOn()) g.bdist = u_output == 1 ? dPJk : u_output == 2 ? dCk : min(dPJk, dCk);
+    if (bevelAspectOn()) g.bdist = u_output == 1 ? dPJk : u_output == 2 ? dCk : min(dPJk, dCk);
     return g;
   }
 

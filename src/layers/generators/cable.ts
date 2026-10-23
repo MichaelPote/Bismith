@@ -5,25 +5,24 @@
 // One flat loop per pixel walks the chords of every strand within reach — a window along the axis around the pixel,
 // vertices on a fixed grid of the helix angle so neighbouring pixels see the same polyline, and for rows that come
 // close the neighbouring row too. Consecutive chords covering the pixel make one piece of swept tube; the topmost piece
-// wins, and where its edge lies over another the two blend by its coverage, so front-over-back crossings anti-alias. Sink sets the cable into the surface: a bed plane hides what lies
-// below it, and the outline follows where the tubes rise out of it. Fibres groove each strand with yarns wound round
-// it; Irregularity varies the strands' thickness, radius and lay from one half turn to the next (seeded). The outline
-// is the layer's shape for its mask (`sdf: 'mask'`, by Union). Path: an angle
-// (snapped to a direction that closes on the torus when tiling), a sag and cut ends with rounded strand tips.
+// wins, and where its edge lies over another the two blend by its coverage, so front-over-back crossings anti-alias.
+// Sink sets the cable into the surface: a bed plane hides what lies below it, and the outline follows where the tubes
+// rise out of it. Fibres groove each strand with yarns wound round it; Irregularity varies the strands' thickness,
+// radius and lay from one half turn to the next (seeded). The outline is the layer's shape for its mask (`sdf: 'mask'`,
+// by Union). Path: an angle (snapped to a direction that closes on the torus when tiling), a sag and cut ends with
+// rounded strand tips.
 
-import { P, type ParamValues } from '@/core/params';
+import { P, orientAxis, round1 as r1, type ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
 
-const r1 = (v: number) => Math.round(v * 10) / 10;
-/** The texture axis the cable runs along, for resizing its px lengths (null when Angle turns it well off its Axis). */
-const cableAlong = (p: ParamValues): 'x' | 'y' | null => {
-	const a = Math.abs((((((Number(p.angle) || 0) + 90) % 180) + 180) % 180) - 90);
-	return a > 30 ? null : p.axis === 'vertical' ? 'y' : 'x';
-};
-const cableAcross = (p: ParamValues): 'x' | 'y' | null => {
-	const a = cableAlong(p);
-	return a === 'x' ? 'y' : a === 'y' ? 'x' : null;
-};
+const AXES = { horizontal: 'x', vertical: 'y' } as const;
+/** Is the cable turned well off its Axis (by more than 30°)? Its px lengths then scale with both texture axes. */
+const offAxis = (p: ParamValues) => Math.abs((((((Number(p.angle) || 0) + 90) % 180) + 180) % 180) - 90) > 30;
+const along = orientAxis('axis', AXES);
+const across = orientAxis('axis', AXES, true);
+/** The texture axis the cable runs along / across, for resizing its px lengths. */
+const cableAlong = (p: ParamValues) => (offAxis(p) ? null : along(p));
+const cableAcross = (p: ParamValues) => (offAxis(p) ? null : across(p));
 
 export const cableLayer: LayerDef = {
 	type: 'cable',
@@ -175,16 +174,9 @@ export const cableLayer: LayerDef = {
 	glsl: /* glsl */ `
 const float CABLE_TAU = 6.28318530718;
 
-// A smooth random wobble along a strand (one knot per half turn), -1..1 per component: size, tube radius, lay; w: the
-// strand's own thickness, constant along it. The knots repeat every period (> 0 when tiling): seamless.
-vec4 cableJitter(float x, float period, int id) {
-  float k0 = floor(x);
-  float f = x - k0;
-  f = f * f * (3.0 - 2.0 * f);
-  float k1 = k0 + 1.0;
-  if (period > 0.0) { k0 = mod(k0, period); k1 = mod(k1, period); }
-  vec3 j = mix(hash3I(ivec2(int(k0), id), uSeed + 301.0), hash3I(ivec2(int(k1), id), uSeed + 301.0), f);
-  return vec4(j, hashI(ivec2(id, 9), uSeed + 307.0)) * 2.0 - 1.0;
+// The cut length's copy nearest along (one per period when tiling; else the one).
+vec2 cableCopy(vec2 ub, float xs, float xe, float len) {
+  return uTile ? floor((ub - 0.5 * (xs + xe)) / len + 0.5) * len : vec2(0.0);
 }
 
 // Fibre relief on a strand (px, <= 0): yarns wound round it. f = (helix angle at the nearest chord point, tube radius
@@ -208,11 +200,11 @@ float cableFibre(vec4 f, vec2 px, vec4 geo, float K, float cb, float yp) {
     th += dot(rel, d1) / max(dd + dot(rel, vec2(L * sa, Rk * ca)), 0.25 * dd);
   }
   float sn = clamp((d1.x * rel.y - d1.y * rel.x) * inversesqrt(max(dot(d1, d1), 1e-6)) / f.y, -1.0, 1.0);
-  float ny = float(u_yarns);
+  float yarns = float(u_yarns);
   float strand = floor(f.z + 0.5);
-  float ph = ny * asin(sn) / CABLE_TAU + K * th / CABLE_TAU + 0.37 * strand;
+  float ph = yarns * asin(sn) / CABLE_TAU + K * th / CABLE_TAU + 0.37 * strand;
   float x = fract(ph);
-  float w = CABLE_TAU * f.y / ny;
+  float w = CABLE_TAU * f.y / yarns;
   // The yarns' spacing on screen (closer towards the strand's sides). Wide yarns are round, meeting in V grooves; narrow
   // ones turn into a plain ripple (a V's corner would alias), and under ~2 px they fade out.
   float per = w * cb * sqrt(1.0 - sn * sn);
@@ -227,15 +219,12 @@ float cableFibre(vec4 f, vec2 px, vec4 geo, float K, float cb, float yp) {
 GenOut gen(vec2 p) {
   bool vert = u_axis == 1;
   vec2 q = vec2(p.x, uRes.y - p.y);
-  // The cable's frame in y-down pixels: d along it, n across (a vertical cable's frame is mirrored, as it always was:
-  // across runs to the right), its length len along d and the spacing of its parallel copies. Tiling, the direction
-  // snaps to (a·W, b·H) for small coprime a, b, so the cable closes on the torus, and the next copy across sits wrapU
-  // further along (0 for horizontal and vertical cables).
+  // The cable's frame in y-down pixels: d along it, n across (a vertical cable's frame is mirrored: across runs to the
+  // right), its length len along d and the spacing of its parallel copies. Tiling, the direction snaps to (a·W, b·H)
+  // for small coprime a, b, so the cable closes on the torus, and the next copy across sits wrapU further along (0 for
+  // horizontal and vertical cables).
   vec2 d = vert ? vec2(0.0, 1.0) : vec2(1.0, 0.0);
-  if (u_angle != 0.0) {
-    float ca = cos(radians(u_angle)), sa = sin(radians(u_angle));
-    d = vec2(ca * d.x - sa * d.y, sa * d.x + ca * d.y);
-  }
+  if (u_angle != 0.0) d = rot2(radians(u_angle)) * d;
   float len = abs(d.x) * uRes.x + abs(d.y) * uRes.y;
   vec2 lat = vec2(0.0);
   if (uTile) {
@@ -243,7 +232,7 @@ GenOut gen(vec2 p) {
     tu /= max(abs(tu.x), abs(tu.y));
     vec2 ab = vec2(1.0, 0.0);
     float best = 2.0;
-    int mMax = 12 + int(0.0 * uRes.x);
+    int mMax = 12 * UNI_1;
     for (int m = 1; m <= mMax; m++) {
       vec2 c = floor(float(m) * tu + 0.5);
       float e = 1.0 - dot(normalize(c * uRes), d);
@@ -286,21 +275,29 @@ GenOut gen(vec2 p) {
   bool seg = u_start > 0.0 || u_end < 1.0;
   float xs = min(u_start, u_end) * len, xe = max(max(u_start, u_end) * len, xs + 1.0);
   float ub = u - (uTile ? floor(floor(v / sp + mid + 0.5) / float(rows)) : 0.0) * wrapU;
-  float cm = uTile ? floor((ub - 0.5 * (xs + xe)) / len + 0.5) * len : 0.0;
+  float cm = cableCopy(vec2(ub), xs, xe, len).x;
   float span = seg ? xe - xs : len;
   float sg = clamp((ub - (seg ? xs + cm : uTile ? len * floor(ub / len) : 0.0)) / span, 0.0, 1.0);
   float sagV = 4.0 * u_sag * sg * (1.0 - sg);
-  float sagK = inversesqrt(1.0 + pow(4.0 * u_sag * (1.0 - 2.0 * sg) / span, 2.0));
+  float sl = 4.0 * u_sag * (1.0 - 2.0 * sg) / span; // its slope (squared: pow of a negative base is undefined)
+  float sagK = inversesqrt(1.0 + sl * sl);
   v -= sagV;
   // The nearest row, and its neighbour on the pixel's side when within reach.
   float j0 = floor(v / sp + mid + 0.5);
   if (!uTile) j0 = clamp(j0, 0.0, float(rows - 1));
   float v0 = (v - (j0 - mid) * sp) * sagK;
-  if (abs(v0) > reach) return genOut(0.0, 0.0, 0.0, abs(v0) - ext);
   float j1 = j0 + (v0 > 0.0 ? 1.0 : -1.0);
+  vec2 kw = uTile ? floor(vec2(j0, j1) / float(rows)) : vec2(0.0);
+  vec2 ub2 = u - kw * wrapU;
+  vec2 cm2 = cableCopy(ub2, xs, xe, len);
+  // Where no tube is in reach, the mask's distance: a bound from the nearest row's cut ends and its widest footprint
+  // (a strand's outermost turn, as high as any rises out of the bed) — continuous with the one worked out within reach.
+  float rise = max(bed - Rm * u_back, 0.0);
+  float far = length(vec2(seg ? max(max(xs + cm2.x - ub2.x, ub2.x - xe - cm2.x), 0.0) : 0.0,
+                          max(abs(v0) - Rm - sqrt(max(rm * rm - rise * rise, 0.0)), 0.0)));
+  if (abs(v0) > reach) return genOut(0.0, 0.0, 0.0, far);
   float v1 = (v - (j1 - mid) * sp) * sagK;
   bool two = abs(v1) <= reach && (uTile || (j1 >= 0.0 && j1 <= float(rows - 1)));
-  vec2 kw = uTile ? floor(vec2(j0, j1) / float(rows)) : vec2(0.0);
   ivec2 jr = ivec2(vec2(j0, j1) - kw * float(rows));
   // Each row in its own frame: shifted along by Row shift (and, uneven, by a random part of a turn), mirrored across
   // for the other twist. The ends move with it.
@@ -308,8 +305,6 @@ GenOut gen(vec2 p) {
   vec2 vr = vec2(v0, v1) * sgn * (u_flip ? -1.0 : 1.0);
   vec2 rph = vec2(hashI(ivec2(jr.x, 3), uSeed + 211.0), hashI(ivec2(jr.y, 3), uSeed + 211.0)) - 0.5;
   vec2 shift = P * (u_row_shift * vec2(jr) + 0.6 * min(irr, 1.0) * rph);
-  vec2 ub2 = u - kw * wrapU;
-  vec2 cm2 = uTile ? floor((ub2 - 0.5 * (xs + xe)) / len + 0.5) * len : vec2(0.0);
   vec2 ur = ub2 + shift;
   vec4 ends = vec4(xs, xe, xs, xe) + (cm2 + shift).xxyy;
   // Chords per turn: about 2 px long at the strand's fastest; the window covers every chord that can reach the pixel.
@@ -334,6 +329,12 @@ GenOut gen(vec2 p) {
   float hR = 0.0, cR = 0.0;
   vec4 prev = vec4(0.0);
   vec3 prevF = vec3(0.0);
+  // Irregularity: a smooth random wobble along each strand (a knot per half turn, repeating every jitPeriod knots when
+  // tiling), -1..1 per component — size, tube radius, lay — and w, the strand's own thickness. Its knots carry across
+  // the loop: they change only every few chords, and a strand's next knot is the current one's neighbour.
+  int jId = -1;
+  float jK = -1e9, jW = 0.0;
+  vec3 jH0 = vec3(0.0), jH1 = vec3(0.0);
   // One flat loop with a uniform-derived bound (row-, then strand-major, and one more pass to close the last piece):
   // nested or constant loops make D3D's compiler unroll hundreds of iterations.
   for (int k = 0; k <= total; k++) {
@@ -345,7 +346,27 @@ GenOut gen(vec2 p) {
     int id = (c == 0 ? jr.x : jr.y) * 8 + s;
     float kk = floor((px.x / P - W) * SEG) + float(i);
     float th = kk * CABLE_TAU / SEG;
-    vec4 jit = irr > 0.0 ? cableJitter(2.0 * kk / SEG, jitPeriod, id) * irr : vec4(0.0);
+    vec4 jit = vec4(0.0);
+    if (irr > 0.0) {
+      float jx = 2.0 * kk / SEG;
+      float k0 = floor(jx);
+      if (id != jId) { jId = id; jW = hashI(ivec2(id, 9), uSeed + 307.0); jK = -1e9; }
+      if (k0 != jK) {
+        // On by one knot (the old next one is the new first), or both afresh.
+        int m0 = 0;
+        if (k0 == jK + 1.0) { jH0 = jH1; m0 = 1; }
+        for (int m = m0; m < 2 * UNI_1; m++) {
+          float km = k0 + float(m);
+          if (jitPeriod > 0.0) km = mod(km, jitPeriod);
+          vec3 hk = hash3I(ivec2(int(km), id), uSeed + 301.0);
+          if (m == 0) jH0 = hk; else jH1 = hk;
+        }
+        jK = k0;
+      }
+      float fk = jx - k0;
+      fk = fk * fk * (3.0 - 2.0 * fk);
+      jit = (vec4(mix(jH0, jH1, fk), jW) * 2.0 - 1.0) * irr;
+    }
     // The strand swells and thins as a whole (tube and helix radius together, so a tight lay stays closed), with some
     // of its own on the tube — along it and for the whole strand — and drifts along its lay by up to a quarter of the
     // strand spacing.
@@ -363,11 +384,15 @@ GenOut gen(vec2 p) {
     vec2 en = c == 0 ? ends.xy : ends.zw;
     bool inside = !seg || (min(prev.x, cv.x) >= en.x && max(prev.x, cv.x) <= en.y);
     if (k < total && ((i > 0 && inside) || (i == 0 && s == 0 && n > 1 && u_core > 0.0))) {
-      // The core: a flattened tube (by ks) along the centre line, rounded off at the ends.
-      float d = seg ? length(vec2(max(max(en.x - px.x, px.x - en.y), 0.0), px.y)) : abs(px.y);
-      float z = 0.0, rr = R, ks = max(u_core * u_back, 1e-3);
-      h = ks * sqrt(max(rr * rr - d * d, 0.0));
-      if (i > 0) {
+      float d, z, rr, ks;
+      if (i == 0) {
+        // The core: a flattened tube (by ks) along the centre line, rounded off at the ends.
+        d = seg ? length(vec2(max(max(en.x - px.x, px.x - en.y), 0.0), px.y)) : abs(px.y);
+        z = 0.0;
+        rr = R;
+        ks = max(u_core * u_back, 1e-3);
+        h = ks * sqrt(max(rr * rr - d * d, 0.0));
+      } else {
         vec2 e = cv.xy - prev.xy;
         float el = max(length(e), 1e-4);
         vec2 eh = e / el;
@@ -413,6 +438,8 @@ GenOut gen(vec2 p) {
     prev = cv;
     prevF = cf;
   }
+  // No tube within reach (past a cut end, between a sunk spring's crowns): the bound, at least the reach searched.
+  if (sdf > 9e3) sdf = max(far, reach - ext);
   if (cA <= 0.0) return genOut(0.0, 0.0, 0.0, sdf);
 
   // Fibres: K yarn turns per helix turn give the yarn angle on the strand's crown (rounded when tiling).

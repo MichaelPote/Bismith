@@ -27,13 +27,4 @@ describe('grass', () => {
 		// Density is relative to the blade size, so it stays put when the lengths scale.
 		expect(grassLayer.params.find((d) => d.key === 'density')!.perArea).toBeFalsy();
 	});
-
-	it('uses every param it declares and keeps defaults inside their ranges', () => {
-		for (const d of grassLayer.params) {
-			if (d.key !== 'seed') expect(grassLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
-			if (d.type !== 'float' && d.type !== 'int') continue;
-			expect(Number(d.default), d.key).toBeGreaterThanOrEqual(d.min ?? -Infinity);
-			expect(Number(d.default), d.key).toBeLessThanOrEqual(d.max ?? Infinity);
-		}
-	});
 });

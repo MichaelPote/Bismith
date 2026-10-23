@@ -1,8 +1,5 @@
-// Small pixel bitmaps for the Stamp and Label generators, and polygon lists for Path (docs/features/fr7.5-stamps.md).
-// A bitmap is up to 64×64 cells with four levels (0 = empty, 1..3 = filled); it is uploaded to the shader as
-// `ivec4 u_<key>[64]` (2 bits per cell, 16 cells per int, row-major, top row first) + `ivec2 u_<key>_size`.
-
-export const BITMAP_MAX = 64;
+// Small pixel bitmaps and the pixel font for the Stamp and Label generators (read on the CPU), and polygon lists for
+// Path and Polyline (uploaded as vertex uniforms; docs/features/fr7.5-stamps.md).
 
 export interface Bitmap {
 	width: number;
@@ -27,11 +24,11 @@ function trimRows(rows: string[]): string[] {
 	return rows.slice(a, b);
 }
 
-/** Parses rows of cell characters (one row per line). */
-export function parseBitmap(src: string): Bitmap {
-	const rows = trimRows(src.replace(/\r/g, '').split('\n')).slice(0, BITMAP_MAX);
+/** Parses rows of cell characters (one row per line), up to `max` × `max` cells. */
+export function parseBitmap(src: string, max: number): Bitmap {
+	const rows = trimRows(src.replace(/\r/g, '').split('\n')).slice(0, max);
 	const width = Math.min(
-		BITMAP_MAX,
+		max,
 		rows.reduce((m, r) => Math.max(m, r.replace(/\s+$/, '').length), 0)
 	);
 	const height = rows.length;
@@ -43,7 +40,7 @@ export function parseBitmap(src: string): Bitmap {
 }
 
 // 5-row pixel font: digits, capitals and a little punctuation; glyph rows joined by '/'.
-const FONT: Record<string, string> = {
+export const FONT: Record<string, string> = {
 	'0': '###/#.#/#.#/#.#/###',
 	'1': '.#./##./.#./.#./###',
 	'2': '###/..#/###/#../###',
@@ -91,50 +88,6 @@ const FONT: Record<string, string> = {
 	'#': '#.#/###/#.#/###/#.#'
 };
 
-/** Renders text in the 5-row pixel font; lines split on '\n' or '|' and are centred. */
-export function textBitmap(text: string, letterGap = 1, lineGap = 1): Bitmap {
-	const lines = text
-		.replace(/\r/g, '')
-		.split(/\n|\|/)
-		.map((l) => l.toUpperCase());
-	const glyphRows = (ch: string) => (FONT[ch] ?? FONT['#']).split('/');
-	const lineWidth = (l: string) => [...l].reduce((w, ch, i) => w + glyphRows(ch)[0].length + (i ? letterGap : 0), 0);
-	const width = Math.min(
-		BITMAP_MAX,
-		lines.reduce((m, l) => Math.max(m, lineWidth(l)), 0)
-	);
-	const height = Math.min(BITMAP_MAX, lines.length * 5 + (lines.length - 1) * lineGap);
-	const levels = new Uint8Array(width * height);
-	lines.forEach((l, li) => {
-		let x = Math.floor((width - lineWidth(l)) / 2);
-		const y0 = li * (5 + lineGap);
-		for (const ch of l) {
-			const g = glyphRows(ch);
-			g.forEach((row, gy) => {
-				for (let gx = 0; gx < row.length; gx++) {
-					const px = x + gx;
-					const py = y0 + gy;
-					if (row[gx] === '#' && px >= 0 && px < width && py < height) levels[py * width + px] = 3;
-				}
-			});
-			x += g[0].length + letterGap;
-		}
-	});
-	return { width, height, levels };
-}
-
-/** Packs a bitmap into the shader layout: 64 rows × ivec4 (2 bits per cell). */
-export function packBitmap(b: Bitmap): Int32Array {
-	const out = new Int32Array(BITMAP_MAX * 4);
-	for (let y = 0; y < Math.min(b.height, BITMAP_MAX); y++) {
-		for (let x = 0; x < Math.min(b.width, BITMAP_MAX); x++) {
-			const v = b.levels[y * b.width + x] & 3;
-			if (v) out[y * 4 + (x >> 4)] |= v << ((x & 15) * 2);
-		}
-	}
-	return out;
-}
-
 export const MAX_PATH_POINTS = 64;
 
 /** Polygons for the Path generator: "x,y x,y …" per polygon, polygons separated by new lines or '|'. */
@@ -163,13 +116,24 @@ export function parsePolylines(src: string): number[][][] {
 		.filter((line) => line.length >= 2);
 }
 
+/** The polygons (or polylines) that fit in MAX_PATH_POINTS vertices: those before the first that would overflow. */
+export function takePolygons(polys: number[][][]): number[][][] {
+	let n = 0;
+	const out: number[][][] = [];
+	for (const poly of polys) {
+		if (n + poly.length > MAX_PATH_POINTS) break;
+		out.push(poly);
+		n += poly.length;
+	}
+	return out;
+}
+
 /** Packs polygons as vec4 (x, y, next vertex index, polygon index); returns the data and the vertex count. */
 export function packPolygons(polys: number[][][]): { data: Float32Array; count: number; polygons: number } {
 	const data = new Float32Array(MAX_PATH_POINTS * 4);
 	let n = 0;
 	let k = 0;
-	for (const poly of polys) {
-		if (n + poly.length > MAX_PATH_POINTS) break;
+	for (const poly of takePolygons(polys)) {
 		const first = n;
 		poly.forEach(([x, y], i) => {
 			data.set([x, y, i === poly.length - 1 ? first : n + 1, k], n * 4);

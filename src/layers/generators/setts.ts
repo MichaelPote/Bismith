@@ -10,7 +10,7 @@
 
 import { P, gradient } from '@/core/params';
 import type { LayerDef } from '../types';
-import { geoGlsl, rndModeParam } from './geometricCommon';
+import { GEO_FRAME_GLSL, rndModeParam } from './geometricCommon';
 
 export const settsLayer: LayerDef = {
 	type: 'setts',
@@ -81,7 +81,7 @@ export const settsLayer: LayerDef = {
 		dif_grad: gradient('#3c3a36', '#5a5650', '#76716a')
 	},
 	glsl:
-		geoGlsl(4) +
+		GEO_FRAME_GLSL +
 		/* glsl */ `
 // Bevel aspect (GLSL_BEVEL): a frame distance across an edge with frame normal n, in px of Bevel.
 float st_line(float d, vec2 n) { return bevelLine(d, geo_toScreen(n)); }
@@ -93,7 +93,8 @@ GenOut gen(vec2 p) {
   bool asp = bevelAspectOn();
   float hg = 0.5 * u_gap;
   float regS = -1e9;
-  // Odd gaps: shift half a pixel so both joint edges land on pixel boundaries.
+  // Odd gaps: shift half a pixel so both joint edges land on pixel boundaries (Rings' straight cell edges; arcs don't
+  // care).
   float sh = fract(0.5 * u_gap);
   geo_frame(p - sh, 2 * clamp(u_dir, 0, 3));
   float kx = geo_count(u_scale * geo_span.x / uRes.x, 1);
@@ -122,29 +123,31 @@ GenOut gen(vec2 p) {
     float hw2 = 0.25 * W * W + H * H;
     R = max(sqrt(hw2), hw2 / (2.0 * H));
     int j0 = int(floor(f.y / H));
-    int bj = 1000000;
+    int bj = 1000000, bi = 0;
     for (int dj = -3; dj <= 2; dj++) {
       int j = j0 + dj;
       float o = (j & 1) == 1 ? 0.5 * W : 0.0;
       int i0 = int(floor((f.x - o) / W + 0.5));
       for (int di = -1; di <= 1; di++) {
         vec2 cc = vec2(float(i0 + di) * W + o, float(j) * H);
-        if (j < bj && length(f - cc) < R) { bj = j; c = cc; key = ivec2(i0 + di, j); }
+        if (j < bj && length(f - cc) < R) { bj = j; bi = i0 + di; c = cc; key = ivec2(bi, j); }
       }
     }
     key = geo_wrapCell(key);
-    // Inside its own disk, outside every disk of the rows below (they lie on top).
+    // Inside its own disk, outside every disk of the rows below and those left of it in its row (they lie on top).
     dReg = length(f - c) - R;
     if (asp) regS = st_line(dReg + hg, f - c);
-    for (int dj = 1; dj <= 3; dj++) {
+    for (int dj = 0; dj <= 3; dj++) {
       int j = bj - dj;
       float o = (j & 1) == 1 ? 0.5 * W : 0.0;
       int i0 = int(floor((f.x - o) / W + 0.5));
       for (int di = -1; di <= 1; di++) {
-        vec2 cc = vec2(float(i0 + di) * W + o, float(j) * H);
-        float dc = R - length(f - cc);
-        dReg = max(dReg, dc);
-        if (asp) regS = max(regS, st_line(dc + hg, f - cc));
+        if (dj > 0 || i0 + di < bi) {
+          vec2 cc = vec2(float(i0 + di) * W + o, float(j) * H);
+          float dc = R - length(f - cc);
+          dReg = max(dReg, dc);
+          if (asp) regS = max(regS, st_line(dc + hg, f - cc));
+        }
       }
     }
     pitch = R / max(u_courses, 1.0);
@@ -164,17 +167,17 @@ GenOut gen(vec2 p) {
     if (asp) sdS = st_line(sd - u_round, d);
   } else {
     float rk = (float(k) + 0.5) * pitch;
-    int n = max(3, int(floor(6.2831853 * rk / (max(u_length, 0.1) * pitch) + 0.5)));
+    int n = max(3, int(floor(TAU * rk / (max(u_length, 0.1) * pitch) + 0.5)));
     float fn = float(n);
     float o = u_stagger * hashI(ivec2(k, fk), uSeed);
-    float t = atan(d.y, d.x) / 6.2831853;
+    float t = atan(d.y, d.x) / TAU;
     float sf = floor(t * fn + o);
     s = imod(int(sf), n);
     vec3 h = vec3(hashI(ivec2(s, k + fk), uSeed + 1.0), hashI(ivec2(s, k + fk), uSeed + 2.0), hashI(ivec2(s, k + fk), uSeed + 3.0));
     float irr = u_irregular;
     // Half the angular span, turned and shrunk a little per sett.
-    float hd = 3.14159265 / fn;
-    float tm = (sf + 0.5 - o) / fn * 6.2831853 + irr * 0.25 * hd * (2.0 * h.x - 1.0);
+    float hd = PI / fn;
+    float tm = (sf + 0.5 - o) / fn * TAU + irr * 0.25 * hd * (2.0 * h.x - 1.0);
     float rc = rk + irr * 0.1 * pitch * (2.0 * h.y - 1.0);
     float shrink = irr * 0.2 * pitch * h.z;
     // Radial: distance to the course band; tangential: to the sett's two radial edges (px, perpendicular).

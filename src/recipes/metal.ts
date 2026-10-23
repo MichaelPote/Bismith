@@ -316,7 +316,7 @@ export const stains: RecipeDef = {
 					cols: Math.ceil(ctx.width / 3),
 					rows: Math.ceil(ctx.height / 3),
 					density: r2(lerp(0.5, 1, num(m.density, 0.25))),
-					relief: 1,
+					spawn: 0.5,
 					ledge: 0.15,
 					ledge_reach: 2,
 					ledge_soft: 0.15,
@@ -326,7 +326,7 @@ export const stains: RecipeDef = {
 					cols: Math.max(4, Math.round(ctx.width / 5)),
 					rows: Math.max(2, Math.round(ctx.height / 9)),
 					density: num(m.density, 0.25),
-					relief: 0
+					spawn: 0
 				};
 		const src = { ...grid, len_min: r2(len * 0.2), len_max: len, wobble: 0.3, head: 0, seed: num(m.seed, 5) };
 		// Runnels (detailed): a wash around thin runnels, sized from Width; rust follows the runnels (the strongest parts).

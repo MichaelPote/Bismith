@@ -94,7 +94,8 @@ const source = (key: string, group: string, mode: string, modeLabel = 'Mode'): P
 /** "At 0" / "At 1" of a scalar output, drawn as one ramp. */
 const ramp = (key: string, group: string) => ({ join: { with: key, as: 'ramp' as const, label: 'Ramp' }, group });
 
-const HEIGHT_MODES: [string, string, string][] = [
+/** Height › Mode, in heightCombine's order (glsl/common.ts). */
+export const HEIGHT_MODES: [string, string, string][] = [
 	['add', 'Add', 'raise by the amount'],
 	['subtract', 'Subtract', 'sink by the amount'],
 	['max', 'Max', 'raise to the amount where lower (caps, plateaus)'],
@@ -259,12 +260,17 @@ float bevelWidth(vec2 n) {
 }
 // A distance d (px, negative inside) across an edge with screen normal n, in px of Bevel: the same share of a bevel in.
 float bevelLine(float d, vec2 n) { return d * u_bevel / bevelWidth(n); }
-float bevelAt(float d, vec2 g) {
-  if (u_bevel <= 0.0 || u_profile == 0) return 1.0;
-  return profileCurve(u_profile, max(-d, 0.0) / bevelWidth(g));
+// The bevel profile x bevels in from the edge (0 … 1); 1 everywhere for no bevel or a flat profile.
+float bevelProfile(float x) { return (u_bevel <= 0.0 || u_profile == 0) ? 1.0 : profileCurve(u_profile, x); }
+// The bevel at a distance bd in px of Bevel (GenOut.bdist, bevelLine): what a generator's own bevel distance gives.
+float bevelPlain(float bd) { return bevelProfile(max(-bd, 0.0) / u_bevel); }
+// The bevel's rise at a distance d (px, negative inside), as the wrapper draws it: the profile in from the edge, or for
+// no bevel or a flat profile 1 inside, 0 outside (bevelPlain: 1 everywhere). Stamp's levels, Polyline's stacked lines.
+float bevelRise(float d) {
+  return u_bevel <= 0.0 || u_profile == 0 ? (d <= 0.0 ? 1.0 : 0.0) : profileCurve(u_profile, max(-d, 0.0) / u_bevel);
 }
-// Edge › Soft edge: the layer fading in from its outline (d = 0.5, where anti-aliasing reaches 0) to full a Soft edge
-// inside; 1 at 0.
+// The bevel at a distance d (px) whose screen gradient g picks the width (Bevel aspect).
+float bevelAt(float d, vec2 g) { return bevelProfile(max(-d, 0.0) / bevelWidth(g)); }
 // Edge › Dilate: the shape grown outwards (its distances shifted), its coverage reaching the new outline.
 void dilateShape(inout GenOut g, inout float cov) {
   if (u_dilate <= 0.0 || g.sdf <= NO_SDF) return;
@@ -272,6 +278,8 @@ void dilateShape(inout GenOut g, inout float cov) {
   if (g.bdist > NO_SDF) g.bdist -= u_dilate;
   cov = max(cov, coverage(g.sdf, u_aa));
 }
+// Edge › Soft edge: the layer fading in from its outline (d = 0.5, where anti-aliasing reaches 0) to full a Soft edge
+// inside; 1 at 0.
 float softEdge(float d) { return u_soft_edge > 0.0 ? 1.0 - smoothstep(0.5 - u_soft_edge, 0.5, d) : 1.0; }
 // Whether the exact stretched bevels run: a Bevel and an aspect other than 1. Only the shader variant compiled for such a
 // layer (BEVEL_ASPECT) has them at all; at aspect 1 the plain bevel is the same, so the default compile carries none of
@@ -295,7 +303,7 @@ float bevelSeg2(vec2 p, vec2 a, vec2 b) {
 }
 // Distance from p (stretched, local origin taken off) to the whole ellipse with local semi-axes ab along the local axes,
 // mapped by M (bevelFrame): still an ellipse, its axes from the singular values of M·diag(ab) (2×2 closed form), the
-// nearest point on it by a few Newton-like steps (0xfaded's trig-free method, as sdEllipseExact).
+// nearest point on it by ellipseNearest (GLSL_SDF).
 float bevelEllipse(vec2 p, mat2 M, vec2 ab) {
   mat2 A = M * mat2(ab.x, 0.0, 0.0, ab.y);
   float E = (A[0][0] + A[1][1]) * 0.5, F = (A[0][0] - A[1][1]) * 0.5;
@@ -306,28 +314,35 @@ float bevelEllipse(vec2 p, mat2 M, vec2 ab) {
   vec2 cu = vec2(cos(phi), sin(phi));
   vec2 pa = abs(vec2(dot(p, cu), dot(p, vec2(-cu.y, cu.x))));
   if (abs(e.x - e.y) < 1e-4 * e.x) return abs(length(pa) - e.x);
-  vec2 t = vec2(0.70710678);
-  vec2 e2 = vec2(e.x * e.x - e.y * e.y, e.y * e.y - e.x * e.x) / e;
-  for (int i = 0; i < 4; i++) {
-    vec2 k = e2 * t * t * t;
-    vec2 qv = pa - k;
-    t = clamp((qv * (length(e * t - k) / max(length(qv), 1e-9)) + k) / e, 0.0, 1.0);
-    t /= max(length(t), 1e-9);
-  }
-  return length(pa - e * t);
+  return length(pa - ellipseNearest(pa, e));
+}
+// The same, signed (negative inside), from v: the local offset from the centre (not yet mapped by M).
+float bevelEllipseS(vec2 v, mat2 M, vec2 ab) {
+  float e = bevelEllipse(M * v, M, ab);
+  return length(v / ab) < 1.0 ? -e : e;
+}
+// A capsule round the segment from a to a + ba, half width w, at pa = p − a: x its distance, y (with Bevel aspect) the
+// same in px of Bevel (bevelLine: the sides by their normal, the caps by their direction; F maps local directions to
+// the screen, mat2(1.0) on screen).
+vec2 bevelCapsule(vec2 pa, vec2 ba, float w, mat2 F) {
+  float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
+  vec2 v = pa - ba * h;
+  float d = length(v) - w;
+  return vec2(d, bevelAspectOn() ? bevelLine(d, F * (h > 0.0 && h < 1.0 ? vec2(-ba.y, ba.x) : v)) : d);
 }
 // Squared distance from p (stretched) to an arc of the circle with local centre c and radius r, mapped by M (bevelFrame,
 // with the local origin already taken off p): from direction d0 to d1 (unit, local) the way round through m, its middle
-// direction (d0 = d1 = −m: the whole circle). Stretched, the circle is an ellipse; eight chords follow it within 0.2 %
-// of the radius (an exact nearest point on the whole ellipse can lie off the arc, inside a large corner).
+// direction (d0 = d1 = −m: the whole circle). Stretched, the circle is an ellipse; chords of at most 0.2 rad of the
+// circle (2 to 32 of them: 8 on a quarter arc, 16 on a semicircle) follow it within 0.5 % of the radius (an exact
+// nearest point on the whole ellipse can lie off the arc, inside a large corner).
 float bevelArc2(vec2 p, mat2 M, vec2 c, float r, vec2 d0, vec2 d1, vec2 m) {
   float ha = acos(clamp(dot(d0, m), -1.0, 1.0));
-  float sw = 2.0 * ha * (d0.x * m.y - d0.y * m.x < 0.0 ? -1.0 : 1.0) / 8.0;
-  mat2 turn = mat2(cos(sw), sin(sw), -sin(sw), cos(sw));
+  int n = clamp(int(ceil(ha * 10.0 - 1e-3)), 2, 32);
+  mat2 turn = rot2(2.0 * ha * (d0.x * m.y - d0.y * m.x < 0.0 ? -1.0 : 1.0) / float(n));
   vec2 u = d0;
   vec2 a = M * (c + r * u);
   float best = dot(p - a, p - a);
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < n; i++) {
     u = turn * u;
     vec2 b = M * (c + r * u);
     best = min(best, bevelSeg2(p, a, b));
@@ -440,7 +455,10 @@ export const PHASE_PARAM: ParamDef = P.float('phase', 'Phase', 0, -10000, 10000,
 	hint: PHASE_HINT
 });
 
-/** The same for other generators, in Shaping: it moves their domain warp (and a type's own warp or wobble). */
+/**
+ * The same for other generators, in Shaping: it moves their domain warp (and a type's own warp or wobble — by convention
+ * a type param named `warp` or `wobble` whose 0 means off shows it too).
+ */
 export const WARP_PHASE_PARAM: ParamDef = P.float('phase', 'Warp phase', 0, -10000, 10000, {
 	softMin: 0,
 	softMax: 1,
@@ -451,6 +469,40 @@ export const WARP_PHASE_PARAM: ParamDef = P.float('phase', 'Warp phase', 0, -100
 	showIf: (p) => Number(p.dw_amount) > 0 || Number(p.warp ?? 0) > 0 || Number(p.wobble ?? 0) > 0,
 	hint: 'Animates the domain warp: 0 → 1 is one seamless loop; it repeats beyond 1'
 });
+
+/**
+ * Not a control: 1 px of the texture in shader px (outputPx: supersampling scales it, resizing the canvas doesn't), for a
+ * generator's lengths fixed in output pixels — the finest details, the safeguards against pixel-wide cliffs.
+ */
+export const PX_SCALE_PARAM: ParamDef = P.float('px_scale', 'Pixel scale', 1, 1, 8, {
+	unit: 'px',
+	outputPx: true,
+	step: 1,
+	optimize: false,
+	showIf: () => false
+});
+
+/** Relief › Roughness and its size (px): fine grainy unevenness over every face (Rock, Stone blocks). */
+export const roughnessParams = (rough: number, scale: number): ParamDef[] => [
+	P.float('rough', 'Roughness', rough, 0, 1, {
+		step: 0.001,
+		section: 'Relief',
+		hint: 'Fine grainy unevenness over every face'
+	}),
+	P.float('rough_scale', 'Roughness size', scale, 1, 64, {
+		softMax: 16,
+		unit: 'px',
+		step: 0.05,
+		section: 'Relief',
+		showIf: (p) => Number(p.rough) > 0
+	})
+];
+
+/** A showIf: the layer's `mode` is one of these. */
+export const modeIs =
+	(...m: string[]) =>
+	(p: Record<string, unknown>) =>
+		m.includes(String(p.mode));
 
 export const MASK_PARAMS: ParamDef[] = [
 	P.float('opacity', 'Strength', 1, 0, 1, {
@@ -492,6 +544,16 @@ export const MASK_PARAMS: ParamDef[] = [
 		showIf: (p) => p.m_hmode !== 'none',
 		hint: 'How gradually the layer fades in across the level, in height units either side of it: 0 = a hard cut'
 	})
+];
+
+/** Roughness / Specular: a level from the source along a ramp (At 0 … At 1), blended in by a LEVEL_MODES mode. */
+const levelOutput = (prefix: string, group: string, label: string, a: number, b: number, hintA: string): ParamDef[] => [
+	P.bool(`${prefix}_on`, label, false, { group }),
+	source(`${prefix}_src`, group, `${prefix}_mode`),
+	P.enum(`${prefix}_mode`, 'Mode', 'replace', LEVEL_MODES, { group }),
+	P.float(`${prefix}_a`, 'At 0', a, 0, 1, { step: 0.001, ...ramp(`${prefix}_b`, group), hint: hintA }),
+	P.float(`${prefix}_b`, 'At 1', b, 0, 1, { step: 0.001, group }),
+	P.float(`${prefix}_opacity`, 'Opacity', 1, 0, 1, { step: 0.001, group })
 ];
 
 export const OUTPUT_PARAMS: ParamDef[] = [
@@ -553,27 +615,22 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 		hint: 'Each brick / cell / instance gets its own share of the amount (1 = anywhere from 0 to full): some barely raised, others bold. No effect on patterns without features (smooth noise, clouds)'
 	}),
 
-	P.bool('r_on', 'Roughness', false, { group: 'roughness' }),
-	source('r_src', 'roughness', 'r_mode'),
-	P.enum('r_mode', 'Mode', 'replace', LEVEL_MODES, { group: 'roughness' }),
-	P.float('r_a', 'At 0', 0.35, 0, 1, {
-		step: 0.001,
-		...ramp('r_b', 'roughness'),
-		hint: 'Roughness where the source is 0 (left) and 1 (right): 0 glossy … 1 matte'
-	}),
-	P.float('r_b', 'At 1', 0.85, 0, 1, { step: 0.001, group: 'roughness' }),
-	P.float('r_opacity', 'Opacity', 1, 0, 1, { step: 0.001, group: 'roughness' }),
-
-	P.bool('s_on', 'Specular', false, { group: 'specular' }),
-	source('s_src', 'specular', 's_mode'),
-	P.enum('s_mode', 'Mode', 'replace', LEVEL_MODES, { group: 'specular' }),
-	P.float('s_a', 'At 0', 0, 0, 1, {
-		step: 0.001,
-		...ramp('s_b', 'specular'),
-		hint: 'Specular level where the source is 0 (left) and 1 (right); 0.5 ≈ 4 % reflectance at scale 1'
-	}),
-	P.float('s_b', 'At 1', 0.6, 0, 1, { step: 0.001, group: 'specular' }),
-	P.float('s_opacity', 'Opacity', 1, 0, 1, { step: 0.001, group: 'specular' }),
+	...levelOutput(
+		'r',
+		'roughness',
+		'Roughness',
+		0.35,
+		0.85,
+		'Roughness where the source is 0 (left) and 1 (right): 0 glossy … 1 matte'
+	),
+	...levelOutput(
+		's',
+		'specular',
+		'Specular',
+		0,
+		0.6,
+		'Specular level where the source is 0 (left) and 1 (right); 0.5 ≈ 4 % reflectance at scale 1'
+	),
 
 	P.bool('e_on', 'Emissive', false, { group: 'emissive' }),
 	source('e_src', 'emissive', 'e_mode'),
@@ -616,6 +673,18 @@ export const FILTER_GROUPS: GroupDef[] = [
 	{ id: 'mask', label: 'Mask', collapsed: true }
 ];
 
+/**
+ * The wrapper's shape d: the generator's distance combined with the mask it writes by the Mode (Mask › Write to; index + 1
+ * = sdfCombine op, 0 = writes none, which keeps g.sdf), and that write.
+ */
+const SHAPE_COMBINE = /* glsl */ `int op = uMaskKind == 1 ? u_mk_op + 1 : 0;
+  float d = sdfCombine(op, prevDist, g.sdf, u_mk_smooth);`;
+const SHAPE_MASK_WRITE = /* glsl */ `if (op != 0) {
+      maskOut = maskTexel(op, d, g.sdf, g.fid, maskPrev);
+      // Feather stores a soft ramp across the outline instead of the distance (its coverage reads back the same way).
+      if (u_mk_feather > 0.0) maskOut.x = clamp(d / u_mk_feather, -0.5, 0.5);
+    }`;
+
 /** GLSL for the generator wrapper's use of the common params (declared automatically from the defs above). */
 export const GLSL_GENERATOR_MAIN = (sdf: boolean | 'mask') => /* glsl */ `
 
@@ -625,6 +694,9 @@ float shapeValue(float v) {
   if (u_sh_steps > 1) { float n = float(u_sh_steps); v = min(floor(v * n), n - 1.0) / (n - 1.0); }
   return u_sh_invert ? 1.0 - v : v;
 }
+
+// Roughness / Specular (LEVEL_MODES order): replace, multiply, add, min, max — x over o.
+float levelBlend(int mode, float o, float x) { return mode == 0 ? x : mode == 1 ? o * x : mode == 2 ? o + x : mode == 3 ? min(o, x) : max(o, x); }
 
 // shapeV: inside the layer's shape (Source › Shape), 1 for layers without one.
 float srcValue(int src, float value, float rnd, float shapeV) { return src == 1 ? 1.0 : src == 2 ? rnd : src == 3 ? shapeV : value; }
@@ -645,7 +717,7 @@ void main() {
   // The mask before this layer: the one it writes, or the Shape mask. Pixels it doesn't write keep it.
   vec4 maskPrev = texelFetch(tMaskIn, ip, 0);
   vec4 maskOut = maskPrev;
-  float prevReg = maskPrev.x;
+  float prevDist = maskPrev.x;
   gPhase = u_phase;
 
   vec2 pp = gl_FragCoord.xy - vec2(u_ofs_x, -u_ofs_y);
@@ -665,30 +737,26 @@ ${
   // draws the combined shape. The combined distance and its screen-space gradient (Bevel aspect) are taken before
   // branching: derivatives need uniform control flow.
   dilateShape(g, cov);
-  int op = uMaskKind == 1 ? u_mk_op + 1 : 0;
-  float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_mk_smooth);
+  ${SHAPE_COMBINE}
   vec2 dGrad = vec2(dFdx(d), dFdy(d));
   if (g.sdf > NO_SDF) {
-    if (op != 0) {
-      maskOut = maskTexel(op, d, g.sdf, g.fid, maskPrev);
-      // Feather stores a soft ramp across the outline instead of the distance (its coverage reads back the same way).
-      if (u_mk_feather > 0.0) maskOut.x = clamp(d / u_mk_feather, -0.5, 0.5);
-    }
-    shapeV = coverage(d, u_aa);
-    // The bevel: from the generator's own bevel distance (GenOut.bdist) while the drawn shape is its own (not combined
-    // with the mask), else from the combined distance with the aspect taken from its direction.
-    float bev = g.bdist > NO_SDF && op <= 1 ? ((u_bevel > 0.0 && u_profile != 0) ? profileCurve(u_profile, max(-g.bdist, 0.0) / u_bevel) : 1.0)
-                                            : bevelAt(d, dGrad);
+    ${SHAPE_MASK_WRITE}
+    float dc = coverage(d, u_aa);
+    shapeV = dc;
+    // The bevel: from the generator's own bevel distance (GenOut.bdist, as bevelPlain) while the drawn shape is its own
+    // (not combined with the mask), else from the combined distance with the aspect taken from its direction (bevelAt)
+    // — one profile, its argument picked.
+    float bev = bevelProfile(g.bdist > NO_SDF && op <= 1 ? max(-g.bdist, 0.0) / u_bevel : max(-d, 0.0) / bevelWidth(dGrad));
     if (g.own == 1) {
       // genOutOwn: the generator painted its own value and coverage; the shape only goes to the mask.
     } else if (g.own == 2) {
       // genOutShaded: the generator's pattern × the bevel of the combined shape (so another mode — Intersection with a
       // chipped Shape mask — bevels round it too); the coverage stays the generator's.
-      float e = bev * coverage(d, u_aa);
+      float e = bev * dc;
       value *= e;
       if (g.hval >= 0.0) g.hval *= e;
     } else {
-      cov *= coverage(d, u_aa);
+      cov *= dc;
       // The coverage now carries the shape's anti-aliasing, so Source › Shape is 1 wherever the layer paints — taking
       // the coverage twice put the ramp's middle (often its darkest) on every edge pixel, a dark 1 px outline.
       shapeV = 1.0;
@@ -720,14 +788,9 @@ ${
   }
   if (g.sdf > NO_SDF) {
     // A shape for the mask only: the generator shapes its own value and coverage around it.
-    int op = uMaskKind == 1 ? u_mk_op + 1 : 0;
-    float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_mk_smooth);
-    if (op != 0) {
-      maskOut = maskTexel(op, d, g.sdf, g.fid, maskPrev);
-      // Feather stores a soft ramp across the outline instead of the distance (its coverage reads back the same way).
-      if (u_mk_feather > 0.0) maskOut.x = clamp(d / u_mk_feather, -0.5, 0.5);
-    }
-    shapeV = clamp(0.5 - d, 0.0, 1.0);
+    ${SHAPE_COMBINE}
+    ${SHAPE_MASK_WRITE}
+    shapeV = coverage(d, u_aa);
     cov *= softEdge(g.sdf);
   }
 `
@@ -752,7 +815,7 @@ ${
   if (uMaskKind == 2) {
     int cop = u_mk_op + 1;
     float s = 0.5 - m;
-    maskOut = maskTexel(cop, cop <= 1 ? s : sdfCombine(cop, prevReg, s, u_mk_smooth), s, g.fid, maskPrev);
+    maskOut = maskTexel(cop, sdfCombine(cop, prevDist, s, u_mk_smooth), s, g.fid, maskPrev);
   }
 
   if (u_dif_on) {
@@ -764,8 +827,10 @@ ${
     A.rgb = srgbToLinear(mix(base, blended, m * u_dif_opacity));
   }
   if (u_op_on) {
-    if (u_op_mode == 0) A.a = mix(A.a, cov, u_opacity);
-    else if (u_op_mode == 1) A.a *= mix(1.0, cov, u_opacity);
+    // Replace and Multiply set the alpha outside the coverage too (to 0 there), as far as Strength, Limit to and the
+    // height mask (k) let them.
+    if (u_op_mode == 0) A.a = mix(A.a, cov, k);
+    else if (u_op_mode == 1) A.a *= mix(1.0, cov, k);
     else if (u_op_mode == 2) A.a = max(A.a, m);
     else A.a *= 1.0 - m;
   }
@@ -774,25 +839,21 @@ ${
     // it applies wherever it is non-zero, limited by the clips and opacity but not by the coverage.
     bool own = u_h_src == 0 && g.height > NO_SDF;
     // Per-feature amplitude from a hash decorrelated from the colour random; Offset shifts the whole output.
-    float v = (own ? g.height : srcValue(u_h_src, hval, g.rnd, shapeV)) * u_h_amount * (1.0 - u_h_var * g.feat * fract(g.rnd * 61.37 + 0.123)) + u_h_offset;
+    float v = (own ? g.height : srcValue(u_h_src, hval, g.rnd, shapeV)) * u_h_amount * (1.0 - u_h_var * g.feat * featVar(g.rnd)) + u_h_offset;
     float h = S.r;
-    float nh = u_h_mode == 0 ? h + v : u_h_mode == 1 ? h - v : u_h_mode == 2 ? max(h, v)
-             : u_h_mode == 3 ? min(h, v) : u_h_mode == 4 ? v : h * v;
-    S.r = mix(h, nh, own ? (g.height != 0.0 ? k : 0.0) : m);
+    S.r = mix(h, heightCombine(u_h_mode, h, v), own ? (g.height != 0.0 ? k : 0.0) : m);
   }
   if (u_r_on) {
     float v = srcValue(u_r_src, value, g.rnd, shapeV);
     float r = mix(u_r_a, u_r_b, v);
     float o = S.g;
-    float nr = u_r_mode == 0 ? r : u_r_mode == 1 ? o * r : u_r_mode == 2 ? o + r : u_r_mode == 3 ? min(o, r) : max(o, r);
-    S.g = clamp(mix(o, nr, m * u_r_opacity), 0.0, 1.0);
+    S.g = clamp(mix(o, levelBlend(u_r_mode, o, r), m * u_r_opacity), 0.0, 1.0);
   }
   if (u_s_on) {
     float v = srcValue(u_s_src, value, g.rnd, shapeV);
     float sp = mix(u_s_a, u_s_b, v);
     float o = E.a;
-    float ns = u_s_mode == 0 ? sp : u_s_mode == 1 ? o * sp : u_s_mode == 2 ? o + sp : u_s_mode == 3 ? min(o, sp) : max(o, sp);
-    E.a = clamp(mix(o, ns, m * u_s_opacity), 0.0, 1.0);
+    E.a = clamp(mix(o, levelBlend(u_s_mode, o, sp), m * u_s_opacity), 0.0, 1.0);
   }
   if (u_e_on) {
     float v = srcValue(u_e_src, value, g.rnd, shapeV);

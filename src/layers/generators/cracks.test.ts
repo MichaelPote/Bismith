@@ -45,15 +45,8 @@ describe('cracks', () => {
 		expect(d.options!.map((o) => o.value)).toEqual(['bend', 'squeeze']);
 	});
 
-	it('uses every param it declares, sizes px params, and keeps defaults in range', () => {
-		for (const d of cracksLayer.params)
-			if (d.key !== 'seed') expect(cracksLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
+	it('sizes px params', () => {
 		for (const k of ['width', 'zigzag', 'jag', 'sub_width'])
 			expect(cracksLayer.params.find((d) => d.key === k)!.unit, k).toBe('px');
-		for (const d of cracksLayer.params) {
-			if (d.type !== 'float' && d.type !== 'int') continue;
-			expect(Number(d.default), d.key).toBeGreaterThanOrEqual(d.min ?? -Infinity);
-			expect(Number(d.default), d.key).toBeLessThanOrEqual(d.max ?? Infinity);
-		}
 	});
 });

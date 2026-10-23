@@ -82,15 +82,10 @@ describe('tiles', () => {
 		expect(/\bcontinue\s*;/.test(glsl)).toBe(false);
 	});
 
-	it('uses every param it declares', () => {
-		for (const d of tilesLayer.params)
-			if (d.key !== 'seed') expect(glsl.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
-	});
-
 	it('fits the longest herringbone in the shader’s loop, and clamps the ratio where the param ends', () => {
 		const max = def('ratio').max!;
 		expect(Number(/clamp\(u_ratio, 1, (\d+)\)/.exec(glsl)![1])).toBe(max);
-		const bound = Number(/it < (\d+) \* GEO_1/.exec(glsl)![1]);
+		const bound = Number(/it < (\d+) \* UNI_1/.exec(glsl)![1]);
 		// Two shapes (horizontal, vertical brick) of 3 × (n / 2 + 4) anchors, one step per shape change and the last check.
 		const steps = 2 * 3 * (Math.floor(max / 2) + 4) + 3;
 		expect(steps).toBeLessThanOrEqual(bound);
@@ -122,11 +117,12 @@ describe('tiles', () => {
 		);
 		const first = arrays.get('TILE_MODE0')!.body.split(',').map(Number);
 		expect(first.length).toBe(def('mode').options!.length);
+		const capacity = Number(/#define GEO_NV (\d+)/.exec(glsl)![1]);
 		let next = 0;
 		for (const [start, count] of head) {
 			expect(start).toBe(next);
 			expect(count).toBeGreaterThanOrEqual(3);
-			expect(count).toBeLessThanOrEqual(16);
+			expect(count).toBeLessThanOrEqual(capacity);
 			next += count;
 		}
 		expect(arrays.get('TILE_V')!.n).toBe(next);

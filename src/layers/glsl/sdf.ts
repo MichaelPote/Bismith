@@ -16,8 +16,6 @@ float sdBox(vec2 p, vec2 b) {
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
 }
 
-float sdCircle(vec2 p, float r) { return length(p) - r; }
-
 // Ellipse (approximate but robust, exact for circles).
 float sdEllipse(vec2 p, vec2 ab) {
   ab = max(ab, vec2(1e-3));
@@ -27,66 +25,71 @@ float sdEllipse(vec2 p, vec2 ab) {
   return k0 < 1e-6 ? -min(ab.x, ab.y) : k0 * (k0 - 1.0) / k1;
 }
 
+// The nearest point to pa (first quadrant) on the ellipse with semi-axes ab, by a few Newton-like steps (0xfaded's
+// trig-free method).
+vec2 ellipseNearest(vec2 pa, vec2 ab) {
+  vec2 t = vec2(0.70710678);
+  vec2 e2 = vec2(ab.x * ab.x - ab.y * ab.y, ab.y * ab.y - ab.x * ab.x) / ab;
+  for (int i = 0; i < 4 * UNI_1; i++) {
+    vec2 e = e2 * t * t * t;
+    vec2 qv = pa - e;
+    t = clamp((qv * (length(ab * t - e) / max(length(qv), 1e-9)) + e) / ab, 0.0, 1.0);
+    t /= max(length(t), 1e-9);
+  }
+  return ab * t;
+}
+
+// Ellipse, exact at any aspect.
+float sdEllipseExact(vec2 p, vec2 ab) {
+  ab = max(ab, vec2(1e-3));
+  if (abs(ab.x - ab.y) < 1e-4 * max(ab.x, ab.y)) return length(p) - ab.x;
+  vec2 pa = abs(p);
+  float d = length(pa - ellipseNearest(pa, ab));
+  return dot(pa / ab, pa / ab) > 1.0 ? d : -d;
+}
+
 float sdSegment(vec2 p, vec2 a, vec2 b) {
   vec2 pa = p - a, ba = b - a;
   float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
   return length(pa - ba * h);
 }
 
-// Segment with flat (butt) caps.
-float sdSegmentFlat(vec2 p, vec2 a, vec2 b, float th) {
-  float l = length(b - a);
-  vec2 d = (b - a) / max(l, 1e-6);
-  vec2 q = p - (a + b) * 0.5;
-  q = mat2(d.x, -d.y, d.y, d.x) * q;
-  q = abs(q) - vec2(l * 0.5, th);
-  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-}
-
 float dot2(vec2 v) { return dot(v, v); }
 
-// Quadratic Bézier, unsigned distance.
-float sdBezier(vec2 pos, vec2 A, vec2 B, vec2 C) {
+// Quadratic Bézier A → B → C: the distance to it and the curve parameter (0..1) of the closest point.
+vec2 sdBezierT(vec2 pos, vec2 A, vec2 B, vec2 C) {
   vec2 a = B - A;
   vec2 b = A - 2.0 * B + C;
-  if (dot(b, b) < 1e-6) return sdSegment(pos, A, C);
   vec2 c = a * 2.0;
   vec2 d = A - pos;
+  // Within 0.05 px of straight (|b| / 4 is how far the middle bows out): the segment, where the cubic is ill-conditioned.
+  if (dot(b, b) < 0.04) {
+    vec2 ca = C - A;
+    float t = clamp(dot(pos - A, ca) / max(dot(ca, ca), 1e-8), 0.0, 1.0);
+    return vec2(length(pos - A - ca * t), t);
+  }
   float kk = 1.0 / dot(b, b);
   float kx = kk * dot(a, b);
   float ky = kk * (2.0 * dot(a, a) + dot(d, b)) / 3.0;
   float kz = kk * dot(d, a);
-  float res = 0.0;
   float p = ky - kx * kx;
-  float p3 = p * p * p;
   float q = kx * (2.0 * kx * kx - 3.0 * ky) + kz;
-  float h = q * q + 4.0 * p3;
+  float h = q * q + 4.0 * p * p * p;
   if (h >= 0.0) {
     h = sqrt(h);
     vec2 x = (vec2(h, -h) - q) / 2.0;
     vec2 uv = sign(x) * pow(abs(x), vec2(1.0 / 3.0));
     float t = clamp(uv.x + uv.y - kx, 0.0, 1.0);
-    res = dot2(d + (c + b * t) * t);
-  } else {
-    float z = sqrt(-p);
-    float v = acos(q / (p * z * 2.0)) / 3.0;
-    float m = cos(v);
-    float n = sin(v) * 1.732050808;
-    vec3 t = clamp(vec3(m + m, -n - m, n - m) * z - kx, 0.0, 1.0);
-    res = min(dot2(d + (c + b * t.x) * t.x), dot2(d + (c + b * t.y) * t.y));
+    return vec2(length(d + (c + b * t) * t), t);
   }
-  return sqrt(res);
-}
-
-// Regular polygon with n sides, circumradius r (vertex pointing up).
-float sdNgon(vec2 p, float r, int n) {
-  float an = PI / float(n);
-  vec2 acs = vec2(cos(an), sin(an));
-  float bn = mod(atan(p.x, p.y), 2.0 * an) - an;
-  p = length(p) * vec2(cos(bn), abs(sin(bn)));
-  p -= r * acs;
-  p.y += clamp(-p.y, 0.0, r * acs.y);
-  return length(p) * sign(p.x);
+  float z = sqrt(-p);
+  float v = acos(clamp(q / (p * z * 2.0), -1.0, 1.0)) / 3.0;
+  float m = cos(v);
+  float n = sin(v) * 1.732050808;
+  vec2 t = clamp(vec2(m + m, -n - m) * z - kx, 0.0, 1.0);
+  float d1 = dot2(d + (c + b * t.x) * t.x);
+  float d2 = dot2(d + (c + b * t.y) * t.y);
+  return d1 < d2 ? vec2(sqrt(d1), t.x) : vec2(sqrt(d2), t.y);
 }
 
 // Star with n points, outer radius r, inner ratio m (0..1).
@@ -100,15 +103,6 @@ float sdStar(vec2 p, float r, int n, float m) {
   p -= r * acs;
   p += ecs * clamp(-dot(p, ecs), 0.0, r * acs.y / ecs.y);
   return length(p) * sign(p.x);
-}
-
-float sdCross(vec2 p, vec2 b, float r) {
-  p = abs(p);
-  p = (p.y > p.x) ? p.yx : p.xy;
-  vec2 q = p - b;
-  float k = max(q.y, q.x);
-  vec2 w = (k > 0.0) ? q : vec2(b.y - p.x, -k);
-  return sign(k) * length(max(w, 0.0)) + r;
 }
 
 // Onion: turn a solid into an outline of thickness t (t <= 0 leaves it solid).

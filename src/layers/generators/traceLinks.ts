@@ -1,30 +1,17 @@
-// Route and maze links for the Traces generator (FR8.8), computed once per node on the CPU and handed to the shader as
-// a per-node texture, like the Fill router's output (router.ts). They used to be evaluated per pixel in GLSL, where
-// every pixel re-derived its neighbours' links through nested helper calls; D3D's shader compiler (ANGLE on Windows,
-// so Chrome and Firefox there) inlines all of that and took minutes to compile it, hanging the browser.
-//
-// Route and maze hash each node like the GLSL hashI (layers/glsl/common.ts), in float32.
+// Route, maze and labyrinth links for the Traces generator (FR8.8), computed once per node on the CPU (each mode reads
+// its neighbours' links, which a pixel shader would re-derive per pixel) and handed to the shader as a per-node texture.
 //   Route: every node has at most one outgoing link (straight on, or a 45° turn from its block's direction) and accepts
 //          at most one incoming link (a fixed per-node priority among its neighbours), so traces are paths: no
 //          junctions, no crossings (crossing diagonals in one grid square: the square keeps one), a pad at each end.
 //   Maze:  independent links east / north and, by chance, diagonally; junctions allowed.
 //   Labyrinth: a perfect maze — one spanning tree over every node, grown from a random node (a growing tree:
-//          depth-first for long winding corridors, or from random frontier nodes for many short dead ends). It has
-//          no GLSL past, so it uses a sequential PRNG instead of the per-node hashes.
+//          depth-first for long winding corridors, or from random frontier nodes for many short dead ends).
+// Route and maze draw a hash per node (hashI); the labyrinth grows sequentially, from a seeded PRNG.
 
-import { rng } from './router';
+import { hashI } from '@/core/hash';
+import { KING, rng } from './router';
 
-/** The 8 king moves, east then counter-clockwise. Bit d of a node's link mask: a trace from it toward KING[d]. */
-export const KING: [number, number][] = [
-	[1, 0],
-	[1, 1],
-	[0, 1],
-	[-1, 1],
-	[-1, 0],
-	[-1, -1],
-	[0, -1],
-	[1, -1]
-];
+export { KING };
 
 export interface TraceLinkOptions {
 	mode: 'route' | 'maze' | 'labyrinth';
@@ -51,22 +38,29 @@ export interface TraceLinks {
 	flags: Uint8Array;
 }
 
-// ---------------------------------------------------------------- GLSL hash port (layers/glsl/common.ts)
-const f = Math.fround;
-
-function pcg(v: number): number {
-	const state = (Math.imul(v, 747796405) + 2891336453) >>> 0;
-	const word = Math.imul((state >>> ((state >>> 28) + 4)) ^ state, 277803737) >>> 0;
-	return ((word >>> 22) ^ word) >>> 0;
-}
-
-/** hashI(ivec2(x, y), seed): uint() wraps negative coordinates; u2f rounds to float32 (so it can reach 1.0). */
-export function hashI(x: number, y: number, seed: number): number {
-	return f(pcg((x >>> 0) ^ pcg((y >>> 0) ^ pcg(seed >>> 0)))) / 4294967296;
-}
-
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-const mix = (a: number, b: number, t: number) => f(f(a * f(1 - t)) + f(b * t));
+
+// ---------------------------------------------------------------- the link graph
+
+/** KING index of a unit step, by (dy + 1) * 3 + dx + 1. */
+const KING_OF = [5, 6, 7, 4, -1, 0, 3, 2, 1];
+export const kingOf = (dx: number, dy: number) => KING_OF[(dy + 1) * 3 + dx + 1];
+
+/** The node a link from node i toward KING[d] reaches (wrapped; untiled links never leave the board). */
+export const linkTo = (i: number, d: number, nx: number, ny: number) =>
+	((((Math.floor(i / nx) + KING[d][1]) % ny) + ny) % ny) * nx + (((((i % nx) + KING[d][0]) % nx) + nx) % nx);
+
+/** Links per node: its own plus the ones arriving from its neighbours. */
+export function linkDegrees(links: Uint8Array, nx: number, ny: number): Uint8Array {
+	const deg = new Uint8Array(nx * ny);
+	for (let i = 0; i < nx * ny; i++)
+		for (let d = 0; d < 8; d++)
+			if (links[i] & (1 << d)) {
+				deg[i]++;
+				deg[linkTo(i, d, nx, ny)]++;
+			}
+	return deg;
+}
 
 // ---------------------------------------------------------------- links
 
@@ -90,154 +84,112 @@ export function traceLinks(o: TraceLinkOptions): TraceLinks {
 		if (wrap) [bx, by] = [imod(bx, bnx), imod(by, bny)];
 		return hashI(bx, by, o.seed + salt);
 	};
-	const density = f(o.density);
-	const bias = f(o.bias);
-	const diag = clamp01(f(o.diagonal));
-	const vias = f(o.vias);
+	const { density, bias } = o;
+	const diag = clamp01(o.diagonal);
 	const links = new Uint8Array(n);
-	const flags = new Uint8Array(n);
-	const finish = (x: number, y: number, i: number, degree: number) => {
-		flags[i] = (degree === 1 ? 1 : 0) | (degree >= 1 && h(x, y, 23) < vias ? 2 : 0);
-	};
 
-	if (o.mode === 'labyrinth') {
-		labyrinth(o, links, idx);
-		// Degree: own links plus the ones arriving from neighbours.
-		const deg = new Uint8Array(n);
-		for (let i = 0; i < n; i++)
-			for (let d = 0; d < 8; d++)
-				if (links[i] & (1 << d)) {
-					deg[i]++;
-					deg[idx((i % nx) + KING[d][0], Math.floor(i / nx) + KING[d][1])]++;
-				}
-		for (let i = 0; i < n; i++) finish(i % nx, Math.floor(i / nx), i, deg[i]);
-		return { links, flags };
-	}
-
-	if (o.mode === 'maze') {
-		// Links stored once per node: 0 east, 1 north, 2 north-east, 3 south-east.
+	if (o.mode === 'labyrinth') labyrinth(o, links, idx);
+	else if (o.mode === 'maze') {
+		// Links east, north, north-east and south-east, each by its own chance.
 		const STEP = [
 			[1, 0],
 			[0, 1],
 			[1, 1],
 			[1, -1]
 		];
-		const KING_BIT = [1 << 0, 1 << 2, 1 << 1, 1 << 7];
-		const pStraight = f(density * f(1 - diag));
-		const pBase = [f(f(pStraight * 2) * bias), f(f(pStraight * 2) * f(1 - bias)), f(density * diag), f(density * diag)];
-		const straightShare = f(2 * f(1 - diag));
-		const domScale = f(straightShare + f(2 * diag));
-		const domCuts = [f(straightShare * bias), straightShare, f(straightShare + diag)];
-		const grouping = clamp01(f(o.grouping));
-		const minor = f(density * f(0.08));
+		const STEP_BIT = STEP.map(([x, y]) => 1 << kingOf(x, y));
+		const pStraight = density * (1 - diag);
+		const pBase = [pStraight * 2 * bias, pStraight * 2 * (1 - bias), density * diag, density * diag];
+		const straightShare = 2 * (1 - diag);
+		const domScale = straightShare + 2 * diag;
+		const domCuts = [straightShare * bias, straightShare, straightShare + diag];
+		const grouping = clamp01(o.grouping);
+		const minor = density * 0.08;
 		const raw = (x: number, y: number, dir: number) => {
-			if (!inside(x, y)) return false;
 			// Grouping: each block of cells has a dominant direction (chosen with the same weights); its links mostly follow it.
-			const r = f(hb(x, y, 41) * domScale);
+			const r = hb(x, y, 41) * domScale;
 			const dom = r < domCuts[0] ? 0 : r < domCuts[1] ? 1 : r < domCuts[2] ? 2 : 3;
-			return h(x, y, 1 + dir) < mix(pBase[dir], dir === dom ? density : minor, grouping);
+			return h(x, y, 1 + dir) < pBase[dir] * (1 - grouping) + (dir === dom ? density : minor) * grouping;
 		};
 		// The two diagonals of the square [k, k + (1,1)] cross: the square picks one.
 		const pickNE = (x: number, y: number) => h(x, y, 9) < 0.5;
-		const link = (x: number, y: number, dir: number) =>
-			dir === 2
-				? raw(x, y, 2) && pickNE(x, y) && inside(x + 1, y + 1)
-				: dir === 3
-					? raw(x, y, 3) && !pickNE(x, y - 1) && inside(x + 1, y - 1)
-					: dir === 0
-						? raw(x, y, 0) && inside(x + 1, y)
-						: raw(x, y, 1) && inside(x, y + 1);
-		const own = new Uint8Array(n);
 		for (let y = 0; y < ny; y++)
-			for (let x = 0; x < nx; x++) for (let dir = 0; dir < 4; dir++) if (link(x, y, dir)) own[y * nx + x] |= 1 << dir;
+			for (let x = 0; x < nx; x++)
+				for (let dir = 0; dir < 4; dir++)
+					if (
+						raw(x, y, dir) &&
+						inside(x + STEP[dir][0], y + STEP[dir][1]) &&
+						(dir === 2 ? pickNE(x, y) : dir === 3 ? !pickNE(x, y - 1) : true)
+					)
+						links[y * nx + x] |= STEP_BIT[dir];
+	} else {
+		// Route. The block's direction: straight (E / W by the horizontal bias, N / S) or diagonal, by the Diagonals share.
+		const straight = clamp01(o.straight);
+		const turnCut = straight + 0.5 * (1 - straight);
+		const blockDir = (x: number, y: number) => {
+			const h2 = hb(x, y, 43);
+			if (hb(x, y, 41) < diag) return 1 + 2 * Math.floor(h2 * 4); // NE, NW, SW, SE
+			return (hb(x, y, 47) < bias ? 0 : 2) + (h2 < 0.5 ? 0 : 4); // E / W or N / S
+		};
+		// The node's one outgoing direction, or -1.
+		const outDir = new Int8Array(n);
+		for (let y = 0; y < ny; y++)
+			for (let x = 0; x < nx; x++) {
+				let d = -1;
+				if (h(x, y, 31) <= density) {
+					const b = blockDir(x, y);
+					const t = h(x, y, 33);
+					d = (t < straight ? b : t < turnCut ? b + 1 : b + 7) % 8;
+					if (!inside(x + KING[d][0], y + KING[d][1])) d = -1;
+				}
+				outDir[y * nx + x] = d;
+			}
+		const at = (a: Int8Array, x: number, y: number) => {
+			const i = idx(x, y);
+			return i < 0 ? -1 : a[i];
+		};
+		// The one incoming direction a node accepts (its first predecessor, in a per-node priority order), or -1.
+		const acc = new Int8Array(n).fill(-1);
+		for (let y = 0; y < ny; y++)
+			for (let x = 0; x < nx; x++) {
+				const start = Math.floor(h(x, y, 37) * 8);
+				for (let t = 0; t < 8; t++) {
+					const a = (start + t) % 8;
+					if (at(outDir, x - KING[a][0], y - KING[a][1]) === a) {
+						acc[y * nx + x] = a;
+						break;
+					}
+				}
+			}
+		const raw = (x: number, y: number, d: number) =>
+			at(outDir, x, y) === d && at(acc, x + KING[d][0], y + KING[d][1]) === d;
+		// A diagonal link and the other diagonal of its grid square: the square keeps only one of the two.
+		const link = (x: number, y: number, d: number) => {
+			if (d < 0 || !raw(x, y, d)) return false;
+			if ((d & 1) === 0) return true;
+			const slash = d === 1 || d === 5;
+			const [cx, cy] = d === 1 ? [x, y] : d === 5 ? [x - 1, y - 1] : d === 3 ? [x - 1, y] : [x, y - 1];
+			const keepSlash = h(cx, cy, 51) < 0.5;
+			if (slash === keepSlash) return true;
+			return !(slash ? raw(cx + 1, cy, 3) || raw(cx, cy + 1, 7) : raw(cx, cy, 1) || raw(cx + 1, cy + 1, 5));
+		};
 		for (let y = 0; y < ny; y++)
 			for (let x = 0; x < nx; x++) {
 				const i = y * nx + x;
-				let degree = 0;
-				for (let dir = 0; dir < 4; dir++) {
-					if (own[i] & (1 << dir)) {
-						degree++;
-						links[i] |= KING_BIT[dir];
-					}
-					const j = idx(x - STEP[dir][0], y - STEP[dir][1]);
-					if (j >= 0 && own[j] & (1 << dir)) degree++;
-				}
-				finish(x, y, i, degree);
+				if (link(x, y, outDir[i])) links[i] = 1 << outDir[i];
 			}
-		return { links, flags };
 	}
 
-	// Route. The block's direction: straight (E / W by the horizontal bias, N / S) or diagonal, by the Diagonals share.
-	const straight = clamp01(f(o.straight));
-	const turnCut = f(straight + f(0.5 * f(1 - straight)));
-	const blockDir = (x: number, y: number) => {
-		const h2 = hb(x, y, 43);
-		if (hb(x, y, 41) < diag) return 1 + 2 * Math.floor(h2 * 4); // NE, NW, SW, SE
-		return (hb(x, y, 47) < bias ? 0 : 2) + (h2 < 0.5 ? 0 : 4); // E / W or N / S
-	};
-	// The node's one outgoing direction, or -1.
-	const out = new Int8Array(n);
-	for (let y = 0; y < ny; y++)
-		for (let x = 0; x < nx; x++) {
-			let d = -1;
-			if (h(x, y, 31) <= density) {
-				const b = blockDir(x, y);
-				const t = h(x, y, 33);
-				d = (t < straight ? b : t < turnCut ? b + 1 : b + 7) % 8;
-				if (!inside(x + KING[d][0], y + KING[d][1])) d = -1;
-			}
-			out[y * nx + x] = d;
-		}
-	const outAt = (x: number, y: number) => {
-		const i = idx(x, y);
-		return i < 0 ? -1 : out[i];
-	};
-	// The one incoming direction a node accepts (its first predecessor, in a per-node priority order), or -1.
-	const acc = new Int8Array(n).fill(-1);
-	for (let y = 0; y < ny; y++)
-		for (let x = 0; x < nx; x++) {
-			const start = Math.floor(h(x, y, 37) * 8);
-			for (let t = 0; t < 8; t++) {
-				const a = (start + t) % 8;
-				if (outAt(x - KING[a][0], y - KING[a][1]) === a) {
-					acc[y * nx + x] = a;
-					break;
-				}
-			}
-		}
-	const accAt = (x: number, y: number) => {
-		const i = idx(x, y);
-		return i < 0 ? -1 : acc[i];
-	};
-	const raw = (x: number, y: number, d: number) => outAt(x, y) === d && accAt(x + KING[d][0], y + KING[d][1]) === d;
-	// A diagonal link and the other diagonal of its grid square: the square keeps only one of the two.
-	const link = (x: number, y: number, d: number) => {
-		if (d < 0 || !raw(x, y, d)) return false;
-		if ((d & 1) === 0) return true;
-		const slash = d === 1 || d === 5;
-		const [cx, cy] = d === 1 ? [x, y] : d === 5 ? [x - 1, y - 1] : d === 3 ? [x - 1, y] : [x, y - 1];
-		const keepSlash = h(cx, cy, 51) < 0.5;
-		if (slash === keepSlash) return true;
-		return !(slash ? raw(cx + 1, cy, 3) || raw(cx, cy + 1, 7) : raw(cx, cy, 1) || raw(cx + 1, cy + 1, 5));
-	};
-	for (let y = 0; y < ny; y++)
-		for (let x = 0; x < nx; x++) {
-			const i = y * nx + x;
-			const linked = link(x, y, out[i]);
-			// (Through a named shift, not `1 << out[i]`: esbuild reads "<< out" as a TS variance modifier, and a formatter
-			// strips the parentheses that used to guard it — AGENTS.md.)
-			const dir = out[i];
-			if (linked) links[i] = 1 << dir;
-			// Degree: the outgoing link plus the one accepted incoming link.
-			const a = acc[i];
-			finish(x, y, i, (linked ? 1 : 0) + (a >= 0 && link(x - KING[a][0], y - KING[a][1], a) ? 1 : 0));
-		}
+	// Trace ends (degree 1) are pad candidates; any linked node may get a via.
+	const deg = linkDegrees(links, nx, ny);
+	const flags = new Uint8Array(n);
+	for (let i = 0; i < n; i++) {
+		const x = i % nx;
+		const y = Math.floor(i / nx);
+		flags[i] = (deg[i] === 1 ? 1 : 0) | (deg[i] >= 1 && h(x, y, 23) < o.vias ? 2 : 0);
+	}
 	return { links, flags };
 }
-
-/** KING index of a unit step, by (dy + 1) * 3 + dx + 1. */
-const KING_OF = [5, 6, 7, 4, -1, 0, 3, 2, 1];
-const kingOf = (dx: number, dy: number) => KING_OF[(dy + 1) * 3 + dx + 1];
 
 /**
  * Labyrinth: a growing tree over all nodes. Each step extends the newest open node (or, with Branching, a random
@@ -261,6 +213,13 @@ function labyrinth(o: TraceLinkOptions, links: Uint8Array, idx: (x: number, y: n
 	const inDir = new Int8Array(n).fill(-1);
 	const active = new Int32Array(n);
 	const w = new Float64Array(8);
+	/** Would a diagonal from (x, y) toward KING[d] cross the other diagonal of its grid square (either way round)? */
+	const crossesDiagonal = (x: number, y: number, d: number) => {
+		const [dx, dy] = KING[d];
+		return (
+			(links[idx(x + dx, y)] & (1 << kingOf(-dx, dy))) !== 0 || (links[idx(x, y + dy)] & (1 << kingOf(dx, -dy))) !== 0
+		);
+	};
 	/** Is there a link between nodes i and j = i + KING[d] (either way)? */
 	const linked = (i: number, j: number, d: number) =>
 		i >= 0 && j >= 0 && ((links[i] & (1 << d)) !== 0 || (links[j] & (1 << ((d + 4) % 8))) !== 0);
@@ -300,12 +259,7 @@ function labyrinth(o: TraceLinkOptions, links: Uint8Array, idx: (x: number, y: n
 				const [dx, dy] = KING[d];
 				const j = idx(x + dx, y + dy);
 				if (j < 0 || visited[j]) continue;
-				if (dx !== 0 && dy !== 0) {
-					// The square's other diagonal, either way round.
-					const a = idx(x + dx, y);
-					const b = idx(x, y + dy);
-					if (links[a] & (1 << kingOf(-dx, dy)) || links[b] & (1 << kingOf(dx, -dy))) continue;
-				}
+				if (dx !== 0 && dy !== 0 && crossesDiagonal(x, y, d)) continue;
 				if (strict && thinWall(c, x, y, d)) continue;
 				// Straightness: the chance of carrying straight on among four ways (0.25 = no preference).
 				const turn = inDir[c] < 0 ? 1 : d === inDir[c] ? straight : (1 - straight) / 3;
@@ -347,14 +301,8 @@ function labyrinth(o: TraceLinkOptions, links: Uint8Array, idx: (x: number, y: n
 				const back = (d + 4) % 8;
 				const jx = j % nx;
 				const jy = Math.floor(j / nx);
-				if (dx !== 0 && dy !== 0) {
-					// A diagonal only where it keeps the rules and crosses nothing.
-					const a = idx(jx - dx, jy);
-					const b = idx(jx, jy - dy);
-					if (links[a] & (1 << kingOf(dx, -dy)) || links[b] & (1 << kingOf(-dx, dy)) || thinWall(j, jx, jy, back))
-						continue;
-					return [j, back];
-				}
+				// (A diagonal only where it crosses nothing.)
+				if (dx !== 0 && dy !== 0 && crossesDiagonal(jx, jy, back)) continue;
 				if (!thinWall(j, jx, jy, back)) return [j, back];
 			}
 			return null;

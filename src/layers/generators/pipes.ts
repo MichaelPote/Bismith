@@ -9,9 +9,16 @@ import { P } from '@/core/params';
 import type { ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
 import {
+	FLANGE_PROUD,
+	MAX_PIPE_PRIMS,
+	PRIM_ARC,
+	PRIM_COLLAR,
+	PRIM_FLANGE,
+	PRIM_LINE,
+	PRIM_ROW,
 	buildPrims,
+	drawnRuns,
 	encodePrims,
-	parseRuns,
 	randomRuns,
 	stackHeight,
 	type PipeOptions,
@@ -25,49 +32,7 @@ const isDrawn = (p: Record<string, unknown>) => p.layout === 'drawn';
 export function pipeRuns(q: ParamValues, o: PipeOptions): PipeRun[] {
 	const radius = Number(q.radius ?? 6);
 	const variety = Number(q.variety ?? 0.3);
-	if (q.layout === 'drawn') {
-		const lines = parseRuns(String(q.points ?? ''), q.units === 'fraction', o.width, o.height);
-		const inside = ([x, y]: [number, number]) => x > 0 && y > 0 && x < o.width && y < o.height;
-		const runs: PipeRun[] = lines.map((pts, i) => ({
-			points: pts,
-			radius: Math.max(1, radius * (1 + variety * 0.8 * (((i * 0.618034) % 1) - 0.5))),
-			depth: 0,
-			capStart: inside(pts[0]),
-			capEnd: inside(pts[pts.length - 1])
-		}));
-		// An end on another run tees into it.
-		const onRun = (pt: [number, number], self: number): { r: number; j: number } | undefined => {
-			for (let j = 0; j < runs.length; j++) {
-				if (j === self) continue;
-				const ps = runs[j].points;
-				for (let k = 0; k + 1 < ps.length; k++) {
-					const [ax, ay] = ps[k];
-					const [bx, by] = ps[k + 1];
-					const ex = bx - ax;
-					const ey = by - ay;
-					const t = Math.max(
-						0,
-						Math.min(1, ((pt[0] - ax) * ex + (pt[1] - ay) * ey) / Math.max(ex * ex + ey * ey, 1e-9))
-					);
-					if (Math.hypot(pt[0] - ax - ex * t, pt[1] - ay - ey * t) <= runs[j].radius) return { r: runs[j].radius, j };
-				}
-			}
-			return undefined;
-		};
-		runs.forEach((run, i) => {
-			const a = onRun(run.points[0], i);
-			const b = onRun(run.points[run.points.length - 1], i);
-			run.teeStart = a?.r;
-			run.teeEnd = b?.r;
-			run.joins = [a?.j, b?.j].filter((j): j is number => j !== undefined);
-			if (run.teeStart !== undefined) run.capStart = false;
-			if (run.teeEnd !== undefined) run.capEnd = false;
-			// A branch a little narrower than the pipe it joins meets it in a curved saddle (equal sizes show a sharp V).
-			const joins = Math.min(run.teeStart ?? Infinity, run.teeEnd ?? Infinity);
-			if (Number.isFinite(joins)) run.radius = Math.min(run.radius, joins * 0.85);
-		});
-		return runs;
-	}
+	if (q.layout === 'drawn') return drawnRuns(o, String(q.points ?? ''), q.units === 'fraction', radius, variety);
 	return randomRuns(o, {
 		runs: Math.round(Number(q.runs ?? 3)),
 		drops: Math.round(Number(q.drops ?? 2)),
@@ -161,7 +126,7 @@ export const pipeworkLayer: LayerDef = {
 		P.float('flanges', 'Flanges', 0.3, 0, 1, { step: 0.01, hint: 'Chance a coupling is a bolted flange' }),
 		P.float('collar', 'Collar size', 0.15, 0, 1, {
 			step: 0.01,
-			hint: 'How far collars stand proud (flanges twice that), in pipe radii'
+			hint: `How far collars stand proud (flanges ${FLANGE_PROUD} × that), in pipe radii`
 		}),
 		P.bool('elbow_fittings', 'Elbow collars', true),
 		P.float('fill', 'Liquid level', 0.5, 0, 1, {
@@ -186,23 +151,23 @@ export const pipeworkLayer: LayerDef = {
 			fill: Number(q.fill ?? 0.5)
 		};
 		const prims = buildPrims(pipeRuns(q, o), o);
-		// A stack taller than the default 4 × radius (density, runs lying over runs) is scaled to fit rather than having its
-		// front pipes clipped flat; one that fits keeps the default (0 in the header).
-		const top = stackHeight(prims);
-		return { pipes: encodePrims(prims, top > 4 * Math.max(Number(q.radius ?? 6), 0.5) ? top : 0) };
+		// Height for a value of 1: 4 × the pipe radius, or a taller stack (density, runs lying over runs) whole, scaled to
+		// fit rather than having its front pipes clipped flat.
+		return { pipes: encodePrims(prims, Math.max(stackHeight(prims), 4 * Math.max(Number(q.radius ?? 6), 0.5))) };
 	},
 	glsl: /* glsl */ `
+vec4 pp_fetch(int t) { return texelFetch(t_pipes, ivec2(t % ${PRIM_ROW}, t / ${PRIM_ROW}), 0); }
 float pp_u16(vec2 b) { return floor(b.x * 255.0 + 0.5) * 256.0 + floor(b.y * 255.0 + 0.5); }
 vec2 pp_pos(vec4 t) { return vec2(pp_u16(t.rg), pp_u16(t.ba)) / 8.0 - 4096.0; }
 float pp_ang(vec2 b, float range) { return (pp_u16(b) / 65535.0 * 2.0 - 1.0) * range; }
 
 GenOut gen(vec2 p) {
   vec2 q = vec2(p.x, uRes.y - p.y);
-  vec4 head = texelFetch(t_pipes, ivec2(0, 0), 0);
+  vec4 head = pp_fetch(0);
   int n = int(pp_u16(head.rg));
-  // Height for a value of 1: from the header when the layout set one (a dense stack), else 4 × the pipe radius.
-  float hn = pp_u16(head.ba) / 16.0;
-  float hnorm = hn > 0.0 ? hn : 4.0 * max(u_radius, 0.5);
+  // Lengths come in units of un px (a power of two: 1 unless the layout is very large); the height for a value of 1.
+  float un = pp_u16(pp_fetch(1).rg);
+  float hnorm = pp_u16(head.ba) / 16.0 * un;
   float sd = 1e4;
   float sdFit = 1e4;
   float sdTube = 1e4;
@@ -215,86 +180,92 @@ GenOut gen(vec2 p) {
   // Towards the (top-left) light, y down.
   const vec2 PP_D = vec2(-0.70710678, -0.70710678);
   float pid = 0.0;
+  // Coverage and Tubes only write the mask: its distances are needed all round the pipes, not only on them.
+  bool wantSd = u_output == 1 || u_output == 4;
   // Bevel aspect (Coverage, Tubes only): the same outlines measured in the space the aspect stretches (px of Bevel),
   // piece by piece — a length's sides by their normal, its ends and elbows by their direction, a fitting by its box's
   // sides — so where a tube meets a fitting face or a fitting's sides meet, the bevel turns without the step the
   // distance's own direction makes. Off at aspect 1: the wrapper's bevel, unchanged.
-  bool asp = bevelAspectOn() && (u_output == 1 || u_output == 4);
+  bool asp = bevelAspectOn() && wantSd;
   float sdTubeB = 1e4, sdFitB = 1e4;
-  for (int i = 0; i < 4096; i++) {
+  for (int i = 0; i < ${MAX_PIPE_PRIMS}; i++) {
     if (i >= n) break;
-    int t = 1 + 5 * i;
-    vec4 t0 = texelFetch(t_pipes, ivec2(t, 0), 0);
-    vec4 t1 = texelFetch(t_pipes, ivec2(t + 1, 0), 0);
-    vec4 t2 = texelFetch(t_pipes, ivec2(t + 2, 0), 0);
-    vec4 t3 = texelFetch(t_pipes, ivec2(t + 3, 0), 0);
-    vec4 t4 = texelFetch(t_pipes, ivec2(t + 4, 0), 0);
+    int t = 2 + 5 * i;
+    vec4 t0 = pp_fetch(t), t1 = pp_fetch(t + 1), t3 = pp_fetch(t + 3);
+    vec4 t2 = vec4(0.0);
     int kind = int(t3.r * 255.0 + 0.5);
-    float r = pp_u16(t3.ba) / 64.0;
-    float depth = pp_u16(t4.rg) / 16.0;
-    float level = pp_u16(t4.ba) / 8.0 - 4096.0;
-    vec2 a = pp_pos(t0);
-    float h = -1.0, cv = 0.0, ny = 0.0;
-    // Cross-section: offset from the axis over the radius (2D) and the axis normal, for Facing.
+    float r = pp_u16(t3.ba) / 64.0 * un;
+    vec2 a = pp_pos(t0) * un;
+    // Cross-section: offset from the axis over the radius (2D) and the axis normal, for Underside and Facing.
     vec2 off = vec2(0.0), an = vec2(0.0, 1.0);
-    if (kind == 0) {
-      // Straight length: distance to the centre line.
-      vec2 b = pp_pos(t1);
-      vec2 e = b - a;
-      float hs = clamp(dot(q - a, e) / max(dot(e, e), 1e-9), 0.0, 1.0);
-      vec2 c = a + e * hs;
-      vec2 dv = q - c;
-      float d = length(dv);
+    float d = 1e4;                                // a tube: distance to its axis
+    float u = 0.0, v = 0.0, hw = 0.0, ro = 0.0;   // a fitting: its frame, half width and outer radius
+    if (kind <= ${PRIM_ARC}) {
+      // A tube: the offset dv from its axis, and the bevel's direction nb.
+      vec2 dv, nb;
+      if (kind == ${PRIM_LINE}) {
+        // Straight length: distance to the centre line.
+        vec2 e = pp_pos(t1) * un - a;
+        float hs = clamp(dot(q - a, e) / max(dot(e, e), 1e-9), 0.0, 1.0);
+        dv = q - (a + e * hs);
+        d = length(dv);
+        nb = hs > 0.0 && hs < 1.0 ? vec2(-e.y, e.x) : dv;
+        an = normalize(vec2(-e.y, e.x));
+      } else {
+        // Elbow: an arc of the bend radius around its centre, within its sweep (the lengths' round ends close it).
+        t2 = pp_fetch(t + 2);
+        float rb = pp_u16(t1.rg) / 8.0 * un;
+        float a0 = pp_ang(t1.ba, 3.14159265);
+        float sw = pp_ang(t2.rg, 6.28318531);
+        vec2 dl = q - a;
+        float l = length(dl);
+        if (!wantSd && abs(l - rb) > r + 1.0) continue;
+        float ph = atan(dl.y, dl.x);
+        float rel = sw >= 0.0 ? mod(ph - a0, 6.28318531) : mod(a0 - ph, 6.28318531);
+        if (rel <= abs(sw)) d = abs(l - rb);
+        nb = dl;
+        an = dl / max(l, 1e-3);
+        dv = an * (l - rb);
+      }
       sd = min(sd, d - r);
       sdTube = min(sdTube, d - r);
-      if (asp) sdTubeB = min(sdTubeB, bevelLine(d - r, hs > 0.0 && hs < 1.0 ? vec2(-e.y, e.x) : dv));
+      if (asp) sdTubeB = min(sdTubeB, bevelLine(d - r, nb));
       if (d > r + 1.0) continue;
-      cv = clamp(r - d + 0.5, 0.0, 1.0);
-      if (d < r) h = depth + sqrt(r * r - d * d);
-      ny = dv.y / max(r, 1e-3);
       off = dv / max(r, 1e-3);
-      an = normalize(vec2(-e.y, e.x));
-    } else if (kind == 1) {
-      // Elbow: an arc of the bend radius around its centre.
-      float rb = pp_u16(t1.rg) / 8.0;
-      float a0 = pp_ang(t1.ba, 3.14159265);
-      float sw = pp_ang(t2.rg, 6.28318531);
-      vec2 dv = q - a;
-      float l = length(dv);
-      if (abs(l - rb) > r + 1.0) continue;
-      float ph = atan(dv.y, dv.x);
-      float rel = sw >= 0.0 ? mod(ph - a0, 6.28318531) : mod(a0 - ph, 6.28318531);
-      if (rel > abs(sw)) continue;
-      float d = abs(l - rb);
-      sd = min(sd, d - r);
-      sdTube = min(sdTube, d - r);
-      if (asp) sdTubeB = min(sdTubeB, bevelLine(d - r, dv));
-      cv = clamp(r - d + 0.5, 0.0, 1.0);
-      if (d < r) h = depth + sqrt(r * r - d * d);
-      ny = (dv.y / max(l, 1e-3)) * sign(l - rb) * d / max(r, 1e-3);
-      an = dv / max(l, 1e-3);
-      off = an * (l - rb) / max(r, 1e-3);
     } else {
       // Collar / flange: a short, wider cylinder around the axis. A flange is two plates (a groove between them)
       // with bolt heads standing on the rim.
+      t2 = pp_fetch(t + 2);
       float ax = pp_ang(t1.rg, 3.14159265);
-      float hw = pp_u16(t1.ba) / 64.0;
-      float ro = pp_u16(t2.rg) / 64.0;
+      hw = pp_u16(t1.ba) / 64.0 * un;
+      ro = pp_u16(t2.rg) / 64.0 * un;
       vec2 tx = vec2(cos(ax), sin(ax));
-      vec2 nx = vec2(-tx.y, tx.x);
+      an = vec2(-tx.y, tx.x);
       vec2 dv = q - a;
-      float u = dot(dv, tx), v = dot(dv, nx);
+      u = dot(dv, tx);
+      v = dot(dv, an);
       vec2 bx = abs(vec2(u, v)) - vec2(hw, ro);
       float sb = length(max(bx, 0.0)) + min(max(bx.x, bx.y), 0.0);
       sd = min(sd, sb);
       sdFit = min(sdFit, sb);
       // (Its sides' planes: exact inside the box and off its faces, where tubes meet it.)
-      if (asp) sdFitB = min(sdFitB, max(bevelLine(bx.x, tx), bevelLine(bx.y, nx)));
+      if (asp) sdFitB = min(sdFitB, max(bevelLine(bx.x, tx), bevelLine(bx.y, an)));
       if (bx.x > 1.0 || bx.y > 1.0) continue;
+      off = an * v / max(ro, 1e-3);
+    }
+    // Within a pixel of the piece: its coverage and surface.
+    vec4 t4 = pp_fetch(t + 4);
+    float depth = pp_u16(t4.rg) / 16.0 * un;
+    float h = -1.0, cv;
+    if (kind <= ${PRIM_ARC}) {
+      cv = clamp(r - d + 0.5, 0.0, 1.0);
+      if (d < r) h = depth + sqrt(r * r - d * d);
+    } else {
       cv = clamp(min(hw - abs(u), ro - abs(v)) + 0.5, 0.0, 1.0);
+      if (cv <= 0.0) continue;
       if (abs(u) <= hw && abs(v) <= ro) {
         h = depth + sqrt(max(ro * ro - v * v, 0.0)) * (0.88 + 0.12 * clamp(hw - abs(u), 0.0, 1.0));
-        if (kind == 3) {
+        if (kind == ${PRIM_FLANGE}) {
           h -= 0.1 * ro * (1.0 - clamp(abs(u) * 1.5, 0.0, 1.0));
           // Bolt heads around the rim, seen edge-on: a row of small bumps — a ridged ring.
           float bs = max(0.7, min(0.15 * ro, 0.8 * hw));
@@ -305,23 +276,19 @@ GenOut gen(vec2 p) {
           }
         }
       }
-      if (cv <= 0.0) continue;
-      ny = v * nx.y / max(ro, 1e-3);
-      an = nx;
-      off = nx * v / max(ro, 1e-3);
     }
     cover = max(cover, cv);
     if (h > best) {
       best = h;
-      fit = kind >= 2 ? 1.0 : 0.0;
-      under = 0.5 + 0.5 * clamp(ny, -1.0, 1.0);
-      liq = clamp(q.y - level + 0.5, 0.0, 1.0);
+      fit = kind >= ${PRIM_COLLAR} ? 1.0 : 0.0;
+      under = 0.5 + 0.5 * clamp(off.y, -1.0, 1.0);
+      liq = clamp(q.y - (pp_u16(t4.ba) / 8.0 - 4096.0) * un + 0.5, 0.0, 1.0);
       facing = 0.5 + 0.5 * clamp(dot(off, PP_D) / max(abs(dot(an, PP_D)), 0.3), -1.0, 1.0);
-      pid = pp_u16(t2.ba);
+      pid = pp_u16((kind == ${PRIM_LINE} ? pp_fetch(t + 2) : t2).ba);
     }
   }
   float rnd = hashI(ivec2(int(pid), 3), uSeed);
-  if (u_output == 1 || u_output == 4) {
+  if (wantSd) {
     // Coverage; Tubes: the straight lengths and elbows, less the fittings over them.
     GenOut g = genOut(1.0, 1.0, rnd, u_output == 1 ? sd : max(sdTube, -sdFit));
     if (asp) g.bdist = u_output == 1 ? min(sdTubeB, sdFitB) : max(sdTubeB, -sdFitB);

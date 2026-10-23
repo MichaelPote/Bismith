@@ -1,13 +1,13 @@
 // Stamp and Label (FR7.5): hand-drawn pixel bitmaps and pixel-font text as shapes — crate insignia, painted
-// emblems, panel numbers and warning lettering that no procedural motif can reproduce. Path and Polyline: polygons
-// and open lines from vertex lists (the shape editor draws them).
+// emblems, panel numbers and warning lettering that no procedural motif can reproduce. (Path and Polyline, shapes from
+// vertex lists: paths.ts.)
 //
-// Stamp / Label: the CPU lays out the bitmap (mirror, text in one of two pixel fonts) and stores, per cell, the nearest
+// The CPU lays out the bitmap (mirror, text in one of two pixel fonts) and stores, per cell, the nearest
 // cell of the other state (a jump flood), so the shader's signed distance — to the nearest cell of the other state —
 // is exact at any bevel width from nine lookups. The cell level (1..3) is the per-feature random, so a Per-feature
 // colour ramp paints multi-tone bitmaps; repeats can carry their own random instead.
 
-import { MAX_PATH_POINTS, parsePolygons, textBitmap } from '@/core/bitmap';
+import { FONT, parseBitmap } from '@/core/bitmap';
 import { P, type ParamDef, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
 import { getImage } from '@/core/images';
@@ -27,27 +27,10 @@ export const STAMP_MAX = 128;
 export const LABEL_MAX_W = 256;
 export const LABEL_MAX_H = 128;
 
-/** Cell character → level: '.', ' ', '0' empty · '-', '1' low · '+', '2' mid · anything else full. */
-const levelOf = (ch: string) =>
-	ch === '.' || ch === ' ' || ch === '0' ? 0 : ch === '-' || ch === '1' ? 1 : ch === '+' || ch === '2' ? 2 : 3;
-
-/** Rows of cell characters (one row per line; blank lines at either end dropped). */
+/** Rows of cell characters (one row per line; blank lines at either end dropped): core/bitmap's parser. */
 export function parseCells(src: string): Cells {
-	const all = src.replace(/\r/g, '').split('\n');
-	let a = 0;
-	let b = all.length;
-	while (a < b && all[a].trim() === '') a++;
-	while (b > a && all[b - 1].trim() === '') b--;
-	const rows = all.slice(a, b).slice(0, STAMP_MAX);
-	const w = Math.min(
-		STAMP_MAX,
-		rows.reduce((m, r) => Math.max(m, r.replace(/\s+$/, '').length), 0)
-	);
-	const lv = new Uint8Array(w * rows.length);
-	rows.forEach((r, y) => {
-		for (let x = 0; x < Math.min(w, r.length); x++) lv[y * w + x] = levelOf(r[x]);
-	});
-	return { w, h: rows.length, lv };
+	const b = parseBitmap(src, STAMP_MAX);
+	return { w: b.width, h: b.height, lv: b.levels };
 }
 
 /** The right half reflected from the left: 'odd' shares the centre column, 'even' doesn't. */
@@ -60,7 +43,6 @@ export function mirrorCells(c: Cells, mode: unknown): Cells {
 }
 
 // The small font (3 × 5, 5 × 5 for M and W) is the core one (core/bitmap.ts); these glyphs fill in what it lacks.
-const SMALL_CORE = new Set('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ -.:/!+=#');
 const SMALL_EXTRA: Record<string, string> = {
 	',': '../../../.#/#.',
 	';': '../.#/../.#/#.',
@@ -188,7 +170,6 @@ const LARGE: Record<string, string> = {
 };
 const LARGE_UNKNOWN = '#####/#...#/#...#/#...#/#...#/#...#/#####';
 
-/** A glyph's rows ('#' set). The small font upper-cases (it has no lower case); unknown characters get a box. */
 /** Every hand-drawn glyph table (for tests: rectangular rows, 5 or 7–8 of them). */
 export const GLYPH_TABLES: Record<string, Record<string, string>> = {
 	large: LARGE,
@@ -196,15 +177,26 @@ export const GLYPH_TABLES: Record<string, Record<string, string>> = {
 	smallStroke: SMALL_STROKE
 };
 
+/**
+ * A glyph's rows ('#' set). The small font upper-cases (it has no lower case); unknown characters get a box (the
+ * small font: its '#').
+ */
 function glyphRows(ch: string, font: 'small' | 'large', strokes = false): string[] {
 	if (font === 'large') return (LARGE[ch] ?? LARGE[ch.toUpperCase()] ?? LARGE_UNKNOWN).split('/');
 	const u = ch.toUpperCase();
-	if (strokes && SMALL_STROKE[u]) return SMALL_STROKE[u].split('/');
-	if (!SMALL_CORE.has(u) && SMALL_EXTRA[u]) return SMALL_EXTRA[u].split('/');
-	const b = textBitmap(u);
-	return Array.from({ length: b.height }, (_, y) =>
-		Array.from({ length: b.width }, (_, x) => (b.levels[y * b.width + x] ? '#' : '.')).join('')
-	);
+	return ((strokes && SMALL_STROKE[u]) || (FONT[u] ?? SMALL_EXTRA[u] ?? FONT['#'])).split('/');
+}
+
+/**
+ * One row of bold: each cell the highest of itself and the `k` cells to its left, `w` cells (past the row's end:
+ * empty).
+ */
+function boldRow(row: ArrayLike<number>, k: number, w: number): number[] {
+	return Array.from({ length: w }, (_, x) => {
+		let v = 0;
+		for (let j = 0; j <= k; j++) if (x - j >= 0 && x - j < row.length) v = Math.max(v, row[x - j]);
+		return v;
+	});
 }
 
 export interface TextLayout {
@@ -227,9 +219,16 @@ export function textCells(text: string, o: TextLayout = {}): Cells {
 	const font = o.font === 'large' ? 'large' : 'small';
 	const gap = Math.max(0, Math.round(o.spacing ?? 1));
 	const lineGap = Math.max(0, Math.round(o.lineGap ?? 1));
+	// Bold: a cell wider (only the advance with boldAdvanceOnly).
 	const embolden = (g: string[]) =>
 		g.map((r) =>
-			[...r, '.'].map((ch, x) => (ch === '#' || (!o.boldAdvanceOnly && r[x - 1] === '#') ? '#' : '.')).join('')
+			boldRow(
+				[...r].map((ch) => (ch === '#' ? 1 : 0)),
+				o.boldAdvanceOnly ? 0 : 1,
+				r.length + 1
+			)
+				.map((v) => (v ? '#' : '.'))
+				.join('')
 		);
 	const lines = text
 		.replace(/\r/g, '')
@@ -262,17 +261,6 @@ export function textCells(text: string, o: TextLayout = {}): Cells {
 		}
 	});
 	return { w, h, lv };
-}
-
-/** Bold lettering: every set cell also sets the one to its right (one cell wider). */
-export function boldCells(c: Cells): Cells {
-	if (c.w === 0) return c;
-	const w = c.w + 1;
-	const lv = new Uint8Array(w * c.h);
-	for (let y = 0; y < c.h; y++)
-		for (let x = 0; x < w; x++)
-			lv[y * w + x] = Math.max(x < c.w ? c.lv[y * c.w + x] : 0, x > 0 ? c.lv[y * c.w + x - 1] : 0);
-	return { w, h: c.h, lv };
 }
 
 /**
@@ -318,10 +306,8 @@ export function bridgeCells(c: Cells): Cells {
 
 /** Bold on the bitmap: every set cell also sets the `k` cells to its right (the advance was widened for it). */
 function emboldenCells(c: Cells, k: number): Cells {
-	const lv = new Uint8Array(c.lv);
-	for (let y = 0; y < c.h; y++)
-		for (let x = c.w - 1; x >= 0; x--)
-			for (let j = 1; j <= k; j++) if (x - j >= 0) lv[y * c.w + x] = Math.max(lv[y * c.w + x], c.lv[y * c.w + x - j]);
+	const lv = new Uint8Array(c.lv.length);
+	for (let y = 0; y < c.h; y++) lv.set(boldRow(c.lv.subarray(y * c.w, (y + 1) * c.w), k, c.w), y * c.w);
 	return { w: c.w, h: c.h, lv };
 }
 
@@ -376,19 +362,24 @@ function outlineLoops(c: Cells): [number, number][][] {
 	return loops;
 }
 
-/** Chaikin corner cutting of closed loops: `r` of each edge cut off at either end (0.25 → a quadratic B-spline). */
-function chaikin(loops: [number, number][][], r: number, iterations: number): [number, number][][] {
+/**
+ * Chaikin corner cutting: `r` of each edge cut off at either end (0.25 → a quadratic B-spline). Closed loops, or open
+ * runs (`closed` false), whose first and last points stay and whose end edges are cut at their inner end only.
+ */
+function chaikin(loops: [number, number][][], r: number, iterations: number, closed = true): [number, number][][] {
 	let ls = loops;
 	for (let it = 0; it < iterations; it++)
-		ls = ls.map((l) =>
-			l.flatMap(([ax, ay], i) => {
-				const [bx, by] = l[(i + 1) % l.length];
-				return [
-					[ax + (bx - ax) * r, ay + (by - ay) * r],
-					[ax + (bx - ax) * (1 - r), ay + (by - ay) * (1 - r)]
-				] as [number, number][];
-			})
-		);
+		ls = ls.map((l) => {
+			const L = l.length;
+			const cut = l.slice(0, closed ? L : L - 1).flatMap(([ax, ay], i) => {
+				const [bx, by] = l[(i + 1) % L];
+				const out: [number, number][] = [];
+				if (closed || i > 0) out.push([ax + (bx - ax) * r, ay + (by - ay) * r]);
+				if (closed || i < L - 2) out.push([ax + (bx - ax) * (1 - r), ay + (by - ay) * (1 - r)]);
+				return out;
+			});
+			return closed ? cut : [l[0], ...cut, l[L - 1]];
+		});
 	return ls;
 }
 
@@ -555,16 +546,16 @@ export function smoothCells(c: Cells, amount: number, N: number, margin: number)
 	const w = (c.w + 2 * margin) * N;
 	const h = (c.h + 2 * margin) * N;
 	const lv = new Uint8Array(w * h);
-	let prev = '';
+	let prev: Uint8Array | null = null;
 	for (let L = 1; L <= 3; L++) {
 		const at = c.lv.map((v) => (v >= L ? 1 : 0));
-		const sig = at.join('');
 		if (!at.some((v) => v)) break;
-		if (sig !== prev) {
+		// The same area as the level below: no new edge, the cells just step up.
+		if (!prev || at.some((v, i) => v !== prev![i])) {
 			const m = fillLoops(smoothLoops({ w: c.w, h: c.h, lv: at }, amount), w, h, N, margin);
 			for (let i = 0; i < w * h; i++) if (m[i] && (L === 1 || lv[i])) lv[i] = L;
 		} else for (let i = 0; i < w * h; i++) if (lv[i] === L - 1) lv[i] = L;
-		prev = sig;
+		prev = at;
 	}
 	return { w, h, lv };
 }
@@ -761,20 +752,7 @@ export function strokeCells(
 		}
 		// Smooth outline beyond 1: the stroke's own corners cut into curves (Chaikin on its centre line; a run's ends and a
 		// stroke's ends stay), so bends round off inside and out, with no bulge.
-		if (round > 0 && fitted.length > 2)
-			for (let it = 0; it < 3; it++) {
-				const q = fitted;
-				const L = q.length;
-				const out2: Pt[] = ch.closed ? [] : [q[0]];
-				for (let j = 0; j < (ch.closed ? L : L - 1); j++) {
-					const [ax, ay] = q[j];
-					const [bx, by] = q[(j + 1) % L];
-					if (ch.closed || j > 0) out2.push([ax + (bx - ax) * round, ay + (by - ay) * round]);
-					if (ch.closed || j < L - 2) out2.push([ax + (bx - ax) * (1 - round), ay + (by - ay) * (1 - round)]);
-				}
-				if (!ch.closed) out2.push(q[L - 1]);
-				fitted = out2;
-			}
+		if (round > 0 && fitted.length > 2) fitted = chaikin([fitted], round, 3, ch.closed)[0];
 		const fn = fitted.length;
 		for (let j = 0; j + 1 < (ch.closed ? fn + 1 : fn); j++) segs.push([fitted[j], fitted[(j + 1) % fn]]);
 	}
@@ -797,9 +775,10 @@ export function strokeCells(
 		// Shifted by half the extra width, so the letter stays in its widened advance.
 		const ax = ax0 + hb;
 		const bx = bx0 + hb;
-		const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - hb + margin - margin) * N));
+		// The fine cells within `margin` cells of the stroke (fine cell i is at (i + 0.5) / N − margin).
+		const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - hb) * N));
 		const i1 = Math.min(w - 1, Math.ceil((Math.max(ax, bx) + hb + 2 * margin) * N));
-		const j0 = Math.max(0, Math.floor((Math.min(ay, by) + margin - margin) * N));
+		const j0 = Math.max(0, Math.floor(Math.min(ay, by) * N));
 		const j1 = Math.min(h - 1, Math.ceil((Math.max(ay, by) + 2 * margin) * N));
 		for (let j = j0; j <= j1; j++)
 			for (let i = i0; i <= i1; i++) {
@@ -833,11 +812,6 @@ function nearestCells(W: number, H: number, target: (i: number) => boolean): Int
 	let cur = new Int32Array(W * H).fill(-1);
 	let nxt = new Int32Array(W * H);
 	for (let i = 0; i < W * H; i++) if (target(i)) cur[i] = i;
-	const dist = (x: number, y: number, s: number) => {
-		const dx = Math.max(Math.abs(x - (s % W)) - 0.5, 0);
-		const dy = Math.max(Math.abs(y - Math.floor(s / W)) - 0.5, 0);
-		return dx * dx + dy * dy;
-	};
 	const steps: number[] = [];
 	for (let k = 1 << Math.ceil(Math.log2(Math.max(W, H, 2))); k >= 1; k >>= 1) steps.push(k);
 	steps.push(1);
@@ -845,7 +819,7 @@ function nearestCells(W: number, H: number, target: (i: number) => boolean): Int
 		for (let y = 0; y < H; y++)
 			for (let x = 0; x < W; x++) {
 				let best = cur[y * W + x];
-				let bd = best >= 0 ? dist(x, y, best) : Infinity;
+				let bd = best >= 0 ? cellDist2(W, x, y, best) : Infinity;
 				for (let dy = -k; dy <= k; dy += k)
 					for (let dx = -k; dx <= k; dx += k) {
 						const nx = x + dx;
@@ -853,7 +827,7 @@ function nearestCells(W: number, H: number, target: (i: number) => boolean): Int
 						if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
 						const s = cur[ny * W + nx];
 						if (s < 0 || s === best) continue;
-						const d = dist(x, y, s);
+						const d = cellDist2(W, x, y, s);
 						if (d < bd) {
 							bd = d;
 							best = s;
@@ -866,11 +840,22 @@ function nearestCells(W: number, H: number, target: (i: number) => boolean): Int
 	return cur;
 }
 
-/** Squared distance from the centre of cell i to the square of cell s (cells of a W-wide grid). */
-function cellDist2(W: number, i: number, s: number): number {
-	const dx = Math.max(Math.abs((i % W) - (s % W)) - 0.5, 0);
-	const dy = Math.max(Math.abs(Math.floor(i / W) - Math.floor(s / W)) - 0.5, 0);
+/** Squared distance from the centre of cell (x, y) to the square of cell s (cells of a W-wide grid). */
+function cellDist2(W: number, x: number, y: number, s: number): number {
+	const dx = Math.max(Math.abs(x - (s % W)) - 0.5, 0);
+	const dy = Math.max(Math.abs(y - Math.floor(s / W)) - 0.5, 0);
 	return dx * dx + dy * dy;
+}
+
+/** The distance from the centre of cell i to the square of cell s, signed (negative inside). */
+const cellDist = (W: number, i: number, s: number, inside: boolean) =>
+	Math.sqrt(cellDist2(W, i % W, Math.floor(i / W), s)) * (inside ? -1 : 1);
+
+/** A bitmap's levels as a short key: its size and a 32-bit FNV-1a hash of the cells. */
+function cellsKey(c: Cells): string {
+	let h = 0x811c9dc5;
+	for (let i = 0; i < c.lv.length; i++) h = Math.imul(h ^ c.lv[i], 0x01000193);
+	return `${c.w}x${c.h}#${(h >>> 0).toString(36)}`;
 }
 
 export interface StampMap {
@@ -905,7 +890,8 @@ function stampGrid(c: Cells, o: StampMap): Grid {
 	const smooth = (o.smooth ?? 0) > 0;
 	const N = smooth ? Math.max(1, Math.round(o.fine ?? 4)) : 1;
 	const M = o.margin * N;
-	const key = `${c.w}:${c.h}:${o.margin}:${smooth ? `${o.smooth}:${N}` : 0}:${o.strokes ? `s${o.strokes.bold}` : ''}:${c.lv.join('')}`;
+	// (pre too: the texture's header holds it.)
+	const key = `${cellsKey(c)}:${o.margin}:${o.pre ?? 1}:${smooth ? `${o.smooth}:${N}` : 0}:${o.strokes ? `s${o.strokes.bold}` : ''}`;
 	const hit = gridCache.get(key);
 	if (hit) return hit;
 	let g: Grid;
@@ -935,8 +921,14 @@ const texCache = new WeakMap<Grid, CpuTexture>();
 const lvCache = new WeakMap<Grid, CpuTexture>();
 const EMPTY_TEX: CpuTexture = { width: 2, height: 1, data: new Uint8Array(8) };
 const hasCells = (c: Cells) => c.w > 0 && c.h > 0 && c.lv.some((v) => v > 0);
-/** A signed distance in cells as 16 bits, 1/16 cell steps. */
-const fix16 = (d: number) => Math.max(-32768, Math.min(32767, Math.round(d * 16))) & 0xffff;
+/** A signed distance in cells as 16 bits, 1/16 cell steps, into data[at] (low byte) and data[at + 1]. */
+function put16(data: Uint8Array, at: number, d: number): void {
+	const v = Math.max(-32768, Math.min(32767, Math.round(d * 16))) & 0xffff;
+	data[at] = v & 255;
+	data[at + 1] = v >> 8;
+}
+/** A cell's x and y (12 bits each) as three bytes: their low bytes, then their high nibbles (stm_cell decodes it). */
+const packCell = (x: number, y: number) => [x & 255, y & 255, ((x >> 8) & 15) | (((y >> 8) & 15) << 4)];
 
 /**
  * The shader's data texture: the bitmap with a margin of empty cells round it, one texel per cell, R = level (bits
@@ -962,24 +954,13 @@ export function stampTexture(c: Cells, o: StampMap): CpuTexture {
 			if (sdf) {
 				// Strokes: one level, their exact distance.
 				data[t] = lv[i] | (3 << 2);
-				const v = fix16(sdf[i]);
-				data[t + 1] = v & 255;
-				data[t + 2] = v >> 8;
+				put16(data, t + 1, sdf[i]);
 				continue;
 			}
 			const n = lv[i] > 0 ? toEmpty[i] : toFilled[i];
 			data[t] = lv[i] | ((n >= 0 ? lv[n] : 0) << 2);
-			if (smooth) {
-				const v = fix16(n >= 0 ? Math.sqrt(cellDist2(W, i, n)) * (lv[i] > 0 ? -1 : 1) : 0);
-				data[t + 1] = v & 255;
-				data[t + 2] = v >> 8;
-			} else {
-				const nx = n >= 0 ? n % W : x;
-				const ny = n >= 0 ? Math.floor(n / W) : y;
-				data[t + 1] = nx & 255;
-				data[t + 2] = ny & 255;
-				data[t + 3] = ((nx >> 8) & 15) | (((ny >> 8) & 15) << 4);
-			}
+			if (smooth) put16(data, t + 1, n >= 0 ? cellDist(W, i, n, lv[i] > 0) : 0);
+			else data.set(n >= 0 ? packCell(n % W, Math.floor(n / W)) : packCell(x, y), t + 1);
 		}
 	const bw = c.w * N;
 	const bh = c.h * N;
@@ -1010,20 +991,11 @@ export function levelTexture(c: Cells, o: StampMap): CpuTexture {
 		const above = any ? nearestCells(W, H, (i) => lv[i] >= L) : null;
 		for (let i = 0; i < W * H; i++) {
 			const n = !below || !above ? -1 : lv[i] >= L ? below[i] : above[i];
-			if (smooth) {
-				const v = fix16(n < 0 ? 2047 : Math.sqrt(cellDist2(W, i, n)) * (lv[i] >= L ? -1 : 1));
-				data[i * 4 + (L - 2) * 2] = v & 255;
-				data[i * 4 + (L - 2) * 2 + 1] = v >> 8;
-			} else {
-				const x = i % W;
-				const y = Math.floor(i / W);
-				const nx = n >= 0 ? n % W : x;
-				const ny = n >= 0 ? Math.floor(n / W) : y;
-				const t = (y * W * 2 + x * 2 + L - 2) * 4;
-				data.set(
-					[nx & 255, ny & 255, ((nx >> 8) & 15) | (((ny >> 8) & 15) << 4), (lv[i] >= L ? 1 : 0) | (any ? 2 : 0)],
-					t
-				);
+			if (smooth) put16(data, i * 4 + (L - 2) * 2, n < 0 ? 2047 : cellDist(W, i, n, lv[i] >= L));
+			else {
+				// Texel x·2 + L − 2 of row y: the nearest cell across the edge (itself when there is none).
+				const m = n >= 0 ? n : i;
+				data.set([...packCell(m % W, Math.floor(m / W)), (lv[i] >= L ? 1 : 0) | (any ? 2 : 0)], (i * 2 + L - 2) * 4);
 			}
 		}
 	}
@@ -1040,18 +1012,26 @@ function marginFor(q: ParamValues): number {
 	return m;
 }
 
+interface LayerMaps {
+	/** Label with Join diagonals and Smooth outline ≥ 1: lettering as strokes (bold drawn by the pen). */
+	strokes?: boolean;
+	/** Label with Join diagonals: Bold applied here, after the join (textCells only widened the advance). */
+	boldLate?: boolean;
+	/** Stamp: the `lv` texture too (Level relief, anti-aliased level colours) — 1 × 1 when the bitmap doesn't need it. */
+	levels?: boolean;
+}
+
 /**
- * A layer's data textures (`stamp`, and `lv` for Level relief — 1 × 1 when off): its margin, and for a smoothed
- * outline a grid fine enough for ~1 px cells.
+ * A layer's data textures (`stamp`, and with `levels` the `lv` one): its margin, and for a smoothed outline a grid
+ * fine enough for ~1 px cells.
  */
-function layerTextures(c0: Cells, q: ParamValues): Record<string, CpuTexture> {
-	// Label with Join diagonals and Smooth outline ≥ 1: lettering as strokes (bold drawn by the pen).
-	const strokes = Boolean(q._strokes) && Boolean(q.join) && Number(q.smooth ?? 0) >= 1;
+function layerTextures(c0: Cells, q: ParamValues, opts: LayerMaps = {}): Record<string, CpuTexture> {
+	const strokes = Boolean(opts.strokes);
 	// Join diagonals: half-cells with the corner bridges, then (Label) bold — after the join, so bold diagonals stay
 	// even.
 	const pre = q.join && !strokes ? 2 : 1;
 	const joined = pre > 1 ? bridgeCells(c0) : c0;
-	const c = q.bold && q._boldLate && !strokes ? emboldenCells(joined, pre) : joined;
+	const c = q.bold && opts.boldLate && !strokes ? emboldenCells(joined, pre) : joined;
 	const margin = marginFor(q) * pre;
 	const smooth = Math.min(4, Math.max(0, Number(q.smooth ?? 0)));
 	const want = Math.ceil(Math.max(0.01, Number(q.scale ?? 1)) / pre / 1.25);
@@ -1066,6 +1046,7 @@ function layerTextures(c0: Cells, q: ParamValues): Record<string, CpuTexture> {
 					...(strokes ? { strokes: { bold: q.bold ? 1 : 0 } } : {})
 				}
 			: { margin, pre };
+	if (!opts.levels) return { stamp: stampTexture(c, o) };
 	// Level edges: for Level relief, and for anti-aliased level colours (Random per level) — only with two levels or more.
 	const levels = new Set(c.lv).size - (c.lv.includes(0) ? 1 : 0);
 	const wantLv = levels > 1 && (Number(q.lvl_h ?? 0) > 0 || (q.aa !== false && q.rnd_by !== 'instance'));
@@ -1230,10 +1211,6 @@ const placement: ParamDef[] = [
 
 const stampGroups = [{ id: 'repeat', label: 'Repeat', collapsed: true }];
 
-/** Layers saved before Spacing existed spaced their repeats by Step X / Y: they keep that meaning. */
-const migrateSpacing = (p: ParamValues): ParamValues =>
-	'step_by' in p || !('step_x' in p || 'step_y' in p) ? p : { ...p, step_by: 'step' };
-
 const defaults = {
 	bevel: 0.5,
 	profile: 'linear',
@@ -1260,9 +1237,13 @@ function freshStamp(texture: { width: number; height: number }, cells: number): 
 }
 
 const STAMP_GLSL = /* glsl */ `
-// 1, read from a uniform: loops bounded by it are not unrolled by D3D (see ORG_1 in organicShared).
-#define STM_1 (uRes.x > 0.0 ? 1 : 0)
 ivec4 stm_t(ivec2 c) { return ivec4(texelFetch(t_stamp, c, 0) * 255.0 + 0.5); }
+// A stored distance (put16: signed 16 bits, 1/16 cell) from its low and high bytes.
+float stm_s16(int lo, int hi) { int raw = lo + hi * 256; return float(raw >= 32768 ? raw - 65536 : raw) / 16.0; }
+// Bilinear between four corner values (x, y the top pair, z, w the bottom) at f.
+float stm_bilin(vec4 s, vec2 f) { return mix(mix(s.x, s.y, f.x), mix(s.z, s.w, f.x), f.y); }
+// A cell stored by packCell: the low bytes of x and y, then their high nibbles.
+ivec2 stm_cell(ivec3 t) { return ivec2(t.x + (t.z & 15) * 256, t.y + (t.z >> 4) * 256); }
 #ifdef STAMP_IMAGE
 // Stamp › Image file: the image's colour (sRGB, straight alpha) at bitmap position b — the pixel itself, or bilinear
 // (Smooth image; mixed premultiplied, so transparent pixels don't darken the edge).
@@ -1281,8 +1262,6 @@ vec4 stm_image(vec2 b, vec2 dims) {
   return vec4(c.a > 1e-4 ? c.rgb / c.a : vec3(0.0), c.a);
 }
 #endif
-// The bevel's rise at signed distance d (px) — Bevel and Profile as the wrapper draws them (flat: 1 inside).
-float stm_bev(float d) { return u_bevel <= 0.0 || u_profile == 0 ? (d <= 0.0 ? 1.0 : 0.0) : profileCurve(u_profile, max(-d, 0.0) / u_bevel); }
 
 // Bevel aspect: the squared distance from b to the unit cell box at lo (bitmap cells, b outside it) in the stretched
 // space Mb maps cell offsets into — to its two faces on b's side (turned by Angle, the box is a parallelogram there and
@@ -1293,17 +1272,6 @@ float stm_box2(vec2 b, vec2 lo, mat2 Mb) {
   vec2 vx = ax + Mb[1] * clamp(-dot(ax, Mb[1]) / dot(Mb[1], Mb[1]), 0.0, 1.0);
   vec2 vy = ay + Mb[0] * clamp(-dot(ay, Mb[0]) / dot(Mb[0], Mb[0]), 0.0, 1.0);
   return min(dot(vx, vx), dot(vy, vy));
-}
-
-// The repeats a coordinate may touch along one axis: f = its position in steps from the first repeat, e = the reach of
-// one repeat in steps; the nearest one when none reaches. At most three.
-ivec2 stm_range(float f, float e, float n) {
-  float lo = ceil(f - e);
-  float hi = floor(f + e);
-  if (lo > hi) { lo = floor(f + 0.5); hi = lo; }
-  lo = clamp(lo, 0.0, n - 1.0);
-  hi = clamp(hi, lo, min(n - 1.0, lo + 2.0));
-  return ivec2(lo, hi);
 }
 
 GenOut gen(vec2 p) {
@@ -1327,25 +1295,34 @@ GenOut gen(vec2 p) {
   // How far one repeat reaches from its centre (px).
   vec2 ext = (turned ? vec2(length(hs)) : hs) + max(u_grow, 0.0) + u_jitter + 1.0;
 
-  // Positions with y down from the top; the offset from the centre wraps on tileable projects.
+  // Positions with y down from the top.
   vec2 q = vec2(p.x, uRes.y - p.y);
   vec2 centre = vec2(u_x, u_y) * uRes;
-  vec2 dq = q - centre;
-  if (uTile) dq -= uRes * floor(dq / uRes + 0.5);
-  vec2 cnt = vec2(float(u_count_x), float(u_count_y));
+  ivec2 cnt = ivec2(u_count_x, u_count_y);
   // Spacing by gap: the repeat's extent (its bounding box when turned) plus the gap.
   vec2 box = turned ? vec2(abs(ca) * hs.x + abs(sa) * hs.y, abs(sa) * hs.x + abs(ca) * hs.y) * 2.0 : hs * 2.0;
   vec2 stp = u_step_by == 1 ? max(box + vec2(u_gap_x, u_gap_y) * max(u_scale, 0.01), 0.0) : vec2(u_step_x, u_step_y);
   vec2 ss = max(stp, 1e-3);
-  vec2 c0 = (cnt - 1.0) * 0.5;
-  vec2 e = ext / ss;
-  // Tileable: also the repeats a texture away (the far end of a grid wraps round to this side).
-  bool altX = uTile && cnt.x > 1.0;
-  ivec2 ry0 = stm_range(dq.y / ss.y + c0.y, e.y, cnt.y);
-  ivec2 ry1 = uTile && cnt.y > 1.0 ? stm_range((dq.y - uRes.y * sign(dq.y)) / ss.y + c0.y, e.y, cnt.y) : ivec2(1, 0);
+  vec2 c0 = vec2(cnt - 1) * 0.5;
+  // The repeats that may reach here, round the torus when tiling (repGrid, in this y-down space). Row shift moves each
+  // row its own way: the window reaches as far across as the rows it covers are shifted.
+  vec2 sh = vec2(0.0);
+  if (u_skew != 0.0 && cnt.y > 1) {
+    RepGrid ry = repGrid(ivec2(1, cnt.y), ss, centre, uRes, uTile, q - ext, q + ext);
+    sh = vec2(1e9, -1e9);
+    for (int k = 0; k < repCount(ry); k++) {
+      ivec2 cw;
+      vec2 pos;
+      repAt(ry, k, cw, pos);
+      float s = (float(cw.y) - c0.y) * u_skew;
+      sh = vec2(min(sh.x, s), max(sh.y, s));
+    }
+  }
+  RepGrid rg = repGrid(cnt, ss, centre, uRes, uTile, q - ext - vec2(sh.y, 0.0), q + ext - vec2(sh.x, 0.0));
+  int nr = repCount(rg);
 
-  // Every repeat that may reach here (overlapping repeats merge): rows from both ranges, up to three repeats per row
-  // from each of its two x ranges — one flat loop.
+  // Every repeat in reach (overlapping repeats merge), or the nearest one when none is: one flat loop, the last turn
+  // for that nearest one.
   float best = 1e9;
   int bestLv = 0;
   ivec2 bestId = ivec2(0);
@@ -1356,7 +1333,6 @@ GenOut gen(vec2 p) {
   float dep1 = 0.0;
   float dep2 = 0.0;
   vec2 cen1 = vec2(1e9);
-  vec2 cen2 = vec2(-1e9);
   // Bevel aspect (GLSL_BEVEL) on the exact outline: the distance in the space the aspect stretches, to the same cells
   // (a cell offset → screen px → × Bevel / its width per screen axis), so the bevels meet in clean mitres. Mb maps a
   // bitmap-cell offset there: undo the quarter turns, cells → px, undo Angle. (Even strokes cap each axis' width at 0.4
@@ -1373,27 +1349,31 @@ GenOut gen(vec2 p) {
   float bestS = 1e9;
   float sdep1 = 0.0;
   float sdep2 = 0.0;
-  for (int k = 0; k < 36 * STM_1; k++) {
+  bool reached = false;
+  float farD = 1e20;
+  ivec2 farId = ivec2(-1);
+  vec2 farC = vec2(0.0);
+  for (int k = 0; k <= nr; k++) {
     // (No continue: ANGLE / D3D11 can miscompile it in a loop — the body is skipped by a flag instead.)
-    int ky = k / 6;
-    int kx = k - ky * 6;
-    int iy = ky < 3 ? ry0.x + ky : ry1.x + ky - 3;
-    bool use = ky < 3 ? iy <= ry0.y : (iy <= ry1.y && (iy < ry0.x || iy > ry0.y));
-    float shift = (float(iy) - c0.y) * u_skew;
-    ivec2 rx0 = stm_range((dq.x - shift) / ss.x + c0.x, e.x, cnt.x);
-    ivec2 rx1 = altX ? stm_range((dq.x - uRes.x * sign(dq.x) - shift) / ss.x + c0.x, e.x, cnt.x) : ivec2(1, 0);
-    int ix = kx < 3 ? rx0.x + kx : rx1.x + kx - 3;
-    use = use && (kx < 3 ? ix <= rx0.y : (ix <= rx1.y && (ix < rx0.x || ix > rx0.y)));
-    ivec2 id = ivec2(ix, iy);
-    use = use && !(u_drop > 0.0 && hashI(id, uSeed + 31.0) < u_drop);
+    ivec2 id = farId;
+    vec2 ic = farC;
+    bool use = k == nr && !reached && farId.x >= 0;
+    if (k < nr) {
+      vec2 pos;
+      repAt(rg, k, id, pos);
+      // The repeat's centre (before jitter): its place on the grid (Step 0 stacks them), its row shifted.
+      ic = pos + (vec2(id) - c0) * (stp - ss) + vec2((float(id.y) - c0.y) * u_skew, 0.0);
+      bool kept = !(u_drop > 0.0 && hashI(id, uSeed + 31.0) < u_drop);
+      vec2 o = abs(q - ic);
+      use = kept && o.x <= ext.x && o.y <= ext.y;
+      reached = reached || use;
+      if (kept && !use && length(q - ic) < farD) { farD = length(q - ic); farId = id; farC = ic; }
+    }
     if (use) {
-      // The repeat's top-left corner snapped to the pixel grid (whole pixel sizes stay crisp), the pixel in its cells.
-      vec2 ic = centre + (vec2(id) - c0) * stp + vec2(shift, 0.0);
       if (u_jitter > 0.0) ic += (hash2I(id, uSeed + 17.0) * 2.0 - 1.0) * u_jitter;
+      // The repeat's top-left corner snapped to the pixel grid (whole pixel sizes stay crisp), the pixel in its cells.
       vec2 tl = floor(ic - hs + 0.5);
-      vec2 o = centre + dq - ic;
-      if (uTile) o -= uRes * floor(o / uRes + 0.5);
-      vec2 lp = o + ic - tl;
+      vec2 lp = q - tl;
       if (turned) { vec2 r = lp - hs; lp = hs + vec2(ca * r.x + sa * r.y, ca * r.y - sa * r.x); }
       vec2 ob = lp / sc;
       // Output cell space → bitmap cell space.
@@ -1413,15 +1393,13 @@ GenOut gen(vec2 p) {
         vec2 g = b - 0.5;
         ivec2 g0 = ivec2(floor(g)) + M;
         vec4 sd;
-        for (int j = 0; j < 4 * STM_1; j++) {
+        for (int j = 0; j < 4 * UNI_1; j++) {
           ivec2 n = g0 + ivec2(j & 1, j >> 1);
           ivec2 cn = clamp(n, ivec2(0), mapMax);
           ivec4 t = stm_t(cn);
-          int raw = t.y + t.z * 256;
-          sd[j] = float(raw >= 32768 ? raw - 65536 : raw) / 16.0 + length(vec2(n - cn));
+          sd[j] = stm_s16(t.y, t.z) + length(vec2(n - cn));
         }
-        vec2 f = g - floor(g);
-        d = mix(mix(sd.x, sd.y, f.x), mix(sd.z, sd.w, f.x), f.y) * sc;
+        d = stm_bilin(sd, g - floor(g)) * sc;
         lvl = (t0.x & 3) > 0 ? t0.x & 3 : t0.x >> 2;
       } else {
         // Exact: distance to the nearest cell of the other state, among the 3×3 cells round this one each either of the
@@ -1431,12 +1409,11 @@ GenOut gen(vec2 p) {
         float bd = 1e9;
         float bs = 1e9;
         int blv = lv;
-        for (int j = 0; j < nb * nb * STM_1; j++) {
+        for (int j = 0; j < nb * nb * UNI_1; j++) {
           ivec2 n = clamp(tc + ivec2(j % nb, j / nb) - nb / 2, ivec2(0), mapMax);
           ivec4 t = stm_t(n);
           bool other = ((t.x & 3) > 0) != inside;
-          ivec2 c = other ? n : ivec2(t.y + (t.w & 15) * 256, t.z + (t.w >> 4) * 256);
-          vec2 lo = vec2(c - M);
+          vec2 lo = vec2((other ? n : stm_cell(t.yzw)) - M);
           vec2 dd = max(max(lo - b, b - lo - 1.0), 0.0);
           float d2 = dot(dd, dd);
           if (d2 < bd) { bd = d2; blv = other ? t.x & 3 : t.x >> 2; }
@@ -1448,8 +1425,8 @@ GenOut gen(vec2 p) {
         lvl = inside ? lv : blv;
       }
       if (d < best) { best = d; bestLv = lvl; bestId = id; bestB = b; bestS = dS; }
-      if (-d > dep1) { if (length(ic - cen1) > 0.5) { dep2 = dep1; cen2 = cen1; sdep2 = sdep1; } dep1 = -d; cen1 = ic; sdep1 = -dS; }
-      else if (-d > dep2 && length(ic - cen1) > 0.5) { dep2 = -d; cen2 = ic; sdep2 = -dS; }
+      if (-d > dep1) { if (length(ic - cen1) > 0.5) { dep2 = dep1; sdep2 = sdep1; } dep1 = -d; cen1 = ic; sdep1 = -dS; }
+      else if (-d > dep2 && length(ic - cen1) > 0.5) { dep2 = -d; sdep2 = -dS; }
     }
   }
   // The distance's direction (uniform control flow, before returning): Bevel aspect on the smoothed outline and as a
@@ -1460,26 +1437,28 @@ GenOut gen(vec2 p) {
   // The local stretch: px of Bevel per px across the outline (exact: from the stretched distance, so continuous through
   // a mitre; else from the distance's direction).
   float kS = aspX && abs(best) > 0.05 ? bestS / best : u_bevel / bevelWidth(gb);
-  float best0 = best;
-  // Even strokes (Label): depth scaled so the bevel ends 0.4 cell in — inside the middle of a one-cell stroke.
-  if (u_bev_lim && best < 0.0 && u_bevel > 0.4 * max(u_scale, 0.01)) best *= u_bevel / (0.4 * max(u_scale, 0.01));
   float d = sdOnion(best - u_grow, u_outline);
   float h = mix(u_rnd_lo, u_rnd_hi, hashI(bestId, uSeed + 53.0));
   float rnd = u_rnd_by == 0 ? float(bestLv) / 3.0 : u_rnd_by == 1 ? h : (float(max(bestLv, 1)) - 1.0 + h) / 3.0;
+  GenOut g = genOut(1.0, 1.0, rnd, d);
+  // Bevel aspect: the outline's distance (grown, as an outline) × the local stretch — exactly the stretched distance on
+  // the exact outline without Grow / Outline, and along straight runs with them. The smoothed outline (no corners)
+  // keeps the distance's direction. (Even strokes: Mb caps the widths.)
+  bool asp = bevelAspectOn();
+  float dB = d;
+  if (aspX) {
+    dB = u_grow == 0.0 && u_outline <= 0.0 ? bestS : d * kS;
+    g.bdist = dB;
+  } else if (asp) dB = d * kS;
+  // Even strokes (Label): the bevel ends 0.4 cell in — inside the middle of a one-cell stroke — its depth scaled into
+  // the bevel's distance (GenOut.bdist), the shape's own distance left exact.
+  float cap = 0.4 * max(u_scale, 0.01);
+  if (u_bev_lim && !aspX && u_bevel > cap) g.bdist = (d < 0.0 ? d * u_bevel / cap : d) * (asp ? kS : 1.0);
+#ifdef STAMP_LEVELS
   // The level edges ("≥ 2", "≥ 3" areas), for Level relief and for anti-aliased level colours (stored only when the
   // bitmap has more than one level).
   bool lvTex = textureSize(t_lv, 0).x > 1;
   bool aaLv = lvTex && u_aa && u_rnd_by != 1;
-  GenOut g = genOut(1.0, 1.0, rnd, d);
-  // Bevel aspect: the outline's distance (grown, as an outline) × the local stretch — exactly the stretched distance on
-  // the exact outline without Grow / Outline, and along straight runs with them. The smoothed outline (no corners)
-  // keeps the distance's direction. (Even strokes: Mb caps the widths instead of scaling the depth.)
-  bool asp = bevelAspectOn();
-  float dB = d;
-  if (aspX) {
-    dB = u_grow == 0.0 && u_outline <= 0.0 ? bestS : sdOnion(best0 - u_grow, u_outline) * kS;
-    g.bdist = dB;
-  } else if (asp) dB = d * kS;
   if (lvTex && (u_lvl_h > 0.0 || aaLv)) {
     float d2;
     float d3;
@@ -1490,22 +1469,19 @@ GenOut gen(vec2 p) {
       // Smoothed: the stored centre distances, bilinear.
       vec2 gq = bestB - 0.5;
       ivec2 g0 = ivec2(floor(gq)) + M;
-      vec2 f = gq - floor(gq);
       ivec2 lvMax = textureSize(t_lv, 0) - 1;
       vec4 l2;
       vec4 l3;
-      for (int j = 0; j < 4 * STM_1; j++) {
+      for (int j = 0; j < 4 * UNI_1; j++) {
         ivec2 n = g0 + ivec2(j & 1, j >> 1);
         ivec2 cn = clamp(n, ivec2(0), lvMax);
         ivec4 t = ivec4(texelFetch(t_lv, cn, 0) * 255.0 + 0.5);
-        int r2 = t.x + t.y * 256;
-        int r3 = t.z + t.w * 256;
         float out_ = length(vec2(n - cn));
-        l2[j] = float(r2 >= 32768 ? r2 - 65536 : r2) / 16.0 + out_;
-        l3[j] = float(r3 >= 32768 ? r3 - 65536 : r3) / 16.0 + out_;
+        l2[j] = stm_s16(t.x, t.y) + out_;
+        l3[j] = stm_s16(t.z, t.w) + out_;
       }
-      d2 = mix(mix(l2.x, l2.y, f.x), mix(l2.z, l2.w, f.x), f.y) * sc;
-      d3 = mix(mix(l3.x, l3.y, f.x), mix(l3.z, l3.w, f.x), f.y) * sc;
+      d2 = stm_bilin(l2, gq - floor(gq)) * sc;
+      d3 = stm_bilin(l3, gq - floor(gq)) * sc;
       // (No corners: from each distance's direction.)
       float e2 = max(d2, d), e3 = max(d3, d);
       d2S = bevelLine(e2, vec2(dFdx(e2), dFdy(e2)));
@@ -1520,14 +1496,13 @@ GenOut gen(vec2 p) {
       bool in3 = tc == cell && (o3.w & 1) == 1;
       vec2 bd = vec2(1e9);
       vec2 bs = vec2(1e9);
-      for (int j = 0; j < 2 * nb * nb * STM_1; j++) {
+      for (int j = 0; j < 2 * nb * nb * UNI_1; j++) {
         int l = j / (nb * nb);
         int m = j - l * nb * nb;
         ivec2 n = clamp(tc + ivec2(m % nb, m / nb) - nb / 2, ivec2(0), mapMax);
         ivec4 t = ivec4(texelFetch(t_lv, ivec2(n.x * 2 + l, n.y), 0) * 255.0 + 0.5);
         bool other = ((t.w & 1) == 1) != (l == 0 ? in2 : in3);
-        ivec2 c = other ? n : ivec2(t.x + (t.z & 15) * 256, t.y + (t.z >> 4) * 256);
-        vec2 lo = vec2(c - M);
+        vec2 lo = vec2((other ? n : stm_cell(t.xyz)) - M);
         vec2 dd = max(max(lo - bestB, bestB - lo - 1.0), 0.0);
         if (l == 0) bd.x = min(bd.x, dot(dd, dd)); else bd.y = min(bd.y, dot(dd, dd));
         if (aspX) {
@@ -1544,8 +1519,8 @@ GenOut gen(vec2 p) {
       // Level relief: the outline's bevel plus a bevel up each level edge, a third each — for Height › Pattern
       // (GenOut.hval).
       // (Bevel aspect: the stretched distances, px of Bevel, as the wrapper takes GenOut.bdist.)
-      float b1 = stm_bev(asp ? dB : d);
-      g.hval = mix(b1, (b1 + stm_bev(asp ? d2S : max(d2, d)) + stm_bev(asp ? d3S : max(d3, d))) / 3.0, u_lvl_h);
+      float b1 = bevelRise(asp ? dB : d);
+      g.hval = mix(b1, (b1 + bevelRise(asp ? d2S : max(d2, d)) + bevelRise(asp ? d3S : max(d3, d))) / 3.0, u_lvl_h);
     }
     if (aaLv) {
       // Anti-aliased level colours: each level area's coverage across its edge (outside the outline, as at its edge),
@@ -1555,6 +1530,7 @@ GenOut gen(vec2 p) {
       g.rnd = u_rnd_by == 0 ? lvl / 3.0 : (lvl - 1.0 + h) / 3.0;
     }
   }
+#endif
 #ifdef STAMP_IMAGE
   // Image file: the image's pixel under the cell (past the outline, the nearest one): its colour into Diffuse (in place
   // of the ramp, gGenRgb), or its brightness into Height (× the bevel, as genOutShaded); its alpha fades the coverage.
@@ -1562,20 +1538,20 @@ GenOut gen(vec2 p) {
   float val = float(bestLv) / 3.0;
   if (u_source == 1) {
     ic = stm_image(bestB, dims);
-    val = dot(ic.rgb, vec3(0.2126, 0.7152, 0.0722));
+    val = luma(ic.rgb);
   }
   // Wear: values below a threshold drop out, the threshold varied over the stamp by a few octaves of noise (each
   // repeat its own): dark (or, inverted, bright) values and the noise's high spots go first.
   float keep = 1.0;
   if (u_wear > 0.0) {
     vec2 wp = bestB / max(max(dims.x, dims.y), 1.0) * u_wear_scale;
-    float ws = uSeed + 71.0 + 97.0 * hashI(bestId, uSeed + 7.0);
+    // (A whole-number seed per repeat, 37 apart: the noise hashes take its integer part, and no repeat's octave lands
+    // on another's — they are 31 apart.)
+    float ws = uSeed + 71.0 + 37.0 * floor(hashI(bestId, uSeed + 7.0) * 4096.0);
     float n = 0.0, a = 1.0, na = 0.0;
-    for (int o = 0; o < 8; o++) {
-      if (o < u_wear_oct) {
-        n += a * perlinNoise(wp, NO_PERIOD, ws + float(o) * 31.0);
-        na += a;
-      }
+    for (int o = 0; o < u_wear_oct; o++) {
+      n += a * perlinNoise(wp, NO_PERIOD, ws + float(o) * 31.0);
+      na += a;
       a *= 0.5;
       wp *= 2.0;
     }
@@ -1622,6 +1598,7 @@ const DEFAULT_PIXELS = [
 const fromImage = (p: ParamValues) => p.source === 'image';
 const worn = (p: ParamValues) => Number(p.wear) > 0;
 const NO_IMAGE: CpuTexture = { width: 1, height: 1, data: new Uint8Array(4) };
+const imageCells = new WeakMap<object, { cut: number; cells: Cells }>();
 
 /**
  * Stamp › Image file: the image's pixels at least Alpha cut opaque are the cells (one level), the image itself goes up
@@ -1630,12 +1607,19 @@ const NO_IMAGE: CpuTexture = { width: 1, height: 1, data: new Uint8Array(4) };
 function imageTextures(q: ParamValues): Record<string, CpuTexture> {
 	const img = getImage(String(q.image ?? ''));
 	const cut = Math.round(Math.min(1, Math.max(0.004, Number(q.alpha_cut ?? 0.5))) * 255);
-	const c: Cells = img
-		? { w: img.width, h: img.height, lv: new Uint8Array(img.width * img.height) }
-		: { w: 0, h: 0, lv: new Uint8Array(0) };
-	if (img) for (let i = 0; i < c.lv.length; i++) c.lv[i] = img.data[i * 4 + 3] >= cut ? 3 : 0;
-	// (Join diagonals, Mirror and Level relief are the typed pixels' alone.)
-	const t = layerTextures(c, { ...q, join: false, lvl_h: 0 });
+	let c: Cells = { w: 0, h: 0, lv: new Uint8Array(0) };
+	if (img) {
+		// Kept per image and cut: params that don't touch the cells (Bevel, colours) skip rebuilding them.
+		const hit = imageCells.get(img);
+		if (hit?.cut === cut) c = hit.cells;
+		else {
+			c = { w: img.width, h: img.height, lv: new Uint8Array(img.width * img.height) };
+			for (let i = 0; i < c.lv.length; i++) c.lv[i] = img.data[i * 4 + 3] >= cut ? 3 : 0;
+			imageCells.set(img, { cut, cells: c });
+		}
+	}
+	// (Join diagonals, Mirror and Level relief are the typed pixels' alone: the cells are all one level.)
+	const t = layerTextures(c, { ...q, join: false }, { levels: true });
 	return { ...t, img: img ? { width: img.width, height: img.height, data: img.data } : NO_IMAGE };
 }
 
@@ -1739,14 +1723,16 @@ export const stampLayer: LayerDef = {
 		fromImage(p) ? { dif_on: p.into !== 'height', h_on: p.into === 'height' } : { dif_on: true, h_on: true },
 	defaults,
 	paramPatch: { bevel: { note: (p) => wideBevelNote(p) } },
-	migrate: migrateSpacing,
 	fresh: (t) => freshStamp(t, 22),
 	textures: ['stamp', 'lv', 'img'],
 	cpuData: (q) =>
 		fromImage(q)
 			? imageTextures(q)
-			: { ...layerTextures(mirrorCells(parseCells(String(q.pixels ?? '')), q.mirror), q), img: NO_IMAGE },
-	glsl: 'const bool u_bev_lim = false;\n#define STAMP_IMAGE\n' + STAMP_GLSL
+			: {
+					...layerTextures(mirrorCells(parseCells(String(q.pixels ?? '')), q.mirror), q, { levels: true }),
+					img: NO_IMAGE
+				},
+	glsl: 'const bool u_bev_lim = false;\n#define STAMP_IMAGE\n#define STAMP_LEVELS\n' + STAMP_GLSL
 };
 
 export const labelLayer: LayerDef = {
@@ -1798,7 +1784,6 @@ export const labelLayer: LayerDef = {
 	],
 	groups: stampGroups,
 	defaults: { ...defaults, smooth: 1, gap_y: 2, rnd_lo: 0.25 },
-	migrate: migrateSpacing,
 	paramPatch: {
 		bevel: {
 			note: (p) => {
@@ -1817,9 +1802,11 @@ export const labelLayer: LayerDef = {
 		const big = Number(f.scale) >= 3;
 		return { ...f, ...(small ? { font: 'small', line_gap: 1 } : {}), ...(big ? {} : { smooth: 0, join: false }) };
 	},
-	textures: ['stamp', 'lv'],
+	textures: ['stamp'],
 	cpuData: (q) => {
-		// With Join diagonals, bold is applied after the join (only the advance is widened here).
+		// Join diagonals and Smooth outline ≥ 1: drawn as strokes. With Join diagonals, bold is applied after the join
+		// (only the advance is widened here).
+		const strokes = Boolean(q.join) && Number(q.smooth ?? 0) >= 1;
 		const c = textCells(String(q.text ?? ''), {
 			font: q.font === 'large' ? 'large' : 'small',
 			spacing: Number(q.spacing ?? 1),
@@ -1827,797 +1814,12 @@ export const labelLayer: LayerDef = {
 			align: q.align === 'left' || q.align === 'right' ? q.align : 'center',
 			bold: Boolean(q.bold),
 			boldAdvanceOnly: Boolean(q.join),
-			strokeGlyphs: Boolean(q.join) && Number(q.smooth ?? 0) >= 1
+			strokeGlyphs: strokes
 		});
-		return layerTextures(c, { ...q, _boldLate: Boolean(q.join), _strokes: true });
+		return layerTextures(c, q, { strokes, boldLate: Boolean(q.join) });
 	},
-	// No Level relief on lettering (all one level).
-	glsl: 'const float u_lvl_h = 0.0;\n' + STAMP_GLSL
+	// Lettering is all one level: no level edges (STAMP_LEVELS).
+	glsl: STAMP_GLSL
 };
 
-// ------------------------------------------------------------------------------------------------ Path / Polyline
-
-/** A shape layer drawn from vertex coordinates in a 64 px square, scaled to the texture. */
-const scaledPoints = (src: string, texture: { width: number; height: number }) =>
-	src.replace(
-		/(-?\d*\.?\d+),(-?\d*\.?\d+)/g,
-		(_, x, y) => `${Math.round((Number(x) * texture.width) / 64)},${Math.round((Number(y) * texture.height) / 64)}`
-	);
-
-// A corner's round (fillet) of radius R between the edges v → a and v → b: (t, centre, r) — t how far back along each
-// edge the round starts, r its radius (0: sharp). Rounds take at most half of either edge.
-const FILLET_GLSL = /* glsl */ `
-float shp_cross(vec2 a, vec2 b) { return a.x * b.y - a.y * b.x; }
-vec4 shp_fillet(vec2 a, vec2 v, vec2 b, float R) {
-  vec2 e1 = a - v;
-  vec2 e2 = b - v;
-  float l1 = length(e1);
-  float l2 = length(e2);
-  if (R <= 0.0 || l1 < 1e-4 || l2 < 1e-4) return vec4(0.0, v, 0.0);
-  e1 /= l1;
-  e2 /= l2;
-  float c = clamp(dot(e1, e2), -1.0, 1.0);
-  vec2 bis = e1 + e2;
-  float bl = length(bis);
-  if (c < -0.99999 || bl < 1e-5) return vec4(0.0, v, 0.0);
-  float tn = sqrt((1.0 - c) / (1.0 + c));
-  float t = min(R / max(tn, 1e-4), 0.5 * min(l1, l2));
-  float r = t * tn;
-  return vec4(t, v + bis / bl * sqrt(t * t + r * r), r);
-}
-// p in the sector of the round (between its centre's rays to the two tangent points t1, t2)?
-bool shp_sector(vec2 p, vec2 c, vec2 t1, vec2 t2) {
-  float cr = shp_cross(t1 - c, t2 - c);
-  return shp_cross(t1 - c, p - c) * cr >= 0.0 && shp_cross(p - c, t2 - c) * cr >= 0.0;
-}
-// The torus copies a tileable project evaluates (the centre first).
-const ivec2 SHP_TILE[9] = ivec2[9](ivec2(0, 0), ivec2(-1, -1), ivec2(0, -1), ivec2(1, -1), ivec2(-1, 0), ivec2(1, 0), ivec2(-1, 1), ivec2(0, 1), ivec2(1, 1));
-`;
-
-const pointsHint =
-	'x,y vertex pairs (px from the top-left, or 0..1 with Units = fraction); one polygon per line or "|". Max 64 vertices';
-
-export const pathLayer: LayerDef = {
-	type: 'path',
-	label: 'Path',
-	category: 'shape',
-	kind: 'generator',
-	sdf: true,
-	description:
-		'Arbitrary polygons from a vertex list — chamfered cut-outs, Z-shaped channels, trims; overlapping polygons cut holes (even–odd) or merge (union).',
-	params: [
-		P.bitmap('points', 'Points', '8,16 24,8 56,8 56,48 40,56 8,56', 'points', { hint: pointsHint }),
-		P.enum('units', 'Units', 'px', [
-			['px', 'Pixels'],
-			['fraction', 'Fraction of the texture']
-		]),
-		P.enum('fill', 'Fill', 'evenodd', [
-			['evenodd', 'Even–odd', 'overlaps cut holes: a polygon inside another is a hole, one inside that solid again'],
-			['union', 'Union', 'every polygon solid, overlaps merge (a plate with a tab)'],
-			['subtract', 'First minus the rest', 'the first polygon solid, every later one cut out of it']
-		]),
-		P.float('radius', 'Corner radius', 0, 0, 4096, {
-			softMax: 64,
-			unit: 'px',
-			step: 0.1,
-			hint: 'Rounds the corners (a round takes at most half of either edge)'
-		}),
-		P.enum(
-			'round_at',
-			'Round',
-			'all',
-			[
-				['all', 'All corners'],
-				['convex', 'Outer corners', 'corners pointing out of their polygon'],
-				['concave', 'Inner corners', 'corners pointing into their polygon']
-			],
-			{ showIf: (p) => Number(p.radius) > 0 }
-		),
-		P.float('grow', 'Grow', 0, -1024, 1024, {
-			softMin: -64,
-			softMax: 64,
-			unit: 'px',
-			step: 0.1,
-			hint: 'Offsets the outline: out (rounding the outer corners) or in'
-		}),
-		P.float('outline', 'Outline', 0, 0, 1024, {
-			softMax: 32,
-			unit: 'px',
-			step: 0.1,
-			hint: '0 = solid; otherwise only a stroke of this width inside the outline'
-		}),
-		P.float('scale', 'Scale', 1, 0.01, 100, {
-			softMin: 0.1,
-			softMax: 4,
-			step: 0.001,
-			hint: 'Sizes the polygons about the centre of their bounds (bevels and radii stay in px)'
-		}),
-		P.float('rotation', 'Rotation', 0, -360, 360, {
-			softMin: -180,
-			softMax: 180,
-			unit: '°',
-			step: 0.1,
-			hint: 'Turns them about the same centre, clockwise'
-		}),
-		P.int('rep_x', 'Repeat X', 1, 1, 64, {
-			softMax: 16,
-			group: 'repeat',
-			hint: 'Copies of the polygons side by side (Offset X / Y under Shaping moves them all)'
-		}),
-		P.int('rep_y', 'Repeat Y', 1, 1, 64, { softMax: 16, group: 'repeat' }),
-		P.float('rep_dx', 'Step X', 64, -4096, 4096, {
-			softMin: 0,
-			softMax: 512,
-			unit: 'px',
-			axis: 'x',
-			step: 0.5,
-			group: 'repeat',
-			showIf: (p) => Number(p.rep_x) > 1,
-			hint: 'Between copies, rightward'
-		}),
-		P.float('rep_dy', 'Step Y', 64, -4096, 4096, {
-			softMin: 0,
-			softMax: 512,
-			unit: 'px',
-			axis: 'y',
-			step: 0.5,
-			group: 'repeat',
-			showIf: (p) => Number(p.rep_y) > 1,
-			hint: 'Between copies, downward'
-		}),
-		P.seed('seed', 'Seed', 1, { hint: 'Reshuffles the per-feature random: one value per filled region' })
-	],
-	groups: [{ id: 'repeat', label: 'Repeat', collapsed: true }],
-	// Per polygon, whether its corners point the other way relative to the filled area (a hole): for Round outer /
-	// inner corners. Even–odd: polygons inside an odd number of others; First minus the rest: all but the first.
-	textures: ['poly'],
-	cpuData: (q, ctx) => {
-		const k = q.units === 'fraction' ? [ctx.width, ctx.height] : [1, 1];
-		const polys: number[][][] = [];
-		let n = 0;
-		for (const poly of parsePolygons(String(q.points ?? ''))) {
-			if (n + poly.length > MAX_PATH_POINTS) break;
-			polys.push(poly.map(([x, y]) => [x * k[0], y * k[1]]));
-			n += poly.length;
-		}
-		const inside = (p: number[], poly: number[][]) => {
-			let c = false;
-			poly.forEach(([ax, ay], i) => {
-				const [bx, by] = poly[(i + 1) % poly.length];
-				if (ay > p[1] !== by > p[1] && p[0] < ax + ((p[1] - ay) * (bx - ax)) / (by - ay)) c = !c;
-			});
-			return c;
-		};
-		const data = new Uint8Array(Math.max(1, polys.length) * 4);
-		polys.forEach((poly, i) => {
-			// A point just inside the polygon: its first vertex, nudged toward the middle of its first edge's neighbours.
-			const cx = poly.reduce((a, p) => a + p[0], 0) / poly.length;
-			const cy = poly.reduce((a, p) => a + p[1], 0) / poly.length;
-			const pt = [poly[0][0] + (cx - poly[0][0]) * 1e-3, poly[0][1] + (cy - poly[0][1]) * 1e-3];
-			const depth = polys.reduce((d, o, j) => d + (j !== i && inside(pt, o) ? 1 : 0), 0);
-			const hole = q.fill === 'subtract' ? i > 0 : q.fill === 'union' ? false : depth % 2 === 1;
-			data[i * 4] = hole ? 255 : 0;
-		});
-		return { poly: { width: Math.max(1, polys.length), height: 1, data } };
-	},
-	defaults: { bevel: 1, radius: 1, profile: 'round', h_on: true, h_amount: 0.6, dif_on: true },
-	fresh: (t) => {
-		const s = Math.min(t.width, t.height);
-		return {
-			points: scaledPoints('8,16 24,8 56,8 56,48 40,56 8,56', t),
-			bevel: Math.max(1, Math.round(s / 128)),
-			radius: Math.round(s / 64)
-		};
-	},
-	glsl:
-		FILLET_GLSL +
-		/* glsl */ `
-#define PTH_1 (uRes.x > 0.0 ? 1 : 0)
-#define PTH_MAXP 22
-// Per polygon: signed area (its orientation, for outer / inner corners) and, for Union / Subtract, the distance to it.
-float pth_area[PTH_MAXP];
-float pth_d[PTH_MAXP];
-// Bevel aspect (GLSL_BEVEL): the same distances in the space the aspect stretches (squared, px of Bevel; pth_dS per
-// polygon), pth_M mapping the polygons' space there, pth_bs the signed result.
-bool pth_asp;
-mat2 pth_M;
-float pth_dS[PTH_MAXP];
-float pth_bs;
-
-// Signed distance to the polygons and the filled region's polygon: the last polygon that contains the point (outside:
-// of the region across the nearest edge), so a frame with a hole is one feature.
-vec2 pathSdf(vec2 q, vec2 k) {
-  int n = u_points_size.x;
-  int np = min(u_points_size.y, PTH_MAXP);
-  // The inside tests run at a point nudged off the pixel centre, so a centre exactly on an edge (integer slopes through
-  // integer vertices) is on the same side for the crossing count and for a round's corner.
-  vec2 qs = q + vec2(0.00131, 0.00207);
-  for (int i = 0; i < PTH_MAXP; i++) { pth_d[i] = 1e20; pth_dS[i] = 1e20; }
-  float d = 1e20;
-  float dS = 1e20;
-  float pid = 0.0;
-  int inPoly = 0; // bit i: inside polygon i (even–odd)
-  for (int i = 0; i < ${MAX_PATH_POINTS}; i++) {
-    if (i >= n) break;
-    // The edge v → w, v the vertex after i: with v's round (from i, v, w) and w's (from v, w and the one after).
-    vec4 v4 = u_points[int(u_points[i].z)];
-    vec4 w4 = u_points[int(v4.z)];
-    vec2 v = v4.xy * k;
-    vec2 w = w4.xy * k;
-    int pi = int(v4.w);
-    int bit = 1 << pi;
-    vec2 e = w - v;
-    vec2 qv = qs - v;
-    bvec3 c = bvec3(qs.y >= v.y, qs.y < w.y, e.x * qv.y > e.y * qv.x);
-    if (all(c) || all(not(c))) inPoly ^= bit;
-    qv = q - v;
-    float dd;
-    float ddS = 1e20;
-    if (u_radius > 0.0) {
-      vec2 a = u_points[i].xy * k;
-      vec2 x = u_points[int(w4.z)].xy * k;
-      // Outer / inner corners by the turn against the polygon's orientation.
-      float sgn = (pi < PTH_MAXP ? sign(pth_area[pi]) : 1.0) * (texelFetch(t_poly, ivec2(pi, 0), 0).r > 0.5 ? -1.0 : 1.0);
-      bool convexV = shp_cross(v - a, w - v) * sgn > 0.0;
-      bool convexW = shp_cross(w - v, x - w) * sgn > 0.0;
-      float rv = u_round_at == 0 || (u_round_at == 1) == convexV ? u_radius : 0.0;
-      float rw = u_round_at == 0 || (u_round_at == 1) == convexW ? u_radius : 0.0;
-      vec4 fv = shp_fillet(a, v, w, rv);
-      float tw = shp_fillet(v, w, x, rw).x;
-      float L = max(length(e), 1e-6);
-      vec2 t = e / L;
-      vec2 h = qv - t * clamp(dot(qv, t), fv.x, max(L - tw, fv.x));
-      dd = dot(h, h);
-      if (pth_asp) ddS = bevelSeg2(vec2(0.0), pth_M * (t * fv.x - qv), pth_M * (t * max(L - tw, fv.x) - qv));
-      if (fv.w > 0.0) {
-        vec2 t1 = v + normalize(a - v) * fv.x;
-        vec2 t2 = v + t * fv.x;
-        float ml = length(q - fv.yz);
-        if (shp_sector(q, fv.yz, t1, t2)) dd = min(dd, (ml - fv.w) * (ml - fv.w));
-        // The round, stretched: an elliptic arc (chords), from the pixel (whose sector test doesn't carry over).
-        if (pth_asp) ddS = min(ddS, bevelArc2(vec2(0.0), pth_M, fv.yz - q, fv.w, normalize(t1 - fv.yz), normalize(t2 - fv.yz), normalize(v - fv.yz)));
-        // Between the round and the corner the inside flips: an outer corner cut off, an inner one filled.
-        float s1 = shp_cross(v - t1, qs - t1);
-        float s2 = shp_cross(t2 - v, qs - v);
-        float s3 = shp_cross(t1 - t2, qs - t2);
-        bool tri = (s1 >= 0.0 && s2 >= 0.0 && s3 >= 0.0) || (s1 <= 0.0 && s2 <= 0.0 && s3 <= 0.0);
-        if (length(qs - fv.yz) > fv.w && tri) inPoly ^= bit;
-      }
-    } else {
-      vec2 h = qv - e * clamp(dot(qv, e) / max(dot(e, e), 1e-9), 0.0, 1.0);
-      dd = dot(h, h);
-      if (pth_asp) ddS = bevelSeg2(vec2(0.0), pth_M * -qv, pth_M * (e - qv));
-    }
-    if (dd < d) { d = dd; pid = v4.w; }
-    dS = min(dS, ddS);
-    if (u_fill != 0 && pi < PTH_MAXP) { pth_d[pi] = min(pth_d[pi], dd); pth_dS[pi] = min(pth_dS[pi], ddS); }
-  }
-  // Inside by the fill rule; the distance from all edges (even–odd) or from the polygons combined.
-  int parity = 0;
-  for (int i = 0; i < PTH_MAXP; i++) parity ^= (inPoly >> i) & 1;
-  bool inside = u_fill == 1 ? inPoly != 0 : u_fill == 2 ? inPoly == 1 : parity == 1;
-  float sd = inside ? -sqrt(d) : sqrt(d);
-  pth_bs = inside ? -sqrt(dS) : sqrt(dS);
-  if (u_fill != 0) {
-    // Union / First minus the rest, combined with round joins (hg_sdf's round union and intersection): where outlines
-    // cross, the corner rounds with the Corner radius too — inner corners of a union, outer ones of a cut. At radius 0
-    // the union's inside is √(a² + b²) of the overlapping depths, so an edge hidden in another polygon leaves no groove.
-    float ru = u_round_at != 1 ? u_radius : 0.0;
-    float rs = u_round_at != 2 ? u_radius : 0.0;
-    // (Bevel aspect: the stretched distances combined alike, x = px, y = stretched; the stretch keeps areas, so the
-    // joins' radius stays.)
-    vec2 acc = vec2(1e20);
-    for (int i = 0; i < PTH_MAXP * PTH_1; i++) {
-      if (i < np && (u_fill == 1 || i > 0)) {
-        vec2 di = (((inPoly >> i) & 1) == 1 ? -1.0 : 1.0) * sqrt(vec2(pth_d[i], pth_dS[i]));
-        acc = acc.x > 1e19 ? di : max(vec2(ru), min(acc, di)) - vec2(length(max(vec2(ru - acc.x, ru - di.x), 0.0)), length(max(vec2(ru - acc.y, ru - di.y), 0.0)));
-      }
-    }
-    if (u_fill == 1) { sd = acc.x; pth_bs = acc.y; }
-    else {
-      vec2 d0 = ((inPoly & 1) == 1 ? -1.0 : 1.0) * sqrt(vec2(pth_d[0], pth_dS[0]));
-      vec2 c = min(vec2(-rs), max(d0, -acc)) + vec2(length(max(vec2(rs + d0.x, rs - acc.x), 0.0)), length(max(vec2(rs + d0.y, rs - acc.y), 0.0)));
-      sd = acc.x > 1e19 ? d0.x : c.x;
-      pth_bs = acc.x > 1e19 ? d0.y : c.y;
-    }
-  }
-  int set = inside ? inPoly : inPoly ^ (1 << int(pid));
-  return vec2(sd, floor(log2(float(max(set, 1)) + 0.5)));
-}
-
-GenOut gen(vec2 p) {
-  if (u_points_size.x < 3) return genOut(0.0, 0.0, 0.0, 1e4);
-  // Fractions of the texture's width and height, as the shape editor draws them.
-  vec2 k = u_units == 1 ? uRes : vec2(1.0);
-  int n = u_points_size.x;
-  // Once per pixel: each polygon's signed area, and the bounds' centre (the pivot of Scale and Rotation).
-  for (int i = 0; i < PTH_MAXP; i++) pth_area[i] = 0.0;
-  vec2 lo = vec2(1e20);
-  vec2 hi = vec2(-1e20);
-  for (int i = 0; i < ${MAX_PATH_POINTS} * PTH_1; i++) {
-    if (i >= n) break;
-    vec2 a = u_points[i].xy * k;
-    vec2 b = u_points[int(u_points[i].z)].xy * k;
-    int pi = int(u_points[i].w);
-    if (pi < PTH_MAXP) pth_area[pi] += shp_cross(a, b);
-    lo = min(lo, a);
-    hi = max(hi, a);
-  }
-  vec2 q0 = vec2(p.x, uRes.y - p.y);
-  float sc = max(u_scale, 1e-3);
-  float zs = 1.0 / sc;
-  vec2 piv = 0.5 * (lo + hi);
-  float ca = cos(radians(u_rotation));
-  float sa = sin(radians(u_rotation));
-  // Bevel aspect: polygon-space offsets → screen (turned back, scaled; y down, which the widths don't mind) → stretched.
-  pth_asp = bevelAspectOn();
-  pth_M = mat2(u_bevel / bevelWidths().x, 0.0, 0.0, u_bevel / bevelWidths().y) * mat2(ca, sa, -sa, ca) * sc;
-  float rS = 1e20;
-  // Repeats: the copy nearest the pixel along each axis and the next one toward it.
-  vec2 rep = vec2(float(u_rep_x), float(u_rep_y));
-  vec2 stepR = vec2(u_rep_dx, u_rep_dy);
-  // Tileable projects: the 3×3 torus copies too, so a polygon may cross the edge. One flat loop over (torus copy ×
-  // 2 × 2 repeats); a copy whose bounds lie farther than the nearest distance found so far is skipped.
-  vec2 r = vec2(1e20, 0.0);
-  float reach = 1e20;
-  for (int c = 0; c < 36 * PTH_1; c++) {
-    int tc = c / 4;
-    int rc = c - tc * 4;
-    if (tc > 0 && !uTile) break;
-    vec2 qt = q0 + vec2(SHP_TILE[tc]) * uRes;
-    vec2 f = (qt - piv) / max(abs(stepR), 1e-3) * sign(stepR + 1e-9);
-    vec2 base = clamp(floor(f), vec2(0.0), max(rep - 1.0, 0.0));
-    vec2 kk = clamp(base + vec2(float(rc & 1), float(rc >> 1)), vec2(0.0), max(rep - 1.0, 0.0));
-    bool dup = (rc & 1) == 1 && kk.x == base.x || (rc >> 1) == 1 && kk.y == base.y;
-    vec2 q = qt - kk * stepR;
-    // Into the polygons' own space (Scale / Rotation about the bounds' centre).
-    vec2 m = q - piv;
-    q = piv + vec2(ca * m.x + sa * m.y, ca * m.y - sa * m.x) * zs;
-    vec2 bx = max(max(lo - q, q - hi), 0.0);
-    if (!dup && length(bx) * sc < reach) {
-      vec2 o = pathSdf(q, k);
-      o.x *= sc;
-      if (o.x < r.x) { r = o; rS = pth_bs; }
-      reach = abs(r.x) + max(u_grow, 0.0) + 2.0;
-    }
-  }
-  float sd = sdOnion(r.x - u_grow, u_outline);
-  GenOut g = genOut(1.0, 1.0, hashI(ivec2(int(r.y), 7), uSeed), sd);
-  // Bevel aspect: the stretched distance to the outline, so the bevels meet in clean mitres. Grown or outlined: the
-  // distance × the local stretch (stretched over plain distance to the polygons' outline) — exact along straight edges,
-  // continuous through the mitres.
-  vec2 gr = vec2(dFdx(r.x), dFdy(r.x));
-  if (pth_asp) {
-    float kS = abs(r.x) > 0.05 ? rS / r.x : u_bevel / bevelWidth(gr);
-    g.bdist = u_grow == 0.0 && u_outline <= 0.0 ? rS : sd * kS;
-  }
-  return g;
-}
-`
-};
-
-export const polylineLayer: LayerDef = {
-	type: 'polyline',
-	label: 'Polyline',
-	category: 'shape',
-	kind: 'generator',
-	sdf: true,
-	description:
-		'Open polylines with a width — cables, trims, cracks, painted and dashed lines; drawn with the Line tool on the canvas. Round or flat ends, rounded bends, tapers.',
-	params: [
-		P.bitmap('points', 'Points', '8,44 22,20 42,44 56,20', 'lines', {
-			hint: 'x,y vertex pairs (px from the top-left, or 0..1 with Units = fraction); one line per row or "|". Max 64 vertices'
-		}),
-		P.enum('units', 'Units', 'px', [
-			['px', 'Pixels'],
-			['fraction', 'Fraction of the texture']
-		]),
-		P.float('width', 'Width', 3, 0.25, 1024, { softMax: 64, unit: 'px', step: 0.25 }),
-		P.enum(
-			'caps',
-			'Ends',
-			'round',
-			[
-				['round', 'Round'],
-				['flat', 'Flat']
-			],
-			{ hint: 'The lines’ ends (and the dashes’)' }
-		),
-		P.enum('overlap', 'Overlap', 'stack', [
-			['merge', 'Merge', 'crossing lines become one shape (the later line’s colour where they cross)'],
-			[
-				'stack',
-				'Later on top',
-				'each line lies over the ones before it, with its own edge and bevel where it crosses them, and rises over them in height (Stack lift)'
-			]
-		]),
-		P.float('lift', 'Stack lift', 1, 0, 4, {
-			softMax: 2,
-			step: 0.001,
-			showIf: (p) => p.overlap === 'stack',
-			hint: 'How far a later line rises where it crosses an earlier one, in line heights (Height › Pattern): 0 = level with it, 1 = a full line height above. Lines that cross nothing keep their height; Height › Amount scales it all'
-		}),
-		P.float('lift_fall', 'Lift falloff', 0, 0, 1024, {
-			softMax: 128,
-			unit: 'px',
-			step: 0.5,
-			showIf: (p) => p.overlap === 'stack' && Number(p.lift) > 0,
-			hint: 'Extra distance before the crossing over which the top line starts to rise (it always eases over a line width plus the bevel): a cable arching over another'
-		}),
-		P.float('radius', 'Corner radius', 4.5, 0, 4096, {
-			softMax: 128,
-			unit: 'px',
-			step: 0.1,
-			hint: 'Bends the line round each corner: the radius of its inner edge (the centre line bends on this plus half the width; at most half of either segment) — cable and pipe runs. 0 = sharp inner corners'
-		}),
-		P.float('taper', 'Taper', 0, 0, 1, { step: 0.001, hint: 'Narrows each line toward its end(s): 1 = to a point' }),
-		P.enum(
-			'taper_at',
-			'Taper to',
-			'end',
-			[
-				['end', 'End'],
-				['start', 'Start'],
-				['both', 'Both ends']
-			],
-			{ showIf: (p) => Number(p.taper) > 0 }
-		),
-		P.float('taper_len', 'Taper length', 1, 0.01, 1, {
-			step: 0.001,
-			showIf: (p) => Number(p.taper) > 0 && !(Number(p.taper_px) > 0),
-			hint: 'Share of each line the taper takes (both ends: half of it at each) — short for brush strokes that end in a point'
-		}),
-		P.float('taper_px', 'Taper length (px)', 0, 0, 4096, {
-			softMax: 512,
-			unit: 'px',
-			step: 0.5,
-			showIf: (p) => Number(p.taper) > 0,
-			hint: "The taper's length in px at each tapered end (the same tips on long and short lines); 0 = by the share above"
-		}),
-		P.enum(
-			'taper_curve',
-			'Taper shape',
-			'linear',
-			[
-				['linear', 'Straight', 'the width falls evenly: a spike'],
-				['smooth', 'Smooth', 'eases in and out: no corner where the taper starts'],
-				['round', 'Round', 'stays wide, then rounds off quickly: a brush or bullet tip']
-			],
-			{ showIf: (p) => Number(p.taper) > 0 }
-		),
-		P.float('dash', 'Dash', 0, 0, 4096, {
-			softMax: 64,
-			unit: 'px',
-			step: 0.5,
-			hint: '0 = solid; otherwise dashes this long along each line (each its own per-feature random)'
-		}),
-		P.float('gap', 'Gap', 8, 0, 4096, {
-			softMax: 64,
-			unit: 'px',
-			step: 0.5,
-			showIf: (p) => Number(p.dash) > 0,
-			hint: 'Space between dashes'
-		}),
-		P.bool('dash_fit', 'Fit to each line', true, {
-			showIf: (p) => Number(p.dash) > 0,
-			hint: 'Stretches dash and gap a little so every line starts and ends on a whole dash'
-		}),
-		P.float('dash_ofs', 'Dash offset', 0, -4096, 4096, {
-			softMin: -64,
-			softMax: 64,
-			unit: 'px',
-			step: 0.5,
-			showIf: (p) => Number(p.dash) > 0,
-			hint: 'Slides the dashes along the lines'
-		}),
-		P.float('outline', 'Outline', 0, 0, 512, {
-			softMax: 32,
-			unit: 'px',
-			step: 0.1,
-			hint: '0 = solid; otherwise only a stroke of this width inside the edge — twin rails'
-		}),
-		P.seed('seed', 'Seed', 1, { hint: 'Reshuffles the per-feature random (per line, or per dash)' })
-	],
-	defaults: { bevel: 1.5, profile: 'round', h_on: true, h_amount: 0.6, dif_on: true },
-	fresh: (t) => {
-		const width = Math.max(2, Math.round(Math.min(t.width, t.height) / 40));
-		return { points: scaledPoints('8,44 22,20 42,44 56,20', t), width, radius: width * 1.5, bevel: width / 2 };
-	},
-	glsl:
-		FILLET_GLSL +
-		/* glsl */ `
-#define PLN_1 (uRes.x > 0.0 ? 1 : 0)
-#define PLN_LINES 32
-
-// Width factor at x along a line of length L (0 = its start … 1 = its end) for the taper: s = 0 where the taper
-// starts … 1 at the tip, shaped by Taper shape.
-float pln_taper(float x, float L) {
-  float l = u_taper_px > 0.0 ? min(u_taper_px / max(L, 1e-3), u_taper_at == 2 ? 0.5 : 1.0) * (u_taper_at == 2 ? 2.0 : 1.0) : max(u_taper_len, 1e-3);
-  float s = clamp(u_taper_at == 1 ? (l - x) / l : u_taper_at == 2 ? max(0.5 * l - x, x - 1.0 + 0.5 * l) / (0.5 * l) : (x - 1.0 + l) / l, 0.0, 1.0);
-  float f = u_taper_curve == 1 ? s * s * (3.0 - 2.0 * s) : u_taper_curve == 2 ? 1.0 - sqrt(max(1.0 - s * s, 0.0)) : s;
-  return 1.0 - u_taper * f;
-}
-// The bevel's rise at signed distance d (px), as the wrapper draws it (flat: 1 inside).
-float pln_bev(float d) { return u_bevel <= 0.0 || u_profile == 0 ? (d <= 0.0 ? 1.0 : 0.0) : profileCurve(u_profile, max(-d, 0.0) / u_bevel); }
-
-// Per line: its length as drawn (the taper) and along its rounds (fitting the dashes), and per pixel the distance to it
-// and its nearest dash.
-float pln_len[PLN_LINES];
-float pln_flen[PLN_LINES];
-float pln_d[PLN_LINES];
-float pln_dash[PLN_LINES];
-// Bevel aspect (GLSL_BEVEL): the same distances in the space the aspect stretches (px of Bevel), each piece's term
-// across its own edge (bevelLine with the piece's normal) — the flat ends and dash ends exact, as half-planes, so their
-// corners meet in clean mitres.
-bool pln_asp;
-mat2 pln_M;          // screen px → the stretched space (px of Bevel)
-float pln_reach;     // the widest bevel
-float pln_dS[PLN_LINES];
-// A half circle in nine points from its start (0) to its end (π): cos, sin.
-const vec2 PLN_HC[9] = vec2[9](vec2(1.0, 0.0), vec2(0.92388, 0.38268), vec2(0.70711, 0.70711), vec2(0.38268, 0.92388),
-  vec2(0.0, 1.0), vec2(-0.38268, 0.92388), vec2(-0.70711, 0.70711), vec2(-0.92388, 0.38268), vec2(-1.0, 0.0));
-// A distance d and its stretched one dS through Outline: the band's inner edge at the same local stretch.
-float pln_onion(float d, float dS) { return u_outline > 0.0 ? sdOnion(d, u_outline) * (abs(d) > 0.05 ? dS / d : 1.0) : dS; }
-
-// Distance to each open polyline (segments whose "next" wraps back close a line: skipped), minus half the width, into
-// pln_d / pln_dash.
-void lineSdf(vec2 q, vec2 k, float hw) {
-  int n = u_points_size.x;
-  for (int i = 0; i < PLN_LINES * PLN_1; i++) { pln_d[i] = 1e20; pln_dash[i] = 0.0; pln_dS[i] = 1e20; }
-  float s0 = 0.0; // along the line as drawn, at the segment's start (the taper)
-  float f0 = 0.0; // along the line with its rounds (the dashes)
-  for (int i = 0; i < ${MAX_PATH_POINTS}; i++) {
-    if (i >= n) break;
-    vec4 a4 = u_points[i];
-    int j = int(a4.z);
-    int li = min(int(a4.w), PLN_LINES - 1);
-    // Segments whose "next" wraps back (a line's closing one) are skipped — by a flag, not continue (ANGLE / D3D11).
-    if (j > i) {
-      bool first = i == 0 || u_points[i - 1].w != a4.w;
-      bool last = int(u_points[j].z) <= j;
-      if (first) { s0 = 0.0; f0 = 0.0; }
-      vec2 a = a4.xy * k;
-      vec2 b = u_points[j].xy * k;
-      vec2 e = b - a;
-      float L = max(length(e), 1e-6);
-      vec2 t = e / L;
-      vec2 w = q - a;
-      float u = dot(w, t);
-      float v = dot(w, vec2(-t.y, t.x));
-      // Rounds at the inner vertices: this segment starts ta after a and ends fb.x before b, then bends round b.
-      float ta = 0.0;
-      vec4 fb = vec4(0.0);
-      vec2 nb = b;
-      if (u_radius > 0.0) {
-        // Corner radius is the inner edge's: the centre line bends on radius + half the width (no cusp when wide).
-        if (!first) ta = shp_fillet(u_points[i - 1].xy * k, a, b, u_radius + hw).x;
-        if (!last) { nb = u_points[j + 1].xy * k; fb = shp_fillet(a, b, nb, u_radius + hw); }
-      }
-      float uc = clamp(u, ta, max(L - fb.x, ta));
-      float ex = abs(u - uc); // past the straight part's end
-      float pv = abs(v);      // across the line
-      // (Bevel aspect: the piece's directions across (nA, with the signed offset vs) and along (nL, ex's sign sx).)
-      vec2 nA = vec2(-t.y, t.x), nL = t;
-      float vs = v, sx = u < uc ? -1.0 : 1.0;
-      float exC = ex;
-      bool inSec = false;
-      float adv = 0.0;
-      vec2 mr = vec2(0.0);
-      float sl = s0 + uc;
-      float fl = f0 + uc - ta;
-      float arc = 0.0;
-      if (fb.w > 0.0) {
-        vec2 t1 = b - t * fb.x;
-        vec2 t2 = b + normalize(nb - b) * fb.x;
-        vec2 m = q - fb.yz;
-        float span = acos(clamp(dot(normalize(t1 - fb.yz), normalize(t2 - fb.yz)), -1.0, 1.0));
-        arc = span * fb.w;
-        float ad = abs(length(m) - fb.w);
-        inSec = shp_sector(q, fb.yz, t1, t2);
-        adv = ad;
-        mr = m;
-        if (inSec && ad < length(vec2(ex, pv))) {
-          float ang = acos(clamp(dot(normalize(t1 - fb.yz), normalize(m)), -1.0, 1.0));
-          ex = 0.0;
-          pv = ad;
-          nA = m;
-          nL = vec2(m.y, -m.x);
-          vs = length(m) - fb.w;
-          sl = s0 + L - fb.x + 2.0 * fb.x * ang / max(span, 1e-5);
-          fl = f0 + L - fb.x - ta + ang * fb.w;
-        }
-      }
-      float hwk = u_taper > 0.0 ? hw * pln_taper(sl / max(pln_len[li], 1e-6), pln_len[li]) : hw;
-      float dd;
-      float ddS = 1e20;
-      float dash = 0.0;
-      if (u_dash > 0.0) {
-        // Along the line to the nearest dash (0 on one), its index. Fitted: dash and gap scaled so the line holds a
-        // whole number of dashes, one at either end.
-        float dl = u_dash;
-        float gl = max(u_gap, 0.0);
-        if (u_dash_fit) {
-          float lf = pln_flen[li];
-          float cnt = max(1.0, floor((lf + gl) / (dl + gl) + 0.5));
-          float f = lf / max(cnt * dl + (cnt - 1.0) * gl, 1e-3);
-          dl *= f;
-          gl *= f;
-        }
-        float per = dl + gl;
-        float z = fl - u_dash_ofs;
-        float ph = z - per * floor(z / per);
-        bool on = ph < dl;
-        float gapD = on ? 0.0 : min(ph - dl, per - ph);
-        dash = floor(z / per) + (!on && ph - dl > per - ph ? 1.0 : 0.0);
-        float al = (on ? -min(ph, dl - ph) : gapD) + ex;
-        dd = u_caps == 1 ? max(pv - hwk, al) : length(vec2(ex + gapD, pv)) - hwk;
-        if (pln_asp) {
-          // Along: past the straight part, else towards the nearer dash (behind it, or ahead).
-          float sa = ex > 0.0 ? sx : ph - dl < per - ph ? 1.0 : -1.0;
-          ddS = u_caps == 1 ? max(bevelLine(pv - hwk, nA), bevelLine(al, nL)) : bevelLine(dd, sa * (ex + gapD) * nL + vs * nA);
-        }
-      } else {
-        dd = length(vec2(ex, pv)) - hwk;
-        if (pln_asp) {
-          // The straight part's capsule: inside, the deepest of its sides (half-planes) and its round ends — each end's
-          // half circle, an elliptic arc stretched (chords), only near enough to matter (no nearer than a side further
-          // off); outside, across by its direction. The bend's band (Corner radius), a curve: across by its radial
-          // direction. Their union.
-          vec2 n0 = vec2(-t.y, t.x);
-          float dc = length(vec2(exC, v)) - hwk;
-          float cS = bevelLine(dc, (u - uc) * t + v * n0);
-          if (dc < 0.0) {
-            cS = bevelLine(abs(v) - hwk, n0);
-            float uB = max(L - fb.x, ta);
-            float m2 = 1e20;
-            for (int j = 0; j < 16 * PLN_1; j++) {
-              int en = j / 8, kk = j - en * 8;
-              float ue = en == 0 ? ta : uB;
-              if (abs(u - ue) < hwk + pln_reach) {
-                vec2 md = en == 0 ? -t : t;
-                vec2 c0 = a + t * ue - q;
-                vec2 h0 = PLN_HC[kk], h1 = PLN_HC[kk + 1];
-                m2 = min(m2, bevelSeg2(vec2(0.0), pln_M * (c0 + hwk * (h0.x * n0 + h0.y * md)), pln_M * (c0 + hwk * (h1.x * n0 + h1.y * md))));
-              }
-            }
-            cS = max(cS, -sqrt(m2));
-          }
-          ddS = min(cS, inSec ? bevelLine(adv - hwk, mr) : 1e20);
-        }
-      }
-      if (u_caps == 1) {
-        // Flat ends: cut square at a line's first and last vertex.
-        if (first && u < 0.0) { dd = max(abs(v) - hwk, -u); ddS = max(bevelLine(abs(v) - hwk, vec2(-t.y, t.x)), bevelLine(-u, t)); }
-        if (last && u > L) { dd = max(abs(v) - hwk, u - L); ddS = max(bevelLine(abs(v) - hwk, vec2(-t.y, t.x)), bevelLine(u - L, t)); }
-      }
-      if (dd < pln_d[li]) { pln_d[li] = dd; pln_dash[li] = dash; }
-      pln_dS[li] = min(pln_dS[li], ddS);
-      s0 += L;
-      f0 += L - ta - fb.x + arc;
-    }
-  }
-}
-
-GenOut gen(vec2 p) {
-  if (u_points_size.x < 2) return genOut(0.0, 0.0, 0.0, 1e4);
-  // Fractions of the texture's width and height, as the shape editor draws them.
-  vec2 k = u_units == 1 ? uRes : vec2(1.0);
-  int n = u_points_size.x;
-  int nl = min(u_points_size.y, PLN_LINES);
-  // Once per pixel: each line's length as drawn and along its rounds (for the taper and fitted dashes).
-  for (int i = 0; i < PLN_LINES * PLN_1; i++) { pln_len[i] = 0.0; pln_flen[i] = 0.0; }
-  if (u_taper > 0.0 || (u_dash > 0.0 && u_dash_fit)) {
-    for (int i = 0; i < ${MAX_PATH_POINTS} * PLN_1; i++) {
-      if (i >= n) break;
-      int j = int(u_points[i].z);
-      int li = min(int(u_points[i].w), PLN_LINES - 1);
-      if (j > i) {
-        vec2 a = u_points[i].xy * k;
-        vec2 b = u_points[j].xy * k;
-        float L = length(b - a);
-        pln_len[li] += L;
-        pln_flen[li] += L;
-        // A round at b shortens the line by 2t and adds its arc.
-        if (u_radius > 0.0 && int(u_points[j].z) > j) {
-          vec2 c = u_points[j + 1].xy * k;
-          vec4 f = shp_fillet(a, b, c, u_radius + 0.5 * u_width);
-          float cs = dot(normalize(a - b), normalize(c - b));
-          pln_flen[li] += f.w > 0.0 ? f.w * (3.14159265 - acos(clamp(cs, -1.0, 1.0))) - 2.0 * f.x : 0.0;
-        }
-      }
-    }
-  }
-  float hw = 0.5 * u_width;
-  vec2 q = vec2(p.x, uRes.y - p.y);
-  // Tileable projects: the nearest of the 3×3 torus copies of each line, so a line may cross the edge.
-  float best[PLN_LINES];
-  float bdash[PLN_LINES];
-  float bestS[PLN_LINES];
-  pln_asp = bevelAspectOn();
-  pln_M = mat2(u_bevel / bevelWidths().x, 0.0, 0.0, u_bevel / bevelWidths().y);
-  pln_reach = max(bevelWidths().x, bevelWidths().y);
-  for (int i = 0; i < PLN_LINES * PLN_1; i++) { best[i] = 1e20; bdash[i] = 0.0; bestS[i] = 1e20; }
-  for (int c = 0; c < 9; c++) {
-    if (c > 0 && !uTile) break;
-    lineSdf(q + vec2(SHP_TILE[c]) * uRes, k, hw);
-    for (int i = 0; i < PLN_LINES * PLN_1; i++) {
-      if (pln_d[i] < best[i]) { best[i] = pln_d[i]; bdash[i] = pln_dash[i]; }
-      bestS[i] = min(bestS[i], pln_dS[i]);
-    }
-  }
-  // The lines combined: the union (the two deepest where they cross, so a crossing has no crease), or the topmost line
-  // over the rest, blended across its anti-aliased edge. The per-feature random is the topmost line's under the pixel
-  // (the nearest line's outside them all).
-  float d = 1e20;
-  float a1 = 0.0;
-  float a2 = 0.0;
-  // (Bevel aspect: the same union of the stretched distances, apart — each is continuous on its own.)
-  float dS = 1e20;
-  float s1 = 0.0;
-  float s2 = 0.0;
-  int top = -1;
-  int near = 0;
-  for (int i = 0; i < PLN_LINES * PLN_1; i++) {
-    if (i < nl) {
-      float di = best[i];
-      if (di < d) { d = di; near = i; }
-      if (-di > a1) { a2 = a1; a1 = -di; } else if (-di > a2) a2 = -di;
-      if (di < (u_overlap == 1 ? 0.5 : 0.0)) top = i;
-      float si = bestS[i];
-      dS = min(dS, si);
-      if (-si > s1) { s2 = s1; s1 = -si; } else if (-si > s2) s2 = -si;
-    }
-  }
-  if (d < 0.0) d = -sqrt(a1 * a1 + a2 * a2);
-  if (dS < 0.0) dS = -sqrt(s1 * s1 + s2 * s2);
-  int feat = top >= 0 ? top : near;
-  float hv = -1.0;
-  if (u_overlap == 1 && top >= 0) {
-    // Later on top: the top line's own distance, eased into the union of the lines below across its edge pixel.
-    float under = 1e20;
-    float b1 = 0.0;
-    float b2 = 0.0;
-    float underS = 1e20;
-    float c1 = 0.0;
-    float c2 = 0.0;
-    int below = -1;
-    for (int i = 0; i < PLN_LINES * PLN_1; i++) {
-      if (i < top) {
-        under = min(under, best[i]);
-        if (-best[i] > b1) { b2 = b1; b1 = -best[i]; } else if (-best[i] > b2) b2 = -best[i];
-        if (best[i] < 0.0) below = i;
-        underS = min(underS, bestS[i]);
-        if (-bestS[i] > c1) { c2 = c1; c1 = -bestS[i]; } else if (-bestS[i] > c2) c2 = -bestS[i];
-      }
-    }
-    if (under < 0.0) under = -sqrt(b1 * b1 + b2 * b2);
-    if (underS < 0.0) underS = -sqrt(c1 * c1 + c2 * c2);
-    float dt = best[top];
-    float dtS = bestS[top];
-    d = mix(min(under, dt), dt, clamp(0.5 - dt, 0.0, 1.0));
-    dS = mix(min(underS, dtS), dtS, clamp(0.5 - dt, 0.0, 1.0));
-    // The colour: the top line where the pixel's centre is on it, else the topmost line below that is.
-    if (dt >= 0.0 && below >= 0) feat = below;
-    // Height (GenOut.height, may pass 1): the top line's profile raised by Stack lift where it passes over the lines
-    // below — eased by the distance to them, from a line width plus the bevel (plus Lift falloff) outside their edge to
-    // full over their crown, so it arches over — and never below their surface, so its sides settle onto them.
-    // (Bevel aspect: the stretched distances, as the wrapper takes GenOut.bdist.)
-    float U = pln_bev(pln_asp ? pln_onion(under, underS) : sdOnion(under, u_outline));
-    float bt = pln_bev(pln_asp ? pln_onion(dt, dtS) : sdOnion(dt, u_outline));
-    float S = 1.0 - smoothstep(-hw, u_width + u_bevel + u_lift_fall, under);
-    hv = max(U, bt * (1.0 + u_lift * S));
-  } else if (u_overlap == 1) {
-    hv = pln_bev(pln_asp ? pln_onion(d, dS) : sdOnion(d, u_outline));
-  }
-  float rnd = u_dash > 0.0 ? hashI(ivec2(feat, 7919 + int(bdash[feat])), uSeed) : hashI(ivec2(feat, 7), uSeed);
-  float sd = sdOnion(d, u_outline);
-  // Later on top: its own height profile, anti-aliased by the coverage (the wrapper doesn't limit it).
-  GenOut g = genOut(1.0, 1.0, rnd, sd);
-  if (u_overlap == 1) g = genOutHeight(1.0, 1.0, rnd, sd, hv * coverage(sd, u_aa));
-  if (pln_asp) g.bdist = pln_onion(d, dS);
-  return g;
-}
-`
-};
-
-export const STAMP_LAYERS: LayerDef[] = [stampLayer, labelLayer, pathLayer, polylineLayer];
+export const STAMP_LAYERS: LayerDef[] = [stampLayer, labelLayer];

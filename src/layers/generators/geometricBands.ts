@@ -4,17 +4,13 @@
 
 import { P, gradient, orientAxis } from '@/core/params';
 import type { LayerDef } from '../types';
-import { geoGlsl } from './geometricCommon';
+import { modeIs } from '../commonParams';
+import { GEO_FRAME_GLSL, geoPolyGlsl } from './geometricCommon';
 
 // Band thickness, margins and rails are across the bands, the chamfer along them; diagonals scale with both.
 const BAND_AXIS: Record<string, 'x' | 'y'> = { '0': 'x', '180': 'x', '90': 'y', '270': 'y' };
 const bandsAlong = orientAxis('orient', BAND_AXIS);
 const bandsAcross = orientAxis('orient', BAND_AXIS, true);
-
-const modeIs =
-	(...m: string[]) =>
-	(p: Record<string, unknown>) =>
-		m.includes(String(p.mode));
 
 /** Directions in 45° steps; the index is the frame rotation (steps clockwise). */
 const DIRECTIONS: [string, string][] = [
@@ -213,9 +209,9 @@ export const bandsLayer: LayerDef = {
 		};
 	},
 	glsl:
-		geoGlsl(8) +
+		GEO_FRAME_GLSL +
+		geoPolyGlsl(4) +
 		/* glsl */ `
-#define BND_1 (uRes.x > 0.0 ? 1 : 0)   // 1, from a uniform: a loop bound D3D can't unroll
 #define BND_MITRE 4.0                 // mitre tips are clipped this many half widths from the bend
 #define BND_EPS 1e-3
 
@@ -335,19 +331,22 @@ void bnd_zpiece(ivec2 kk, float x0, float L, float J, float pj, float rv, float 
 GenOut gen(vec2 p) {
   int mode = u_mode;
   geo_frame(p, u_orient);
-  float kx = geo_count(float(u_count), 1);
-  float ky = geo_count(float(u_rows), u_mirror ? 2 : 1);
+  // Diagonal frames: the counts are per untiled span (uRes / √2), so a tiling one (gcd(W, H) / √2) keeps their density.
+  vec2 kc = (u_orient & 1) == 1 ? geo_span / (0.70710678 * uRes) : vec2(1.0);
+  float kx = geo_count(float(u_count) * kc.x, 1);
+  float ky = geo_count(float(u_rows) * kc.y, u_mirror ? 2 : 1);
   geo_periods(vec2(kx, ky));
   float P = geo_cs.x, Hl = geo_cs.y;
   float fy = geo_f.y;
   int lane = int(floor(fy / Hl));
   float ly = fy - float(lane) * Hl;
-  if (u_mirror && mode != 2 && (lane & 1) == 1) ly = Hl - ly;   // (chevrons overlap lanes: no mirroring)
+  bool flip = u_mirror && mode != 2 && (lane & 1) == 1;   // (chevrons overlap lanes: no mirroring)
+  if (flip) ly = Hl - ly;
   float sgn = u_angle < 0.0 ? -1.0 : 1.0;
   float x = (geo_f.x - u_phase * P) * sgn;   // negative angles mirror along the band
   // Bevel aspect (not on an outline: its inner edge keeps the distance's direction).
   bnd_asp = bevelAspectOn() && u_outline <= 0.0;
-  bnd_L = mat2(geo_toScreen(vec2(sgn, 0.0)), geo_toScreen(vec2(0.0, u_mirror && mode != 2 && (lane & 1) == 1 ? -1.0 : 1.0)));
+  bnd_L = mat2(geo_toScreen(vec2(sgn, 0.0)), geo_toScreen(vec2(0.0, flip ? -1.0 : 1.0)));
   float bestS = 1e9;
   vec2 barV[4];   // the winning bar (its polygon, anchor and rounding), measured after the search
   float barA = 0.0, barR = 0.0;
@@ -363,7 +362,6 @@ GenOut gen(vec2 p) {
   int laneW = uTile ? imod(lane, kyi) : lane;
   float yl = mb + hw, yh = Hl - mt - hw;
   float Rr = max(yh - yl, 0.0);
-  geo_s = vec2(1.0);
   geo_reset();
 
   // Per-mode layout. Waves (zig-zag, chevrons): low flat Fl, rise D, high flat Fh, fall D per repeat, between lo and hi.
@@ -384,10 +382,9 @@ GenOut gen(vec2 p) {
       nRun = int(floor(run / P + 0.5));
       run = float(nRun) * P;
       // A stripe crosses all lanes, advancing nRun repeats per lane, so stripes are only told apart modulo this.
-      kThr = geo_gcd(kxi, nRun * kyi);
+      kThr = igcd(kxi, nRun * kyi);
     }
     slope = Hi > 0.0 ? run / Hi : 0.0;   // x shift per px of height
-    nIt = Hi > 0.0 ? 3 : 0;
   } else if (mode == 1 || mode == 2) {
     float A;
     if (mode == 1) {
@@ -462,6 +459,13 @@ GenOut gen(vec2 p) {
   // Fill modes, bars and Z pieces: the piece left of the pixel names the panel it lies in.
   float leftX = -1e9;
   ivec2 leftKey = ivec2(0);
+  // Bars: one polygon for all unless Width variation sizes each its own.
+  bool barBuilt = false;
+  // Per piece (bars, Z) or lane (waves): its hashes (width, missing, spacing) and, for chevrons' other lanes, its own
+  // Shift jitter — drawn when the key changes, not per segment.
+  int per = 2 * nPer + 1;
+  vec3 hv = vec3(0.0);
+  float xc = xs;
   // The current Z piece, set on its first segment and kept for the other two: low run zL1 from zx0 at zy1, rise zDk
   // (the same slope, length zLk) to zy2, high run zL2.
   float zx0 = 0.0, zL1 = L, zL2 = L, zy1 = yl, zy2 = yh, zDk = D, zLk = Ls;
@@ -471,21 +475,20 @@ GenOut gen(vec2 p) {
 
   // One flat loop over every candidate piece (diagonal: bars; Z: piece × segment; waves: lane × repeat × segment),
   // so each helper exists once in the shader. No continue (ANGLE / D3D can miscompile it): guarded bodies instead.
-  for (int it = 0; it < 640 * BND_1; it++) {
+  for (int it = 0; it < 640 * UNI_1; it++) {
     if (it >= nIt) break;
     int m = it - 4 * (it / 4);   // segment of a wave repeat
     int j = it / 4;
-    int per = 2 * nPer + 1;
     int dl = mode == 2 ? j / per - nL : 0;
     int lc = lane + dl;
     int lcW = uTile ? imod(lc, kyi) : lc;
-    float xc = xs;
-    if (dl != 0 && jit > 0.0) xc = x - (hashI(ivec2(lcW, 7), uSeed + 13.0) - 0.5) * jit;
+    bool fresh = mode == 0 || (mode == 3 ? it - 6 * (it / 6) == 0 : it - 4 * per * (it / (4 * per)) == 0);
+    if (fresh) xc = dl != 0 && jit > 0.0 ? x - (hashI(ivec2(lcW, 7), uSeed + 13.0) - 0.5) * jit : xs;
     int k = mode == 0 ? kd0 + it - 1 : mode == 3 ? kLo + it / 6 : int(floor(xc / P)) + j - (j / per) * per - nPer;
     int id = mode == 0 && through ? k - nRun * lane : k;
     ivec2 key = mode == 0 ? (through ? ivec2(imod(id, kThr), 0) : ivec2(imod(id, kxi), laneW))
               : mode == 3 ? ivec2(imod(k, kxi), laneW) : ivec2(lcW, 0);
-    vec3 hv = hash3I(key, uSeed + 7.0);   // width, missing, spacing
+    if (fresh) hv = hash3I(key, uSeed + 7.0);
     bool on = hv.y >= u_skip;
     bool footOn = on;
     float hc = hw * (1.0 - wv * hv.x);
@@ -500,18 +503,18 @@ GenOut gen(vec2 p) {
         // Through stripes, and bars in the fill modes, run past the margins (cut there), so no rounded corner shows.
         float ext = through || fillM ? hw + r + 2.0 : 0.0;
         float yb = mb - ext, yt = Hl - mt + ext;
-        geo_f = q;
-        geo_in = rc;
-        geo_r = rc;
-        geo_begin();
-        geo_addPx(vec2((yb - mb) * slope + xo, yb));
-        geo_addPx(vec2((yb - mb) * slope + xo + wx, yb));
-        geo_addPx(vec2((yt - mb) * slope + xo + wx, yt));
-        geo_addPx(vec2((yt - mb) * slope + xo, yt));
-        geo_finish();
-        float pd = geo_bestD;
-        geo_try(vec2(x0, 0.0), 0, key);
-        if (bnd_asp && geo_bestD < pd) {
+        if (wv > 0.0 || !barBuilt) {
+          geo_in = rc;
+          geo_r = rc;
+          geo_begin();
+          geo_addPx(vec2((yb - mb) * slope + xo, yb));
+          geo_addPx(vec2((yb - mb) * slope + xo + wx, yb));
+          geo_addPx(vec2((yt - mb) * slope + xo + wx, yt));
+          geo_addPx(vec2((yt - mb) * slope + xo, yt));
+          geo_finish();
+          barBuilt = true;
+        }
+        if (geo_keep(geo_dist(q - vec2(x0, 0.0), geo_bestD), 0, key) && bnd_asp) {
           for (int i = 0; i < 4; i++) barV[i] = geo_V[i];
           barA = x0;
           barR = rc;
@@ -583,20 +586,19 @@ GenOut gen(vec2 p) {
           zDk = cD;
           zLk = Ls * (cy2 - cy1) / max(Rr, 1e-4);
         }
-        float x0 = zx0, L1 = zL1, L2 = zL2, y1 = zy1, y2 = zy2, Dk = zDk, Lk = zLk;
-        a = sz == 0 ? vec2(x0, y1) : sz == 1 ? vec2(x0 + L1, y1) : vec2(x0 + L1 + Dk, y2);
+        a = sz == 0 ? vec2(zx0, zy1) : sz == 1 ? vec2(zx0 + zL1, zy1) : vec2(zx0 + zL1 + zDk, zy2);
         e = sz == 1 ? rise : vec2(1.0, 0.0);
         ep = sz == 2 ? rise : vec2(1.0, 0.0);
-        l = sz == 1 ? Lk : sz == 0 ? L1 : L2;
+        l = sz == 1 ? zLk : sz == 0 ? zL1 : zL2;
         // A left-out run: its segment is skipped and the rise gets the flat end instead.
-        fa = sz == 0 || (sz == 1 && L1 <= 0.0);
-        fb = sz == 2 || (sz == 1 && L2 <= 0.0);
-        joint = sz == 2 || (sz == 1 && L1 > 0.0);
+        fa = sz == 0 || (sz == 1 && zL1 <= 0.0);
+        fb = sz == 2 || (sz == 1 && zL2 <= 0.0);
+        joint = sz == 2 || (sz == 1 && zL1 > 0.0);
         zLow = sz == 1;
         zHigh = sz == 2;
-        if ((sz == 0 && L1 <= 0.0) || (sz == 2 && L2 <= 0.0)) on = false;   // (its foot stays, footOn)
-        lp = zHigh ? 0.5 * Lk : L1;
-        ln = zLow ? 0.5 * Lk : L2;
+        if ((sz == 0 && zL1 <= 0.0) || (sz == 2 && zL2 <= 0.0)) on = false;   // (its foot stays, footOn)
+        lp = zHigh ? 0.5 * zLk : zL1;
+        ln = zLow ? 0.5 * zLk : zL2;
       } else {
         a = vec2(x0 + (m == 0 ? 0.0 : m == 1 ? Fl : m == 2 ? Fl + D : Fl + D + Fh), (m < 2 ? lo : hi) + yo);
         e = m == 0 || m == 2 ? vec2(1.0, 0.0) : m == 1 ? rise : fall;
@@ -618,7 +620,7 @@ GenOut gen(vec2 p) {
         }
         dc -= rc;
         if (bnd_asp) bestS = min(bestS, dcS);
-        if (dc < geo_bestD) { geo_bestD = dc; geo_bestKey = key; geo_bestCls = 0; }
+        geo_keep(dc, 0, key);
       }
       // Feet: a box from the margin to the centre line under a low run / flat (over a high one), out to where the
       // band's outer corners meet the margin (half the bend's turn: hc · tan(slope / 2) beyond the flat).
@@ -630,10 +632,8 @@ GenOut gen(vec2 p) {
         float bx2 = mode == 3 ? (low ? zx0 + zL1 + hc * tq : zx0 + zL1 + zDk + (zL2 > 0.0 ? zL2 : hc / sinR)) : a.x + l + hc * tq;
         float by1 = low ? mb - 1.0 : a.y, by2 = low ? a.y : Hl - mt + 1.0;
         vec2 bc = q - 0.5 * vec2(bx1 + bx2, by1 + by2), bh = 0.5 * vec2(bx2 - bx1, by2 - by1);
-        vec2 bq = abs(bc) - bh;
-        float df = length(max(bq, 0.0)) + min(max(bq.x, bq.y), 0.0);
         if (bnd_asp) bestS = min(bestS, bnd_boxS(bc, bh));
-        if (df < geo_bestD) { geo_bestD = df; geo_bestKey = key; geo_bestCls = 0; }
+        geo_keep(sdBox(bc, bh), 0, key);
       }
       // Z: the piece whose rise lies left of the pixel names its panel.
       if (on && mode == 3 && zLow) {
@@ -724,15 +724,12 @@ GenOut gen(vec2 p) {
   float bd = bnd_asp ? ds : NO_SDF;
   if (wv > 0.0 && !fillM && !rail) {
     float hb = hw * (1.0 - wv * hashI(pieceKey, uSeed + 7.0));   // = hash3I(…).x, cheaper
-    float gg = dot(gd, gd);
-    vec2 n2 = gg > 1e-12 ? gd * gd / gg : vec2(0.5);
-    vec2 W = bevelWidths();
-    bd = bnd_asp ? ds * (hw / max(hb, 1e-4)) : d * (hw / max(hb, 1e-4)) * u_bevel / max(sqrt(dot(n2, W * W)), 1e-4);
+    float sc = hw / max(hb, 1e-4);
+    bd = bnd_asp ? ds * sc : bevelLine(d * sc, gd);
   }
-  // Rails lower than the bands: the level × the bevel (genOutShaded-style), with the coverage drawn here.
-  if (u_rail > 0.0 && u_rail_h < 1.0 && mode != 2)
-    return GenOut(rail ? u_rail_h : 1.0, coverage(d, u_aa), rnd, d, 1.0, NO_SDF, 2, -1.0, bd, rnd);
+  // Rails lower than the bands: the level × the bevel (genOutShaded), with the coverage drawn here.
   GenOut o = genOut(0.0, 1.0, rnd, d);
+  if (u_rail > 0.0 && u_rail_h < 1.0 && mode != 2) o = genOutShaded(rail ? u_rail_h : 1.0, coverage(d, u_aa), rnd, d);
   o.bdist = bd;
   return o;
 }

@@ -10,6 +10,8 @@
 // edges) and composited. Value is a shade: high blades light, deep ones dark, the half of a folded blade facing Light
 // from lighter, and a contact shadow where a higher blade passes close by — the darkest end of the ramp is the shadowed
 // ground between blades. Height (hval) is the blade's own height with a slight dome across it; rnd is per blade.
+// The bare and colour patches and the turf relief are noise of whole cells per axis when tiling (cellsFor), so they
+// tile at any Patches across.
 
 import { P, gradient } from '@/core/params';
 import type { LayerDef } from '../types';
@@ -233,7 +235,7 @@ float gr_u16(uint h, uint sh) { return float((h >> sh) & 0xffffu) / 65536.0; }
 // The bare-patch noise at texture coords u (0..1), high where blades grow. Patch edges add octaves and keep more of
 // each, so the outline frays into islands and specks.
 float gr_patch(vec2 u) {
-  vec2 cells = vec2(u_bare_scale);
+  vec2 cells = cellsFor(u_bare_scale, 1.0);
   float n = org_noiseFbm(1, false, u * cells, org_per(cells), 3 + int(u_bare_detail * 3.0 + 0.5), 0.45 + 0.25 * u_bare_detail, u_patch_seed * 131.0 + 71.0);
   return u_bare_invert ? 1.0 - n : n;
 }
@@ -254,7 +256,7 @@ GenOut gen(vec2 p) {
   float lastKeep = Kf - float(K - 1);
 
   float a0base = radians(u_angle), spread = radians(u_spread);
-  float bendR = radians(u_bend), curlR = radians(u_curl);
+  float bendR = radians(u_bend), curlR = radians(u_curl), wg = radians(u_wiggle);
   vec2 Ld = vec2(sin(radians(u_light)), cos(radians(u_light)));
   bool bare = u_bare > 0.0;
   float bLo = 0.25 + 0.45 * u_bare;
@@ -267,7 +269,7 @@ GenOut gen(vec2 p) {
   float M = -1.0;
 
   ivec2 c0 = ivec2(floor(p / cs));
-  for (int ci = 0; ci < 9 * ORG_1; ci++) {
+  for (int ci = 0; ci < 9 * UNI_1; ci++) {
     ivec2 cell = c0 + ivec2(ci % 3 - 1, ci / 3 - 1);
     vec2 lo = vec2(cell) * cs;
     vec2 q = max(max(lo - p, p - lo - cs), 0.0);
@@ -291,37 +293,36 @@ GenOut gen(vec2 p) {
         // quarter of the way along, with room for the error that turning makes.
         float aq = a0 + 0.25 * kb + 0.0625 * kc;
         vec2 mid = root + 0.5 * len * vec2(sin(aq), cos(aq));
-        float wg = radians(u_wiggle);
         float rad = len * (0.5 + 0.25 * min(abs(0.5 * kb + 0.25 * kc) + 2.0 * wg, 2.0)) + 0.5 * W + sw + 1.0;
         vec2 dm = p - mid;
         if (keep && dot(dm, dm) < rad * rad) {
           uint g4 = pcg(g3);
-          bool grows = true;
-          if (bare) {
-            grows = gr_u8(g4, 16u) < smoothstep(bLo, bLo + 0.25, gr_patch(root / uRes));
+          float wi = W * (1.0 - u_width_var * gr_u8(g3, 24u));
+          uint g5 = pcg(g4);
+          float wf = 1.0 + 2.0 * gr_u16(g5, 0u), wph = gr_u16(g5, 16u);
+          int N = clamp(int(ceil((abs(kb) + abs(kc) + 6.0 * wg * wf) / 0.3)), 1, 32);
+          float fn = float(N), seg = len / fn;
+          vec2 a = root;
+          float best = 1e9, bd = 0.0, bhw = 0.0, bt = 0.0, bsp = 0.0;
+          vec2 bT = vec2(0.0, 1.0);
+          for (int i = 0; i < N; i++) {
+            float tm = (float(i) + 0.5) / fn;
+            float ang = a0 + kb * tm + kc * tm * tm + wg * sin(6.2831853 * (wf * tm + wph));
+            vec2 T = vec2(sin(ang), cos(ang));
+            vec2 pa = p - a;
+            float u = clamp(dot(pa, T) / seg, 0.0, 1.0);
+            vec2 off = pa - seg * u * T;
+            float d = length(off);
+            float t = (float(i) + u) / fn;
+            float hw = 0.5 * wi * (leaf ? mix(1.0, sqrt(sin(3.14159265 * t)), u_taper) : 1.0 - u_taper * t * sqrt(t));
+            if (d - hw < best) { best = d - hw; bd = d; bhw = hw; bt = t; bsp = dot(off, vec2(-T.y, T.x)); bT = T; }
+            a += seg * T;
           }
+          // Only a blade that covers the pixel or shades it (within the shadow width) matters; the bare patches (an
+          // fBm) are looked up for those alone. (Farther blades add at most hgt - 1 <= 0 to M, which shades nothing.)
+          bool grows = best < max(sw, 0.5);
+          if (grows && bare) grows = gr_u8(g4, 16u) < smoothstep(bLo, bLo + 0.25, gr_patch(root / uRes));
           if (grows) {
-            float wi = W * (1.0 - u_width_var * gr_u8(g3, 24u));
-            uint g5 = pcg(g4);
-            float wf = 1.0 + 2.0 * gr_u16(g5, 0u), wph = gr_u16(g5, 16u);
-            int N = clamp(int(ceil((abs(kb) + abs(kc) + 6.0 * wg * wf) / 0.3)), 1, 32);
-            float fn = float(N), seg = len / fn;
-            vec2 a = root;
-            float best = 1e9, bd = 0.0, bhw = 0.0, bt = 0.0, bsp = 0.0;
-            vec2 bT = vec2(0.0, 1.0);
-            for (int i = 0; i < N; i++) {
-              float tm = (float(i) + 0.5) / fn;
-              float ang = a0 + kb * tm + kc * tm * tm + wg * sin(6.2831853 * (wf * tm + wph));
-              vec2 T = vec2(sin(ang), cos(ang));
-              vec2 pa = p - a;
-              float u = clamp(dot(pa, T) / seg, 0.0, 1.0);
-              vec2 off = pa - seg * u * T;
-              float d = length(off);
-              float t = (float(i) + u) / fn;
-              float hw = 0.5 * wi * (leaf ? mix(1.0, sqrt(sin(3.14159265 * t)), u_taper) : 1.0 - u_taper * t * sqrt(t));
-              if (d - hw < best) { best = d - hw; bd = d; bhw = hw; bt = t; bsp = dot(off, vec2(-T.y, T.x)); bT = T; }
-              a += seg * T;
-            }
             float rise = mix(bt, sin(3.14159265 * bt), u_arch);
             float hgt = (gr_u16(g4, 0u) + u_lift * rise) / (1.0 + u_lift);
             M = max(M, hgt - smoothstep(0.0, sw, max(best, 0.0)));
@@ -335,7 +336,8 @@ GenOut gen(vec2 p) {
               v = lit > 0.0 ? mix(v, 1.0, 0.35 * u_fold * lit) : v * (1.0 + 0.5 * u_fold * lit);
               float kd = gr_u8(g4, 24u) < u_kind_share ? 1.0 : 0.0;
               float hv = hgt + min(0.08 * bhw, 0.25) * sqrt(max(1.0 - uu * uu, 0.0));
-              float rnd = gr_u16(g3, 0u) * 0.37 + gr_u16(g1, 0u) * 0.63;
+              // (A hash of its own: the others place and shape the blade.)
+              float rnd = u2f(pcg(g5 ^ 0x5bd1e995u));
               if (hgt > h1) {
                 h2 = h1; v2 = v1; c2 = c1; r2 = r1; hv2 = hv1; k2 = k1;
                 h1 = hgt; v1 = v; c1 = cov; r1 = rnd; hv1 = hv; k1 = kd;
@@ -350,18 +352,28 @@ GenOut gen(vec2 p) {
     }
   }
 
-  // Contact shadow and colour patches shade each blade; with two kinds, each kind then takes its half of the ramp.
-  float sk = 3.0;
-  float shift = u_patches > 0.0 ? u_patches * (org_fbm(p / uRes, vec2(u_patch_scale), 4, u_patch_seed * 131.0 + 113.0) - 0.5) * 1.6 : 0.0;
-  // Two kinds share the dark middle of the ramp: anti-aliased edges between them pass through shade, not a third colour.
-  v1 = clamp(v1 * (1.0 - u_shadow * clamp((M - h1) * sk, 0.0, 1.0)) + shift, 0.0, 1.0);
-  v2 = clamp(v2 * (1.0 - u_shadow * clamp((M - h2) * sk, 0.0, 1.0)) + shift, 0.0, 1.0);
-  vF = clamp(vF * (1.0 - u_shadow * clamp((M - hF) * sk, 0.0, 1.0)) + shift, 0.0, 1.0);
-  if (u_kinds) {
-    v1 = 0.5 + (k1 > 0.5 ? 0.5 : -0.5) * v1;
-    v2 = 0.5 + (k2 > 0.5 ? 0.5 : -0.5) * v2;
-    vF = 0.5 + (kF > 0.5 ? 0.5 : -0.5) * vF;
+  // Colour patches (c 0) and the turf relief (c 1): 4 octaves of Perlin noise each (twice the frequency, half the
+  // amplitude and seed + 31 per octave, as fbm), in one loop (D3D inlines every call site).
+  vec2 u = p / uRes;
+  float sP = 0.0, sR = 0.0;
+  for (int o = 0; o < 8 * UNI_1; o++) {
+    int c = o / 4, oct = o - 4 * c;
+    if (c == 0 ? u_patches > 0.0 : u_relief > 0.0) {
+      vec2 cells = cellsFor(c == 0 ? u_patch_scale : u_relief_scale, 1.0);
+      float n = perlinNoise(u * cells * exp2(float(oct)), uTile ? org_per(cells) * (1 << oct) : NO_PERIOD, u_patch_seed * 131.0 + (c == 0 ? 113.0 : 29.0) + float(oct) * 31.0) * exp2(-float(oct));
+      if (c == 0) sP += n;
+      else sR += n;
+    }
   }
+  // Contact shadow and colour patches shade each blade; with two kinds, each kind then takes its half of the ramp.
+  // (Two kinds share the dark middle of the ramp: anti-aliased edges between them pass through shade, not a third
+  // colour.) Each vec3: the top blade, the one under it, the fully covering one.
+  float shift = u_patches > 0.0 ? u_patches * (sP / 1.875 - 0.5) * 1.6 : 0.0;
+  vec3 V = clamp(vec3(v1, v2, vF) * (1.0 - u_shadow * clamp((M - vec3(h1, h2, hF)) * 3.0, 0.0, 1.0)) + shift, 0.0, 1.0);
+  if (u_kinds) V = 0.5 + (step(0.5, vec3(k1, k2, kF)) - 0.5) * V;
+  v1 = V.x;
+  v2 = V.y;
+  vF = V.z;
   float gap = u_kinds ? 0.5 : 0.0;
   bool anyF = hF >= 0.0;
   // Composite from the bottom: the ground (or the fully covering blade), the second blade, the top one.
@@ -380,11 +392,10 @@ GenOut gen(vec2 p) {
     v = blades > 0.0 ? clamp((v - gap * (1.0 - blades)) / blades, 0.0, 1.0) : gap;
     hv = blades > 0.0 ? hv / blades : 0.0;
   }
-  if (u_relief > 0.0) {
-    float n = org_fbm(p / uRes, vec2(u_relief_scale), 4, u_patch_seed * 131.0 + 29.0);
-    hv = hv * (1.0 - 0.5 * u_relief) + u_relief * 1.2 * (n - 0.2);
-  }
-  return GenOut(clamp(v, 0.0, 1.0), mask, rnd, 0.0, 1.0, NO_SDF, 0, clamp(hv, 0.0, 1.0), NO_SDF, rnd);
+  if (u_relief > 0.0) hv = hv * (1.0 - 0.5 * u_relief) + u_relief * 1.2 * (sR / 1.875 - 0.2);
+  GenOut o = genOut(clamp(v, 0.0, 1.0), mask, rnd, NO_SDF);
+  o.hval = clamp(hv, 0.0, 1.0);
+  return o;
 }
 `
 };

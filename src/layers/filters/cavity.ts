@@ -4,9 +4,9 @@
 import * as THREE from 'three';
 import { P } from '@/core/params';
 import type { LayerDef } from '../types';
-import { blurTexture } from './shared';
+import { blurTexture, mrtApply } from './shared';
 
-const CAVITY_APPLY = /* glsl */ `
+const CAVITY_APPLY = mrtApply(/* glsl */ `
 uniform sampler2D tBlur;
 
 // Remove part of a mask where the noise is low; amount 0 keeps everything, 1 removes everything.
@@ -15,33 +15,26 @@ float breakup(float n, float amount) {
   return smoothstep(amount * 1.3 - 0.3, amount * 1.3, c);
 }
 
-void main() {
-  ivec2 ip = ivec2(gl_FragCoord.xy);
-  vec4 A = texelFetch(tAlbedo, ip, 0);
-  vec4 S = texelFetch(tSurface, ip, 0);
-  vec4 E = texelFetch(tEmissive, ip, 0);
+void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   // Curvature in px of relief (height × heightDepth): > 0 convex, < 0 concave.
   float c = (S.r - texelFetch(tBlur, ip, 0).r) * uDepth;
-  float wear = clamp((c - u_threshold) * u_sensitivity, 0.0, 1.0);
-  float dirt = clamp((-c - u_threshold) * u_sensitivity, 0.0, 1.0);
+  vec2 m = clamp((vec2(c, -c) - u_threshold) * u_sensitivity, 0.0, 1.0); // wear, dirt
   if (u_wear_noise > 0.0 || u_dirt_noise > 0.0) {
     gPhase = u_phase;
     vec2 cells = cellsFor(u_noise_scale, 1.0);
     ivec2 per = uTile ? ivec2(cells) : NO_PERIOD;
     vec2 x = gl_FragCoord.xy / uRes * cells;
-    if (u_wear_noise > 0.0) wear *= breakup(fractalNoise(1, 1, x, per, u_noise_octaves, 2.0, 0.5, uSeed + 11.0), u_wear_noise);
-    if (u_dirt_noise > 0.0) dirt *= breakup(fractalNoise(1, 1, x, per, u_noise_octaves, 2.0, 0.5, uSeed + 57.0), u_dirt_noise);
+    // Both masks' fBm in one call (breakup of amount 0 is 1).
+    vec2 n = fbmPair(x, x, per, u_noise_octaves, uSeed + 11.0, uSeed + 57.0, 2);
+    m *= vec2(breakup(n.x, u_wear_noise), breakup(n.y, u_dirt_noise));
   }
-  wear *= u_wear_amount;
-  dirt *= u_dirt_amount;
+  float wear = m.x * u_wear_amount;
+  float dirt = m.y * u_dirt_amount;
   A.rgb = mix(A.rgb, u_dirt_color, dirt);
   A.rgb = mix(A.rgb, u_wear_color, wear);
   S.g = clamp(S.g + wear * u_wear_rough + dirt * u_dirt_rough, 0.0, 1.0);
-  oAlbedo = A;
-  oSurface = S;
-  oEmissive = E;
 }
-`;
+`);
 
 export const cavityLayer: LayerDef = {
 	type: 'cavity',
@@ -101,7 +94,7 @@ export const cavityLayer: LayerDef = {
 	],
 	run(ctx, layer) {
 		const p = layer.params;
-		const blurred = blurTexture(ctx, ctx.surface, Math.max(0.5, Number(p.radius ?? 3)), 'cavity');
+		const blurred = blurTexture(ctx, ctx.surface, Number(p.radius ?? 3));
 		const mat = ctx.mrtMaterial('apply', CAVITY_APPLY, { tBlur: { value: null as THREE.Texture | null } });
 		mat.uniforms.tBlur.value = blurred.texture;
 		ctx.runMRT(mat);

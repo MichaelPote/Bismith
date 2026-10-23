@@ -17,6 +17,7 @@
 
 import { linearToOklab, oklabToLinear, linearToSrgb1, srgbToLinear1, rgbToHex, hexToRgb, type RGB } from '@/core/color';
 import { isOptimizable, gradient, type Gradient, type ParamDef, type ParamValues } from '@/core/params';
+import { mulberry32 } from '@/core/hash';
 import type { Layer, Project } from '@/core/project';
 import { LIGHT_DEFS } from '@/core/lights';
 import { BASE_DEFS, PROJECT_DEFS, RENDER_DEFS } from '@/core/settingsDefs';
@@ -32,16 +33,9 @@ import type { MatchImage } from './image';
 
 /** Small seeded PRNG (mulberry32) with normal / integer helpers. */
 export class Rng {
-	private s: number;
+	readonly next: () => number;
 	constructor(seed = 1) {
-		this.s = (seed >>> 0) ^ 0x9e3779b9;
-	}
-	next(): number {
-		this.s = (this.s + 0x6d2b79f5) >>> 0;
-		let t = this.s;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		this.next = mulberry32((seed >>> 0) ^ 0x9e3779b9);
 	}
 	normal(): number {
 		let u = 0;

@@ -1,12 +1,14 @@
 import type { LayerDef } from '../types';
 import { noiseLayer } from './noise';
 import { SHAPE_LAYERS } from './shapes';
-import { PATTERN_LAYERS, cloudsLayer } from './patterns';
+import { PATTERN_LAYERS } from './patterns';
+import { cloudsLayer } from './patternsFill';
 import { ORGANIC_LAYERS } from './organic';
 import { GEOMETRIC_LAYERS } from './geometric';
 import { MOTIF_LAYERS } from './motif';
 import { GREEBLE_LAYERS } from './greeble';
 import { STAMP_LAYERS } from './stamp';
+import { PATH_LAYERS } from './paths';
 import { cableLayer } from './cable';
 import { dripsLayer } from './drips';
 import { splatsLayer } from './splats';
@@ -33,6 +35,7 @@ export const GENERATORS: LayerDef[] = [
 	...MOTIF_LAYERS,
 	...GREEBLE_LAYERS,
 	...STAMP_LAYERS,
+	...PATH_LAYERS,
 	cableLayer,
 	dripsLayer,
 	splatsLayer,

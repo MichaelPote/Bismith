@@ -17,10 +17,11 @@
 //                             bevelFrame(ax, ay) maps the local frame there; ax, ay are the local axes on screen), signed
 //                             by d (shapeSdf's), in local units — so the mitres don't step. Set gShapeEdgesAll when it
 //                             covers the whole outline; otherwise its max with the distance's direction is taken
-//   #define SHAPE_RELIEF      void shapeRelief(inout GenOut g, vec2 q, float d): the nearest instance's own relief —
-//                             e.g. a fastener head's height (GenOut.height) and shading — at q, d its distance (px)
+//   #define SHAPE_RELIEF      void shapeRelief(inout GenOut g, float d, vec3 aux): the nearest instance's own relief —
+//                             e.g. a fastener head's height (GenOut.height) and shading — d its distance (px), aux what
+//                             shapeSdf left in gShapeAux for it (so the relief isn't worked out twice)
 
-import { P, type ParamDef, type ParamValues } from '@/core/params';
+import { P, halfPx, type ParamDef, type ParamValues } from '@/core/params';
 import { spacingParams } from '../commonParams';
 import { FASTENER_HEADS, GRB_GLSL } from './greebleCommon';
 import type { LayerDef } from '../types';
@@ -139,6 +140,9 @@ const SHAPE_PRE = /* glsl */ `
 float gShapeBevel = 1e9;   // a shape's own bevel distance (local units), 1e9 = the outline's
 bool gShapeCutBevel = true;   // (shapeCut) the cut's edges bevel too; false = only the outline before it
 bool gShapeEdgesAll = false;   // (shapeEdges) its pieces make up the whole outline: Bevel aspect needs nothing else
+vec3 gShapeAux = vec3(0.0);   // (shapeSdf, for shapeRelief) whatever the relief needs of the instance
+// A box's corners anticlockwise (GL y up) from the top-right, as signs of its half size.
+const vec2 SG4[4] = vec2[4](vec2(1.0), vec2(-1.0, 1.0), vec2(-1.0), vec2(1.0, -1.0));
 `;
 // Stroke shapes: how much of the width the taper has taken at t (0 = full width … 1 = the thin end), and its slope.
 // Taper curve c ≥ 1: t^c (wide for longer, rounded sides — leaves); c < 1: 1 − (1 − t)^(1/c) (narrowing early, hollow
@@ -150,6 +154,10 @@ vec2 taperShape(float t) {
   float k = 1.0 / c;
   return vec2(1.0 - pow(1.0 - t, k), k * pow(max(1.0 - t, 1e-3), k - 1.0));
 }
+// Half the stroke's width at taper position t (0 = full width … 1 = the thin end).
+float taperR(float t) { return u_thickness * 0.5 * (1.0 - clamp(u_taper, 0.0, 1.0) * taperShape(t).x); }
+// Length jitter: the share of the length an instance keeps.
+float strokeLenK(float rnd) { return 1.0 - u_len_jitter * fract(rnd * 53.71 + 0.27); }
 `;
 
 // Instancing: the union of every repeat instance that can reach p — the shape's extent, the position jitter and the
@@ -173,10 +181,13 @@ GenOut gen(vec2 p) {
   float best = 1e9;
   float bestSolid = 1e9;   // the nearest instance's distance before the outline (px): its direction for Bevel aspect
   float bestRnd = 0.0;
-  float bestBd = 0.0;
-#if defined(SHAPE_EDGES) || defined(SHAPE_RELIEF)
+  float bestBd = 1e9;
+#ifdef BEVEL_ASPECT
   vec2 bestQ = vec2(1e9), bestAx = vec2(1.0, 0.0), bestAy = vec2(0.0, 1.0);
   float bestS = 1.0, bestDs = 1e9;
+#endif
+#ifdef SHAPE_RELIEF
+  vec3 bestAux = vec3(0.0);
 #endif
   for (int k = 0; k < n; k++) {
     ivec2 cw;
@@ -199,10 +210,10 @@ GenOut gen(vec2 p) {
       float s = 1.0 - h.z * u_rep_scale;
       float jr = (hashI(cw, uSeed + 5.0) - 0.5) * 2.0 * u_rep_rot;
       if (u_rep_rot_step > 0.0) jr = floor(jr / u_rep_rot_step + 0.5) * u_rep_rot_step;
-      vec2 q = unrotCW(p - centre, u_rotation + jr) / s;
-      // The local axes' screen directions (with the flips), for Bevel aspect along the shape's edges.
+      // The local axes' screen directions (with the flips, for Bevel aspect along the shape's edges); q in that frame.
       vec2 ax = rotCW(vec2(1.0, 0.0), u_rotation + jr);
       vec2 ay = vec2(-ax.y, ax.x);
+      vec2 q = vec2(dot(p - centre, ax), dot(p - centre, ay)) / s;
       if (u_rep_flip > 0) {
         vec2 hf = hash3I(cw, uSeed + 11.0).xy;
         if ((u_rep_flip == 1 || u_rep_flip == 3) && hf.x < 0.5) { q.x = -q.x; ax = -ax; }
@@ -225,12 +236,15 @@ GenOut gen(vec2 p) {
         best = d;
         bestSolid = ds * s;
         bestRnd = rnd;
-#if defined(SHAPE_EDGES) || defined(SHAPE_RELIEF)
+#ifdef BEVEL_ASPECT
         bestQ = q;
         bestAx = ax;
         bestAy = ay;
         bestS = s;
         bestDs = ds;
+#endif
+#ifdef SHAPE_RELIEF
+        bestAux = gShapeAux;
 #endif
         if (u_dome > 0) {
           // Spanned to the middle: the depth over the shape's greatest depth (a ring's: half its width), as px of Bevel.
@@ -252,10 +266,10 @@ GenOut gen(vec2 p) {
   // Bevel aspect on the shape's own bevel distance, as the wrapper applies it to the outline's (not to the spans): from
   // the distance's direction, and from the edges that meet at the shape's corners (SHAPE_EDGES), so the bevels meet in a
   // clean mitre instead of stepping where that direction turns.
-  // (The solid's: an outline's distance turns round along the middle of its band, where its gradient is noise.)
-  vec2 gr = vec2(dFdx(bestSolid), dFdy(bestSolid));
-  g.bdist = u_dome > 0 ? bestBd : bevelLine(bestBd, gr);
-#ifdef SHAPE_EDGES
+  // (The solid's: an outline's distance turns round along the middle of its band, where its gradient is noise.) At aspect
+  // 1 that is the distance itself, so the default compile takes no derivatives.
+  g.bdist = u_dome > 0 || !bevelAspectOn() ? bestBd : bevelLine(bestBd, vec2(dFdx(bestSolid), dFdy(bestSolid)));
+#if defined(SHAPE_EDGES) && defined(BEVEL_ASPECT)
   if (u_dome == 0 && bevelAspectOn()) {
     float e = shapeEdges(bestQ, bestRnd, cell, bestAx, bestAy, bestDs);
     e = u_rep_scale_bevel ? e : e * bestS;
@@ -265,7 +279,7 @@ GenOut gen(vec2 p) {
   }
 #endif
 #ifdef SHAPE_RELIEF
-  shapeRelief(g, bestQ, best);
+  shapeRelief(g, best, bestAux);
 #endif
   return g;
 }
@@ -294,9 +308,8 @@ function shape(def: ShapeDef): LayerDef {
 }
 
 /** Editor defaults sized to the texture: a shape that reads at any size, with a bevel wide enough to show. */
-const half = (v: number) => Math.round(v * 2) / 2;
 const short = (t: { width: number; height: number }) => Math.min(t.width, t.height);
-const freshBevel = (t: { width: number; height: number }) => half(Math.min(Math.max(short(t) / 64, 1.5), 24));
+const freshBevel = (t: { width: number; height: number }) => halfPx(Math.min(Math.max(short(t) / 64, 1.5), 24));
 
 const CORNERS: [string, string][] = [
 	['all', 'All'],
@@ -382,8 +395,9 @@ export const rectLayer = shape({
 	}),
 	sdfGlsl: /* glsl */ `
 // The corners each Corners option shapes: (top-right, bottom-right, top-left, bottom-left) in GL (y up).
-const vec4 CORNER_SETS[11] = vec4[11](vec4(1.0), vec4(1, 0, 1, 0), vec4(0, 1, 0, 1), vec4(0, 0, 1, 1), vec4(1, 1, 0, 0),
-  vec4(0, 0, 1, 0), vec4(1, 0, 0, 0), vec4(0, 1, 0, 0), vec4(0, 0, 0, 1), vec4(0, 1, 1, 0), vec4(1, 0, 0, 1));
+const vec4 CORNER_SETS[11] = vec4[11](vec4(1.0), vec4(1.0, 0.0, 1.0, 0.0), vec4(0.0, 1.0, 0.0, 1.0), vec4(0.0, 0.0, 1.0, 1.0),
+  vec4(1.0, 1.0, 0.0, 0.0), vec4(0.0, 0.0, 1.0, 0.0), vec4(1.0, 0.0, 0.0, 0.0), vec4(0.0, 1.0, 0.0, 0.0),
+  vec4(0.0, 0.0, 0.0, 1.0), vec4(0.0, 1.0, 1.0, 0.0), vec4(1.0, 0.0, 0.0, 1.0));
 vec2 rectHalf(vec2 cell) {
   return max(u_size_mode == 0 ? cell * 0.5 - vec2(u_inset_x, u_inset_y) : vec2(u_width, u_height) * 0.5, vec2(0.0));
 }
@@ -421,12 +435,11 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   vec4 r4 = rectCorners(b);
   // The corners anticlockwise (GL y up): top-right, top-left, bottom-left, bottom-right.
   float rs[4] = float[4](r4.x, r4.z, r4.w, r4.y);
-  vec2 sg[4] = vec2[4](vec2(1.0), vec2(-1.0, 1.0), vec2(-1.0), vec2(1.0, -1.0));
   mat2 M = bevelFrame(ax, ay);
   vec2 ps = M * q;
   float d2 = 1e18;
   for (int i = 0; i < 4; i++) {
-    vec2 s = sg[i], s1 = sg[(i + 1) % 4];
+    vec2 s = SG4[i], s1 = SG4[(i + 1) % 4];
     float rc = rs[i], rc1 = rs[(i + 1) % 4];
     vec2 K = s * b;
     vec2 pv = K - vec2(0.0, s.y * rc), ph = K - vec2(s.x * rc, 0.0);   // where the corner leaves its sides
@@ -535,22 +548,6 @@ export const circleLayer = shape({
 	sdfGlsl:
 		GRB_GLSL +
 		/* glsl */ `
-// Exact distance to an ellipse with semi-axes ab, at any aspect (iterative closest point after 0xfaded's trig-free method).
-float sdEllipseExact(vec2 p, vec2 ab) {
-  ab = max(ab, vec2(1e-3));
-  if (abs(ab.x - ab.y) < 1e-4 * max(ab.x, ab.y)) return length(p) - ab.x;
-  vec2 pa = abs(p);
-  vec2 t = vec2(0.70710678);
-  vec2 e2 = vec2(ab.x * ab.x - ab.y * ab.y, ab.y * ab.y - ab.x * ab.x) / ab;
-  for (int i = 0; i < 4; i++) {
-    vec2 e = e2 * t * t * t;
-    vec2 qv = pa - e;
-    t = clamp((qv * (length(ab * t - e) / max(length(qv), 1e-9)) + e) / ab, 0.0, 1.0);
-    t /= max(length(t), 1e-9);
-  }
-  float d = length(pa - ab * t);
-  return dot(pa / ab, pa / ab) > 1.0 ? d : -d;
-}
 vec2 ellipseAxes() { return vec2(u_radius, u_radius * u_squash); }
 // Head: 0 the circle; else a fastener head (FASTENER_HEADS, grb_fastener's kind + 1) — round, the counterbore 1.55 ×.
 bool fastener() { return u_head != 0; }
@@ -564,15 +561,16 @@ float shapeInradius(vec2 cell) {
   return th <= 1.5707963 ? r * sin(th) / (1.0 + sin(th)) : r * (0.5 + 0.5 * (th - 1.5707963) / 1.5707963);
 }
 float shapeSdf(vec2 q, float rnd, vec2 cell) {
-  // A fastener head: its footprint (the head, or its counterbore).
-  return fastener() ? grb_fastener(u_head - 1, q, u_radius, u_sink).z : sdEllipseExact(q, ellipseAxes());
+  if (!fastener()) return sdEllipseExact(q, ellipseAxes());
+  // A fastener head: its footprint (the head, or its counterbore); its relief for shapeRelief.
+  gShapeAux = grb_fastener(u_head - 1, q, u_radius, u_sink);
+  return gShapeAux.z;
 }
 // A fastener head's own relief: its height to Height (GenOut.height, in head heights; sunk parts below the surface),
 // its sockets and slots darkening the value (× the bevel at the footprint's edge), its footprint the coverage.
 #define SHAPE_RELIEF
-void shapeRelief(inout GenOut g, vec2 q, float d) {
+void shapeRelief(inout GenOut g, float d, vec3 f) {
   if (!fastener()) return;
-  vec3 f = grb_fastener(u_head - 1, q, u_radius, u_sink);
   g.own = 2;
   g.value = 1.0 - 0.85 * f.y;
   g.mask = coverage(d, u_aa);
@@ -695,38 +693,49 @@ export const polygonLayer = shape({
 	],
 	fresh: (t) => ({ radius: Math.round(short(t) * 0.22), round: Math.round(short(t) / 128), bevel: freshBevel(t) }),
 	sdfGlsl: /* glsl */ `
-// A star with n points, tips at radius r and inner corners at k·r (k = cos(π/n): the regular polygon), its inner corners
-// filleted with radius f where they are concave. Exact: in the folded sector between an inner corner (on the x axis)
-// and a tip the boundary is one edge, or a fillet arc and the rest of the edge.
-float sdStarFillet(vec2 p, float r, int n, float k, float f) {
+// A star with n points (sector half angle an = π/n), tips at radius r and inner corners at k·r (k = cos(π/n): the
+// regular polygon), its inner corners filleted with radius f where they are concave. In the folded sector: the inner
+// corner V (on the x axis), the tip T, the edge's direction e and length L. The fillet circle sits on the axis at C,
+// tangent to the edge and its mirror image: f / sin α out from the corner, touching the edge f / tan α along it (sPt; α:
+// the edge's angle to the axis). Convex corners (α ≥ 90°) take none.
+struct StarGeo { vec2 V, T, e, C; float f, sPt, L; };
+StarGeo starGeo(float r, float k, float an, float fin) {
+  StarGeo g;
+  g.V = vec2(r * k, 0.0);
+  g.T = r * vec2(cos(an), sin(an));
+  g.L = length(g.T - g.V);
+  g.e = normalize(g.T - g.V + vec2(0.0, 1e-6));
+  g.f = g.e.x > 1e-4 ? min(fin, g.L * g.e.y / g.e.x) : 0.0;
+  g.C = vec2(g.V.x + g.f / max(g.e.y, 1e-4), 0.0);
+  g.sPt = g.f * g.e.x / max(g.e.y, 1e-4);
+  return g;
+}
+// The star's distance, exact: in the folded sector between an inner corner and a tip the boundary is one edge, or a
+// fillet arc and the rest of the edge.
+float sdStarFillet(vec2 p, int n, StarGeo g) {
   float an = PI / float(n);
   float bn = mod(atan(p.x, p.y), 2.0 * an) - an;
   p = length(p) * vec2(cos(bn), abs(sin(bn)));
-  vec2 V = vec2(r * k, 0.0);
-  vec2 T = r * vec2(cos(an), sin(an));
-  vec2 e = normalize(T - V + vec2(0.0, 1e-6));
-  // The fillet circle sits on the axis, tangent to the edge and its mirror image: f / sin α out from the corner, touching
-  // the edge f / tan α along it (α: the edge's angle to the axis). Convex corners (α ≥ 90°) take none.
-  f = e.x > 1e-4 ? min(f, length(T - V) * e.y / e.x) : 0.0;
-  vec2 C = vec2(V.x + f / max(e.y, 1e-4), 0.0);
-  vec2 Pt = V + e * (f * e.x / max(e.y, 1e-4));
-  vec2 pt = p - Pt, te = T - Pt;
-  float dEdge = length(pt - te * clamp(dot(pt, te) / max(dot(te, te), 1e-8), 0.0, 1.0));
-  vec2 pf = p - C;
-  float dArc = dot(pf, e) <= 0.0 ? abs(length(pf) - f) : 1e9;
-  bool body = e.x * p.y - e.y * (p.x - V.x) >= 0.0;
-  bool fill = pf.x < 0.0 && dot(pf, e) < 0.0 && length(pf) > f;
+  vec2 e = g.e;
+  float dEdge = sdSegment(p, g.V + e * g.sPt, g.T);
+  vec2 pf = p - g.C;
+  float dArc = dot(pf, e) <= 0.0 ? abs(length(pf) - g.f) : 1e9;
+  bool body = e.x * p.y - e.y * (p.x - g.V.x) >= 0.0;
+  bool fill = pf.x < 0.0 && dot(pf, e) < 0.0 && length(pf) > g.f;
   float d = min(dEdge, dArc);
   return body || fill ? -d : d;
 }
 // Rounding: the star shrunk by it, then grown back (rounding the tips); its inner fillet grows by as much less.
 float polyCore() { return max(u_radius - max(u_round, 0.0), 1e-4); }
 float polyK() { return u_star ? u_inner_r : cos(PI / float(u_sides)); }
+StarGeo polyGeo() {
+  return starGeo(polyCore(), polyK(), PI / float(u_sides), u_star ? u_round_in + max(u_round, 0.0) : 0.0);
+}
 float shapeExtent(vec2 cell) { return max(u_radius, u_round); }
 float shapeInradius(vec2 cell) {
   // From the middle to the nearest edge (or inner corner), then the flat valleys' circle, plus the rounding.
-  float r = polyCore(), k = polyK(), an = PI / float(u_sides);
-  vec2 e = normalize(r * vec2(cos(an), sin(an)) - vec2(r * k, 0.0) + vec2(0.0, 1e-6));
+  float r = polyCore(), k = polyK();
+  vec2 e = polyGeo().e;
   float d = e.x > 1e-4 ? k * r : e.y * k * r;
   if (u_star && u_root_flat > 0.0) d = max(d, mix(k * r, r, u_root_flat));
   return d + max(u_round, 0.0);
@@ -734,7 +743,7 @@ float shapeInradius(vec2 cell) {
 float shapeSdf(vec2 q, float rnd, vec2 cell) {
   float ro = max(u_round, 0.0);
   float r = polyCore(), k = polyK();
-  float d = sdStarFillet(q, r, u_sides, k, u_star ? u_round_in + ro : 0.0);
+  float d = sdStarFillet(q, u_sides, polyGeo());
   if (u_star) {
     // Flat tips: cut by a circle part way down the points; flat valleys: filled to a circle part way up.
     if (u_tip_flat > 0.0) d = max(d, length(q) - mix(r, k * r, u_tip_flat));
@@ -746,11 +755,6 @@ float shapeSdf(vec2 q, float rnd, vec2 cell) {
 // V's valley (its fillet, the Flat valleys circle, or the corner itself), the edges, the tips (cut by the Flat tips
 // circle, or the corners) — measured in the space the aspect stretches (screen axes × Bevel / their bevel width), where
 // the bevel is the plain distance.
-float polySegD2(vec2 p, vec2 a, vec2 b) {
-  vec2 pa = p - a, ba = b - a;
-  vec2 v = pa - ba * clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
-  return dot(v, v);
-}
 #define SHAPE_EDGES
 float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   gShapeEdgesAll = true;
@@ -762,18 +766,15 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   vec2 fx = vec2(sin(th - bn), cos(th - bn));
   vec2 fy = (bn < 0.0 ? -1.0 : 1.0) * vec2(fx.y, -fx.x);
   vec2 W = bevelWidths();
-  mat2 st = mat2(u_bevel / W.x, 0.0, 0.0, u_bevel / W.y) * mat2(ax, ay) * mat2(fx, fy);
+  mat2 st = bevelFrame(ax, ay) * mat2(fx, fy);
   vec2 p = length(q) * vec2(cos(bn), abs(sin(bn)));
   vec2 tip = vec2(cos(an), sin(an));
   float kr = k * r;
-  vec2 V = vec2(kr, 0.0), T = r * tip;
-  float L = length(T - V);
-  vec2 e = normalize(T - V + vec2(0.0, 1e-6));
+  StarGeo sg = polyGeo();
+  vec2 V = sg.V, T = sg.T, e = sg.e, C = sg.C;
+  float L = sg.L, f = sg.f, sPt = sg.sPt;
   float ex = kr * e.x;
   // Where the edge leaves the valley: V's fillet, or the Flat valleys circle (|V + s·e| = its radius).
-  float f = u_star && e.x > 1e-4 ? min(u_round_in + ro, L * e.y / e.x) : 0.0;
-  vec2 C = vec2(kr + f / max(e.y, 1e-4), 0.0);
-  float sPt = f * e.x / max(e.y, 1e-4);
   float rootR = u_star && u_root_flat > 0.0 ? mix(kr, r, u_root_flat) : 0.0;
   float sX = rootR > 0.0 ? -ex + sqrt(max(ex * ex - kr * kr + rootR * rootR, 0.0)) : -1e9;
   vec2 P0 = V + e * min(max(sPt, sX), L);
@@ -822,7 +823,7 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
       bool arc = ro > 0.0 && dot(prevN, prevN) > 0.0 && prevN.x * n.y - prevN.y * n.x > 0.0;
       vec2 m = arc ? st * (a + ro * normalize(prevN + n)) : a2;
       vec2 a1 = arc ? prevEnd : a2;
-      best = min(best, min(polySegD2(ps, a1, m), min(polySegD2(ps, m, a2), polySegD2(ps, a2, b2))));
+      best = min(best, min(bevelSeg2(ps, a1, m), min(bevelSeg2(ps, m, a2), bevelSeg2(ps, a2, b2))));
       prevEnd = b2;
       prevN = n;
     }
@@ -880,23 +881,32 @@ export const lineLayer = shape({
 	defaults: { bevel: 1 },
 	fresh: (t) => {
 		const th = Math.max(2, Math.round(short(t) / 64));
-		return { length: Math.round(short(t) * 0.6), thickness: th, bevel: half(th / 2) };
+		return { length: Math.round(short(t) * 0.6), thickness: th, bevel: halfPx(th / 2) };
 	},
 	sdfGlsl:
 		TAPER_GLSL +
 		/* glsl */ `
 float shapeExtent(vec2 cell) { return (u_length + u_thickness) * 0.5; }
 float shapeInradius(vec2 cell) { return u_thickness * 0.5; }
+// An instance's stroke: its length; tapering to both ends or towards the end; half widths r0 where it is full (the
+// middle, for both ends; else the start) and r1 at h along from there, where it ends; the taper (0..1).
+struct LineGeo { float len, h, r0, r1, tp; bool both; };
+LineGeo lineGeom(float rnd) {
+  LineGeo g;
+  g.len = u_length * strokeLenK(rnd);
+  g.both = u_taper_ends == 0;
+  g.h = g.both ? g.len * 0.5 : g.len;
+  g.r0 = u_thickness * 0.5;
+  g.tp = clamp(u_taper, 0.0, 1.0);
+  g.r1 = g.r0 * (1.0 - g.tp);
+  return g;
+}
 float shapeSdf(vec2 q, float rnd, vec2 cell) {
-  // p = (along, across) from where the width is r0 (the middle, folded, for a taper to both ends; else the start) to h,
-  // where it is r1.
-  float len = u_length * (1.0 - u_len_jitter * fract(rnd * 53.71 + 0.27));
-  bool both = u_taper_ends == 0;
-  float h = both ? len * 0.5 : len;
+  // p = (along, across) from where the width is r0 to h, where it is r1.
+  LineGeo lg = lineGeom(rnd);
+  float len = lg.len, h = lg.h, r0 = lg.r0, r1 = lg.r1, tp = lg.tp;
+  bool both = lg.both;
   vec2 p = vec2(both ? abs(q.x) : q.x + len * 0.5, abs(q.y));
-  float r0 = u_thickness * 0.5;
-  float tp = clamp(u_taper, 0.0, 1.0);
-  float r1 = r0 * (1.0 - tp);
   if (tp > 0.0 && abs(u_taper_curve - 1.0) > 1e-3 && h > 1e-3) {
     // A curved taper (taperShape): the distance across, corrected for the slope of the side.
     vec2 f = taperShape(clamp(p.x / h, 0.0, 1.0));
@@ -921,8 +931,7 @@ float shapeSdf(vec2 q, float rnd, vec2 cell) {
     return dot(p, vec2(b, a)) - r0;
   }
   // Flat caps: the bar narrowing from r0 to r1 — its slanted side, its end, and its start when that is an end too.
-  vec2 sv = vec2(h, r1 - r0), ps = p - vec2(0.0, r0);
-  float dSide = length(ps - sv * clamp(dot(ps, sv) / max(dot(sv, sv), 1e-8), 0.0, 1.0));
+  float dSide = sdSegment(p, vec2(0.0, r0), vec2(h, r1));
   float dEnd = length(p - vec2(h, min(p.y, r1)));
   float dStart = both ? 1e9 : length(p - vec2(0.0, min(p.y, r0)));
   bool inside = p.x <= h && (both || p.x >= 0.0) && (p.y - r0) * h <= (r1 - r0) * p.x;
@@ -935,37 +944,40 @@ float shapeSdf(vec2 q, float rnd, vec2 cell) {
 #define SHAPE_EDGES
 float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   gShapeEdgesAll = true;
-  float tp = clamp(u_taper, 0.0, 1.0);
-  float len = u_length * (1.0 - u_len_jitter * fract(rnd * 53.71 + 0.27));
-  bool both = u_taper_ends == 0;
-  float r0 = u_thickness * 0.5, r1 = r0 * (1.0 - tp);
-  float h = both ? len * 0.5 : len;
+  LineGeo lg = lineGeom(rnd);
+  float len = lg.len, h = lg.h, r0 = lg.r0, r1 = lg.r1, tp = lg.tp;
+  bool both = lg.both;
   mat2 M = bevelFrame(ax, ay);
   vec2 ps = M * q;
+  float d2 = 1e18;
   if (tp > 0.0 && abs(u_taper_curve - 1.0) > 1e-3) {
-    // A curved taper: each side sampled in 32 steps along the length, the ends' caps (circles of the end widths, as
+    // A curved taper: each side sampled in 32 steps along the length, then the ends' caps (circles of the end widths, as
     // shapeSdf rounds them; or straight across).
     float x0 = -len * 0.5;
-    float r = both ? r1 : r0;
+    float rs = both ? r1 : r0;
+    float r = rs;
     vec2 a1 = M * vec2(x0, r), a2 = M * vec2(x0, -r);
-    float d2 = u_caps == 0 ? bevelArc2(ps, M, vec2(x0, 0.0), r, vec2(0.0, 1.0), vec2(0.0, -1.0), vec2(-1.0, 0.0))
-                           : bevelSeg2(ps, a1, a2);
-    for (int i = 1; i <= 32; i++) {
+    for (int i = 1; i <= 32 * UNI_1; i++) {
       float x = x0 + len * float(i) / 32.0;
-      r = r0 * (1.0 - tp * taperShape(clamp(both ? abs(x) / max(h, 1e-3) : (x - x0) / max(len, 1e-3), 0.0, 1.0)).x);
+      r = taperR(clamp(both ? abs(x) / max(h, 1e-3) : (x - x0) / max(len, 1e-3), 0.0, 1.0));
       vec2 b1 = M * vec2(x, r), b2 = M * vec2(x, -r);
       d2 = min(d2, min(bevelSeg2(ps, a1, b1), bevelSeg2(ps, a2, b2)));
       a1 = b1;
       a2 = b2;
     }
-    d2 = min(d2, u_caps == 0 ? bevelArc2(ps, M, vec2(-x0, 0.0), r, vec2(0.0, 1.0), vec2(0.0, -1.0), vec2(1.0, 0.0))
-                             : bevelSeg2(ps, a1, a2));
+    for (int j = 0; j < 2; j++) {
+      float x = j == 0 ? x0 : -x0, rc = j == 0 ? rs : r;
+      d2 = min(d2, u_caps == 0 ? bevelArc2(ps, M, vec2(x, 0.0), rc, vec2(0.0, 1.0), vec2(0.0, -1.0), vec2(j == 0 ? -1.0 : 1.0, 0.0))
+                               : bevelSeg2(ps, M * vec2(x, rc), M * vec2(x, -rc)));
+    }
     return dl < 0.0 ? -sqrt(d2) : sqrt(d2);
   }
-  // Round caps: the sides touch the circles where the normal tilts by the taper's slope.
+  // Round caps: the sides touch the circles where the normal tilts by the taper's slope. Each half (one, unless it
+  // tapers to both ends) has its sides and its end's cap, and its start's cap (one end tapering) or, both ends, the
+  // middle circle's arc between the halves' sides on its side (above for the first, below for the second).
   float sl = clamp((r0 - r1) / max(h, 1e-4), -1.0, 1.0), cs = sqrt(1.0 - sl * sl);
-  float d2 = 1e18;
-  for (int k = 0; k < (both ? 2 : 1); k++) {
+  int halves = both ? 2 : 1;   // (a ?: in a loop's condition makes ANGLE rewrite the loop)
+  for (int k = 0; k < halves; k++) {
     vec2 dir = vec2(k == 0 ? 1.0 : -1.0, 0.0);
     vec2 A = both ? vec2(0.0) : vec2(-len * 0.5, 0.0), B = A + dir * h;
     vec2 nrm = vec2(0.0, 1.0);
@@ -974,16 +986,12 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
     d2 = min(d2, min(bevelSeg2(ps, M * a1, M * b1), bevelSeg2(ps, M * a2, M * b2)));
     if (u_caps == 0) {
       d2 = min(d2, bevelArc2(ps, M, B, r1, u1, u2, dir));
-      if (!both) d2 = min(d2, bevelArc2(ps, M, A, r0, u1, u2, -dir));
+      float sy = k == 0 ? 1.0 : -1.0;
+      d2 = min(d2, bevelArc2(ps, M, A, r0, both ? vec2(sl, sy * cs) : u1, both ? vec2(-sl, sy * cs) : u2, both ? vec2(0.0, sy) : -dir));
     } else {
       d2 = min(d2, bevelSeg2(ps, M * b1, M * b2));
       if (!both) d2 = min(d2, bevelSeg2(ps, M * a1, M * a2));
     }
-  }
-  if (both && u_caps == 0) {
-    // Where the halves meet: the middle circle between their sides, above and below.
-    d2 = min(d2, min(bevelArc2(ps, M, vec2(0.0), r0, vec2(sl, cs), vec2(-sl, cs), vec2(0.0, 1.0)),
-                     bevelArc2(ps, M, vec2(0.0), r0, vec2(sl, -cs), vec2(-sl, -cs), vec2(0.0, -1.0))));
   }
   return dl < 0.0 ? -sqrt(d2) : sqrt(d2);
 }
@@ -1046,47 +1054,12 @@ export const curveLayer = shape({
 			length: Math.round(short(t) * 0.6),
 			bend: Math.round(short(t) * 0.12),
 			thickness: th,
-			bevel: half(th / 2)
+			bevel: halfPx(th / 2)
 		};
 	},
 	sdfGlsl:
 		TAPER_GLSL +
 		/* glsl */ `
-// Quadratic Bézier A → B → C: the distance to it and the curve parameter (0..1) of the closest point (after Inigo Quilez).
-vec2 sdBezierT(vec2 pos, vec2 A, vec2 B, vec2 C) {
-  vec2 a = B - A;
-  vec2 b = A - 2.0 * B + C;
-  vec2 c = a * 2.0;
-  vec2 d = A - pos;
-  // Within 0.05 px of straight (|b| / 4 is how far the middle bows out): the segment, where the cubic is ill-conditioned.
-  if (dot(b, b) < 0.04) {
-    vec2 ca = C - A;
-    float t = clamp(dot(pos - A, ca) / max(dot(ca, ca), 1e-8), 0.0, 1.0);
-    return vec2(length(pos - A - ca * t), t);
-  }
-  float kk = 1.0 / dot(b, b);
-  float kx = kk * dot(a, b);
-  float ky = kk * (2.0 * dot(a, a) + dot(d, b)) / 3.0;
-  float kz = kk * dot(d, a);
-  float p = ky - kx * kx;
-  float q = kx * (2.0 * kx * kx - 3.0 * ky) + kz;
-  float h = q * q + 4.0 * p * p * p;
-  if (h >= 0.0) {
-    h = sqrt(h);
-    vec2 x = (vec2(h, -h) - q) / 2.0;
-    vec2 uv = sign(x) * pow(abs(x), vec2(1.0 / 3.0));
-    float t = clamp(uv.x + uv.y - kx, 0.0, 1.0);
-    return vec2(length(d + (c + b * t) * t), t);
-  }
-  float z = sqrt(-p);
-  float v = acos(clamp(q / (p * z * 2.0), -1.0, 1.0)) / 3.0;
-  float m = cos(v);
-  float n = sin(v) * 1.732050808;
-  vec2 t = clamp(vec2(m + m, -n - m) * z - kx, 0.0, 1.0);
-  float d1 = dot2(d + (c + b * t.x) * t.x);
-  float d2 = dot2(d + (c + b * t.y) * t.y);
-  return d1 < d2 ? vec2(sqrt(d1), t.x) : vec2(sqrt(d2), t.y);
-}
 // The circle through (±L/2, 0) and (0, sag), sag > 0: its radius and the half angle of the arc (from the top).
 vec2 arcGeom(float L, float sag) {
   float R = (L * L * 0.25 + sag * sag) / (2.0 * sag);
@@ -1121,12 +1094,9 @@ float shapeExtent(vec2 cell) {
 }
 float shapeInradius(vec2 cell) { return u_thickness * 0.5; }
 // Half the width at curve parameter t: narrowing from the middle to both ends, or from the start to the end.
-float curveR(float t) {
-  float u = u_taper_ends == 0 ? abs(2.0 * t - 1.0) : t;
-  return u_thickness * 0.5 * (1.0 - clamp(u_taper, 0.0, 1.0) * taperShape(u).x);
-}
+float curveR(float t) { return taperR(u_taper_ends == 0 ? abs(2.0 * t - 1.0) : t); }
 float shapeSdf(vec2 q, float rnd, vec2 cell) {
-  float f = 1.0 - u_len_jitter * fract(rnd * 53.71 + 0.27);
+  float f = strokeLenK(rnd);
   float L = u_length * f, bend = u_bend * f;
   q += curvePivot(L, bend);
   vec2 A = vec2(-L * 0.5, 0.0), C = vec2(L * 0.5, 0.0);
@@ -1164,11 +1134,11 @@ float shapeSdf(vec2 q, float rnd, vec2 cell) {
   return length(q - E) < 2.0 * rE + 1.0 ? max(d, along) : d;
 }
 // The outline for Bevel aspect (GLSL_BEVEL): the curve sampled in 32 steps, each side's edge (the curve ± its half width
-// across it) a polyline, and the caps (arcs, or straight across) — in the stretched space.
-vec2 curveAt(float t, float L, float bend, out vec2 tg) {
-  if (curveIsArc(bend)) {
+// across it) a polyline, and the caps (arcs, or straight across) — in the stretched space. arc: curveIsArc(bend), g its
+// arcGeom.
+vec2 curveAt(float t, float L, float bend, bool arc, vec2 g, out vec2 tg) {
+  if (arc) {
     float sg = sign(bend);
-    vec2 g = arcGeom(L, abs(bend));
     float a = (2.0 * t - 1.0) * g.y;
     tg = vec2(cos(a), -sin(a) * sg);
     return vec2(g.x * sin(a), (g.x * cos(a) + abs(bend) - g.x) * sg);
@@ -1181,22 +1151,23 @@ vec2 curveAt(float t, float L, float bend, out vec2 tg) {
 #define SHAPE_EDGES
 float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   gShapeEdgesAll = true;
-  float f = 1.0 - u_len_jitter * fract(rnd * 53.71 + 0.27);
+  float f = strokeLenK(rnd);
   float L = u_length * f, bend = u_bend * f;
   q += curvePivot(L, bend);
   mat2 M = bevelFrame(ax, ay);
   vec2 ps = M * q;
+  bool arc = curveIsArc(bend);
+  vec2 g = arc ? arcGeom(L, abs(bend)) : vec2(0.0);
   vec2 t0;
-  vec2 P0 = curveAt(0.0, L, bend, t0);
-  float r = curveR(0.0);
+  vec2 P0 = curveAt(0.0, L, bend, arc, g, t0);
+  float r = curveR(0.0), rs = r;
   vec2 n0 = vec2(-t0.y, t0.x);
-  vec2 l = M * (P0 + r * n0), rt = M * (P0 - r * n0);
-  // The start's cap.
-  float d2 = u_caps == 0 ? bevelArc2(ps, M, P0, r, n0, -n0, -t0) : bevelSeg2(ps, l, rt);
+  vec2 l = M * (P0 + r * n0), rt = M * (P0 - r * n0), ls = l, rts = rt;
+  float d2 = 1e18;
   vec2 t1 = t0, P1 = P0;
-  for (int i = 1; i <= 32; i++) {
+  for (int i = 1; i <= 32 * UNI_1; i++) {
     float t = float(i) / 32.0;
-    P1 = curveAt(t, L, bend, t1);
+    P1 = curveAt(t, L, bend, arc, g, t1);
     r = curveR(t);
     vec2 n1 = vec2(-t1.y, t1.x);
     vec2 l1 = M * (P1 + r * n1), r1 = M * (P1 - r * n1);
@@ -1204,9 +1175,11 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
     l = l1;
     rt = r1;
   }
-  // The end's cap.
-  vec2 n1 = vec2(-t1.y, t1.x);
-  d2 = min(d2, u_caps == 0 ? bevelArc2(ps, M, P1, r, n1, -n1, t1) : bevelSeg2(ps, l, rt));
+  // The caps: the start's, then the end's.
+  for (int j = 0; j < 2; j++) {
+    vec2 P = j == 0 ? P0 : P1, tg = j == 0 ? -t0 : t1, n = j == 0 ? n0 : vec2(-t1.y, t1.x);
+    d2 = min(d2, u_caps == 0 ? bevelArc2(ps, M, P, j == 0 ? rs : r, n, -n, tg) : bevelSeg2(ps, j == 0 ? ls : l, j == 0 ? rts : rt));
+  }
   return dl < 0.0 ? -sqrt(d2) : sqrt(d2);
 }
 `
@@ -1260,20 +1233,32 @@ export const crossLayer = shape({
 float crossW() { return clamp(u_arm * 0.5, 0.0, max(u_size, 0.0) * tan(PI / float(u_arms))); }
 float shapeExtent(vec2 cell) { return length(vec2(u_size + max(u_stem, 0.0), u_arm * 0.5)); }
 float shapeInradius(vec2 cell) { return crossW(); }
+// The fold into half an arm's sector (odd counts point arm 0 down, a Y; sgo −1): p, x along the arm and
+// 0 <= y <= x·tan(π / arms) across it, from th (q's angle from the top, + an) and bn (its offset from the arm's middle);
+// the arm's length s, half width w, outer corner radius ro and inner fillet rf.
+struct CrossFold { vec2 p; float sgo, an, tn, th, bn, s, w, ro, rf; };
+CrossFold crossFold(vec2 q) {
+  CrossFold c;
+  c.sgo = imod(u_arms, 2) == 1 ? -1.0 : 1.0;
+  vec2 qa = c.sgo * q;
+  c.an = PI / float(u_arms);
+  c.th = atan(qa.x, qa.y) + c.an;
+  c.bn = mod(c.th, 2.0 * c.an) - c.an;
+  c.p = length(qa) * vec2(cos(c.bn), abs(sin(c.bn)));
+  c.s = max(u_size, 0.0);
+  c.tn = tan(c.an);
+  c.w = crossW();
+  c.ro = clamp(u_corner, 0.0, min(c.w, c.s));
+  c.rf = clamp(u_fillet, 0.0, max((c.s - c.ro) * c.tn - c.w, 0.0));
+  return c;
+}
 float shapeSdf(vec2 q, float rnd, vec2 cell) {
-  // Odd counts point arm 0 down (a Y); fold into half an arm's sector: x along the arm, 0 <= y <= x·tan(π / arms)
-  // across it. The boundary there: the arm's side (y = w) from the inner fillet to the outer corner, the corner's arc, the
-  // end (x = s), the fillet.
-  vec2 qa = imod(u_arms, 2) == 1 ? -q : q;
-  float an = PI / float(u_arms);
-  float bn = mod(atan(qa.x, qa.y) + an, 2.0 * an) - an;
-  vec2 p = length(qa) * vec2(cos(bn), abs(sin(bn)));
-  float s = max(u_size, 0.0);
-  float tn = tan(an);
-  float w = crossW();
-  float ro = clamp(u_corner, 0.0, min(w, s));
-  float rf = clamp(u_fillet, 0.0, max((s - ro) * tn - w, 0.0));
-  vec2 c = vec2((w + rf) / tn, w + rf);    // the fillet's centre, on the line between this arm and the next
+  // The boundary in the folded sector: the arm's side (y = w) from the inner fillet to the outer corner, the corner's
+  // arc, the end (x = s), the fillet.
+  CrossFold cf = crossFold(q);
+  vec2 p = cf.p;
+  float s = cf.s, w = cf.w, ro = cf.ro, rf = cf.rf;
+  vec2 c = vec2((w + rf) / cf.tn, w + rf);    // the fillet's centre, on the line between this arm and the next
   vec2 o = vec2(s - ro, w - ro);           // the outer corner's centre
   vec2 po = p - o;
   vec2 pf = p - c;
@@ -1301,14 +1286,14 @@ float shapeSdf(vec2 q, float rnd, vec2 cell) {
   return d;
 }
 // Bevel aspect (GLSL_BEVEL): the arms' bevel as the shape measures it — the arms' own bars (the deepest, so the arms meet
-// without a step), the fillet's blend, the stem — with each bar's distance in the stretched space. sb: the bar's centre, along-axis u (local), half sizes hb, corner r.
+// without a step), the fillet's blend, the stem — with each bar's distance in the stretched space. A bar: centre c,
+// along-axis u (local), half sizes hb, corner radius r.
 float crossBar(vec2 q, vec2 ps, mat2 M, vec2 c, vec2 u, vec2 hb, float r) {
   vec2 v = vec2(-u.y, u.x);
   vec2 bq = vec2(dot(q - c, u), dot(q - c, v));
   float d2 = 1e18;
-  vec2 sg[4] = vec2[4](vec2(1.0), vec2(-1.0, 1.0), vec2(-1.0), vec2(1.0, -1.0));
   for (int i = 0; i < 4; i++) {
-    vec2 s = sg[i], s1 = sg[(i + 1) % 4];
+    vec2 s = SG4[i], s1 = SG4[(i + 1) % 4];
     vec2 k = s * hb, k1 = s1 * hb;
     bool top = (i % 2) == 0;
     // The side to the next corner, then this corner's arc (all in the bar's frame: u, v).
@@ -1323,26 +1308,35 @@ float crossBar(vec2 q, vec2 ps, mat2 M, vec2 c, vec2 u, vec2 hb, float r) {
 #define SHAPE_EDGES
 float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   gShapeEdgesAll = true;
-  float sgo = imod(u_arms, 2) == 1 ? -1.0 : 1.0;
-  vec2 qa = sgo * q;
-  float an = PI / float(u_arms);
-  float th = atan(qa.x, qa.y) + an;
-  float bn = mod(th, 2.0 * an) - an;
+  CrossFold cf = crossFold(q);
+  vec2 p = cf.p;
+  float sgo = cf.sgo, an = cf.an, th = cf.th, bn = cf.bn, s = cf.s, w = cf.w, ro = cf.ro, rf = cf.rf;
   // The folded frame's axes in the local one (as shapeSdf folds): x along p's arm, y towards p's side of it.
   vec2 fx = sgo * vec2(sin(th - an - bn), cos(th - an - bn));
-  vec2 fy = (bn < 0.0 ? -1.0 : 1.0) * vec2(fx.y, -fx.x);
-  vec2 p = length(qa) * vec2(cos(bn), abs(sin(bn)));
-  float s = max(u_size, 0.0);
-  float w = crossW();
-  float ro = clamp(u_corner, 0.0, min(w, s));
-  float rf = clamp(u_fillet, 0.0, max((s - ro) * tan(an) - w, 0.0));
   mat2 M = bevelFrame(ax, ay);
   vec2 ps = M * q;
   // p's arm's bar, from its end through the middle to just past the junction (B: where the arms' sides meet, beyond
-  // which shapeSdf never measures a bar), and every other arm's — any can be the deepest near the middle — as a plain
-  // box (its rounded end is far from p).
-  float B = w / tan(an) + w;
-  float bev = crossBar(q, ps, M, 0.5 * (s - B) * fx, fx, vec2(0.5 * (s + B), w), ro);
+  // which shapeSdf never measures a bar), and the stem's bar (one call site for both).
+  float B = w / cf.tn + w;
+  float sl = s + u_stem;
+  float bar = 1e9, stem = 1e9;
+  int bars = u_stem > 0.0 ? 2 : 1;
+  for (int j = 0; j < bars; j++) {
+    bool arm = j == 0;
+    float b = crossBar(q, ps, M, arm ? 0.5 * (s - B) * fx : vec2(0.0, -sl * 0.5), arm ? fx : vec2(0.0, 1.0),
+                       arm ? vec2(0.5 * (s + B), w) : vec2(sl * 0.5, w), ro);
+    if (arm) bar = b; else stem = b;
+  }
+  float bev = bar;
+  // Every other arm's bar — any can be the deepest near the middle — as a plain box (its rounded end is far from p).
+  // Beside the junction the bevel blends into the outline's depth there: every arm's sides and the fillets between them
+  // (any can be the nearest, stretched), each arm in its own frame (x along it, y across; the next arm round lies on
+  // its −y side, the fillet between them centred on the line halfway).
+  float wgt = clamp(1.0 - (w - p.y) / max(rf, 1e-3), 0.0, 1.0);
+  vec2 c = vec2((w + rf) / cf.tn, -(w + rf));
+  vec2 t = vec2(cos(an), -sin(an));
+  vec2 k = vec2(0.0, 1.0);
+  float dF2 = 1e18;
   int own = imod(int(floor(th / (2.0 * an))), u_arms);
   for (int j = 0; j < u_arms; j++) {
     vec2 u = sgo * vec2(sin(2.0 * an * float(j)), cos(2.0 * an * float(j)));
@@ -1350,30 +1344,17 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
     float al = dot(q, u);
     float b = max(max(bevelLine(al - s, su), bevelLine(-al - B, su)), bevelLine(abs(dot(q, vec2(-u.y, u.x))) - w, sv));
     bev = min(bev, j == own ? 1e9 : b);
-  }
-  // Beside the junction the bevel blends into the outline's depth there: every arm's sides and the fillets between them
-  // (any can be the nearest, stretched), each arm in its own frame (x along it, y across; the next arm round lies on
-  // its −y side, the fillet between them centred on the line halfway).
-  float wgt = clamp(1.0 - (w - p.y) / max(rf, 1e-3), 0.0, 1.0);
-  if (wgt > 0.0) {
-    vec2 c = vec2((w + rf) / tan(an), -(w + rf));
-    vec2 t = vec2(cos(an), -sin(an));
-    vec2 k = vec2(0.0, 1.0);
-    float dF2 = 1e18;
-    for (int j = 0; j < u_arms; j++) {
-      vec2 u = sgo * vec2(sin(2.0 * an * float(j)), cos(2.0 * an * float(j)));
+    if (wgt > 0.0) {
       mat2 Ma = M * mat2(u, vec2(-u.y, u.x));
       dF2 = min(dF2, min(bevelSeg2(ps, Ma * vec2(c.x, w), Ma * vec2(s - ro, w)), bevelSeg2(ps, Ma * vec2(c.x, -w), Ma * vec2(s - ro, -w))));
       dF2 = min(dF2, bevelArc2(ps, Ma, c, rf, k, 2.0 * dot(k, t) * t - k, -t));
     }
+  }
+  if (wgt > 0.0) {
     float dF = dl < 0.0 ? -sqrt(dF2) : sqrt(dF2);
     bev += min(dF - bev, 0.0) * wgt;
   }
-  if (u_stem > 0.0) {
-    float sl = s + u_stem;
-    bev = min(bev, crossBar(q, ps, M, vec2(0.0, -sl * 0.5), vec2(0.0, 1.0), vec2(sl * 0.5, w), ro));
-  }
-  return bev;
+  return min(bev, stem);
 }
 `
 });

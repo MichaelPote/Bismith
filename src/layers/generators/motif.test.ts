@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createLayer, freshParams, layerParamDefs, linkedChanges } from '../registry';
+import { createLayer, freshParams, linkedChanges } from '../registry';
 import { truchetCells, truchetLayer } from './motif';
 
 /** The labyrinth's walls (bit 0: +x, bit 1: +y) of cell (x, y), from the padded cell texture. */
@@ -16,6 +16,29 @@ function walls(p: Record<string, unknown>, size: number, tileable: boolean, seed
 	}).cells;
 	const n = t.width - 2;
 	return { n, at: (x: number, y: number) => t.data[((y + 1) * t.width + x + 1) * 4 + 2] };
+}
+
+/** Union-find over n items. */
+function unionFind(n: number) {
+	const parent = Array.from({ length: n }, (_, i) => i);
+	const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+	return { find, join: (a: number, b: number) => (parent[find(a)] = find(b)) };
+}
+
+/** The wall segments (node pairs) of an n × n tiled wall grid, and the walls in each piece they join into. */
+function pieceSizes(n: number, at: (x: number, y: number) => number) {
+	const node = (x: number, y: number) => (((y % n) + n) % n) * n + (((x % n) + n) % n);
+	const segs: [number, number][] = [];
+	for (let y = 0; y < n; y++)
+		for (let x = 0; x < n; x++) {
+			if (at(x, y) & 1) segs.push([node(x + 1, y), node(x + 1, y + 1)]);
+			if (at(x, y) & 2) segs.push([node(x, y + 1), node(x + 1, y + 1)]);
+		}
+	const uf = unionFind(n * n);
+	for (const [a, b] of segs) uf.join(a, b);
+	const size = new Map<number, number>();
+	for (const [a] of segs) size.set(uf.find(a), (size.get(uf.find(a)) ?? 0) + 1);
+	return { segs: segs.length, sizes: [...size.values()] };
 }
 
 /** Open passages and the cells reachable from (0, 0) through them. */
@@ -139,28 +162,17 @@ describe('truchet', () => {
 		}
 		// Opened (density 0.35): no wall piece of fewer than five segments floats free.
 		const { n, at } = walls({ style: 'labyrinth', cells: 16, density: 0.35 }, 256, true);
-		const node = (x: number, y: number) => (((y % n) + n) % n) * n + (((x % n) + n) % n);
-		const parent = Array.from({ length: n * n }, (_, i) => i);
-		const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-		const segs: [number, number][] = [];
-		for (let y = 0; y < n; y++)
-			for (let x = 0; x < n; x++) {
-				if (at(x, y) & 1) segs.push([node(x + 1, y), node(x + 1, y + 1)]);
-				if (at(x, y) & 2) segs.push([node(x, y + 1), node(x + 1, y + 1)]);
-			}
-		for (const [a, b] of segs) parent[find(a)] = find(b);
-		const size = new Map<number, number>();
-		for (const [a] of segs) size.set(find(a), (size.get(find(a)) ?? 0) + 1);
-		expect(Math.min(...size.values())).toBeGreaterThanOrEqual(5);
+		expect(Math.min(...pieceSizes(n, at).sizes)).toBeGreaterThanOrEqual(5);
 	});
 
-	it('merges rooms into bigger ones with walls only between rooms', () => {
-		const tex = { width: 256, height: 256, tileable: true, seed: 3 };
+	it('merges rooms into bigger ones with walls only between rooms, wrapping or not', () => {
 		const p = { ...createLayer('truchet').params, style: 'rooms', cells: 16 };
-		const rooms = (merge: number) => {
-			const t = truchetCells({ ...p, merge }, tex).cells;
+		// Untiled, the border cells (−1, 16) are rooms too: the cell past the last one is read as is.
+		const rooms = (merge: number, tileable = true) => {
+			const t = truchetCells({ ...p, merge }, { width: 256, height: 256, tileable, seed: 3 }).cells;
+			const wrap = (v: number) => (tileable ? ((v % 16) + 16) % 16 : v);
 			const id = (x: number, y: number) => {
-				const i = ((((y % 16) + 16) % 16) + 1) * t.width + (((x % 16) + 16) % 16) + 1;
+				const i = (wrap(y) + 1) * t.width + wrap(x) + 1;
 				return t.data[i * 4] * 256 + t.data[i * 4 + 1];
 			};
 			let wallsBetween = true;
@@ -178,6 +190,7 @@ describe('truchet', () => {
 		const three = rooms(3);
 		expect(one.wallsBetween && three.wallsBetween).toBe(true);
 		expect(three.count).toBeLessThan(one.count / 2);
+		expect(rooms(1, false).wallsBetween && rooms(3, false).wallsBetween).toBe(true);
 	});
 
 	it('lays circuits out without closed loops on the CPU', () => {
@@ -187,8 +200,7 @@ describe('truchet', () => {
 		const cycles = (p: Record<string, unknown>) => {
 			const t = truchetCells({ ...base, ...p } as never, tex).cells;
 			const n = t.width - 2;
-			const parent = Array.from({ length: n * n }, (_, i) => i);
-			const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+			const { find, join } = unionFind(n * n);
 			let edges = 0;
 			let loops = 0;
 			for (let y = 0; y < n; y++)
@@ -203,7 +215,7 @@ describe('truchet', () => {
 						const a = find(y * n + x);
 						const b = find(by * n + bx);
 						if (a === b) loops++;
-						else parent[a] = b;
+						else join(a, b);
 					}
 				}
 			return { edges, loops };
@@ -225,22 +237,9 @@ describe('truchet', () => {
 			{ ...createLayer('truchet').params, style: 'maze', cells: 16, prune: true, density: 0.85 } as never,
 			{ width: 256, height: 256, tileable: true, seed: 4 }
 		).cells;
-		const n = 16;
-		const node = (x: number, y: number) => (((y % n) + n) % n) * n + (((x % n) + n) % n);
-		const parent = Array.from({ length: n * n }, (_, i) => i);
-		const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-		const segs: [number, number][] = [];
-		for (let y = 0; y < n; y++)
-			for (let x = 0; x < n; x++) {
-				const bits = t.data[((y + 1) * t.width + x + 1) * 4 + 2];
-				if (bits & 1) segs.push([node(x + 1, y), node(x + 1, y + 1)]);
-				if (bits & 2) segs.push([node(x, y + 1), node(x + 1, y + 1)]);
-			}
-		expect(segs.length).toBeGreaterThan(40);
-		for (const [a, b] of segs) parent[find(a)] = find(b);
-		const size = new Map<number, number>();
-		for (const [a] of segs) size.set(find(a), (size.get(find(a)) ?? 0) + 1);
-		expect(Math.min(...size.values())).toBeGreaterThanOrEqual(5);
+		const { segs, sizes } = pieceSizes(16, (x, y) => t.data[((y + 1) * t.width + x + 1) * 4 + 2]);
+		expect(segs).toBeGreaterThan(40);
+		expect(Math.min(...sizes)).toBeGreaterThanOrEqual(5);
 	});
 
 	it('computes per-cell data for the styles laid out on the CPU, a random per room', () => {
@@ -258,14 +257,5 @@ describe('truchet', () => {
 				if (t.data[i] === t.data[i + 4] && t.data[i + 1] === t.data[i + 5]) shared++;
 			}
 		expect(shared).toBeGreaterThan(10);
-	});
-
-	it('links only known params and uses every param it declares', () => {
-		const keys = new Set(layerParamDefs('truchet').map((d) => d.key));
-		for (const k of Object.keys(truchetLayer.linkedDefaults!(createLayer('truchet').params)))
-			expect(keys.has(k), k).toBe(true);
-		for (const d of truchetLayer.params)
-			if (d.key !== 'seed' && d.uniform !== false)
-				expect(truchetLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
 	});
 });

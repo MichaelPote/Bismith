@@ -2,7 +2,9 @@
 // Clouds and gradients are value generators (no SDF); scratches also hand their outline to a mask
 // (sdf: 'mask'). See patterns.ts for the cell-based SDF patterns.
 
-import { P, gradient, type ParamValues } from '@/core/params';
+import { pcg3, u2d } from '@/core/hash';
+import { P, gradient, round1 as r1, type ParamValues } from '@/core/params';
+import { PX_SCALE_PARAM } from '../commonParams';
 import type { LayerDef } from '../types';
 import { NZ_SHARED_GLSL, quantileTexture, quantilesOf } from './noise';
 
@@ -13,26 +15,23 @@ import { NZ_SHARED_GLSL, quantileTexture, quantilesOf } from './noise';
 // across holds few lumps, and its share above any level strays from the population's by several percent. Not ported:
 // the animation phase and the layer's own domain warp / offset (they move the pattern; its statistics barely change).
 
-const pcgU = (v: number) => {
-	const st = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0;
-	const w = Math.imul(((st >>> ((st >>> 28) + 4)) ^ st) >>> 0, 277803737) >>> 0;
-	return ((w >>> 22) ^ w) >>> 0;
-};
-const hashI = (x: number, y: number, s: number) => pcgU((x >>> 0) ^ pcgU((y >>> 0) ^ pcgU(s >>> 0))) / 4294967296;
+/** The shaders' hashI (core/hash.ts), unrounded: the quantiles need only its distribution. */
+const hashI = (x: number, y: number, s: number) => u2d(pcg3(x, y, s));
 const imod = (a: number, m: number) => ((a % m) + m) % m;
 const quint = (f: number) => f * f * f * (f * (f * 6 - 15) + 10);
 const NO_PER = 1 << 20;
 
-function cvNoise(basis: number, x: number, y: number, px: number, py: number, s: number): number {
+// Value (basis 0) or Perlin noise on a lattice whose corner k is hashed as cell(kx, ky) (0..1): the shader's valueNoise /
+// perlinNoise, the period or the turned lattice's reduction in cell.
+function latticeNoise(basis: number, x: number, y: number, cell: (kx: number, ky: number) => number): number {
 	const ix = Math.floor(x),
 		iy = Math.floor(y),
 		fx = x - ix,
 		fy = y - iy;
 	const corner = (ox: number, oy: number) => {
-		const cx = imod(ix + ox, px),
-			cy = imod(iy + oy, py);
-		if (basis === 0) return hashI(cx, cy, s);
-		const a = hashI(cx, cy, s) * Math.PI * 2;
+		const h = cell(ix + ox, iy + oy);
+		if (basis === 0) return h;
+		const a = h * Math.PI * 2;
 		return Math.cos(a) * (fx - ox) + Math.sin(a) * (fy - oy);
 	};
 	const ux = quint(fx),
@@ -45,32 +44,17 @@ function cvNoise(basis: number, x: number, y: number, px: number, py: number, s:
 	return basis === 0 ? v : Math.min(1, Math.max(0, v * 1.2 + 0.5));
 }
 
+const cvNoise = (basis: number, x: number, y: number, px: number, py: number, s: number) =>
+	latticeNoise(basis, x, y, (kx, ky) => hashI(imod(kx, px), imod(ky, py), s));
+
 // rl_noise / rl_reduce / rl_lattice (NZ_SHARED_GLSL).
 function rlNoise(basis: number, y0: number, y1: number, c1: number[], c2: number[], s: number): number {
 	const D = c1[0] * c2[1] - c2[0] * c1[1];
-	const ix = Math.floor(y0),
-		iy = Math.floor(y1),
-		fx = y0 - ix,
-		fy = y1 - iy;
-	const corner = (ox: number, oy: number) => {
-		const kx = ix + ox,
-			ky = iy + oy;
+	return latticeNoise(basis, y0, y1, (kx, ky) => {
 		const a = Math.floor((c2[1] * kx - c2[0] * ky) / D),
 			b = Math.floor((c1[0] * ky - c1[1] * kx) / D);
-		const rx = kx - a * c1[0] - b * c2[0],
-			ry = ky - a * c1[1] - b * c2[1];
-		if (basis === 0) return hashI(rx, ry, s);
-		const g = hashI(rx, ry, s) * Math.PI * 2;
-		return Math.cos(g) * (fx - ox) + Math.sin(g) * (fy - oy);
-	};
-	const ux = quint(fx),
-		uy = quint(fy);
-	const a = corner(0, 0),
-		b = corner(1, 0),
-		c = corner(0, 1),
-		d = corner(1, 1);
-	const v = (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy;
-	return basis === 0 ? v : Math.min(1, Math.max(0, v * 1.2 + 0.5));
+		return hashI(kx - a * c1[0] - b * c2[0], ky - a * c1[1] - b * c2[1], s);
+	});
 }
 
 /** The clouds' raw value (before the coverage threshold and contrast) at 4096 points of the texture. */
@@ -108,7 +92,8 @@ export function cloudsSamples(
 		wdetail = Number(p.wdetail ?? 1);
 	const turned = tile && per0x === per0y;
 	const ro = 1 + ridge;
-	// warpOffset(x, per, seed + 7): fractalNoise(perlin, fBm, 3 octaves, lacunarity 2, gain 0.5), twice.
+	const lm = tile ? ilac : lac;
+	// warpOffset(x, per, seed + 7): Perlin fbm (3 octaves, lacunarity 2, gain 0.5), twice.
 	const fbm3 = (x: number, y: number, sd: number) => {
 		let sum = 0,
 			amp = 1,
@@ -157,8 +142,9 @@ export function cloudsSamples(
 				f0 = 1,
 				cut = 1;
 			let px = per0x,
-				py = per0y;
-			for (let o = 0; o < oct; o++) {
+				py = per0y,
+				fc = Math.max(cx, cy);
+			for (let o = 0; o < oct && fc <= OCT_CELLS; o++, fc *= lm) {
 				const s = seed + o * 31;
 				let xo = x + offx,
 					yo = y + offy;
@@ -254,7 +240,6 @@ export function cloudsSamples(
 				sum += n * amp * ha * bg;
 				norm += amp * ha * wn;
 				amp *= gain;
-				const lm = tile ? ilac : lac;
 				if (tile) {
 					x *= ilac;
 					y *= ilac;
@@ -272,8 +257,14 @@ export function cloudsSamples(
 	return out;
 }
 
-/** Ridge hierarchy: the main crest's extra sharpening exponent (shader: the same expression). */
-const RIDGE_SHARP = (h: number) => 6 * h * h;
+/** Ridge hierarchy: the main crest's extra sharpening exponent, RIDGE_SHARP_K · h² (the shader's from the same constant). */
+const RIDGE_SHARP_K = 6;
+const RIDGE_SHARP = (h: number) => RIDGE_SHARP_K * h * h;
+/**
+ * The finest octave's cells across (the larger cell count): octaves past it are far below a pixel and only alias, and
+ * their tiling periods would overflow the shader's ints at high lacunarity. Shader and port both stop there.
+ */
+const OCT_CELLS = 1 << 20;
 
 export const cloudsLayer: LayerDef = {
 	type: 'clouds',
@@ -362,9 +353,6 @@ export const cloudsLayer: LayerDef = {
 		h_amount: 0.15
 	},
 	glsl: /* glsl */ `
-// 1, read from a uniform: a loop bound written with it can't be unrolled, so D3D keeps one copy of the body.
-#define CL_1 (uRes.x > 0.0 ? 1 : 0)
-
 ${NZ_SHARED_GLSL}
 // The integral of clamp(x, 0, 1): differences of it give the clamp box-filtered over a width (soft shoulders).
 float cl_clampInt(float x) { return x < 0.0 ? 0.0 : x < 1.0 ? 0.5 * x * x : x - 0.5; }
@@ -380,16 +368,18 @@ GenOut gen(vec2 p) {
     vec2 w = warpOffset(x, per, uSeed + 7.0) * u_warp * 2.0;
     if (u_wdetail >= 1.0) x += w; else off = w;
   }
-  // fractalNoise(basis, fbm | billow | ridged, …) in one flat loop with a runtime bound and only value / Perlin in it:
-  // the same values, a much smaller shader than the library's generic dispatch.
+  // The octaves in one flat loop with a runtime bound and only value / Perlin in it, so the shader stays small.
+  // (Ported to the CPU line for line: cloudsSamples.)
   float sum = 0.0, amp = 1.0, norm = 0.0, weight = 1.0, f0 = 1.0, cut = 1.0;
   float ro = 1.0 + u_ridge;   // ridged: the offset the crest is measured from (1 = classic)
   int ilac = int(u_lacunarity + 0.5);
   // Tiling, on a square grid of cells: value / Perlin on the turned tileable lattice (rl_noise), each octave its own.
   bool turned = uTile && per.x == per.y;
   ivec2 per0 = per;
-  for (int o = 0; o < 12 * CL_1; o++) {
-    if (o >= u_octaves) break;
+  float lm = uTile ? float(ilac) : u_lacunarity;
+  float fc = max(cells.x, cells.y);   // this octave's cells across (past OCT_CELLS the octaves stop)
+  for (int o = 0; o < 12 * UNI_1; o++) {
+    if (o >= u_octaves || fc > ${OCT_CELLS.toFixed(1)}) break;
     float s = uSeed + float(o) * 31.0;
     vec2 xo = x + off;
     vec2 sh = vec2(hashI(ivec2(o, 3), uSeed), hashI(ivec2(o, 5), uSeed)) + 0.37 * float(o);
@@ -400,7 +390,7 @@ GenOut gen(vec2 p) {
     // which a fold turns into crease segments on a grid, cancel out.
     bool dual = u_basis == 0;
     float n = 0.0;
-    for (int j = 0; j < (dual ? 2 : 1) * CL_1; j++) {
+    for (int j = 0; j < (dual ? 2 : 1) * UNI_1; j++) {
       float sj = s + 13.0 * float(j);
       float nj;
       if (turned) {
@@ -432,7 +422,7 @@ GenOut gen(vec2 p) {
       // fine detail along those — and an octave counts in the normalisation only as far as it's weighted. At 0 the
       // classic ridged multifractal (c², weight 2r).
       float c = (ro - fold) / ro;
-      float hp = o == 0 ? 6.0 * u_hier * u_hier : 0.0;   // RIDGE_SHARP
+      float hp = o == 0 ? ${RIDGE_SHARP_K.toFixed(1)} * u_hier * u_hier : 0.0;   // RIDGE_SHARP
       float hg = o == 0 ? -u_hier : 2.0 * u_hier;
       float r = c * c * (hp > 0.0 ? pow(max(c, 1e-6), hp) : 1.0);
       float gt = c * c * (hg != 0.0 ? pow(max(c, 1e-6), hg) : 1.0);
@@ -461,9 +451,9 @@ GenOut gen(vec2 p) {
     sum += n * amp * ha * bg;
     norm += amp * ha * wn;
     amp *= u_gain;
-    float lm = uTile ? float(ilac) : u_lacunarity;
     if (uTile) { x *= float(ilac); per *= ilac; } else { x *= u_lacunarity; }
     off *= lm * u_wdetail;
+    fc *= lm;
   }
   float n = sum / max(norm, 1e-6) * cut;
   // Coverage, exactly: the value evened out by this texture's measured quantiles (eq_value), the threshold its measured
@@ -615,7 +605,6 @@ export const gradientLayer: LayerDef = {
 			hint: 'The per-band random (each repeat of the ramp: Source › Random, Diffuse jitter, Per-feature variation)'
 		})
 	],
-	// Added in the editor: repeats fit the tile, and the creases where copies of a centre meet are rounded.
 	// Added in the editor: the creases where copies of a centre meet rounded by 5 % of the texture.
 	fresh: ({ width, height }) => ({ seam: Math.round(0.05 * Math.min(width, height) * 10) / 10 }),
 	// One ramp (or any odd count) can't sweep round a tiling centre: an angular gradient with an odd count starts with a
@@ -626,9 +615,6 @@ export const gradientLayer: LayerDef = {
 		dif_grad: gradient('#3a3e43', '#9aa3ab')
 	},
 	glsl: /* glsl */ `
-// 1, read from a uniform: a loop bound written with it can't be unrolled, so D3D keeps one copy of the body.
-#define GR_1 (uRes.x > 0.0 ? 1 : 0)
-
 // Ring metric of the radial-type styles: radial (1) round, diamond (3) L1, square (4) L∞. Roundness turns diamond and
 // square into superellipses (p 1 → 2, ∞ → 2): rings without creases on the diagonals.
 float gr_metric(vec2 v) {
@@ -647,7 +633,7 @@ float gr_metric(vec2 v) {
 float gr_thetaArg(vec2 x, float T) {
   float b = abs(x.y), sg = x.y < 0.0 ? -1.0 : 1.0;
   vec2 acc = vec2(0.0);
-  for (int n = 0; n < 4 * GR_1; n++) {
+  for (int n = 0; n < 4 * UNI_1; n++) {
     float m = float(2 * n + 1);
     float c = (n % 2 == 0 ? 1.0 : -1.0) * exp(-PI * T * (float(n) + 0.5) * (float(n) + 0.5));
     float ep = exp((m - 1.0) * b), em = exp(-(m + 1.0) * b);
@@ -656,9 +642,6 @@ float gr_thetaArg(vec2 x, float T) {
   }
   return atan(acc.y, acc.x);
 }
-
-// Polynomial smooth minimum over k (the crease where two copies meet, rounded).
-float gr_smin(float a, float b, float k) { float h = max(k - abs(a - b), 0.0) / k; return min(a, b) - h * h * k * 0.25; }
 
 // fract(t) box-filtered over w (the footprint of a pixel, in t): the wrap from 1 back to 0 is anti-aliased, and bands
 // finer than a pixel fade to their mean. Uses the integral of fract, floor(x) / 2 + fract(x)² / 2.
@@ -673,11 +656,6 @@ float gr_fractAA(float t, float w) {
 float gr_tri(float t) { float m = mod(t, 2.0); return m > 1.0 ? 2.0 - m : m; }
 float gr_triInt(float x) { float m = mod(x, 2.0); return floor(x / 2.0) + (m <= 1.0 ? 0.5 * m * m : 1.0 - 0.5 * (2.0 - m) * (2.0 - m)); }
 float gr_triAA(float t, float w) { return w < 1e-6 ? gr_tri(t) : clamp((gr_triInt(t + 0.5 * w) - gr_triInt(t - 0.5 * w)) / w, 0.0, 1.0); }
-
-int gr_gcd(int a, int b) {
-  for (int i = 0; i < 64 * GR_1; i++) { if (b == 0) break; int r = a % b; a = b; b = r; }
-  return max(a, 1);
-}
 
 // The ramp's t from an offset d to a centre (radial-type: ring metric / R; angular: the sweep, twisted).
 float gr_t(vec2 d, float R, float st) {
@@ -726,6 +704,131 @@ float gr_jit(float t, int bands, inout float w) {
   return k + (t - lo) / wd;
 }
 
+// Linear: t along the Angle (0.5 at the centre); bands: the bands per tile when they tile (> 0).
+float gr_linear(vec2 d, out int bands) {
+  vec2 q = unrotCW(d, u_angle);   // x along the gradient direction
+  float a = radians(u_angle);
+  float span = abs(uRes.x * cos(a)) + abs(uRes.y * sin(a));
+  float L = u_length > 0.0 ? u_length : span;
+  bands = 0;
+  if (u_fit && uTile && u_repeat != 0) {
+    // Whole periods across the tile on both axes: the frequency snapped per axis (the angle moves a little).
+    float P = u_repeat == 2 ? 2.0 * L : L;
+    vec2 dir = rotCW(vec2(1.0, 0.0), u_angle);
+    vec2 cyc = floor(dir * uRes / P + 0.5);
+    if (cyc.x == 0.0 && cyc.y == 0.0) {
+      if (abs(dir.x) * uRes.x >= abs(dir.y) * uRes.y) cyc.x = dir.x < 0.0 ? -1.0 : 1.0; else cyc.y = dir.y < 0.0 ? -1.0 : 1.0;
+    }
+    int rpp = u_repeat == 2 ? 2 : 1;   // ramps per period
+    bands = rpp * igcd(int(abs(cyc.x)), int(abs(cyc.y)));
+    return 0.5 + dot(d, cyc / uRes) * float(rpp);
+  }
+  float nb = span / L;
+  if (uTile && abs(nb - floor(nb + 0.5)) < 1e-3) bands = int(floor(nb + 0.5));
+  return 0.5 + q.x / L;
+}
+
+// The radial-type styles' ring radius (px in the ring metric): Length, or 0 = the farthest corner (of the texture, or
+// of the wrap cell when tiling); with Fit the tile, a whole number of bands from the centre to the tile's edge.
+float gr_radius(vec2 c, bool wrap, float st) {
+  float R = u_length;
+  if (R <= 0.0) {
+    vec2 lo = wrap ? -0.5 * uRes : -c;
+    vec2 hi = wrap ? 0.5 * uRes : uRes - c;
+    R = 0.0;
+    for (int i = 0; i < 4; i++) {
+      vec2 k = vec2(i == 0 || i == 2 ? lo.x : hi.x, i < 2 ? lo.y : hi.y);
+      vec2 kq = unrotCW(k, u_angle);
+      R = max(R, gr_metric(vec2(kq.x / st, kq.y)));
+    }
+  } else if (u_fit && wrap && u_repeat != 0) {
+    // (Where the copies meet: no fold mid-slope.)
+    vec2 hq = unrotCW(vec2(0.5 * uRes.x, 0.0), u_angle);
+    float hw = gr_metric(vec2(hq.x / st, hq.y));
+    R = hw / max(floor(hw / R + 0.5), 1.0);
+  }
+  return max(R, 1e-3);
+}
+
+// A tiling angular sweep (unstretched, tiles up to 3:1, T = long side / short side): the angle of a ratio of Jacobi
+// thetas with a zero at the centre and a pole at the tile's corner — exactly doubly periodic, so the rays bend smoothly
+// across the whole tile and meet themselves at its edges, gathering again at one counter-whirl at the corners. Returns
+// t; w: its AA width.
+float gr_thetaSweep(vec2 d, int rep, float T, out float w) {
+  // z in units of the shorter side, its real axis along it (the theta series converges fast for Im τ = T ≥ 1).
+  bool rot = uRes.x > uRes.y;
+  vec2 z = rot ? vec2(d.y, -d.x) / uRes.y : d / uRes.x;
+  // The pole at the tile's corner. arg f + π Re z is the phase of the one doubly periodic |f|: it turns by π
+  // across a tile either way and keeps the tile's symmetry (rays evenly spread round the centre at every radius)
+  // — seamless for an even count of ramps (a multiple of 4 with Mirror, whose period is two ramps). Other
+  // counts take -π Im z / T instead: no turn across the tile, so any count tiles, but the rays crowd towards
+  // one diagonal. arg f = arg θ1(π z) − arg θ1(π (z − bo)) + A, A = arg θ1(−π bo): the argument offset at the centre
+  // (arg f ≈ arg(z - a) - A). One loop, so the series compiles once.
+  vec2 bo = vec2(0.5, 0.5 * T);
+  float ph = 0.0;
+  for (int k = 0; k < 3 * UNI_1; k++) ph += (k == 1 ? -1.0 : 1.0) * gr_thetaArg(PI * (k == 0 ? z : k == 1 ? z - bo : -bo), T);
+  bool even = rep == 2 ? u_turns % 4 == 0 : u_turns % 2 == 0;
+  ph += (even ? PI * z.x : -PI * z.y / T) + (rot ? 0.5 * PI : 0.0);
+  // Twist: a smooth periodic stand-in for the distance to the centre (|d| near it).
+  vec2 sn = uRes / PI * sin(PI * d / uRes);
+  // The AA width from the phase's own rate (the centre's and the corner whirl's 1 / (2π r)) rather than from
+  // quad derivatives, which zigzag pixel to pixel along the rays.
+  float dcn = length(wrapDelta(d - 0.5 * uRes));
+  w = float(u_turns) * ((1.0 / max(length(d), 0.5) + 1.0 / max(dcn, 0.5)) / TAU + abs(u_twist) / (0.5 * uRes.x));
+  return fract(-(ph + radians(u_angle)) / TAU + u_twist * length(sn) / (0.5 * uRes.x)) * float(u_turns) + u_shift;
+}
+
+// The radial-type ramps (and a stretched or long tile's angular sweep) from the centre, or tiling, from its copies among
+// the 5 × 5 round it, each weighted by how near it is — by the rings' own metric (turned, stretched; the per-axis nearest
+// copy only matches it for upright round, diamond and square rings) or, for an angular sweep, by plain distance —
+// e^(-(m - m_min) / τ), τ = Seam rounding / 4 (0: the nearest copy only). Repeating ramps blend their phase (the unit
+// vector of the angle 2π t / period), so the bands and rays bend from one copy's into the next and stay sharp — no
+// smear, no lobes; a clamped ramp blends t (a rounded ridge where the copies meet). The weights depend on the distances
+// only, so they are continuous everywhere: no notch where the nearest copy changes. Returns t; w: its AA width.
+float gr_copies(vec2 d, float R, float st, bool wrap, int rep, out float w) {
+  float per = rep == 2 ? 2.0 : 1.0;
+  float tau = 0.25 * u_seam;
+  bool blend = wrap && tau > 0.0 && u_style != 2;
+  float m1 = 1e20, t1 = 0.0, wsum = 0.0, tsum = 0.0;
+  vec2 acc = vec2(0.0);
+  for (int e = 0; e < (wrap ? 25 : 1) * UNI_1; e++) {
+    vec2 de = wrap ? d + vec2(float(e % 5 - 2), float(e / 5 - 2)) * uRes : d;
+    vec2 kq = unrotCW(de, u_angle);
+    float me = u_style == 2 ? length(de) : gr_metric(vec2(kq.x / st, kq.y));
+    // (gr_t's ring metric is me: only the sweep needs it.)
+    float te = (u_style == 2 ? gr_t(de, R, st) : me / R) + u_shift;
+    if (me < m1) {
+      // A new nearest copy: rescale what's summed to its weight (running minimum).
+      float k = blend ? exp((me - m1) / tau) : 0.0;
+      acc *= k; wsum *= k; tsum *= k;
+      m1 = me; t1 = te;
+    }
+    float we = blend ? exp((m1 - me) / tau) : (me == m1 ? 1.0 : 0.0);
+    float ph = TAU * te / per;
+    acc += we * vec2(cos(ph), sin(ph));
+    wsum += we;
+    tsum += we * te;
+  }
+  if (!blend) {
+    // An unstretched angular sweep: the AA width from its own rate, 1 / (2π r) per px (+ the twist's), rather than
+    // from quad derivatives (which zigzag pixel to pixel along the rays).
+    w = u_style == 2 && abs(st - 1.0) < 1e-3 ? float(u_turns) * (1.0 / (TAU * max(m1, 0.5)) + abs(u_twist) / (0.5 * uRes.x)) : gr_w(t1);
+    return t1;
+  }
+  if (rep == 0) {
+    float t = tsum / max(wsum, 1e-20);
+    w = gr_w(t);
+    return t;
+  }
+  // The blended phase, unwrapped next to the nearest copy's t; its rate per pixel from the unit vector's (|du| =
+  // |dφ|), which has no jump where the nearest copy changes.
+  vec2 u = acc / max(length(acc), 1e-20);
+  float dp = atan(u.y, u.x) - TAU * t1 / per;
+  dp -= TAU * floor(dp / TAU + 0.5);
+  w = per / TAU * (length(dFdx(u)) + length(dFdy(u)));
+  return t1 + per * dp / TAU;
+}
+
 GenOut gen(vec2 p) {
   vec2 c = userPx(vec2(u_cx, u_cy));
   vec2 d = p - c;
@@ -735,131 +838,23 @@ GenOut gen(vec2 p) {
   float st = max(u_stretch, 1e-3);
   // An angular sweep has no clamp: past 1 it repeats (one sweep: the same either way).
   int rep = u_style == 2 && u_repeat == 0 ? 1 : u_repeat;
-  float t, v, w;   // the ramp position, its value, its AA width (rate per pixel)
+  float t, w;      // the ramp position and its AA width (rate per pixel)
   int bands = 0;   // bands per tile (> 0: the band index wraps, so per-band randoms tile too)
   if (u_style == 0) {
-    vec2 q = unrotCW(d, u_angle);   // x along the gradient direction
-    float a = radians(u_angle);
-    float span = abs(uRes.x * cos(a)) + abs(uRes.y * sin(a));
-    float L = u_length > 0.0 ? u_length : span;
-    if (u_fit && uTile && u_repeat != 0) {
-      // Whole periods across the tile on both axes: the frequency snapped per axis (the angle moves a little).
-      float P = u_repeat == 2 ? 2.0 * L : L;
-      vec2 dir = rotCW(vec2(1.0, 0.0), u_angle);
-      vec2 cyc = floor(dir * uRes / P + 0.5);
-      if (cyc.x == 0.0 && cyc.y == 0.0) {
-        if (abs(dir.x) * uRes.x >= abs(dir.y) * uRes.y) cyc.x = dir.x < 0.0 ? -1.0 : 1.0; else cyc.y = dir.y < 0.0 ? -1.0 : 1.0;
-      }
-      int rpp = u_repeat == 2 ? 2 : 1;   // ramps per period
-      t = 0.5 + dot(d, cyc / uRes) * float(rpp);
-      bands = rpp * gr_gcd(int(abs(cyc.x)), int(abs(cyc.y)));
-    } else {
-      t = 0.5 + q.x / L;
-      float nb = span / L;
-      if (uTile && abs(nb - floor(nb + 0.5)) < 1e-3) bands = int(floor(nb + 0.5));
-    }
-    t += u_shift;
+    t = gr_linear(d, bands) + u_shift;
     w = gr_w(t);
   } else {
-    float R = 1.0;
-    if (u_style != 2) {
-      R = u_length;
-      if (R <= 0.0) {
-        // Farthest corner (of the texture, or of the wrap cell when tiling).
-        vec2 lo = wrap ? -0.5 * uRes : -c;
-        vec2 hi = wrap ? 0.5 * uRes : uRes - c;
-        R = 0.0;
-        for (int i = 0; i < 4; i++) {
-          vec2 k = vec2(i == 0 || i == 2 ? lo.x : hi.x, i < 2 ? lo.y : hi.y);
-          vec2 kq = unrotCW(k, u_angle);
-          R = max(R, gr_metric(vec2(kq.x / st, kq.y)));
-        }
-      } else if (u_fit && wrap && u_repeat != 0) {
-        // A whole number of bands from the centre to the tile's edge, where the copies meet: no fold mid-slope.
-        vec2 hq = unrotCW(vec2(0.5 * uRes.x, 0.0), u_angle);
-        float hw = gr_metric(vec2(hq.x / st, hq.y));
-        R = hw / max(floor(hw / R + 0.5), 1.0);
-      }
-      R = max(R, 1e-3);
-    }
+    float R = u_style != 2 ? gr_radius(c, wrap, st) : 1.0;
     if (u_style == 2) bands = u_turns;
-    // Tiling: the copies of the centre among the 5 × 5 round it, each weighted by how near it is — by the rings' own
-    // metric (turned, stretched; the per-axis nearest copy only matches it for upright round, diamond and square
-    // rings) or, for an angular sweep, by plain distance — e^(-(m - m_min) / τ), τ = Seam rounding / 4 (0: the
-    // nearest copy only). Repeating ramps blend their phase (the unit vector of the angle 2π t / period), so the bands
-    // and rays bend from one copy's into the next and stay sharp — no smear, no lobes; a clamped ramp blends t (a
-    // rounded ridge where the copies meet). The weights depend on the distances only, so they are continuous
-    // everywhere: no notch where the nearest copy changes.
-    // A tiling angular sweep (unstretched, tiles up to 3:1): the angle of a ratio of Jacobi thetas with a zero at the
-    // centre and a pole at the tile's corner — exactly doubly periodic, so the rays bend smoothly across the whole tile
-    // and meet themselves at its edges, gathering again at one counter-whirl at the corners. Otherwise (stretched, or
-    // a long tile): the nearest copy of the centre.
+    // A tiling angular sweep: the theta functions' doubly periodic one; otherwise (stretched, or a long tile) the
+    // nearest copy of the centre.
     float T = max(uRes.x, uRes.y) / min(uRes.x, uRes.y);
-    if (u_style == 2 && wrap && abs(st - 1.0) < 1e-3 && T <= 3.0) {
-      // z in units of the shorter side, its real axis along it (the theta series converges fast for Im τ = T ≥ 1).
-      bool rot = uRes.x > uRes.y;
-      vec2 z = rot ? vec2(d.y, -d.x) / uRes.y : d / uRes.x;
-      // The pole at the tile's corner. arg f + π Re z is the phase of the one doubly periodic |f|: it turns by π
-      // across a tile either way and keeps the tile's symmetry (rays evenly spread round the centre at every radius)
-      // — seamless for an even count of ramps (a multiple of 4 with Mirror, whose period is two ramps). Other
-      // counts take -π Im z / T instead: no turn across the tile, so any count tiles, but the rays crowd towards
-      // one diagonal. A = the argument offset at the centre (arg f ≈ arg(z - a) - A).
-      vec2 bo = vec2(0.5, 0.5 * T);
-      float A = gr_thetaArg(-PI * bo, T);
-      bool even = rep == 2 ? u_turns % 4 == 0 : u_turns % 2 == 0;
-      float ph = gr_thetaArg(PI * z, T) - gr_thetaArg(PI * (z - bo), T) + A + (even ? PI * z.x : -PI * z.y / T) + (rot ? 0.5 * PI : 0.0);
-      // Twist: a smooth periodic stand-in for the distance to the centre (|d| near it).
-      vec2 sn = uRes / PI * sin(PI * d / uRes);
-      t = fract(-(ph + radians(u_angle)) / TAU + u_twist * length(sn) / (0.5 * uRes.x)) * float(u_turns) + u_shift;
-      // The AA width from the phase's own rate (the centre's and the corner whirl's 1 / (2π r)) rather than from
-      // quad derivatives, which zigzag pixel to pixel along the rays.
-      float dcn = length(wrapDelta(d - 0.5 * uRes));
-      w = float(u_turns) * ((1.0 / max(length(d), 0.5) + 1.0 / max(dcn, 0.5)) / TAU + abs(u_twist) / (0.5 * uRes.x));
-    } else {
-    float per = rep == 2 ? 2.0 : 1.0;
-    float tau = 0.25 * u_seam;
-    bool blend = wrap && tau > 0.0 && u_style != 2;
-    float m1 = 1e20, t1 = 0.0, wsum = 0.0, tsum = 0.0;
-    vec2 acc = vec2(0.0);
-    for (int e = 0; e < (wrap ? 25 : 1) * GR_1; e++) {
-      vec2 de = wrap ? d + vec2(float(e % 5 - 2), float(e / 5 - 2)) * uRes : d;
-      vec2 kq = unrotCW(de, u_angle);
-      float me = u_style == 2 ? length(de) : gr_metric(vec2(kq.x / st, kq.y));
-      float te = gr_t(de, R, st) + u_shift;
-      if (me < m1) {
-        // A new nearest copy: rescale what's summed to its weight (running minimum).
-        float k = blend ? exp((me - m1) / tau) : 0.0;
-        acc *= k; wsum *= k; tsum *= k;
-        m1 = me; t1 = te;
-      }
-      float we = blend ? exp((m1 - me) / tau) : (me == m1 ? 1.0 : 0.0);
-      float ph = TAU * te / per;
-      acc += we * vec2(cos(ph), sin(ph));
-      wsum += we;
-      tsum += we * te;
-    }
-    if (!blend) {
-      t = t1;
-      // An unstretched angular sweep: the AA width from its own rate, 1 / (2π r) per px (+ the twist's), rather than
-      // from quad derivatives (which zigzag pixel to pixel along the rays).
-      w = u_style == 2 && abs(st - 1.0) < 1e-3 ? float(u_turns) * (1.0 / (TAU * max(m1, 0.5)) + abs(u_twist) / (0.5 * uRes.x)) : gr_w(t);
-    } else if (rep == 0) {
-      t = tsum / max(wsum, 1e-20);
-      w = gr_w(t);
-    } else {
-      // The blended phase, unwrapped next to the nearest copy's t; its rate per pixel from the unit vector's (|du| =
-      // |dφ|), which has no jump where the nearest copy changes.
-      vec2 u = acc / max(length(acc), 1e-20);
-      float dp = atan(u.y, u.x) - TAU * t1 / per;
-      dp -= TAU * floor(dp / TAU + 0.5);
-      t = t1 + per * dp / TAU;
-      w = per / TAU * (length(dFdx(u)) + length(dFdy(u)));
-    }
-    }
+    if (u_style == 2 && wrap && abs(st - 1.0) < 1e-3 && T <= 3.0) t = gr_thetaSweep(d, rep, T, w);
+    else t = gr_copies(d, R, st, wrap, rep, w);
   }
   // One call site each (D3D inlines every call): the band width jitter, then the value.
   if (rep != 0) t = gr_jit(t, bands, w);
-  v = gr_value(t, w, rep);
+  float v = gr_value(t, w, rep);
   // Per-band random (each repeat of the ramp).
   int band = int(floor(t));
   if (bands > 0) band = imod(band, bands);
@@ -871,7 +866,10 @@ GenOut gen(vec2 p) {
 
 // ------------------------------------------------------------------------------------------------ scratches
 
-/** Whether a scratches layer's density gets near its per-cell limit (the shader's cells are about a reach wide). */
+/**
+ * Whether a scratches layer's density gets near its per-cell limit (the shader's cells are about a reach wide; this reach
+ * leaves out Swirl's, the burr's and the wobble's terms — near enough to decide whether to show the limit).
+ */
 const nearCap = (p: Record<string, unknown>): boolean => {
 	const lmax = Math.max(Number(p.len_max), Number(p.len_min));
 	const reach = 0.5 * lmax * (1 + 0.25 * Number(p.bend ?? 0)) + 0.5 * Number(p.thickness) + 1;
@@ -1042,6 +1040,9 @@ export const scratchesLayer: LayerDef = {
 			section: 'Relief',
 			hint: 'Scratches under a pixel wide cut as much shallower in Height and cover as much less (their area), so fine brushing reads as a sheen, not per-pixel trenches, and thin ends fade out (off: every scratch its full depth and a pixel of coverage)'
 		}),
+		// Not a control: 1 px of the texture in shader px. Supersampling scales every px param by k, so this keeps the
+		// hairline rules (Shallow hairlines, flat narrow grooves, faint burrs) and the shortest waves at output pixels.
+		PX_SCALE_PARAM,
 		P.float('mask_min', 'Mask strength', 0, 0, 1, {
 			step: 0.001,
 			group: 'mask',
@@ -1054,16 +1055,9 @@ export const scratchesLayer: LayerDef = {
 	// The scratches' outline (a signed distance to the nearest one) goes to a mask when given one: later layers are limited
 	// to the scratches (rust in them) or, in Subtract mode, to what's around them (paint that skips them).
 	sdf: 'mask',
-	// Hard edges became the Edge card's Anti-alias.
-	migrate: (p) => {
-		if (p.hard === undefined) return p;
-		const { hard, ...rest } = p;
-		return { aa: hard !== true, ...rest };
-	},
 	// Added in the editor: lengths, density and widths sized to the texture (the plain defaults suit about 128 px).
 	fresh: ({ width, height }) => {
 		const k = Math.max(1, Math.min(width, height) / 128);
-		const r1 = (v: number) => Math.round(v * 10) / 10;
 		return {
 			density: r1(24 / k),
 			len_min: r1(5 * k),
@@ -1083,18 +1077,9 @@ export const scratchesLayer: LayerDef = {
 		h_amount: 0.2
 	},
 	glsl: /* glsl */ `
-// 1, read from a uniform: a loop bound written with it can't be unrolled, so D3D keeps one copy of the body.
-#define SC_1 (uRes.x > 0.0 ? 1 : 0)
-
-// Smooth 1D value noise (0..1, cells of 1) along a scratch.
-float sc_noise1(float x, float seed) {
-  float i = floor(x), f = x - i;
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(hash1(i, seed), hash1(i + 1.0, seed), f);
-}
-
 GenOut gen(vec2 p) {
   float lmax = max(u_len_max, u_len_min);
+  float pxs = max(u_px_scale, 1.0);   // one texture pixel, in shader px (supersampling)
   float bendMax = 0.25 * u_bend;   // the most curved scratch's sagitta, as a share of its length
   // Cells at least one scratch reach wide, so only the 3x3 neighbourhood can touch this pixel.
   float reach = 0.5 * lmax + 0.5 * u_thickness + 1.0 + 0.5 * lmax * max(bendMax, u_bend_coh > 0.0 ? 0.35 * u_bend : 0.0)
@@ -1113,7 +1098,7 @@ GenOut gen(vec2 p) {
   float hv = 0.0;          // deepest groove here (× coverage)
   float lip = 0.0;         // highest burr here
   // One flat loop over the 3x3 cells (one copy of the body), each with its slots.
-  for (int e = 0; e < 9 * SC_1; e++) {
+  for (int e = 0; e < 9 * UNI_1; e++) {
     ivec2 c = ip + ivec2(e % 3 - 1, e / 3 - 1);
     ivec2 cw = uTile ? imod(c, ivec2(n)) : c;
     for (int s = 0; s < slots; s++) {
@@ -1125,9 +1110,9 @@ GenOut gen(vec2 p) {
       // that some pixels take and their neighbours don't — scratches came out thinned and cut off at cell borders.
       bool skip = fs + 1.0 > lambda && g.z > lambda - fs;
       vec2 pc = (vec2(cw) + h.xy) * cs / uRes * cc;   // the scratch's centre in the patch field
-      if (u_clump > 0.0) {
+      if (u_clump > 0.0 && !skip) {
         float pn = 0.0;
-        for (int o = 0; o < 2 * SC_1; o++) pn += (o == 0 ? 0.6 : 0.4) * perlinNoise(pc * float(1 + o), cper * (1 + o), uSeed + 61.0 + 6.0 * float(o));
+        for (int o = 0; o < 2 * UNI_1; o++) pn += (o == 0 ? 0.6 : 0.4) * perlinNoise(pc * float(1 + o), cper * (1 + o), uSeed + 61.0 + 6.0 * float(o));
         float m = mix(1.0, 2.0 * smoothstep(0.3, 0.7, pn), u_clump);
         skip = skip || k3.y * (1.0 + u_clump) > m;
       }
@@ -1192,7 +1177,7 @@ GenOut gen(vec2 p) {
         // in one to three waves along it: no worms.
         if (u_wobble > 0.0) {
           float wa = min(u_wobble * max(1.0, 0.5 * thw), max(0.03 * len, 0.25 * u_wobble));
-          yc += wa * (2.0 * sc_noise1(xc / max(0.35 * len, 4.0) + 7.0 * k4.z, nseed) - 1.0);
+          yc += wa * (2.0 * valueNoise1(xc / max(0.35 * len, 4.0 * pxs) + 7.0 * k4.z, nseed) - 1.0);
         }
         float dy = dot(r, nrm) - yc;
         float dist = sqrt((x - xc) * (x - xc) + dy * dy / (1.0 + slope * slope));
@@ -1204,15 +1189,15 @@ GenOut gen(vec2 p) {
         float th = thw * mix(1.0, sqrt(max(0.0, 1.0 - sx * sx)), tap);
         // Breakup: a noise along the scratch varies its depth and width and opens gaps; the burr is broken by it too.
         // (its waves at least half the scratch long under ~25 px: a short stroke swells once at most, no peanuts)
-        float nb = u_breakup > 0.0 || u_burr > 0.0 ? sc_noise1(xc / max(0.15 * len, min(0.5 * len, 12.0)) + 13.0 * k4.z, nseed + 1.0) : 1.0;
+        float nb = u_breakup > 0.0 || u_burr > 0.0 ? valueNoise1(xc / max(0.15 * len, min(0.5 * len, 12.0 * pxs)) + 13.0 * k4.z, nseed + 1.0) : 1.0;
         float f = 1.0;
         if (u_breakup > 0.0) f = mix(1.0, smoothstep(0.6 * u_breakup - 0.2, 0.6 * u_breakup + 0.2, nb) * (0.4 + 0.6 * nb), u_breakup);
         th *= sqrt(f);
         float gap = u_breakup > 0.0 ? (!u_aa ? step(0.1, f) : smoothstep(0.0, 0.2, f)) : 1.0;
         float rad = !u_aa ? max(0.5 * th, 0.5) : 0.5 * th;
-        // Coverage: anti-aliased over a pixel; Shallow hairlines: a cut under a pixel wide covers as much less (its
-        // area), so thin lines and their tapered ends fade out instead of ending in dashes.
-        float cv = !u_aa ? (dist <= rad ? 1.0 : 0.0) : (u_fine && th < 1.0 ? th * clamp(1.0 - dist, 0.0, 1.0) : clamp(rad + 0.5 - dist, 0.0, 1.0));
+        // Coverage: anti-aliased over a pixel; Shallow hairlines: a cut under a (texture) pixel wide covers as much less
+        // (its area) over that pixel, so thin lines and their tapered ends fade out instead of ending in dashes.
+        float cv = !u_aa ? (dist <= rad ? 1.0 : 0.0) : (u_fine && th < pxs ? th / pxs * clamp(1.0 - dist / pxs, 0.0, 1.0) : clamp(rad + 0.5 - dist, 0.0, 1.0));
         cv *= gap;
         float st0 = 1.0 - g.y * u_fade;
         float st = st0 * f;
@@ -1220,19 +1205,19 @@ GenOut gen(vec2 p) {
         cov = max(cov, cv);
         if (st0 >= u_mask_min) sd = min(sd, dist - rad + (1.0 - gap));
         sdAll = min(sdAll, dist - rad + (1.0 - gap));
-        // Relief: the groove's cross-section (flat for scratches under ~2 px), and the burr beside the cut.
-        float gk = u_groove > 0.0 ? clamp(th - 1.0, 0.0, 1.0) : 0.0;
+        // Relief: the groove's cross-section (flat for scratches under ~2 texture px), and the burr beside the cut.
+        float gk = u_groove > 0.0 ? clamp(th / pxs - 1.0, 0.0, 1.0) : 0.0;
         float gp = 1.0 - gk * pow(clamp(dist / max(0.5 * th, 1e-3), 0.0, 1.0), 1.0 / max(u_groove, 1e-3));
         // Shallow hairlines: a cut under a pixel wide is as much shallower (its depth spread over the pixel).
-        hv = max(hv, cv * st * gp * (u_fine ? min(1.0, th) : 1.0));
+        hv = max(hv, cv * st * gp * (u_fine ? min(1.0, th / pxs) : 1.0));
         if (u_burr > 0.0) {
           float bx = (dist - rad) / u_burr_width;
-          float bb = bx > 0.0 && bx < 1.0 ? sin(3.14159265 * bx) : 0.0;
+          float bb = bx > 0.0 && bx < 1.0 ? sin(PI * bx) : 0.0;
           // Along the sides: uneven (a share per side, per scratch), broken, none at the start, rising towards the end,
           // none round the caps.
           float side = dy > 0.0 ? k4.x : 1.0 - k4.x;
           float along = (0.3 + 0.7 * nb) * smoothstep(0.0, 0.3, t) * (0.6 + 0.8 * t) * (1.0 - smoothstep(0.0, 0.5 * u_burr_width, abs(x - xc)));
-          lip = max(lip, u_burr * st * clamp((thw - 0.5) / 1.5, 0.0, 1.0) * bb * bb * (0.4 + 1.2 * side) * along);
+          lip = max(lip, u_burr * st * clamp((thw / pxs - 0.5) / 1.5, 0.0, 1.0) * bb * bb * (0.4 + 1.2 * side) * along);
         }
         if (u_heap > 0.0 && x > 0.5 * len) {
           // Exit heap: the material pushed out ahead of the end — a crescent round the cap, as big as the cut is
@@ -1245,8 +1230,8 @@ GenOut gen(vec2 p) {
           float hx = clamp((de - 0.5 * thw) / hw, 0.0, 1.0);
           float fwd = smoothstep(0.2, 0.9, re.x / max(de, 1e-3));
           float sz = smoothstep(0.2, 1.0, k5.x) * (0.4 + 0.8 * k5.y);
-          float hb = sin(3.14159265 * hx);
-          lip = max(lip, 0.6 * u_heap * st * min(1.0, thw) * sz * hb * hb * fwd);
+          float hb = sin(PI * hx);
+          lip = max(lip, 0.6 * u_heap * st * min(1.0, thw / pxs) * sz * hb * hb * fwd);
         }
       }
     }
@@ -1259,7 +1244,10 @@ GenOut gen(vec2 p) {
   float hval = cov > 0.0 ? clamp(hv / cov, 0.0, 1.0) : 0.0;
   float height = u_burr > 0.0 || u_heap > 0.0 ? hv - lip * (1.0 - cov) : NO_SDF;
   // The bevel follows every scratch (the mask only those past its threshold).
-  return GenOut(val, cov, rnd, sd, 1.0, height, 0, hval, u_bevel > 0.0 ? sdAll : NO_SDF, rnd);
+  GenOut o = genOutHeight(val, cov, rnd, sd, height);
+  o.hval = hval;
+  o.bdist = u_bevel > 0.0 ? sdAll : NO_SDF;
+  return o;
 }
 `
 };

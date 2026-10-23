@@ -57,8 +57,10 @@ export const glassLayer: LayerDef = {
 		P.float('specular', 'Specular', 0.9, 0, 1, { step: 0.01 })
 	],
 	filterGlsl: /* glsl */ `
+// Light from (option order): top left, top, top right, left, right.
+const vec2 GLASS_LIGHT[5] = vec2[5](vec2(-0.7071, 0.7071), vec2(0.0, 1.0), vec2(0.7071, 0.7071), vec2(-1.0, 0.0), vec2(1.0, 0.0));
 void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
-  float m = clamp(0.5 - maskIn(ip), 0.0, 1.0);
+  float m = coverage(maskIn(ip), true);
   if (m <= 0.0) return;
   // Surface normal from the height (px per px).
   float hl = fetchT(tSurface, ip - ivec2(1, 0)).r, hr = fetchT(tSurface, ip + ivec2(1, 0)).r;
@@ -77,7 +79,7 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   A.rgb = mix(A.rgb, col * (1.0 - tr), m);
   E.rgb += m * col * tr;
   // Inner glint: on the far side from the light, just inside the rim.
-  vec2 L = u_light == 0 ? vec2(-0.7071, 0.7071) : u_light == 1 ? vec2(0.0, 1.0) : u_light == 2 ? vec2(0.7071, 0.7071) : u_light == 3 ? vec2(-1.0, 0.0) : vec2(1.0, 0.0);
+  vec2 L = GLASS_LIGHT[u_light];
   vec2 nd = n.xy / max(length(n.xy), 1e-4);
   float glint = u_glint * smoothstep(0.5, 0.9, dot(nd, -L)) * smoothstep(0.08, 0.3, rim) * (1.0 - smoothstep(0.55, 0.8, rim));
   E.rgb += m * glint * mix(vec3(1.0), u_tint, 0.3);

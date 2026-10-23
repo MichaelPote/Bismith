@@ -1,9 +1,9 @@
-// Hammered (FR7.7): the CPU side — the courses sized to the texture, old files' px jitter converted to a share of the
-// spacing, the mask opt-in, and every param reaching the shader.
+// Hammered (FR7.7): the CPU side — the courses sized to the texture, the mask opt-in, and every param reaching the
+// shader.
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createLayer, freshParams, layerParamDefs, sanitizeLayer } from '../registry';
+import { createLayer, freshParams, layerParamDefs } from '../registry';
 import { maskWriteKind } from '../masks';
 import { hammeredLayer } from './hammered';
 
@@ -30,17 +30,6 @@ describe('hammered', () => {
 		expect(Number(small.shape)).toBeGreaterThan(Number(big.shape));
 	});
 
-	it('loads files from before the quality pass, their px jitter as a share of the spacing', () => {
-		const old = { centres: 2, weight_var: 0.5, ring: 5.95, spacing: 7, jitter: 0.7, size: 1.1, shape: 4, seed: 3 };
-		const p = createLayer('hammered', old).params;
-		expect(p).toMatchObject({ centres: 2, ring: 5.95, spacing: 7, size: 1.1, shape: 4 });
-		expect(Number(p.jitter)).toBeCloseTo(0.7 / 5.95, 3);
-		// Current layers (every param stored) keep their share; loading again changes nothing.
-		const cur = sanitizeLayer({ id: 'x', type: 'hammered', name: 'H', enabled: true, params: p }).params;
-		expect(cur).toEqual(p);
-		expect(createLayer('hammered', { jitter: 0.3, wobble: 0.5 }).params.jitter).toBe(0.3);
-	});
-
 	it('writes a mask only when asked, and shows the mask size then', () => {
 		expect(maskWriteKind(hammeredLayer, createLayer('hammered').params)).toBe(false);
 		expect(maskWriteKind(hammeredLayer, { ...createLayer('hammered').params, mk_target: 'Shape' })).toBe('shape');
@@ -50,13 +39,11 @@ describe('hammered', () => {
 		expect(show({ mk_target: 'Dents' })).toBe(true);
 	});
 
-	it('declares px lengths for supersampling and uses every param in the shader', () => {
+	it('declares px lengths for supersampling, and no continue in the shader', () => {
 		for (const k of ['ring', 'spacing']) expect(def(k).unit, k).toBe('px');
 		// A share of the spacing: no unit (supersampling scales the spacing).
 		expect(def('jitter').unit).toBeUndefined();
 		// The shader loops must not use continue (ANGLE / D3D11 can miscompile it).
 		expect(/\bcontinue\s*;/.test(hammeredLayer.glsl!)).toBe(false);
-		for (const d of hammeredLayer.params)
-			if (d.key !== 'seed') expect(hammeredLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
 	});
 });

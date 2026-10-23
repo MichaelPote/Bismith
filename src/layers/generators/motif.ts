@@ -4,9 +4,11 @@
 // negative inside) so the common bevel / etch / emissive machinery applies; every lattice wraps when the
 // project is tileable.
 
-import { P, type ParamValues } from '@/core/params';
+import { hash3I, hashI, mulberry32, pcg, pcg3, u2f, unionFind } from '@/core/hash';
+import { P, round1 as r1, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
-import { GLSL_MOT_SEED, glyphLayer, rosetteLayer } from './motifRadial';
+import { GLSL_MOT_COMMON, MOTIF_DEFAULTS } from './motifCommon';
+import { glyphLayer, rosetteLayer } from './motifRadial';
 
 // ------------------------------------------------------------------------------------------------ truchet
 
@@ -60,21 +62,12 @@ const isStyle =
 	(p: Record<string, unknown>) =>
 		s.includes(String(p.style));
 const isTone = (p: Record<string, unknown>) => p.style === 'arcs' && String(p.draw).startsWith('tone');
-const r1 = (v: number) => Math.round(v * 10) / 10;
 
 // ---- CPU side (cpuData): the layouts that need the whole grid — the maze's, rooms' and labyrinth's walls with a
 // random per room (per cell for the maze and labyrinth), and the circuit's traces, chips and vias. Texture of
 // (cells + 2)² texels, cell c at c + 1 (the border cells of an untiled project included). Walls: R, G = the random
-// (16 bits), B = walls (bit 0 the cell's +x wall, bit 1 its +y wall). Circuit: see circuitTiles.
-
-/** The shaders' pcg hash (glsl/common.ts) in JS. */
-function pcg(v: number): number {
-	const s = (Math.imul(v, 747796405) + 2891336453) >>> 0;
-	const w = Math.imul(((s >>> ((s >>> 28) + 4)) ^ s) >>> 0, 277803737) >>> 0;
-	return ((w >>> 22) ^ w) >>> 0;
-}
-const pcg3 = (x: number, y: number, z: number) => pcg((x ^ pcg((y ^ pcg(z >>> 0)) >>> 0)) >>> 0);
-const u2f = (h: number) => Math.fround(h) / 4294967296;
+// (16 bits), B = walls (bit 0 the cell's +x wall, bit 1 its +y wall). Circuit: see circuitTiles. The hashes are the
+// shaders' (core/hash.ts), but nothing on the GPU redraws them: they only need to be deterministic.
 
 /** The shader's cell counts (mot_cellCount without the meander's rounding, which these styles don't use). */
 function cellCount(p: ParamValues, w: number, h: number): [number, number] {
@@ -97,26 +90,52 @@ const NODE_CELL = [
 ];
 const NODE_AXIS = [1, 0, 1, 0];
 
-/** A small seeded PRNG (mulberry32) for the CPU-side layouts. */
-function prng(seed: number): () => number {
-	let st = (seed * 2654435761 + 0x6d2b79f5) >>> 0;
-	return () => {
-		st = (st + 0x6d2b79f5) >>> 0;
-		let t = st;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+/** The CPU-side layouts' random stream, seeded from the layer's seed. */
+const prng = (seed: number) => mulberry32(seed * 2654435761 + 0x6d2b79f5);
+
+/**
+ * The padded grid a layout walks: cells lo … hiX / hiY — 0 … n − 1 wrapping round when tiling, else `below` cells
+ * before the texture's and `above` after it (the border cells) — and idx, a cell's texel in the (n + 2)² texture (cell c
+ * at c + 1).
+ */
+function padGrid(nx: number, ny: number, tile: boolean, below = 1, above = below) {
+	const W = nx + 2;
+	const lo = tile ? 0 : -below;
+	const hiX = tile ? nx - 1 : nx - 1 + above;
+	const hiY = tile ? ny - 1 : ny - 1 + above;
+	const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x);
+	return {
+		W,
+		H: ny + 2,
+		lo,
+		hiX,
+		hiY,
+		wrap,
+		inside: (x: number, y: number) => tile || (x >= lo && x <= hiX && y >= lo && y <= hiY),
+		idx: (x: number, y: number) => (wrap(y, ny) + 1) * W + wrap(x, nx) + 1
 	};
 }
 
-/** Union-find over n items. */
-function unionFind(n: number) {
-	const parent = new Int32Array(n).map((_, i) => i);
-	const find = (i: number): number => {
-		while (parent[i] !== i) i = parent[i] = parent[parent[i]];
-		return i;
-	};
-	return { find, join: (a: number, b: number) => (parent[find(a)] = find(b)) };
+/**
+ * Floating wall fragments: union-find over the lattice nodes the segments (node pairs) join; a segment is kept when its
+ * piece has at least `min` segments. `glue` joins nodes without counting as segments, and the piece holding node
+ * `keepNode` always stays (the labyrinth's frame).
+ */
+function bigPieces(segs: [number, number][], nNodes: number, min = 5, glue: [number, number][] = [], keepNode = -1) {
+	const uf = unionFind(nNodes);
+	for (const [a, b] of glue) uf.join(a, b);
+	for (const [a, b] of segs) uf.join(a, b);
+	const size = new Map<number, number>();
+	const roots = segs.map(([a]) => uf.find(a));
+	for (const r of roots) size.set(r, (size.get(r) ?? 0) + 1);
+	const keep = keepNode >= 0 ? uf.find(keepNode) : -1;
+	return roots.map((r) => r === keep || size.get(r)! >= min);
+}
+
+/** A random 0..1 as 16 bits: the two bytes of the texel's R, G (mot_rnd16 reads them back). */
+function rnd16(v: number): [number, number] {
+	const r = Math.min(65535, Math.floor(v * 65536));
+	return [r >> 8, r & 255];
 }
 
 /**
@@ -134,19 +153,19 @@ function roomCells(
 	tile: boolean,
 	seed: number
 ): { rnd: Float32Array; walls: Uint8Array } {
-	const thr = Math.fround(Math.fround(0.6) * Math.fround(Number(p.density ?? 1)));
+	const thr = 0.6 * Number(p.density ?? 1);
 	const ls = (seed + 3) >>> 0;
-	const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x);
-	const linkCache = new Map<number, number>();
+	const { W, H, lo, hiX, hiY, wrap, idx } = padGrid(nx, ny, tile);
+	// Each cell's link (cells −8 … n + 7: the walls look up to three cells out), drawn once; −2 = not yet.
+	const linkCache = new Int8Array((nx + 16) * (ny + 16)).fill(-2);
 	const link = (x: number, y: number) => {
 		x = wrap(x, nx);
 		y = wrap(y, ny);
 		const key = (y + 8) * (nx + 16) + x + 8;
-		let v = linkCache.get(key);
-		if (v === undefined) {
+		let v = linkCache[key];
+		if (v === -2) {
 			const h = pcg3(x >>> 0, y >>> 0, ls);
-			v = u2f(h) < thr ? Math.floor(u2f(pcg(h)) * 4) : -1;
-			linkCache.set(key, v);
+			v = linkCache[key] = u2f(h) < thr ? Math.floor(u2f(pcg(h)) * 4) : -1;
 		}
 		return v;
 	};
@@ -160,13 +179,8 @@ function roomCells(
 		const da = axis === 0 ? 1 : 0;
 		return !lonely(x + (axis === 0 ? 1 : 0), y + (axis === 0 ? 0 : 1), da) && !lonely(x + 1, y + 1, da + 2);
 	};
-	const W = nx + 2;
-	const H = ny + 2;
 	const uf = unionFind(W * H);
 	// Cells -1 … n (untiled: the border cells too), or 0 … n − 1 wrapping round; the edges between them.
-	const lo = tile ? 0 : -1;
-	const hiX = tile ? nx - 1 : nx;
-	const hiY = tile ? ny - 1 : ny;
 	const edges: [number, number, number][] = []; // cell, neighbour (padded indices), axis
 	for (let y = lo; y <= hiY; y++)
 		for (let x = lo; x <= hiX; x++)
@@ -177,8 +191,8 @@ function roomCells(
 					bx = wrap(bx, nx);
 					by = wrap(by, ny);
 				} else if (bx > hiX || by > hiY) continue;
-				const a = (y + 1) * W + x + 1;
-				const b = (by + 1) * W + bx + 1;
+				const a = idx(x, y);
+				const b = idx(bx, by);
 				edges.push([a, b, axis]);
 				if (!wall(x, y, axis)) uf.join(a, b);
 			}
@@ -288,34 +302,27 @@ function labyrinthWalls(p: ParamValues, nx: number, ny: number, tile: boolean, s
 	}
 	if (knock > 0) for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (shut(c, d) && rand() < knock) open(c, d);
 	if (density < 1) {
-		// Floating fragments: union-find over the lattice nodes the walls join (untiled, the frame is one big piece).
+		// Floating fragments, over the lattice nodes (untiled, the frame is one big piece that stays).
 		const NX = tile ? nx : nx + 1;
 		const NY = tile ? ny : ny + 1;
 		const node = (x: number, y: number) => (tile ? (y % ny) * nx + (x % nx) : y * NX + x);
-		const uf = unionFind(NX * NY);
+		const frame: [number, number][] = [];
 		if (!tile) {
-			for (let x = 0; x < NX - 1; x++)
-				(uf.join(node(x, 0), node(x + 1, 0)), uf.join(node(x, NY - 1), node(x + 1, NY - 1)));
-			for (let y = 0; y < NY - 1; y++)
-				(uf.join(node(0, y), node(0, y + 1)), uf.join(node(NX - 1, y), node(NX - 1, y + 1)));
+			for (let x = 0; x < NX - 1; x++) frame.push([node(x, 0), node(x + 1, 0)], [node(x, NY - 1), node(x + 1, NY - 1)]);
+			for (let y = 0; y < NY - 1; y++) frame.push([node(0, y), node(0, y + 1)], [node(NX - 1, y), node(NX - 1, y + 1)]);
 		}
-		const ends = (c: number, d: number): [number, number] => {
-			const x = c % nx;
-			const y = Math.floor(c / nx);
-			return d === 0 ? [node(x + 1, y), node(x + 1, y + 1)] : [node(x, y + 1), node(x + 1, y + 1)];
-		};
-		for (let c = 0; c < n; c++) for (let d = 0; d < 2; d++) if (walls[c] & (1 << d)) uf.join(...ends(c, d));
-		const count = new Map<number, number>();
-		for (let c = 0; c < n; c++)
-			for (let d = 0; d < 2; d++)
-				if (walls[c] & (1 << d)) count.set(uf.find(ends(c, d)[0]), (count.get(uf.find(ends(c, d)[0])) ?? 0) + 1);
-		const frame = tile ? -1 : uf.find(node(0, 0));
+		const segs: [number, number][] = [];
+		const wallAt: number[] = []; // 2 · cell + axis
 		for (let c = 0; c < n; c++)
 			for (let d = 0; d < 2; d++) {
 				if (!(walls[c] & (1 << d))) continue;
-				const r = uf.find(ends(c, d)[0]);
-				if (r !== frame && (count.get(r) ?? 0) < 5) walls[c] &= ~(1 << d);
+				const x = c % nx;
+				const y = Math.floor(c / nx);
+				segs.push(d === 0 ? [node(x + 1, y), node(x + 1, y + 1)] : [node(x, y + 1), node(x + 1, y + 1)]);
+				wallAt.push(2 * c + d);
 			}
+		const keep = bigPieces(segs, NX * NY, 5, frame, tile ? -1 : node(0, 0));
+		wallAt.forEach((w, i) => keep[i] || (walls[w >> 1] &= ~(1 << (w & 1))));
 	}
 	// Padded. Untiled, the last column's +x and the last row's +y walls stay shut (no neighbour); the frame's other two
 	// sides are the +x walls of the column left of the maze and the +y walls of the row above it.
@@ -335,18 +342,14 @@ function labyrinthWalls(p: ParamValues, nx: number, ny: number, tile: boolean, s
  * Returns them as cell walls (bit 0 the cell's +x wall, bit 1 its +y wall) of the padded grid.
  */
 function mazeWalls(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): Uint8Array {
-	const density = Math.fround(Number(p.density ?? 1));
+	const density = Number(p.density ?? 1);
 	const prune = p.prune !== false;
 	// Nodes −2 … n + 2 when untiled (beyond the padded grid's walls), 0 … n − 1 wrapping when tiled.
-	const lo = tile ? 0 : -2;
-	const hiX = tile ? nx - 1 : nx + 2;
-	const hiY = tile ? ny - 1 : ny + 2;
+	const { W, H, lo, hiX, hiY, wrap, inside, idx } = padGrid(nx, ny, tile, 2, 3);
 	const NW = hiX - lo + 1;
-	const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x);
+	const NN = NW * (hiY - lo + 1);
 	const node = (x: number, y: number) => (wrap(y, ny) - lo) * NW + wrap(x, nx) - lo;
-	const inside = (x: number, y: number) => tile || (x >= lo && x <= hiX && y >= lo && y <= hiY);
-	const uf = unionFind(NW * (hiY - lo + 1));
-	const walls = new Map<string, [number, number, number, number]>();
+	const walls = new Map<number, [number, number, number, number]>(); // by node pair: two nodes may grow the same wall
 	for (let y = lo; y <= hiY; y++)
 		for (let x = lo; x <= hiX; x++) {
 			const h = hash3I(wrap(x, nx), wrap(y, ny), seed + 3);
@@ -357,35 +360,29 @@ function mazeWalls(p: ParamValues, nx: number, ny: number, tile: boolean, seed: 
 			if (!inside(bx, by)) continue;
 			const a = node(x, y);
 			const b = node(bx, by);
-			walls.set(a < b ? `${a},${b}` : `${b},${a}`, [x, y, bx, by]);
-			uf.join(a, b);
+			walls.set(Math.min(a, b) * NN + Math.max(a, b), [x, y, bx, by]);
 		}
-	const size = new Map<number, number>();
-	for (const [x, y] of walls.values()) size.set(uf.find(node(x, y)), (size.get(uf.find(node(x, y))) ?? 0) + 1);
-	const W = nx + 2;
-	const out = new Uint8Array(W * (ny + 2));
+	const list = [...walls.values()];
+	const keep = prune
+		? bigPieces(
+				list.map(([x, y, bx, by]) => [node(x, y), node(bx, by)]),
+				NN
+			)
+		: null;
+	const out = new Uint8Array(W * H);
 	const cellBit = (cx: number, cy: number, bit: number) => {
-		cx = wrap(cx, nx);
-		cy = wrap(cy, ny);
-		if (cx >= -1 && cy >= -1 && cx <= nx && cy <= ny) out[(cy + 1) * W + cx + 1] |= bit;
+		if (tile || (cx >= -1 && cy >= -1 && cx <= nx && cy <= ny)) out[idx(cx, cy)] |= bit;
 	};
-	for (const [x, y, bx, by] of walls.values()) {
-		if (prune && (size.get(uf.find(node(x, y))) ?? 0) < 5) continue;
+	list.forEach(([x, y, bx, by], i) => {
+		if (keep && !keep[i]) return;
 		// Horizontal (a, b)–(a + 1, b): cell (a, b − 1)'s +y wall; vertical (a, b)–(a, b + 1): cell (a − 1, b)'s +x wall.
 		if (y === by) cellBit(Math.min(x, bx), y - 1, 2);
 		else cellBit(x - 1, Math.min(y, by), 1);
-	}
+	});
 	return out;
 }
 
-/** GLSL's hashI / hash2I / hash3I (glsl/common.ts) on an integer cell, bit for bit. */
-const hashI = (x: number, y: number, seed: number) => u2f(pcg3(x >>> 0, y >>> 0, seed >>> 0));
-function hash3I(x: number, y: number, seed: number): [number, number, number] {
-	const h = pcg3(x >>> 0, y >>> 0, seed >>> 0);
-	const h2 = pcg(h);
-	return [u2f(h), u2f(h2), u2f(pcg(h2))];
-}
-/** The sides (bits R U L D) each bus direction wants on even / odd tiles (the shader's MOT_WANT). */
+/** The sides (bits R U L D) each bus direction (none, then 0–3) wants on even / odd tiles. */
 const WANT = [15, 15, 5, 5, 10, 10, 6, 9, 12, 3];
 
 /**
@@ -409,38 +406,31 @@ const WANT = [15, 15, 5, 5, 10, 10, 6, 9, 12, 3];
  * tile's place in its chip (x | y << 4).
  */
 function circuitTiles(p: ParamValues, nx: number, ny: number, tile: boolean, seed: number): Uint8Array {
-	const W = nx + 2;
-	const H = ny + 2;
-	const lo = tile ? 0 : -1;
-	const hiX = tile ? nx - 1 : nx;
-	const hiY = tile ? ny - 1 : ny;
-	const wrap = (x: number, n: number) => (tile ? ((x % n) + n) % n : x);
-	const inside = (x: number, y: number) => tile || (x >= lo && x <= hiX && y >= lo && y <= hiY);
-	const idx = (x: number, y: number) => (wrap(y, ny) + 1) * W + wrap(x, nx) + 1;
-	const f = Math.fround;
-	// Chips.
+	const { W, H, lo, hiX, hiY, wrap, inside, idx } = padGrid(nx, ny, tile);
+	// Chips: the chip of each tile (−1 none), and the tile's place in it.
 	const S = [
 		Math.min(16, Math.max(1, Math.round(Number(p.chip_w ?? 2)))),
 		Math.min(16, Math.max(1, Math.round(Number(p.chip_h ?? 2))))
 	];
 	const sc = Math.min(32, Math.max(0, Math.round(Number(p.chip_scatter ?? 4))));
-	const place = new Uint8Array(W * H); // the tile's place in its chip
-	const chips = f(Number(p.chips ?? 0));
-	const chipOf = (x: number, y: number): number => {
-		if (chips <= 0) return -1;
-		const B = [S[0] + 2 + sc, S[1] + 2 + sc];
-		const m = [Math.floor(x / B[0]), Math.floor(y / B[1])];
-		const h = hash3I(m[0], m[1], seed + 71);
-		if (tile && ((m[0] + 1) * B[0] > nx || (m[1] + 1) * B[1] > ny)) return -1;
-		if (h[0] >= chips) return -1;
-		const ox = m[0] * B[0] + 1 + Math.min(Math.floor(f(h[1] * (sc + 1))), sc) - x;
-		const oy = m[1] * B[1] + 1 + Math.min(Math.floor(f(h[2] * (sc + 1))), sc) - y;
-		if (!(ox <= 0 && oy <= 0 && ox + S[0] > 0 && oy + S[1] > 0)) return -1;
-		place[idx(x, y)] = -ox | (-oy << 4);
-		return (m[1] * 4096 + m[0]) & 0xffffff;
-	};
+	const B = [S[0] + 2 + sc, S[1] + 2 + sc];
+	const chips = Number(p.chips ?? 0);
+	const place = new Uint8Array(W * H);
 	const chip = new Int32Array(W * H).fill(-1);
-	for (let y = lo; y <= hiY; y++) for (let x = lo; x <= hiX; x++) chip[idx(x, y)] = chipOf(wrap(x, nx), wrap(y, ny));
+	if (chips > 0)
+		for (let y = lo; y <= hiY; y++)
+			for (let x = lo; x <= hiX; x++) {
+				const tx = wrap(x, nx);
+				const ty = wrap(y, ny);
+				const m = [Math.floor(tx / B[0]), Math.floor(ty / B[1])];
+				const h = hash3I(m[0], m[1], seed + 71);
+				if ((tile && ((m[0] + 1) * B[0] > nx || (m[1] + 1) * B[1] > ny)) || h[0] >= chips) continue;
+				const ox = m[0] * B[0] + 1 + Math.min(Math.floor(h[1] * (sc + 1)), sc) - tx;
+				const oy = m[1] * B[1] + 1 + Math.min(Math.floor(h[2] * (sc + 1)), sc) - ty;
+				if (!(ox <= 0 && oy <= 0 && ox + S[0] > 0 && oy + S[1] > 0)) continue;
+				place[idx(x, y)] = -ox | (-oy << 4);
+				chip[idx(x, y)] = (m[1] * 4096 + m[0]) & 0xffffff;
+			}
 	// Empty board: blobs of value noise over a coarse grid (about six tiles a cell), the given share of the tiles.
 	const empty = new Uint8Array(W * H);
 	const share = Math.min(0.9, Math.max(0, Number(p.empty ?? 0.25)));
@@ -476,7 +466,7 @@ function circuitTiles(p: ParamValues, nx: number, ny: number, tile: boolean, see
 		else out[idx(x + D4[d][0], y + D4[d][1])] |= 1 << (d - 2);
 	};
 	const regions = Number(p.regions ?? 6);
-	const traces = f(Number(p.traces ?? 0.85));
+	const traces = Number(p.traces ?? 0.85);
 	const uf = unionFind(W * H);
 	// A chip is one node: traces between two of its pins would close a loop through it.
 	const chipRoot = new Map<number, number>();
@@ -489,7 +479,7 @@ function circuitTiles(p: ParamValues, nx: number, ny: number, tile: boolean, see
 	const dir = new Int8Array(W * H).fill(-1);
 	if (regions > 0) {
 		// Bus directions from the regions' Voronoi (the nearest site's random picks the direction), then the edges.
-		const bend = f(Number(p.bend ?? 0.5));
+		const bend = Number(p.bend ?? 0.5);
 		const cnt = [Math.max(1, Math.floor(nx / regions + 0.5)), Math.max(1, Math.floor(ny / regions + 0.5))];
 		const dirOf = (x: number, y: number) => {
 			const X = [((x + 0.5) / nx) * cnt[0], ((y + 0.5) / ny) * cnt[1]];
@@ -669,10 +659,11 @@ function circuitTiles(p: ParamValues, nx: number, ny: number, tile: boolean, see
 			}
 	}
 	const data = new Uint8Array(W * H * 4);
-	for (let i = 0; i < W * H; i++) {
-		const v = Math.min(65535, Math.floor(u2f(pcg3(uf.find(i), 5, seed)) * 65536));
-		data.set([v >> 8, v & 255, out[i] | ((dir[i] + 1) << 4) | (chip[i] >= 0 ? 128 : 0), place[i]], i * 4);
-	}
+	for (let i = 0; i < W * H; i++)
+		data.set(
+			[...rnd16(u2f(pcg3(uf.find(i), 5, seed))), out[i] | ((dir[i] + 1) << 4) | (chip[i] >= 0 ? 128 : 0), place[i]],
+			i * 4
+		);
 	return data;
 }
 
@@ -696,10 +687,8 @@ export function truchetCells(
 		: style === 'maze'
 			? mazeWalls(p, nx, ny, ctx.tileable, seed)
 			: labyrinthWalls(p, nx, ny, ctx.tileable, seed);
-	for (let i = 0; i < W * H; i++) {
-		const v = Math.min(65535, Math.floor((room ? room.rnd[i] : u2f(pcg3(i, 11, seed))) * 65536));
-		data.set([v >> 8, v & 255, walls[i], 255], i * 4);
-	}
+	for (let i = 0; i < W * H; i++)
+		data.set([...rnd16(room ? room.rnd[i] : u2f(pcg3(i, 11, seed))), walls[i], 255], i * 4);
 	return { cells: { width: W, height: H, data } };
 }
 
@@ -898,17 +887,9 @@ export const truchetLayer: LayerDef = {
 	fresh: ({ width, height }) => ({ width: Math.max(1, Math.round(Math.min(width, height) / 85)) }),
 	textures: ['cells'],
 	cpuData: truchetCells,
-	defaults: {
-		h_on: true,
-		h_amount: 0.4,
-		bevel: 1,
-		profile: 'round',
-		dif_on: true,
-		dif_src: 'flat',
-		dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] }
-	},
+	defaults: MOTIF_DEFAULTS,
 	glsl:
-		GLSL_MOT_SEED +
+		GLSL_MOT_COMMON +
 		/* glsl */ `
 ivec2 mot_wrap(ivec2 c, ivec2 n) { return uTile ? imod(c, n) : c; }
 
@@ -918,9 +899,12 @@ vec4 mot_cellData(ivec2 c, ivec2 n) {
   return any(lessThan(t, ivec2(0))) || any(greaterThanEqual(t, textureSize(t_cells, 0))) ? vec4(0.0) : texelFetch(t_cells, t, 0);
 }
 
-// Loop bounds read from a uniform (always 1 at run time): D3D's compiler can't unroll such loops, so each body is
-// compiled once instead of once per iteration — the style loops below took seconds to compile unrolled.
-int MOT_1;
+// Loop bounds below read a uniform (UNI_1, 1 at run time): D3D's compiler can't unroll such loops, so each body is
+// compiled once instead of once per iteration — the style loops took seconds to compile unrolled.
+
+// A texel's byte, and the 16-bit random of a cell's R, G (rnd16 on the CPU).
+int mot_byte(float v) { return int(v * 255.0 + 0.5); }
+float mot_rnd16(vec4 t) { return (float(mot_byte(t.r)) * 256.0 + float(mot_byte(t.g)) + 0.5) / 65536.0; }
 
 // Cells per axis (whole counts); rounded to a multiple of 'mult' per axis (the meander period) when tiling.
 ivec2 mot_cellCount(ivec2 mult) {
@@ -954,7 +938,8 @@ float mot_quarterArc(vec2 p, vec2 c, float r, vec2 s, vec2 sq, float w, out floa
 // Bevel aspect (GLSL_BEVEL): the lines' distances in the space the aspect stretches (gMotStr; the lattice's axes are
 // the screen's, swapped for vertical meanders), piece by piece — a round piece across its nearest point's direction
 // (mot_bandS), a square-capped wall or a box as a box there (the stretch keeps it one), a pad exactly (mot_discS) —
-// so the bevels meet in clean mitres where walls turn and where boxes have corners.
+// so the bevels meet in clean mitres where walls turn and where boxes have corners. mot_boxS: a box whose axes are
+// gMotF's (the lattice's: identity or swapped, never rotated — M·h is the half size only then).
 float mot_boxS(vec2 p, vec2 h) {
   mat2 M = bevelFrame(gMotF[0], gMotF[1]);
   return sdBox(M * p, abs(M * h));
@@ -963,11 +948,10 @@ float mot_boxS(vec2 p, vec2 h) {
 // Line-centre distance to the axis-aligned segment a–b: round caps (sdSegment), or square ones (Caps: the line's
 // box, so ends are cut square and corners mitred), both measured to the centre line (the caller subtracts half the
 // width); y: the line's own distance (its half width taken off) in the stretched space, with gMotStr.
-float mot_hw;
-vec2 mot_seg(vec2 p, vec2 a, vec2 b) {
-  if (u_caps == 0) return vec2(sdSegment(p, a, b), gMotStr ? mot_segS(p, a, b, mot_hw) : 0.0);
-  vec2 c = p - 0.5 * (a + b), h = 0.5 * abs(b - a) + mot_hw;
-  return vec2(sdBox(c, h) + mot_hw, gMotStr ? mot_boxS(c, h) : 0.0);
+vec2 mot_seg(vec2 p, vec2 a, vec2 b, float hw) {
+  if (u_caps == 0) return vec2(sdSegment(p, a, b), gMotStr ? mot_segS(p, a, b, hw) : 0.0);
+  vec2 c = p - 0.5 * (a + b), h = 0.5 * abs(b - a) + hw;
+  return vec2(sdBox(c, h) + hw, gMotStr ? mot_boxS(c, h) : 0.0);
 }
 
 // ---- circuit: the board is laid out on the CPU (circuitTiles); each tile's data holds its +x / +y edges, wide and
@@ -975,19 +959,19 @@ vec2 mot_seg(vec2 p, vec2 a, vec2 b) {
 
 // Line-centre distance (x) and solid distance (y) of circuit tile c at offset l (px from the tile centre); rr: its
 // random; st: with gMotStr, the lines' own distance (the half width taken off) and the solid's but its pads in the
-// stretched space; pad: the nearest pad's centre (l) and radius (z), and its distance (w). Each case only picks its segments (at most two: a0 → b0, a1 → b1) and pads (at most two: at p0, p1); one
-// loop then measures them, so every primitive is compiled once (D3D inlines each call site). Flags and edges are bit
+// stretched space; pad: the nearest pad's centre (l) and radius (z), and its distance (w). Each case only picks its
+// segments (at most two: a0 → b0, a1 → b1) and pads (at most two: at p0, p1); one loop then measures them, so every primitive is compiled once (D3D inlines each call site). Flags and edges are bit
 // masks, not arrays (D3D compiles dynamically indexed local arrays slowly).
 vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr, out vec2 st, out vec4 pad) {
   ivec2 cw = mot_wrap(c, n);
   vec2 h = 0.5 * cs;
   vec2 eR = vec2(h.x, 0.0), eL = vec2(-h.x, 0.0), eU = vec2(0.0, h.y), eD = vec2(0.0, -h.y), O = vec2(0.0);
   vec4 td = mot_cellData(c, n);
-  int t = int(td.b * 255.0 + 0.5);
-  rr = (floor(td.r * 255.0 + 0.5) * 256.0 + floor(td.g * 255.0 + 0.5) + 0.5) / 65536.0;
+  int t = mot_byte(td.b);
+  rr = mot_rnd16(td);
   // R and U are the tile's own edges; L and D its −x / −y neighbours' +x / +y edges (one fetch, looped).
   int e = t & 3;
-  for (int s = 0; s < 2 * MOT_1; s++) if (((int(mot_cellData(c - MOT_D4[s], n).b * 255.0 + 0.5) >> s) & 1) != 0) e |= 4 << s;
+  for (int s = 0; s < 2 * UNI_1; s++) if (((mot_byte(mot_cellData(c - MOT_D4[s], n).b) >> s) & 1) != 0) e |= 4 << s;
   bool R = (e & 1) != 0, U = (e & 2) != 0, L = (e & 4) != 0, D = (e & 8) != 0;
   vec2 a0 = O, b0 = O, a1 = O, b1 = O, p0 = O, p1 = O;
   int on = 0;   // bit 0, 1: segment 0, 1 drawn; bit 2, 3: pad 0, 1
@@ -1000,7 +984,7 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr, 
   if (chip) {
     // Body: the chip's tiles inset by a third of a tile.
     ivec2 S = clamp(ivec2(u_chip_w, u_chip_h), ivec2(1), ivec2(16));
-    int pl = int(td.a * 255.0 + 0.5);
+    int pl = mot_byte(td.a);
     ivec2 li = ivec2(pl & 15, pl >> 4);   // this tile's place in the chip
     vec2 bc = (0.5 * vec2(S - 1) - vec2(li)) * cs;
     vec2 bh = max(0.5 * vec2(S) * cs - max(cs / 3.0, vec2(u_width)), vec2(0.5));
@@ -1015,7 +999,7 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr, 
       // Per axis, the tile's sides on the outline: + or − (a chip one tile across: both, folded by |l|). The legs
       // stand a little off the body (a gap of a fifth of the inset, at least 1 px) and are narrower than a tile.
       float lw = min(max(hw, 0.14 * min(cs.x, cs.y)), 0.3 * min(cs.x, cs.y));
-      for (int ax = 0; ax < 2 * MOT_1; ax++) {
+      for (int ax = 0; ax < 2 * UNI_1; ax++) {
         bool x = ax == 0;
         int at = x ? li.x : li.y;
         bool pp = at == (x ? S.x : S.y) - 1, pm = at == 0;
@@ -1087,7 +1071,7 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr, 
   float wx = (t & 4) != 0 && !chip ? max(1.5 * hw, 1.0) : 0.0;
   float dl = 1e9, dlS = 1e9;
   pad = vec4(0.0, 0.0, 0.0, 1e9);
-  for (int q = 0; q < 2 * MOT_1; q++) {
+  for (int q = 0; q < 2 * UNI_1; q++) {
     vec2 a = q == 0 ? a0 : a1, b = q == 0 ? b0 : b1, pc = q == 0 ? p0 : p1;
     if ((on & (1 << q)) != 0) {
       dl = min(dl, sdSegment(l, a, b));
@@ -1104,14 +1088,12 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr, 
 }
 
 GenOut gen(vec2 p) {
-  MOT_1 = uRes.x > 0.0 ? 1 : 0;
   int style = u_style;
   int key = clamp(u_key, 1, 12);
-  int P = key + 1;
   // Meander periods (along the band, across it): spirals key + 1 cells both ways; the running key 2·key + 2 along
   // and across (+ 1 across with its rail).
   bool running = style == 4 && u_key_style == 1;
-  ivec2 PP = running ? ivec2(2 * key + 2, 2 * key + 2 + int(u_borders)) : ivec2(P);
+  ivec2 PP = running ? ivec2(2 * key + 2, 2 * key + 2 + int(u_borders)) : ivec2(key + 1);
   // Two-tone arcs colour each region by the parity of the lattice nodes it holds, so tiling needs even counts.
   bool tone = style == 0 && u_draw >= 2;
   ivec2 n = mot_cellCount(style == 4 ? (u_vertical ? PP.yx : PP) : ivec2(tone ? 2 : 1));
@@ -1122,7 +1104,6 @@ GenOut gen(vec2 p) {
   if (style == 4 && u_vertical) { u = u.yx; n = n.yx; res = res.yx; }
   vec2 cs = res / vec2(n);
   float hw = 0.5 * u_width;
-  mot_hw = hw;
   float best = 1e9, solid = 1e9;
   float rnd = 0.0;
   // Bevel aspect: also the lines' own distance and the solids' in the stretched space (gMotStr, mot_bl).
@@ -1142,8 +1123,8 @@ GenOut gen(vec2 p) {
     float dens = tone ? 1.0 : u_density;
     float gap = tone ? 0.0 : u_weave;
     int par0 = 0;
-    for (int j = -MOT_1; j <= MOT_1; j++)
-    for (int i = -MOT_1; i <= MOT_1; i++) {
+    for (int j = -UNI_1; j <= UNI_1; j++)
+    for (int i = -UNI_1; i <= UNI_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       ivec2 cw = mot_wrap(c, n);
       vec3 h = hash3I(cw, MOT_SEED);
@@ -1173,21 +1154,26 @@ GenOut gen(vec2 p) {
             sb = mot_bandS(db, vb * sq, abs(q.x), lb, hw);
           }
         } else {
-          da = mot_quarterArc(L, ca, r, sign(r - ca), sq, hw, sa);
-          db = mot_quarterArc(L, cb, r, sign(r - cb), sq, hw, sb);
+          // One strand per iteration (one copy of mot_quarterArc).
+          for (int s = 0; s < 2 * UNI_1; s++) {
+            vec2 cc = s == 0 ? ca : cb;
+            float S;
+            float e = mot_quarterArc(L, cc, r, sign(r - cc), sq, hw, S);
+            if (s == 0) { da = e; sa = S; } else { db = e; sb = S; }
+          }
         }
         // Two-tone: every region holds lattice nodes of one parity — a corner quarter-disc its corner, the band
         // between the arcs the other two corners, a crossing's quadrant its corner. The pixel's own tile decides.
         if (i == 0 && j == 0) par0 = (cw.x + cw.y + (crossing ? int(L.x > r) + int(L.y > r) : int((length(L - ca) < r || length(L - cb) < r) != o))) & 1;
       } else {
-        da = sdSegment(l, vec2(0.0), cs);
-        db = sdSegment(l, vec2(cs.x, 0.0), vec2(0.0, cs.y));
+        // ╲ and ╱, one per iteration (one copy of each segment call).
+        for (int s = 0; s < 2 * UNI_1; s++) {
+          vec2 a = s == 0 ? vec2(0.0) : vec2(cs.x, 0.0), b = s == 0 ? cs : vec2(0.0, cs.y);
+          float e = sdSegment(l, a, b), S = gMotStr ? mot_segS(l, a, b, hw) : 0.0;
+          if (s == 0) { da = e; sa = S; } else { db = e; sb = S; }
+        }
         la = vec2(-cs.y, cs.x);
         lb = cs;
-        if (gMotStr) {
-          sa = mot_segS(l, vec2(0.0), cs, hw);
-          sb = mot_segS(l, vec2(cs.x, 0.0), vec2(0.0, cs.y), hw);
-        }
         if (!crossing) { if (o) { db = 1e9; sb = 1e9; } else { da = 1e9; sa = 1e9; } }
       }
       float hO = wBase, hU = wBase;
@@ -1220,18 +1206,18 @@ GenOut gen(vec2 p) {
     ivec2 c0 = ivec2(floor(u / cs));
     vec4 rd = vec4(0.0);
     int wb = 0;   // the block's walls, bit 2 · (cell index in the 3×3 block) + axis (Bevel aspect)
-    for (int j = -MOT_1; j <= MOT_1; j++)
-    for (int i = -MOT_1; i <= MOT_1; i++) {
+    for (int j = -UNI_1; j <= UNI_1; j++)
+    for (int i = -UNI_1; i <= UNI_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       vec2 o = vec2(c + 1) * cs;
       vec4 cd = mot_cellData(c, n);
       if (i == 0 && j == 0) rd = cd;
-      int bits = int(cd.b * 255.0 + 0.5);
+      int bits = mot_byte(cd.b);
       wb |= (bits & 3) << (2 * (i + 1 + 3 * (j + 1)));
       // Both walls through one segment call.
-      for (int ax = 0; ax < 2 * MOT_1; ax++)
+      for (int ax = 0; ax < 2 * UNI_1; ax++)
         if (((bits >> ax) & 1) == 1) {
-          vec2 sg = mot_seg(u, o, ax == 0 ? vec2(o.x, o.y - cs.y) : vec2(o.x - cs.x, o.y));
+          vec2 sg = mot_seg(u, o, ax == 0 ? vec2(o.x, o.y - cs.y) : vec2(o.x - cs.x, o.y), hw);
           best = min(best, sg.x);
           bestS = min(bestS, sg.y);
         }
@@ -1242,7 +1228,7 @@ GenOut gen(vec2 p) {
       // in the stretched space at another scale than its sides. So a wall running on (within the block) is measured
       // on to the next node, inside the next wall: the joint disappears, free ends and corners stay.
       bestS = 1e9;
-      for (int w = 0; w < 18 * MOT_1; w++) {
+      for (int w = 0; w < 18 * UNI_1; w++) {
         if (((wb >> w) & 1) != 0) {
           int ax = w & 1;
           ivec2 ij = ivec2((w >> 1) % 3, (w >> 1) / 3);
@@ -1251,11 +1237,11 @@ GenOut gen(vec2 p) {
           bool runA = nA.x <= 2 && nA.y <= 2 && ((wb >> (2 * (nA.x + 3 * nA.y) + ax)) & 1) != 0;
           bool runB = nB.x >= 0 && nB.y >= 0 && ((wb >> (2 * (nB.x + 3 * nB.y) + ax)) & 1) != 0;
           vec2 o = vec2(c0 + ij) * cs, step = vec2(dn) * cs;
-          bestS = min(bestS, mot_seg(u, o + (runA ? step : vec2(0.0)), o - step - (runB ? step : vec2(0.0))).y);
+          bestS = min(bestS, mot_seg(u, o + (runA ? step : vec2(0.0)), o - step - (runB ? step : vec2(0.0)), hw).y);
         }
       }
     }
-    rnd = (floor(rd.x * 255.0 + 0.5) * 256.0 + floor(rd.y * 255.0 + 0.5) + 0.5) / 65536.0;
+    rnd = mot_rnd16(rd);
   } else if (style == 4) {
     // Meander, in units of PP cells (y up from the band's bottom). Spirals: a key of 2·key moves (lengths key, key,
     // key − 1, key − 1, … 1, 1) hangs from a rail along the bottom, bands repeating every key + 1 cells, so each rail
@@ -1266,15 +1252,15 @@ GenOut gen(vec2 p) {
     vec2 g = u / cs;
     ivec2 k0 = ivec2(floor(g / vec2(PP)));
     int nIn = running ? 2 * key + 2 : 2 * key, nOut = running ? 2 * key + 1 : 0;
-    for (int j = -MOT_1; j <= MOT_1; j++)
-    for (int i = -MOT_1; i <= MOT_1; i++) {
+    for (int j = -UNI_1; j <= UNI_1; j++)
+    for (int i = -UNI_1; i <= UNI_1; i++) {
       ivec2 k = k0 + ivec2(i, j);
       vec2 lq = g - vec2(k * PP);
       lq.y = float(PP.y) - lq.y - (running && u_borders ? 1.0 : 0.0);   // the key grows up from the band's bottom
       vec2 lp = lq * cs;
       float d = 1e9;
       vec2 pi = vec2(0.0), po = vec2(float(PP.x), 0.0);
-      for (int s = 0; s < (nIn + nOut + 2) * MOT_1; s++) {
+      for (int s = 0; s < (nIn + nOut + 2) * UNI_1; s++) {
         vec2 a, b;
         bool draw = true;
         if (s < nIn) {
@@ -1291,7 +1277,7 @@ GenOut gen(vec2 p) {
           if (gMotStr) { a.x -= 1.0; b.x += 1.0; }
         }
         if (draw) {
-          vec2 sg = mot_seg(lp, a * cs, b * cs);
+          vec2 sg = mot_seg(lp, a * cs, b * cs, hw);
           d = min(d, sg.x);
           bestS = min(bestS, sg.y);
         }
@@ -1303,8 +1289,8 @@ GenOut gen(vec2 p) {
     ivec2 c0 = ivec2(floor(u / cs + 0.5));
     float padD = 1e9, padR = 0.0;   // the nearest pad (Bevel aspect measures it once, exactly)
     vec2 padC = vec2(0.0);
-    for (int j = -MOT_1; j <= MOT_1; j++)
-    for (int i = -MOT_1; i <= MOT_1; i++) {
+    for (int j = -UNI_1; j <= UNI_1; j++)
+    for (int i = -UNI_1; i <= UNI_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       float rr;
       vec2 st;
@@ -1334,7 +1320,7 @@ GenOut gen(vec2 p) {
   }
   // Over-under lines: Height reads the bevel × the strand's height (the bevel as the wrapper draws it).
   if (style <= 1 && u_draw == 0 && u_cross > 0.0 && u_weave > 0.0 && u_dip > 0.0)
-    g.hval = (u_bevel > 0.0 && u_profile != 0 ? profileCurve(u_profile, max(-bd, 0.0) / u_bevel) : 1.0) * hgt;
+    g.hval = bevelPlain(bd) * hgt;
   return g;
 }
 `

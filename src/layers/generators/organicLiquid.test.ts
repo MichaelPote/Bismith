@@ -25,7 +25,6 @@ describe('marble / caustics params', () => {
 			octave2_nest: 1,
 			mk_target: ''
 		});
-		expect(layerParamDefs('marble').some((d) => d.key === 'look')).toBe(false);
 	});
 
 	it('keeps the editor’s fresh params known and within their ranges at any texture size', () => {

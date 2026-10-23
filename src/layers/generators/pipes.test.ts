@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
 	Coverage,
+	MAX_PIPE_PRIMS,
 	PRIM_ARC,
 	PRIM_LINE,
+	PRIM_ROW,
 	buildPrims,
 	encodePrims,
 	parseRuns,
@@ -14,6 +16,22 @@ import {
 	type PipeOptions
 } from './pipesGeometry';
 import { pipeRuns } from './pipes';
+
+/** A 16-bit value of the primitive texture (texel, slot). */
+const u16 = (tex: { data: Uint8Array }, texel: number, slot: number) =>
+	tex.data[texel * 4 + slot * 2] * 256 + tex.data[texel * 4 + slot * 2 + 1];
+
+/** A straight horizontal run. */
+const straight = (x0: number, x1: number, radius: number) => ({
+	points: [
+		[x0, 20],
+		[x1, 20]
+	] as [number, number][],
+	radius,
+	depth: 0,
+	capStart: false,
+	capEnd: false
+});
 
 const opts: PipeOptions = {
 	width: 128,
@@ -76,9 +94,54 @@ describe('pipe geometry', () => {
 		const prims = buildPrims(runs, opts);
 		const flat = buildPrims(runs, { ...opts, tile: false });
 		expect(prims.length).toBeGreaterThan(flat.length);
-		const tex = encodePrims(prims);
-		expect(tex.width).toBe(1 + 5 * prims.length);
-		expect((tex.data[0] << 8) | tex.data[1]).toBe(prims.length);
+		const tex = encodePrims(prims, 20);
+		expect(tex.width).toBe(2 + 5 * prims.length);
+		expect(u16(tex, 0, 0)).toBe(prims.length);
+		expect(u16(tex, 0, 1)).toBe(20 * 16);
+		expect(u16(tex, 1, 0)).toBe(1);
+	});
+
+	it('encodes large layouts in a coarser unit, wraps rows and caps the primitive count', () => {
+		const line = { ...runPrims(straight(0, 100, 5), 1, opts, rng(1))[0], x: 6000, y: 7000, x1: -5000, y1: 50 };
+		const big = encodePrims([line], 4 * 5);
+		const unit = u16(big, 1, 0);
+		expect(unit).toBe(2);
+		// Position (v / unit + 4096) × 8: back to px within the fixed point's step.
+		const at = (slot: number, texel: number) => (u16(big, texel, slot) / 8 - 4096) * unit;
+		expect(at(0, 2)).toBeCloseTo(6000, 0);
+		expect(at(1, 2)).toBeCloseTo(7000, 0);
+		expect(at(0, 3)).toBeCloseTo(-5000, 0);
+		// Many primitives: rows of PRIM_ROW texels, at most MAX_PIPE_PRIMS of them.
+		const many = encodePrims(
+			Array.from({ length: MAX_PIPE_PRIMS + 10 }, () => line),
+			20
+		);
+		expect(many.width).toBe(PRIM_ROW);
+		expect(many.height).toBe(Math.ceil((2 + 5 * MAX_PIPE_PRIMS) / PRIM_ROW));
+		expect(u16(many, 0, 0)).toBe(MAX_PIPE_PRIMS);
+	});
+
+	it('leaves out the empty length between two fillets that take all of it', () => {
+		const prims = runPrims(
+			{
+				points: [
+					[0, 0],
+					[40, 0],
+					[40, 6],
+					[80, 6]
+				],
+				radius: 3,
+				depth: 0,
+				capStart: false,
+				capEnd: false
+			},
+			1,
+			{ ...opts, spacing: 0, elbowFittings: false },
+			rng(1)
+		);
+		expect(prims.filter((p) => p.kind === PRIM_ARC)).toHaveLength(2);
+		for (const p of prims.filter((p) => p.kind === PRIM_LINE))
+			expect(Math.hypot(p.x1 - p.x, p.y1 - p.y)).toBeGreaterThan(1e-3);
 	});
 
 	it('parses drawn runs and tees an end that lands on another run', () => {

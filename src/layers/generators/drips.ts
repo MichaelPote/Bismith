@@ -12,7 +12,7 @@
 // ragged), widening over its first stretch (Fan-out: or all the way down, a straight V) and tapering after, its centre
 // line wandering on smooth noise, tide marks along its sides, dry patches, fine streaks it breaks into further down
 // (each running out at its own length), and inside it a few thin runnels of their own widths, each wandering on its
-// own (Braiding), ending at its own length, some in a bead. Sideways sways never steepen past ~25° from vertical (a
+// own (Braiding), ending at its own length, some in a bead. Sideways sways never steepen past ~20° from vertical (a
 // wide wobble sways over a longer stretch). Softness blurs every edge; Strength and Shape variation make each stain
 // its own. Surface flow makes the trails react to the relief beneath: they pool against grooves and raised features
 // and run on weaker below them.
@@ -24,7 +24,7 @@
 // pixel streaks below 128 px); layers built in code keep the streak style unless they ask.
 
 import type { Texture } from 'three';
-import { P, type Gradient } from '@/core/params';
+import { P, round1 as r1, type Gradient } from '@/core/params';
 import { DISTANCE_SOURCE, jumpFlood } from '@/gpu/jfa';
 import type { LayerDef } from '../types';
 
@@ -32,7 +32,10 @@ const stains = (p: Record<string, unknown>) => p.output !== 'source';
 const sources = (p: Record<string, unknown>) => p.output === 'source';
 const isRunnels = (p: Record<string, unknown>) => stains(p) && p.style === 'runnels';
 
-/** Margins of the per-cell source texture: columns either side, rows above (the most a trail search looks up). */
+/**
+ * Margins of the per-cell source texture: DR_MX columns either side and rows below, DR_ROWS rows above (the most a
+ * trail search looks up).
+ */
 const DR_MX = 8;
 const DR_ROWS = 96;
 
@@ -54,14 +57,18 @@ const stopsKey = (g: unknown) =>
 		? (g as Gradient).stops.map((s) => `${s.pos}${s.color}`).join()
 		: '';
 
-/** The ledge test, shared by the sources' relief drive, the blisters and the ledge flood (prepare). */
-const LEDGE_GLSL = /* glsl */ `
+/** The ledge test, shared by the prepare passes: the ledge flood, the ledge cells and the source cells. */
+const DR_LEDGE_GLSL = /* glsl */ `
 // The height drop from a pixel to the one the ledge reach below it (GL pixel c).
 float dr_drop(ivec2 c) { return fetchT(tSurface, c).r - fetchT(tSurface, c - ivec2(0, int(u_ledge_reach + 0.5))).r; }
 // How much a drop counts as a ledge, 0..1.
 float dr_ledgeOk(float drop) {
   return u_ledge > 0.0 ? smoothstep(u_ledge * (1.0 - max(u_ledge_soft, 0.01)), u_ledge, drop) : step(1e-4, drop);
 }
+`;
+
+/** The two sets of source cells and their layout in the source texture, shared by the source pass and `gen`. */
+const DR_GRID_GLSL = /* glsl */ `
 const int DR_MX = ${DR_MX};
 const int DR_MY = ${DR_ROWS};
 // Drips from (u_spawn): the grid's share of the drips (set A: the Columns × Rows cells, more and more of them dripping
@@ -71,20 +78,60 @@ const int DR_MY = ${DR_ROWS};
 float dr_wA() { return u_spawn > 0.5 ? 2.0 - 2.0 * u_spawn : 1.0; }
 float dr_wB() { return u_spawn * sqrt(u_spawn); }
 // Set B's cells across and down (whole numbers, so they tile); blisters space them at least half a radius apart.
+// (dripGrids mirrors it.)
 vec2 dr_cellsB() { return max(vec2(1.0), floor(uRes / (u_output == 1 ? max(u_ledge_gap, 0.5 * u_blister) : u_ledge_gap) + 0.5)); }
 // Set B's first texel row in the source texture (set A's cells and margins come first).
 int dr_rowB0() { return u_rows + DR_MY + DR_MX; }
+`;
+
+/** The prepare passes' grid and ledge test, and the ledge cells the grid's search reads. */
+const DR_PREP_GLSL =
+	DR_GRID_GLSL +
+	DR_LEDGE_GLSL +
+	/* glsl */ `
 // The ledge cells the grid's search (set A) reads: no bigger than half a grid cell (nor than set B's), so every grid
-// cell with a ledge finds it, however fine the grid.
+// cell with a ledge finds it, however fine the grid. (dripGrids mirrors it.)
 vec2 dr_cellsLA() {
   vec2 cs = uRes / vec2(float(u_cols), float(u_rows));
   return max(vec2(1.0), floor(uRes / max(vec2(1.0), min(uRes / dr_cellsB(), vec2(0.5 * min(cs.x, cs.y)))) + 0.5));
 }
 `;
 
+/**
+ * How far from a ledge its blisters reach (px): the ledge flood's range. Mirrors gen and dr_peel — the band's growth
+ * along the ledge (up to 2.2 × radius × Ledges with Raggedness) and sat, where the peel's lift and ramp are spent
+ * (the lobes' and tear's depths, the lift's widest flaps, the smooth union) — plus a px for float rounding.
+ */
+function blisterReach(p: Record<string, unknown>, w: number, h: number) {
+	const r = Number(p.blister);
+	const ragged = Number(p.ragged);
+	const lam0 = 0.5 * Math.min(w / Number(p.cols), h / Number(p.rows));
+	const nL = Math.min(6, Math.max(1, Math.floor(Math.log2(Math.max(lam0, 1) / 4)) + 1));
+	const ks = Math.max(0.35 * r, 0.25);
+	const sat =
+		ragged * Math.min(r * nL, 1.6 * lam0) +
+		2.4 * ragged * Math.min(1, r / 2.5) +
+		Math.max(1.6 * Number(p.lift_width), 1.5) +
+		1 +
+		1.5 * ks;
+	return sat + r * Number(p.ledge_mix) * (1 + 1.2 * Math.min(1, 2 * ragged)) + 1;
+}
+
+/**
+ * The ledge cell counts of the source pass, as the shader works them out (dr_cellsB, dr_cellsLA): set B's and the
+ * grid's search cells, across and down.
+ */
+function dripGrids(p: Record<string, unknown>, w: number, h: number) {
+	const gap = p.output === 'source' ? Math.max(Number(p.ledge_gap), 0.5 * Number(p.blister)) : Number(p.ledge_gap);
+	const cellsB = [w, h].map((r) => Math.max(1, Math.floor(r / gap + 0.5)));
+	const half = 0.5 * Math.min(w / Number(p.cols), h / Number(p.rows));
+	const cellsLA = [w, h].map((r, i) => Math.max(1, Math.floor(r / Math.max(1, Math.min(r / cellsB[i], half)) + 0.5)));
+	return { cellsB, cellsLA };
+}
+
 /** The ledge flood's source (gpu/jfa.ts, custom): inside where the drop counts as a ledge. */
 const LEDGE_FLOOD =
-	LEDGE_GLSL +
+	DR_LEDGE_GLSL +
 	/* glsl */ `
 float jfaCustom(ivec2 c) { return dr_ledgeOk(dr_drop(c)) - 0.5; }
 `;
@@ -95,7 +142,7 @@ float jfaCustom(ivec2 c) { return dr_ledgeOk(dr_drop(c)) - 0.5; }
  * directly, set A the best of those in each grid cell.
  */
 const LEDGE_CELLS_GLSL =
-	LEDGE_GLSL +
+	DR_PREP_GLSL +
 	/* glsl */ `
 uniform int uWhich;  // 0: the grid's search cells (dr_cellsLA), 1: set B's (dr_cellsB)
 void main() {
@@ -121,7 +168,7 @@ void main() {
  * drips). Stains and blisters both read it, so the same seed puts them in the same places.
  */
 const CELLS_GLSL =
-	LEDGE_GLSL +
+	DR_PREP_GLSL +
 	/* glsl */ `
 uniform sampler2D tLedgeA;  // the grid's search cells
 uniform sampler2D tLedgeB;  // set B's
@@ -156,12 +203,13 @@ float dr_span(vec2 pos) {
 }
 
 // Set A: the drip source of grid cell c (unwrapped, so it lies near the caller): false when the cell holds none. cw:
-// the cell wrapped (for its hashes), drop: the ledge it sits on, cov: how much of its cell that ledge spans (1 off it).
-bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out float drop, out float cov) {
+// the cell wrapped (for its hashes), drop: the ledge it sits on; on a ledge, onLedge and lpos: where to measure its
+// span (dr_span, once in main).
+bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out float drop, out bool onLedge, out vec2 lpos) {
   cw = uTile ? imod(c, ivec2(cells)) : c;
   src = (vec2(c) + hash2I(cw, uSeed + 9.0)) * cs;
   drop = 0.0;
-  cov = 1.0;
+  onLedge = false;
   float rA = min(1.0, 2.0 * u_spawn);
   float bestDrop = -1.0;
   vec2 bestPos = src;
@@ -186,7 +234,7 @@ bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out flo
     if (hashI(cw, uSeed + 33.0) < ok) {
       drop = max(bestDrop, 0.0);
       src = bestPos;
-      cov = dr_span(src);
+      onLedge = true;
     } else {
       // (Off-ledge drips are for coarse grids: one per cell under a tenth of the texture across or so, fewer on finer
       // ones — a fine grid laid for ledges would otherwise fill with them.)
@@ -194,6 +242,7 @@ bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out flo
       dens *= max(1.0 - rA, u_bare * min(1.0, cs.x * cs.y / (ref * ref)));
     }
   }
+  lpos = src;
   dens *= dr_wA() * dr_cluster((vec2(cw) + 0.5) * cs, cs);
   if (hashI(cw, uSeed + 5.0) >= dens) return false;
   if (!u_aa) src = floor(src) + 0.5;  // pixel centres, so 1 px trails and heads hit whole pixels
@@ -203,12 +252,13 @@ bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out flo
 // Set B: ledge cell c (unwrapped) — its strongest ledge pixel, a px or two lower now and then so the drips along a
 // lip don't all start on one line; csA: the grid's cells (for the clustering's scale). Its own hashes (seed + 7919),
 // so it is independent of the grid.
-bool dr_ledgeSource(ivec2 c, vec2 cellsB, vec2 csA, out ivec2 cw, out vec2 src, out float drop, out float cov) {
+bool dr_ledgeSource(ivec2 c, vec2 cellsB, vec2 csA, out ivec2 cw, out vec2 src, out float drop, out bool onLedge, out vec2 lpos) {
   cw = uTile ? imod(c, ivec2(cellsB)) : c;
   vec4 b = dr_ledgeCell(c, cellsB, true);
   src = b.xy + vec2(0.0, floor(2.5 * hashI(cw, uSeed + 7929.0)));
   drop = max(b.z, 0.0);
-  cov = b.z >= 0.0 ? dr_span(b.xy) : 1.0;
+  onLedge = b.z >= 0.0;
+  lpos = b.xy;
   float dens = u_density * dr_wB() * dr_ledgeOk(drop) * dr_cluster((vec2(cw) + 0.5) * (uRes / cellsB), csA);
   if (!u_aa) src = floor(src) + 0.5;
   return b.z >= 0.0 && hashI(cw, uSeed + 7924.0) < dens;
@@ -220,11 +270,13 @@ void main() {
   vec2 cs = uRes / cells;
   int r0B = dr_rowB0();
   ivec2 cw;
-  vec2 src;
-  float drop, cov;
-  bool ok = t.y < r0B ? dr_source(t - ivec2(DR_MX, DR_MY), cells, cs, cw, src, drop, cov)
-                      : dr_ledgeSource(t - ivec2(DR_MX, r0B + DR_MY), dr_cellsB(), cs, cw, src, drop, cov);
-  // a: 0 no drip, else 0.5 + half the ledge's span.
+  vec2 src, lpos;
+  float drop;
+  bool onLedge;
+  bool ok = t.y < r0B ? dr_source(t - ivec2(DR_MX, DR_MY), cells, cs, cw, src, drop, onLedge, lpos)
+                      : dr_ledgeSource(t - ivec2(DR_MX, r0B + DR_MY), dr_cellsB(), cs, cw, src, drop, onLedge, lpos);
+  // a: 0 no drip, else 0.5 + half the ledge's span (1 off a ledge). (One dr_span call site: D3D inlines each.)
+  float cov = ok && onLedge ? dr_span(lpos) : 1.0;
   oColor = vec4(src, drop, ok ? 0.5 + 0.5 * cov : 0.0);
 }
 `;
@@ -558,35 +610,25 @@ export const dripsLayer: LayerDef = {
 		const p = layer.params;
 		const out: Record<string, Texture> = {};
 		// Every cell's drip, once (cells beyond the texture too, for trails that run in from outside it).
-		// Set A (the grid) first, then set B (the ledge cells, from Drips from 0.5 up), each with its margins.
-		const gap = p.output === 'source' ? Math.max(Number(p.ledge_gap), 0.5 * Number(p.blister)) : Number(p.ledge_gap);
-		const bx = Math.max(1, Math.floor(ctx.width / gap + 0.5)) + 1;
-		const spawn = Number(p.spawn);
-		const setB = spawn > 0;
-		const by = setB ? Math.max(1, Math.floor(ctx.height / gap + 0.5)) + 1 + DR_ROWS + DR_MX : 0;
+		// Set A (the grid) first, then (Drips from above 0) set B, the ledge cells, each with its margins. (Each ledge
+		// cell count + 1: the shader's float division may round the other way.)
+		const ledges = Number(p.spawn) > 0;
+		const { cellsB, cellsLA } = dripGrids(p, ctx.width, ctx.height);
+		const [bx, by] = ledges ? [cellsB[0] + 1, cellsB[1] + 1] : [0, 0];
 		const cells = ctx.scratch(
 			'drips-cells',
-			Math.max(Number(p.cols), by ? bx : 0) + 2 * DR_MX,
-			Number(p.rows) + DR_ROWS + DR_MX + by
+			Math.max(Number(p.cols), bx) + 2 * DR_MX,
+			Number(p.rows) + DR_ROWS + DR_MX + (ledges ? by + DR_ROWS + DR_MX : 0)
 		);
-		// The ledge cells first (each one's strongest ledge pixel), when either set drips from ledges.
-		// The ledge cells first (each one's strongest ledge pixel): set B's, and the grid's search cells (no bigger than
-		// half a grid cell), when either set drips from ledges.
+		// The ledge cells first (each one's strongest ledge pixel): set B's, and the grid's search cells.
 		const ledgeMat = ctx.material('drips:lcells', LEDGE_CELLS_GLSL, { uWhich: { value: 0 } });
-		const csA = Math.min(ctx.width / Number(p.cols), ctx.height / Number(p.rows));
-		const gapA = Math.max(1, Math.min(gap, 0.5 * csA));
-		const lb = setB
-			? ctx.scratch('drips-lcells:b', bx, Math.max(1, Math.floor(ctx.height / gap + 0.5)) + 1)
-			: ctx.scratch('drips-lcells:b', 1, 1);
-		const searchA = spawn > 0;
-		const la = searchA
-			? ctx.scratch('drips-lcells:a', Math.floor(ctx.width / gapA + 0.5) + 2, Math.floor(ctx.height / gapA + 0.5) + 2)
+		const lb = ctx.scratch('drips-lcells:b', Math.max(bx, 1), Math.max(by, 1));
+		const la = ledges
+			? ctx.scratch('drips-lcells:a', cellsLA[0] + 1, cellsLA[1] + 1)
 			: ctx.scratch('drips-lcells:a', 1, 1);
-		if (setB) {
+		if (ledges) {
 			ledgeMat.uniforms.uWhich.value = 1;
 			ctx.run(ledgeMat, lb);
-		}
-		if (searchA) {
 			ledgeMat.uniforms.uWhich.value = 0;
 			ctx.run(ledgeMat, la);
 		}
@@ -613,15 +655,11 @@ export const dripsLayer: LayerDef = {
 		const r = Number(p.blister);
 		const mix = Number(p.ledge_mix);
 		if (p.output === 'source' && r > 0 && mix > 0) {
-			// Only as far as a blister along a ledge can reach: its growth (which varies along the ledge), raggedness and lip.
-			const ragged = Number(p.ragged);
-			const reach =
-				1.7 * r * mix + 0.5 * Number(p.ledge_reach) + 0.5 + ragged * (0.8 * r + 2.4) + 1.6 * Number(p.lift_width) + 2;
 			out.ledges = jumpFlood(ctx, {
 				source: DISTANCE_SOURCE.custom,
 				custom: LEDGE_FLOOD,
 				threshold: 0,
-				maxDistance: reach,
+				maxDistance: blisterReach(p, ctx.width, ctx.height),
 				name: 'drips-ledges'
 			}).texture;
 		}
@@ -638,36 +676,20 @@ export const dripsLayer: LayerDef = {
 			...(paired ? { dif_blend: src ? 'normal' : 'multiply', dif_grad: src ? FRESH_RUST : FRESH_STAIN } : {})
 		};
 	},
-	migrate: (p) => {
-		let q = p;
-		// Hard edges became the Edge card's Anti-alias.
-		if (q.hard !== undefined) {
-			const { hard, ...rest } = q;
-			q = { aa: hard !== true, ...rest };
-		}
-		// Before the blisters had their own radius, Sources used the head size (at least 0.75 px).
-		if (q.output === 'source' && q.blister === undefined && q.head !== undefined)
-			q = { ...q, blister: Math.max(Number(q.head), 0.75) };
-		// Relief drive (0 scattered … 1 grid cells at their ledges) is the first half of Drips from (… 1 every ledge).
-		if (q.relief !== undefined) {
-			const { relief, ...rest } = q;
-			q = { ...rest, spawn: Number(relief) / 2 };
-		}
-		return q;
-	},
 	// Added in the editor: a detailed water stain sized to the texture — seeping from points and short lines, fanning
 	// out, breaking into streaks, each stain its own — darkening what is beneath; below 128 px, crisp pixel streaks.
-	fresh: ({ width }) => {
+	fresh: ({ width, height }) => {
+		// (Lengths down the texture follow its height.)
 		const k = Math.max(0.5, width / 128);
-		const r1 = (v: number) => Math.round(v * 10) / 10;
+		const ky = Math.max(0.5, height / 128);
 		const stain = { dif_blend: 'multiply', dif_grad: FRESH_STAIN, spawn: 0.5 };
 		if (width < 128)
 			return {
 				...stain,
 				style: 'streak',
 				density: 0.45,
-				len_min: r1(width / 8),
-				len_max: r1(width / 2.5),
+				len_min: r1(height / 8),
+				len_max: r1(height / 2.5),
 				start: 0.8,
 				fade: 1,
 				wobble: 0.8
@@ -679,11 +701,11 @@ export const dripsLayer: LayerDef = {
 			rows: 3,
 			density: 0.75,
 			ledge_gap: r1(14 * k),
-			len_min: r1(14 * k),
-			len_max: r1(80 * k),
+			len_min: r1(14 * ky),
+			len_max: r1(80 * ky),
 			width: r1(10 * k),
 			wobble: r1(1.2 * k),
-			wander: r1(64 * k),
+			wander: r1(64 * ky),
 			streak_w: r1(Math.max(1, 0.75 * k)),
 			runnel_width: r1(Math.max(1, 0.8 * k)),
 			soft: r1(0.75 * k),
@@ -708,7 +730,7 @@ export const dripsLayer: LayerDef = {
 		}
 	},
 	glsl: /* glsl */ `
-${LEDGE_GLSL}
+${DR_GRID_GLSL}
 // Cell c's drip, from the source pass (unwrapped, so it lies near the caller): false when the cell holds none. cells:
 // its set's cells across and down, row0: the set's first texel row, cseed: the set's seed. cw: the cell wrapped (for
 // its hashes), rnd: its random, drop: the ledge it sits on.
@@ -726,19 +748,19 @@ bool dr_cell(ivec2 c, vec2 cells, vec2 cs, int row0, float cseed, out ivec2 cw, 
 
 // Blisters' ragged-edge noises, all through one valueNoise call (D3D inlines every call site): first the lobes, an
 // fBm from half a source cell down to ~4 px (fixed in place, so they stay put as the radius grows, and tile), each
-// octave as deep as the blister allows — big blisters get bays and peninsulas, specks only wobble; then 0–2 the tear's
-// octaves from ~2.5 px down to single pixels and 3 the lift's unevenness along the edge (flaps).
-const float DR_NSCALE[4] = float[4](1.0, 2.0, 4.0, 1.0);
+// octave as deep as the blister allows (u_ragged × min(R, 0.8 × its wavelength)) — big blisters get bays and
+// peninsulas, specks only wobble; then 0–2 the tear's octaves from ~2.5 px down to single pixels (weights DR_TEARW,
+// so the tear spans −1..1) and 3 the lift's unevenness along the edge (flaps).
+const float DR_NSCALE[3] = float[3](1.0, 2.0, 4.0);
+const float DR_TEARW[3] = float[3](1.0, 0.6, 0.4);
 const float DR_NSEED[4] = float[4](307.0, 311.0, 317.0, 313.0);
-// How deep a lobe octave of wavelength lam (px) cuts into a blister of radius R.
-float dr_lobeAmp(float lam, float R) { return u_ragged * min(R, 0.8 * lam); }
 
 // Blisters (Sources), finished: d is the spots' smooth union (gen's cell loop). Adds the ledges (t_ledges: the distance
 // to them, flooded before the layer runs; the band grows unevenly along them) and the raggedness — lobes (nL octaves
 // from lam0 px down), a tear that small specks keep little of — then the peel: the paint lifts towards the torn edge,
 // steepening as it curls, in flaps of their own heights and widths, and falls into the hole, Depth below the surface,
 // onto a floor eaten deeper towards the middle, broadly uneven and rough.
-GenOut dr_peel(vec2 p, vec2 q, float d, float rnd, float lam0, int nL, float tearAmp, float ks) {
+GenOut dr_peel(vec2 p, vec2 q, float d, float rnd, float lam0, int nL, float tearAmp, float ks, float sat) {
   float R = u_blister;
   vec2 tc = uTile ? max(vec2(1.0), floor(uRes / 2.5 + 0.5)) : uRes / 2.5;
   // The flaps along the edge are about as long as the lift is wide (at least 2.5 px).
@@ -751,19 +773,20 @@ GenOut dr_peel(vec2 p, vec2 q, float d, float rnd, float lam0, int nL, float tea
     bool lobe = i < nL;
     int k = max(i - nL, 0);
     float lam = lam0 / exp2(float(i));
-    vec2 per = lobe ? (uTile ? max(vec2(1.0), floor(uRes / lam + 0.5)) : uRes / lam) : k == 3 ? tu : tc * DR_NSCALE[k];
+    vec2 per = lobe ? (uTile ? max(vec2(1.0), floor(uRes / lam + 0.5)) : uRes / lam) : k == 3 ? tu : tc * DR_NSCALE[min(k, 2)];
     float n = valueNoise(q / uRes * per, uTile ? ivec2(per) : NO_PERIOD, uSeed + (lobe ? 301.0 + 100.0 * float(i) : DR_NSEED[k]));
     if (i == 0) n0 = n;
     if (i == min(1, nL - 1)) n1 = n;
-    if (lobe) lobes += dr_lobeAmp(lam, R) * (n * 2.0 - 1.0);
+    if (lobe) lobes += u_ragged * min(R, 0.8 * lam) * (n * 2.0 - 1.0);
     else if (k == 3) nU = n;
-    else tear += (k == 0 ? 1.0 : k == 1 ? 0.6 : 0.4) * n - (k == 0 ? 0.5 : k == 1 ? 0.3 : 0.2);
+    else tear += DR_TEARW[min(k, 2)] * (n - 0.5);
   }
   if (R > 0.0) {
     // Ledges: the band of ledge pixels (about the reach tall) opens from its middle as the radius grows — by none to
     // 2.2 × of it along the ledge (with raggedness), so stretches of sound paint break the chain.
     float grow = R * u_ledge_mix * mix(1.0, 2.2 * smoothstep(0.35, 0.8, n0), min(1.0, 2.0 * u_ragged));
-    if (u_ledge_mix > 0.0) d = sdfCombine(5, d, fetchT(t_ledges, ivec2(floor(p))).r + 0.5 * u_ledge_reach + 0.5 - grow, ks);
+    // (Saturating at sat, within the flood's range — see gen — so it doesn't step where the flood ends.)
+    if (u_ledge_mix > 0.0) d = sdfCombine(5, d, min(fetchT(t_ledges, ivec2(floor(p))).r + 0.5 * u_ledge_reach + 0.5 - grow, sat), ks);
     d += lobes + tearAmp * tear;
   }
   float flap = smoothstep(0.25, 0.75, nU);
@@ -794,7 +817,7 @@ float dr_n1(float x, float s) {
 float dr_lam(float lam, float a) { return max(lam, 8.0 * a); }
 // The runnel style's centre line (px across, at px down).
 float dr_cx(float y, float lam, float rs) {
-  return u_wobble * (0.65 * dr_n1(y / dr_lam(lam, 0.65 * u_wobble), rs) + 0.35 * dr_n1(y / dr_lam(0.37 * lam, 0.35 * u_wobble), rs + 3.1));
+  return u_wobble * (0.65 * dr_n1(y / dr_lam(lam, 0.65 * u_wobble), rs + 1.0) + 0.35 * dr_n1(y / dr_lam(0.37 * lam, 0.35 * u_wobble), rs + 2.0));
 }
 float dr_hw(float w, float t, float taper) { return max(0.5 * w * (1.0 - taper * t), 0.5); }
 // The stain's half width at px down. sh: its seep width, fan-out and taper. The water spreads from its seep: from seep
@@ -809,9 +832,9 @@ float dr_halfw(float y, float w, float len, vec3 sh) {
 }
 // Runnel j's place across the wash (−1..1) at px down: its lane, wandering by Braiding (hwF: the full half width).
 float dr_bj(float base, float y, float lam, float hwF, float rs, int j) {
-  float s = rs + 7.0 + float(j) * 5.3;
+  float s = rs + 10.0 + 2.0 * float(j);
   float a = u_braid * hwF;
-  return clamp(base + u_braid * (0.5 * dr_n1(y / dr_lam(0.5 * lam, 0.5 * a), s) + 0.2 * dr_n1(y / dr_lam(0.17 * lam, 0.2 * a), s + 2.7)), -0.95, 0.95);
+  return clamp(base + u_braid * (0.5 * dr_n1(y / dr_lam(0.5 * lam, 0.5 * a), s) + 0.2 * dr_n1(y / dr_lam(0.17 * lam, 0.2 * a), s + 1.0)), -0.95, 0.95);
 }
 
 // Coverage of a signed distance (px, < 0 inside): stepped when hard, else anti-aliased over 1 + Softness px (eased
@@ -822,8 +845,8 @@ float dr_cov(float dist) {
   return u_soft > 0.0 ? c * c * (3.0 - 2.0 * c) : c;
 }
 
-// One runnel-style stain, d from its source (px, y down), length len, head width w, strength st, per-stain seed rs,
-// shape sh (seep width, fan-out, taper), led 1 when it falls from a ledge: its strength here (already anti-aliased: the
+// One runnel-style stain, d from its source (px, y down), length len, head width w, strength st, per-stain seed rs (a
+// whole number; each noise adds a whole offset of its own, as hashI truncates its seed), shape sh (seep width, fan-out, taper), led 1 when it falls from a ledge: its strength here (already anti-aliased: the
 // caller uses it as both value and coverage).
 #ifdef DR_RUNNELS
 float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float led) {
@@ -840,7 +863,7 @@ float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float 
   float best = 0.0;
   // The seep's lip, its corners rounded. top: px below it. A free seep's lip is ragged; a drip from a ledge starts on
   // the ledge's own line, darkest against it.
-  float lip1 = dr_n1(x / max(3.0, 0.3 * hs), rs + 5.0);
+  float lip1 = dr_n1(x / max(3.0, 0.3 * hs), rs + 4.0);
   // (Only a broad seep's lip is ragged: on a narrow one the bumps would read as horns — it seeps from one rounded point.)
   float top = d.y - min(0.3 * hs, 6.0) * (1.0 - led) * smoothstep(4.0, 12.0, hs) * (lip1 + 1.0);
   // Feather: a free stain fades in down from its lip — unevenly along it, eased, from just above it so Softness
@@ -874,17 +897,16 @@ float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float 
       float nDry = 0.5, nStreak = 0.0, nEnd = 0.0;
       int count = u_breakup > 0.0 || u_streaks > 0.0 ? 4 : 0;
       // (The streaks' spacing wanders, so they are no comb.)
-      float xs = x + 1.5 * sw * dr_n1(x / (4.0 * sw), rs + 9.0);
+      float xs = x + 1.5 * sw * dr_n1(x / (4.0 * sw), rs + 5.0);
       for (int i = 0; i < count; i++) {
         vec2 a = i == 0 ? vec2(x / max(6.0, 0.6 * hw), d.y / max(20.0, 2.0 * hw))
                : i == 3 ? vec2(xs / (1.7 * sw), 0.5)
                : vec2(xs / sw, d.y / sl) * (i == 1 ? 1.0 : 2.3);
-        float n = valueNoise(a + rs, NO_PERIOD, rs + 3.0 * float(i));
+        float n = valueNoise(a, NO_PERIOD, rs + 3.0 * float(i));
         if (i == 0) nDry = n;
         else if (i == 3) nEnd = n;
         else nStreak += (i == 1 ? 0.65 : 0.35) * n;
       }
-      if (count == 0) nStreak = 0.5;
       // (No dry patches in the seep, where they would read as holes.)
       // Dry patches: broad (at least 6 × 20 px), soft, never quite bare — no light specks in a dark stain.
       float dry = u_breakup <= 0.0 ? 1.0 : mix(1.0, mix(0.3, 1.0, smoothstep(u_breakup - 0.2, u_breakup + 0.2, nDry)), smoothstep(0.1, 0.35, t));
@@ -939,7 +961,11 @@ float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float 
 GenOut gen(vec2 p) {
   vec2 q = vec2(p.x, uRes.y - p.y);          // user space, y down (the direction drips run)
   bool blisters = u_output == 1;
+#ifdef DR_RUNNELS
   bool runnels = !blisters && u_style == 1;
+#else
+  const bool runnels = false;  // (so Streak and Sources compile none of the Runnels code)
+#endif
   float e = !u_aa ? 0.0 : u_soft;
   // Two sets of source cells (see dr_wA): A the grid, B the ledges. For each, the cells to visit: columns either side
   // (cr) and rows from rs in steps of rowStep (nr of them); and for stains the longest trail its search can reach.
@@ -948,7 +974,8 @@ GenOut gen(vec2 p) {
   vec2 cellsB = dr_cellsB();
   vec2 csB = uRes / cellsB;
   int crA, crB, nrA, nrB, rsA, rsB, rowStep, nL = 0;
-  float R = u_blister, lam0 = 0.0, tearAmp = 0.0, capA = 1e9, capB = 1e9;
+  float R = u_blister, ks = max(0.35 * R, 0.25), lam0 = 0.0, tearAmp = 0.0, sat = 0.0, bdCap = 1e4;
+  float capA = 1e9, capB = 1e9, tail = 0.0, yLo = 0.0, yHd = 0.0, xMax = 0.0;
   if (blisters) {
     // Every source whose blister (ragged, with its lifted lip) can reach this pixel. A big radius on a fine grid is
     // cut short at 5 cells each way (8 without the ledge search): by then the blisters have merged into areas.
@@ -968,6 +995,14 @@ GenOut gen(vec2 p) {
     rsA = -ryA;
     rsB = -ryB;
     rowStep = 1;
+    // Past sat px the peel draws nothing (its lift, hole and ramp are spent, whatever the lobes, tear and smoothing
+    // add), so its distance — the mask's — can saturate there instead of jumping where the search or the ledge flood
+    // ends. The spots' is exact out to the search window (less a radius; set B's spots sit up to 2 px below their
+    // cells). blisterReach (TS) mirrors sat for the flood's range.
+    sat = lobeAmp + tearAmp + max(1.6 * u_lift_width, 1.5) + 1.0 + 1.5 * ks;
+    float win = min(dr_wA() > 0.0 ? min(float(crA) * csA.x, float(ryA) * csA.y) : 1e4,
+                    dr_wB() > 0.0 ? min(float(crB) * csB.x, float(ryB) * csB.y - 2.0) : 1e4);
+    bdCap = max(win - R - ks, sat);
   } else {
     // Stains: from the row below (heads straddling a cell edge) upward as far as a trail can run (at most 96 rows:
     // longer trails are shortened to what the search reaches, so they still fade out), and as many columns either
@@ -975,13 +1010,24 @@ GenOut gen(vec2 p) {
     float L = u_len_max * (1.0 + u_relief_len);
     int upA = min(int(ceil(L / csA.y)) + 1, DR_MY);
     int upB = min(int(ceil(L / csB.y)) + 1, DR_MY);
-    float tail = runnels ? 6.0 * u_runnel_width + 2.0 + e : e;
+    tail = runnels ? 6.0 * u_runnel_width + 2.0 + e : e;
     capA = max(float(upA) * csA.y - tail, float(upA - 1) * csA.y);
     capB = max(float(upB) * csB.y - tail, float(upB - 1) * csB.y);
-    float reachX = runnels ? u_wobble + 0.5 * u_width * (1.8 + max(-u_taper, 0.0) + 0.6 * u_shape_var) + 3.0 * u_runnel_width + 2.0 + e
-                           : u_wobble + 0.5 * u_width + 0.5 * e + 0.5;
+    float reachX = 0.0;
+#ifdef DR_RUNNELS
+    if (runnels) reachX = u_wobble + 0.5 * u_width * (1.8 + max(-u_taper, 0.0) + 0.6 * u_shape_var) + 3.0 * u_runnel_width + 2.0 + e;
+    else
+#endif
+    reachX = u_wobble + 0.5 * u_width + 0.5 * e + 0.5;
     crA = clamp(int(ceil(reachX / csA.x)), 1, 6);
     crB = clamp(int(ceil(reachX / csB.x)), 1, 12);
+    // The farthest any stain reaches from its source — above it (yLo), below (its length + tail, or yHd for the head
+    // blob) and either side (xMax: at the widest a ledge and Shape variation make it) — for the cheap test before a
+    // cell's hashes. Bounds, not the search's reach: they must clip nothing.
+    yHd = u_head + 1.0 + e;
+    yLo = -max(2.0 + e + (runnels ? u_runnel_width : 0.0), yHd);
+    xMax = max(yHd, runnels ? u_wobble + 0.75 * u_width * (1.0 + max(-u_taper, 0.0) + 0.6 * u_shape_var) + 3.0 * u_runnel_width + 2.0 + e
+                            : u_wobble + 0.5 * max(u_width, 1.0) + 1.0 + e);
     nrA = upA + 2;
     nrB = upB + 2;
     rsA = 1;
@@ -1005,9 +1051,9 @@ GenOut gen(vec2 p) {
   int totB = dr_wB() > 0.0 ? ncB * nrB : 0;
   int rowB0 = dr_rowB0();
   float best = 0.0, bestCov = 0.0, bestRnd = 0.0, acc = 0.0;
-  float bd = 1e4, nearest = 1e4, ks = max(0.35 * R, 0.25);
+  float bd = 1e4, nearest = 1e4;
   // Streaks: they sway once per Meander length (two octaves: a third of it and about all of it), slower still for a
-  // wide wobble, so the trail meanders instead of zig-zagging. (At the default 28 px the old 0.7 / 0.23 rad per px.)
+  // wide wobble, so the trail meanders instead of zig-zagging (0.7 and 0.23 rad per px at 28 px and a small wobble).
   float wf = min(1.0, 0.7 / max(u_wobble, 1e-3)) * 28.0 / max(u_wander, 2.0);
   // One flat loop over the cells of both sets, for both outputs, with a uniform-derived count and the arguments picked
   // per iteration: nested or constant loops make D3D's compiler unroll, and each call site is inlined. (No continue:
@@ -1035,18 +1081,21 @@ GenOut gen(vec2 p) {
           bd = sdfCombine(5, bd, ds, ks);
         }
       } else {
-        float len = min(mix(u_len_min, u_len_max, hashI(cw, cseed + 13.0)) * (1.0 + u_relief_len * drop), isB ? capB : capA);
+        vec2 d = q - src;
+        float cap = isB ? capB : capA;
+        // (Fine ledge grids visit hundreds of cells: rule out the stains that can't reach this pixel before hashing.)
+        if (d.y >= yLo && d.y <= max(cap + tail, yHd) && abs(d.x) <= xMax) {
+        float len = min(mix(u_len_min, u_len_max, hashI(cw, cseed + 13.0)) * (1.0 + u_relief_len * drop), cap);
         float w = u_width * (1.0 - u_width_var * hashI(cw, cseed + 17.0));
         // (Less water runs off a short ledge — a rivet's lower edge — than off a whole lip.)
         float st = u_start * (1.0 - u_str_var * hashI(cw, cseed + 23.0)) * mix(0.45, 1.0, lcov);
-        vec2 d = q - src;
-        if (uTile) d.x -= uRes.x * floor(d.x / uRes.x + 0.5);
         float v = 0.0, cov = 0.0;
         // Optional drop blob at the origin.
         if (u_head > 0.0) {
           float ch = dr_cov(length(d) - u_head);
           if (ch > 0.0) { v = 1.0; cov = ch; }
         }
+#ifdef DR_RUNNELS
         if (runnels) {
           // Shape variation: each stain its own seep width (¼ to 4 ×), fan-out and taper (± 0.6) — at 1 point seeps and
           // wide Vs among the lines.
@@ -1061,12 +1110,14 @@ GenOut gen(vec2 p) {
           float led = drop > 1e-4 ? lcov : 0.0;
           w *= 1.0 + 0.5 * led * (hv.x + 0.5);
           // A drip off a short ledge (a rivet) runs on longer, faint, past the next rivet down rather than stopping.
-          if (drop > 1e-4) len = min(len * mix(1.6, 1.0, lcov), isB ? capB : capA);
-#ifdef DR_RUNNELS
-          float sr = dr_runnels(d, len, w, st, uSeed + 977.0 * rnd, sh, led);
+          if (drop > 1e-4) len = min(len * mix(1.6, 1.0, lcov), cap);
+          // Its seed: a full-width hash of its cell (whole, and exact as a float), so no two stains share their shape.
+          float rs = float(pcg3(uvec3(uvec2(cw), uint(cseed) + 977u)) >> 9u);
+          float sr = dr_runnels(d, len, w, st, rs, sh, led);
           if (sr > v * cov) { v = sr; cov = 1.0; }
+        } else
 #endif
-        } else if (d.y >= -0.5 * e && d.y <= len) {
+        if (d.y >= -0.5 * e && d.y <= len) {
           // Trail below the source.
           float t = clamp(d.y / max(len, 1e-3), 0.0, 1.0);
           float cx = u_wobble * (sin(d.y * 0.7 * wf + rnd * 40.0) * 0.6 + sin(d.y * 0.23 * wf + rnd * 17.0) * 0.4);
@@ -1095,10 +1146,11 @@ GenOut gen(vec2 p) {
         // (Overlapping stains add up — water from a column of rivets darkens all the way down rather than restarting
         // at each one.)
         acc = 1.0 - (1.0 - acc) * (1.0 - clamp(v * cov, 0.0, 1.0));
+        }
       }
     }
   }
-  if (blisters) return dr_peel(p, q, bd, bestRnd, lam0, nL, tearAmp, ks);
+  if (blisters) return dr_peel(p, q, R > 0.0 ? min(bd, bdCap) : bd, bestRnd, lam0, nL, tearAmp, ks, sat);
   // Soft coverage = strength (at most 1), so a Normal diffuse blend stains in proportion to it. No shape (only the
   // blisters have one).
   return genOut(acc, acc, bestRnd, NO_SDF);

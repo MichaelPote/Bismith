@@ -1,21 +1,12 @@
 // Tread plate and Weave (FR7.2b): the CPU side — param ranges and option order, defaults, style-linked proportions,
-// the Float ends → Run on under conversion, and params the shader uses.
+// and params the shader uses.
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import type { LayerDef } from '../types';
-import { createLayer, freshParams, layerParamDefs, linkedChanges, sanitizeLayer } from '../registry';
+import { createLayer, freshParams, layerParamDefs, linkedChanges } from '../registry';
 import { treadplateLayer, weaveLayer } from './geometricSurface';
 
 const tex = { width: 512, height: 512 };
-
-function inRange(def: LayerDef) {
-	for (const d of def.params) {
-		if (d.type !== 'float' && d.type !== 'int') continue;
-		expect(Number(d.default), d.key).toBeGreaterThanOrEqual(d.min ?? -Infinity);
-		expect(Number(d.default), d.key).toBeLessThanOrEqual(d.max ?? Infinity);
-	}
-}
 
 function freshKnown(type: string) {
 	const defs = new Map(layerParamDefs(type).map((d) => [d.key, d]));
@@ -33,10 +24,7 @@ function freshKnown(type: string) {
 describe('treadplate', () => {
 	ensureBuiltins();
 
-	it('keeps defaults in range, uses its params and keeps the option order', () => {
-		inRange(treadplateLayer);
-		for (const d of treadplateLayer.params)
-			if (d.key !== 'seed') expect(treadplateLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
+	it('keeps the option order', () => {
 		const opts = (k: string) => treadplateLayer.params.find((d) => d.key === k)!.options!.map((o) => o.value);
 		expect(opts('style').slice(0, 4)).toEqual(['lozenge', 'capsule', 'bars', 'stud']);
 		expect(opts('layout').slice(0, 4)).toEqual(['checker', 'rows', 'cols', 'same']);
@@ -77,10 +65,7 @@ describe('treadplate', () => {
 describe('weave', () => {
 	ensureBuiltins();
 
-	it('keeps defaults in range, uses its params and keeps the option order', () => {
-		inRange(weaveLayer);
-		for (const d of weaveLayer.params)
-			if (d.key !== 'seed') expect(weaveLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
+	it('keeps the option order', () => {
 		const opts = (k: string) => weaveLayer.params.find((d) => d.key === k)!.options!.map((o) => o.value);
 		expect(opts('pattern').slice(0, 7)).toEqual(['plain', 'twill', 'twill21', 'twill31', 'basket', 'satin', 'lattice']);
 		expect(opts('rnd_mode').slice(0, 3)).toEqual(['random', 'class', 'class_random']);
@@ -97,15 +82,5 @@ describe('weave', () => {
 			dif_src: 'value'
 		});
 		freshKnown('weave');
-	});
-
-	it('reads an old negative Float ends as Run on under, and drops the old key', () => {
-		const old = (dip: number) =>
-			sanitizeLayer({ id: 'l', type: 'weave', name: 'Weave', enabled: true, params: { pattern: 'lattice', dip } })
-				.params;
-		expect(old(-1)).toMatchObject({ run_on: 1, pattern: 'lattice' });
-		expect(old(-0.4).run_on).toBeCloseTo(0.4);
-		expect(old(0.7).run_on).toBe(0);
-		expect('dip' in old(-1)).toBe(false);
 	});
 });

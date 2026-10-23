@@ -1,6 +1,7 @@
 // CPU mirror of the generator wrapper's value chain (GLSL_GENERATOR_MAIN in commonParams.ts, profileCurve in
 // glsl/common.ts) for the graph in Shaping › Value: a cross-section through one feature — nothing, the rise across the
 // edge, the full value, the fall, nothing — run through bevel, levels, gamma, posterize, invert, cutoff and Offset.
+// Not mirrored: Edge › Soft edge and Dilate (they move the coverage, not the value) and a mask-only layer's bevel.
 
 import { evalCurve, type Curve, type ParamValue } from '@/core/params';
 import { DEFAULT_BEVEL_CURVE, PROFILES } from './commonParams';

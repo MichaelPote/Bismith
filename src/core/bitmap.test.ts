@@ -1,50 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { BITMAP_MAX, packBitmap, packPolygons, parseBitmap, parsePolygons, textBitmap } from './bitmap';
+import { FONT, MAX_PATH_POINTS, packPolygons, parseBitmap, parsePolygons, takePolygons } from './bitmap';
 
 describe('parseBitmap', () => {
 	it('maps cell characters to levels and trims blank edge rows', () => {
-		const b = parseBitmap('\n#+-.\n 1 2\n\n');
+		const b = parseBitmap('\n#+-.\n 1 2\n\n', 64);
 		expect(b.width).toBe(4);
 		expect(b.height).toBe(2);
 		expect([...b.levels]).toEqual([3, 2, 1, 0, 0, 1, 0, 2]);
 	});
 
-	it('caps at 64×64', () => {
-		const b = parseBitmap(Array.from({ length: 80 }, () => '#'.repeat(80)).join('\n'));
-		expect(b.width).toBe(BITMAP_MAX);
-		expect(b.height).toBe(BITMAP_MAX);
-	});
-});
-
-describe('packBitmap', () => {
-	it('packs 2 bits per cell, 16 cells per int, 4 ints per row', () => {
-		const b = parseBitmap('#.+' + '.'.repeat(14) + '-\n.#');
-		const p = packBitmap(b);
-		expect(p.length).toBe(BITMAP_MAX * 4);
-		expect(p[0]).toBe(3 | (2 << 4)); // cells 0 and 2 of row 0
-		expect(p[1]).toBe(1 << 2); // cell 17 → second int, slot 1
-		expect(p[4]).toBe(3 << 2); // row 1, cell 1
-	});
-
-	it('round-trips the sign bit of the 16th cell', () => {
-		const p = packBitmap(parseBitmap('.'.repeat(15) + '#'));
-		expect((p[0] >> 30) & 3).toBe(3);
-	});
-});
-
-describe('textBitmap', () => {
-	it('renders 5-row glyphs with 1 px letter spacing', () => {
-		const b = textBitmap('03');
-		expect(b.height).toBe(5);
-		expect(b.width).toBe(7);
-		const row0 = [...b.levels.slice(0, 7)].map((v) => (v ? '#' : '.')).join('');
-		expect(row0).toBe('###.###');
-	});
-
-	it('centres multiple lines', () => {
-		const b = textBitmap('M|1');
-		expect(b.width).toBe(5);
-		expect(b.height).toBe(11);
+	it('caps at max × max', () => {
+		const b = parseBitmap(Array.from({ length: 80 }, () => '#'.repeat(80)).join('\n'), 64);
+		expect(b.width).toBe(64);
+		expect(b.height).toBe(64);
 	});
 });
 
@@ -81,5 +49,31 @@ describe('polygons', () => {
 				[0, 7.25]
 			]
 		]);
+	});
+});
+
+describe('font', () => {
+	it('draws every glyph on five rows (the period used to have six and lost its dot)', () => {
+		for (const [ch, g] of Object.entries(FONT)) {
+			const rows = g.split('/');
+			expect(rows.length, ch).toBe(5);
+			expect(new Set(rows.map((r) => r.length)).size, `${ch} is rectangular`).toBe(1);
+			if (ch !== ' ') expect(g.includes('#'), `${ch} has cells`).toBe(true);
+		}
+	});
+});
+
+describe('takePolygons', () => {
+	it('keeps the polygons before the first that would pass the vertex limit', () => {
+		const tri = [
+			[0, 0],
+			[1, 0],
+			[0, 1]
+		];
+		const big = Array.from({ length: MAX_PATH_POINTS - 2 }, (_, i) => [i, i % 2]);
+		expect(takePolygons([big.slice(2), tri, tri]).length).toBe(2);
+		// The last triangle would fit, but the polygons stay in order.
+		expect(takePolygons([tri, big, tri]).length).toBe(1);
+		expect(packPolygons([tri, big, tri]).polygons).toBe(1);
 	});
 });

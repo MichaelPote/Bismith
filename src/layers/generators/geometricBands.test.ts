@@ -1,10 +1,12 @@
 // Bands (FR7.2b): the editor's fresh layer stays within the params' ranges at every texture size, the Direction
 // options map to frame rotations in 45° steps (the shader passes the option index straight to geo_frame), and a plain
-// layer is the tech-wall look (staggered, varied Z steps between lower rails).
+// layer is the tech-wall look (staggered, varied Z steps between lower rails); the shader uses every param and has no
+// continue.
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, layerParamDefs } from '../registry';
+import { bandsLayer } from './geometricBands';
 
 ensureBuiltins();
 const defs = new Map(layerParamDefs('bands').map((d) => [d.key, d]));
@@ -41,6 +43,10 @@ describe('bands', () => {
 		const opts = defs.get('orient')!.options!.map((o) => o.value);
 		opts.forEach((v, i) => expect(Number(v)).toBe(i * 45));
 		for (const v of ['0', '90', '180', '270']) expect(opts).toContain(v);
+	});
+
+	it('has no continue (ANGLE / D3D11 has miscompiled it in loops)', () => {
+		expect(/\bcontinue\s*;/.test(bandsLayer.glsl!)).toBe(false);
 	});
 
 	it('makes the tech-wall look by default, the same as a fresh 512 px layer', () => {

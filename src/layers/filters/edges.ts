@@ -4,29 +4,21 @@
 import { P } from '@/core/params';
 import { PROFILES, bevelCurveParam } from '../commonParams';
 import type { LayerDef } from '../types';
-import { GLSL_SOURCE_DIST, SMOOTH_PARAM, SOURCE_PARAMS, edgeMaskSource, sourceDistance } from './shared';
+import { SMOOTH_PARAM, SOURCE_PARAMS, edgeMaskSource, runEdgeFilter } from './shared';
 
 const BEVEL_APPLY = /* glsl */ `
-${GLSL_SOURCE_DIST}
-void main() {
-  ivec2 ip = ivec2(gl_FragCoord.xy);
-  vec4 A = texelFetch(tAlbedo, ip, 0);
-  vec4 S = texelFetch(tSurface, ip, 0);
-  vec4 E = texelFetch(tEmissive, ip, 0);
+// Where the slope starts (its outer foot) relative to the edge, × width: inner 0, outer 1, both 1/2.
+const float BEVEL_FOOT[3] = float[3](0.0, 1.0, 0.5);
+// Combine option → heightCombine mode: add, max, min, replace.
+const int BEVEL_COMBINE[4] = int[4](0, 2, 3, 4);
+void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   float d = sourceDist(ip);
   float w = max(u_width, 0.0);
-  // o = where the slope starts (its outer foot) relative to the edge: inner 0, outer w, both w/2.
-  float o = u_direction == 0 ? 0.0 : u_direction == 1 ? w : 0.5 * w;
+  float o = BEVEL_FOOT[u_direction] * w;
   float b = w > 1e-3 ? profileCurve(u_profile, (o - d) / w) : (d - o < 0.0 ? 1.0 : 0.0);
   // The bevelled region (anything the slope or plateau covers), anti-aliased by one pixel.
-  float m = clamp(o - d + 0.5, 0.0, 1.0);
-  float v = u_depth * b;
-  float h = S.r;
-  float nh = u_combine == 0 ? h + v : u_combine == 1 ? max(h, v) : u_combine == 2 ? min(h, v) : v;
-  S.r = mix(h, nh, m);
-  oAlbedo = A;
-  oSurface = S;
-  oEmissive = E;
+  float m = coverage(d - o, true);
+  S.r = mix(S.r, heightCombine(BEVEL_COMBINE[u_combine], S.r, u_depth * b), m);
 }
 `;
 
@@ -71,22 +63,12 @@ export const bevelLayer: LayerDef = {
 	],
 	run(ctx, layer) {
 		const p = layer.params;
-		const w = Math.max(0, Number(p.width ?? 0));
-		const src = sourceDistance(ctx, p, w + 2, Boolean(p.invert));
-		const mat = ctx.mrtMaterial('apply', BEVEL_APPLY, { tDist: { value: null }, uDistSign: { value: 1 } });
-		mat.uniforms.tDist.value = src.texture;
-		mat.uniforms.uDistSign.value = src.sign;
-		ctx.runMRT(mat);
+		runEdgeFilter(ctx, p, BEVEL_APPLY, Math.max(0, Number(p.width ?? 0)) + 2, Boolean(p.invert));
 	}
 };
 
 const ETCH_APPLY = /* glsl */ `
-${GLSL_SOURCE_DIST}
-void main() {
-  ivec2 ip = ivec2(gl_FragCoord.xy);
-  vec4 A = texelFetch(tAlbedo, ip, 0);
-  vec4 S = texelFetch(tSurface, ip, 0);
-  vec4 E = texelFetch(tEmissive, ip, 0);
+void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   float d = sourceDist(ip);
   float hw = max(u_width, 0.0) * 0.5;
   float ad = abs(d + u_offset);
@@ -96,9 +78,6 @@ void main() {
   if (u_dif_on) A.rgb = mix(A.rgb, u_dif_color, clamp(u_dif_amount * g, 0.0, 1.0));
   if (u_r_on) S.g = clamp(mix(S.g, u_r_value, clamp(u_r_amount * g, 0.0, 1.0)), 0.0, 1.0);
   if (u_e_on) E.rgb += u_e_color * u_e_intensity * g;
-  oAlbedo = A;
-  oSurface = S;
-  oEmissive = E;
 }
 `;
 
@@ -145,11 +124,6 @@ export const etchLayer: LayerDef = {
 	],
 	run(ctx, layer) {
 		const p = layer.params;
-		const reach = Math.max(0, Number(p.width ?? 0)) * 0.5 + Math.abs(Number(p.offset ?? 0)) + 2;
-		const src = sourceDistance(ctx, p, reach);
-		const mat = ctx.mrtMaterial('apply', ETCH_APPLY, { tDist: { value: null }, uDistSign: { value: 1 } });
-		mat.uniforms.tDist.value = src.texture;
-		mat.uniforms.uDistSign.value = src.sign;
-		ctx.runMRT(mat);
+		runEdgeFilter(ctx, p, ETCH_APPLY, Math.max(0, Number(p.width ?? 0)) * 0.5 + Math.abs(Number(p.offset ?? 0)) + 2);
 	}
 };

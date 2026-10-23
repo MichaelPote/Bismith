@@ -5,7 +5,7 @@ import { cavityLayer } from './cavity';
 import { warpLayer } from './warp';
 import { glassLayer } from './glass';
 import { heightFromDiffuseLayer, hsvLayer, levelsLayer } from './adjust';
-import { SYMMETRY_FILTERS } from './symmetry';
+import { symmetryLayer } from './symmetry';
 
 /** Every filter / adjustment layer type, in add-menu order. */
 export const FILTERS: LayerDef[] = [
@@ -18,5 +18,5 @@ export const FILTERS: LayerDef[] = [
 	levelsLayer,
 	hsvLayer,
 	heightFromDiffuseLayer,
-	...SYMMETRY_FILTERS
+	symmetryLayer
 ];

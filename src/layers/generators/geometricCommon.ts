@@ -5,7 +5,7 @@
 import { P, type ParamDef } from '@/core/params';
 
 /** Orientation options in 45° steps (enum index = steps clockwise). */
-export const ORIENT8: [string, string][] = [
+const ORIENT8: [string, string][] = [
 	['0', '0°'],
 	['45', '45°'],
 	['90', '90°'],
@@ -18,35 +18,28 @@ export const ORIENT8: [string, string][] = [
 
 export const orientParam = (hint: string): ParamDef => P.enum('orient', 'Rotation', '0', ORIENT8, { hint });
 
-export const rndModeParam = (labels: [string, string, string], hint: string): ParamDef =>
+/** Random value per feature / kind / kind + random (option index = the shader's mode), then any `more` options. */
+export const rndModeParam = (
+	labels: [string, string, string],
+	hint: string,
+	more: [string, string][] = [],
+	def = 'random'
+): ParamDef =>
 	P.enum(
 		'rnd_mode',
 		'Random value',
-		'random',
-		[
-			['random', labels[0]],
-			['class', labels[1]],
-			['class_random', labels[2]]
-		],
+		def,
+		[['random', labels[0]], ['class', labels[1]], ['class_random', labels[2]], ...more],
 		{ hint }
 	);
 
 /**
- * GLSL helpers. `nv` = capacity of the working polygon (vertices).
- *
- * Frame: `geo_frame(p, ori)` rotates the pixel by ori × 45° (clockwise on screen) into `geo_f` and sets
- * `geo_span`, the frame extent that must hold a whole number of pattern periods for the texture to tile
- * (W×H, H×W, or gcd(W,H)/√2 for diagonal frames). `geo_periods(k)` then fixes the period counts and `geo_cs`.
- * Period-cell indices are made seamless with `geo_wrapCell` (handles the diagonal torus too).
- *
- * Polygons: `geo_begin(); geo_add(unit vertex)…; geo_finish();` builds the working polygon (CCW, vertices in
- * pattern units scaled by `geo_s` px/unit), insets it by `geo_in` px with mitred corners, and `geo_try(anchor
- * px, class, key)` keeps the nearest tile (signed distance of the inset polygon dilated by `geo_r`, i.e. convex
- * corners rounded by geo_r, concave corners sharp).
+ * GLSL frame helpers (every geometric layer): `geo_frame(p, ori)` rotates the pixel by ori × 45° (clockwise on
+ * screen) into `geo_f` and sets `geo_span`, the frame extent that must hold a whole number of pattern periods for the
+ * texture to tile (W×H, H×W, or gcd(W,H)/√2 for diagonal frames). `geo_periods(k)` then fixes the period counts and
+ * `geo_cs`. Period-cell indices are made seamless with `geo_wrapCell` (handles the diagonal torus too).
  */
-export const geoGlsl = (nv = 16) => /* glsl */ `
-#define GEO_NV ${nv}
-#define GEO_1 int(uRes.x > 0.0)   // 1, from a uniform: a loop bound D3D can't unroll (no ?: — ANGLE rewrites a loop whose condition has one)
+export const GEO_FRAME_GLSL = /* glsl */ `
 const float GEO_C[8] = float[8](1.0, 0.70710678, 0.0, -0.70710678, -1.0, -0.70710678, 0.0, 0.70710678);
 const float GEO_S[8] = float[8](0.0, 0.70710678, 1.0, 0.70710678, 0.0, -0.70710678, -1.0, -0.70710678);
 
@@ -54,15 +47,8 @@ vec2 geo_f;        // pixel position in the frame (px)
 vec2 geo_span;     // frame extent holding a whole number of periods (px)
 vec2 geo_k;        // periods across the span
 vec2 geo_cs;       // period size (frame px)
-vec2 geo_s;        // px per pattern unit
 int geo_ori;
 ivec2 geo_AB;      // W/g, H/g (diagonal frames)
-
-int geo_gcd(int a, int b) {
-  a = abs(a); b = abs(b);
-  for (int i = 0; i < 40 * GEO_1; i++) { if (b == 0) break; int t = a % b; a = b; b = t; }
-  return max(a, 1);
-}
 
 void geo_frame(vec2 p, int ori) {
   ori = clamp(ori, 0, 7);
@@ -74,7 +60,7 @@ void geo_frame(vec2 p, int ori) {
     geo_span = (ori & 2) == 2 ? uRes.yx : uRes;
   } else if (uTile) {
     int w = int(uRes.x + 0.5), h = int(uRes.y + 0.5);
-    int g = geo_gcd(w, h);
+    int g = igcd(w, h);
     geo_AB = ivec2(w / g, h / g);
     geo_span = vec2(float(g) * 0.70710678);
   } else {
@@ -117,8 +103,18 @@ ivec2 geo_keyI(ivec2 a, ivec2 P) {
   ivec2 o = imod(a, P);
   return geo_wrapCell((a - o) / P) * P + o;
 }
+`;
 
-// ---------------------------------------------------------------- polygon tiles
+/**
+ * GLSL polygon tiles (after GEO_FRAME_GLSL). `nv` = capacity of the working polygon (vertices).
+ *
+ * `geo_begin(); geo_addPx(vertex)…; geo_finish();` builds the working polygon (CCW, px; or fill `geo_V` / `geo_n`
+ * directly), insets it by `geo_in` px with mitred corners. `geo_dist(q, lim)` is its signed distance at q (px from its
+ * anchor) dilated by `geo_r` (convex corners rounded by geo_r, concave corners sharp), pruned by its bounding box
+ * against lim; `geo_keep(d, class, key)` keeps the nearest tile.
+ */
+export const geoPolyGlsl = (nv: number) => /* glsl */ `
+#define GEO_NV ${nv}
 vec2 geo_V[GEO_NV];
 int geo_n;
 float geo_in;      // inset (px): half the gap + the rounding radius
@@ -133,7 +129,6 @@ ivec2 geo_bestKey;
 void geo_reset() { geo_bestD = 1e9; geo_bestCls = 0; geo_bestKey = ivec2(0); }
 void geo_begin() { geo_n = 0; }
 void geo_addPx(vec2 v) { if (geo_n < GEO_NV) { geo_V[geo_n] = v; geo_n++; } }
-void geo_add(vec2 u) { geo_addPx(u * geo_s); }
 
 // Inset the working polygon (CCW) by geo_in with mitred corners; record its bounding box. A polygon whose
 // inset collapses (area flips) is marked unusable. One pass, in place (D3D compiles every loop and local array): the
@@ -164,12 +159,6 @@ void geo_finish() {
   geo_ok = geo_n >= 3 && a1 > 2e-3 && a0 > 0.0;
 }
 
-void geo_rect(vec2 lo, vec2 hi) {
-  geo_begin();
-  geo_add(lo); geo_add(vec2(hi.x, lo.y)); geo_add(hi); geo_add(vec2(lo.x, hi.y));
-  geo_finish();
-}
-
 // Exact signed distance to the working polygon (after Inigo Quilez).
 float geo_sdPoly(vec2 p) {
   float d = dot(p - geo_V[0], p - geo_V[0]);
@@ -197,7 +186,7 @@ float geo_edges2(vec2 p, float r, mat2 M) {
   vec2 cur = vec2(0.0), V = vec2(0.0), nIn = vec2(0.0), dep = vec2(0.0);
   float th = 0.0;
   bool arc = false;
-  for (int t = 0; t < (5 * GEO_NV + 1) * GEO_1; t++) {
+  for (int t = 0; t < (5 * GEO_NV + 1) * UNI_1; t++) {
     if (t > 5 * geo_n) break;
     int i = t / 5, j = t - 5 * i;
     vec2 a, b;
@@ -225,23 +214,17 @@ float geo_edges2(vec2 p, float r, mat2 M) {
   return best;
 }
 
-// Consider the working polygon placed at anchor (frame px). Bounding-box pruning keeps this cheap.
-void geo_try(vec2 anchor, int cls, ivec2 key) {
-  if (!geo_ok) return;
-  vec2 q = geo_f - anchor;
+// The working polygon's distance at q (px from its anchor), or 1e9 where its bounding box shows it can't come under lim.
+float geo_dist(vec2 q, float lim) {
   vec2 bq = abs(q - geo_bbC) - geo_bbH;
-  if (length(max(bq, 0.0)) - geo_r >= geo_bestD) return;
-  float d = geo_sdPoly(q) - geo_r;
-  if (d < geo_bestD) { geo_bestD = d; geo_bestCls = cls; geo_bestKey = key; }
+  if (!geo_ok || length(max(bq, 0.0)) - geo_r >= lim) return 1e9;
+  return geo_sdPoly(q) - geo_r;
 }
 
-// Per-feature random from the winning tile: per tile, per tile kind ((cls + .5) / n), or kind + random.
-float geo_rnd(int mode, int nCls) {
-  float h = hashI(ivec2(geo_bestKey.x * 16 + geo_bestCls, geo_bestKey.y), uSeed);
-  float n = float(max(nCls, 1));
-  float c = float(geo_bestCls);
-  if (mode == 1) return (c + 0.5) / n;
-  if (mode == 2) return (c + 0.15 + 0.7 * h) / n;
-  return h;
+// Keep the nearest tile; whether this one is it.
+bool geo_keep(float d, int cls, ivec2 key) {
+  if (d >= geo_bestD) return false;
+  geo_bestD = d; geo_bestCls = cls; geo_bestKey = key;
+  return true;
 }
 `;

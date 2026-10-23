@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseBitmap, textBitmap } from '@/core/bitmap';
+import type { CpuTexture } from '../types';
 import {
 	GLYPH_TABLES,
-	boldCells,
 	bridgeCells,
 	mirrorCells,
 	parseCells,
@@ -18,15 +17,11 @@ const rows = (c: Cells) =>
 	Array.from({ length: c.h }, (_, y) => Array.from(c.lv.subarray(y * c.w, (y + 1) * c.w)).join(''));
 
 describe('stamp bitmaps', () => {
-	it('parses rows like the core bitmap parser', () => {
-		for (const src of ['..#..\n.###.\n#####', '\n\n#+-.\n  #\n\n', '#'.repeat(60)]) {
-			const a = parseCells(src);
-			const b = parseBitmap(src);
-			expect([a.w, a.h]).toEqual([b.width, b.height]);
-			expect(Array.from(a.lv)).toEqual(Array.from(b.levels));
-		}
-		// …but takes up to 128 × 128.
+	it('parses rows of cell characters, blank rows at either end dropped, up to 128 × 128', () => {
+		expect(rows(parseCells('..#..\n.###.\n#####'))).toEqual(['00300', '03330', '33333']);
+		expect(rows(parseCells('\n\n#+-.\n  #\n\n'))).toEqual(['3210', '0030']);
 		expect(parseCells('#'.repeat(200)).w).toBe(128);
+		expect(parseCells(Array(200).fill('#').join('\n')).h).toBe(128);
 	});
 
 	it('mirrors the left half (odd: shared centre column)', () => {
@@ -36,25 +31,18 @@ describe('stamp bitmaps', () => {
 		expect(mirrorCells(c, 'none')).toBe(c);
 	});
 
-	it('draws every core font glyph on five rows (the period used to have six and lost its dot)', () => {
-		for (const ch of '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.:/!+=#') {
-			const b = textBitmap(ch);
-			expect(b.height, ch).toBe(5);
-			expect(
-				b.levels.some((v) => v > 0),
-				`${ch} has cells`
-			).toBe(true);
-		}
+	it('draws the compact font from the core glyphs, upper-cased, with its own extras and stroke glyphs', () => {
+		expect(rows(textCells('03'))).toEqual(['3330333', '3030003', '3030033', '3030003', '3330333']);
+		expect(rows(textCells('a'))).toEqual(rows(textCells('A')));
 		expect(rows(textCells('.'))[4]).toBe('3');
-	});
-
-	it('lays out the small font exactly as the core one', () => {
-		for (const t of ['03', 'BAY 07|KEEP CLEAR', 'a-1/2', 'X\n\nWM']) {
-			const a = textCells(t);
-			const b = textBitmap(t);
-			expect([a.w, a.h]).toEqual([b.width, b.height]);
-			expect(Array.from(a.lv)).toEqual(Array.from(b.levels));
-		}
+		expect(rows(textCells(','))).toEqual(['00', '00', '00', '03', '30']);
+		// Unknown characters: the font's '#'.
+		expect(rows(textCells('~'))).toEqual(rows(textCells('#')));
+		// Drawn as strokes, B closes its middle bar.
+		expect(rows(textCells('B'))[2]).toBe('330');
+		expect(rows(textCells('B', { strokeGlyphs: true }))[2]).toBe('333');
+		// Lines centre within the widest (M is 5 wide, 1 is 3).
+		expect(rows(textCells('M|1'))[6]).toBe('00300');
 	});
 
 	it('aligns lines, spaces letters, bolds, and draws the large font with descenders', () => {
@@ -62,7 +50,6 @@ describe('stamp bitmaps', () => {
 		expect(rows(textCells('1|11', { align: 'right' }))[0]).toBe('0000030');
 		expect(textCells('11', { spacing: 3 }).w).toBe(9);
 		expect(textCells('1|1', { lineGap: 4 }).h).toBe(14);
-		expect(boldCells(textCells('1')).w).toBe(4);
 		// Bold widens the advance; advance-only (bold applied later, after Join diagonals) keeps the glyphs as drawn.
 		expect(textCells('11', { bold: true }).w).toBe(9);
 		expect(rows(textCells('1', { bold: true, boldAdvanceOnly: true }))[0]).toBe('0300');
@@ -167,6 +154,20 @@ describe('stamp bitmaps', () => {
 			0,
 			1,
 			0
+		]);
+	});
+
+	it("keeps each map's own cells per bitmap cell in its header", () => {
+		const header = (t: CpuTexture) =>
+			Array.from(t.data.subarray((t.height - 1) * t.width * 4, (t.height - 1) * t.width * 4 + 8));
+		const c = parseCells('####\n####\n####\n####');
+		// The same cells, margin and outline, joined (pre 2) or not: two maps (one cached grid used to serve both).
+		expect(header(stampTexture(c, { margin: 8, pre: 2 }))).toEqual([4, 0, 4, 0, 8, 0, 2, 0]);
+		expect(header(stampTexture(c, { margin: 8, pre: 1 }))).toEqual([4, 0, 4, 0, 8, 0, 1, 0]);
+		// Smoothed and strokes: on the fine grid (N cells per cell), the margin in fine cells, N × pre, smooth outline.
+		expect(header(stampTexture(c, { margin: 4, smooth: 1, fine: 3, pre: 2 }))).toEqual([12, 0, 12, 0, 12, 0, 6, 1]);
+		expect(header(stampTexture(c, { margin: 2, smooth: 1, fine: 4, strokes: { bold: 0 } }))).toEqual([
+			16, 0, 16, 0, 8, 0, 4, 1
 		]);
 	});
 

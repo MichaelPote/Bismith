@@ -60,13 +60,7 @@ describe('cable', () => {
 		});
 	});
 
-	it('uses every param it declares, with slider ranges inside the hard limits', () => {
-		for (const d of cableLayer.params) {
-			if (d.key !== 'seed') expect(cableLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
-			if (d.softMin !== undefined) expect(d.softMin, d.key).toBeGreaterThanOrEqual(d.min!);
-			if (d.softMax !== undefined) expect(d.softMax, d.key).toBeLessThanOrEqual(d.max!);
-		}
-		// Lengths scale with supersampling.
+	it('marks its lengths for supersampling, and has no `<< out`', () => {
 		for (const k of ['radius', 'thickness', 'lean', 'sag'])
 			expect(layerParamDefs('cable').find((d) => d.key === k)?.unit, k).toBe('px');
 		// esbuild reads `<< out` as a TypeScript variance modifier (AGENTS.md).

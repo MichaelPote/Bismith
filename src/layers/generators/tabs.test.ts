@@ -39,11 +39,8 @@ describe('tabs', () => {
 			}
 	});
 
-	it('uses every param it declares, marks pixel lengths, and keeps one call of each costly helper', () => {
+	it('marks pixel lengths, and keeps one call of each costly helper', () => {
 		const glsl = tabsLayer.glsl!;
-		for (const d of tabsLayer.params)
-			if (d.key !== 'seed' && !d.key.endsWith('_sp'))
-				expect(glsl.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
 		for (const k of ['spacing', 'clearance', 'length', 'depth', 'thickness', 'inset'])
 			expect(tabsLayer.params.find((d) => d.key === k)!.unit, k).toBe('px');
 		// D3D inlines every call: one element evaluation per pixel loop, and no continue in shader loops.

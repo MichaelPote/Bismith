@@ -9,11 +9,11 @@ export const blurPost: PostDef = {
 	label: 'Blur',
 	description: 'Separable Gaussian blur. Wraps across the edges when the project is tileable.',
 	params: [
-		P.float('radius', 'Radius', 1, 0, 40, {
+		P.float('radius', 'Sigma (σ)', 1, 0, 40, {
 			softMax: 8,
 			step: 0.01,
 			unit: 'px',
-			hint: 'Gaussian standard deviation (σ) in px; the kernel reaches about 3× further.'
+			hint: 'Gaussian standard deviation in px; the kernel reaches about 3× further. The same blur as a Blur layer of twice this Radius.'
 		})
 	],
 	run(ctx, input, output) {

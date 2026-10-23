@@ -108,9 +108,7 @@ describe('greebles', () => {
 		}
 	});
 
-	it('uses every param it declares, and marks pixel lengths for supersampling', () => {
-		for (const d of greeblesLayer.params)
-			if (d.key !== 'seed') expect(greeblesLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
+	it('marks pixel lengths for supersampling', () => {
 		const px = [
 			'min_size',
 			'max_size',
@@ -141,9 +139,13 @@ describe('greebles', () => {
 			'tube_thin',
 			'clamp_space',
 			'frame_bevel',
-			'pocket_max'
+			'pocket_max',
+			'det_cell',
+			'px_scale'
 		];
-		for (const k of px) expect(greeblesLayer.params.find((d) => d.key === k)!.unit, k).toBe('px');
+		// (Exactly these: a new length has to be declared one way or the other.)
+		const own = greeblesLayer.params.filter((d) => d.unit === 'px').map((d) => d.key);
+		expect(own.sort()).toEqual(px.sort());
 	});
 
 	it('writes the plate tops to the Shape mask from the relief, unless told None', () => {

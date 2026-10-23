@@ -12,7 +12,7 @@
 // clear its corners. Exact distances read ~0 all along a straight side, so a tight threshold finds its ends; curved
 // edges never stay straight long enough to hold an element.
 
-import { P, gradient } from '@/core/params';
+import { P, gradient, halfPx } from '@/core/params';
 import { spacingParams } from '../commonParams';
 import type { LayerDef } from '../types';
 
@@ -187,35 +187,28 @@ export const tabsLayer: LayerDef = {
 	// 512) sized to the texture.
 	fresh: ({ width, height }) => {
 		const s = Math.min(width, height) / 512;
-		const half = (v: number, lo: number) => Math.max(lo, Math.round(v * 2) / 2);
 		return {
-			spacing: half(64 * s, 8),
-			length: half(20 * s, 4),
-			depth: half(6 * s, 1.5),
-			clearance: half(6 * s, 1),
-			thickness: half(2 * s, 1),
-			bevel: half(1.5 * s, 1)
+			spacing: halfPx(64 * s, 8),
+			length: halfPx(20 * s, 4),
+			depth: halfPx(6 * s, 1.5),
+			clearance: halfPx(6 * s, 1),
+			thickness: halfPx(2 * s, 1),
+			bevel: halfPx(1.5 * s, 1)
 		};
 	},
 	glsl: /* glsl */ `
 const float TB_R2 = 0.70710678;
 // |mask| under this is on an edge: exact distances read ~0 all along a straight side.
 const float TB_EPS = 0.02;
-// 1, read from a uniform: loops bounded by it are not unrolled by D3D.
-#define TB_1 (uRes.x > 0.0 ? 1 : 0)
 
 // One element in its local frame: u along (centred), v inward (0 at the edge).
 float tb_shape(vec2 q) {
   float u = q.x, v = q.y;
   float hl = 0.5 * u_length, d = u_depth;
-  if (u_shape == 0) {
-    // Trapezoid: full length at the edge, sides cut inward at the given slope.
-    float k = u_cut;
-    return max(max(-v, v - d), (abs(u) - (hl - v * k)) / sqrt(1.0 + k * k));
-  }
-  if (u_shape == 1) {
-    float k = hl / max(d, 1e-3);
-    return max(-v, (abs(u) - (hl - v * k)) / sqrt(1.0 + k * k));
+  if (u_shape <= 1) {
+    // Trapezoid: full length at the edge, sides cut inward at the given slope, a flat top. Notch: the sides meet.
+    float k = u_shape == 0 ? u_cut : hl / max(d, 1e-3);
+    return max(max(-v, u_shape == 0 ? v - d : -1e4), (abs(u) - (hl - v * k)) / sqrt(1.0 + k * k));
   }
   if (u_shape == 2) {
     float s = min(sdSegment(q, vec2(-hl, 0.0), vec2(0.0, d)), sdSegment(q, vec2(0.0, d), vec2(hl, 0.0)));
@@ -223,7 +216,7 @@ float tb_shape(vec2 q) {
   }
   if (u_shape == 3) {
     // Bow-tie: two triangles meeting tip to tip at the middle of the depth.
-    float k = d / max(2.0 * hl, 1e-3) * 2.0;
+    float k = d / max(hl, 5e-4);
     float w = abs(v - 0.5 * d) - abs(u) * k;
     return max(abs(u) - hl, max(w / sqrt(1.0 + k * k), abs(v - 0.5 * d) - 0.5 * d));
   }
@@ -232,10 +225,8 @@ float tb_shape(vec2 q) {
     return sdBox(r, vec2(hl, 0.5 * u_thickness));
   }
   if (u_shape == 6) {
-    // Half-round: half an ellipse on the edge, hl along it, d deep (the usual close-to-the-edge approximation).
-    vec2 r = vec2(max(hl, 1e-3), max(d, 1e-3));
-    float k0 = length(q / r), k1 = length(q / (r * r));
-    return max(-v, k1 > 1e-6 ? k0 * (k0 - 1.0) / k1 : -min(r.x, r.y));
+    // Half-round: half an ellipse on the edge, hl along it, d deep.
+    return max(-v, sdEllipse(q, vec2(hl, d)));
   }
   // Chamfered plate.
   vec2 c = vec2(abs(u), abs(v - 0.5 * d));
@@ -280,23 +271,17 @@ float tb_bevel(vec2 q, vec2 ax, vec2 ay) {
   if (u_shape == 2) {
     float m = 1e9;
     for (int k = 0; k < 2; k++) {
-      vec2 a = vec2(k == 0 ? -hl : hl, 0.0), ba = vec2(0.0, d) - a, pa = q - a;
-      float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
-      vec2 v = pa - ba * h;
-      vec2 n = h > 0.0 && h < 1.0 ? vec2(-ba.y, ba.x) : v;
-      m = min(m, bevelLine(length(v) - 0.5 * u_thickness, ax * n.x + ay * n.y));
+      vec2 a = vec2(k == 0 ? -hl : hl, 0.0);
+      m = min(m, bevelCapsule(q - a, vec2(0.0, d) - a, 0.5 * u_thickness, mat2(ax, ay)).y);
     }
     return m;
   }
   if (u_shape == 6) {
-    vec2 r = vec2(max(hl, 1e-3), max(d, 1e-3));
-    mat2 M = bevelFrame(ax, ay);
-    float e = bevelEllipse(M * q, M, r);
-    return max(bevelLine(-q.y, ay), length(q / r) < 1.0 ? -e : e);
+    return max(bevelLine(-q.y, ay), bevelEllipseS(q, bevelFrame(ax, ay), vec2(max(hl, 1e-3), max(d, 1e-3))));
   }
   float m = -1e9;
   float su = q.x < 0.0 ? -1.0 : 1.0;
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 8 * UNI_1; i++) {
     vec3 pl = tb_plane(i, su);
     if (pl.z < 1e8) m = max(m, bevelLine(dot(pl.xy, q) - pl.z, ax * pl.x + ay * pl.y));
   }
@@ -333,7 +318,7 @@ GenOut gen(vec2 p) {
 
   // ---- Along the mask: this pixel's element frame (u along, v in) from the nearest straight side.
   vec2 sQ = vec2(0.0), sAx = vec2(1.0, 0.0), sAy = vec2(0.0, 1.0);  // (sAx, sAy: the frame's axes on screen)
-  float sRnd = 0.5, sPar = 0.0, sFb = 1.0;
+  float sPar = 0.0, sFb = 1.0;
   ivec2 sKey = ivec2(0);
   bool sOk = false;
   if (place == 3) {
@@ -341,7 +326,7 @@ GenOut gen(vec2 p) {
     vec2 fc = gl_FragCoord.xy;
     float d0 = maskIn(ic);
     vec2 g = 0.5 * vec2(maskIn(ic + ivec2(1, 0)) - maskIn(ic - ivec2(1, 0)), maskIn(ic + ivec2(0, 1)) - maskIn(ic - ivec2(0, 1)));
-    if (d0 > 5e3) place = 0;  // nothing in the mask: the texture is the shape, its edges the edges
+    if (maskEmpty(d0)) place = 0;  // nothing in the mask: the texture is the shape, its edges the edges
     else {
       // The wrapper's offset and domain warp, carried into the frame (the elements move and wobble, the sides stay).
       vec2 dl = p - fc;
@@ -367,7 +352,7 @@ GenOut gen(vec2 p) {
       float lo = 0.0, st = 1.0, s1 = 0.0, s0 = 0.0;
       bool refine = false, endless = false, found = false;
       int dir = 0;
-      for (int k = 0; k < 65536 * TB_1; k++) {
+      for (int k = 0; k < 65536 * UNI_1; k++) {
         if (!ok) break;
         float s = lo + st;
         vec2 x = e + (dir == 0 ? s : -s) * t;
@@ -390,7 +375,9 @@ GenOut gen(vec2 p) {
         } else {
           L = s1 - s0;
           a = -s0;
-          nEl = min(tb_count(L), floor(L / (u_length + 2.0 * (u_clearance + (outward ? 0.5 * u_thickness : tb_clear())))));
+          // (Outward, only a stroke's thickness reaches past the corner.)
+          float clr = outward ? (u_shape == 2 || u_shape == 4 ? 0.5 * u_thickness : 0.0) : tb_clear();
+          nEl = min(tb_count(L), floor(L / (u_length + 2.0 * (u_clearance + clr))));
         }
         if (nEl >= 1.0) {
           float sp = L / nEl;
@@ -410,7 +397,6 @@ GenOut gen(vec2 p) {
           if (uTile) kc = imod(kc, ivec2(max(floor(uRes * 0.5 + 0.5), 1.0)));
           if (endless) kc.x = int(iw);
           sKey = ivec2(kc.x * 4 + cls, kc.y);
-          sRnd = hashI(sKey, uSeed + 23.0);
           sOk = true;
         }
       }
@@ -430,14 +416,18 @@ GenOut gen(vec2 p) {
   ivec2 gn = ivec2(max(u_count, 1), max(u_rows, 1));
   vec2 cs = place == 1 ? vec2(repPitch(uRes.x, gn.x, u_col_sp, uRes.x), repPitch(uRes.y, gn.y, u_row_sp, uRes.y))
                        : uRes / vec2(gn);
-  float ext = 0.5 * length(vec2(u_length, u_depth)) + abs(u_inset) + 2.0;
-  vec2 reach = max(cs, vec2(ext) + (place == 2 ? 0.5 * u_jitter * cs : vec2(0.0)));
-  RepGrid rg = repGrid(gn, cs, 0.5 * uRes + vec2(u_offset * cs.x, 0.0), uRes, uTile, p - reach, p + reach);
-  int nc = place == 0 ? 4 : place == 3 ? 1 : repCount(rg);
+  // An element's reach from its centre: a dovetail's flared top and a stroke's half thickness included.
+  float ext = length(vec2(0.5 * u_length + max(-u_cut, 0.0) * u_depth, 0.5 * u_depth)) + 0.5 * u_thickness + abs(u_inset) + 2.0;
+  RepGrid rg;
+  int nc = place == 0 ? 4 : 1;
+  if (place == 1 || place == 2) {
+    vec2 reach = max(cs, vec2(ext) + (place == 2 ? 0.5 * u_jitter * cs : vec2(0.0)));
+    rg = repGrid(gn, cs, 0.5 * uRes + vec2(u_offset * cs.x, 0.0), uRes, uTile, p - reach, p + reach);
+    nc = repCount(rg);
+  }
   for (int k = 0; k < nc; k++) {
     vec2 q = vec2(0.0);  // the element's frame, before size and mirroring
-    float rnd = 0.5;     // its random (Height's per-feature variation)
-    ivec2 key = ivec2(0); // its identity, for its size and drop-out
+    ivec2 key = ivec2(0); // its identity, for its size, drop-out and random
     bool flip = false;   // mirrored end for end
     bool centred = false;
     bool skip = false;   // no element from this candidate (ANGLE / D3D11 can miscompile continue)
@@ -457,8 +447,6 @@ GenOut gen(vec2 p) {
       q = vec2((t - i) * sp, inward - u_inset);
       ax = k < 2 ? vec2(0.0, -1.0) : vec2(1.0, 0.0);
       ay = k == 0 ? vec2(1.0, 0.0) : k == 1 ? vec2(-1.0, 0.0) : k == 2 ? vec2(0.0, -1.0) : vec2(0.0, 1.0);
-      float bid = id + (k == 0 ? 0.0 : k == 1 ? 101.0 : k == 2 ? 211.0 : 307.0);
-      rnd = hashI(ivec2(int(bid), 17), uSeed);
       key = ivec2(int(id), k);
       flip = u_alternate && mod(id, 2.0) == 1.0;
     } else if (place == 3) {
@@ -466,7 +454,6 @@ GenOut gen(vec2 p) {
       q = sQ;
       ax = sAx;
       ay = sAy;
-      rnd = sRnd;
       key = sKey;
       flip = u_alternate && sPar == 1.0;
     } else {
@@ -474,7 +461,7 @@ GenOut gen(vec2 p) {
       vec2 ctr;
       repAt(rg, k, cw, ctr);
       flip = u_alternate && ((cw.x + cw.y) & 1) == 1;
-      if (u_place == 2) {
+      if (place == 2) {
         skip = hashI(cw, uSeed + 3.0) > u_density;
         ctr += (hash2I(cw, uSeed) - 0.5) * cs * u_jitter;
         flip = hashI(cw, uSeed + 7.0) > 0.5;
@@ -485,12 +472,12 @@ GenOut gen(vec2 p) {
       q = vec2(r.x, flip ? r.y : -r.y);
       ax = rotCW(vec2(1.0, 0.0), rot);
       ay = rotCW(vec2(0.0, flip ? 1.0 : -1.0), rot);
-      rnd = hashI(ivec2(cw.x + cw.y * 977, 17), uSeed);
       key = cw;
       centred = true;
     }
-    vec2 kh = hash2I(key, uSeed + 41.0);
-    skip = skip || (u_place != 2 && kh.y < u_drop);
+    // Its size (x), drop-out (y) and random (z: Height's per-feature variation).
+    vec3 kh = hash3I(key, uSeed + 41.0);
+    skip = skip || (place != 2 && kh.y < u_drop);
     // Size: about the element's centre on a grid, about its edge along an edge (it stays on the edge).
     float sc = 1.0 - u_size_var * kh.x;
     vec2 qs = q / sc;
@@ -500,10 +487,10 @@ GenOut gen(vec2 p) {
       ay = -ay;
     }
     float d = skip ? 1e4 : tb_shape(qs) * sc;
-    if (d < best) { best = d; brnd = rnd; bQ = qs; bSc = sc; bAx = ax; bAy = ay; }
+    if (d < best) { best = d; brnd = kh.z; bQ = qs; bSc = sc; bAx = ax; bAy = ay; }
   }
   // Away from every element: a lower bound on the distance (the mask must not read 'nothing written').
-  if (u_place == 3 && place == 3 && !sOk) best = sFb;
+  if (place == 3 && !sOk) best = sFb;
   GenOut g = genOut(1.0, 1.0, brnd, min(best, 4e3));
   // Bevel aspect: the winner's bevel measured in the stretched space, so its mitres don't step where the distance's
   // direction turns (at aspect 1 the wrapper's own bevel, unchanged).

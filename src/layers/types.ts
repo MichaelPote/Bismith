@@ -17,17 +17,22 @@ export interface LayerDef {
 	 * Generators: GLSL defining `GenOut gen(vec2 p)` where p is the GL pixel position (centres at .5).
 	 * In scope: the common/noise/sdf GLSL chunks, `uSeed` (layer seed), `uRes`, `uTile`, the previous state
 	 * samplers `tAlbedo`, `tSurface`, `tEmissive`, and a `u_<key>` uniform per param.
-	 * Construct results with `genOut(value, mask, rnd, sdf)`, or `genOutHeight(…, height)` with a signed height profile
-	 * of the generator's own (see GENOUT in render/materialPipeline.ts).
+	 * Construct results with `genOut(value, mask, rnd, sdf)` (rnd: one random per feature — brick, cell, instance);
+	 * `genOutSmooth` for patterns without features (smooth noise, clouds: Per-feature variation off, or it terraces);
+	 * `genOutHeight(…, height)` with a signed height profile of the generator's own; `genOutOwn` (an SDF layer painting
+	 * its own value and coverage, the shape only going to the mask) or `genOutShaded` (its pattern × the shape's bevel).
+	 * See GENOUT in render/materialPipeline.ts.
 	 */
 	glsl?: string;
 	/**
-	 * Generator produces a signed distance (px, negative inside) in GenOut.sdf. The wrapper then adds the
-	 * shape params (SDF operator, bevel, profile, anti-alias) and derives mask + value from the distance.
+	 * Generator produces a signed distance (px, negative inside) in GenOut.sdf. The wrapper then adds the Edge card
+	 * (bevel, profile, anti-alias, soft edge, dilate) and derives mask + value from the distance; the mask it writes, and
+	 * how (Mask › Write to › Mode), is in the Mask card.
 	 * A gen() may return sdf <= NO_SDF (-9e4) to opt out per-pixel (value/mask pass through, the mask it writes keeps
 	 * what was there).
 	 * 'mask': the distance only goes to the mask the layer writes (Mask › Write to) — the generator shapes its own value
-	 * and coverage around it (Drips' blisters: a lifted lip outside the edge, a pit inside), so there is no Edge card.
+	 * and coverage around it (Drips' blisters: a lifted lip outside the edge, a pit inside). Its Edge card (Bevel 0 by
+	 * default) shapes that value by the profile of its distance.
 	 */
 	sdf?: boolean | 'mask';
 	/**
@@ -55,7 +60,7 @@ export interface LayerDef {
 	 * through Limit to.
 	 */
 	readsMask?: boolean;
-	/** The mask a layer reads as its source with these params (`maskSrc()`; edge filters, Mask area), or null. */
+	/** The mask a layer reads as its source with these params (`tMaskSrc`; edge filters, Mask area), or null. */
 	maskSource?: (params: ParamValues) => string | null;
 	/**
 	 * Filters: a single MRT pass. GLSL defining `void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip)`
@@ -103,7 +108,7 @@ export interface LayerDef {
 	 * grows faster than the shader (docs/shader-compilation.md); keep the names few and stable.
 	 */
 	shaderFeatures?: (params: ParamValues) => string[];
-	/** Rewrites params stored before a change to this type's params (after the common migrations). */
+	/** Rewrites params stored before a change to this type's params. */
 	migrate?: (params: ParamValues) => ParamValues;
 	/** Overrides for common param defaults (e.g. which channel outputs start enabled). */
 	defaults?: Record<string, ParamValue>;

@@ -111,17 +111,17 @@ describe('vents & pipes', () => {
 			for (const k of Object.keys(def.fresh!({ width: 512, height: 512 })))
 				expect(keys.has(k), `${def.type}.${k}`).toBe(true);
 		}
-		const px = (type: string, key: string) => layerParamDefs(type).find((d) => d.key === key)!.unit;
-		for (const k of ['length', 'width', 'rim', 'margin', 'outer', 'round', 'fast_size'])
-			expect(px('vents', k), k).toBe('px');
-		for (const k of ['diameter', 'jitter', 'bundle_gap', 'clamp_width', 'clamp_lip', 'clamp_foot'])
-			expect(px('pipes', k), k).toBe('px');
-	});
-
-	it('uses every param it declares in its shader', () => {
-		for (const def of [ventsLayer, pipesLayer]) {
-			for (const d of def.params)
-				if (d.key !== 'seed') expect(def.glsl!.includes(`u_${d.key}`), `${def.type}.${d.key}`).toBe(true);
-		}
+		// (Exactly these: a new length has to be declared one way or the other.)
+		const own = (def: typeof ventsLayer) =>
+			def.params
+				.filter((d) => d.unit === 'px')
+				.map((d) => d.key)
+				.sort();
+		expect(own(ventsLayer)).toEqual(
+			['length', 'width', 'rim', 'margin', 'clear', 'outer', 'round', 'fast_size'].sort()
+		);
+		expect(own(pipesLayer)).toEqual(
+			['diameter', 'jitter', 'bundle_gap', 'clamp_width', 'clamp_lip', 'clamp_foot'].sort()
+		);
 	});
 });

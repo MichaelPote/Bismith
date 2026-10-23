@@ -3,9 +3,15 @@
 
 import { P, gradient } from '@/core/params';
 import type { LayerDef } from '../types';
-import { ORG_GLSL, ORG_NO_SDF } from './organicShared';
+import type { ParamValues } from '@/core/params';
+import { ORG_GLSL } from './organicShared';
 
 // ------------------------------------------------------------------------------------------------ marble
+
+// Styles with an angle: veins along a direction.
+const along = (style: unknown) => style === 'streaks' || style === 'ridges';
+// The fine veins' style, 'same' resolved.
+const fineStyle = (p: ParamValues) => (p.fine_style === 'same' ? p.style : p.fine_style);
 
 export const marbleLayer: LayerDef = {
 	type: 'marble',
@@ -40,7 +46,7 @@ export const marbleLayer: LayerDef = {
 			softMax: 90,
 			unit: '°',
 			step: 0.1,
-			showIf: (p) => p.style === 'streaks' || p.style === 'ridges',
+			showIf: (p) => along(p.style),
 			hint: 'Vein direction, clockwise from horizontal (snapped to a seamless angle when tiling)'
 		}),
 		P.float('stretch', 'Stretch', 6, 0.1, 10, {
@@ -154,20 +160,14 @@ export const marbleLayer: LayerDef = {
 			softMax: 60,
 			unit: '°',
 			step: 0.1,
-			showIf: (p) =>
-				Number(p.fine) > 0 &&
-				(['streaks', 'ridges'].includes(String(p.fine_style)) ||
-					(p.fine_style === 'same' && ['streaks', 'ridges'].includes(String(p.style)))),
+			showIf: (p) => Number(p.fine) > 0 && along(fineStyle(p)),
 			hint: 'Turns the fine streaks / ridges against the main veins, so they cross them and branch off at an angle'
 		}),
 		P.float('fine_stretch', 'Fine stretch', 0.5, 0.1, 4, {
 			softMin: 0.25,
 			softMax: 2,
 			step: 0.01,
-			showIf: (p) =>
-				Number(p.fine) > 0 &&
-				(['streaks', 'ridges'].includes(String(p.fine_style)) ||
-					(p.fine_style === 'same' && ['streaks', 'ridges'].includes(String(p.style)))),
+			showIf: (p) => Number(p.fine) > 0 && along(fineStyle(p)),
 			hint: 'The fine veins’ stretch along their own angle, relative to the main Stretch (1 = the same)'
 		}),
 		P.float('fine_scale', 'Fine scale', 3, 1, 16, {
@@ -191,7 +191,7 @@ export const marbleLayer: LayerDef = {
 		P.float('fine_wander', 'Fine wander', 0.35, 0, 2, {
 			softMax: 1,
 			step: 0.001,
-			showIf: (p) => Number(p.fine) > 0 && (p.fine_style === 'same' ? p.style : p.fine_style) !== 'streaks',
+			showIf: (p) => Number(p.fine) > 0 && fineStyle(p) !== 'streaks',
 			hint: 'Extra warp of the fine veins (in main-vein cells): their spacing and direction vary across the slab instead of a regular hatch'
 		}),
 		P.float('fine_break', 'Fine breakup', 0.45, 0, 1, {
@@ -211,7 +211,7 @@ export const marbleLayer: LayerDef = {
 		P.float('tile_rot', 'Tile vein turn', 45, 0, 180, {
 			unit: '°',
 			step: 0.1,
-			showIf: (p) => Number(p.tiles) > 0 && (p.style === 'streaks' || p.style === 'ridges'),
+			showIf: (p) => Number(p.tiles) > 0 && along(p.style),
 			hint: 'Random vein rotation per tile (±)'
 		}),
 		P.float('cloud', 'Cloudiness', 0.25, 0, 1, {
@@ -228,7 +228,7 @@ export const marbleLayer: LayerDef = {
 			softMin: 0.25,
 			softMax: 6,
 			step: 0.01,
-			showIf: (p) => Number(p.cloud) > 0 && (p.style === 'streaks' || p.style === 'ridges'),
+			showIf: (p) => Number(p.cloud) > 0 && along(p.style),
 			hint: 'Draws the clouds out along the veins (> 1) or across them (< 1)'
 		}),
 		P.bool('filter', 'Filter fine detail', true, {
@@ -262,18 +262,48 @@ export const marbleLayer: LayerDef = {
 	glsl:
 		ORG_GLSL +
 		/* glsl */ `
+// Keep part of a mask where the noise n (0..1) is high: amount 0 keeps everything, 1 removes everything.
+float mb_breakup(float n, float amount) {
+  float c = clamp((n - 0.5) * 2.5 + 0.5, 0.0, 1.0);
+  return smoothstep(amount * 1.3 - 0.3, amount * 1.3, c);
+}
+
+// Whole cycles per texture (x, y) of the wave vector for count bands per texture width at deg clockwise from horizontal
+// on screen (never both 0).
+vec2 mb_waveCycles(float count, float deg) {
+  float a = radians(deg);
+  vec2 cyc = floor(vec2(sin(a), cos(a)) * count / uRes.x * uRes + 0.5);
+  if (cyc.x == 0.0 && cyc.y == 0.0) cyc.y = 1.0;
+  return cyc;
+}
+
+// Wave vector (cycles per px, GL space) for bands that run at deg clockwise from horizontal on screen, count bands per
+// texture width. Snapped to whole cycles per axis when tiling (seamless); g = number of distinct bands per tile (for
+// per-band randoms).
+vec2 mb_waveK(float count, float deg, out int g) {
+  float a = radians(deg);
+  vec2 k = vec2(sin(a), cos(a)) * count / uRes.x;
+  g = NO_PERIOD.x;
+  if (uTile) {
+    vec2 cyc = mb_waveCycles(count, deg);
+    k = cyc / uRes;
+    g = igcd(int(cyc.x), int(cyc.y));
+  }
+  return k;
+}
+
 // worleyNoise(x, per, 1.0, 0, seed).wz — distance to the cell border (cells) and the cell's random — in one flat loop:
 // the 3×3 cells for the nearest point, then the 5×5 for the border (the library's nested loops compile slower).
-vec2 org_worleyBorder(vec2 x, ivec2 per, float seed) {
+vec2 mb_worleyBorder(vec2 x, ivec2 per, float seed) {
   ivec2 ip = ivec2(floor(x));
   vec2 fp = fract(x);
   float F1 = 1e9, md = 1e9;
   vec2 mr = vec2(0.0);
   ivec2 mc = ip;
-  for (int e = 0; e < 34 * ORG_1; e++) {
+  for (int e = 0; e < 34 * UNI_1; e++) {
     bool near = e < 9;
     ivec2 g = near ? ivec2(e % 3 - 1, e / 3 - 1) : ivec2((e - 9) % 5 - 2, (e - 9) / 5 - 2);
-    vec2 r = vec2(g) + (0.5 + (cellPoint(imod(ip + g, per), seed) - 0.5)) - fp;
+    vec2 r = vec2(g) + cellPoint(imod(ip + g, per), seed) - fp;
     if (near) {
       float d = dot(r, r);
       if (d < F1) { F1 = d; mr = r; mc = ip + g; }
@@ -289,7 +319,7 @@ vec2 org_worleyBorder(vec2 x, ivec2 per, float seed) {
 // stretched along veins at any (snapped) angle and still tile. The period lattice has the integer basis B = (b1, b2)
 // (an ivec4: b1.xy, b2.xy); a lattice point c is reduced to its representative in the cell B·[0, 1)², exactly (small
 // integers, so the float quotients floor correctly). An axis-aligned period (Px, Py) is (Px, 0, 0, Py): then this is
-// the noise library's imod wrap, and mb_fbm equals org_noiseFbm (Perlin).
+// the noise library's imod wrap (but mb_perlin is unclamped, unlike perlinNoise).
 ivec2 mb_wrap(ivec2 c, ivec4 B) {
   vec4 b = vec4(B);
   vec2 l = floor(vec2(b.w * float(c.x) - b.z * float(c.y), b.x * float(c.y) - b.y * float(c.x)) / (b.x * b.w - b.z * b.y));
@@ -317,7 +347,7 @@ float mb_perlin(vec2 x, ivec4 B, float seed) {
 float mb_fbm(bool billow, vec2 x, ivec4 B, int oct, float gain, float seed, float cpx, float fs) {
   float sum = 0.0, amp = 1.0, norm = 0.0;
   float an = fs * (billow ? 2.0 : 1.0) * (abs(1.0 - gain) < 1e-3 ? 1.0 / float(oct) : (1.0 - gain) / (1.0 - pow(gain, float(oct))));
-  for (int o = 0; o < 8 * ORG_1; o++) {
+  for (int o = 0; o < 8 * UNI_1; o++) {
     if (o >= oct) break;
     float n = mb_perlin(x, B, seed + float(o) * 31.0);
     if (billow) n = abs(2.0 * n - 1.0);
@@ -333,7 +363,7 @@ float mb_fbm(bool billow, vec2 x, ivec4 B, int oct, float gain, float seed, floa
 }
 
 // The strongest of three weighted vein strands at distances d (px): core width w, falloff s.x (the veins) and s.y (a
-// softer copy for Height) — org_line, for two falloffs at once.
+// softer copy for Height) — org_line's formula, for two falloffs at once.
 vec2 mb_line(float d, float w, vec2 s) { return 1.0 - smoothstep(vec2(-0.5), 0.5 + max(s, 0.0), vec2(d - 0.5 * w)); }
 vec2 mb_lines(vec3 d, vec3 wt, float w, vec2 s) {
   return max(wt.x * mb_line(d.x, w, s), max(wt.y * mb_line(d.y, w, s), wt.z * mb_line(d.z, w, s)));
@@ -353,7 +383,7 @@ void mb_turbDir(vec2 c0, vec2 c1, out ivec4 d0, out ivec4 d1) {
   vec2 cn0 = normalize(c0), cn1 = normalize(c1);
   vec2 m0 = vec2(0.0, 1.0), m1 = m0;
   vec2 best = vec2(-2.0);
-  for (int n = 1; n <= 4 * ORG_1; n++) {
+  for (int n = 1; n <= 4 * UNI_1; n++) {
     vec2 v0 = floor(c0 / max(abs(c0.x), abs(c0.y)) * float(n) + 0.5);
     vec2 v1 = floor(c1 / max(abs(c1.x), abs(c1.y)) * float(n) + 0.5);
     vec2 q = vec2(dot(normalize(v0), cn0), dot(normalize(v1), cn1));
@@ -364,7 +394,7 @@ void mb_turbDir(vec2 c0, vec2 c1, out ivec4 d0, out ivec4 d1) {
   // Extended Euclid: s·m.x + t·m.y = g, so the primitive m / g has the Bezout pair (s, t).
   ivec3 a0 = ivec3(int(m0.x), 1, 0), a1 = ivec3(int(m0.y), 0, 1);
   ivec3 b0 = ivec3(int(m1.x), 1, 0), b1 = ivec3(int(m1.y), 0, 1);
-  for (int i = 0; i < 8 * ORG_1; i++) {
+  for (int i = 0; i < 8 * UNI_1; i++) {
     if (a1.x == 0 && b1.x == 0) break;
     if (a1.x != 0) { ivec3 a2 = a0 - (a0.x / a1.x) * a1; a0 = a1; a1 = a2; }
     if (b1.x != 0) { ivec3 b2 = b0 - (b0.x / b1.x) * b1; b0 = b1; b1 = b2; }
@@ -412,7 +442,6 @@ mat2 mb_turbFrame(vec2 k, float ws, float stretch, ivec4 md, out ivec4 B) {
 // (network, cells, ridges; streaks when folded), then F (cells only need the warped p, then the Worley border) — and
 // slot 19 the fine veins' density patches or the ridges' strand field, after which the system's veins are drawn.
 GenOut gen(vec2 p) {
-  vec2 u = p / uRes;
   // Tiles: each tile shows its own cut of the marble (shifted pattern, rotated veins).
   vec2 q = p;
   float ang = u_angle;
@@ -425,7 +454,7 @@ GenOut gen(vec2 p) {
     ang += (th.z - 0.5) * 2.0 * u_tile_rot;
     tileRnd = hashI(ti, uSeed + 9.0);
   }
-  u = q / uRes;
+  vec2 u = q / uRes;
   vec2 bc = cellsFor(max(u_warp_scale, 1.0) * 2.0, 1.0);
   // Width from flow: the typical |grad F| over the bands' own (streaks) / the contoured noise's (network) gradient,
   // fitted to renders — raised by the turbulence and folding. og: how much steeper the Detail octaves make the noise
@@ -446,13 +475,10 @@ GenOut gen(vec2 p) {
     flowRef = vec2(sqrt((1.0 + t * t * (u_turb == 0 ? 1.0 : 0.2)) * (1.0 + fo * fo)), 1.05 * sqrt(1.0 + 0.25 * t * t));
   }
   // The directions of the stretched turbulence lattices — the main veins' and the fine ones' (Fine angle) — from their
-  // bands' wave vectors in whole cycles per texture (as org_waveK snaps them).
-  vec2 cyc = floor(vec2(sin(radians(ang)), cos(radians(ang))) * u_veins * uRes / uRes.x + 0.5);
-  float af = radians(ang + u_fine_angle);
-  vec2 cyf = floor(vec2(sin(af), cos(af)) * u_veins * u_fine_scale * uRes / uRes.x + 0.5);
+  // bands' wave vectors in whole cycles per texture (as mb_waveK snaps them).
   ivec4 md = ivec4(0, 1, 0, 1), mdf = md;
   if (uTile && (u_stretch != 1.0 || u_cloud_stretch != 1.0))
-    mb_turbDir(cyc == vec2(0.0) ? vec2(0.0, 1.0) : cyc, cyf == vec2(0.0) ? vec2(0.0, 1.0) : cyf, md, mdf);
+    mb_turbDir(mb_waveCycles(u_veins, ang), mb_waveCycles(u_veins * u_fine_scale, ang + u_fine_angle), md, mdf);
 
   float vein = 0.0, veinR = 0.0, rnd = 0.0, base = 0.0, dMain = 1e9, ffMain = 1.0, fadeMain = 1.0, fpatch = 1.0;
   // The current system's frame and state.
@@ -467,7 +493,7 @@ GenOut gen(vec2 p) {
   bool streaks = true, cells = false, ridges = false, fold = false;
   float ns = 0.5;
   // No continue in this loop (ANGLE / D3D11 can miscompile it): skipped slots fall through the run test instead.
-  for (int e = 0; e < 41 * ORG_1; e++) {
+  for (int e = 0; e < 41 * UNI_1; e++) {
     int sys = e / 20, j = e - 20 * sys;
     bool cloud = sys == 2;
     bool on = !((sys == 1 && u_fine <= 0.0) || (cloud && u_cloud <= 0.0));
@@ -481,7 +507,7 @@ GenOut gen(vec2 p) {
         cells = style == 2;
         ridges = style == 3;
         // The fine streaks may run at an angle to the main ones (crossing them, branching off them).
-        k = org_waveK(u_veins * wm, sys == 1 ? ang + u_fine_angle : ang, g);
+        k = mb_waveK(u_veins * wm, sys == 1 ? ang + u_fine_angle : ang, g);
         if (sys == 0) km = k;
         nc = cellsFor(u_veins * wm, u_stretch);
         // Streaks: Folding bends the whole band field (bands and turbulence together) by a smooth warp at half the scale.
@@ -520,27 +546,60 @@ GenOut gen(vec2 p) {
         x = streaks ? pw / uRes * T : (ridges ? pw / uRes * T : pw / uRes * nc) + (w - 0.5) * (u_warp + (sys == 1 ? u_fine_wander * wm : 0.0)) * 2.0;
       }
       bool last = j == 19;
+      // The fine veins' density patches' / the ridges' strand field's cells.
+      vec2 pc = cellsFor(max(u_warp_scale, 1.0) * (sys == 0 ? 1.2 : 0.75), 1.0);
       bool noise = !(field && !warp && cells) && (!last || (sys == 1 && u_fine_patch > 0.0) || (sys == 0 && ridges && u_fork > 0.0));
       if (noise) {
-        // Width / breakup noise: along stretched streaks it is drawn out with them (long fades, not dashes).
-        vec2 bn = bc * float(sys + 1);
-        bool sf = streaks && abs(u_stretch - 1.0) >= 1e-3;
-        float bk = float(2 * (sys + 1));
-        // The fine veins' density patches, or (1.6× finer) the ridges' strand field: strands part and rejoin.
-        vec2 pc = cellsFor(max(u_warp_scale, 1.0) * (sys == 0 ? 1.2 : 0.75), 1.0);
-        mat2 Tn = j == 0 ? (cloud ? T : sf ? T * bk : mat2(bn.x, 0.0, 0.0, bn.y)) : last ? mat2(pc.x, 0.0, 0.0, pc.y)
-                : warp ? mat2(wc.x, 0.0, 0.0, wc.y) : streaks || ridges ? T : mat2(nc.x, 0.0, 0.0, nc.y);
-        float n = mb_fbm(field && streaks && !warp && u_turb == 0,
-                         j == 0 ? (cloud || sf ? u * Tn : u * bn) : last ? u * pc : warp ? uw + (c == 0 ? 0.0 : 17.3) : x,
-                         j == 0 ? (cloud ? B : sf ? B * int(bk) : mb_axisPer(bn)) : last ? mb_axisPer(pc)
-                                : warp ? mb_axisPer(wc) : streaks || ridges ? B : mb_axisPer(nc),
-                         j == 0 ? (cloud ? 5 : 3) : last ? 3 : warp && (streaks || ridges) ? min(u_detail, 3) : warp || streaks || ridges ? u_detail : min(u_detail, 3),
-                         j == 0 || last ? 0.5 : warp || streaks || ridges ? u_rough : 0.45,
-                         j == 0 ? (cloud ? uSeed + 77.0 : uSeed + 91.0 + 2.0 * float(sys)) : last ? uSeed + 133.0
-                                : c == 0 ? sd + 7.0 + 101.0 : c == 1 ? sd + 7.0 + 211.0 : sd,
-                         u_filter ? mb_cellPx(Tn) / (field && !warp ? (fold ? foldK : streaks ? 1.0 : 1.0 + 3.0 * u_warp * u_warp_scale / max(u_veins * wm, 0.25)) : 1.0) : 0.0,
-                         j == 0 || last ? 0.0 : !warp ? (streaks ? u_warp * wm * 2.0 : ridges ? 2.0 : 2.0 * u_levels)
-                                : streaks ? 2.0 * u_fold : ridges ? 4.0 * u_warp : 4.0 * u_levels * u_warp);
+        // The noise call's arguments for this slot: lattice transform Tn, sample point xa and its period lattice Ba,
+        // octaves oa, gain ga, seed sa, first octave's cell size cpx (Filter fine detail) and field scale fsa (mb_fbm).
+        mat2 Tn;
+        vec2 xa;
+        ivec4 Ba;
+        int oa;
+        float ga, sa, cpx, fsa;
+        if (j == 0) {
+          // Width / breakup noise: along stretched streaks it is drawn out with them (long fades, not dashes). The
+          // background's own noise.
+          vec2 bn = bc * float(sys + 1);
+          bool sf = streaks && abs(u_stretch - 1.0) >= 1e-3;
+          float bk = float(2 * (sys + 1));
+          Tn = cloud ? T : sf ? T * bk : mat2(bn.x, 0.0, 0.0, bn.y);
+          xa = cloud || sf ? u * Tn : u * bn;
+          Ba = cloud ? B : sf ? B * int(bk) : mb_axisPer(bn);
+          oa = cloud ? 5 : 3;
+          ga = 0.5;
+          sa = cloud ? uSeed + 77.0 : uSeed + 91.0 + 2.0 * float(sys);
+          fsa = 0.0;
+        } else if (last) {
+          // The fine veins' density patches, or (1.6× finer) the ridges' strand field: strands part and rejoin.
+          Tn = mat2(pc.x, 0.0, 0.0, pc.y);
+          xa = u * pc;
+          Ba = mb_axisPer(pc);
+          oa = 3;
+          ga = 0.5;
+          sa = uSeed + 133.0;
+          fsa = 0.0;
+        } else if (warp) {
+          Tn = mat2(wc.x, 0.0, 0.0, wc.y);
+          xa = uw + (c == 0 ? 0.0 : 17.3);
+          Ba = mb_axisPer(wc);
+          oa = streaks || ridges ? min(u_detail, 3) : u_detail;
+          ga = u_rough;
+          sa = c == 0 ? sd + 7.0 + 101.0 : sd + 7.0 + 211.0;
+          fsa = streaks ? 2.0 * u_fold : ridges ? 4.0 * u_warp : 4.0 * u_levels * u_warp;
+        } else {
+          // The field F.
+          bool sr = streaks || ridges;
+          Tn = sr ? T : mat2(nc.x, 0.0, 0.0, nc.y);
+          xa = x;
+          Ba = sr ? B : mb_axisPer(nc);
+          oa = sr ? u_detail : min(u_detail, 3);
+          ga = sr ? u_rough : 0.45;
+          sa = sd;
+          fsa = streaks ? u_warp * wm * 2.0 : ridges ? 2.0 : 2.0 * u_levels;
+        }
+        cpx = u_filter ? mb_cellPx(Tn) / (field && !warp ? (fold ? foldK : streaks ? 1.0 : 1.0 + 3.0 * u_warp * u_warp_scale / max(u_veins * wm, 0.25)) : 1.0) : 0.0;
+        float n = mb_fbm(field && streaks && !warp && u_turb == 0, xa, Ba, oa, ga, sa, cpx, fsa);
         if (j == 0) {
           nb = n;
           if (cloud) {
@@ -567,7 +626,7 @@ GenOut gen(vec2 p) {
         vec2 sep = vec2(0.0), spr = vec2(0.0);
         float vr = 0.0, fade = 1.0, fadeS = 1.0, ff = 1.0, gEst = 0.0;
         if (cells) {
-          vec2 wb = org_worleyBorder(x, org_per(nc), sd);
+          vec2 wb = mb_worleyBorder(x, org_per(nc), sd);
           vec2 cs = uRes / nc;
           ds.x = wb.x * sqrt(cs.x * cs.y);
           vr = wb.y;
@@ -610,7 +669,7 @@ GenOut gen(vec2 p) {
           // Nor where the strand's offset field moves about as fast as the crest field itself (the strand is the zero set of
           // t − offset, whose gradient then nearly cancels — the same smudge).
           if (ridges) {
-            float gc = u_fork * 0.6 * 1.5 * length(cellsFor(max(u_warp_scale, 1.0) * 1.2, 1.0) / uRes);
+            float gc = u_fork * 0.6 * 1.5 * length(pc / uRes);
             wt.y *= smoothstep(0.35, 0.8, grad / gref) * smoothstep(1.2, 2.8, grad / max(gc, 1e-6));
           }
           // Loop culling: veins fade where the field is flat (tiny rings round its extrema) and, along streaks, where a
@@ -656,8 +715,8 @@ GenOut gen(vec2 p) {
         float ls = u_soft * (sys == 0 ? wv : 0.5);
         // Ridges: Breakup tapers the veins (width and strength together) instead of fading them — pointed ends.
         // Fine breakup: the fine veins broken into lengths that taper out (their own noise, nb at twice the frequency).
-        float fbT = sys == 1 && u_fine_break > 0.0 ? org_breakup(nb, u_fine_break) : 1.0;
-        float tpB = (ridges && u_breakup > 0.0 ? org_breakup(nb, u_breakup) : 1.0) * fbT;
+        float fbT = sys == 1 && u_fine_break > 0.0 ? mb_breakup(nb, u_fine_break) : 1.0;
+        float tpB = (ridges && u_breakup > 0.0 ? mb_breakup(nb, u_breakup) : 1.0) * fbT;
         // Culled ridges taper the same way.
         float tp = ridges ? tpB * fade : fbT;
         lw *= tp;
@@ -698,7 +757,7 @@ GenOut gen(vec2 p) {
         }
         l *= fade;
         lr *= fade;
-        float bk = ridges ? tp : (u_breakup > 0.0 ? org_breakup(nb, u_breakup) : 1.0) * fbT;
+        float bk = ridges ? tp : (u_breakup > 0.0 ? mb_breakup(nb, u_breakup) : 1.0) * fbT;
         // The halo is colour only (in Height it rippled the polished ground); for ridges it fades with the breakup
         // but not the culling.
         if (ridges) hal *= tpB * fade;
@@ -725,7 +784,10 @@ GenOut gen(vec2 p) {
     }
   }
   float v = base + (1.0 - base) * vein;
-  GenOut go = genOut(clamp(v, 0.0, 1.0), 1.0, tileRnd >= 0.0 ? tileRnd : rnd, ${ORG_NO_SDF});
+  GenOut go = genOut(clamp(v, 0.0, 1.0), 1.0, tileRnd >= 0.0 ? tileRnd : rnd, NO_SDF);
+  // Per-feature variation only per tile or cell: a band's random would step the height at every band midline (in the
+  // stone, between the veins) and the ridges' is a constant. The random stays for colour jitter.
+  if (u_tiles <= 0 && u_style != 2) go.feat = 0.0;
   // Relief < 1: Height follows mostly the veins, shallower (the clouds fade out of it faster).
   if (u_relief < 1.0) go.hval = clamp(u_relief * (base * u_relief + (1.0 - base * u_relief) * veinR), 0.0, 1.0);
   return go;
@@ -876,11 +938,14 @@ export const causticsLayer: LayerDef = {
 	glsl:
 		ORG_GLSL +
 		/* glsl */ `
-// org_cellDist (organicShared) measured in a stretch metric — the cells, of aspect cs.x / cs.y, are square in the space
-// p · M, so the 5×5 searches stay exact however far they are stretched (M = 1 is org_cellDist exactly) — and without
-// continue (ANGLE / D3D11 can miscompile it). Also returns nrm, the nearest bisector's unit normal (metric space), er,
-// a random per border segment (the same from both cells), and dg, the border distance under a smooth minimum of the
-// two nearest bisectors (width kg px, 0 = the rims' distance) for the glow and dome: no creases along the medial axis.
+// Power-weighted Voronoi cell boundary distance (px), measured in a stretch metric: the cells, of aspect cs.x / cs.y,
+// are square in the space p · M, so the 5×5 searches stay exact however far they are stretched. Sites jitter inside the
+// cells grid; weights vary the cell sizes. Returns x = distance to the cell border rounded by a soft minimum over the
+// bisectors (k px; junctions thicken, cells become blobs), y = exact distance to the nearest bisector, z = per-cell
+// random, w = F1 / F2 (0 at the site, 1 on the border; its level sets are round, so it gives blob-shaped interiors).
+// Also returns nrm, the nearest bisector's unit normal (metric space), er, a random per border segment (the same from
+// both cells), and dg, the border distance under a smooth minimum of the two nearest bisectors (width kg px, 0 = the
+// rims' distance) for the glow and dome: no creases along the medial axis.
 vec4 cl_cells(vec2 p, vec2 cells, vec2 M, float jitter, float sizeVar, float k, float kg, float seed, out vec2 nrm, out float er, out float dg) {
   ivec2 per = org_per(cells);
   vec2 cs = uRes / cells;
@@ -897,25 +962,24 @@ vec4 cl_cells(vec2 p, vec2 cells, vec2 M, float jitter, float sizeVar, float k, 
   float pf2 = 1e20;
   float kk = max(k, 0.05);
   nrm = vec2(1.0, 0.0);
-  // One flat loop (see ORG_1): the 5×5 cells around p for the nearest site, then the 5×5 around that site.
-  for (int e = 0; e < 50 * ORG_1; e++) {
+  // One flat loop (see UNI_1): the 5×5 cells around p for the nearest site, then the 5×5 around that site.
+  for (int e = 0; e < 50 * UNI_1; e++) {
     bool near = e < 25;
     int f = near ? e : e - 25;
     ivec2 g = ivec2(f % 5 - 2, f / 5 - 2);
     if (near || g != ivec2(0)) {
       ivec2 c = (near ? ip : bc) + g;
-      vec3 h = hash3I(imod(c, per), seed);
-      vec2 s = (vec2(c) + 0.5 + (h.xy - 0.5) * jitter) * csm;
-      float w = (h.z - 0.5) * wScale;
+      vec3 sw = org_powerSite(c, per, csm, jitter, wScale, seed);
+      vec2 s = sw.xy;
+      float w = sw.z;
       if (near) {
-        float pd = org_dot2(s - pm) - w;
+        float pd = dot2(s - pm) - w;
         if (pd < best) { best = pd; bs = s; bw = w; bc = c; }
       } else {
         float L = length(s - bs);
         if (L >= 1e-4) {
-          pf2 = min(pf2, org_dot2(pm - s) - w);
-          // Power bisector: (pow_b - pow_a) / (2 |b - a|) is the signed distance, positive on a's side.
-          float d = max((org_dot2(pm - s) - w - org_dot2(pm - bs) + bw) / (2.0 * L), 0.0);
+          pf2 = min(pf2, dot2(pm - s) - w);
+          float d = org_powerBisector(pm, s, w, bs, bw, L);
           // Running log-sum-exp soft minima (the rims' k, the glow's kg).
           if (d < m) { acc = acc * exp((d - m) / kk) + 1.0; m = d; nrm = (bs - s) / L; nc = c; }
           else acc += exp((m - d) / kk);
@@ -937,12 +1001,11 @@ vec4 cl_cells(vec2 p, vec2 cells, vec2 M, float jitter, float sizeVar, float k, 
   float bl = 0.5 * (1.0 - smoothstep(0.0, 3.0, m2 - mg));
   vec2 nb2 = mix(nrm1, nrm2, bl);
   nrm = dot(nb2, nb2) > 1e-6 ? normalize(nb2) : nrm1;
-  float hg = kg > 0.0 ? max(kg - (m2 - mg), 0.0) / kg : 0.0;
-  dg = dr - hg * hg * kg * 0.25;
+  dg = dr - org_sminK(mg, m2, kg);
   // F1 / F2 for weighted cells: d1 / sqrt(d1² + Δ), Δ the power distance to the nearest other site less the own. It is
   // the plain F1 / F2 for equal weights, 0 at the site and exactly 1 on the weighted border from both sides — the plain
   // ratio isn't, between cells of different weights, and the domes stepped there.
-  float d1 = org_dot2(pm - bs);
+  float d1 = dot2(pm - bs);
   float f12 = sqrt(d1 / max(d1 + max(pf2 - best, 0.0), 1e-4));
   return vec4(dr, m, hashI(a, seed + 17.0), f12);
 }
@@ -951,10 +1014,8 @@ vec4 cl_cells(vec2 p, vec2 cells, vec2 M, float jitter, float sizeVar, float k, 
 // dome (blobs) whose shape blends from polygonal (border distance dGlow) to round blobs (F1 / F2) with Roundness. h: the
 // Rounded relief profiles in the value's sense — x a dome over the whole cell (shaped per cell by crnd), y flat plates;
 // both with the rim core sunk / the crack cut.
-float org_smax(float a, float b, float k) { float h = max(k - abs(a - b), 0.0); return max(a, b) + (k > 0.0 ? h * h / (4.0 * k) : 0.0); }
-
-float org_liquid(float dCore, float dGlow, float f12, float R, float rim, float rb, float rbs, float glowAmt, float crnd, out vec2 h) {
-  float core = 1.0 - smoothstep(-0.5, 0.5 + u_rim_soft, dCore - 0.5 * rim);
+float cl_liquid(float dCore, float dGlow, float f12, float R, float rim, float rb, float rbs, float glowAmt, float crnd, out vec2 h) {
+  float core = org_line(dCore, rim, u_rim_soft);
   float hc = core;
   // Rounded rims: a smooth crest across the rim (no flat clipped core), at least 1.5 px wide — a thinner rim keeps the
   // width and dims instead (no beading); the core then meets the glow in a soft maximum (no shelf).
@@ -992,9 +1053,9 @@ float org_liquid(float dCore, float dGlow, float f12, float R, float rim, float 
 GenOut gen(vec2 p) {
   // Two octaves of cells — the main ones and a fainter, finer second octave — in one loop, so one copy of the cell
   // search and the noise (D3D inlines every call).
-  float v = 0.0, rnd = 0.0, sdf = ${ORG_NO_SDF}, sd0 = 1.0;
+  float v = 0.0, rnd = 0.0, sdf = NO_SDF, sd0 = 1.0;
   vec2 h = vec2(0.0);
-  for (int o = 0; o < 2 * ORG_1; o++) {
+  for (int o = 0; o < 2 * UNI_1; o++) {
     if (o == 1 && u_octave2 <= 0.0) break;
     float seed = uSeed + float(o);
     float sc = o == 0 ? u_scale : u_scale * u_octave2_scale;
@@ -1004,12 +1065,13 @@ GenOut gen(vec2 p) {
     // Stretched: measured where the cells are square.
     vec2 M = u_stretch == 1.0 ? vec2(1.0) : min(cs.x, cs.y) / cs;
     // The noise, one call site: the warp (x, y; stretched with the cells, so it bends them alike along both axes) and
-    // the rims' variation along their length (z) at p, and the warp one px right / up for its Jacobian (True rim width).
+    // the rims' variation along their length (z) at p, and the warp one px right / up for its Jacobian (True rim
+    // width): slots 0–2 at p (si 0, component ci), 3–4 right, 5–6 up.
     vec3 nz = vec3(0.5);
     vec2 wx = vec2(0.5), wy = vec2(0.5);
-    for (int e = 0; e < 9 * ORG_1; e++) {
-      int si = e / 3, ci = e - 3 * si;
-      if (ci < 2 ? u_warp > 0.0 : si == 0 && u_rim_var > 0.0) {
+    for (int e = 0; e < 7 * UNI_1; e++) {
+      int si = e < 3 ? 0 : (e - 1) / 2, ci = e < 3 ? e : (e - 1) % 2;
+      if (ci < 2 ? u_warp > 0.0 : u_rim_var > 0.0) {
         vec2 wc = cellsFor(sc * (ci < 2 ? u_warp_scale : 3.0), u_stretch);
         vec2 pp = p + (si == 1 ? vec2(1.0, 0.0) : si == 2 ? vec2(0.0, 1.0) : vec2(0.0));
         // Soft octaves: smooth, blobby distortion rather than jagged borders.
@@ -1040,8 +1102,10 @@ GenOut gen(vec2 p) {
     // Rim variation: the width along the rim from smooth noise, the brightness also per border segment.
     float rw = mix(1.0, 0.3 + 1.4 * nz.z, u_rim_var);
     float rb = 1.0 - u_rim_var * 0.5 * (1.0 - mix(er, nz.z, 0.5));
-    vec2 ho;
-    float vo = org_liquid(c.x / gsc, dg, c.w, R, rim * rw * nw, rb, nz.z, u_glow_amount, c.z, ho);
+    // (The main octave's brightness and relief; the second octave draws only its rims, below.)
+    vec2 ho = vec2(0.0);
+    float vo = 0.0;
+    if (o == 0) vo = cl_liquid(c.x / gsc, dg, c.w, R, rim * rw * nw, rb, nz.z, u_glow_amount, c.z, ho);
     // Cell height variation: each cell's rise above the common rim floor its own (continuous across the rims, unlike
     // Height's Per-feature variation, which scales the whole depth and steps at every rim).
     if (o == 0 && u_cell_h > 0.0) {
@@ -1060,7 +1124,7 @@ GenOut gen(vec2 p) {
       // (Nest); in the height a soft groove a few px wide, not a crisp crease.
       float k2 = u_octave2 * nw;
       float cd = c.x / gsc;
-      float core2 = 1.0 - smoothstep(-0.5, 0.5 + u_rim_soft, cd - 0.5 * rim * rw * nw);
+      float core2 = org_line(cd, rim * rw * nw, u_rim_soft);
       float sg = 1.0 - smoothstep(0.0, 0.5 * rim * nw + 3.0, cd);
       sg *= sg;
       if (u_mode == 0) {

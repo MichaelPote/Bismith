@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KING, traceLinks, type TraceLinkOptions } from './traceLinks';
+import { KING, kingOf, linkDegrees, traceLinks, type TraceLinkOptions } from './traceLinks';
 
 const base: TraceLinkOptions = {
 	mode: 'route',
@@ -16,6 +16,10 @@ const base: TraceLinkOptions = {
 	vias: 0.2
 };
 
+/** A node's index at (x, y), wrapped. */
+const wrapIdx = (o: TraceLinkOptions, x: number, y: number) =>
+	(((y % o.ny) + o.ny) % o.ny) * o.nx + (((x % o.nx) + o.nx) % o.nx);
+
 /** Every drawn segment as [from x, from y, to x, to y] (to unwrapped). */
 function segments(o: TraceLinkOptions): number[][] {
 	const { links } = traceLinks(o);
@@ -28,10 +32,9 @@ function segments(o: TraceLinkOptions): number[][] {
 
 function degrees(o: TraceLinkOptions): number[] {
 	const deg = new Array(o.nx * o.ny).fill(0);
-	const wrap = (x: number, y: number) => (((y % o.ny) + o.ny) % o.ny) * o.nx + (((x % o.nx) + o.nx) % o.nx);
 	for (const [x0, y0, x1, y1] of segments(o)) {
-		deg[wrap(x0, y0)]++;
-		deg[wrap(x1, y1)]++;
+		deg[wrapIdx(o, x0, y0)]++;
+		deg[wrapIdx(o, x1, y1)]++;
 	}
 	return deg;
 }
@@ -78,6 +81,16 @@ describe('trace links', () => {
 		});
 	}
 
+	it('counts own and arriving links per node, and kingOf inverts KING', () => {
+		for (let d = 0; d < 8; d++) expect(kingOf(KING[d][0], KING[d][1])).toBe(d);
+		// 3×2 nodes, wrapping: 0 → 1 east, 1 → 4 south (y + 1), 2 → 0 east across the seam.
+		const links = new Uint8Array(6);
+		links[0] = 1 << 0;
+		links[1] = 1 << 2;
+		links[2] = 1 << 0;
+		expect(Array.from(linkDegrees(links, 3, 2))).toEqual([2, 2, 1, 0, 1, 0]);
+	});
+
 	it('route: traces are paths (at most one link in and one out per node)', () => {
 		const deg = degrees(base);
 		expect(Math.max(...deg)).toBeLessThanOrEqual(2);
@@ -117,10 +130,9 @@ describe('labyrinth', () => {
 			else expect(nodes.size).toBeGreaterThan(0.9 * o.nx * o.ny);
 			const parent = Array.from({ length: o.nx * o.ny }, (_, i) => i);
 			const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-			const wr = (x: number, y: number) => (((y % o.ny) + o.ny) % o.ny) * o.nx + (((x % o.nx) + o.nx) % o.nx);
 			for (const [x0, y0, x1, y1] of segs) {
-				const a = find(wr(x0, y0));
-				const b = find(wr(x1, y1));
+				const a = find(wrapIdx(o, x0, y0));
+				const b = find(wrapIdx(o, x1, y1));
 				expect(a, 'a loop').not.toBe(b);
 				parent[a] = b;
 			}
@@ -133,11 +145,9 @@ describe('labyrinth', () => {
 		for (const seed of [3, 9, 27]) {
 			const o = { ...lab, seed, diagonal: 0.5, branching: 1, straight: 0.25 };
 			const at: number[][] = Array.from({ length: o.nx * o.ny }, () => []);
-			const wr = (x: number, y: number) => (((y % o.ny) + o.ny) % o.ny) * o.nx + (((x % o.nx) + o.nx) % o.nx);
-			const dirOf = (dx: number, dy: number) => KING.findIndex(([kx, ky]) => kx === dx && ky === dy);
 			for (const [x0, y0, x1, y1] of segments(o)) {
-				at[wr(x0, y0)].push(dirOf(x1 - x0, y1 - y0));
-				at[wr(x1, y1)].push(dirOf(x0 - x1, y0 - y1));
+				at[wrapIdx(o, x0, y0)].push(kingOf(x1 - x0, y1 - y0));
+				at[wrapIdx(o, x1, y1)].push(kingOf(x0 - x1, y0 - y1));
 			}
 			let wedges = 0;
 			let diagonals = 0;

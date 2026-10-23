@@ -3,7 +3,8 @@
 
 import { P } from '@/core/params';
 import type { LayerDef } from '../types';
-import { blurTexture } from './shared';
+import { HEIGHT_MODES } from '../commonParams';
+import { blurTexture, mrtApply } from './shared';
 
 export const levelsLayer: LayerDef = {
 	type: 'levels',
@@ -77,25 +78,15 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
 `
 };
 
-const HFD_APPLY = /* glsl */ `
+const HFD_APPLY = mrtApply(/* glsl */ `
 uniform sampler2D tLum;
-void main() {
-  ivec2 ip = ivec2(gl_FragCoord.xy);
-  vec4 A = texelFetch(tAlbedo, ip, 0);
-  vec4 S = texelFetch(tSurface, ip, 0);
-  vec4 E = texelFetch(tEmissive, ip, 0);
+void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   float l = luma(linearToSrgb(texelFetch(tLum, ip, 0).rgb));
   if (u_invert) l = 1.0 - l;
   if (u_centre) l -= 0.5;
-  float v = l * u_amount;
-  float h = S.r;
-  S.r = u_mode == 0 ? h + v : u_mode == 1 ? h - v : u_mode == 2 ? max(h, v)
-      : u_mode == 3 ? min(h, v) : u_mode == 4 ? v : h * v;
-  oAlbedo = A;
-  oSurface = S;
-  oEmissive = E;
+  S.r = heightCombine(u_mode, S.r, l * u_amount);
 }
-`;
+`);
 
 export const heightFromDiffuseLayer: LayerDef = {
 	type: 'heightFromDiffuse',
@@ -106,21 +97,14 @@ export const heightFromDiffuseLayer: LayerDef = {
 	description: 'Turns diffuse luminance into height (bright = high), optionally pre-blurred.',
 	params: [
 		P.float('amount', 'Amount', 0.5, -16, 16, { softMin: -2, softMax: 2, step: 0.001 }),
-		P.enum('mode', 'Mode', 'add', [
-			['add', 'Add'],
-			['subtract', 'Subtract'],
-			['max', 'Max'],
-			['min', 'Min'],
-			['replace', 'Replace'],
-			['multiply', 'Multiply']
-		]),
+		P.enum('mode', 'Mode', 'add', HEIGHT_MODES),
 		P.bool('invert', 'Invert', false, { hint: 'Dark = high' }),
 		P.bool('centre', 'Centre on mid-grey', false, { hint: 'Luminance − 0.5, so mid-grey leaves height unchanged' }),
 		P.float('blur', 'Pre-blur', 0, 0, 64, { softMax: 8, unit: 'px', step: 0.1 })
 	],
 	run(ctx, layer) {
 		const radius = Number(layer.params.blur ?? 0);
-		const src = radius > 0 ? blurTexture(ctx, ctx.albedo, radius, 'hfd').texture : ctx.albedo;
+		const src = radius > 0 ? blurTexture(ctx, ctx.albedo, radius).texture : ctx.albedo;
 		const mat = ctx.mrtMaterial('apply', HFD_APPLY, { tLum: { value: null } });
 		mat.uniforms.tLum.value = src;
 		ctx.runMRT(mat);

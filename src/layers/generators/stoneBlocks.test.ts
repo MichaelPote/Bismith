@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createLayer, freshParams, layerParamDefs, linkedChanges } from '../registry';
+import { createLayer, freshParams, linkedChanges } from '../registry';
 import { stoneBlocksLayer } from './stoneBlocks';
 
 describe('stone blocks', () => {
@@ -50,18 +50,6 @@ describe('stone blocks', () => {
 		expect(def.glsl!).toContain('u_output == 0 ? sd :');
 	});
 
-	it('links only known params and uses every param it declares', () => {
-		const keys = new Set(layerParamDefs('stone_blocks').map((d) => d.key));
-		for (const output of ['relief', 'joints', 'scars', 'gaps']) {
-			for (const k of Object.keys(stoneBlocksLayer.linkedDefaults!({ output })))
-				expect(keys.has(k), `${output}: ${k}`).toBe(true);
-		}
-		// (The seed reaches the shader mixed into uSeed; the extra masks' names pick passes, not uniforms.)
-		for (const d of stoneBlocksLayer.params)
-			if (d.key !== 'seed' && !d.mask)
-				expect(stoneBlocksLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
-	});
-
 	it('keeps defaults inside their ranges, and the ranges the shader relies on', () => {
 		for (const d of stoneBlocksLayer.params) {
 			if (d.type !== 'float' && d.type !== 'int') continue;
@@ -74,7 +62,7 @@ describe('stone blocks', () => {
 		expect(def('row_var').max).toBe(1);
 		expect(def('len_var').max).toBe(1);
 		expect(def('levels').max).toBe(3);
-		// Joint variation is off by default: every joint as set, walls made before it look the same.
+		// Joint variation is off by default: every joint as set.
 		expect(def('joint_var').default).toBe(0);
 		// Every length is in px, so supersampling scales it.
 		for (const k of [

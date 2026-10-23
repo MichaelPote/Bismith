@@ -8,6 +8,8 @@
 // left). When tiling, every run spans exactly one period (or ends on other pipes) and primitives near an edge are
 // copied across it, so the texture wraps.
 
+import { mulberry32 } from '@/core/hash';
+
 export interface PipeRun {
 	/** Centre line (px, y down). */
 	points: [number, number][];
@@ -17,7 +19,7 @@ export interface PipeRun {
 	/** Ends that need a fitting (an end inside the texture, not a run continuing across the edge). */
 	capStart: boolean;
 	capEnd: boolean;
-	/** Ends that tee into another pipe: a collar just outside it, at this distance from the end. */
+	/** Ends that tee into another pipe: that pipe's radius (the end stops on its near flank, a collar just outside it). */
 	teeStart?: number;
 	teeEnd?: number;
 	/** Runs (indices) this one tees into: it shares their liquid surface (the lowest of them). */
@@ -69,21 +71,36 @@ export interface PipeOptions {
 	fill?: number;
 }
 
+/** How far a flange stands proud of its pipe, in Collar sizes (a collar: one). */
+export const FLANGE_PROUD = 2.2;
+/** A branch teeing into a pipe is this much narrower (equal sizes meet in a sharp V, a narrower one in a saddle). */
+export const TEE_SHRINK = 0.85;
+/** The most primitives the shader reads (its loop bound); a layout past it loses its last ones. */
+export const MAX_PIPE_PRIMS = 4096;
+/** Texels per row of the primitive texture. */
+export const PRIM_ROW = 1024;
+
+/** The highest a run reaches above the wall (px): its axis depth plus its radius, flanges included. */
+export const runTop = (run: PipeRun, o: PipeOptions) => run.depth + run.radius * (1 + FLANGE_PROUD * o.collar);
+
+/** A pipe radius varied by up to ±40 % × variety (u: a random 0..1), at least 1 px. */
+const jitterRadius = (r: number, variety: number, u: number) => Math.max(1, r * (1 + variety * 0.8 * (u - 0.5)));
+
+/** Distance from p to the segment a → b. */
+function segDist(p: [number, number], a: [number, number], b: [number, number]): number {
+	const ex = b[0] - a[0];
+	const ey = b[1] - a[1];
+	const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ex + (p[1] - a[1]) * ey) / Math.max(ex * ex + ey * ey, 1e-9)));
+	return Math.hypot(p[0] - a[0] - ex * t, p[1] - a[1] - ey * t);
+}
+
 /** The highest surface over the wall (px): a primitive's axis depth plus its radius (fittings: their outer radius). */
 export function stackHeight(prims: PipePrim[]): number {
 	return prims.reduce((m, p) => Math.max(m, p.depth + (p.kind >= PRIM_COLLAR ? p.outer : p.radius)), 0);
 }
 
-export function rng(seed: number) {
-	let s = (Math.floor(seed) >>> 0) ^ 0x9e3779b9;
-	return () => {
-		s = (s + 0x6d2b79f5) >>> 0;
-		let t = s;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	};
-}
+/** The layout's random stream (mulberry32), uniform in [0, 1). */
+export const rng = (seed: number) => mulberry32((Math.floor(seed) >>> 0) ^ 0x9e3779b9);
 
 /** Polylines from a points list ("x,y x,y …", one run per line or "|"); `fraction` scales 0..1 to the texture. */
 export function parseRuns(text: string, fraction: boolean, width: number, height: number): [number, number][][] {
@@ -98,6 +115,44 @@ export function parseRuns(text: string, fraction: boolean, width: number, height
 		if (pts.length >= 2) out.push(pts);
 	}
 	return out;
+}
+
+/**
+ * Drawn runs (a points list, see parseRuns): radii varied by Radius variety; an end inside the texture gets a flange,
+ * and an end on another run tees into it, the branch narrowing to meet it in a saddle.
+ */
+export function drawnRuns(o: PipeOptions, text: string, fraction: boolean, radius: number, variety: number): PipeRun[] {
+	const inside = ([x, y]: [number, number]) => x > 0 && y > 0 && x < o.width && y < o.height;
+	const runs: PipeRun[] = parseRuns(text, fraction, o.width, o.height).map((pts, i) => ({
+		points: pts,
+		radius: jitterRadius(radius, variety, (i * 0.618034) % 1),
+		depth: 0,
+		capStart: inside(pts[0]),
+		capEnd: inside(pts[pts.length - 1])
+	}));
+	/** The run (and its radius) an end lands on. */
+	const onRun = (pt: [number, number], self: number): { r: number; j: number } | undefined => {
+		for (let j = 0; j < runs.length; j++) {
+			const ps = runs[j].points;
+			if (j !== self)
+				for (let k = 0; k + 1 < ps.length; k++)
+					if (segDist(pt, ps[k], ps[k + 1]) <= runs[j].radius) return { r: runs[j].radius, j };
+		}
+		return undefined;
+	};
+	// Every tee first, then the branches narrow (so no run's tees depend on the order of the others).
+	const tees = runs.map((run, i) => [onRun(run.points[0], i), onRun(run.points[run.points.length - 1], i)]);
+	runs.forEach((run, i) => {
+		const [a, b] = tees[i];
+		run.teeStart = a?.r;
+		run.teeEnd = b?.r;
+		run.joins = [a?.j, b?.j].filter((j): j is number => j !== undefined);
+		if (a) run.capStart = false;
+		if (b) run.capEnd = false;
+		const joins = Math.min(a?.r ?? Infinity, b?.r ?? Infinity);
+		if (Number.isFinite(joins)) run.radius = Math.min(run.radius, joins * TEE_SHRINK);
+	});
+	return runs;
 }
 
 export interface RandomLayout {
@@ -144,28 +199,28 @@ export class Coverage {
 		return this.covered / (this.w * this.h);
 	}
 
-	/** Cells within `r` of the segment a → b (each once per call). */
+	/**
+	 * Cells within `r` of the segment a → b, each once per call. When tiling, a cell counts if any of its positions round
+	 * the torus within the segment's box is near (a box wider than the grid holds some twice).
+	 */
 	private visit(a: [number, number], b: [number, number], r: number, fn: (i: number) => void): void {
 		const c = this.cell;
 		const x0 = Math.floor((Math.min(a[0], b[0]) - r) / c);
 		const x1 = Math.ceil((Math.max(a[0], b[0]) + r) / c);
 		const y0 = Math.floor((Math.min(a[1], b[1]) - r) / c);
 		const y1 = Math.ceil((Math.max(a[1], b[1]) + r) / c);
-		const ex = b[0] - a[0];
-		const ey = b[1] - a[1];
-		const ee = Math.max(ex * ex + ey * ey, 1e-9);
-		for (let gy = y0; gy <= y1; gy++) {
+		// One period of cells at most (tiling), each also tested a period on while that stays in the box.
+		const pw = this.tile ? this.w : Infinity;
+		const ph = this.tile ? this.h : Infinity;
+		for (let gy = y0; gy <= Math.min(y1, y0 + ph - 1); gy++) {
 			if (!this.tile && (gy < 0 || gy >= this.h)) continue;
 			const wy = ((gy % this.h) + this.h) % this.h;
-			for (let gx = x0; gx <= x1; gx++) {
+			for (let gx = x0; gx <= Math.min(x1, x0 + pw - 1); gx++) {
 				if (!this.tile && (gx < 0 || gx >= this.w)) continue;
-				// A box wider than the (wrapping) grid would visit cells twice; one period is enough.
-				if (gx - x0 > this.w || gy - y0 > this.h) continue;
-				const px = (gx + 0.5) * c;
-				const py = (gy + 0.5) * c;
-				const t = Math.max(0, Math.min(1, ((px - a[0]) * ex + (py - a[1]) * ey) / ee));
-				if (Math.hypot(px - a[0] - ex * t, py - a[1] - ey * t) > r) continue;
-				fn(wy * this.w + (((gx % this.w) + this.w) % this.w));
+				let near = false;
+				for (let sy = gy; sy <= y1 && !near; sy += ph)
+					for (let sx = gx; sx <= x1 && !near; sx += pw) near = segDist([(sx + 0.5) * c, (sy + 0.5) * c], a, b) <= r;
+				if (near) fn(wy * this.w + (((gx % this.w) + this.w) % this.w));
 			}
 		}
 	}
@@ -183,11 +238,11 @@ export class Coverage {
 
 	/** Bare cells a straight run would cover. */
 	gain(a: [number, number], b: [number, number], r: number): number {
-		const seen = new Set<number>();
+		let n = 0;
 		this.visit(a, b, r, (i) => {
-			if (!this.cells[i]) seen.add(i);
+			if (!this.cells[i]) n++;
 		});
-		return seen.size;
+		return n;
 	}
 
 	/** The centre (px) of a bare cell's row (horizontal) or column, searching from a start fraction; null when full. */
@@ -208,16 +263,21 @@ export class Coverage {
  * top, fittings included), its runs apart from one another, each placed where it covers the most bare wall (one
  * candidate always on a bare cell, so the last gaps fill).
  */
-function densify(runs: PipeRun[], o: PipeOptions, density: number, rand: () => number, radius: () => number): void {
+function densify(
+	runs: PipeRun[],
+	o: PipeOptions,
+	density: number,
+	rand: () => number,
+	radius: () => number,
+	spanEnds: (period: number) => [number, number]
+): void {
 	if (density <= 0) return;
 	const { width: W, height: H } = o;
 	const cov = new Coverage(W, H, o.tile);
 	for (const r of runs) cov.add(r);
 	const target = cov.fraction() + Math.min(1, density) * (1 - cov.fraction());
 	const done = () => cov.fraction() >= target - 1e-4 || runs.length >= MAX_DENSE_RUNS;
-	const top = (r: PipeRun) => r.depth + r.radius * (1 + 2 * o.collar);
-	let base = runs.reduce((m, r) => Math.max(m, top(r)), 0);
-	const pad = o.tile ? 0 : 4 * Math.max(...runs.map((r) => r.radius), 1);
+	let base = runs.reduce((m, r) => Math.max(m, runTop(r, o)), 0);
 	for (let layer = 0; layer < 16 && !done(); layer++) {
 		const horizontal = layer % 2 === 0;
 		const span = horizontal ? H : W;
@@ -231,16 +291,16 @@ function densify(runs: PipeRun[], o: PipeOptions, density: number, rand: () => n
 		let layerTop = base;
 		while (!done()) {
 			const r = radius();
-			const start = o.tile ? rand() * along : -pad;
+			const [start, end] = spanEnds(along);
 			const line = (c: number): [[number, number], [number, number]] =>
 				horizontal
 					? [
 							[start, c],
-							[o.tile ? start + W : W + pad, c]
+							[end, c]
 						]
 					: [
 							[c, start],
-							[c, o.tile ? start + H : H + pad]
+							[c, end]
 						];
 			const candidates = Array.from({ length: 24 }, () =>
 				o.tile ? rand() * span : r + rand() * Math.max(0, span - 2 * r)
@@ -264,7 +324,7 @@ function densify(runs: PipeRun[], o: PipeOptions, density: number, rand: () => n
 			runs.push(run);
 			cov.add(run);
 			bands.push([best, r]);
-			layerTop = Math.max(layerTop, top(run));
+			layerTop = Math.max(layerTop, runTop(run, o));
 		}
 		base = layerTop;
 	}
@@ -278,16 +338,21 @@ function densify(runs: PipeRun[], o: PipeOptions, density: number, rand: () => n
 export function randomRuns(o: PipeOptions, l: RandomLayout): PipeRun[] {
 	const rand = rng(o.seed * 7919 + 13);
 	const { width: W, height: H } = o;
-	const radius = () => Math.max(1, l.radius * (1 + l.variety * 0.8 * (rand() - 0.5)));
-	const pad = o.tile ? 0 : 4 * l.radius;
+	const radius = () => jitterRadius(l.radius, l.variety, rand());
+	// A run spanning the texture: exactly one period from a random start when tiling, else past both edges.
+	const pad = 4 * l.radius;
+	const spanEnds = (period: number): [number, number] => {
+		if (!o.tile) return [-pad, period + pad];
+		const s = rand() * period;
+		return [s, s + period];
+	};
 	const runs: PipeRun[] = [];
 	// Horizontal runs: keep clear of each other (jogs included); `top` = the highest point of the run in the band.
 	const taken: { lo: number; hi: number; top: number }[] = [];
 	const free = (lo: number, hi: number) => taken.every((t) => hi < t.lo || lo > t.hi);
 	const hs: { y: number; r: number; depth: number; pts: [number, number][]; i: number }[] = [];
 	const placeH = (y: number, jog: boolean, dy: number, r: number, depth: number) => {
-		const x0 = o.tile ? rand() * W : -pad;
-		const x1 = o.tile ? x0 + W : W + pad;
+		const [x0, x1] = spanEnds(W);
 		let pts: [number, number][] = [
 			[x0, y],
 			[x1, y]
@@ -320,8 +385,8 @@ export function randomRuns(o: PipeOptions, l: RandomLayout): PipeRun[] {
 			const hi = Math.max(y, jog ? y + dy : y) + r * 1.8;
 			if (o.tile || (lo >= 0 && hi <= H)) last = { y, jog, dy, lo, hi };
 			if (!free(lo, hi) || (!o.tile && (lo < 0 || hi > H))) continue;
-			taken.push({ lo, hi, top: r });
 			placeH(y, jog, dy, r, 0);
+			taken.push({ lo, hi, top: runTop(runs[runs.length - 1], o) });
 			placed = true;
 			break;
 		}
@@ -329,15 +394,31 @@ export function randomRuns(o: PipeOptions, l: RandomLayout): PipeRun[] {
 			// No clear band left: over the runs it overlaps, resting on them.
 			const { lo, hi } = last;
 			const depth = taken.reduce((m, t) => (hi < t.lo || lo > t.hi ? m : Math.max(m, t.top)), 0);
-			taken.push({ lo, hi, top: depth + r });
 			placeH(last.y, last.jog, last.dy, r, depth);
+			taken.push({ lo, hi, top: runTop(runs[runs.length - 1], o) });
 		}
 	}
 	// Vertical runs, in front: spanning the height, or teeing between two horizontal runs (on the wall).
-	const front = Math.max(0, ...hs.map((h) => h.depth + h.r));
+	const front = Math.max(0, ...hs.map((h) => runTop(runs[h.i], o)));
 	const onWall = hs.filter((h) => h.depth === 0);
 	const xs: number[] = [];
 	const vs: { x: number; r: number; top: number }[] = [];
+	/** A vertical run spanning the height, in front at `depth`. */
+	const pushVertical = (x: number, r: number, depth: number) => {
+		const [y0, y1] = spanEnds(H);
+		const run: PipeRun = {
+			points: [
+				[x, y0],
+				[x, y1]
+			],
+			radius: r,
+			depth,
+			capStart: false,
+			capEnd: false
+		};
+		runs.push(run);
+		vs.push({ x, r, top: runTop(run, o) });
+	};
 	for (let k = 0; k < l.drops; k++) {
 		const r = radius();
 		let lastX: number | null = null;
@@ -368,7 +449,7 @@ export function randomRuns(o: PipeOptions, l: RandomLayout): PipeRun[] {
 						[x, a.y],
 						[x, b.y]
 					],
-					radius: Math.min(r, a.h.r, b.h.r) * 0.85,
+					radius: Math.min(r, a.h.r, b.h.r) * TEE_SHRINK,
 					depth: 0,
 					capStart: false,
 					capEnd: false,
@@ -376,45 +457,22 @@ export function randomRuns(o: PipeOptions, l: RandomLayout): PipeRun[] {
 					teeEnd: b.h.r,
 					joins: [a.h.i, b.h.i]
 				});
-			} else {
-				const y0 = o.tile ? rand() * H : -pad;
-				runs.push({
-					points: [
-						[x, y0],
-						[x, o.tile ? y0 + H : H + pad]
-					],
-					radius: r,
-					depth: front,
-					capStart: false,
-					capEnd: false
-				});
-				vs.push({ x, r, top: front + r });
-			}
+			} else pushVertical(x, r, front);
 			break;
 		}
 		if (!placed && lastX !== null) {
 			// No clear column left: a spanning run over the verticals it overlaps, resting on them.
 			const x = lastX;
-			const depth = vs.reduce((m, v) => (Math.abs(v.x - x) < v.r + r ? Math.max(m, v.top) : m), front);
-			const y0 = o.tile ? rand() * H : -pad;
-			runs.push({
-				points: [
-					[x, y0],
-					[x, o.tile ? y0 + H : H + pad]
-				],
-				radius: r,
-				depth,
-				capStart: false,
-				capEnd: false
-			});
-			vs.push({ x, r, top: depth + r });
+			pushVertical(
+				x,
+				r,
+				vs.reduce((m, v) => (Math.abs(v.x - x) < v.r + r ? Math.max(m, v.top) : m), front)
+			);
 		}
 	}
-	densify(runs, o, l.density ?? 0, rand, radius);
+	densify(runs, o, l.density ?? 0, rand, radius, spanEnds);
 	return runs;
 }
-
-const len = (x: number, y: number) => Math.hypot(x, y);
 
 /**
  * The height of a horizontal run (a polyline of horizontal lengths and vertical jogs) at x — null within `clear` px of
@@ -491,7 +549,7 @@ export function runPrims(
 		y,
 		a0: ang,
 		halfWidth: flange ? Math.max(1, r * 0.45) : collarW / 2,
-		outer: r * (1 + (flange ? 2.2 : 1) * o.collar)
+		outer: r * (1 + (flange ? FLANGE_PROUD : 1) * o.collar)
 	});
 	// Fillet each corner: trim the adjoining lengths by t = rb·tan(θ/2) (at most half of either), arc between.
 	const starts: [number, number][] = [pts[0]];
@@ -499,8 +557,8 @@ export function runPrims(
 	for (let i = 1; i < pts.length - 1; i++) {
 		const [ax, ay] = [pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]];
 		const [bx, by] = [pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]];
-		const la = len(ax, ay);
-		const lb = len(bx, by);
+		const la = Math.hypot(ax, ay);
+		const lb = Math.hypot(bx, by);
 		if (la < 1e-6 || lb < 1e-6) continue;
 		const dot = (ax * bx + ay * by) / (la * lb);
 		const cross = (ax * by - ay * bx) / (la * lb);
@@ -528,8 +586,9 @@ export function runPrims(
 	for (let k = 0; k < starts.length; k++) {
 		const [x0, y0] = starts[k];
 		const [x1, y1] = ends[k];
-		out.push({ ...base, kind: PRIM_LINE, x: x0, y: y0, x1, y1 });
-		const l = len(x1 - x0, y1 - y0);
+		const l = Math.hypot(x1 - x0, y1 - y0);
+		// (Two fillets can take all of a short length between them.)
+		if (l >= 1e-3) out.push({ ...base, kind: PRIM_LINE, x: x0, y: y0, x1, y1 });
 		const ang = Math.atan2(y1 - y0, x1 - x0);
 		// Couplings: evenly spaced (a whole number per length, so spanning runs stay periodic), clear of the ends.
 		if (o.spacing > 0 && l > o.spacing * 0.6) {
@@ -547,7 +606,7 @@ export function runPrims(
 		const [x, y] = pts[i];
 		const dx = pts[j][0] - x;
 		const dy = pts[j][1] - y;
-		const l = len(dx, dy);
+		const l = Math.hypot(dx, dy);
 		if (l < 1e-6) return;
 		const ang = Math.atan2(dy, dx);
 		if (tee !== undefined) {
@@ -560,9 +619,12 @@ export function runPrims(
 	return out;
 }
 
-/** Bounding radius of a primitive around its anchor (for tiling copies). */
+/**
+ * How far round a primitive (its box, for a length) a tiling copy must reach the texture to be kept: its own extent,
+ * and for a length a margin more, so the mask's distance stays exact a few radii across the seam.
+ */
 function reach(p: PipePrim): number {
-	if (p.kind === PRIM_LINE) return Math.max(Math.abs(p.x1 - p.x), Math.abs(p.y1 - p.y)) + p.radius;
+	if (p.kind === PRIM_LINE) return 5 * p.radius;
 	if (p.kind === PRIM_ARC) return p.bend + p.radius;
 	return Math.max(p.outer, p.halfWidth) * 1.5;
 }
@@ -592,48 +654,66 @@ export function buildPrims(runs: PipeRun[], o: PipeOptions): PipePrim[] {
 }
 
 /**
- * RGBA8 texture: texel 0 = header (count, max surface height ×16); then 5 texels per primitive, two 16-bit values
- * each (high byte first): [x, y] [x1, y1 | bend, a0 | angle, half width] [sweep | outer, pipe id] [kind, radius]
- * [depth, liquid level]. Positions (and the level) are (v + 4096) × 8, angles map −range..range onto 0..65535, sizes × 64
- * (bend × 8, depth × 16).
+ * The primitive texture, RGBA8, PRIM_ROW texels a row: texel 0 = header (count, height normalisation: px for a value
+ * of 1, × 16), texel 1 = the length unit (px, a power of two: 1 unless the layout is too large for the fixed point at
+ * 1); then 5 texels per primitive, two 16-bit values each (high byte first): [x, y] [x1, y1 | bend, a0 | angle, half
+ * width] [sweep | outer, pipe id] [kind, radius] [depth, liquid level]. Lengths are in units: positions (and the level)
+ * are (v + 4096) × 8, angles map −range..range onto 0..65535, sizes × 64 (bend × 8, depth and height × 16).
  */
-/**
- * The primitive texture: a header texel (count, height normalisation in px for a value of 1 — 0 = the shader's default
- * of 4 × the pipe radius) and five texels per primitive.
- */
-export function encodePrims(prims: PipePrim[], heightNorm = 0): { width: number; height: number; data: Uint8Array } {
-	const n = prims.length;
-	const data = new Uint8Array((1 + 5 * n) * 4);
+export function encodePrims(
+	prims: PipePrim[],
+	heightNorm: number
+): { width: number; height: number; data: Uint8Array } {
+	const n = Math.min(prims.length, MAX_PIPE_PRIMS);
+	const list = prims.slice(0, n);
+	// The unit: the least power of two that keeps every value in range.
+	const most = (f: (p: PipePrim) => number) => list.reduce((m, p) => Math.max(m, f(p)), 0);
+	const need = Math.max(
+		most((p) => Math.max(Math.abs(p.x), Math.abs(p.y), Math.abs(p.x1), Math.abs(p.y1))) / 4095,
+		most((p) => Math.max(p.radius, p.halfWidth, p.outer)) / 1023,
+		most((p) => p.bend) / 8191,
+		Math.max(
+			most((p) => p.depth),
+			heightNorm
+		) / 4095
+	);
+	let unit = 1;
+	while (unit < need) unit *= 2;
+	const texels = 2 + 5 * n;
+	const width = Math.min(PRIM_ROW, texels);
+	const height = Math.ceil(texels / width);
+	const data = new Uint8Array(width * height * 4);
 	const put16 = (texel: number, slot: number, v: number) => {
 		const q = Math.max(0, Math.min(65535, Math.round(v)));
 		data[texel * 4 + slot * 2] = q >> 8;
 		data[texel * 4 + slot * 2 + 1] = q & 255;
 	};
-	const pos = (v: number) => (v + 4096) * 8;
+	const pos = (v: number) => (Math.max(-4096, Math.min(4095, v / unit)) + 4096) * 8;
 	const ang = (a: number, range: number) => ((a / range) * 0.5 + 0.5) * 65535;
 	put16(0, 0, n);
-	put16(0, 1, heightNorm * 16);
-	prims.forEach((p, i) => {
-		const t = 1 + 5 * i;
+	put16(0, 1, (heightNorm / unit) * 16);
+	put16(1, 0, unit);
+	list.forEach((p, i) => {
+		const t = 2 + 5 * i;
 		put16(t, 0, pos(p.x));
 		put16(t, 1, pos(p.y));
 		if (p.kind === PRIM_LINE) {
 			put16(t + 1, 0, pos(p.x1));
 			put16(t + 1, 1, pos(p.y1));
 		} else if (p.kind === PRIM_ARC) {
-			put16(t + 1, 0, p.bend * 8);
+			put16(t + 1, 0, (p.bend / unit) * 8);
 			put16(t + 1, 1, ang(p.a0, Math.PI));
 			put16(t + 2, 0, ang(p.sweep, 2 * Math.PI));
 		} else {
 			put16(t + 1, 0, ang(p.a0, Math.PI));
-			put16(t + 1, 1, p.halfWidth * 64);
-			put16(t + 2, 0, p.outer * 64);
+			put16(t + 1, 1, (p.halfWidth / unit) * 64);
+			put16(t + 2, 0, (p.outer / unit) * 64);
 		}
 		put16(t + 2, 1, p.pipe);
 		data[(t + 3) * 4] = p.kind;
-		put16(t + 3, 1, p.radius * 64);
-		put16(t + 4, 0, p.depth * 16);
-		put16(t + 4, 1, pos(Math.max(-4096, Math.min(4095, p.level))));
+		put16(t + 3, 1, (p.radius / unit) * 64);
+		put16(t + 4, 0, (p.depth / unit) * 16);
+		put16(t + 4, 1, pos(p.level));
 	});
-	return { width: 1 + 5 * n, height: 1, data };
+	return { width, height, data };
 }

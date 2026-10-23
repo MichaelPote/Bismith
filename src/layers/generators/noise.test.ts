@@ -59,6 +59,27 @@ describe('noise', () => {
 		expect(median(3)).toBeLessThan(median(1) - 0.05);
 	});
 
+	it('measures each setting once: other params (Levels, colours) leave the spread cached', () => {
+		const stats = {
+			basis: 0,
+			mode: 2,
+			octaves: 7,
+			gain: 0.55,
+			lacunarity: 2,
+			crease: 0.5,
+			ridgeOffset: 1.4,
+			hier: 0.7
+		};
+		const a = fractalQuantiles(stats);
+		const t = performance.now();
+		const b = fractalQuantiles({ ...stats });
+		expect(performance.now() - t).toBeLessThan(5);
+		expect(b).toEqual(a);
+		// Each caller gets its own copy.
+		b[0] = -1;
+		expect(fractalQuantiles(stats)[0]).toBe(a[0]);
+	});
+
 	it('shows Worley’s controls only on the Worley types', () => {
 		const jitter = layerParamDefs('noise').find((d) => d.key === 'jitter')!;
 		expect(['worley', 'worley2', 'cells'].map((noise) => jitter.showIf!({ noise }))).toEqual([true, true, true]);

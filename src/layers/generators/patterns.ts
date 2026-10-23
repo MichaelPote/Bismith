@@ -4,33 +4,21 @@
 // channel outputs can vary them per brick / cell / tile. Every lattice wraps its indices when the project is
 // tileable, so the pattern repeats seamlessly. (Clouds, gradients and scratches live in patternsFill.ts.)
 
-import { P, gradient } from '@/core/params';
+import { hash2I, hashI } from '@/core/hash';
+import { P, gradient, round1 as r1 } from '@/core/params';
 import type { LayerDef } from '../types';
-import { cloudsLayer, gradientLayer, scratchesLayer } from './patternsFill';
+import { gradientLayer, scratchesLayer } from './patternsFill';
 
-/** Small GLSL helpers shared by the pattern layers (each layer compiles its own copy; names are prefixed). */
-export const PAT_GLSL = /* glsl */ `
-int pat_imod(int a, int m) { return (a + m * (1 + abs(a) / m)) % m; } // Euclidean, defined for a < 0 (see imod)
-
-// Convex cells (hex tiles, Voronoi cells) are intersections of half-planes. We keep the PAT_K nearest edges
-// of the cell under the pixel (distance m, positive inside; outward unit normal n), then build an exact
-// signed distance with rounded corners from them.
+/**
+ * Convex-cell helpers of hex tiles and Voronoi cells (each layer compiles its own copy; names are prefixed). A cell is an
+ * intersection of half-planes: we keep the PAT_K nearest edges of the cell under the pixel (distance m, positive inside;
+ * outward unit normal n), then build an exact signed distance with rounded corners from them.
+ */
+const PAT_CELL_GLSL = /* glsl */ `
 #define PAT_K 4
-#define PAT_1 (uRes.x > 0.0 ? 1 : 0)   // 1, from a uniform: a loop bound D3D can't unroll (keeps compiles small)
+// The pairs of the PAT_K edges: every corner the kept edges can make.
+const ivec2 PAT_PAIRS[6] = ivec2[6](ivec2(0, 1), ivec2(0, 2), ivec2(0, 3), ivec2(1, 2), ivec2(1, 3), ivec2(2, 3));
 
-// Perlin fBm, exactly fractalNoise(1, 1, x, per, oct, 2.0, 0.5, seed) (up to 6 octaves), with a loop D3D keeps
-// rolled: the library's unrolls its 12 octaves at every call site, which makes each noise a big part of the compile.
-float pat_fbm(vec2 x, ivec2 per, int oct, float seed) {
-  float sum = 0.0, amp = 1.0, norm = 0.0;
-  for (int o = 0; o < 6 * PAT_1; o++) {
-    if (o >= oct) break;
-    sum += perlinNoise(x, per, seed + float(o) * 31.0) * amp;
-    norm += amp;
-    amp *= 0.5;
-    if (uTile) { x *= 2.0; per *= 2; } else { x *= 2.0; }
-  }
-  return sum / max(norm, 1e-6);
-}
 void pat_pushEdge(inout float ms[PAT_K], inout vec2 ns[PAT_K], float m, vec2 n) {
   if (m >= ms[PAT_K - 1]) return;
   ms[PAT_K - 1] = m;
@@ -54,26 +42,139 @@ float pat_wedgeDist(float o1, vec2 n1, float o2, vec2 n2) {
 // bound of the distance to the cell shrunk by r; the pair forming the nearest corner makes it exact.
 float pat_cellSdf(float ms[PAT_K], vec2 ns[PAT_K], float r) {
   float d = r - ms[0];
-  for (int i = 0; i < PAT_K; i++)
-  for (int j = i + 1; j < PAT_K; j++) {
+  for (int k = 0; k < 6 * UNI_1; k++) {
+    int i = PAT_PAIRS[k].x, j = PAT_PAIRS[k].y;
     if (ms[j] <= 1e8) d = max(d, pat_wedgeDist(r - ms[i], ns[i], r - ms[j], ns[j]));
   }
   return d - r;
 }
+
+// Turns a convex cell, kept as its PAT_K nearest edges, by a (radians) about its centre c (relative to the pixel), then
+// moves it by off (px). Each edge plane keeps its distance h from the centre — and is drawn in by as much as the moved
+// edge would reach past its place (the edge half length about 0.6 h; g: half the joint), side by side, so a cell is
+// never cut off by its neighbours' places but only the sides that need it give way.
+void pat_moveCell(inout float ms[PAT_K], inout vec2 ns[PAT_K], vec2 c, float a, vec2 off, float g) {
+  mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));
+  float ca = cos(a), sa = abs(sin(a));
+  for (int i = 0; i < PAT_K; i++) {
+    if (ms[i] <= 1e8) {
+      float h = ms[i] - dot(c, ns[i]);
+      float out_ = dot(off, ns[i]) + h * (ca - 1.0) + 0.6 * h * sa - g;
+      vec2 n = R * ns[i];
+      ms[i] = h + dot(c + off, n) - max(out_, 0.0);
+      ns[i] = n;
+    }
+  }
+}
+
+// Depth of the pixel in a convex cell kept as its PAT_K nearest edges (m: distance to each edge plane, positive
+// inside; n: outward normal) with corners rounded by r, measured so that every contour has corners of radius r: the
+// depth t at which the cell inset by t, then rounded by r, passes through the pixel. (The plain distance's inner
+// contours sharpen into mitres deeper than r.) Per edge pair: the inset wedge's corner V(τ) = a − τb, τ = t + r, is r
+// from the pixel — the larger root — when the pixel lies in its normal cone, else the nearer edge; t is the least.
+float pat_roundDepth(float ms[PAT_K], vec2 ns[PAT_K], float r) {
+  float t = ms[0];
+  for (int k = 0; k < 6 * UNI_1; k++) {
+    int i = PAT_PAIRS[k].x, j = PAT_PAIRS[k].y;
+    vec2 n1 = ns[i], n2 = ns[j];
+    float det = n1.x * n2.y - n1.y * n2.x;
+    float tij = min(ms[i], ms[j]);
+    if (ms[j] <= 1e8 && abs(det) > 1e-3) {
+      vec2 a = vec2(n2.y * ms[i] - n1.y * ms[j], n1.x * ms[j] - n2.x * ms[i]) / det;
+      vec2 b = vec2(n2.y - n1.y, n1.x - n2.x) / det;
+      float bb = dot(b, b), ab = dot(a, b);
+      float disc = ab * ab - bb * (dot(a, a) - r * r);
+      if (bb > 1e-6 && disc >= 0.0) {
+        float tau = (ab + sqrt(disc)) / bb;
+        vec2 v = tau * b - a;   // from the corner to the pixel
+        // In the corner's normal cone: v = α n1 + β n2 with α, β ≥ 0.
+        float al = (v.x * n2.y - v.y * n2.x) / det, be = (n1.x * v.y - n1.y * v.x) / det;
+        if (al >= 0.0 && be >= 0.0) tij = tau - r;
+      }
+    }
+    if (ms[j] <= 1e8) t = min(t, tij);
+  }
+  return t;
+}
+
+// Bevel aspect (GLSL_BEVEL) of a convex cell kept as its PAT_K nearest edges (ms: px to each edge plane from the pixel,
+// positive inside; ns: outward unit normals in the generator's frame, which jx / jy — dFdx / dFdy of its position — take
+// to the screen) with corners rounded by r: the distance in the space the aspect stretches, px of Bevel, negative inside
+// (dE: the cell's own distance, for the sign). Each edge is a plane there too; a rounded corner, a circle's arc, becomes
+// an ellipse's (bevelArc2, for the true corner nearest the pixel — only within r of it can an arc be the nearest piece):
+// exact, its mitres continuous where the direction-based width steps. Round bevel corners (rb): pat_roundDepth in the
+// stretched space — the depth t at which the cell inset by t there, then rounded by the stretched corner (the ellipse),
+// passes through the pixel: the corner of the edges inset by t plus the ellipse's reach across each, V(t) = a − t b, has
+// the pixel on the ellipse round it, |K⁻¹(t b − a)| = r (the larger root), with the ellipse's normal there in the
+// corner's normal cone. extra: how far every edge is moved in first (Size jitter, Wobble).
+float pat_cellBevel(float ms[PAT_K], vec2 ns[PAT_K], vec2 jx, vec2 jy, float r, float dE, bool rb, float extra) {
+  for (int i = 0; i < PAT_K; i++) if (ms[i] <= 1e8) ms[i] -= extra;
+  vec2 k = u_bevel / bevelWidths();   // screen axes → the stretched space
+  vec2 ki = 1.0 / k;
+  vec2 nc[PAT_K];   // the normals on screen
+  float mS[PAT_K];  // the planes in the stretched space: distance and unit normal
+  vec2 nS[PAT_K];
+  float t = 1e9;
+  for (int i = 0; i < PAT_K; i++) {
+    vec2 n = vec2(dot(jx, ns[i]), dot(jy, ns[i]));
+    n /= max(length(n), 1e-6);
+    nc[i] = n;
+    float l = max(length(n * ki), 1e-6);
+    mS[i] = ms[i] <= 1e8 ? ms[i] / l : 1e9;
+    nS[i] = n * ki / l;
+    t = min(t, mS[i]);
+  }
+  // A corner of edges i, j: rb, the stretched round depth; else the nearest true corner (inside every other edge,
+  // inset by r) for the arc. One loop over the pairs, the arc evaluated once after it.
+  float vb = 1e18;
+  vec2 vc = vec2(0.0), d0 = vec2(1.0, 0.0), d1 = vec2(0.0, 1.0);
+  for (int c = 0; c < 6 * UNI_1; c++) {
+    int i = PAT_PAIRS[c].x, j = PAT_PAIRS[c].y;
+    vec2 n1 = rb ? nS[i] : nc[i], n2 = rb ? nS[j] : nc[j];
+    float det = n1.x * n2.y - n1.y * n2.x;
+    if (ms[j] <= 1e8 && abs(det) > 1e-3 && r > 0.0) {
+      float m1 = rb ? mS[i] - r * length(k * n1) : ms[i] - r;
+      float m2 = rb ? mS[j] - r * length(k * n2) : ms[j] - r;
+      vec2 a = vec2(n2.y * m1 - n1.y * m2, n1.x * m2 - n2.x * m1) / det;
+      if (rb) {
+        vec2 b = vec2(n2.y - n1.y, n1.x - n2.x) / det;
+        vec2 A = a * ki, B = b * ki;
+        float bb = dot(B, B), ab = dot(A, B);
+        float disc = ab * ab - bb * (dot(A, A) - r * r);
+        if (bb > 1e-6 && disc >= 0.0) {
+          float tc = (ab + sqrt(disc)) / bb;
+          vec2 w = (tc * b - a) * ki * ki;   // the ellipse's normal at the pixel
+          float al = (w.x * n2.y - w.y * n2.x) / det, be = (n1.x * w.y - n1.y * w.x) / det;
+          if (al >= 0.0 && be >= 0.0) t = min(t, tc);
+        }
+      } else {
+        bool real = true;
+        for (int o = 0; o < PAT_K; o++) {
+          if (o != i && o != j && ms[o] <= 1e8 && dot(a, nc[o]) > ms[o] - r + 1e-3) real = false;
+        }
+        if (real && dot(a, a) < vb) { vb = dot(a, a); vc = a; d0 = n1; d1 = n2; }
+      }
+    }
+  }
+  if (rb) return -t;
+  // (The arc in screen px about the pixel, so its stretched position is 0.)
+  if (vb < 1e17) t = min(t, sqrt(bevelArc2(vec2(0.0), mat2(k.x, 0.0, 0.0, k.y), vc, r, d0, d1, normalize(d0 + d1))));
+  return dE > 0.0 ? abs(t) : -t;
+}
 `;
 
 /**
- * Relief helpers of feature patterns (bricks, hex tiles, Voronoi cells; need their u_face / u_face_tilt): Height reads a
- * value of its own (GenOut.hval) that the wrapper multiplies by the bevel — lumps of smooth noise and a random tilt per
- * feature over the domed shape, while Diffuse and the other outputs keep the plain bevel — or, with a mortar / grout bed,
- * a whole height profile of its own (genOutHeight).
+ * Relief helpers of feature patterns (bricks, hex tiles, Voronoi cells; need their u_face / u_crown / u_face_tilt):
+ * Height reads a value of its own (GenOut.hval) that the wrapper multiplies by the bevel — lumps of smooth noise and a
+ * random tilt per feature over the domed shape, while Diffuse and the other outputs keep the plain bevel — or, with a
+ * mortar / grout bed, a whole height profile of its own (genOutHeight).
  */
-const PAT_FACE_GLSL = /* glsl */ `
+const PAT_RELIEF_GLSL = /* glsl */ `
 // Smooth fractal noise with features about size px across (tileable; per-feature offsets keep it tileable too).
 float pat_noise(vec2 p, vec2 res, float size, int oct, float seed) {
   vec2 fc = res / max(size, 1.0);
   if (uTile) fc = max(floor(fc + 0.5), vec2(1.0));
-  return pat_fbm(p / res * fc, uTile ? ivec2(fc) : NO_PERIOD, oct, seed);
+  return fbm(p / res * fc, uTile ? ivec2(fc) : NO_PERIOD, oct, seed);
 }
 
 // Height across a feature's face, 0..1: lumps and pits (Face relief), a pillow (Crown) and a tilt in a random direction
@@ -112,159 +213,10 @@ float pat_face(vec2 p, vec2 res, float size, vec2 q, vec2 hs, ivec2 id, float de
   return clamp(h, 0.0, 1.0);
 }
 
-// A chip floor's roughness, 0..1: two octaves of value noise with features about size px (tileable).
-float pat_rough(vec2 p, vec2 res, float size) {
-  vec2 fc = res / max(size, 1.0);
-  if (uTile) fc = max(floor(fc + 0.5), vec2(1.0));
-  ivec2 fp = uTile ? ivec2(fc) : NO_PERIOD;
-  return 0.65 * valueNoise(p / res * fc, fp, uSeed + 137.0) + 0.35 * valueNoise(p / res * fc * 2.0, uTile ? fp * 2 : NO_PERIOD, uSeed + 139.0);
-}
-
 // Polynomial smooth minimum (k: the blend width): rounds the ridges a crown would take from an exact distance's mitres.
 float pat_smin(float a, float b, float k) {
   float h = max(k - abs(a - b), 0.0) / max(k, 1e-4);
   return min(a, b) - 0.25 * h * h * k;
-}
-
-// A chip's depth share at b px inside its hollow of size r: a crisp rim, then deeper towards the broken edge.
-// The rim is a pixel wide on small chips and widens with the chip (a tenth of its size), so a big chip's wall reads
-// as a broken slope, not a thin crack line.
-float pat_chipK(float b, float r) {
-  float rw = max(1.0, 0.1 * r);
-  return 0.4 * clamp(b / rw + 0.5, 0.0, 1.0) + 0.6 * clamp(b / (0.6 * r), 0.0, 1.0);
-}
-
-// An angular chip: the piece of a feature on ref's side of the kinked line A – K – B (both cuts: a convex notch that
-// always reaches the outline, never an island). Positive inside it, px.
-float pat_notch(vec2 x, vec2 A, vec2 K, vec2 B, vec2 ref) {
-  vec2 n1 = normalize(vec2(K.y - A.y, A.x - K.x));
-  vec2 n2 = normalize(vec2(B.y - K.y, K.x - B.x));
-  n1 *= sign(dot(ref - A, n1));
-  n2 *= sign(dot(ref - K, n2));
-  return min(dot(x - A, n1), dot(x - K, n2));
-}
-
-// Turns a convex cell, kept as its PAT_K nearest edges, by a (radians) about its centre c (relative to the pixel), then
-// moves it by off (px). Each edge plane keeps its distance h from the centre — and is drawn in by as much as the moved
-// edge would reach past its place (the edge half length about 0.6 h; g: half the joint), side by side, so a cell is
-// never cut off by its neighbours' places but only the sides that need it give way.
-void pat_moveCell(inout float ms[PAT_K], inout vec2 ns[PAT_K], vec2 c, float a, vec2 off, float g) {
-  mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));
-  float ca = cos(a), sa = abs(sin(a));
-  for (int i = 0; i < PAT_K; i++) {
-    if (ms[i] <= 1e8) {
-      float h = ms[i] - dot(c, ns[i]);
-      float out_ = dot(off, ns[i]) + h * (ca - 1.0) + 0.6 * h * sa - g;
-      vec2 n = R * ns[i];
-      ms[i] = h + dot(c + off, n) - max(out_, 0.0);
-      ns[i] = n;
-    }
-  }
-}
-
-// Depth of the pixel in a convex cell kept as its PAT_K nearest edges (m: distance to each edge plane, positive
-// inside; n: outward normal) with corners rounded by r, measured so that every contour has corners of radius r: the
-// depth t at which the cell inset by t, then rounded by r, passes through the pixel. (The plain distance's inner
-// contours sharpen into mitres deeper than r.) Per edge pair: the inset wedge's corner V(τ) = a − τb, τ = t + r, is r
-// from the pixel — the larger root — when the pixel lies in its normal cone, else the nearer edge; t is the least.
-const ivec2 PAT_PAIRS[6] = ivec2[6](ivec2(0, 1), ivec2(0, 2), ivec2(0, 3), ivec2(1, 2), ivec2(1, 3), ivec2(2, 3));
-float pat_roundDepth(float ms[PAT_K], vec2 ns[PAT_K], float r) {
-  float t = ms[0];
-  for (int k = 0; k < 6 * PAT_1; k++) {
-    int i = PAT_PAIRS[k].x, j = PAT_PAIRS[k].y;
-    vec2 n1 = ns[i], n2 = ns[j];
-    float det = n1.x * n2.y - n1.y * n2.x;
-    float tij = min(ms[i], ms[j]);
-    if (ms[j] <= 1e8 && abs(det) > 1e-3) {
-      vec2 a = vec2(n2.y * ms[i] - n1.y * ms[j], n1.x * ms[j] - n2.x * ms[i]) / det;
-      vec2 b = vec2(n2.y - n1.y, n1.x - n2.x) / det;
-      float bb = dot(b, b), ab = dot(a, b);
-      float disc = ab * ab - bb * (dot(a, a) - r * r);
-      if (bb > 1e-6 && disc >= 0.0) {
-        float tau = (ab + sqrt(disc)) / bb;
-        vec2 v = tau * b - a;   // from the corner to the pixel
-        // In the corner's normal cone: v = α n1 + β n2 with α, β ≥ 0.
-        float al = (v.x * n2.y - v.y * n2.x) / det, be = (n1.x * v.y - n1.y * v.x) / det;
-        if (al >= 0.0 && be >= 0.0) tij = tau - r;
-      }
-    }
-    if (ms[j] <= 1e8) t = min(t, tij);
-  }
-  return t;
-}
-
-// Bevel aspect (GLSL_BEVEL) of a convex cell kept as its PAT_K nearest edges (ms: px to each edge plane from the pixel,
-// positive inside; ns: outward unit normals in the generator's frame, which jx / jy — dFdx / dFdy of its position — take
-// to the screen) with corners rounded by r: the distance in the space the aspect stretches, px of Bevel, negative inside
-// (dE: the cell's own distance, for the sign). Each edge is a plane there too; a rounded corner, a circle's arc, becomes
-// an ellipse's (bevelArc2, for the true corner nearest the pixel — only within r of it can an arc be the nearest piece):
-// exact, its mitres continuous where the direction-based width steps. Round bevel corners (rb): pat_roundDepth in the
-// stretched space — the depth t at which the cell inset by t there, then rounded by the stretched corner (the ellipse),
-// passes through the pixel: the corner of the edges inset by t plus the ellipse's reach across each, V(t) = a − t b, has
-// the pixel on the ellipse round it, |K⁻¹(t b − a)| = r (the larger root), with the ellipse's normal there in the
-// corner's normal cone.
-float pat_cellBevel(float ms[PAT_K], vec2 ns[PAT_K], vec2 jx, vec2 jy, float r, float dE, bool rb) {
-  vec2 k = u_bevel / bevelWidths();   // screen axes → the stretched space
-  vec2 ki = 1.0 / k;
-  vec2 nc[PAT_K];   // the normals on screen
-  float mS[PAT_K];  // the planes in the stretched space: distance and unit normal
-  vec2 nS[PAT_K];
-  float t = 1e9;
-  for (int i = 0; i < PAT_K; i++) {
-    vec2 n = vec2(dot(jx, ns[i]), dot(jy, ns[i]));
-    n /= max(length(n), 1e-6);
-    nc[i] = n;
-    float l = max(length(n * ki), 1e-6);
-    mS[i] = ms[i] <= 1e8 ? ms[i] / l : 1e9;
-    nS[i] = n * ki / l;
-    t = min(t, mS[i]);
-  }
-  // A corner of edges i, j: rb, the stretched round depth; else the nearest true corner (inside every other edge,
-  // inset by r) for the arc. One loop over the pairs, the arc evaluated once after it.
-  float vb = 1e18;
-  vec2 vc = vec2(0.0), d0 = vec2(1.0, 0.0), d1 = vec2(0.0, 1.0);
-  for (int c = 0; c < 6 * PAT_1; c++) {
-    int i = PAT_PAIRS[c].x, j = PAT_PAIRS[c].y;
-    vec2 n1 = rb ? nS[i] : nc[i], n2 = rb ? nS[j] : nc[j];
-    float det = n1.x * n2.y - n1.y * n2.x;
-    if (ms[j] <= 1e8 && abs(det) > 1e-3 && r > 0.0) {
-      float m1 = rb ? mS[i] - r * length(k * n1) : ms[i] - r;
-      float m2 = rb ? mS[j] - r * length(k * n2) : ms[j] - r;
-      vec2 a = vec2(n2.y * m1 - n1.y * m2, n1.x * m2 - n2.x * m1) / det;
-      if (rb) {
-        vec2 b = vec2(n2.y - n1.y, n1.x - n2.x) / det;
-        vec2 A = a * ki, B = b * ki;
-        float bb = dot(B, B), ab = dot(A, B);
-        float disc = ab * ab - bb * (dot(A, A) - r * r);
-        if (bb > 1e-6 && disc >= 0.0) {
-          float tc = (ab + sqrt(disc)) / bb;
-          vec2 w = (tc * b - a) * ki * ki;   // the ellipse's normal at the pixel
-          float al = (w.x * n2.y - w.y * n2.x) / det, be = (n1.x * w.y - n1.y * w.x) / det;
-          if (al >= 0.0 && be >= 0.0) t = min(t, tc);
-        }
-      } else {
-        bool real = true;
-        for (int o = 0; o < PAT_K; o++) {
-          if (o != i && o != j && ms[o] <= 1e8 && dot(a, nc[o]) > ms[o] - r + 1e-3) real = false;
-        }
-        if (real && dot(a, a) < vb) { vb = dot(a, a); vc = a; d0 = n1; d1 = n2; }
-      }
-    }
-  }
-  if (rb) return -t;
-  // (The arc in screen px about the pixel, so its stretched position is 0.)
-  if (vb < 1e17) t = min(t, sqrt(bevelArc2(vec2(0.0), mat2(k.x, 0.0, 0.0, k.y), vc, r, d0, d1, normalize(d0 + d1))));
-  return dE > 0.0 ? abs(t) : -t;
-}
-
-// Bevel aspect of a chip broken through the outline (pat_notch, its distance moved by off): its two cuts as planes in
-// the stretched space, px of Bevel. F takes a direction in x's frame to the screen.
-float pat_notchS(vec2 x, vec2 A, vec2 K, vec2 B, vec2 ref, float off, mat2 F) {
-  vec2 n1 = normalize(vec2(K.y - A.y, A.x - K.x));
-  vec2 n2 = normalize(vec2(B.y - K.y, K.x - B.x));
-  n1 *= sign(dot(ref - A, n1));
-  n2 *= sign(dot(ref - K, n2));
-  return min(bevelLine(dot(x - A, n1) + off, F * n1), bevelLine(dot(x - K, n2) + off, F * n2));
 }
 
 // The bevel distance a generator hands the wrapper (GenOut.bdist; NO_SDF = none): set before pat_out / pat_bedOut.
@@ -285,13 +237,7 @@ float pat_js = 1.0;
 // Sets pat_bd from a bevel distance in px (negative inside), with Bevel aspect applied the way the wrapper does
 // (from the direction of its gradient). Call in uniform control flow. (At aspect 1 only: with an aspect, the generators
 // measure the stretched distance themselves — pat_cellBevel, pat_notchS — as the gradient's direction steps on mitres.)
-void pat_setBevelDist(float bd) {
-  vec2 gg = vec2(dFdx(bd), dFdy(bd));
-  float g2 = dot(gg, gg);
-  vec2 n2 = g2 > 1e-12 ? gg * gg / g2 : vec2(0.5);
-  vec2 W = bevelWidths();
-  pat_bd = bd * u_bevel / max(sqrt(dot(n2, W * W)), 1e-4);
-}
+void pat_setBevelDist(float bd) { pat_bd = bevelLine(bd, vec2(dFdx(bd), dFdy(bd))); }
 
 // The distance the wrapper draws: the layer's shape combined with its mask by the Mode (when it writes one).
 float pat_drawnDist(float sdf) {
@@ -308,7 +254,7 @@ GenOut pat_out(float rnd, float sdf, float drawn, float hv, bool faced) {
     o.hval = hv;
     if (pat_tint > 0.0) {
       // The tinted random must not reach Height › Per-feature variation: apply it here, from the feature's own random.
-      o.hval *= 1.0 - u_h_var * fract(rnd * 61.37 + 0.123);
+      o.hval *= 1.0 - u_h_var * featVar(rnd);
       o.feat = 0.0;
     }
     o.hval = mix(1.0, o.hval, pat_js);
@@ -326,16 +272,13 @@ GenOut pat_bedOut(float rnd, float sdf, float drawn, float hv, float level, floa
   vec2 dg = vec2(dFdx(drawn), dFdy(drawn));
   float cov = coverage(drawn, u_aa);
   // Height › Per-feature variation, but never sinking a feature into the bed: at least 0.6 of the way up from it.
-  float var = mix(1.0, max(1.0 - u_h_var * fract(rnd * 61.37 + 0.123), min(1.0, level + 0.6 * (1.0 - level))), pat_js);
+  float var = mix(1.0, max(1.0 - u_h_var * featVar(rnd), min(1.0, level + 0.6 * (1.0 - level))), pat_js);
   hv = mix(1.0, hv, pat_js);
   // The bevel as the wrapper draws it (bevelAt, one profileCurve call): from the generator's bevel distance while the
   // shape is its own, else from the drawn distance with Bevel aspect taken from its direction.
   bool own = pat_bd > NO_SDF && maskOp() <= 1;
-  float gg = dot(dg, dg);
-  vec2 n2 = gg > 1e-12 ? dg * dg / gg : vec2(0.5);
-  vec2 W = bevelWidths();
-  float bx = own ? max(-pat_bd, 0.0) / max(u_bevel, 1e-4) : max(-drawn, 0.0) / max(sqrt(dot(n2, W * W)), 1e-4);
-  float bev = (u_bevel <= 0.0 || u_profile == 0) ? 1.0 : profileCurve(u_profile, bx);
+  float bx = own ? max(-pat_bd, 0.0) / max(u_bevel, 1e-4) : max(-drawn, 0.0) / bevelWidth(dg);
+  float bev = bevelProfile(bx);
   // The feature rises from the bed at its outline (no crease where its bevel would cross the bed level — the
   // "picture mount" line), to its top; hollows (chips) fill up to the bed.
   // The bed's level is measured against the features' lowest edge (Crown and Face tilt lower the edges), so it never
@@ -350,9 +293,78 @@ GenOut pat_bedOut(float rnd, float sdf, float drawn, float hv, float level, floa
   o.bdist = pat_bd;
   return o;
 }
+
+// Whether the layer's settings give its features any face relief (a uniform condition).
+#define PAT_FACED (u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0)
+
+// A feature layer's result from its distance (sdf), relief (hv; faced: PAT_FACED, or chips) and bed (level: Mortar /
+// Grout level, 0 = none; n: the bed's lumps, 0..1).
+GenOut pat_finish(float rnd, float sdf, float hv, bool faced, float level, float n) {
+  float drawn = faced || level > 0.0 ? pat_drawnDist(sdf) : sdf;
+  if (level > 0.0) return pat_bedOut(rnd, sdf, drawn, hv, level, n);
+  return pat_out(rnd, sdf, drawn, hv, faced);
+}
 `;
 
-/** Face relief params (PAT_FACE_GLSL), in a Relief section. */
+/**
+ * Chipped corners of bricks and hex tiles (need their u_chip_*; after PAT_RELIEF_GLSL): angular pieces broken out of a
+ * feature (pat_notch), hollows in its height with a rough floor, and the colour and coverage that go with them.
+ */
+const PAT_CHIP_GLSL = /* glsl */ `
+// A chip floor's roughness, 0..1: two octaves of value noise with features about size px (tileable).
+float pat_rough(vec2 p, vec2 res, float size) {
+  vec2 fc = res / max(size, 1.0);
+  if (uTile) fc = max(floor(fc + 0.5), vec2(1.0));
+  ivec2 fp = uTile ? ivec2(fc) : NO_PERIOD;
+  return 0.65 * valueNoise(p / res * fc, fp, uSeed + 137.0) + 0.35 * valueNoise(p / res * fc * 2.0, uTile ? fp * 2 : NO_PERIOD, uSeed + 139.0);
+}
+
+// A chip's depth share at b px inside its hollow of size r: a crisp rim, then deeper towards the broken edge.
+// The rim is a pixel wide on small chips and widens with the chip (a tenth of its size), so a big chip's wall reads
+// as a broken slope, not a thin crack line.
+float pat_chipK(float b, float r) {
+  float rw = max(1.0, 0.1 * r);
+  return 0.4 * clamp(b / rw + 0.5, 0.0, 1.0) + 0.6 * clamp(b / (0.6 * r), 0.0, 1.0);
+}
+
+// An angular chip: the piece of a feature on ref's side of the kinked line A – K – B (both cuts: a convex notch that
+// always reaches the outline, never an island). Positive inside it, px.
+// n1, n2: the cuts' unit normals, pointing into the piece.
+void pat_notchN(vec2 A, vec2 K, vec2 B, vec2 ref, out vec2 n1, out vec2 n2) {
+  n1 = normalize(vec2(K.y - A.y, A.x - K.x));
+  n2 = normalize(vec2(B.y - K.y, K.x - B.x));
+  n1 *= sign(dot(ref - A, n1));
+  n2 *= sign(dot(ref - K, n2));
+}
+float pat_notch(vec2 x, vec2 A, vec2 K, vec2 B, vec2 ref) {
+  vec2 n1, n2;
+  pat_notchN(A, K, B, ref, n1, n2);
+  return min(dot(x - A, n1), dot(x - K, n2));
+}
+
+// Bevel aspect of a chip broken through the outline (pat_notch, its distance moved by off): its two cuts as planes in
+// the stretched space, px of Bevel. F takes a direction in x's frame to the screen.
+float pat_notchS(vec2 x, vec2 A, vec2 K, vec2 B, vec2 ref, float off, mat2 F) {
+  vec2 n1, n2;
+  pat_notchN(A, K, B, ref, n1, n2);
+  return min(bevelLine(dot(x - A, n1) + off, F * n1), bevelLine(dot(x - K, n2) + off, F * n2));
+}
+
+// After the chip loop (k: the deepest hollow's share, 0..1): the rough, broken floor — the hollows' depth varies
+// strongly with a fine noise (size px; the colour follows the smooth hollow, so it doesn't speckle). Sets Chip dust's
+// tint, and the colour beneath shows fully, with a crisp edge, where a chip goes nearly down to the joint, so no ghost
+// of the old outline stays in colour. Returns the factor on the feature's height.
+float pat_chipsDone(float k, vec2 p, vec2 res, float size) {
+  float kc = k;
+  if (k > 0.0) k *= 0.45 + 1.1 * pat_rough(p, res, size);
+  pat_cov = 1.0 - smoothstep(0.9, 0.95, 1.3 * u_chip_depth * kc);
+  pat_tint = u_chip_dust * clamp(1.4 * kc, 0.0, 1.0);
+  pat_hollow = 1.3 * u_chip_depth * kc;   // (× 1.3: where the rough floor's deeper parts reach)
+  return 1.0 - u_chip_depth * k;
+}
+`;
+
+/** Face relief params (PAT_RELIEF_GLSL), in a Relief section. */
 const faceParams = (what: string) => [
 	P.float('face', 'Face relief', 0, 0, 1, {
 		step: 0.001,
@@ -382,10 +394,6 @@ export const BRICKS_REGULAR = { ...BRICKS_PLAIN, len_var: 0, min_size: 0, rot_ji
 export const HEX_PLAIN = { ...RELIEF_OFF, grout_level: 0, chips: 0 };
 export const VORONOI_PLAIN = { ...RELIEF_OFF, grout_level: 0 };
 
-// GenOut.sdf value meaning "no distance for this pixel" (the wrapper's NO_SDF is declared after gen()).
-const NO_SDF = '-1e5';
-
-const r1 = (v: number) => Math.round(v * 10) / 10;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 // ------------------------------------------------------------------------------------------------ bricks
@@ -507,8 +515,8 @@ export const bricksLayer: LayerDef = {
 			softMax: 4,
 			step: 0.01,
 			section: 'Irregularity',
-			showIf: (p) => Number(p.wobble) > 0 || Number(p.chips) > 0,
-			hint: 'Size of the wobble’s bumps (and of the chips’ ragged outline): 1 ≈ half a course; smaller is finer and crumblier'
+			showIf: (p) => Number(p.wobble) > 0 || Number(p.chips) > 0 || Number(p.mortar_level) > 0,
+			hint: 'Size of the wobble’s bumps (and of the chips’ ragged outline and the mortar bed’s lumps): 1 ≈ half a course; smaller is finer and crumblier'
 		}),
 		P.float('chips', 'Chipped corners', 0.4, 0, 1, {
 			step: 0.001,
@@ -569,13 +577,13 @@ export const bricksLayer: LayerDef = {
 		dif_grad: gradient('#4e2419', '#7a3a27', '#93513a', '#a8674c')
 	},
 	glsl:
-		PAT_GLSL +
-		PAT_FACE_GLSL +
+		PAT_RELIEF_GLSL +
+		PAT_CHIP_GLSL +
 		/* glsl */ `
 // Joint k of a row, in brick units. A shift < 0.45 keeps joints ordered (length variation).
 float pat_joint(int k, int rw) {
   if (u_len_var <= 0.0) return float(k);
-  int kw = uTile ? pat_imod(k, u_columns) : k;
+  int kw = uTile ? imod(k, u_columns) : k;
   return float(k) + (hashI(ivec2(kw, rw), uSeed + 23.0) - 0.5) * 0.9 * u_len_var * (1.0 - u_min_size);
 }
 
@@ -583,7 +591,7 @@ float pat_joint(int k, int rw) {
 // whole pixels so the jittered courses stay crisp.
 float pat_rowEdge(int r, float ch) {
   if (u_row_var <= 0.0) return float(r) * ch;
-  int rb = uTile ? pat_imod(r, u_rows) : r;
+  int rb = uTile ? imod(r, u_rows) : r;
   return floor((float(r) + (hashI(ivec2(rb, 3), uSeed + 61.0) - 0.5) * 0.9 * u_row_var * (1.0 - u_min_size)) * ch + 0.5);
 }
 
@@ -603,73 +611,89 @@ GenOut gen(vec2 p) {
   bool asp = bevelAspectOn();
   vec2 cs = res / vec2(float(u_columns), float(u_rows));
   int r0 = int(floor(p.y / cs.y));
-  // Every brick around the pixel (3 courses × 5): its distance, the pixel in its frame, half size, centre, turn, key.
-  float DD[15];
-  vec2 QQ[15], HH[15], CC[15];
-  vec2 XA[15];   // each brick's own x axis (its turn)
-  ivec2 II[15];
-  // One flat loop over the 3 × 5 bricks (bound from a uniform, so D3D keeps it rolled: a much smaller shader).
-  for (int t = 0; t < 15 * PAT_1; t++) {
-    int j = t / 5 - 1, i = t % 5 - 2;
-    int r = r0 + j;
-    int rw = uTile ? pat_imod(r, u_rows) : r;
-    float s = pat_rowShift(rw);
-    float ry0 = pat_rowEdge(r, cs.y), ry1 = pat_rowEdge(r + 1, cs.y);
-    int k0 = int(floor(p.x / cs.x - s));
-    {
-      int k = k0 + i;
-      float x0 = pat_joint(k, rw);
-      float x1 = pat_joint(k + 1, rw);
-      ivec2 id = ivec2(uTile ? pat_imod(k, u_columns) : k, rw);
-      // Mortar runs along the left and top (on screen) of each cell, so whole-pixel brick sizes and mortar
-      // widths put every edge on a pixel boundary. Joint variation: each brick carries its own share of it.
-      float mo = u_mortar * (1.0 - u_joint_var * hashI(id, uSeed + 191.0));
-      vec2 ctr = vec2((0.5 * (x0 + x1) + s) * cs.x, 0.5 * (ry0 + ry1)) + vec2(0.5, -0.5) * mo;
-      vec2 hs = vec2((x1 - x0) * cs.x, ry1 - ry0) * 0.5 - 0.5 * mo;
-      if (u_size_jitter > 0.0) {
-        // Independent random inset per side: left, right, bottom, top. Dry stone (straight creases, negative mortar)
-        // keeps the stones' sizes and only moves them, so the jitter opens no joints.
-        vec4 sj = vec4(hash3I(id, uSeed + 41.0), hashI(id, uSeed + 43.0)) * u_size_jitter;
-        if (!(u_crease && u_mortar < 0.0)) hs -= 0.5 * vec2(sj.x + sj.y, sj.z + sj.w);
-        ctr += 0.5 * vec2(sj.x - sj.y, sj.z - sj.w);
-      }
-      vec2 sh = u_pos_jitter > 0.0 ? (hash2I(id, uSeed + 71.0) - 0.5) * 2.0 * u_pos_jitter : vec2(0.0);
-      // Dry stone (straight creases, negative mortar): a shifted stone spans both its place and where it moved to
-      // (half the shift and half as big again), so the shift opens no joint behind it.
-      bool dry = u_crease && u_mortar < 0.0;
-      ctr += dry ? 0.5 * sh : sh;
-      vec2 q = p - ctr;
-      float a = 0.0;
-      if (u_rot_jitter > 0.0) {
-        a = (hashI(id, uSeed + 73.0) - 0.5) * 2.0 * radians(u_rot_jitter);
-        q = mat2(cos(a), -sin(a), sin(a), cos(a)) * q;
-      }
-      // Dry stone: a turned stone grows to still cover its place, so the turn opens no gaps either — the creases split
-      // the overlaps instead.
-      if (dry) hs += abs(sin(a)) * hs.yx + 0.5 * abs(sh);
-      hs = max(hs, vec2(0.0));
-      DD[t] = sdRoundBox(q, hs, vec4(u_round));
-      QQ[t] = q; HH[t] = hs; CC[t] = ctr; II[t] = id;
-      XA[t] = vec2(cos(a), sin(a));
-    }
+  // Dry stone: straight creases with negative mortar.
+  bool dry = u_crease && u_mortar < 0.0;
+  // How far (px) a brick can reach past its course at most: negative mortar, edge and position jitter, the turn of its
+  // longer half (and dry stone's growth to still cover its place), the moved bed joints. Past half a course the search
+  // takes five courses instead of three, so far-reaching stones aren't clipped along the course lines.
+  float sa = sin(radians(u_rot_jitter));
+  vec2 hm = 0.5 * cs * (1.0 + 0.9 * vec2(u_len_var, u_row_var) * (1.0 - u_min_size)) + 0.5;   // the largest half size
+  float reach = max(-u_mortar, 0.0) + 0.5 * u_size_jitter + u_pos_jitter + 2.0 * sa * hm.x + sa * sa * hm.y + hm.y - 0.5 * cs.y;
+  int nr = reach > 0.5 * cs.y ? 5 : 3;
+  int jr = r0 - nr / 2;   // the lowest course searched
+  // Each course's shift (brick units) and bed joints (px), once per course.
+  float RS[5], RE[6];
+  for (int j = 0; j < (nr + 1) * UNI_1; j++) {
+    RE[j] = pat_rowEdge(jr + j, cs.y);
+    if (j < nr) RS[j] = pat_rowShift(uTile ? imod(jr + j, u_rows) : jr + j);
   }
+  // Every brick around the pixel (nr courses × 5): its distance, the pixel in its frame, half size, centre, turn, key.
+  float DD[25];
+  vec2 QQ[25], HH[25], CC[25];
+  vec2 XA[25];   // each brick's own x axis (its turn)
+  ivec2 II[25];
+  // One flat loop over the bricks (bound from a uniform, so D3D keeps it rolled: a much smaller shader).
+  for (int t = 0; t < nr * 5 * UNI_1; t++) {
+    int j = t / 5;
+    int r = jr + j;
+    int rw = uTile ? imod(r, u_rows) : r;
+    float s = RS[j];
+    float ry0 = RE[j], ry1 = RE[j + 1];
+    int k = int(floor(p.x / cs.x - s)) + t % 5 - 2;
+    float x0 = pat_joint(k, rw);
+    float x1 = pat_joint(k + 1, rw);
+    ivec2 id = ivec2(uTile ? imod(k, u_columns) : k, rw);
+    // Mortar runs along the left and top (on screen) of each cell, so whole-pixel brick sizes and mortar
+    // widths put every edge on a pixel boundary. Joint variation: each brick carries its own share of it.
+    float mo = u_mortar * (1.0 - u_joint_var * hashI(id, uSeed + 191.0));
+    vec2 ctr = vec2((0.5 * (x0 + x1) + s) * cs.x, 0.5 * (ry0 + ry1)) + vec2(0.5, -0.5) * mo;
+    vec2 hs = vec2((x1 - x0) * cs.x, ry1 - ry0) * 0.5 - 0.5 * mo;
+    if (u_size_jitter > 0.0) {
+      // Independent random inset per side: left, right, bottom, top. Dry stone keeps the stones' sizes and only moves
+      // them, so the jitter opens no joints.
+      vec4 sj = vec4(hash3I(id, uSeed + 41.0), hashI(id, uSeed + 43.0)) * u_size_jitter;
+      if (!dry) hs -= 0.5 * vec2(sj.x + sj.y, sj.z + sj.w);
+      ctr += 0.5 * vec2(sj.x - sj.y, sj.z - sj.w);
+    }
+    vec2 sh = u_pos_jitter > 0.0 ? (hash2I(id, uSeed + 71.0) - 0.5) * 2.0 * u_pos_jitter : vec2(0.0);
+    // Dry stone: a shifted stone spans both its place and where it moved to (half the shift and half as big again), so
+    // the shift opens no joint behind it.
+    ctr += dry ? 0.5 * sh : sh;
+    vec2 q = p - ctr;
+    float a = 0.0;
+    if (u_rot_jitter > 0.0) {
+      a = (hashI(id, uSeed + 73.0) - 0.5) * 2.0 * radians(u_rot_jitter);
+      q = mat2(cos(a), -sin(a), sin(a), cos(a)) * q;
+    }
+    // Dry stone: a turned stone grows to still cover its place, so the turn opens no gaps either — the creases split
+    // the overlaps instead.
+    if (dry) hs += abs(sin(a)) * hs.yx + 0.5 * abs(sh);
+    hs = max(hs, vec2(0.0));
+    DD[t] = sdRoundBox(q, hs, vec4(u_round));
+    QQ[t] = q; HH[t] = hs; CC[t] = ctr; II[t] = id;
+    XA[t] = vec2(cos(a), sin(a));
+  }
+  int nb = nr * 5;
   float cg = 0.5 * clamp(0.2 * u_bevel, 1.0, 2.0);   // half the groove between creased stones
-  float CS[15];   // Bevel aspect: each stone's creases in the space the aspect stretches (px of Bevel)
-  for (int t = 0; t < 15 * PAT_1; t++) CS[t] = -1e9;
-  if (u_crease) {
+  float CS[25];   // Bevel aspect: each stone's creases in the space the aspect stretches (px of Bevel)
+  for (int t = 0; t < nb * UNI_1; t++) CS[t] = -1e9;
+  // Only where stones can overlap: the narrowest joint against how far two neighbours can move and turn towards each
+  // other (conservative — below that no two boxes meet, and the test would change nothing).
+  bool overlap = u_mortar * (1.0 - u_joint_var) <= 2.0 * (u_pos_jitter + sa * max(hm.x, hm.y)) + 0.1;
+  if (u_crease && overlap) {
     // Straight creases: each stone near the pixel is split from every stone it overlaps (separating-axis test on their
     // four edge directions) along one line across the middle of the overlap, square to the axis they overlap least on
     // (the contact normal). The line is the same seen from either stone, so every pixel agrees which stone it is in,
     // and it runs right across both: each stone is its box cut by half-planes, so it stays convex — no stubs, steps or
     // hammer-heads. The stones keep a groove of about a fifth of the bevel (1–2 px) between them.
-    float DC[15];
-    for (int t = 0; t < 15 * PAT_1; t++) DC[t] = DD[t];
-    for (int t = 0; t < 15 * PAT_1; t++) {
+    float DC[25];
+    for (int t = 0; t < nb * UNI_1; t++) DC[t] = DD[t];
+    for (int t = 0; t < nb * UNI_1; t++) {
       if (DD[t] < 0.25 * cs.y) {
         vec2 cA = CC[t], hA = HH[t];
         vec2 ax0 = XA[t], ax1 = vec2(-ax0.y, ax0.x);
         float dA = DD[t], sA = -1e9;
-        for (int o = 0; o < 15 * PAT_1; o++) {
+        for (int o = 0; o < nb * UNI_1; o++) {
           if (o != t && DD[o] < 1e8) {
             vec2 dc = CC[o] - cA, oHs = HH[o];
             vec2 bx0 = XA[o], bx1 = vec2(-bx0.y, bx0.x);
@@ -694,12 +718,12 @@ GenOut gen(vec2 p) {
         CS[t] = sA;
       }
     }
-    for (int t = 0; t < 15 * PAT_1; t++) DD[t] = DC[t];
+    for (int t = 0; t < nb * UNI_1; t++) DD[t] = DC[t];
   }
   // The nearest three after the creases.
   float best = 1e9, second = 1e9, third = 1e9;
   int b0 = 0, b1 = 0;
-  for (int t = 0; t < 15 * PAT_1; t++) {
+  for (int t = 0; t < nb * UNI_1; t++) {
     float d = DD[t];
     if (d < best) { third = second; second = best; b1 = b0; best = d; b0 = t; }
     else if (d < second) { third = second; second = d; b1 = t; }
@@ -713,11 +737,11 @@ GenOut gen(vec2 p) {
   vec2 sax = normalize(vec2(dot(jx, wa), dot(jy, wa))), say = normalize(vec2(dot(jx, wb), dot(jy, wb)));
   vec2 bestQ = QQ[b0], secQ = QQ[b1];
   vec2 bestHs = HH[b0], secHs = HH[b1];
-  if (u_close && u_crease && u_mortar < 0.0) {
+  if (u_close && dry) {
     // Close gaps: where the creases leave a gap between stones, the nearest stone grows to the gap's middle line (the
     // crease between it and the next stone: 0.5 (best − second)), keeping the groove there — the stones fit into
-    // each other and no open mortar is left. (Before Stone shape, which then still cuts its corners and ends.) Where a stone already meets its neighbour in a crease, this changes
-    // nothing (second = |best| + groove there).
+    // each other and no open mortar is left. (Before Stone shape, which then still cuts its corners and ends.) Where a
+    // stone already meets its neighbour in a crease, this changes nothing (second = |best| + groove there).
     best = min(best, cg + 0.5 * (best - second));
   }
   if (u_shape_var > 0.0) {
@@ -731,7 +755,7 @@ GenOut gen(vec2 p) {
     float m = min(bestHs.x, bestHs.y);
     float ux = bestQ.x / max(bestHs.x, 1.0);
     float cut = -1e9;
-    for (int c = 0; c < 6; c++) {
+    for (int c = 0; c < 6 * UNI_1; c++) {
       // Half-plane cuts: the corners (0–3) chamfered, the ends (4 left, 5 right) slanted.
       bool corner = c < 4;
       vec2 sg = corner ? vec2((c & 1) == 0 ? -1.0 : 1.0, (c & 2) == 0 ? -1.0 : 1.0) : vec2(c == 4 ? -1.0 : 1.0, 0.0);
@@ -746,7 +770,7 @@ GenOut gen(vec2 p) {
       cut = max(cut, cv);
       if (asp) cutS = max(cutS, bevelLine(cv, sax * nn.x + say * nn.y));
     }
-    for (int c = 0; c < 2; c++) {
+    for (int c = 0; c < 2 * UNI_1; c++) {
       // The top (0) and bottom (1): sagging towards one end and bowed, y = ±(hs.y − sag(x)).
       float bow = u_shape_var * (0.05 + 0.3 * hb[c + 2]) * bestHs.y;
       float tap = u_shape_var * 0.35 * ht[c] * bestHs.y;
@@ -775,14 +799,9 @@ GenOut gen(vec2 p) {
   best = max(best, 0.5 * (best - second));
   // Wobble noise, features about half a brick course tall (× Wobble scale); it also frays the chips and lumps the bed.
   float n = 0.5;
-  if (u_wobble > 0.0 || u_chips > 0.0 || u_mortar_level > 0.0) {
-    vec2 wc = vec2(2.0 * float(u_rows) * res.x / res.y, 2.0 * float(u_rows)) / u_wobble_scale;
-    if (uTile) wc = max(floor(wc + 0.5), vec2(1.0));
-    ivec2 wper = uTile ? ivec2(wc) : NO_PERIOD;
-    n = pat_fbm(p / res * wc, wper, 3, uSeed + 57.0);
-  }
+  if (u_wobble > 0.0 || u_chips > 0.0 || u_mortar_level > 0.0) n = pat_noise(p, res, 0.5 * cs.y * u_wobble_scale, 3, uSeed + 57.0);
   if (u_wobble > 0.0) best += (n - 0.5) * 4.0 * u_wobble * (1.0 - u_wobble_var * hashI(bestId, uSeed + 59.0));
-  float bdS = ${NO_SDF};
+  float bdS = NO_SDF;
   if (asp) {
     // Bevel aspect: the nearest stone — its rounded box, creases and Stone shape's cuts, each convex — measured in the
     // space the aspect stretches: each side and cut a plane there (bevelLine), a rounded corner an ellipse's arc
@@ -811,7 +830,7 @@ GenOut gen(vec2 p) {
     bdS += dw * (bdS * bc + 1.0) / (bc * bc + 1.0);
   }
   float hv = 1.0;
-  if (u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0) hv = pat_face(p, res, 0.5 * cs.y, bestQ, bestHs, bestId,
+  if (PAT_FACED) hv = pat_face(p, res, 0.5 * cs.y, bestQ, bestHs, bestId,
     pat_smin(bestHs.x - abs(bestQ.x), bestHs.y - abs(bestQ.y), 0.6 * min(bestHs.x, bestHs.y)), min(bestHs.x, bestHs.y));
   if (u_chips > 0.0) {
     // Chips: angular pieces broken out of the nearest brick — one may knock off each corner (0–3), two more bite into
@@ -825,7 +844,7 @@ GenOut gen(vec2 p) {
     float cOff = 0.0;
     // The four corners' chances (c = 0..3); at most one chip per end, so an end never turns into an arrowhead.
     vec4 hx = vec4(hashI(bestId, uSeed + 101.0), hashI(bestId, uSeed + 102.0), hashI(bestId, uSeed + 103.0), hashI(bestId, uSeed + 104.0));
-    for (int c = 0; c < 6; c++) {
+    for (int c = 0; c < 6 * UNI_1; c++) {
       vec4 h = vec4(hash3I(bestId, uSeed + 101.0 + float(c)), hashI(bestId, uSeed + 131.0 + float(c)));
       // Corners chip far more often than the long sides; the other corner at this end wins if it chipped with a lower
       // chance.
@@ -853,23 +872,13 @@ GenOut gen(vec2 p) {
         if (e + o > brk) { brk = e + o; cA = A; cK = K; cB = B; cRef = ref; cS = s; cOff = en + o; }
       }
     }
-    // A rough, broken floor: the hollows' depth varies strongly with a fine noise (the colour follows the smooth
-    // hollow, kc, so it doesn't speckle).
-    float kc = k;
-    if (k > 0.0) k *= 0.45 + 1.1 * pat_rough(p, res, 0.12 * cs.y);
-    hv *= 1.0 - u_chip_depth * k;
-    // Chip dust tints the hollows paler (from the smooth hollow) — and the colour beneath shows fully, with a crisp
-    // edge, where a chip goes nearly down to the joint, so no ghost of the old outline stays in colour.
-    pat_cov = 1.0 - smoothstep(0.9, 0.95, 1.3 * u_chip_depth * kc);
-    pat_tint = u_chip_dust * clamp(1.4 * kc, 0.0, 1.0);
-    pat_hollow = 1.3 * u_chip_depth * kc;   // (× 1.3: where the rough floor's deeper parts reach)
+    hv *= pat_chipsDone(k, p, res, 0.12 * cs.y);
     if (u_chip_break > 0.0) {
       best = max(best, brk);
       // Bevel aspect: the broken piece's cuts as planes in the stretched space (x = the stone's frame × s).
       if (asp && brk > -1e8) bdS = max(bdS, pat_notchS(bestQ * cS, cA, cK, cB, cRef, cOff, mat2(sax, say) * mat2(cS.x, 0.0, 0.0, cS.y)));
     }
   }
-  bool faced = u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0 || u_chips > 0.0;
   if (u_joint_var > 0.0) {
     // Joint variation: the nearest brick's bevel narrows with its share of the joint (a shut brick has hardly any edge)
     // and its relief goes flush (pat_js).
@@ -877,9 +886,7 @@ GenOut gen(vec2 p) {
     if (!asp) pat_setBevelDist(best / max(pat_js, 0.05));
   }
   if (asp) pat_bd = bdS / max(pat_js, 0.05);
-  float d = faced || u_mortar_level > 0.0 ? pat_drawnDist(best) : best;
-  if (u_mortar_level > 0.0) return pat_bedOut(bestRnd, best, d, hv, u_mortar_level, n);
-  return pat_out(bestRnd, best, d, hv, faced);
+  return pat_finish(bestRnd, best, hv, PAT_FACED || u_chips > 0.0, u_mortar_level, n);
 }
 `
 };
@@ -991,8 +998,9 @@ export const hexLayer: LayerDef = {
 		dif_grad: gradient('#3a4148', '#56606a', '#6f6a5e', '#8b8170')
 	},
 	glsl:
-		PAT_GLSL +
-		PAT_FACE_GLSL +
+		PAT_CELL_GLSL +
+		PAT_RELIEF_GLSL +
+		PAT_CHIP_GLSL +
 		/* glsl */ `
 // Lattice centre of tile (c, r) in the working frame: rows run along x, odd rows shift half a cell.
 vec2 pat_hexCentre(int c, int r, vec2 cs) {
@@ -1058,17 +1066,16 @@ GenOut gen(vec2 p) {
   float ms[PAT_K];
   vec2 ns[PAT_K];
   for (int i = 0; i < PAT_K; i++) { ms[i] = 1e9; ns[i] = vec2(0.0); }
-  for (int t = 0; t < 25 * PAT_1; t++) {
+  // (The 5 × 5 round it, not just the six neighbours: on a lattice stretched to tile, a next-ring bisector can come
+  // nearer than a side at a corner and hold one of the PAT_K places there.)
+  for (int t = 0; t < 25 * UNI_1; t++) {
     int j = t / 5 - 2, i = t % 5 - 2;
-    int r = bc.y + j;
-    {
-      if (i != 0 || j != 0) {
-        vec2 rv = pat_hexCentre(bc.x + i, r, cs) - q;
-        vec2 nn = normalize(rv - br);
-        // In or out by up to half the jitter (the mean joint stays), never closing the joint below a pixel.
-        float sj = u_size_jitter > 0.0 ? max(u_size_jitter * (hashI(ivec2(id.x * 5 + i + 2, id.y * 5 + j + 2), uSeed + 41.0) - 0.5), 0.5 - 0.5 * u_gap) : 0.0;
-        pat_pushEdge(ms, ns, dot(0.5 * (br + rv), nn) - 0.5 * u_gap - sj, nn);
-      }
+    if (i != 0 || j != 0) {
+      vec2 rv = pat_hexCentre(bc.x + i, bc.y + j, cs) - q;
+      vec2 nn = normalize(rv - br);
+      // In or out by up to half the jitter (the mean joint stays), never closing the joint below a pixel.
+      float sj = u_size_jitter > 0.0 ? max(u_size_jitter * (hashI(ivec2(id.x * 5 + i + 2, id.y * 5 + j + 2), uSeed + 41.0) - 0.5), 0.5 - 0.5 * u_gap) : 0.0;
+      pat_pushEdge(ms, ns, dot(0.5 * (br + rv), nn) - 0.5 * u_gap - sj, nn);
     }
   }
   // The tile's corner radius (centre to corner, inside the grout).
@@ -1090,14 +1097,11 @@ GenOut gen(vec2 p) {
   // Round bevel corners: the bevel measured so its inner contours keep the corners' rounding.
   // Bevel aspect: the distance in the space the aspect stretches, its edges moved by the wobble and its corners rounded
   // by what the wobble leaves of the rounding (as the distance's own corners are).
-  if (asp) {
-    float mx[PAT_K];
-    for (int i = 0; i < PAT_K; i++) mx[i] = ms[i] <= 1e8 ? ms[i] - extra : ms[i];
-    pat_bd = pat_cellBevel(mx, ns, jx, jy, max(u_round - extra, 0.0), d, u_round_bevel && u_round > 0.0);
-  } else if (u_round_bevel && u_round > 0.0) pat_setBevelDist(extra - pat_roundDepth(ms, ns, u_round));
+  if (asp) pat_bd = pat_cellBevel(ms, ns, jx, jy, max(u_round - extra, 0.0), d, u_round_bevel && u_round > 0.0, extra);
+  else if (u_round_bevel && u_round > 0.0) pat_setBevelDist(extra - pat_roundDepth(ms, ns, u_round));
   vec2 qc = -br - off;   // the pixel from the tile's centre
   float hv = 1.0;
-  if (u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0) {
+  if (PAT_FACED) {
     float kc = 0.5 * Rt;
     hv = pat_face(q, res, 0.35 * cs.x, qc, 0.5 * cs, id, pat_smin(pat_smin(ms[0], ms[1], kc), ms[2], kc) - extra, 0.866 * Rt);
   }
@@ -1110,7 +1114,7 @@ GenOut gen(vec2 p) {
     float cOff = 0.0;
     // One corner of each tile (its own pick) chips most often; the others a third as often.
     int cm = int(hashI(id, uSeed + 107.0) * 6.0);
-    for (int c = 0; c < 6; c++) {
+    for (int c = 0; c < 6 * UNI_1; c++) {
       vec4 h = vec4(hash3I(id, uSeed + 101.0 + float(c)), hashI(id, uSeed + 131.0 + float(c)));
       if (h.x < (c == cm ? min(1.0, 2.5 * u_chips) : 0.35 * u_chips)) {
         // Sizes spread widely: many small chips, now and then a big one.
@@ -1132,27 +1136,14 @@ GenOut gen(vec2 p) {
         if (e + o > brk) { brk = e + o; cA = A; cK = K; cB = B; cRef = 1.1 * V; cOff = en + o; }
       }
     }
-    // A rough, broken floor: the hollows' depth varies strongly with a fine noise (the colour follows the smooth
-    // hollow, kc, so it doesn't speckle).
-    float kc = k;
-    if (k > 0.0) k *= 0.45 + 1.1 * pat_rough(q, res, 0.1 * cs.x);
-    hv *= 1.0 - u_chip_depth * k;
-    // Chip dust tints the hollows paler (from the smooth hollow) — and the colour beneath shows fully, with a crisp
-    // edge, where a chip goes nearly down to the joint, so no ghost of the old outline stays in colour.
-    pat_cov = 1.0 - smoothstep(0.9, 0.95, 1.3 * u_chip_depth * kc);
-    pat_tint = u_chip_dust * clamp(1.4 * kc, 0.0, 1.0);
-    pat_hollow = 1.3 * u_chip_depth * kc;   // (× 1.3: where the rough floor's deeper parts reach)
+    hv *= pat_chipsDone(k, q, res, 0.1 * cs.x);
     if (u_chip_break > 0.0 || u_grout_level > 0.0) {
       d = max(d, brk);
       // Bevel aspect: the broken piece's cuts as planes in the stretched space.
       if (asp && brk > -1e8) pat_bd = max(pat_bd, pat_notchS(qc, cA, cK, cB, cRef, cOff, mat2(jx.x, jy.x, jx.y, jy.y)));
     }
   }
-  bool faced = u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0 || u_chips > 0.0;
-  float rnd = hashI(id, uSeed);
-  float drawn = faced || u_grout_level > 0.0 ? pat_drawnDist(d) : d;
-  if (u_grout_level > 0.0) return pat_bedOut(rnd, d, drawn, hv, u_grout_level, nz);
-  return pat_out(rnd, d, drawn, hv, faced);
+  return pat_finish(hashI(id, uSeed), d, hv, PAT_FACED || u_chips > 0.0, u_grout_level, nz);
 }
 `
 };
@@ -1161,20 +1152,10 @@ GenOut gen(vec2 p) {
 
 const cellsOut = (p: Record<string, unknown>) => (p.output ?? 'cells') === 'cells';
 
-// The shader's hashes (glsl/common.ts) and Voronoi cell points (glsl/noise.ts cellPoint), replicated on the CPU so the
-// cells to merge can be decided once per cell (Smallest cell).
-const pcg = (v: number): number => {
-	const state = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0;
-	const word = Math.imul(((state >>> ((state >>> 28) + 4)) ^ state) >>> 0, 277803737) >>> 0;
-	return ((word >>> 22) ^ word) >>> 0;
-};
-const pcg3 = (x: number, y: number, z: number) => pcg((x ^ pcg((y ^ pcg(z >>> 0)) >>> 0)) >>> 0);
-const u2f = (h: number) => Math.fround(h) / 4294967296;
-const seedU = (seed: number) => Math.trunc(Math.fround(seed)) >>> 0;
-const hashI = (x: number, y: number, seed: number) => u2f(pcg3(x >>> 0, y >>> 0, seedU(seed)));
+// The shader's Voronoi cell points (glsl/noise.ts cellPoint), replicated on the CPU with its hashes (core/hash.ts) so
+// the cells to merge can be decided once per cell (Smallest cell).
 function cellPointCpu(x: number, y: number, seed: number, phase: number): [number, number] {
-	const h = pcg3(x >>> 0, y >>> 0, seedU(seed));
-	const p: [number, number] = [u2f(h), u2f(pcg(h))];
+	const p = hash2I(x, y, seed);
 	if (phase === 0) return p;
 	const anim = (v: number, s: number) => {
 		const dir = hashI(x, y, Math.fround(Math.fround(s) + 7.31)) < 0.5 ? -1 : 1;
@@ -1221,30 +1202,35 @@ function voronoiCells(
 	const nx = ctx.tileable ? cx : Math.ceil(cx) + 2 * M,
 		ny = ctx.tileable ? cy : Math.ceil(cy) + 2 * M;
 	if (nx * ny > 1 << 20) return blank;
-	const site = (x: number, y: number) => {
-		const cp = cellPointCpu(imodJs(x, per[0]), imodJs(y, per[1]), ctx.seed, phase);
-		const w = W2 * (cp[0] * 7.13 + cp[1] * 3.71 - Math.floor(cp[0] * 7.13 + cp[1] * 3.71));
-		return [(x + 0.5 + (cp[0] - 0.5) * jitter) * csx, (y + 0.5 + (cp[1] - 0.5) * jitter) * csy, w];
-	};
+	// Every site the cells' 5 × 5 neighbourhoods reach, once: (x, y, power weight), over the cells and 2 more each side.
+	const sw = nx + 4,
+		sites = new Float64Array(sw * (ny + 4) * 3);
+	for (let j = 0; j < ny + 4; j++)
+		for (let i = 0; i < sw; i++) {
+			const x = i - M - 2,
+				y = j - M - 2;
+			const cp = cellPointCpu(imodJs(x, per[0]), imodJs(y, per[1]), ctx.seed, phase);
+			const o = (j * sw + i) * 3;
+			sites[o] = (x + 0.5 + (cp[0] - 0.5) * jitter) * csx;
+			sites[o + 1] = (y + 0.5 + (cp[1] - 0.5) * jitter) * csy;
+			sites[o + 2] = W2 * (cp[0] * 7.13 + cp[1] * 3.71 - Math.floor(cp[0] * 7.13 + cp[1] * 3.71));
+		}
+	const sizeJitter = Number(q.size_jitter ?? 0);
+	const sjSeed = Math.fround(Math.fround(ctx.seed) + 41);
 	const data = new Uint8Array(nx * ny * 4);
 	for (let j = 0; j < ny; j++)
 		for (let i = 0; i < nx; i++) {
-			const x = i - M,
-				y = j - M;
-			const a = site(x, y);
+			const a = ((j + 2) * sw + i + 2) * 3;
 			let hmin = Infinity;
 			for (let dj = -2; dj <= 2; dj++)
 				for (let di = -2; di <= 2; di++) {
 					if (di === 0 && dj === 0) continue;
-					const b = site(x + di, y + dj);
-					const dl = Math.hypot(b[0] - a[0], b[1] - a[1]);
-					if (dl > 1e-6) hmin = Math.min(hmin, 0.5 * dl + (0.5 * (a[2] - b[2])) / dl - g);
+					const b = a + (dj * sw + di) * 3;
+					const dl = Math.hypot(sites[b] - sites[a], sites[b + 1] - sites[a + 1]);
+					if (dl > 1e-6) hmin = Math.min(hmin, 0.5 * dl + (0.5 * (sites[a + 2] - sites[b + 2])) / dl - g);
 				}
 			// Size jitter shrinks the cell by its own random share (the shader's hashI(cell, seed + 41)) — count that too.
-			const sj =
-				Number(q.size_jitter ?? 0) > 0
-					? Number(q.size_jitter) * hashI(imodJs(x, per[0]), imodJs(y, per[1]), Math.fround(Math.fround(ctx.seed) + 41))
-					: 0;
+			const sj = sizeJitter > 0 ? sizeJitter * hashI(imodJs(i - M, per[0]), imodJs(j - M, per[1]), sjSeed) : 0;
 			if (hmin - sj < minCell) data[(j * nx + i) * 4] = 255;
 		}
 	return { cells: { width: nx, height: ny, data } };
@@ -1425,8 +1411,8 @@ export const voronoiLayer: LayerDef = {
 		dif_grad: gradient('#4a463f', '#6b655a', '#7f776a', '#958b7b')
 	},
 	glsl:
-		PAT_GLSL +
-		PAT_FACE_GLSL +
+		PAT_CELL_GLSL +
+		PAT_RELIEF_GLSL +
 		/* glsl */ `
 float pat_metric(vec2 r) {
   return u_metric == 1 ? abs(r.x) + abs(r.y) : u_metric == 2 ? max(abs(r.x), abs(r.y)) : length(r);
@@ -1459,15 +1445,15 @@ GenOut gen(vec2 p) {
   if (u_warp > 0.0) {
     vec2 wc = cellsFor(u_warp_scale, 1.0);
     ivec2 wper = uTile ? ivec2(wc) : NO_PERIOD;
-    // warpOffset's two fBm noises, through the rolled pat_fbm — with Bevel aspect also a pixel right and up, for the
+    // The Warp displacement (warpOffset) — with Bevel aspect also a pixel right and up, for the
     // warp's Jacobian (dFdx of the warped position is constant over each 2 × 2 quad on some GPUs, which steps the
     // bevel's width). One loop, so the noise compiles once.
     vec2 w[3] = vec2[3](vec2(0.0), vec2(0.0), vec2(0.0));
     int nw = bevelAspectOn() ? 3 : 1;
-    for (int i = 0; i < 3 * PAT_1; i++) {
+    for (int i = 0; i < 3 * UNI_1; i++) {
       if (i < nw) {
         vec2 wx = (p + (i == 1 ? vec2(1.0, 0.0) : i == 2 ? vec2(0.0, 1.0) : vec2(0.0))) / uRes * wc;
-        w[i] = (vec2(pat_fbm(wx, wper, 3, uSeed + 108.0), pat_fbm(wx + 17.3, wper, 3, uSeed + 218.0)) - 0.5) * 2.0 * u_warp;
+        w[i] = warpOffset(wx, wper, uSeed + 7.0) * 2.0 * u_warp;
       }
     }
     if (nw == 3) {
@@ -1488,7 +1474,7 @@ GenOut gen(vec2 p) {
   vec2 mr = vec2(0.0), mr2 = vec2(0.0), mr3 = vec2(0.0), mr4 = vec2(0.0);
   ivec2 mc = ip, mc2 = ip, mc3 = ip, mc4 = ip;
   float mw2 = 0.0;
-  for (int t = 0; t < 25 * PAT_1; t++) {
+  for (int t = 0; t < 25 * UNI_1; t++) {
     ivec2 c = ip + ivec2(t % 5 - 2, t / 5 - 2);
     vec2 cp = cellPoint(imod(c, per), uSeed);
     vec2 o = 0.5 + (cp - 0.5) * u_jitter;
@@ -1505,9 +1491,9 @@ GenOut gen(vec2 p) {
   if (power) { F1 = sqrt(max(F1 + mw2, 0.0)); F2 = sqrt(max(F2, 0.0)); }
   float rnd = hashI(imod(mc, per), uSeed + 17.0);
 
-  if (u_output == 1) return genOut(clamp(F1 / L, 0.0, 1.0), 1.0, rnd, ${NO_SDF});
-  if (u_output == 2) return genOut(clamp(F2 / L, 0.0, 1.0), 1.0, rnd, ${NO_SDF});
-  if (u_output == 3) return genOut(clamp(2.0 * (F2 - F1) / L, 0.0, 1.0), 1.0, rnd, ${NO_SDF});
+  if (u_output == 1) return genOut(clamp(F1 / L, 0.0, 1.0), 1.0, rnd, NO_SDF);
+  if (u_output == 2) return genOut(clamp(F2 / L, 0.0, 1.0), 1.0, rnd, NO_SDF);
+  if (u_output == 3) return genOut(clamp(2.0 * (F2 - F1) / L, 0.0, 1.0), 1.0, rnd, NO_SDF);
   if (u_output == 5) {
     // A plane through the cell's site, tilted in a random direction with a random share of the slope. Soft facets:
     // the slope capped so a plane stays in range across its cell (a knee catches the odd large one), and the three
@@ -1520,7 +1506,8 @@ GenOut gen(vec2 p) {
     float band = max(u_facet_soft, 0.5);
     vec4 RF4 = vec4(RF, F4);
     float vs = 0.0;   // the weighted per-feature variation
-    for (int i = 0; i < 4; i++) {
+    float x2 = 0.0, rv2 = 0.0;   // the second cell's plane and random
+    for (int i = 0; i < 4 * UNI_1; i++) {
       ivec2 cw = imod(i == 0 ? mc : i == 1 ? mc2 : i == 2 ? mc3 : mc4, per);
       vec2 rr = i == 0 ? mr : i == 1 ? mr2 : i == 2 ? mr3 : mr4;
       float a = hashI(cw, uSeed + 29.0) * 6.2831853;
@@ -1540,30 +1527,25 @@ GenOut gen(vec2 p) {
       float dq = u_metric != 0 ? 0.5 * (Ri - RF.x) : power ? Ri - RF.x : Ri * Ri - RF.x * RF.x;
       float t = u_metric != 0 ? dq : dq / (2.0 * sep);
       float tw = u_metric != 0 ? dq : dq / (2.0 * L);
-      if (i == 1) t2 = t;
+      float rv = hashI(cw, uSeed + 17.0);
+      if (i == 1) { t2 = t; x2 = xi; rv2 = rv; }
       // One band for every pair (a band that depended on the planes would change as the nearest cells change, and
       // step at triple junctions).
       float wi = i == 0 ? 1.0 : u_facet_fit && Ri < 1e8 ? exp(-tw / band) : 0.0;
       x += wi * xi;
       ws += wi;
       // Per-feature variation with the same weights, so it doesn't step at the soft borders either.
-      vs += wi * (1.0 - u_h_var * fract(hashI(cw, uSeed + 17.0) * 61.37 + 0.123));
+      vs += wi * (1.0 - u_h_var * featVar(rv));
     }
     // Plain facets: the planes meet in a 1 px anti-aliased step. Colour: the cell's random blends with the next
     // cell's over that pixel too (Diffuse › Random), so the boundaries are not stair-stepped.
     float aa = 0.5 * (1.0 - clamp(t2, 0.0, 1.0));
-    if (!u_facet_fit) {
-      // (Only the nearest plane was summed, ws = 1.) The second cell's plane, for the step's anti-aliasing.
-      ivec2 cw = imod(mc2, per);
-      float a = hashI(cw, uSeed + 29.0) * 6.2831853;
-      float k = u_tilt * (0.4 + 0.6 * hashI(cw, uSeed + 31.0));
-      x = mix(x, dot(-mr2, vec2(cos(a), sin(a))) / L * k, aa);
-    }
+    // (Only the nearest plane was summed, ws = 1.) The second cell's plane, for the step's anti-aliasing.
+    if (!u_facet_fit) x = mix(x, x2, aa);
     // Height › Per-feature variation is applied here (feat = 0), blended over the same pixel as the random: the
     // wrapper's hash of a blended random would scatter random heights along every boundary.
-    float rnd2 = hashI(imod(mc2, per), uSeed + 17.0);
-    float var = u_facet_fit ? vs / ws : mix(1.0 - u_h_var * fract(rnd * 61.37 + 0.123), 1.0 - u_h_var * fract(rnd2 * 61.37 + 0.123), aa);
-    GenOut o = genOut(clamp(0.5 + x / ws, 0.0, 1.0) * var, 1.0, mix(rnd, rnd2, aa), ${NO_SDF});
+    float var = u_facet_fit ? vs / ws : mix(1.0 - u_h_var * featVar(rnd), 1.0 - u_h_var * featVar(rv2), aa);
+    GenOut o = genOut(clamp(0.5 + x / ws, 0.0, 1.0) * var, 1.0, mix(rnd, rv2, aa), NO_SDF);
     o.feat = 0.0;
     return o;
   }
@@ -1574,15 +1556,15 @@ GenOut gen(vec2 p) {
   float ms[PAT_K];
   vec2 ns[PAT_K];
   for (int i = 0; i < PAT_K; i++) { ms[i] = 1e9; ns[i] = vec2(0.0); }
-  // The two nearest edges' neighbours (crackle: each edge its own width and depth, the same seen from both cells).
+  // The two nearest edges: px to each and its normal (crackle: each edge its own width and depth, the same seen from both
+  // cells).
   float me = 1e9, me2 = 1e9;
-  ivec2 ec = mc, ec2 = mc;
   vec2 en = vec2(0.0), en2 = vec2(0.0);
   // One loop over the neighbours for every metric (the neighbour's point computed once). hmin: how close the cell's
   // nearest edge comes to its site — the same for every pixel of the cell (only the two sites and their weights).
   float md = 1e9;
   float hmin = 1e9;
-  for (int t = 0; t < 25 * PAT_1; t++) {
+  for (int t = 0; t < 25 * UNI_1; t++) {
     ivec2 c = mc + ivec2(t % 5 - 2, t / 5 - 2);
     vec2 cp = cellPoint(imod(c, per), uSeed);
     vec2 o = 0.5 + (cp - 0.5) * u_jitter;
@@ -1596,8 +1578,8 @@ GenOut gen(vec2 p) {
         float sh = power ? 0.5 * (mw2 - W2 * pat_weight(cp)) / length(dr) : 0.0;
         float m = dot(0.5 * (mr + r), nn) + sh - g;
         hmin = min(hmin, 0.5 * length(dr) + sh - g);
-        if (m < me) { me2 = me; ec2 = ec; en2 = en; me = m; ec = c; en = nn; }
-        else if (m < me2) { me2 = m; ec2 = c; en2 = nn; }
+        if (m < me) { me2 = me; en2 = en; me = m; en = nn; }
+        else if (m < me2) { me2 = m; en2 = nn; }
         pat_pushEdge(ms, ns, m, nn);
       } else {
         // Each bisector is the zero set of f = M(p - b) - M(p - a), which is piecewise linear: a Newton step along
@@ -1613,7 +1595,8 @@ GenOut gen(vec2 p) {
           float gq = length(pat_metricGrad(-r - st) - pat_metricGrad(-mr - st));
           e = length(st) + (gq > 0.5 ? fq / gq : 0.0);
         }
-        if (e < md) { md = e; ec = c; }
+        // (en: towards the border, the estimate's step.)
+        if (e < md) { md = e; en = gl > 0.25 ? -gr * inversesqrt(gl) : vec2(0.0); }
       }
     }
   }
@@ -1639,33 +1622,35 @@ GenOut gen(vec2 p) {
     vec2 wfc = uRes / max(u_crack_scale * L, 1.0);
     if (uTile) wfc = max(floor(wfc + 0.5), vec2(1.0));
     ivec2 wper = uTile ? ivec2(wfc) : NO_PERIOD;
-    for (int i = 0; i < 2 * PAT_1; i++) {
+    // (Other metrics: the nearest edge only.)
+    int ne = u_metric == 0 ? 2 : 1;
+    for (int i = 0; i < ne * UNI_1; i++) {
       float e = (i == 0 ? me : me2) + g;
       // The noise is read on the crack's own line (the pixel's foot on the bisector), so both sides of a crack get
       // the same width and depth.
       vec2 pc = p + (i == 0 ? en : en2) * e;
       // Long stretches: about a cell and a half per swell (width), half that for the depth.
-      float nz = valueNoise(pc / uRes * wfc, wper, uSeed + 53.0);
+      float wz = valueNoise(pc / uRes * wfc, wper, uSeed + 53.0);
       // Broken, not brushed: the width steps between a few levels along the crack (a quick change where the noise
       // crosses a level, straight-walled stretches between), instead of swelling smoothly into lenses.
-      float zq = nz * 4.0;
-      nz = (floor(zq) + smoothstep(0.35, 0.65, fract(zq))) / 4.0;
+      float zq = wz * 4.0;
+      wz = (floor(zq) + smoothstep(0.35, 0.65, fract(zq))) / 4.0;
       e = sqrt(e * e + 1.0) - 1.0;
-      float w = max(u_gap * (1.0 - u_crack_var * clamp(0.5 + 2.0 * (0.5 - nz), 0.0, 0.92)), 0.75);
+      float w = max(u_gap * (1.0 - u_crack_var * clamp(0.5 + 2.0 * (0.5 - wz), 0.0, 0.92)), 0.75);
       w *= 1.0 + 0.8 * u_crack_var * (lip - 0.5);
       // Depth: the wide stretches of a crack the deepest (crisp dark trenches), the hairlines may be shallower.
       // Depth wanders with the same field (the wide stretches the deepest), so junctions are as deep as their arms.
-      float dep = 1.0 - 0.45 * u_crack_var * clamp(0.5 + 1.6 * (0.5 - nz), 0.0, 1.0);
+      float dep = 1.0 - 0.45 * u_crack_var * clamp(0.5 + 1.6 * (0.5 - wz), 0.0, 1.0);
       // A crisp crack: steep walls from a sharp rim (twice the V's slope there), easing into a narrow rounded bottom —
       // neither a soft V nor a flat-floored trench.
       float vi = 1.0 - clamp(e / w, 0.0, 1.0);
       float vw = 1.0 - (1.0 - vi) * (1.0 - vi);
-      if (i == 0 || u_metric == 0) v = max(v, dep * vw);
+      v = max(v, dep * vw);
     }
     // The cell's random stays its own (colour) — darkened by Crack darkness along the crack (towards 0, the ramp's
     // dark end); the crack's depth is not varied per cell (both sides must agree; feat = 0, so the random doesn't
     // reach the height).
-    GenOut o = genOut(v, 1.0, rnd * (1.0 - u_crack_tone * clamp(1.5 * v, 0.0, 1.0)), ${NO_SDF});
+    GenOut o = genOut(v, 1.0, rnd * (1.0 - u_crack_tone * clamp(1.5 * v, 0.0, 1.0)), NO_SDF);
     o.feat = 0.0;
     return o;
   }
@@ -1687,23 +1672,18 @@ GenOut gen(vec2 p) {
   if (bevelAspectOn() && u_metric == 0) {
     // Bevel aspect: the distance in the space the aspect stretches (pat_cellBevel), its edges moved in by the size
     // jitter and its corners rounded by what that leaves of the rounding (as the distance's own corners are).
-    float mx[PAT_K];
-    for (int i = 0; i < PAT_K; i++) mx[i] = ms[i] <= 1e8 ? ms[i] - extra : ms[i];
-    float bd = pat_cellBevel(mx, ns, jx, jy, max(u_round - extra, 0.0), d, rb);
+    float bd = pat_cellBevel(ms, ns, jx, jy, max(u_round - extra, 0.0), d, rb, extra);
     pat_bd = bd < 0.0 ? bd * u_bevel / max(be, 1e-3) : bd;
   } else if (rb || fs) {
     float bd = rb ? extra - pat_roundDepth(ms, ns, u_round) : d;
     pat_setBevelDist(bd < 0.0 ? bd * u_bevel / max(be, 1e-3) : bd);
   }
   float hv = 1.0;
-  bool faced = u_face > 0.0 || u_face_tilt > 0.0 || u_crown > 0.0;
-  if (faced) {
+  if (PAT_FACED) {
     float kc = 0.2 * L;
     hv = pat_face(p, uRes, 0.35 * L, -mr, 0.5 * cs, id, pat_smin(pat_smin(ms[0], ms[1], kc), ms[2], kc) - extra, 0.35 * L);
   }
-  float drawn = faced || u_grout_level > 0.0 ? pat_drawnDist(d) : d;
-  if (u_grout_level > 0.0) return pat_bedOut(rnd, d, drawn, hv, u_grout_level, nz);
-  return pat_out(rnd, d, drawn, hv, faced);
+  return pat_finish(rnd, d, hv, PAT_FACED, u_grout_level, nz);
 }
 `
 };
@@ -1760,9 +1740,7 @@ export const gridLayer: LayerDef = {
 		dif_opacity: 0.7,
 		dif_grad: gradient('#1d1b19')
 	},
-	glsl:
-		PAT_GLSL +
-		/* glsl */ `
+	glsl: /* glsl */ `
 // Line k of an axis (0 = x, 1 = y) with m cells of cs px, the axis offset off (cells): where it starts (cells, jittered)
 // and its width (px). Moved or varied lines start and end on whole pixels (so equal lines look equal), and at full
 // jitter neighbouring lines stay at least 0.4 of a cell, two line widths plus the bevels and 2 px apart.
@@ -1773,8 +1751,8 @@ vec2 pat_line(int k, int axis, int m, float cs, float off) {
     if (u_snap) return vec2(floor((float(k) + off) * cs + 0.5) / cs - off, u_width);
     return vec2(float(k), u_width);
   }
-  vec2 h = hash2I(ivec2(uTile ? pat_imod(k, m) : k, axis), uSeed + 211.0);
-  float h0 = hashI(ivec2(uTile ? pat_imod(k - 1, m) : k - 1, axis), uSeed + 211.0);
+  vec2 h = hash2I(ivec2(uTile ? imod(k, m) : k, axis), uSeed + 211.0);
+  float h0 = hashI(ivec2(uTile ? imod(k - 1, m) : k - 1, axis), uSeed + 211.0);
   // Panel k spans 1 + ½ J (h(k+1) − h(k−1)) cells: up to ±0.75 at Jitter 1 (most within 0.45–1.55 cells), but never
   // closer than two line widths plus the bevels and 2 px.
   float J = min(1.5 * u_jitter, 2.0 * max(1.0 - (2.0 * u_width + 2.0 * u_bevel + 2.0) / cs, 0.0));
@@ -1796,15 +1774,18 @@ GenOut gen(vec2 p) {
   vec2 dl = vec2(1e9);
   vec2 wl = vec2(u_width);
   // Per axis: the nearest of the three lines around the pixel (and its width), and the cell it lies in between the
-  // (moved) lines.
+  // (moved) lines. One flat loop over both axes' lines (one copy of pat_line); lx: where each starts.
+  vec3 lx[2];
+  for (int t = 0; t < 6 * UNI_1; t++) {
+    int a = t / 3, k = t % 3 - 1;
+    vec2 L = pat_line(c[a] + k, a, m[a], cs[a], ofs[a]);
+    float e = abs((u[a] - L.x) * cs[a] - 0.5 * L.y) - 0.5 * L.y;
+    if (e < dl[a]) { dl[a] = e; wl[a] = L.y; }
+    lx[a][k + 1] = L.x;
+  }
   for (int a = 0; a < 2; a++) {
-    for (int k = -1; k <= 1; k++) {
-      vec2 L = pat_line(c[a] + k, a, m[a], cs[a], ofs[a]);
-      float e = abs((u[a] - L.x) * cs[a] - 0.5 * L.y) - 0.5 * L.y;
-      if (e < dl[a]) { dl[a] = e; wl[a] = L.y; }
-    }
-    if (u[a] < pat_line(c[a], a, m[a], cs[a], ofs[a]).x) c[a]--;
-    else if (u[a] >= pat_line(c[a] + 1, a, m[a], cs[a], ofs[a]).x) c[a]++;
+    if (u[a] < lx[a].y) c[a]--;
+    else if (u[a] >= lx[a].z) c[a]++;
   }
   if (u_count_x == 0) dl.x = 1e9;
   if (u_count_y == 0) dl.y = 1e9;
@@ -1932,15 +1913,7 @@ export const stripesLayer: LayerDef = {
 	// Stripes added in the editor: a bevel that rounds each stripe into a band at this size.
 	fresh: ({ width }) => ({ bevel: r1(clamp((width / 8) * 0.5 * 0.25, 1, 32)) }),
 	defaults: { h_on: true, h_amount: 0.4, bevel: 2, profile: 'smooth' },
-	glsl:
-		PAT_GLSL +
-		/* glsl */ `
-int pat_gcd(int a, int b) {
-  a = abs(a); b = abs(b);
-  for (int i = 0; i < 64; i++) { if (b == 0) break; int t = a % b; a = b; b = t; }
-  return max(a, 1);
-}
-
+	glsl: /* glsl */ `
 GenOut gen(vec2 p) {
   vec2 up = vec2(p.x, uRes.y - p.y);             // user space (y down)
   float a = radians(u_angle);
@@ -1951,13 +1924,13 @@ GenOut gen(vec2 p) {
     vec2 cyc = floor(k * uRes + 0.5);
     if (cyc.x == 0.0 && cyc.y == 0.0) cyc.y = 1.0;
     k = cyc / uRes;
-    g = pat_gcd(int(cyc.x), int(cyc.y));
+    g = igcd(int(cyc.x), int(cyc.y));
   }
   float f = dot(up, k) - u_offset;
   float period = 1.0 / length(k);
   float fi = floor(f);
   int idx = int(fi);
-  if (uTile) idx = pat_imod(idx, g);
+  if (uTile) idx = imod(idx, g);
   float rnd = hashI(ivec2(idx, 0), uSeed);
   // ph = 0 at a stripe's leading edge, which is a pixel boundary when the period is whole pixels. The stripe
   // covers ph in [0, duty).
@@ -1976,7 +1949,7 @@ GenOut gen(vec2 p) {
     vec3 lo = vec3(1e9), hi = vec3(-1e9), rr = vec3(rnd);
     for (int i = 0; i < 3; i++) {
       int si = int(fi) + i - 1;
-      int wi = uTile ? pat_imod(si, g) : si;
+      int wi = uTile ? imod(si, g) : si;
       vec4 h = vec4(hash3I(ivec2(wi, 5), uSeed + 211.0), hashI(ivec2(wi, 6), uSeed + 213.0));
       if (h.z >= u_skip) {
         float w = clamp(u_duty * (1.0 + u_width_var * (2.0 * h.x - 1.0)), min(u_duty, wmin), max(u_duty, 1.0 - wmin));
@@ -2029,7 +2002,7 @@ GenOut gen(vec2 p) {
     v = ph < 1.0 - sw ? ph / (1.0 - sw) : (1.0 - ph) / sw;
     if (smoothSoft && ph >= 1.0 - sw) v = v * v * (3.0 - 2.0 * v);
   }
-  return genOut(v, 1.0, rnd, ${NO_SDF});
+  return genOut(v, 1.0, rnd, NO_SDF);
 }
 `
 };
@@ -2044,5 +2017,3 @@ export const PATTERN_LAYERS: LayerDef[] = [
 	gradientLayer,
 	scratchesLayer
 ];
-
-export { cloudsLayer };

@@ -3,8 +3,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createLayer, freshParams, layerParamDefs, linkedChanges } from '../registry';
-import { glyphBevel, glyphLayer, rosetteBevel, rosetteLayer } from './motifRadial';
+import { createLayer, freshParams, linkedChanges } from '../registry';
+import { glyphBevel, rosetteBevel } from './motifRadial';
 
 describe('rosette and glyph', () => {
 	ensureBuiltins();
@@ -84,21 +84,5 @@ describe('rosette and glyph', () => {
 			h_on: true,
 			e_on: true
 		});
-	});
-
-	it('links only known params, uses every param it declares, keeps defaults in range', () => {
-		for (const def of [rosetteLayer, glyphLayer]) {
-			const keys = new Set(layerParamDefs(def.type).map((d) => d.key));
-			for (const k of Object.keys(def.linkedDefaults!({}))) expect(keys.has(k), `${def.type}: ${k}`).toBe(true);
-			for (const k of Object.keys(def.fresh!({ width: 512, height: 512 })))
-				expect(keys.has(k), `${def.type}: ${k}`).toBe(true);
-			for (const d of def.params) {
-				if (d.key !== 'seed') expect(def.glsl!.includes(`u_${d.key}`), `${def.type}: u_${d.key} unused`).toBe(true);
-				if (d.type !== 'float' && d.type !== 'int') continue;
-				expect(Number(d.default), d.key).toBeGreaterThanOrEqual(d.min ?? -Infinity);
-				expect(Number(d.default), d.key).toBeLessThanOrEqual(d.max ?? Infinity);
-				if (d.softMax !== undefined) expect(d.softMax, d.key).toBeLessThanOrEqual(d.max ?? Infinity);
-			}
-		}
 	});
 });

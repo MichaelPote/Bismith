@@ -1,3 +1,6 @@
+// Tonemap post filter: exposure, then an HDR → display tone curve (docs/features/fr4.1-post-stack.md). Every operator's
+// result is clamped to 0..1 once, at the end.
+
 import { P } from '@/core/params';
 import type { PostDef } from './types';
 
@@ -27,7 +30,7 @@ vec3 acesFitted(vec3 c) {
   c = ACESIn * c;
   vec3 a = c * (c + 0.0245786) - 0.000090537;
   vec3 b = c * (0.983729 * c + 0.4329510) + 0.238081;
-  return clamp(ACESOut * (a / b), 0.0, 1.0);
+  return ACESOut * (a / b);
 }
 vec3 agxDefault(vec3 x) {
   vec3 x2 = x * x, x4 = x2 * x2;
@@ -44,7 +47,7 @@ vec3 agx(vec3 c) {
   c = clamp((log2(c) + 12.47393) / 16.5, 0.0, 1.0);
   c = agxDefault(c);
   c = outM * c;
-  return clamp(srgbToLinear(clamp(c, 0.0, 1.0)), 0.0, 1.0);
+  return srgbToLinear(clamp(c, 0.0, 1.0)); // clamped first: srgbToLinear's pow is NaN below -0.055
 }
 vec3 uc2(vec3 x) {
   const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
@@ -54,7 +57,7 @@ vec4 post(ivec2 ip) {
   vec4 c = texelFetch(tInput, ip, 0);
   vec3 x = max(c.rgb, vec3(0.0)) * exp2(u_exposure);
   vec3 y;
-  if (u_operator == 0) y = clamp(x, 0.0, 1.0);
+  if (u_operator == 0) y = x;
   else if (u_operator == 1) y = x * (1.0 + x / (u_white * u_white)) / (1.0 + x);
   else if (u_operator == 2) y = acesFitted(x);
   else if (u_operator == 3) y = agx(x);

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createLayer, freshParams, layerParamDefs, linkedChanges } from '../registry';
+import { createLayer, freshParams, linkedChanges } from '../registry';
 import { rockLayer } from './rock';
 
 describe('rock', () => {
@@ -39,18 +39,6 @@ describe('rock', () => {
 			expect(back.h_on, output).toBe(true);
 			expect(back.dif_grad, output).toEqual(relief.params.dif_grad);
 		}
-	});
-
-	it('links only known params and uses every param it declares', () => {
-		const keys = new Set(layerParamDefs('rock').map((d) => d.key));
-		for (const output of ['relief', 'scarps', 'crevices', 'streaks']) {
-			for (const k of Object.keys(rockLayer.linkedDefaults!({ output })))
-				expect(keys.has(k), `${output}: ${k}`).toBe(true);
-		}
-		// (The seed reaches the shader mixed into uSeed; the style is UI-only, a set of linked defaults.)
-		for (const d of rockLayer.params)
-			if (d.key !== 'seed' && d.uniform !== false)
-				expect(rockLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
 	});
 
 	it('switches the shape with the style, keeps what the user changed, and goes back', () => {

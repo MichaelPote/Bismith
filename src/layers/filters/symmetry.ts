@@ -6,6 +6,7 @@
 
 import { P } from '@/core/params';
 import type { LayerDef } from '../types';
+import { GLSL_READ_STATE } from './shared';
 
 const MODES: [string, string][] = [
 	['mirror-x', 'Mirror X (left → right)'],
@@ -109,6 +110,7 @@ export const symmetryLayer: LayerDef = {
 		{ id: 'blend', label: 'Blend', collapsed: true }
 	],
 	filterGlsl: /* glsl */ `
+${GLSL_READ_STATE}
 // Fold an offset v (px from the centre, GL y up, in the fold frame) into the source region.
 vec2 sym_fold(vec2 v) {
   int m = u_mode;
@@ -122,8 +124,9 @@ vec2 sym_fold(vec2 v) {
     v = abs(v);
     if (v.x > v.y) v = v.yx;
     if (!f) v.x = -v.x;
-  } else if (m == 6 || m == 7) {
-    // Polar: the wedge centred on 'up' (rotational) or from up towards the left (kaleidoscope).
+  } else if ((m == 6 || m == 7) && dot(v, v) > 0.0) {
+    // Polar: the wedge centred on 'up' (rotational) or from up towards the left (kaleidoscope). The centre stays put
+    // (atan(0, 0) is undefined).
     float s = TAU / float(clamp(u_n, 2, 12));
     float a = atan(-v.x, v.y);                  // 0 = up, counter-clockwise (towards the left on screen)
     a -= s * floor(a / s + 0.5);
@@ -151,22 +154,16 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   }
   float r = length(v);
   vec2 w = v;
-  if (u_mode != 8) w = u_angle == 0.0 ? sym_fold(v) : rotCW(sym_fold(unrotCW(v, u_angle)), u_angle);
+  if (u_mode != 8) {
+    bool rot = u_angle != 0.0;
+    w = sym_fold(rot ? unrotCW(v, u_angle) : v);
+    if (rot) w = rotCW(w, u_angle);
+  }
   w /= max(u_zoom, 1e-3);
   vec2 srcOrigin = u_shared ? vec2(0.0, uRes.y - cs.y) : origin;
   vec2 q = srcOrigin + ctr + w + vec2(u_src_x, -u_src_y) * uRes;
   vec4 A2, S2, E2;
-  if (u_nearest) {
-    ivec2 c = ivec2(floor(q));
-    A2 = fetchT(tAlbedo, c);
-    S2 = fetchT(tSurface, c);
-    E2 = fetchT(tEmissive, c);
-  } else {
-    A2 = sampleT(tAlbedo, q);
-    S2 = sampleT(tSurface, q);
-    E2 = sampleT(tEmissive, q);
-  }
-  S2.a *= u_zoom;                                  // distances scale with the magnification
+  readState(q, u_nearest, A2, S2, E2);
   float m = u_opacity;
   if (u_radius > 0.0) {
     float R = u_radius * 0.5 * min(cs.x, cs.y);
@@ -178,5 +175,3 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
 }
 `
 };
-
-export const SYMMETRY_FILTERS: LayerDef[] = [symmetryLayer];

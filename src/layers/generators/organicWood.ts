@@ -9,12 +9,13 @@
 //   - "shape": the plank / scale SDF for its mask (bevel, limit, etch); value = wrapper profile.
 //   - wood only, "grain": the grain value without gaps or edges (stack it over a "shape" layer).
 
-import { P, gradient, orientAxis } from '@/core/params';
+import { P, gradient, orientAxis, round1 as r1 } from '@/core/params';
 import type { LayerDef } from '../types';
-import { ORG_GLSL, ORG_GLSL_SDF, ORG_NO_SDF } from './organicShared';
+import { ORG_GLSL } from './organicShared';
 
-// Grain and ring spacing are across the planks.
+// Grain and ring spacing are across the planks; the end wobble's shift along them.
 const woodAcross = orientAxis('direction', { vertical: 'y', horizontal: 'x' }, true);
+const woodAlong = orientAxis('direction', { vertical: 'y', horizontal: 'x' });
 
 // ------------------------------------------------------------------------------------------------ wood
 
@@ -93,6 +94,7 @@ export const woodLayer: LayerDef = {
 		P.float('end_wobble', 'End wobble', 0, 0, 64, {
 			softMax: 8,
 			unit: 'px',
+			axis: woodAlong,
 			step: 0.05,
 			showIf: jointsOn,
 			hint: 'Board ends — the cuts across the grain — wander by up to this much, as if sawn by hand. Both sides of a joint follow the same line (mostly), so the gap keeps its width; the long edges stay straight'
@@ -100,6 +102,7 @@ export const woodLayer: LayerDef = {
 		P.float('end_wobble_px', 'Wobble size', 32, 2, 1024, {
 			softMax: 128,
 			unit: 'px',
+			axis: woodAcross,
 			step: 0.1,
 			showIf: (p) => jointsOn(p) && Number(p.end_wobble) > 0,
 			hint: "Distance between the wobble's bends along a board end (long: gently slanted cuts; short: wavy ones)"
@@ -228,7 +231,6 @@ export const woodLayer: LayerDef = {
 	// gaps, a 5 px bevel, 8 px rings and knots that read on 128 px boards instead of hairlines and pinholes.
 	fresh: ({ width, height }) => {
 		const k = Math.max(1, Math.sqrt(width * height) / 128);
-		const r1 = (x: number) => Math.round(x * 10) / 10;
 		const gap = Math.round(Math.sqrt(k));
 		// On big textures the many fine streaks would drown the ring figure: rings up, streaks down (from 512 px on).
 		const big = Math.min(1, (k - 1) / 3);
@@ -244,8 +246,6 @@ export const woodLayer: LayerDef = {
 			end_wobble_px: Math.round(32 * Math.sqrt(k))
 		};
 	},
-	// One gap for both directions before Gap Y: an older (or recipe-built) layer's gap keeps applying to both.
-	migrate: (p) => (p.gap !== undefined && p.gap_y === undefined ? { ...p, gap_y: p.gap } : p),
 	defaults: {
 		bevel: 1,
 		profile: 'smooth',
@@ -259,10 +259,9 @@ export const woodLayer: LayerDef = {
 	},
 	glsl:
 		ORG_GLSL +
-		ORG_GLSL_SDF +
 		/* glsl */ `
 // Plank boundary k across the texture (px, whole pixels). Width variation moves boundaries randomly.
-float org_plankEdge(int k, int n, float pw) {
+float wd_plankEdge(int k, int n, float pw) {
   float j = 0.0;
   if (u_width_var > 0.0) {
     int kw = uTile ? imod(k, n) : k;
@@ -271,19 +270,13 @@ float org_plankEdge(int k, int n, float pw) {
   return floor((float(k) + j) * pw + 0.5);
 }
 
-// Smooth 1D noise in -1..1 along a board end (x in wobble cells across the plank; key = plank column, joint).
-float org_endWob(float x, int col, int joint, float seed) {
-  float i = floor(x), f = x - i;
-  ivec2 k = ivec2(int(i), col * 4099 + joint);
-  return 2.0 * mix(hashI(k, seed), hashI(k + ivec2(1, 0), seed), f * f * (3.0 - 2.0 * f)) - 1.0;
-}
-
-// Smooth 1D noise in -1..1 with a period of per cells (for seamless wraps), keyed per board.
+// Smooth 1D noise in -1..1 with a period of per cells (for seamless wraps; per 0: the lattice index as is, no wrap),
+// keyed per board.
 float wd_n1(float x, int per, ivec2 key, float seed) {
   float i = floor(x), f = x - i;
   int k = key.x * 4099 + key.y;
-  float h0 = hashI(ivec2(imod(int(i), per), k), seed), h1 = hashI(ivec2(imod(int(i) + 1, per), k), seed);
-  return 2.0 * mix(h0, h1, f * f * (3.0 - 2.0 * f)) - 1.0;
+  int i0 = per > 0 ? imod(int(i), per) : int(i), i1 = per > 0 ? imod(int(i) + 1, per) : int(i) + 1;
+  return 2.0 * mix(hashI(ivec2(i0, k), seed), hashI(ivec2(i1, k), seed), f * f * (3.0 - 2.0 * f)) - 1.0;
 }
 
 GenOut gen(vec2 p) {
@@ -313,53 +306,59 @@ GenOut gen(vec2 p) {
   ivec2 bid = ivec2(0);
   vec4 box = vec4(0.0, A, 0.0, Lr);
   float bestJs = 1.0;
-  for (int i = -1; i <= 1; i++) {
-    int c = c0 + i;
-    int cw = uTile ? imod(c, n) : c;
-    float a0 = org_plankEdge(c, n, pw);
-    float a1 = org_plankEdge(c + 1, n, pw);
-    float off = float(cw) * u_stagger + hashI(ivec2(cw, 9), uSeed + 29.0) * u_joint_rand;
-    // End wobble: the board ends move along the plank by a noise of the across position, one line per joint (shared by
-    // the boards either side, so the gap keeps its width) plus a little of each side's own. Shifting l by the nearest
-    // joint's offset bends only the ends: the long edges don't depend on l.
-    float lw = l;
-    if (nj > 0 && u_end_wobble > 0.0) {
-      int bj = int(floor(l / bl - off + 0.5));
-      int bjw = uTile ? imod(bj, nj) : bj;
-      float x = (a - a0) / max(u_end_wobble_px, 1.0);
-      float sh = u_end_wobble * org_endWob(x, cw, bjw, uSeed + 71.0);
-      bool below = l > floor((float(bj) + off) * bl + 0.5) + 0.5 * gL + sh;
-      lw = l - sh - u_end_var * u_end_wobble * org_endWob(x + 0.5, cw, 2 * bjw + (below ? 1 : 0), uSeed + 73.0);
+  // The 3 × 3 boards round the pixel in one flat loop (see UNI_1): columns c0 − 1 … c0 + 1, three boards along each. A
+  // column's values are worked out at its first board (j = −1); its left edge is the previous column's right one.
+  int cw = 0, b0 = 0;
+  float aL = 0.0, aR = wd_plankEdge(c0 - 1, n, pw), off = 0.0, lw = l;
+  for (int e = 0; e < 9 * UNI_1; e++) {
+    int i = e / 3 - 1, j = e % 3 - 1;
+    if (j == -1) {
+      int c = c0 + i;
+      cw = uTile ? imod(c, n) : c;
+      aL = aR;
+      aR = wd_plankEdge(c + 1, n, pw);
+      off = float(cw) * u_stagger + hashI(ivec2(cw, 9), uSeed + 29.0) * u_joint_rand;
+      // End wobble: the board ends move along the plank by a noise of the across position, one line per joint (shared
+      // by the boards either side, so the gap keeps its width) plus a little of each side's own. Shifting l by the
+      // nearest joint's offset bends only the ends: the long edges don't depend on l.
+      lw = l;
+      if (nj > 0 && u_end_wobble > 0.0) {
+        int bj = int(floor(l / bl - off + 0.5));
+        int bjw = uTile ? imod(bj, nj) : bj;
+        float x = (a - aL) / max(u_end_wobble_px, 1.0);
+        float sh = u_end_wobble * wd_n1(x, 0, ivec2(cw, bjw), uSeed + 71.0);
+        bool below = l > floor((float(bj) + off) * bl + 0.5) + 0.5 * gL + sh;
+        lw = l - sh - u_end_var * u_end_wobble * wd_n1(x + 0.5, 0, ivec2(cw, 2 * bjw + (below ? 1 : 0)), uSeed + 73.0);
+      }
+      b0 = nj > 0 ? int(floor(lw / bl - off)) : 0;
     }
-    int b0 = nj > 0 ? int(floor(lw / bl - off)) : 0;
     // (Full-length boards: the three boxes are the same, so the first one stays the nearest — no continue, which ANGLE
     // can miscompile.)
-    for (int j = -1; j <= 1; j++) {
-      int b = b0 + j;
-      float l0 = nj > 0 ? floor((float(b) + off) * bl + 0.5) : l - 1e4;
-      float l1 = nj > 0 ? floor((float(b + 1) + off) * bl + 0.5) : l + 1e4;
-      ivec2 key = ivec2(cw, nj > 0 ? (uTile ? imod(b, nj) : b) : 0);
-      // Joint variation: the board carries its own share of its gaps (along its side and at its start).
-      float js = u_planks ? 1.0 - u_joint_var * hashI(key, uSeed + 191.0) : 1.0;
-      vec2 lo = vec2(a0 + gA * js, l0 + (nj > 0 ? gL * js : 0.0));
-      vec2 hi = vec2(a1, l1);
-      vec2 hs = max(0.5 * (hi - lo), vec2(0.0));
-      float d = sdBox(vec2(a, lw) - 0.5 * (lo + hi), hs);
-      if (d < best) {
-        best = d;
-        bestA = sdBox((vec2(a, lw) - 0.5 * (lo + hi)) / asp, hs / asp);
-        bid = key;
-        box = vec4(a0, a1, l0, l1);
-        bestJs = js;
-      }
+    int b = b0 + j;
+    float l0 = nj > 0 ? floor((float(b) + off) * bl + 0.5) : l - 1e4;
+    float l1 = nj > 0 ? floor((float(b + 1) + off) * bl + 0.5) : l + 1e4;
+    ivec2 key = ivec2(cw, nj > 0 ? (uTile ? imod(b, nj) : b) : 0);
+    // Joint variation: the board carries its own share of its gaps (along its side and at its start).
+    float js = u_planks ? 1.0 - u_joint_var * hashI(key, uSeed + 191.0) : 1.0;
+    vec2 lo = vec2(aL + gA * js, l0 + (nj > 0 ? gL * js : 0.0));
+    vec2 hi = vec2(aR, l1);
+    vec2 hs = max(0.5 * (hi - lo), vec2(0.0));
+    float d = sdBox(vec2(a, lw) - 0.5 * (lo + hi), hs);
+    if (d < best) {
+      best = d;
+      bestA = sdBox((vec2(a, lw) - 0.5 * (lo + hi)) / asp, hs / asp);
+      bid = key;
+      box = vec4(aL, aR, l0, l1);
+      bestJs = js;
     }
   }
   float rnd = hashI(bid, uSeed);
   // A shut board has hardly any bevel (its bevel distance stretched by 1 / its share).
   bestA /= max(bestJs, 0.05);
-  if (u_output == 1 && u_planks) {
-    GenOut sh = genOut(0.0, 1.0, rnd, best);
-    sh.bdist = bestA;
+  // (Plank shapes without planks: one slab, everywhere inside.)
+  if (u_output == 1) {
+    GenOut sh = genOut(0.0, 1.0, rnd, u_planks ? best : -1e4);
+    if (u_planks) sh.bdist = bestA;
     sh.feat *= bestJs;
     return sh;
   }
@@ -381,14 +380,15 @@ GenOut gen(vec2 p) {
   // The grain flows round over a longer wake along it, the rim is irregular, the knot is darker wood with a dark pith and
   // rim and faint rings (not a bullseye), dark tails run along the grain from it, and further knots on a board are spread
   // along it instead of side by side.
-  float hz0 = hash3I(bid, uSeed + 61.0).z;
+  float hz0 = 0.0;
   float knotTail = 0.0;
   float knotKr = 1.0;
   float knotSink = 0.0;
-  for (int s = 0; s < 4 * ORG_1; s++) {
+  for (int s = 0; s < 4 * UNI_1; s++) {
     float fs = float(s);
     if (fs >= u_knots) break;
     vec3 hk = hash3I(bid, uSeed + 61.0 + 13.0 * fs);
+    if (s == 0) hz0 = hk.z;
     if (hk.x < u_knots - fs) {
       float rk = min(max(u_knot_size * (0.7 + 0.6 * hashI(bid, uSeed + 67.0 + 13.0 * fs)), 0.75), max(0.4 * pwB, 0.75));
       float ka = (hk.y - 0.5) * pwB * 0.6;
@@ -437,15 +437,31 @@ GenOut gen(vec2 p) {
   vec3 hwd = hash3I(bid, uSeed + 47.0);
   float wander = !u_planks && cath ? A * (0.12 * sin(TAU * (l / Lr + hwd.z)) + 0.05 * sin(TAU * (2.0 * l / Lr + hwd.x))) : 0.0;
   fineBend += wander;
-  if (!u_planks && !cath) {
-    vec2 fc = vec2(2.0, 2.0 * (Lr / A) / max(u_ring_stretch * 0.25, 1.0));
-    if (uTile) fc = max(floor(fc + 0.5), vec2(1.0));
-    // Fold strength: gentle waves up to Arches 0.5, then steeply stronger, so the lines really turn back into arches and
-    // ovals towards 1 — with the finer octaves fading out, so the folds are a few broad arches, not a contour map of
-    // little loops.
-    float fhi = clamp(2.0 * u_figure - 1.0, 0.0, 1.0);
+  bool slab = !u_planks && !cath;
+  // The fold's noise (fc cells; foldHi fades its finer octaves) and the ring figure's low-frequency wobble (about one
+  // warp cell per plank across, a few along the texture: rc).
+  vec2 fc = vec2(2.0, 2.0 * (Lr / A) / max(u_ring_stretch * 0.25, 1.0));
+  if (uTile) fc = max(floor(fc + 0.5), vec2(1.0));
+  float foldHi = clamp(2.0 * u_figure - 1.0, 0.0, 1.0);
+  vec2 rc = vec2(float(n), float(n) * (Lr / A) * 0.75);
+  if (uTile) rc = max(floor(rc + 0.5), vec2(1.0));
+  // Both in one loop (one copy of org_noiseFbm; see UNI_1): pass 0 the fold (one slab with ovals only), pass 1 the
+  // wobble (cathedral: sampled at an offset per board, so a board's wobble doesn't carry on into the next one).
+  float fn = 0.0, wn = 0.0;
+  for (int e = 0; e < 2 * UNI_1; e++) {
+    bool wb = e == 1;
+    if (wb || slab) {
+      float nn = org_noiseFbm(1, false, vec2(a / A, l / Lr) * (wb ? rc : fc) + (wb && cath ? hb.yx * vec2(17.0, 23.0) : vec2(0.0)),
+                              org_per(wb ? rc : fc), wb ? 2 : 3, wb ? 0.5 : 0.5 - 0.4 * foldHi, uSeed + (wb ? 13.0 : 17.0)) - 0.5;
+      if (wb) wn = nn;
+      else fn = nn;
+    }
+  }
+  if (slab) {
+    // Fold strength: gentle waves up to Arches 0.5, then steeply stronger, so the lines really turn back into arches
+    // and ovals towards 1 — with the finer octaves fading out (foldHi), so the folds are a few broad arches, not a
+    // contour map of little loops.
     float fold = u_figure <= 0.5 ? 0.25 * u_figure : 0.125 + 1.75 * (u_figure - 0.5);
-    float fn = org_noiseFbm(1, false, vec2(a / A, l / Lr) * fc, org_per(fc), 3, 0.5 - 0.4 * fhi, uSeed + 17.0) - 0.5;
     slabFold = fold * A * fn;
     // The fold beyond those gentle waves bends the fine streaks too, so they run with the arches instead of across them.
     fineBend = (fold - 0.25 * min(u_figure, 0.5)) * A * fn;
@@ -459,23 +475,23 @@ GenOut gen(vec2 p) {
   float fineTh = 0.6 * bv * (hv3.y - 0.5);
   float run = nj > 0 ? 0.12 * bv * (hb.w - 0.5) * (ll - 0.5 * Lb) : 0.0;
 
-  // Ring figure. Low-frequency wobble: about one warp cell per plank across, a few along the texture.
-  vec2 rc = vec2(float(n), float(n) * (Lr / A) * 0.75);
-  if (uTile) rc = max(floor(rc + 0.5), vec2(1.0));
-  ivec2 rper = uTile ? ivec2(rc + 0.5) : NO_PERIOD;
-  // (Cathedral: sampled at an offset per board, so a board's wobble doesn't carry on into the next one.)
-  float wn = org_noiseFbm(1, false, vec2(a / A, l / Lr) * rc + (cath ? hb.yx * vec2(17.0, 23.0) : vec2(0.0)), rper, 2, 0.5, uSeed + 13.0) - 0.5;
+  // Ring figure.
   float spacing = u_ring_px * (u_planks ? 1.0 + bv * (hv3.z - 0.5) : 1.0);
   float st = max(u_ring_stretch, 1.0);
   float r;
   // Cathedral: the ring field's gradient in the plank frame (across, along), exact (see below).
   vec2 gRa = vec2(1.0, 0.0);
-  int nRings = 1 << 20;
+  int nRings = NO_PERIOD.x;
+  // Boards sawn through the heart (Arches = their share): the heart well inside the board (cathedral: its arch tips on
+  // the board), the others' far off to one side.
+  float hh = hashI(bid, uSeed + 41.0);
+  bool heart = hashI(bid, uSeed + 43.0) < u_figure;
+  float cx = (hb.z < 0.5 ? -1.0 : 1.0) * pwB * (heart ? 0.05 + (cath ? 0.25 : 0.4) * hh : 1.5 + 2.5 * hh);
   if (cath) {
     // Cathedral arches: rings are cylinders round a heart (pith) that runs along the board at depth D below the face, so a
     // ring of radius ρ shows where D < ρ, as two lines that meet in an arch tip where D = ρ. D grows along the board (by
     // 1 / Arch length) with a swell or two, so the arches nest, point one way and stay open.
-    vec3 hc = hash3I(bid, uSeed + 47.0);
+    vec3 hc = hwd;
     float dx;
     float D;
     // d(dx)/dl and dD/dl, for the ring field's gradient worked out exactly (the warp's is small): screen derivatives are
@@ -483,10 +499,6 @@ GenOut gen(vec2 p) {
     float dxl = 0.0;
     float Dl;
     if (u_planks) {
-      float hh = hashI(bid, uSeed + 41.0);
-      bool heart = hashI(bid, uSeed + 43.0) < u_figure;
-      // (A heart board's heart stays well inside it, so its arch tips are on the board.)
-      float cx = (hb.z < 0.5 ? -1.0 : 1.0) * pwB * (heart ? 0.05 + 0.25 * hh : 1.5 + 2.5 * hh);
       dx = aEff + run - cx;
       dxl = nj > 0 ? 0.12 * bv * (hb.w - 0.5) : 0.0;
       if (nj > 0) {
@@ -515,10 +527,6 @@ GenOut gen(vec2 p) {
     // Elongated rings around a heart per board (periodic along the board, so full-length boards tile). The
     // nearer the heart sits to the board, the more arches / ovals show.
     // Arches = the fraction of boards sawn near the heart; the others show straight, wobbly lines.
-    float hh = hashI(bid, uSeed + 41.0);
-    bool heart = hashI(bid, uSeed + 43.0) < u_figure;
-    float side = hb.z < 0.5 ? -1.0 : 1.0;
-    float cx = side * pwB * (heart ? 0.05 + 0.4 * hh : 1.5 + 2.5 * hh);
     float rl = (Lb / PI) * sin(PI * (ll - hb.w * Lb) / Lb);
     r = length(vec2(aEff - cx, rl / max(u_ring_stretch, 1.0))) + u_ring_warp * spacing * 2.0 * wn;
   } else {
@@ -543,7 +551,7 @@ GenOut gen(vec2 p) {
   if (u_grain_group > 0.0) {
     float ng = max(floor(A / (6.4 * u_grain_px) + 0.5), 1.0);
     float xg = wrapC ? fineX / A * ng : fineX / (6.4 * u_grain_px);
-    fineX += u_grain_group * 3.2 * u_grain_px * wd_n1(xg, wrapC && uTile ? int(ng) : 1 << 20, bid + ivec2(0, 13), uSeed + 89.0);
+    fineX += u_grain_group * 3.2 * u_grain_px * wd_n1(xg, wrapC && uTile ? int(ng) : NO_PERIOD.x, bid + ivec2(0, 13), uSeed + 89.0);
   }
   vec2 gx = vec2(fineX / A, l / Lr) * gc + hb.xy * vec2(57.0, 31.0);
   // Billowed (|2n − 1|), so the streaks are thin wavy lines where the noise crosses its mean — pores, not dark blotches —
@@ -555,12 +563,12 @@ GenOut gen(vec2 p) {
   // (Board-local across boards; one slab wraps it round the tile.)
   float nc = max(floor(A / (5.0 * u_grain_px) + 0.5), 1.0);
   float xc = wrapC ? (aAbs + fineBend) / A * nc : (cath ? r : aEff + run) / (5.0 * u_grain_px);
-  float cl = wd_n1(xc, wrapC && uTile ? int(nc) : 1 << 20, bid + ivec2(0, 11), uSeed + 83.0);
+  float cl = wd_n1(xc, wrapC && uTile ? int(nc) : NO_PERIOD.x, bid + ivec2(0, 11), uSeed + 83.0);
   // Each streak its own width and darkness (a noise at about the streak spacing), and anti-aliased by the noise's screen
   // derivative — a line thinner than a pixel fades instead of breaking into stair-steps and dots.
   float ns = max(floor(A / (1.7 * u_grain_px) + 0.5), 1.0);
   float xs = wrapC ? (aAbs + fineBend) / A * ns : fineX / (1.7 * u_grain_px);
-  float sv = wd_n1(xs, wrapC && uTile ? int(ns) : 1 << 20, bid + ivec2(0, 19), uSeed + 109.0);
+  float sv = wd_n1(xs, wrapC && uTile ? int(ns) : NO_PERIOD.x, bid + ivec2(0, 19), uSeed + 109.0);
   // (At least the noise's typical slope per px: a billowed noise's own derivative vanishes at its crease, right on the
   // streak, and is one per 2×2 pixels — alone it leaves dotted stair-steps.)
   float gfw = max(fwidth(g), 1.5 * (cath ? gradR : 1.0) / u_grain_px);
@@ -583,8 +591,8 @@ GenOut gen(vec2 p) {
     float xr = wrapR ? r / spacing * nv / float(nRings) : r / (2.5 * spacing);
     float nv2 = max(floor(float(nRings) / 9.0 + 0.5), 1.0);
     float xr2 = wrapR ? r / spacing * nv2 / float(nRings) : r / (9.0 * spacing);
-    float n2 = wd_n1(xr2, wrapR ? int(nv2) : 1 << 20, bid + ivec2(0, 17), uSeed + 97.0);
-    r += u_ring_var * spacing * (0.45 * wd_n1(xr, wrapR ? int(nv) : 1 << 20, bid + ivec2(0, 7), uSeed + 79.0) + 3.5 * n2);
+    float n2 = wd_n1(xr2, wrapR ? int(nv2) : NO_PERIOD.x, bid + ivec2(0, 17), uSeed + 97.0);
+    r += u_ring_var * spacing * (0.45 * wd_n1(xr, wrapR ? int(nv) : NO_PERIOD.x, bid + ivec2(0, 7), uSeed + 79.0) + 3.5 * n2);
   }
   float t = fract(r / spacing);
   int ri = int(floor(r / spacing));
@@ -610,21 +618,20 @@ GenOut gen(vec2 p) {
   float wi = min(rw * (0.4 + 1.2 * hr.y), 0.9);
   float a0 = (1.0 - wi) * (1.0 - 0.8 * u_ring_ramp * gr);
   float ramp = pow(clamp((t - a0) / max(1.0 - a0, 1e-3), 0.0, 1.0), 1.0 + 2.0 * u_ring_ramp);
-  float ringDark = ramp * (1.0 - smoothstep(1.0 - he, 1.0 + he, t)) * (0.25 + 0.75 * hr.x) + (1.0 - smoothstep(-he, he, t)) * ap;
-  float hH = max(he, min(density, 0.5));
-  float ringDarkH = ramp * (1.0 - smoothstep(1.0 - hH, 1.0 + hH, t)) * (0.25 + 0.75 * hr.x) + (1.0 - smoothstep(-hH, hH, t)) * ap;
+  // x: colour, y: Height (its soft edge at least a ring's px width, eased).
+  vec2 hE = vec2(he, max(he, min(density, 0.5)));
+  vec2 ringDark = ramp * (1.0 - smoothstep(1.0 - hE, 1.0 + hE, vec2(t))) * (0.25 + 0.75 * hr.x) + (1.0 - smoothstep(-hE, hE, vec2(t))) * ap;
   // Fade rings that crowd closer than ~2 px (they would alias into moiré).
   ringDark *= 1.0 - smoothstep(0.35, 0.6, density);
-  ringDarkH *= 1.0 - smoothstep(0.35, 0.6, density);
 
   // The pores show most in the earlywood (the light part of each ring), so the streaks band with the rings.
   fineDark *= 1.0 - 0.6 * u_rings * smoothstep(1.0 - rw, 1.0, t);
-  float v = 1.0 - 0.85 * clamp(fineK * fineDark + u_rings * ringDark, 0.0, 1.0);
-  v = clamp(mix(v, 1.0 - knotDark, knotMask) * (1.0 - 0.4 * knotTail), 0.0, 1.0);
+  // The value (x) and, from the eased rings, Height's (y).
+  vec2 vv = 1.0 - 0.85 * clamp(fineK * fineDark + u_rings * ringDark, 0.0, 1.0);
+  vv = clamp(mix(vv, vec2(1.0 - knotDark), knotMask) * (1.0 - 0.4 * knotTail), 0.0, 1.0);
+  float v = vv.x;
   // Height: the grain at Grain depth on a full-height surface; edges and gaps keep the full range.
-  // (From the eased rings.)
-  float vH = clamp(mix(1.0 - 0.85 * clamp(fineK * fineDark + u_rings * ringDarkH, 0.0, 1.0), 1.0 - knotDark, knotMask) * (1.0 - 0.4 * knotTail), 0.0, 1.0);
-  float hv = mix(1.0, vH, u_grain_depth);
+  float hv = mix(1.0, vv.y, u_grain_depth);
   // A knot in Height: per knot it either stands proud (hard wood, a gentle dome) or has a sunken, shrunken core, with a
   // shallow groove at its rim and its rings showing — not a sunken flat disc.
   float kd = knotSink < 0.4 ? 0.2 + 0.4 * (1.0 - knotKr * knotKr) : 0.4 * knotKr * knotKr;
@@ -641,7 +648,7 @@ GenOut gen(vec2 p) {
   // Wood output: the grain on the planks — the wrapper multiplies it by their bevel (gaps = 0), from the combined shape.
   GenOut o;
   if (u_output == 0 && u_planks) { o = genOutShaded(v, 1.0, rnd, best); o.bdist = bestA; }
-  else o = genOut(v, 1.0, rnd, ${ORG_NO_SDF});
+  else o = genOut(v, 1.0, rnd, NO_SDF);
   o.hval = hv;
   // A shut board sits flush: Height › Per-feature variation shrinks with its share (the grain stays).
   o.feat *= bestJs;
@@ -789,43 +796,29 @@ export const scalesLayer: LayerDef = {
 	},
 	glsl:
 		ORG_GLSL +
-		ORG_GLSL_SDF +
 		/* glsl */ `
 #define SC_MAXW 24
 // A scale's shape around its centre: u = q − centre in the scale's frame (user space, y down: the free edge up, u.y < 0),
 // r across, s along (Aspect). Round: an ellipse; with Point its free half is a pointed arch — two arcs centred o px to
 // either side, each half bounded by the far one — squashed to length s. The distance is divided by the squash's stretch
-// along the normal, so bevels keep their width.
-float sc_shape(vec2 u, float r, float s, float o) {
+// along the normal, so bevels keep their width. g: its direction across the outline at u (the distance's gradient,
+// unnormalised), in the scale's frame.
+float sc_shape(vec2 u, float r, float s, float o, out vec2 g) {
   bool pt = u.y < 0.0 && o > 0.0;
   float off = pt ? o : 0.0;
   float k = (pt ? sqrt(1.0 + 2.0 * o / r) : 1.0) * r / s;
   vec2 v = vec2(abs(u.x) + off, u.y * k);
+  g = vec2((u.x < 0.0 ? -1.0 : 1.0) * v.x, v.y * k);
   float L = length(v);
   vec2 n = v / max(L, 1e-6);
   return (L - r - off) / length(vec2(n.x, n.y * k));
 }
 
-// Its direction across the outline at u (the distance's gradient, unnormalised), in the scale's frame.
-vec2 sc_shapeN(vec2 u, float r, float s, float o) {
-  bool pt = u.y < 0.0 && o > 0.0;
-  float off = pt ? o : 0.0;
-  float k = (pt ? sqrt(1.0 + 2.0 * o / r) : 1.0) * r / s;
-  vec2 v = vec2(abs(u.x) + off, u.y * k);
-  return vec2((u.x < 0.0 ? -1.0 : 1.0) * v.x, v.y * k);
-}
-// For Bevel aspect (GLSL_BEVEL): px of Bevel per px across a scale's outline at u, turned by w (its turn) back to the
-// screen.
-float sc_stretch(vec2 u, float r, float s, float o, float w) {
-  vec2 g = sc_shapeN(u, r, s, o);
+// For Bevel aspect (GLSL_BEVEL): px of Bevel per px across a scale's outline with direction g there (sc_shape), turned
+// by w (the scale's turn) back to the screen.
+float sc_stretch(vec2 g, float w) {
   float cs = cos(w), sn = sin(w);
   return bevelLine(1.0, vec2(cs * g.x - sn * g.y, sn * g.x + cs * g.y));
-}
-
-// Polynomial smooth minimum (k px): the union of the rows in front without creases, for Tilt.
-float sc_smin(float a, float b, float k) {
-  float h = max(k - abs(a - b), 0.0) / k;
-  return min(a, b) - h * h * k * 0.25;
 }
 
 GenOut gen(vec2 p) {
@@ -895,7 +888,7 @@ GenOut gen(vec2 p) {
   int i = 0;
   int c0 = 0;
   float shift = 0.0;
-  for (int e = 0; e < SC_MAXW * 11 * ORG_1; e++) {
+  for (int e = 0; e < SC_MAXW * 11 * UNI_1; e++) {
     int k = e / nc;
     int j = e - nc * k;
     if (k >= nW) break;
@@ -920,29 +913,32 @@ GenOut gen(vec2 p) {
     vec2 un = q - cNew.xy;
     float cs = cos(cNew.w), sn = sin(cNew.w);
     un = vec2(cs * un.x + sn * un.y, -sn * un.x + cs * un.y);
-    float dNew = sc_shape(un, R * gi + grow, Si, 2.0 * u_point * (R * gi + grow));
-    float fNew = bevAsp ? sc_stretch(un, R * gi + grow, Si, 2.0 * u_point * (R * gi + grow), cNew.w) : 1.0;
+    vec2 gNew;
+    float dNew = sc_shape(un, R * gi + grow, Si, 2.0 * u_point * (R * gi + grow), gNew);
+    float fNew = bevAsp ? sc_stretch(gNew, cNew.w) : 1.0;
     // Edge wobble: the 2nd and 3rd harmonics of the angle, random per scale (cos 2θ, cos 3θ, sin 3θ from the direction).
     if (u_wobble > 0.0) {
-      vec3 hw = 2.0 * hash3I(key, uSeed + 15.0) - 1.0;
+      vec3 hwb = 2.0 * hash3I(key, uSeed + 15.0) - 1.0;
       vec2 nu = un / max(length(un), 1e-3);
-      dNew -= 0.04 * R * gi * u_wobble * (hw.x * (nu.x * nu.x - nu.y * nu.y) + hw.y * nu.x * (4.0 * nu.x * nu.x - 3.0) + hw.z * nu.y * (3.0 - 4.0 * nu.y * nu.y));
+      dNew -= 0.04 * R * gi * u_wobble * (hwb.x * (nu.x * nu.x - nu.y * nu.y) + hwb.y * nu.x * (4.0 * nu.x * nu.x - 3.0) + hwb.z * nu.y * (3.0 - 4.0 * nu.y * nu.y));
     }
     rowMin = min(rowMin, dNew);
-    rowS = sc_smin(rowS, dNew, ks);
+    rowS = org_smin(rowS, dNew, ks);
     rowMinS = min(rowMinS, (dNew - u_outline) * fNew);
     if (j >= 6) {
       // Column c − 3: covered by the rows in front and by any of the three columns either side that ranks above it.
-      float z = zB.x;
-      vec3 upA = vec3(zA.x > z ? dA.x : 1e9, zA.y > z ? dA.y : 1e9, zA.z > z ? dA.z : 1e9);
-      vec3 upB = vec3(zB.y > z ? dB.y : 1e9, zB.z > z ? dB.z : 1e9, h2.x > z ? dNew : 1e9);
-      float occ = min(frontMin, min(min(min(upA.x, upA.y), upA.z), min(min(upB.x, upB.y), upB.z)));
-      vec3 sA = (vec3(upA.xy, upA.z) - u_outline) * fA;
-      vec3 sB = (upB - u_outline) * vec3(fB.yz, fNew);
-      float occS = min(frontMinS, min(min(min(sA.x, sA.y), sA.z), min(min(sB.x, sB.y), sB.z)));
-      // Grooved: split from the row neighbours along the bisectors with their centres instead (the midlines
-      // when regular), as tiles in grout.
-      if (u_edges == 1) {
+      float occ, occS = 1e9;
+      if (u_edges == 0) {
+        float z = zB.x;
+        vec3 upA = vec3(zA.x > z ? dA.x : 1e9, zA.y > z ? dA.y : 1e9, zA.z > z ? dA.z : 1e9);
+        vec3 upB = vec3(zB.y > z ? dB.y : 1e9, zB.z > z ? dB.z : 1e9, h2.x > z ? dNew : 1e9);
+        occ = min(frontMin, min(min(min(upA.x, upA.y), upA.z), min(min(upB.x, upB.y), upB.z)));
+        vec3 sA = (upA - u_outline) * fA;
+        vec3 sB = (upB - u_outline) * vec3(fB.yz, fNew);
+        occS = min(frontMinS, min(min(min(sA.x, sA.y), sA.z), min(min(sB.x, sB.y), sB.z)));
+      } else {
+        // Grooved: split from the row neighbours along the bisectors with their centres instead (the midlines
+        // when regular), as tiles in grout.
         vec2 L = cen4.xy - cen3.xy, Rn = cen2.xy - cen3.xy;
         float hL = -dot(q - cen3.xy - 0.5 * L, L) / max(length(L), 1e-3), hR = -dot(q - cen3.xy - 0.5 * Rn, Rn) / max(length(Rn), 1e-3);
         occ = min(frontMin, min(hL, hR));
@@ -953,7 +949,7 @@ GenOut gen(vec2 p) {
     }
     if (j == nc - 1) {
       frontMin = min(frontMin, rowMin);
-      frontS = sc_smin(frontS, rowS, ks);
+      frontS = org_smin(frontS, rowS, ks);
       frontMinS = min(frontMinS, rowMinS);
     }
     dA = vec3(dA.yz, dB.x);
@@ -1002,8 +998,13 @@ GenOut gen(vec2 p) {
   // Lapped: the rim (the scale's own edge) is bevelled down to about where the scale beneath starts — the hidden end of a
   // scale sits at 1 − Tilt — and the outline is a crevice on the scale beneath, just beyond the rim of the one on top.
   // (Bevel aspect: across the rim's direction there, turned back to the screen.)
-  float bev = 1.0;
-  if (u_bevel > 0.0 && u_profile != 0) bev = profileCurve(u_profile, max(-bestDc, 0.0) * (bevAsp ? sc_stretch(u, Rb, Sb, 2.0 * u_point * Rb, bestC.w) : 1.0) / u_bevel);
+  float st = 1.0;
+  if (bevAsp) {
+    vec2 gb;
+    sc_shape(u, Rb, Sb, 2.0 * u_point * Rb, gb);
+    st = sc_stretch(gb, bestC.w);
+  }
+  float bev = bevelPlain(bestDc * st);
   // Lip: a band just inside the rim, past the bevel, rises towards full height; the face behind it sinks a little.
   float din = max(-bestDc, 0.0);
   float lw = max(1.5, 0.07 * Rb);
@@ -1037,7 +1038,7 @@ GenOut gen(vec2 p) {
   float hh = hq * (1.0 - 0.15 * gl);
   // Per-feature variation (Height): only the relief above the level the rims come down to varies, so a scale lying on
   // another never ends up below it where they meet (the wrapper's own variation, a factor on everything, is off).
-  hh = base + (hh - base) * (1.0 - u_h_var * fract(rnd * 61.37 + 0.123));
+  hh = base + (hh - base) * (1.0 - u_h_var * featVar(rnd));
   o.hval = clamp(hh * (1.0 - 0.5 * crev) * inside, 0.0, 1.0);
   o.feat = 0.0;
   return o;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { ParamValues } from '@/core/params';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, layerParamDefs } from '../registry';
 import { BAND_PROFILES, trimFresh, trimLayer } from './greebleTrim';
@@ -64,19 +65,31 @@ describe('trim strip', () => {
 
 	it('declares pixel lengths in px (supersampling scales them) and has generous slider ranges', () => {
 		const defs = new Map(layerParamDefs('trim').map((d) => [d.key, d]));
-		for (const k of [
-			'band1',
-			'band6',
-			'strip_h',
-			'div_width',
-			'div_inset',
-			'elem_inset',
-			'elem_size',
-			'elem_len',
-			'elem_row_gap'
-		]) {
-			expect(defs.get(k)?.unit, k).toBe('px');
-		}
+		// (Exactly these: a new length has to be declared one way or the other.)
+		const bands = [1, 2, 3, 4, 5, 6].map((n) => `band${n}`);
+		const own = trimLayer.params.filter((d) => d.unit === 'px').map((d) => d.key);
+		expect(own.sort()).toEqual(
+			[
+				...bands,
+				'strip_h',
+				'div_width',
+				'div_inset',
+				'elem_pitch',
+				'elem_inset',
+				'elem_size',
+				'elem_len',
+				'elem_row_gap',
+				'elem_clear'
+			].sort()
+		);
+		// Lengths along or across the strips scale with that side alone.
+		const axis = (k: string, p: ParamValues) => {
+			const a = defs.get(k)!.axis;
+			return typeof a === 'function' ? a(p) : a;
+		};
+		expect(axis('band1', { orient: 'horizontal' })).toBe('y');
+		expect(axis('elem_len', { orient: 'horizontal', elem: 'slot' })).toBe('x');
+		expect(axis('elem_len', { orient: 'horizontal', elem: 'vslot' })).toBe('y');
 		expect(defs.get('band1')!.softMax).toBeGreaterThanOrEqual(64);
 		expect(defs.get('elem_size')!.softMax).toBeGreaterThanOrEqual(24);
 		expect(defs.get('strip_h')!.max).toBeGreaterThanOrEqual(2048);

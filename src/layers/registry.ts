@@ -25,6 +25,8 @@ import {
 import { SHAPE_MASK } from '@/core/project';
 
 const defs = new Map<string, LayerDef>();
+/** Mask › Write to's params, which show only while the layer can write a mask. */
+const WRITE_KEYS = new Set(MASK_WRITE_PARAMS.map((p) => p.key));
 const fullParams = new Map<string, ParamDef[]>();
 
 export const CATEGORY_LABELS: Record<LayerCategory, string> = {
@@ -59,10 +61,9 @@ export function registerLayer(def: LayerDef): void {
 			shape = shape.map((p) => ({ ...p, showIf: (v: ParamValues) => when(v, p.key) && (!p.showIf || p.showIf(v)) }));
 		// Write to (FR8.23): shape layers write the Shape mask unless told otherwise; other generators (and shape layers in a
 		// mode without a shape) write their coverage when given a mask (masks.ts maskWriteKind).
-		const writeKeys = new Set(MASK_WRITE_PARAMS.map((p) => p.key));
 		const writable = (v: ParamValues) => !def.maskWrite || def.maskWrite({ ...v, mk_target: SHAPE_MASK }) !== false;
 		const mask = MASK_PARAMS.map((p) => {
-			if (!writeKeys.has(p.key)) return p;
+			if (!WRITE_KEYS.has(p.key)) return p;
 			const q = p.key === 'mk_target' && def.sdf ? { ...p, default: SHAPE_MASK } : p;
 			return { ...q, showIf: (v: ParamValues) => writable(v) && (!q.showIf || q.showIf(v)) };
 		});
@@ -95,10 +96,9 @@ export function layerParamDefs(type: string): ParamDef[] {
 
 export function layerGroups(def: LayerDef): GroupDef[] {
 	const base = def.kind === 'generator' ? GENERATOR_GROUPS : FILTER_GROUPS;
-	const groups = base.filter((g) => g.id !== 'shape' || def.sdf === true);
 	const extra = def.groups ?? [];
 	// Type-specific groups go right after the main params group.
-	return [groups[0], ...extra, ...groups.slice(1)];
+	return [base[0], ...extra, ...base.slice(1)];
 }
 
 const GENERATOR_CHANNELS: LayerChannels = { diffuse: 'dif_on', height: 'h_on' };
@@ -111,8 +111,8 @@ export function layerChannels(type: string): LayerChannels {
 }
 
 /** Params stored before a change to a type's params, rewritten by the type (LayerDef.migrate). */
-export function migrateParams(params: ParamValues, type?: string): ParamValues {
-	const def = type ? defs.get(type) : undefined;
+export function migrateParams(params: ParamValues, type: string): ParamValues {
+	const def = defs.get(type);
 	return def?.migrate ? def.migrate(params) : params;
 }
 

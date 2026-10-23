@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams } from '../registry';
-import { dropShort, spaceVias, traceIds, tracesLayer } from './traces';
+import { dropShort, markCrowdedEnds, spaceVias, traceIds, tracesLayer } from './traces';
 
 describe('traces layer', () => {
 	it('numbers each connected trace (wrapping) and leaves free nodes 0', () => {
@@ -34,9 +34,20 @@ describe('traces layer', () => {
 		links[4] = 1 << 0; // a 2-link trace in row 1
 		links[5] = 1 << 0;
 		const flags = new Uint8Array([1, 1, 0, 0, 1, 0, 1, 0]);
-		dropShort(links, flags, 4, 2, 2);
+		const id = dropShort(links, flags, 4, 2, 2);
 		expect(Array.from(links)).toEqual([0, 0, 0, 0, 1, 1, 0, 0]);
 		expect(Array.from(flags)).toEqual([0, 0, 0, 0, 1, 0, 1, 0]);
+		// The ids of what is left, numbered as afresh.
+		expect(Array.from(id)).toEqual(Array.from(traceIds(links, 4, 2)));
+	});
+
+	it('marks the ends the router left without a pad as crowded', () => {
+		const links = new Uint8Array(4);
+		links[0] = 1 << 0;
+		links[1] = 1 << 0;
+		const flags = new Uint8Array([1, 0, 0, 0]);
+		markCrowdedEnds(links, flags, 4, 1);
+		expect(Array.from(flags)).toEqual([1, 0, 4, 0]);
 	});
 
 	it('sizes fresh layers to the texture: pixel art at 64 px, the plain defaults at 512 px', () => {
@@ -66,5 +77,13 @@ describe('traces layer', () => {
 		}
 		expect(ids.size).toBeGreaterThan(10);
 		expect(crowded).toBeGreaterThan(0);
+	});
+
+	it('keeps the shader to one evaluation per feature, without continue', () => {
+		const glsl = tracesLayer.glsl!;
+		// D3D inlines every call: traces, one pad-or-via feature (its outline and hole) and the hole cut.
+		expect(glsl.match(/\b(bevelLine|bevelCapsule)\(/g)!.length).toBe(4);
+		expect(/\bcontinue\s*;/.test(glsl)).toBe(false);
+		expect(glsl).not.toMatch(/<<\s*out\b/);
 	});
 });

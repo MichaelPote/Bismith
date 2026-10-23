@@ -3,10 +3,9 @@
 import * as THREE from 'three';
 import { P } from '@/core/params';
 import type { LayerDef } from '../types';
-import { GLSL_GAUSS, radiusToSigma } from './shared';
+import { MAX_BLUR_TAPS, radiusToSigma } from './shared';
 
 const BLUR_MRT = /* glsl */ `
-${GLSL_GAUSS}
 uniform vec2 uDir;
 uniform float uSigma;
 void main() {
@@ -17,8 +16,8 @@ void main() {
   vec4 E = texelFetch(tEmissive, c, 0);
   // Feather: the radius growing from 0 on the limit's outline to full a Feather inside it (its distance in tLimit.x).
   float sigma = uSigma;
-  if (u_feather > 0.0 && uLimit != 0.0) sigma *= clamp(-uLimit * texelFetch(tLimit, c, 0).x / u_feather, 0.0, 1.0);
-  int R = gaussTaps(sigma);
+  if (u_feather > 0.0 && uLimit != 0.0) sigma *= clamp(-limitDist(c) / u_feather, 0.0, 1.0);
+  int R = gaussTaps(sigma, ${MAX_BLUR_TAPS});
   float k = gaussK(sigma);
   bool doA = u_diffuse || u_opacity;
   bool doS = u_height || u_roughness;
@@ -70,8 +69,7 @@ export const blurLayer: LayerDef = {
 			softMax: 32,
 			unit: 'px',
 			step: 0.1,
-			showIf: (p) => String(p.lim_1 ?? '').trim() !== '',
-			hint: 'With Limit to: no blur on the mask’s outline, rising to the full Radius this far inside it — the inside smooths out while the edges stay crisp'
+			hint: 'With a limit (Limit to, or the material’s): no blur on its outline, rising to the full Radius this far inside it — the inside smooths out while the edges stay crisp. No effect without a limit'
 		}),
 		P.bool('diffuse', 'Diffuse', true),
 		P.bool('height', 'Height', true),
@@ -86,7 +84,7 @@ export const blurLayer: LayerDef = {
 		if (radius <= 0) return;
 		if (!p.diffuse && !p.height && !p.roughness && !p.specular && !p.emissive && !p.opacity) return;
 		const mat = ctx.mrtMaterial('blur', BLUR_MRT, { uDir: { value: new THREE.Vector2(1, 0) }, uSigma: { value: 1 } });
-		mat.uniforms.uSigma.value = Math.max(radiusToSigma(radius), 1e-3);
+		mat.uniforms.uSigma.value = radiusToSigma(radius);
 		(mat.uniforms.uDir.value as THREE.Vector2).set(1, 0);
 		ctx.runMRT(mat);
 		(mat.uniforms.uDir.value as THREE.Vector2).set(0, 1);

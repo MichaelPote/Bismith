@@ -4,6 +4,8 @@
 // Conventions (docs/architecture.md §4): shaders work in GL pixel space (origin bottom-left, y up,
 // pixel centres at .5). `uRes` is the texture size in px and `uTile` says whether to wrap.
 
+import { MAX_GRADIENT_STOPS } from '@/core/params';
+
 export const GLSL_HEADER = /* glsl */ `
 precision highp float;
 precision highp int;
@@ -48,6 +50,12 @@ float hash1(float x, float seed) { return u2f(pcg2(uvec2(floatBitsToUint(x), uin
 // of m to be non-negative — with ((a % m) + m) % m, renders could differ from run to run.
 ivec2 imod(ivec2 a, ivec2 m) { return (a + m * (1 + abs(a) / m)) % m; }
 int imod(int a, int m) { return (a + m * (1 + abs(a) / m)) % m; }
+// Greatest common divisor of |a| and |b| (at least 1), in a loop D3D keeps rolled.
+int igcd(int a, int b) {
+  a = abs(a); b = abs(b);
+  for (int i = 0; i < 64 * UNI_1; i++) { if (b == 0) break; int t = a % b; a = b; b = t; }
+  return max(a, 1);
+}
 vec2 fmod2(vec2 a, vec2 m) { return a - m * floor(a / m); }
 
 ivec2 texelCoord(ivec2 c) {
@@ -179,11 +187,11 @@ vec3 linearToOklab(vec3 c) {
 }
 
 // Gradient ramp: stops are (sRGB rgb, position), sorted by position. Returns sRGB.
-vec3 gradientLookup(vec4 stops[8], int count, float t) {
+vec3 gradientLookup(vec4 stops[${MAX_GRADIENT_STOPS}], int count, float t) {
   if (count <= 1) return stops[0].rgb;
   t = clamp(t, 0.0, 1.0);
   if (t <= stops[0].a) return stops[0].rgb;
-  for (int i = 1; i < 8; i++) {
+  for (int i = 1; i < ${MAX_GRADIENT_STOPS}; i++) {
     if (i >= count) break;
     if (t <= stops[i].a) {
       float span = max(stops[i].a - stops[i - 1].a, 1e-6);
@@ -246,6 +254,15 @@ float sdfCombine(int op, float a, float b, float k) {
 
 // Anti-aliased coverage from a signed distance in px.
 float coverage(float d, bool aa) { return aa ? clamp(0.5 - d, 0.0, 1.0) : (d <= 0.0 ? 1.0 : 0.0); }
+
+// Height modes (commonParams HEIGHT_MODES order): add, subtract, max, min, replace, multiply — v meeting height h.
+float heightCombine(int mode, float h, float v) {
+  return mode == 0 ? h + v : mode == 1 ? h - v : mode == 2 ? max(h, v) : mode == 3 ? min(h, v) : mode == 4 ? v : h * v;
+}
+
+// Separable Gaussian of σ px: taps either side (3σ, at most cap) and k, the tap at offset i weighing exp(i² k).
+int gaussTaps(float sigma, int cap) { return min(int(ceil(sigma * 3.0)), cap); }
+float gaussK(float sigma) { return -0.5 / max(sigma * sigma, 1e-6); }
 `;
 
 /** Fixed vertex shader for every full-screen pass: one oversized triangle. */

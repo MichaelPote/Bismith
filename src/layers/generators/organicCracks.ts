@@ -7,8 +7,9 @@
 
 import { P } from '@/core/params';
 import type { ParamValues } from '@/core/params';
+import { PX_SCALE_PARAM } from '../commonParams';
 import type { LayerDef } from '../types';
-import { ORG_GLSL, ORG_GLSL_SDF } from './organicShared';
+import { ORG_GLSL } from './organicShared';
 
 const fineOn = (p: ParamValues) => Number(p.sub) > 0;
 
@@ -212,6 +213,9 @@ export const cracksLayer: LayerDef = {
 			section: 'Plates',
 			hint: "Height only: each plate tilts its own way by its own random share of this (a share of the layer's height) — heaved, settled plates"
 		}),
+		// Not a control: 1 px of the texture in shader px (supersampling scales it), for the noise scales tied to output
+		// pixels (the edge roughness, the zig-zag's shortest kinks).
+		PX_SCALE_PARAM,
 		P.seed()
 	],
 	// Added in the editor: crack widths, zig-zag and bevel in proportion to the texture (the defaults suit 512 px); on
@@ -249,14 +253,23 @@ export const cracksLayer: LayerDef = {
 	},
 	glsl:
 		ORG_GLSL +
-		ORG_GLSL_SDF +
 		/* glsl */ `
-// Screen px per px of the warped plane across a border with unit normal n there: jx, jy are how the warped point moves
-// per screen px right and up (its screen-space derivatives), so a crack keeps its width wherever the warp stretches or
-// squeezes the plane.
-float crk_scale(vec2 n, vec2 jx, vec2 jy) {
-  return max(length(vec2(dot(jx, n), dot(jy, n))), 1e-3);
+// Screen px per px of the warped plane across a border with unit normal n there: J's columns are how the warped point
+// moves per screen px right and up (its screen-space derivatives), so a crack keeps its width wherever the warp
+// stretches or squeezes the plane. (n * J is the normal taken back to the screen.)
+float crk_scale(vec2 n, mat2 J) {
+  return max(length(n * J), 1e-3);
 }
+
+// Order-independent key of a cell pair (wrapped ids), so both cells agree on the pair's randoms; aLo: a sorts first.
+ivec2 crk_pairKey(ivec2 a, ivec2 b, out bool aLo) {
+  aLo = a.x < b.x || (a.x == b.x && a.y < b.y);
+  return aLo ? a * 7919 + b : b * 7919 + a;
+}
+
+// A crack band's offset from its half width h (px): under a pixel wide the band shrinks below zero, so its darkest
+// pixel goes as its width (it fades instead of staying a half-dark 1 px line).
+float crk_band(float h) { return h < 0.5 ? 2.0 * h - 0.5 : h; }
 
 // Rounded intersection of two inside distances (px, > 0 inside): a corner where both are within R of their borders
 // becomes a circular arc of radius R (at a right angle; wider angles round less), exact elsewhere. Rounding the plates'
@@ -266,24 +279,30 @@ float crk_round(float a, float b, float R) {
   return max(R, min(a, b)) - length(max(vec2(R - a, R - b), 0.0));
 }
 
-// The main plates: power-weighted Voronoi cells (org_cellDist without the soft minimum), each border a crack of its own
-// width. halfW = half the crack width (px); wVar spreads the cracks' widths (one random per border segment, both sides
-// agreeing) and flares them towards the junctions. fillet = Junction rounding: the plate's corners round off
-// (crk_round) with a radius of this share of a plate, larger where the meeting cracks are wide; the crack band is then
-// laid round the rounded plate, its width blended between the two nearest borders' near where they swap (no step at a
-// junction). bulge: each border bows to one side (per cell pair a random side and 45–100 % of this share of a plate,
-// so no border runs straight) in an arc that flattens out towards the junctions, so the plates get curved, pillowy
-// sides; a pixel the bow carries across the border belongs to the neighbouring plate. Returns x = distance (screen px) to the edge of the crack band (> 0 on a
-// plate), y = distance to the nearest border, z = per-plate random, w = a smooth soft minimum of the distances to the
-// plate's borders in the warped plane (no creases along the plate's skeleton, no per-pixel-quad derivatives: for the
-// plate surface); off = the pixel's offset from the plate's site (warped plane), nb = the nearest border's normal, hw =
-// x the band's half width there (px), y the distance to the second nearest border (small only near a junction), z the
-// half width that sets the crack's depth (x plus what the rounding opens at a junction of wide cracks — thin cracks'
-// junctions stay as shallow as the cracks).
-// For Bevel aspect (GLSL_BEVEL), kS = the local stretch: px of Bevel per px across the borders — the same rounded
-// minimum taken over each border's distance in the space the aspect stretches (× Bevel / its width across that border's
-// screen normal), over the plain one; continuous through the plates' corners, so their bevels don't step there.
-vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, float wVar, float fillet, float bulge, vec2 jx, vec2 jy, float seed, out vec2 off, out vec2 nb, out vec3 hw, out float kS) {
+// The main plates: power-weighted Voronoi cells, each border a crack of its own width.
+//   halfW   half the crack width (px); wVar spreads the cracks' widths (one random per border segment, both sides
+//           agreeing) and flares them towards the junctions.
+//   fillet  Junction rounding: the plate's corners round off (crk_round) with a radius of this share of a plate, larger
+//           where the meeting cracks are wide; the crack band is then laid round the rounded plate, its width blended
+//           between the two nearest borders' near where they swap (no step at a junction).
+//   bulge   each border bows to one side (per cell pair a random side and 45–100 % of this share of a plate, so no
+//           border runs straight) in an arc that flattens out towards the junctions: curved, pillowy sides. A pixel
+//           the bow carries across the border belongs to the neighbouring plate.
+//   J       the warp's screen-space derivatives (crk_scale).
+// Returns:
+//   x  distance (screen px) to the edge of the crack band (> 0 on a plate)
+//   y  distance to the nearest border
+//   z  per-plate random
+//   w  a smooth soft minimum of the distances to the plate's borders in the warped plane (no creases along the plate's
+//      skeleton, no per-pixel-quad derivatives: for the plate surface)
+// and off = the pixel's offset from the plate's site (warped plane), nb = the nearest border's normal, hw = x the
+// band's half width there (px), y the distance to the second nearest border (small only near a junction), z the half
+// width that sets the crack's depth (x plus what the rounding opens at a junction of wide cracks; thin cracks'
+// junctions stay as shallow as the cracks), kS = for Bevel aspect (GLSL_BEVEL) the local stretch, px of Bevel per px across the
+// borders: the same rounded minimum taken over each border's distance in the space the aspect stretches (× Bevel / its
+// width across that border's screen normal), over the plain one; continuous through the plates' corners, so their
+// bevels don't step there.
+vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, float wVar, float fillet, float bulge, mat2 J, float seed, out vec2 off, out vec2 nb, out vec3 hw, out float kS) {
   ivec2 per = org_per(cells);
   vec2 cs = uRes / cells;
   float P = sqrt(cs.x * cs.y);
@@ -292,7 +311,7 @@ vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, fl
   float best = 1e20;
   vec2 bs = p;
   float bw = 0.0;
-  ivec2 bc = ip;
+  ivec2 bc = ip, bwc = imod(ip, per);
   // m, h1: the nearest border and its half width; m2, h2 the next; dr the rounded distance. For the nearest border also
   // its neighbour cell cN and site sN, warped distance qN, screen px per warped px kN and signed bow bN.
   float m = 1e9, m2 = 1e9, h1 = 0.0, h2 = 0.0, dr = 1e9, qN = 0.0, kN = 1.0, bN = 0.0;
@@ -306,42 +325,37 @@ vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, fl
   float rad = fillet * P;
   nb = vec2(1.0, 0.0);
   vec2 n2 = vec2(-1.0, 0.0);
-  // One flat loop (see ORG_1): the 5×5 cells around p for the nearest site, then the 5×5 around that site. (No
+  // One flat loop (see UNI_1): the 5×5 cells around p for the nearest site, then the 5×5 around that site. (No
   // \`continue\`: ANGLE / D3D11 can miscompile it; skipped passes are an if.)
-  for (int e = 0; e < 50 * ORG_1; e++) {
+  for (int e = 0; e < 50 * UNI_1; e++) {
     bool near = e < 25;
     int f = near ? e : e - 25;
     ivec2 g = ivec2(f % 5 - 2, f / 5 - 2);
     if (near || g != ivec2(0)) {
       ivec2 c = (near ? ip : bc) + g;
-      ivec2 cw = imod(c, per);
-      vec3 h = hash3I(cw, seed);
-      vec2 s = (vec2(c) + 0.5 + (h.xy - 0.5) * jitter) * cs;
-      float w = (h.z - 0.5) * wScale;
+      vec3 sw = org_powerSite(c, per, cs, jitter, wScale, seed);
+      vec2 s = sw.xy;
+      float w = sw.z;
       float L = length(s - bs);
       if (near) {
-        float pd = org_dot2(s - p) - w;
-        if (pd < best) { best = pd; bs = s; bw = w; bc = c; }
+        float pd = dot2(s - p) - w;
+        if (pd < best) { best = pd; bs = s; bw = w; bc = c; bwc = imod(c, per); }
       } else if (L >= 1e-4) {
-        // Power bisector: (pow_b - pow_a) / (2 |b - a|) is the signed px distance, positive on a's side.
         vec2 n = (s - bs) / L;
-        float dq = max((org_dot2(p - s) - w - org_dot2(p - bs) + bw) / (2.0 * L), 0.0);
-        float k = crk_scale(n, jx, jy);
+        float dq = org_powerBisector(p, s, w, bs, bw, L);
+        float k = crk_scale(n, J);
         float d = dq / k;
         acc += exp(-dq / sk);
-        // This border's width and bow: order-independent hashes of the cell pair, so both plates agree. The bow's sign
-        // says which plate it bulges into.
-        ivec2 bwc = imod(bc, per);
-        bool aLo = bwc.x < cw.x || (bwc.x == cw.x && bwc.y < cw.y);
-        ivec2 lo = aLo ? bwc : cw;
-        ivec2 hi = aLo ? cw : bwc;
-        vec2 r = hash2I(lo * 7919 + hi, seed + 61.0);
+        // This border's width and bow: hashes of the cell pair, so both plates agree. The bow's sign says which plate
+        // it bulges into.
+        bool aLo;
+        vec2 r = hash2I(crk_pairKey(bwc, imod(c, per), aLo), seed + 61.0);
         float hh = halfW * mix(1.0, 0.55 + 0.9 * r.x * r.x, wVar);
         // The corner's radius: the plate share, × 0.5–1.5 with the two cracks' widths against the mean (thin cracks
         // meet in tight corners, wide ones in broad wedges).
         float rr = rad * (0.5 * (h1 + hh) / max(halfW, 1e-3));
         dr = crk_round(dr, d, rr);
-        float fa = asp ? bevelLine(1.0, vec2(dot(jx, n), dot(jy, n))) : 1.0;
+        float fa = asp ? bevelLine(1.0, n * J) : 1.0;
         if (asp) drS = crk_round(drS, d * fa, rr);
         if (d < m) { m2 = m; h2 = h1; n2 = nb; m = d; h1 = hh; nb = n; cN = c; sN = s; qN = dq; kN = k; fN = fa; bN = (aLo ? 1.0 : -1.0) * (r.y < 0.5 ? -1.0 : 1.0) * (0.45 + 1.1 * abs(r.y - 0.5)); }
         else if (d < m2) { m2 = d; h2 = hh; n2 = n; }
@@ -392,26 +406,33 @@ float crk_reach(float y, float plate) { return plate * (0.12 + 0.75 * y * y); }
 // Whether the fine segment between cells a and b (wrapped ids) is present: an order-independent pair hash (so both sides
 // agree), x < keep; y = the segment's taper reach (random). A plate key (not 0) gives each main plate its own segments.
 vec2 crk_segment(ivec2 a, ivec2 b, int key, float seed) {
-  ivec2 lo = (a.x < b.x || (a.x == b.x && a.y < b.y)) ? a : b;
-  ivec2 hi = (lo == a) ? b : a;
-  return hash2I(lo * 7919 + hi + ivec2(key, 0), seed + 53.0);
+  bool aLo;
+  return hash2I(crk_pairKey(a, b, aLo) + ivec2(key, 0), seed + 53.0);
 }
 
-// Fine cracks: Voronoi borders where each border segment (cell pair) is present with probability \`keep\` — partial
-// cracks end at junctions instead of dotting out. halfW = their half width (px). With a plate key (not 0), each main
-// plate draws its own segments, so a fine crack stops at a main crack (a T-junction) rather than crossing it. Taper:
-// each segment narrows with mainD, the pixel's distance (px) from the main cracks, to nothing at its own reach (a random
-// 0.12–0.87 of a plate size, mostly short (crk_reach), × 1 / taper) — branches off the main cracks, of different lengths. connect: the
-// nearest segment is followed to its two ends (where its line leaves the fine cell): it is dropped when its end towards
-// the main crack (normal mainN points at it) neither reaches that crack nor meets another present segment (a floating
-// stroke), or when it runs close beside the main crack (doubling it); and it runs out to a point towards an inner end
-// where nothing continues it, or when it is too short to read (a speck). wVar spreads the segments' widths a little
-// (the caller varies halfW smoothly, so neighbouring segments stay alike); fillet rounds the fine cells' corners
-// (crk_round, this share of a fine cell). Returns x = distance (px) to the edge of the nearest fine crack, y = fine-cell
-// rnd, z = that crack's strength (its width against the mean, 0.5–1.5 … 0 at its tip; scales its tone and groove),
-// w = distance (px) to the fine cell's border, present or not; site = the pixel's cell site.
-// kS: the local stretch for Bevel aspect, as crk_plates' — over the present segments' lines.
-vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, float wVar, float fillet, float taper, float mainD, vec2 mainN, float plate, int key, bool connect, vec2 jx, vec2 jy, float seed, out vec2 site, out float kS) {
+// Fine cracks: Voronoi borders where each border segment (cell pair) is present with probability \`keep\`, so partial
+// cracks end at junctions instead of dotting out.
+//   halfW   their half width (px); wVar spreads the segments' widths a little (the caller varies halfW smoothly, so
+//           neighbouring segments stay alike).
+//   key     a plate key (not 0): each main plate draws its own segments, so a fine crack stops at a main crack (a
+//           T-junction) rather than crossing it.
+//   taper   each segment narrows with mainD, the pixel's distance (px) from the main cracks, to nothing at its own
+//           reach (crk_reach: 0.12–0.87 of a plate size, mostly short, × 1 / taper): branches off the main cracks, of
+//           different lengths.
+//   connect the nearest segment is followed to its two ends (where its line leaves the fine cell). It is dropped when
+//           its end towards the main crack (normal mainN points at it) neither reaches that crack nor meets another
+//           present segment (a floating stroke), or when it runs close beside the main crack (doubling it); it runs out
+//           to a point towards an inner end where nothing continues it, or when it is too short to read (a speck).
+//   fillet  rounds the fine cells' corners (crk_round, this share of a fine cell).
+//   J       the warp's screen-space derivatives (crk_scale).
+// Returns:
+//   x  distance (px) to the edge of the nearest fine crack
+//   y  fine-cell rnd
+//   z  that crack's strength (its width against the mean, 0.5–1.5 … 0 at its tip; scales its tone and groove)
+//   w  distance (px) to the fine cell's border, present or not
+// and site = the pixel's cell site, kS = the local stretch for Bevel aspect, as crk_plates', over the present
+// segments' lines.
+vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, float wVar, float fillet, float taper, float mainD, vec2 mainN, float plate, int key, bool connect, mat2 J, float seed, out vec2 site, out float kS) {
   ivec2 per = org_per(cells);
   vec2 cs = uRes / cells;
   ivec2 ip = ivec2(floor(p / cs));
@@ -430,8 +451,8 @@ vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, f
   vec2 s1 = p, n1 = vec2(1.0, 0.0);
   // The 5×5 sites around the nearest one, kept for following the nearest segment to its ends below.
   vec2 nbr[25];
-  // One flat loop (see ORG_1): the 3×3 cells for the nearest site, then the 5×5 around it for the borders.
-  for (int e = 0; e < 34 * ORG_1; e++) {
+  // One flat loop (see UNI_1): the 3×3 cells for the nearest site, then the 5×5 around it for the borders.
+  for (int e = 0; e < 34 * UNI_1; e++) {
     bool near = e < 9;
     int f = near ? e : e - 9;
     ivec2 g = near ? ivec2(f % 3 - 1, f / 3 - 1) : ivec2(f % 5 - 2, f / 5 - 2);
@@ -439,37 +460,41 @@ vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, f
     ivec2 cw = imod(c, per);
     vec2 s = (vec2(c) + 0.5 + (cellPoint(cw, seed) - 0.5) * jitter) * cs;
     if (near) {
-      float d = org_dot2(s - p);
+      float d = dot2(s - p);
       if (d < best) { best = d; bs = s; bc = c; bw = cw; }
-    } else nbr[f] = s;
-    vec2 sh = crk_segment(bw, cw, key, seed);
-    vec2 ab = s - bs;
-    float L = length(ab);
-    vec2 n = ab / max(L, 1e-4);
-    float dist = max((org_dot2(p - s) - org_dot2(p - bs)) / (2.0 * max(L, 1e-4)), 0.0) / crk_scale(n, jx, jy);
-    if (!near && g != ivec2(0) && L >= 1e-4) raw = min(raw, dist);
-    if (!near && g != ivec2(0) && sh.x < keep && L >= 1e-4) {
-      // The segment's width: sh.x / keep is a uniform random over the present segments.
-      float wr = mix(1.0, 0.5 + sh.x / max(keep, 1e-4), wVar);
-      float h = halfW * wr, st = wr, u = 0.0;
-      if (taper > 0.0) {
-        // u: 0 at the main crack, 1 at this segment's tip.
-        u = taper * mainD / crk_reach(sh.y, plate);
-        float t = clamp(1.0 - u, 0.0, 1.0);
-        st *= t;
-        h *= t;
+    } else {
+      nbr[f] = s;
+      vec2 ab = s - bs;
+      float L = length(ab);
+      // (L = 0: the pixel's own cell.)
+      if (L >= 1e-4) {
+        vec2 n = ab / L;
+        float dist = max((dot2(p - s) - dot2(p - bs)) / (2.0 * L), 0.0) / crk_scale(n, J);
+        raw = min(raw, dist);
+        vec2 sh = crk_segment(bw, cw, key, seed);
+        if (sh.x < keep) {
+          // The segment's width: sh.x / keep is a uniform random over the present segments.
+          float wr = mix(1.0, 0.5 + sh.x / max(keep, 1e-4), wVar);
+          float h = halfW * wr, st = wr, u = 0.0;
+          if (taper > 0.0) {
+            // u: 0 at the main crack, 1 at this segment's tip.
+            u = taper * mainD / crk_reach(sh.y, plate);
+            float t = clamp(1.0 - u, 0.0, 1.0);
+            st *= t;
+            h *= t;
+          }
+          // The band (crk_band). Past the tip its distance climbs away, so a bevel (with the fine cracks in the shape)
+          // runs out a little beyond the visible end instead of drawing the rest of it.
+          float b = dist + max(u - 1.0, 0.0) * 12.0 * (u_bevel + 1.0) - crk_band(h);
+          sm = crk_round(sm, b, rad);
+          float fa = asp ? bevelLine(1.0, n * J) : 1.0;
+          lE = min(lE, dist);
+          lS = min(lS, dist * fa);
+          if (dist <= lE) f1 = fa;
+          if (b < b1) { b2 = b1; t2 = t1; b1 = b; d1 = dist; h1 = h; t1 = st; i1 = f; s1 = s; n1 = n; }
+          else if (b < b2) { b2 = b; t2 = st; }
+        }
       }
-      // Under a pixel wide the crack fades instead of staying a half-dark 1 px line (anti-aliased): its band shrinks
-      // below zero, so its darkest pixel goes as its width. Past the tip its distance climbs away, so a bevel (with
-      // the fine cracks in the shape) runs out a little beyond the visible end instead of drawing the rest of it.
-      float b = dist + max(u - 1.0, 0.0) * 12.0 * (u_bevel + 1.0) - (h < 0.5 ? 2.0 * h - 0.5 : h);
-      sm = crk_round(sm, b, rad);
-      float fa = asp ? bevelLine(1.0, vec2(dot(jx, n), dot(jy, n))) : 1.0;
-      lE = min(lE, dist);
-      lS = min(lS, dist * fa);
-      if (dist <= lE) f1 = fa;
-      if (b < b1) { b2 = b1; t2 = t1; b1 = b; d1 = dist; h1 = h; t1 = st; i1 = f; s1 = s; n1 = n; }
-      else if (b < b2) { b2 = b; t2 = st; }
     }
   }
   // How far the rounding lowers the nearest band (dropped below when that band falls back to the next one).
@@ -482,7 +507,7 @@ vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, f
     vec2 p0 = p - n1 * dot(p - 0.5 * (bs + s1), n1);
     float tp = 1e9, tm = 1e9;
     int jp = i1, jm = i1;
-    for (int f = 0; f < 25 * ORG_1; f++) {
+    for (int f = 0; f < 25 * UNI_1; f++) {
       vec2 nc = nbr[f] - bs;
       float lc = length(nc);
       if (f != 12 && f != i1 && lc >= 1e-4) {
@@ -500,7 +525,7 @@ vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, f
     // would keep each other)? Four pair tests in one loop.
     ivec2 w1 = imod(bc + ivec2(i1 % 5 - 2, i1 / 5 - 2), per);
     bool atP = false, atM = false;
-    for (int i = 0; i < 4 * ORG_1; i++) {
+    for (int i = 0; i < 4 * UNI_1; i++) {
       bool plus = i < 2, own = i % 2 == 0;
       int j = plus ? jp : jm;
       vec2 o = crk_segment(own ? bw : w1, imod(bc + ivec2(j % 5 - 2, j / 5 - 2), per), key, seed);
@@ -523,7 +548,7 @@ vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, f
       // A dead end inside the plate: narrows along its whole length to a point at that end.
       float k = clamp(tm / max(tp + tm, 1e-3), 0.0, 1.0);
       float h = h1 * k;
-      b1 = min(d1 - (h < 0.5 ? 2.0 * h - 0.5 : h), b2);
+      b1 = min(d1 - crk_band(h), b2);
       t1 *= k;
     }
   }
@@ -543,34 +568,34 @@ GenOut gen(vec2 p) {
   vec2 cs = uRes / cells;
   float L = sqrt(cs.x * cs.y);
   bool curl = u_warp_mode == 0;
-  // The noise, in one flat loop (one copy of its code; see ORG_1), the arguments picked per pass:
+  // The noise, in one flat loop (one copy of its code; see UNI_1), the arguments picked per pass:
   //   e <  3·STEPS  the warp of the main cracks, three passes per step at the flowing point q. Bend: the field there
   //                 and a small step right and up (its gradient), then q moves along the curl. Squeeze: two components
   //                 (x, y), then q moves by them. The field is a 3-octave fBm starting at half the Warp scale (gain 0.38:
   //                 a curl's bending grows with frequency, so finer octaves only nudge — flowing meanders, not a
   //                 corrugated ripple — while still breaking up any one period).
   //   +0, +1        the warp of the fine cracks (x, y), a fraction of the main one
-  //   +2            the edge roughness (a ~2 px value noise that nudges the crack distance)
+  //   +2            the edge roughness (a value noise of ~2 output px that nudges the crack distance)
   //   +3            the width variation along the cracks
   //   +4            the plates' surface roughness (Height)
   int E0 = 3 * CRK_STEPS;
   const float FD = 0.02;
   vec2 mc = cellsFor(u_scale * u_warp_scale * 0.5, 1.0);
   vec2 fc = cellsFor(u_scale * u_sub_scale * 1.5, 1.0);
-  // The zig-zag's kinks: about 5× its amplitude apart (at least 4 px), so it doesn't fold the cracks over.
-  vec2 zc = cellsFor(uRes.x / max(4.0, 5.0 * u_zigzag), 1.0);
-  vec2 jc = cellsFor(uRes.x / 2.0, 1.0);
+  // The zig-zag's kinks: about 5× its amplitude apart (at least 4 output px), so it doesn't fold the cracks over.
+  vec2 zc = cellsFor(uRes.x / max(4.0 * u_px_scale, 5.0 * u_zigzag), 1.0);
+  vec2 jc = cellsFor(uRes.x / (2.0 * u_px_scale), 1.0);
   vec2 wc = cellsFor(u_scale * 3.0, 1.0);
   vec2 rc = cellsFor(u_scale * 8.0, 1.0);
   vec2 q = p;
   float n0 = 0.5, n1 = 0.5;
   vec2 wf = vec2(0.5);
   float jn = 0.0, wn = 0.5, rn = 0.5;
-  for (int e = 0; e < (3 * CRK_STEPS + 5) * ORG_1; e++) {
+  for (int e = 0; e < (3 * CRK_STEPS + 5) * UNI_1; e++) {
     int k = e < E0 ? 0 : e - E0 + 1;   // 0 main warp, 1–2 fine warp, 3 roughness, 4 width, 5 plate roughness
     int c = k == 0 ? e % 3 : (k + 1) % 2;
     bool skip = k == 0 ? u_warp <= 0.0 || (!curl && c == 2)
-      : k <= 2 ? u_warp <= 0.0 || u_sub <= 0.0
+      : k <= 2 ? u_warp <= 0.0 || (u_sub <= 0.0 && u_shatter <= 0.0)
       : k == 3 ? u_jag <= 0.0
       : k == 4 ? u_width_var <= 0.0 || u_width <= 0.0
       : u_rough <= 0.0;
@@ -579,6 +604,7 @@ GenOut gen(vec2 p) {
       // Where: the main warp, the width and the plate roughness sample the warped point q; the fine warp and the edge
       // roughness p.
       vec2 x = (k == 0 || k >= 4 ? q : p) / uRes * nc;
+      // (The second component, c = 1, sampled apart; the width noise has c = 1 too and takes the same offset.)
       if (k == 0 && curl) x += c == 1 ? vec2(FD, 0.0) : c == 2 ? vec2(0.0, FD) : vec2(0.0);
       else if (c == 1) x += 17.3;
       float seed = k == 0 ? uSeed + 7.0 + (c == 1 && !curl ? 211.0 : 101.0)
@@ -610,7 +636,7 @@ GenOut gen(vec2 p) {
   vec2 zz = vec2(0.5);
   if (u_zigzag > 0.0) {
     zz = vec2(0.0);
-    for (int e = 0; e < 16 * ORG_1; e++) {
+    for (int e = 0; e < 16 * UNI_1; e++) {
       int comp = e / 8, oct = (e / 4) % 2, corner = e % 4;
       float fo = oct == 0 ? 1.0 : 2.0;
       vec2 x = p / uRes * zc * fo + (comp == 1 ? 17.3 : 0.0);
@@ -625,14 +651,14 @@ GenOut gen(vec2 p) {
   }
   // The warp's screen-space derivatives (uniform control flow here), so crack widths stay true px. Taken before the
   // zig-zag: its kinks are too fine for derivatives over a pixel quad.
-  vec2 jx = dFdx(q), jy = dFdy(q);
+  mat2 J = mat2(dFdx(q), dFdy(q));
   // The zig-zag moves the main and fine cracks alike (it is the crack's course, not a plate's).
   q += (zz - 0.5) * 2.0 * u_zigzag;
   float wMul = mix(1.0, 0.35 + 1.3 * wn, u_width_var);
   vec2 off, nb;
   vec3 hw;
   float kS;
-  vec4 c1 = crk_plates(q, cells, u_jitter, u_size_var, 0.5 * u_width * wMul, u_width_var, u_fillet, u_bulge, jx, jy, uSeed, off, nb, hw, kS);
+  vec4 c1 = crk_plates(q, cells, u_jitter, u_size_var, 0.5 * u_width * wMul, u_width_var, u_fillet, u_bulge, J, uSeed, off, nb, hw, kS);
   // Distance (px) from the pixel to the edge of the crack bands: > 0 on a plate.
   float d = c1.x + jn;
   // Bevel aspect: the same, stretched (px of Bevel), at the local stretch across the borders.
@@ -642,7 +668,7 @@ GenOut gen(vec2 p) {
   if (u_sub > 0.0 || u_shatter > 0.0) {
     vec2 c2s = cellsFor(u_scale * u_sub_scale, 1.0);
     vec2 fw = (wf - 0.5) * 0.7 * u_warp * L / u_sub_scale;
-    // Two passes through one copy of crk_fineCracks (see ORG_1): the fine cracks, then the shards of a shattered fine
+    // Two passes through one copy of crk_fineCracks (see UNI_1): the fine cracks, then the shards of a shattered fine
     // plate (one random per fine plate × main plate): a finer, fully random network with most segments present,
     // untapered, unconnected, unrounded, thin (0.3 of the main width, ≥ 0.9 px) and mid-dark — a fine mesh of shards,
     // not a black net, 85 % of its segments, laid out in a nearly unwarped plane (the warp, coarse against a shard, would
@@ -656,11 +682,11 @@ GenOut gen(vec2 p) {
     vec2 ps = p + (zz - 0.5) * 2.0 * u_zigzag + 0.5 * fw;
     float fd = 1e9, fade = 0.0, fk = 1.0;
     bool shattered = false, onShard = false;
-    for (int i = 0; i < 2 * ORG_1; i++) {
+    for (int i = 0; i < 2 * UNI_1; i++) {
       bool frag = i == 1;
       if (!frag || shattered) {
         float ck;
-        vec4 c = crk_fineCracks(frag ? ps : q + fw, frag ? cellsFor(u_scale * u_sub_scale * u_shatter_scale, 1.0) : c2s, frag ? 1.0 : u_jitter, frag ? 0.85 : u_sub, frag ? max(0.3 * u_width, 0.45) * wMul : 0.5 * u_sub_width * wMul, u_width_var, frag ? 0.0 : u_fillet, frag ? 0.0 : u_sub_taper, c1.y, nb, L, u_sub_cross ? 0 : int(c1.z * 65536.0) + 1, !frag && u_sub_connect, frag ? vec2(1.0, 0.0) : jx, frag ? vec2(0.0, 1.0) : jy, uSeed + (frag ? 41.0 : 3.0), site, ck);
+        vec4 c = crk_fineCracks(frag ? ps : q + fw, frag ? cellsFor(u_scale * u_sub_scale * u_shatter_scale, 1.0) : c2s, frag ? 1.0 : u_jitter, frag ? 0.85 : u_sub, frag ? max(0.3 * u_width, 0.45) * wMul : 0.5 * u_sub_width * wMul, u_width_var, frag ? 0.0 : u_fillet, frag ? 0.0 : u_sub_taper, c1.y, nb, L, u_sub_cross ? 0 : int(c1.z * 65536.0) + 1, !frag && u_sub_connect, frag ? mat2(1.0) : J, uSeed + (frag ? 41.0 : 3.0), site, ck);
         if (!frag) {
           c2 = c;
           fk = ck;
@@ -747,7 +773,7 @@ GenOut gen(vec2 p) {
   // The plates' own Shape bevel (0 in the cracks and at their edges, rising to 1 over the bevel), the cracks sunk by k.
   // Painted here (genOutOwn) rather than by the wrapper, which would take every crack to the bottom; the outline still
   // goes to the mask.
-  float e = 1.0 - k * (1.0 - org_edgeProfile(sdf) * coverage(sdf, u_aa));
+  float e = 1.0 - k * (1.0 - bevelPlain(sdf) * coverage(sdf, u_aa));
   // Plates: value 1 (colour) less the fine cracks and the halo, a little darker where the dome falls away; the plate
   // surface less the fine grooves in Height; both × the bevel.
   GenOut o = genOutOwn((1.0 - fineInk) * (1.0 - 0.45 * halo) * (1.0 - 0.3 * clamp(1.0 - sh, 0.0, 1.0)) * e, 1.0, rnd, sdf);

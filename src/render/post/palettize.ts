@@ -70,7 +70,6 @@ float palBayer(ivec2 p, int bits) {
 void main() {
   ivec2 ip = ivec2(gl_FragCoord.xy);
   vec4 c = texelFetch(tInput, ip, 0);
-  if (uPalCount <= 0) { oColor = c; return; }
   ivec2 img = ivec2(ip.x, int(uRes.y) - 1 - ip.y);
   float t = u_dither > 0 ? palBayer(img, u_dither) * u_strength : 0.0;
   vec3 e = clamp(linearToSrgb(clamp(c.rgb, 0.0, 1.0)), 0.0, 1.0);
@@ -79,8 +78,7 @@ void main() {
   vec3 q = u_metric == 0 ? linearToOklab(srgbToLinear(e)) : e;
   int best = 0;
   float bestD = 1e30;
-  for (int i = 0; i < ${MAX_PALETTE}; i++) {
-    if (i >= uPalCount) break;
+  for (int i = 0; i < uPalCount; i++) { // a uniform bound: D3D would unroll a constant one with a break
     vec3 d = q - texelFetch(tPal, ivec2(i, row), 0).rgb;
     float dd = dot(d, d);
     if (dd < bestD) { bestD = dd; best = i; }
@@ -108,6 +106,7 @@ export const palettePost: PostDef = {
 			['oklab', 'OKLab (perceptual)'],
 			['rgb', 'RGB']
 		]),
+		// The option index is the Bayer matrix's bit count (palBayer): keep this order.
 		P.enum('dither', 'Dither', 'none', [
 			['none', 'None'],
 			['bayer2', 'Bayer 2×2'],

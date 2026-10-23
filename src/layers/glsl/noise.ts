@@ -10,7 +10,7 @@
 export const GLSL_NOISE = /* glsl */ `
 const ivec2 NO_PERIOD = ivec2(1 << 20);
 
-/** Animation phase: 0 → 1 is one seamless loop. Generators set it from u_phase before sampling. */
+/** Animation phase: 0 → 1 is one seamless loop. The generator wrapper (and filters that animate) set it from u_phase. */
 float gPhase = 0.0;
 
 /** A lattice value h (0..1) at the current phase: it travels 2 per loop, up or down by a second hash, reflected at
@@ -28,15 +28,24 @@ vec2 cellPoint(ivec2 c, float seed) {
   return vec2(animValue(h.x, c, seed + 41.0), animValue(h.y, c, seed + 43.0));
 }
 
+// A lattice cell's corners i and i + 1, wrapped by the period: one imod (the +1 wraps by a compare).
+void latticeWrap(ivec2 i, ivec2 period, out ivec2 i0, out ivec2 i1) {
+  i0 = imod(i, period);
+  i1 = i0 + 1;
+  i1 -= period * ivec2(greaterThanEqual(i1, period));
+}
+
 float valueNoise(vec2 x, ivec2 period, float seed) {
   ivec2 i = ivec2(floor(x));
   vec2 f = fract(x);
   vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  ivec2 i00 = imod(i, period), i10 = imod(i + ivec2(1, 0), period), i01 = imod(i + ivec2(0, 1), period), i11 = imod(i + ivec2(1, 1), period);
-  float a = animValue(hashI(i00, seed), i00, seed);
+  ivec2 i0, i1;
+  latticeWrap(i, period, i0, i1);
+  ivec2 i10 = ivec2(i1.x, i0.y), i01 = ivec2(i0.x, i1.y);
+  float a = animValue(hashI(i0, seed), i0, seed);
   float b = animValue(hashI(i10, seed), i10, seed);
   float c = animValue(hashI(i01, seed), i01, seed);
-  float d = animValue(hashI(i11, seed), i11, seed);
+  float d = animValue(hashI(i1, seed), i1, seed);
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
@@ -51,10 +60,12 @@ float perlinNoise(vec2 x, ivec2 period, float seed) {
   ivec2 i = ivec2(floor(x));
   vec2 f = fract(x);
   vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  float a = dot(gradDir(imod(i, period), seed), f);
-  float b = dot(gradDir(imod(i + ivec2(1, 0), period), seed), f - vec2(1.0, 0.0));
-  float c = dot(gradDir(imod(i + ivec2(0, 1), period), seed), f - vec2(0.0, 1.0));
-  float d = dot(gradDir(imod(i + ivec2(1, 1), period), seed), f - vec2(1.0, 1.0));
+  ivec2 i0, i1;
+  latticeWrap(i, period, i0, i1);
+  float a = dot(gradDir(i0, seed), f);
+  float b = dot(gradDir(ivec2(i1.x, i0.y), seed), f - vec2(1.0, 0.0));
+  float c = dot(gradDir(ivec2(i0.x, i1.y), seed), f - vec2(0.0, 1.0));
+  float d = dot(gradDir(i1, seed), f - vec2(1.0, 1.0));
   return clamp(mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 1.2 + 0.5, 0.0, 1.0);
 }
 
@@ -78,82 +89,64 @@ float simplexNoise(vec2 v, float seed) {
 }
 
 // Worley / cellular. Returns (F1, F2, per-cell random, distance to the cell border) in cell units.
-// metric: 0 euclidean, 1 manhattan, 2 chebyshev.
+// metric: 0 euclidean, 1 manhattan, 2 chebyshev. One flat loop with a runtime bound (each cellPoint compiled once): the
+// 3×3 cells for the two nearest points, then the 5×5 round the nearest point's cell (not the pixel's, or bisectors two
+// cells off it are missed) for its border.
 vec4 worleyNoise(vec2 x, ivec2 period, float jitter, int metric, float seed) {
   ivec2 ip = ivec2(floor(x));
   vec2 fp = fract(x);
-  float F1 = 1e9, F2 = 1e9;
+  float F1 = 1e9, F2 = 1e9, md = 1e9;
   vec2 mr = vec2(0.0);
   ivec2 mc = ip;
-  for (int j = -1; j <= 1; j++)
-  for (int i = -1; i <= 1; i++) {
-    ivec2 g = ivec2(i, j);
+  for (int e = 0; e < 34 * UNI_1; e++) {
+    bool near = e < 9;
+    int f = near ? e : e - 9;
+    ivec2 g = near ? ivec2(f % 3 - 1, f / 3 - 1) : mc - ip + ivec2(f % 5 - 2, f / 5 - 2);
     vec2 o = 0.5 + (cellPoint(imod(ip + g, period), seed) - 0.5) * jitter;
     vec2 r = vec2(g) + o - fp;
-    float d = metric == 1 ? abs(r.x) + abs(r.y) : metric == 2 ? max(abs(r.x), abs(r.y)) : dot(r, r);
-    if (d < F1) { F2 = F1; F1 = d; mr = r; mc = ip + g; }
-    else if (d < F2) { F2 = d; }
+    if (near) {
+      float d = metric == 1 ? abs(r.x) + abs(r.y) : metric == 2 ? max(abs(r.x), abs(r.y)) : dot(r, r);
+      if (d < F1) { F2 = F1; F1 = d; mr = r; mc = ip + g; }
+      else if (d < F2) { F2 = d; }
+    } else {
+      vec2 dr = r - mr;
+      if (dot(dr, dr) > 1e-6) md = min(md, dot(0.5 * (mr + r), normalize(dr)));
+    }
   }
   if (metric == 0) { F1 = sqrt(F1); F2 = sqrt(F2); }
-  // Border distance: search around the nearest point's cell (not the pixel's), or bisectors two cells off it are missed.
-  ivec2 mb = mc - ip;
-  float md = 1e9;
-  for (int j = -2; j <= 2; j++)
-  for (int i = -2; i <= 2; i++) {
-    ivec2 g = mb + ivec2(i, j);
-    vec2 o = 0.5 + (cellPoint(imod(ip + g, period), seed) - 0.5) * jitter;
-    vec2 r = vec2(g) + o - fp;
-    vec2 dr = r - mr;
-    if (dot(dr, dr) > 1e-6) md = min(md, dot(0.5 * (mr + r), normalize(dr)));
-  }
   return vec4(F1, F2, hashI(imod(mc, period), seed + 17.0), md);
 }
 
-// Base noise dispatch. type: 0 value, 1 perlin, 2 simplex, 3 worley F1, 4 worley F2, 5 worley F2-F1.
-float baseNoise(int type, vec2 x, ivec2 period, float seed) {
-  if (type == 0) return valueNoise(x, period, seed);
-  if (type == 1) return perlinNoise(x, period, seed);
-  if (type == 2) return uTile ? perlinNoise(x, period, seed) : simplexNoise(x, seed);
-  vec4 w = worleyNoise(x, period, 1.0, 0, seed);
-  if (type == 3) return clamp(w.x, 0.0, 1.0);
-  if (type == 4) return clamp(w.y, 0.0, 1.0);
-  return clamp((w.y - w.x) * 1.5, 0.0, 1.0);
-}
-
-// Fractal sum. mode: 0 single octave, 1 fBm, 2 ridged, 3 billow, 4 turbulence (self-warped fBm).
-float fractalNoise(int type, int mode, vec2 x, ivec2 period, int octaves, float lac, float gain, float seed) {
-  if (mode == 0) return baseNoise(type, x, period, seed);
-  float sum = 0.0, amp = 1.0, norm = 0.0, weight = 1.0;
-  vec2 q = x;
+// Perlin fBm (0..1) at one point (n = 1) or two (n = 2: xb with seed sb in .y): octaves of perlinNoise, each at twice the
+// frequency (tiling: twice the period, so it still wraps), half the amplitude and seed + 31 of the last. One flat loop
+// with a runtime bound over all n × octaves samples, so D3D compiles perlinNoise once per call site.
+vec2 fbmPair(vec2 xa, vec2 xb, ivec2 period, int octaves, float sa, float sb, int n) {
+  vec2 sum = vec2(0.0), x = xa;
+  float amp = 1.0, norm = 0.0;
   ivec2 per = period;
-  int ilac = int(lac + 0.5);
-  for (int o = 0; o < 12; o++) {
-    if (o >= octaves) break;
-    float s = seed + float(o) * 31.0;
-    float n = baseNoise(type, q, per, s);
-    if (mode == 2) {
-      float r = 1.0 - abs(2.0 * n - 1.0);
-      r *= r;
-      r *= weight;
-      weight = clamp(r * 2.0, 0.0, 1.0);
-      n = r;
-    } else if (mode == 3) {
-      n = abs(2.0 * n - 1.0);
-    } else if (mode == 4) {
-      q += (n - 0.5) * 0.6;
-    }
-    sum += n * amp;
-    norm += amp;
-    amp *= gain;
-    if (uTile) { q *= float(ilac); per *= ilac; } else { q *= lac; }
+  for (int e = 0; e < n * octaves * UNI_1; e++) {
+    bool a = e < octaves;
+    if (e == octaves) { x = xb; per = period; amp = 1.0; }
+    float v = perlinNoise(x, per, (a ? sa : sb) + float(a ? e : e - octaves) * 31.0) * amp;
+    sum += a ? vec2(v, 0.0) : vec2(0.0, v);
+    if (a) norm += amp;
+    amp *= 0.5;
+    x *= 2.0;
+    if (uTile) per *= 2;
   }
   return sum / max(norm, 1e-6);
 }
+float fbm(vec2 x, ivec2 period, int octaves, float seed) { return fbmPair(x, x, period, octaves, seed, seed, 1).x; }
 
 // Domain warp: returns the displacement (in cells) to add to x. Periodic when period is.
 vec2 warpOffset(vec2 x, ivec2 period, float seed) {
-  return vec2(
-    fractalNoise(1, 1, x, period, 3, 2.0, 0.5, seed + 101.0),
-    fractalNoise(1, 1, x + 17.3, period, 3, 2.0, 0.5, seed + 211.0)) - 0.5;
+  return fbmPair(x, x + 17.3, period, 3, seed + 101.0, seed + 211.0, 2) - 0.5;
+}
+
+// 1D value noise (0..1, smoothstep between integer lattice values; not animated).
+float valueNoise1(float x, float seed) {
+  float i = floor(x), f = x - i;
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(hash1(i, seed), hash1(i + 1.0, seed), f);
 }
 `;
