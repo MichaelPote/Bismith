@@ -89,6 +89,13 @@ The masks return no distance (`NO_SDF`), so they hide the Shape card (`sdfShowIf
 _Write to_ another mask records what they paint as coverage — a joint-moss mask that a speckle layer is _Limited to_
 (green flecks along the joints). With a distance (Relief), the mask it writes holds the stones.
 
+**One layer for the wall and its masks.** The Relief output has _Joints to_, _Gaps to_ and _Scars to_ (section
+_Masks_): name a mask and the relief writes that output's coverage there as well, exactly what a copy of the layer set
+to that output and writing that mask would (checked texel for texel, renders identical) — so the masks can't drift from
+the stones when the wall is edited. Each is one more pass of the same shader (`LayerDef.extraMaskWrites`, no compile
+cost), run before the relief's own pass in Normal mode with the layer's Limit to; Shape is refused (it holds the
+stones). Joint reach and Patchiness show while _Joints to_ is set.
+
 ### Random value
 
 Per stone, per block (pieces split from one block share it), or per course.
@@ -115,9 +122,11 @@ Hand-authored in the studio (kept with the references in the private repo). What
 ## Starters (New project wizard)
 
 Each recreation is also a Starter in the _Nature_ group (`presets/index.ts`), at 512 px as tuned: _Sandstone ashlar_,
-_Rust rubble wall_, _Lichen sandstone_, _Mossy slate wall_, _Frosted stone_. Each keeps the wall's shape in one `wall`
-object that its Stone blocks layers spread, so the relief and the masks painted from it can't drift apart. Checked to
-build the same project as its studio recreation, param for param. (The studio projects set no base specular, so loading
+_Rust rubble wall_, _Lichen sandstone_, _Mossy slate wall_, _Frosted stone_ (`presets/project/*.json`). Each has one
+Stone blocks layer: the relief writes _Joints_ (the slate's _Moss_) and, in the ashlar, _Gaps_, and Mask area layers
+(Features › Inside) paint the joints and gaps from those masks, so nothing can drift from the stones. They replaced
+copies of the layer set to the Joints and Gaps outputs; renders of all five came out pixel-identical. (They were
+checked once to build the same project as the studio recreations, param for param.) (The studio projects set no base specular, so loading
 took the legacy path and doubled the render specular: the slate's 0.5 is 1 in its Starter.)
 
 ## Performance

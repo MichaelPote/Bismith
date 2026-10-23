@@ -44,6 +44,35 @@ export function maskWriteKind(def: LayerDef | undefined, params: ParamValues): '
 	return target === SHAPE_MASK ? false : 'coverage';
 }
 
+/** One mask a layer writes: where, what, and the params its pass runs with. */
+export interface MaskWrite {
+	target: string;
+	kind: 'shape' | 'coverage';
+	op: string;
+	params: ParamValues;
+	/** One of LayerDef.extraMaskWrites (a pass of its own), not the layer's Write to. */
+	extra: boolean;
+}
+
+/**
+ * Every mask a layer writes, in the order its passes run: its extra writes (LayerDef.extraMaskWrites, each in Normal
+ * mode, by the same rule as maskWriteKind — so never a coverage into the Shape mask), then its own Write to.
+ */
+export function layerWrites(def: LayerDef | undefined, params: ParamValues): MaskWrite[] {
+	if (!def || def.kind !== 'generator') return [];
+	const out: MaskWrite[] = [];
+	for (const x of def.extraMaskWrites?.(params) ?? []) {
+		const target = name(x.target);
+		const ps = { ...params, ...x.params, mk_target: target, mk_op: 'replace', mk_feather: 0, sh_cut: 0 };
+		const kind = target && maskWriteKind(def, ps);
+		if (kind) out.push({ target, kind, op: 'replace', params: ps, extra: true });
+	}
+	const kind = maskWriteKind(def, params);
+	if (kind)
+		out.push({ target: maskTarget(params)!, kind, op: String(params.mk_op ?? 'replace'), params, extra: false });
+	return out;
+}
+
 /** A layer's own Limit to expression (lim_1 … lim_4, Invert), or null for none. */
 export function layerLimit(params: ParamValues): LimitExpr | null {
 	const terms: LimitExpr['terms'] = [];
@@ -147,18 +176,25 @@ const OP_SYMBOL: Record<string, string> = {
  * replaced everything before it). Empty: nothing has written it yet.
  */
 export function maskChain(p: Project, layerId: string, mask: string): MaskWriter[] {
-	return maskWriters(p, layerId, mask).map((l) => ({ name: l.name, op: String(l.params.mk_op ?? 'replace') }));
+	return writesHeld(p, layerId, mask).map((w) => ({ name: w.layer.name, op: w.op }));
 }
 
 /** The layers whose writes `mask` holds when `layerId` runs, in stack order (see maskChain). */
 export function maskWriters(p: Project, layerId: string, mask: string): Layer[] {
-	const list = running(p);
-	const chain: Layer[] = [];
+	return [...new Set(writesHeld(p, layerId, mask).map((w) => w.layer))];
+}
+
+function writesHeld(p: Project, layerId: string, mask: string): { layer: Layer; op: string }[] {
+	const chain: { layer: Layer; op: string }[] = [];
 	const at = p.layers.findIndex((l) => l.id === layerId);
-	for (const l of list.filter((l) => p.layers.indexOf(l) < at).reverse()) {
-		if (maskTarget(l.params) !== mask || !maskWriteKind(getLayerDef(l.type), l.params)) continue;
-		chain.unshift(l);
-		if (String(l.params.mk_op ?? 'replace') === 'replace') break;
+	for (const l of running(p)
+		.filter((l) => p.layers.indexOf(l) < at)
+		.reverse()) {
+		for (const w of layerWrites(getLayerDef(l.type), l.params).reverse()) {
+			if (w.target !== mask) continue;
+			chain.unshift({ layer: l, op: w.op });
+			if (w.op === 'replace') return chain;
+		}
 	}
 	return chain;
 }
@@ -201,8 +237,7 @@ export function masksAbove(p: Project, layerId?: string): string[] {
 	const names: string[] = [];
 	for (const l of running(p)) {
 		if (p.layers.indexOf(l) >= at) break;
-		const t = maskTarget(l.params);
-		if (t && maskWriteKind(getLayerDef(l.type), l.params) && !names.includes(t)) names.push(t);
+		for (const w of layerWrites(getLayerDef(l.type), l.params)) if (!names.includes(w.target)) names.push(w.target);
 	}
 	return names.sort((a, b) => (a === SHAPE_MASK ? -1 : b === SHAPE_MASK ? 1 : 0));
 }
@@ -234,6 +269,8 @@ export interface LayerMasks {
 	input: MaskRef | null;
 	/** The version it writes; slot −1 when no later layer reads it (no copy). */
 	write: (MaskRef & { kind: 'shape' | 'coverage' }) | null;
+	/** Its extra writes (LayerDef.extraMaskWrites), each a pass of its own before the layer's: input, version, params. */
+	extra: { input: MaskRef; write: MaskRef & { kind: 'shape' | 'coverage' }; params: ParamValues }[];
 	/** Its limit, flattened (Invert folded in); null = none. */
 	limit: LimitTerm[] | null;
 	/** Its source mask (edge filters, Mask area), or null. */
@@ -283,12 +320,10 @@ export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 	list.forEach((layer, i) => {
 		const def = getLayerDef(layer.type)!;
 		const params = layer.params;
-		const kind = maskWriteKind(def, params);
-		const target = kind ? maskTarget(params)! : null;
-		// A writer always reads its target (pixels it leaves keep it); other layers the Shape mask, if they read one at all.
-		const input = target ? refOf(target) : def.readsMask ? refOf(SHAPE_MASK) : null;
-		if (input) read(input, i);
+		const writes = layerWrites(def, params);
+		const main = writes.find((w) => !w.extra) ?? null;
 
+		// Limits and sources first: every pass of the layer reads them as they were before it.
 		const own = layerLimit(params);
 		const mat = materials.get(layer.id)?.limit;
 		const flat = [...(own ? flatten(own, 0) : []), ...(mat?.terms.length ? flatten(mat, own ? 1 : 0) : [])];
@@ -299,17 +334,27 @@ export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 		const source = srcName ? refOf(srcName) : null;
 		if (source) read(source, i);
 
-		let write: LayerMasks['write'] = null;
-		if (target && kind) {
-			const prev = current.get(target);
-			const feather = Number(params.mk_feather ?? 0) > 0;
-			const replace = String(params.mk_op ?? 'replace') === 'replace';
-			const exact = kind === 'shape' && !feather && (replace || !prev || prev.exact);
+		const commit = (w: MaskWrite): NonNullable<LayerMasks['write']> => {
+			const prev = current.get(w.target);
+			const feather = Number(w.params.mk_feather ?? 0) > 0;
+			const exact = w.kind === 'shape' && !feather && (w.op === 'replace' || !prev || prev.exact);
 			const version = (prev?.version ?? 0) + 1;
-			current.set(target, { version, exact });
-			write = { mask: target, version, slot: -1, exact, kind };
-		}
-		plans.push({ layer, plan: { input, write, limit, source } });
+			current.set(w.target, { version, exact });
+			return { mask: w.target, version, slot: -1, exact, kind: w.kind };
+		};
+		const extra = writes
+			.filter((w) => w.extra)
+			.map((w) => {
+				const input = refOf(w.target);
+				read(input, i);
+				return { input, write: commit(w), params: w.params };
+			});
+
+		// A writer always reads its target (pixels it leaves keep it); other layers the Shape mask, if they read one at all.
+		const input = main ? refOf(main.target) : def.readsMask ? refOf(SHAPE_MASK) : null;
+		if (input) read(input, i);
+		const write = main ? commit(main) : null;
+		plans.push({ layer, plan: { input, write, extra, limit, source } });
 	});
 
 	// Every mask's last version stays to the end (the Masks view shows it).
@@ -326,23 +371,27 @@ export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 	let slots = 0;
 	const ends = new Map<number, string[]>();
 	for (const [k, at] of lastRead) if (Number.isFinite(at)) ends.set(at, [...(ends.get(at) ?? []), k]);
+	const take = (w: MaskRef | null) => {
+		if (!w || !lastRead.has(key(w))) return;
+		free.sort((a, b) => b - a);
+		const s = free.length ? free.pop()! : slots++;
+		slotOf.set(key(w), s);
+		w.slot = s;
+	};
 	plans.forEach(({ plan }, i) => {
+		// Extra writes are copied in before the layer's own pass, which still reads what it reads: not into those slots.
+		for (const e of plan.extra) take(e.write);
 		for (const k of ends.get(i) ?? []) {
 			const s = slotOf.get(k);
 			if (s !== undefined) free.push(s);
 		}
-		free.sort((a, b) => b - a);
-		const w = plan.write;
-		if (w && lastRead.has(key(w))) {
-			const s = free.length ? free.pop()! : slots++;
-			slotOf.set(key(w), s);
-			w.slot = s;
-		}
+		take(plan.write);
 	});
 	const fill = (r: MaskRef | null) => {
 		if (r && r.version > 0) r.slot = slotOf.get(key(r)) ?? -1;
 	};
 	for (const { plan } of plans) {
+		for (const e of plan.extra) fill(e.input);
 		fill(plan.input);
 		fill(plan.source);
 		for (const t of plan.limit ?? []) fill(t.ref);

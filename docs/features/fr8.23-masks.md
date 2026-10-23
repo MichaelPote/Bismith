@@ -303,7 +303,9 @@ Where the build differs from the design above, or adds to it:
   one-pixel notches instead of stopping in them. The band (_A band at the edge_) is solid with its inner end fading
   over _Band softness_ (default half the Width), measured from the mask's outline — a bevel inside it is part of the
   band. In feature modes Breakup is shifted by each feature's random and pulls between 0.4× and 1.6× as hard per
-  feature, so every brick frays its own way and by its own amount. Crevices' Radius defaults to 8 px. Inside starts
+  feature, so every brick frays its own way and by its own amount. Crevices' Radius defaults to 8 px. Inside on a
+  coverage mask (any writer not a shape, `uMaskSrcExact` false) has no distance to bevel: its coverage is both the value
+  and the coverage, as Breakup's path already did — painting it matches the layer that wrote it. Inside starts
   with a flat Edge; surface modes are featureless (`genOutSmooth`). Three critic rounds on a bricks sheet scored
   6.6, 7.6 and 8.4; left open: Shaping's Cutoff is a hard 0/1 step unless _Cutoff softness_ is raised (shared by every
   generator, hard on purpose for pixel-art flecks), so a frayed selection's edge is aliased at softness 0, and a
@@ -354,8 +356,12 @@ Each phase ends with `npm test`, `vue-tsc` and `npx tsx tools/smoke.ts` green.
 - **Copy or rebind** for mask output → slot: copy first; rebind only if `render-cost.ts` shows the copies matter.
 - **Smooth ops in _Limit to_**: free (same `sdfCombine`), left out to keep the rows small; add if a rounded clip is
   wanted.
-- **Two write targets** (a shape that writes _Shape_ and _Opening_): not supported; use a second layer. Revisit if
-  recipes keep needing it.
+- **Two write targets** (a shape that writes _Shape_ and _Opening_): not supported in general; use a second layer.
+  A generator can declare extra writes of its own outputs (`LayerDef.extraMaskWrites`, Stone blocks' _Joints to_ /
+  _Gaps to_ / _Scars to_): `layerWrites` lists every write a layer makes, `planMasks` gives each extra a version
+  (`LayerMasks.extra`), and the pipeline runs the shader once more per extra with its params into the state's scratch
+  side, copying only the mask output. Extras run before the layer's own pass and read the masks as they were before
+  it; their slots never reuse one freed by that layer, which its own pass still reads.
 - **Height-range limit on every layer** (`m_hmode`): _Mask area › Height range_ covers it as a mask; the per-layer
   limit could then go.
 - **Marching on huge features**: Gradient's march is bounded; features longer than the bound ramp only over the

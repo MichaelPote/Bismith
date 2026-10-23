@@ -106,7 +106,7 @@ export const surfaceMaskLayer: LayerDef = {
 				[
 					'inside',
 					'Inside',
-					'the mask’s shape itself, each feature with its own random (Source › Random, Per-feature variation)'
+					'the mask’s shape itself, each feature with its own random (Source › Random, Per-feature variation); a mask no shape wrote (noise with a cutoff, Stone blocks’ joints) paints its coverage as the value too, as its writer would'
 				],
 				[
 					'gradient',
@@ -279,7 +279,9 @@ GenOut gen(vec2 p) {
   float bkAmt = u_bk_amount * (fid >= 0.0 ? mix(0.4, 1.6, fract(fid * 13.37 + 0.31)) : 1.0);
   float bk = u_bk_amount > 0.0 ? max(1.0 - bkAmt * ma_breakup(p, fid), 0.0) : 1.0;
   if (u_area == 0) {
-    if (u_bk_amount <= 0.0) {
+    // A shape's mask: its distance, through the Edge card. A coverage (noise with a cutoff, Stone blocks' joints) has
+    // none: its coverage is the value and the coverage both, painted as the layer that wrote it would have.
+    if (u_bk_amount <= 0.0 && uMaskSrcExact) {
       GenOut o = genOut(0.0, 1.0, max(fid, 0.0), m0.x);
       o.feat = fid >= 0.0 ? 1.0 : 0.0;
       o.fid = fid;

@@ -28,6 +28,8 @@ uniform sampler2D tMaskIn;
 uniform sampler2D tMaskSrc;
 uniform sampler2D tLimit;
 uniform float uLimit;
+// Whether the source mask holds a true distance (only shapes wrote it) or a coverage, clamp(0.5 − x).
+uniform bool uMaskSrcExact;
 uniform float uSeed;
 uniform float uDepth;
 `;
@@ -200,11 +202,13 @@ export class MaterialPipeline {
 	private cur: {
 		input: THREE.Texture | null;
 		source: THREE.Texture | null;
+		sourceExact: boolean;
 		limit: THREE.Texture | null;
 		limitSign: number;
 	} = {
 		input: null,
 		source: null,
+		sourceExact: true,
 		limit: null,
 		limitSign: 0
 	};
@@ -322,7 +326,8 @@ export class MaterialPipeline {
 			tMaskIn: { value: null },
 			tMaskSrc: { value: null },
 			tLimit: { value: null },
-			uLimit: { value: 0 }
+			uLimit: { value: 0 },
+			uMaskSrcExact: { value: true }
 		};
 	}
 
@@ -354,6 +359,7 @@ export class MaterialPipeline {
 		const empty = this.emptyMask!.texture;
 		if (u.tMaskIn) u.tMaskIn.value = this.cur.input ?? empty;
 		if (u.tMaskSrc) u.tMaskSrc.value = this.cur.source ?? empty;
+		if (u.uMaskSrcExact) u.uMaskSrcExact.value = this.cur.sourceExact;
 		if (u.tLimit) u.tLimit.value = this.cur.limit ?? empty;
 		if (u.uLimit) u.uLimit.value = this.cur.limitSign;
 	}
@@ -399,10 +405,13 @@ export class MaterialPipeline {
 	 * combined by a small pass into a scratch target (so generator shaders keep one limit input, whatever the expression).
 	 */
 	private bindMasks(plan: LayerMasks | undefined): void {
-		this.cur = { input: null, source: null, limit: null, limitSign: 0 };
+		this.cur = { input: null, source: null, sourceExact: true, limit: null, limitSign: 0 };
 		if (!plan) return;
 		if (plan.input) this.cur.input = this.refTexture(plan.input);
-		if (plan.source) this.cur.source = this.refTexture(plan.source);
+		if (plan.source) {
+			this.cur.source = this.refTexture(plan.source);
+			this.cur.sourceExact = plan.source.exact;
+		}
 		const terms = plan.limit;
 		if (!terms) return;
 		if (terms.length === 1) {
@@ -715,8 +724,19 @@ ${fetches}
 						key = layer.type;
 					}
 					const mat = this.generatorMaterial(def, key);
-					updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params);
 					this.bindTextures(def, layer, project, seed, mat);
+					// Extra mask writes (LayerDef.extraMaskWrites): the same shader with their params, into the scratch side of
+					// the state (the layer's own pass overwrites it next); only their mask output is kept.
+					for (const e of masks?.extra ?? []) {
+						updateUniforms(mat.uniforms, layerParamDefs(def.type), e.params);
+						this.cur.input = this.refTexture(e.input);
+						this.setCommon(mat, project, seed);
+						mat.uniforms.uMaskKind.value = e.write.kind === 'shape' ? 1 : 2;
+						this.gpu.run(mat, state.write);
+						if (e.write.slot >= 0) this.copyInto(state.write.textures[3], this.slots[e.write.slot]);
+					}
+					if (masks?.extra.length) this.cur.input = masks.input ? this.refTexture(masks.input) : null;
+					updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params);
 					this.setCommon(mat, project, seed);
 					const w = masks?.write;
 					mat.uniforms.uMaskKind.value = w ? (w.kind === 'shape' ? 1 : 2) : 0;

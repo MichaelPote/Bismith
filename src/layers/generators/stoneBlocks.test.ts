@@ -56,9 +56,10 @@ describe('stone blocks', () => {
 			for (const k of Object.keys(stoneBlocksLayer.linkedDefaults!({ output })))
 				expect(keys.has(k), `${output}: ${k}`).toBe(true);
 		}
-		// (The seed reaches the shader mixed into uSeed.)
+		// (The seed reaches the shader mixed into uSeed; the extra masks' names pick passes, not uniforms.)
 		for (const d of stoneBlocksLayer.params)
-			if (d.key !== 'seed') expect(stoneBlocksLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
+			if (d.key !== 'seed' && !d.mask)
+				expect(stoneBlocksLayer.glsl!.includes(`u_${d.key}`), `u_${d.key} unused`).toBe(true);
 	});
 
 	it('keeps defaults inside their ranges, and the ranges the shader relies on', () => {

@@ -188,6 +188,34 @@ describe('mask plan', () => {
 		]);
 	});
 
+	it('plans extra writes (Stone blocks relief: Joints to, Gaps to) as passes of their own before the layer’s', () => {
+		// The wall reads Joints and Shape (its limit) as they were before it: its extra write can't take that slot.
+		const old = createLayer('noise', { mk_target: 'Joints' }, 'old');
+		const wall = createLayer('stone_blocks', { mk_joints: 'Joints', mk_gaps: 'Gaps', ...limitTo('Joints') }, 'wall');
+		const moss = createLayer('noise', limitTo('Joints'), 'moss');
+		const dark = createLayer('noise', limitTo(['Gaps', '∪', 'Shape']), 'dark');
+		const p = project([old, wall, moss, dark]);
+		const plan = planMasks(p);
+		const w = plan.layers.get(wall.id)!;
+		expect(w.extra.map((e) => [e.write.mask, e.write.version, e.write.kind, e.params.output])).toEqual([
+			['Joints', 2, 'coverage', 'joints'],
+			['Gaps', 1, 'coverage', 'gaps']
+		]);
+		expect(w.limit![0].ref).toMatchObject({ mask: 'Joints', version: 1 });
+		expect(w.extra[0].input).toMatchObject({ mask: 'Joints', version: 1 });
+		const busy = w.limit![0].ref.slot;
+		expect(w.extra.map((e) => e.write.slot)).not.toContain(busy);
+		expect(w.write).toMatchObject({ mask: 'Shape', version: 1, kind: 'shape' });
+		expect(plan.layers.get(moss.id)!.limit![0].ref).toMatchObject({ version: 2, slot: w.extra[0].write.slot });
+		expect(masksAbove(p, moss.id)).toEqual(['Shape', 'Joints', 'Gaps']);
+		expect(maskChain(p, moss.id, 'Gaps')).toEqual([{ name: 'wall', op: 'replace' }]);
+		// Other outputs write only their own target; Shape never takes a coverage.
+		const joints = { ...wall.params, output: 'joints', mk_target: 'J' };
+		expect(planMasks(project([{ ...wall, params: joints }])).layers.get(wall.id)!.extra).toEqual([]);
+		const bad = createLayer('stone_blocks', { mk_joints: 'Shape' });
+		expect(planMasks(project([bad])).layers.get(bad.id)!.extra).toEqual([]);
+	});
+
 	it('skips disabled layers and reads Shape for layers that read a mask without writing one', () => {
 		const shape = createLayer('rect');
 		const off = { ...createLayer('rect', { mk_target: 'Shape' }), enabled: false };

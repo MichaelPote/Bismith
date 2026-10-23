@@ -3,11 +3,23 @@
 // (random and broken ashlar). Each piece has its own height (a few set back), a slight tilt, a pitched margin falling to
 // the joint, and a face knocked about by conchoidal flake scars: shallow bowls at two sizes whose rims meet in crisp
 // ridges, between flat patches of the original face. Joints are thin; here and there one opens into a dark gap at a
-// corner. Joints, gaps and scars are outputs of their own, for paint; the relief puts the stones in the mask it writes.
+// corner. Joints, gaps and scars are outputs of their own, for paint; the relief puts the stones in the mask it writes,
+// and can write the joints, gaps and scars to masks of their own (extra passes of the same shader).
 
-import { P, gradient } from '@/core/params';
+import { P, gradient, type ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
 import { ORG_GLSL, ORG_GLSL_SDF, ORG_NO_SDF } from './organicShared';
+
+// The relief's extra masks (LayerDef.extraMaskWrites): param, the output it writes, label, what it holds.
+const EXTRA_MASKS = [
+	['mk_joints', 'joints', 'Joints to', 'the joints and open gaps (with Joint reach and Patchiness)'],
+	['mk_gaps', 'gaps', 'Gaps to', 'the open gaps alone'],
+	['mk_scars', 'scars', 'Scars to', 'how deep the scars cut']
+] as const;
+
+// Joint reach and Patchiness shape the Joints output, and the relief's Joints mask.
+const jointsShown = (p: ParamValues) =>
+	p.output === 'joints' || (p.output === 'relief' && String(p.mk_joints ?? '').trim() !== '');
 
 export const stoneBlocksLayer: LayerDef = {
 	type: 'stone_blocks',
@@ -17,6 +29,13 @@ export const stoneBlocksLayer: LayerDef = {
 	sdf: true,
 	// Only the relief has a shape (the masks return no distance).
 	sdfShowIf: (p) => p.output === 'relief',
+	// The relief can write its joints, gaps and scars too, so one layer gives the wall and the masks to paint it by.
+	extraMaskWrites: (p) =>
+		p.output !== 'relief'
+			? []
+			: EXTRA_MASKS.map(([key, output]) => ({ target: String(p[key] ?? ''), params: { output } })).filter((x) =>
+					x.target.trim()
+				),
 	description:
 		'A wall of rock-faced stone blocks: courses of varying height, blocks of varying length split into slabs and smaller pieces, faces chipped into flake scars, thin joints that open into gaps here and there — plus masks of the joints and the scars to paint.',
 	params: [
@@ -43,7 +62,7 @@ export const stoneBlocksLayer: LayerDef = {
 				['gaps', 'Gaps', '1 in the open gaps only: paint them dark, damp or mossy apart from the joints']
 			],
 			{
-				hint: 'Every output comes from the same wall (same settings, same seed). Relief puts the stones in the mask it writes; the others write what they paint — to any mask but Shape, which they leave as it was'
+				hint: 'Every output comes from the same wall (same settings, same seed). Relief puts the stones in the mask it writes, and can write the joints, gaps and scars to masks of their own too (Masks); the others write what they paint — to any mask but Shape, which they leave as it was'
 			}
 		),
 		P.float('course', 'Course height', 40, 4, 512, {
@@ -219,14 +238,22 @@ export const stoneBlocksLayer: LayerDef = {
 			softMax: 16,
 			unit: 'px',
 			step: 0.05,
-			showIf: (p) => p.output === 'joints',
+			showIf: jointsShown,
 			hint: 'How far the joint mask fades out onto the faces'
 		}),
 		P.float('patch', 'Patchiness', 0.3, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.output === 'joints',
+			showIf: jointsShown,
 			hint: 'Breaks the joint mask into patches a few stones across: 0 = every joint, 1 = only here and there'
 		}),
+		...EXTRA_MASKS.map(([key, , label, what]) =>
+			P.text(key, label, '', {
+				section: 'Masks',
+				mask: 'write',
+				showIf: (p) => p.output === 'relief',
+				hint: `Also write ${what} to this mask, from the same wall, for later layers to be limited to (as a Stone blocks layer set to that output would): empty = none. Not Shape, which holds the stones`
+			})
+		),
 		// Not a control: 1 px of the texture in shader px (supersampling scales the px params; joints snap to texture pixels).
 		P.float('px_scale', 'Pixel scale', 1, 1, 8, {
 			unit: 'px',

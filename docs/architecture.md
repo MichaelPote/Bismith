@@ -157,6 +157,7 @@ LayerDef {
                                  //   Splats, Scratches, Cable, Hammered, Caustics) — the Edge card still applies: Bevel (0 by
                                  //   default) × its own value, Anti-alias read by the generator itself (u_aa)
   maskWrite?: (params) => 'shape' | 'coverage' | false, // what it writes into its mask (masks.ts, FR8.23)
+  extraMaskWrites?: (params) => { target, params }[], // more masks, each a pass with these params (Stone blocks)
   readsMask?: boolean,           // reads maskIn() in its shader (Chips, Tabs, Glass)
   maskSource?: (params) => string | null, // the mask it reads as its source (edge filters, Mask area)
   prepare?: (ctx, layer) => textures, // generator: GPU pre-passes over the current state (e.g. a jump-flood field)

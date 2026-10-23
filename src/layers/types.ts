@@ -44,6 +44,12 @@ export interface LayerDef {
 	 */
 	maskWrite?: (params: ParamValues) => 'shape' | 'coverage' | false;
 	/**
+	 * More masks the layer writes beside its own (Stone blocks' relief: its joints, gaps and scars): each is the same
+	 * shader run again with `params` over the layer's, what it covers written to `target` in Normal mode. They run
+	 * before the layer's own pass, and see the masks as they were before it (masks.ts layerWrites).
+	 */
+	extraMaskWrites?: (params: ParamValues) => { target: string; params: ParamValues }[];
+	/**
 	 * Reads the mask before it in its own shader (`maskIn()`: its write target's, or the Shape mask when it writes none)
 	 * — Chips damages the shape there, Tabs sit on its outline, Glass refracts inside it. Other layers read masks only
 	 * through Limit to.
