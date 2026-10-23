@@ -184,6 +184,7 @@ raised top).
   chosen by *Hardware share* when one fits — besides vents, lights, recesses, perforation, ribs, pipes, mesh grilles,
   circuit pockets and heatsink fins. *Scattered details* split a big panel's free area into cells about *Scatter cell*
   across, a share of which hold a small detail of their own (slot banks and dot fields spread over a large plate).
+  *Hole layout* puts a perforation's holes on a grid or in masonry bond (every second row half a pitch along).
 
 The _Tech plates_ preset shows the octilinear look (jogs, cut corners, fill plates, borders, strips).
 

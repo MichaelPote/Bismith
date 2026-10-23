@@ -652,6 +652,16 @@ export const greeblesLayer: LayerDef = {
 			showIf: hasDetails,
 			hint: 'A grid of round holes (Slot pitch apart, Slot width across)'
 		}),
+		P.enum(
+			'hole_bond',
+			'Hole layout',
+			'grid',
+			[
+				['grid', 'Grid', 'holes in line both ways'],
+				['bond', 'Masonry bond', 'every second row shifted half the pitch, one hole fewer, like courses of bricks']
+			],
+			{ group: 'details', showIf: (p) => hasDetails(p) && p.det_holes !== false }
+		),
 		P.bool('det_ribs', 'Ribs', true, {
 			group: 'details',
 			showIf: hasDetails,
@@ -2085,6 +2095,15 @@ GenOut gen(vec2 p) {
       vec2 csz = max(floor((cs - 4.0) * fr), vec2(0.0));
       rlo = flo + floor(ci * cs + 2.0 + (cs - 4.0 - csz) * sr2.yz);
       rhi = sr.x < u_det_scatter ? rlo + csz : rlo;
+      // (A part a 45° corner — the panel's own cut or its cell's — would clip is left out whole, as is a sliver.)
+      vec4 kc = max(pk, kq);
+      float km = ceil(bev) + 3.0;
+      for (int i = 0; i < 4 * GRB_1; i++) {
+        bvec2 hiC = bvec2((i & 1) == 1, (i & 2) == 2);
+        vec2 dc4 = abs(mix(rlo, rhi, vec2(hiC)) - mix(pb.xy, pb.zw, vec2(hiC)));
+        if (dc4.x + dc4.y < grb_pick(kc, i) + 1.5 * km) rhi = rlo;
+      }
+      if (min(csz.x, csz.y) < 8.0) rhi = rlo;
     }
     // Paired: split along the longer side, a gap between, the pixel's part decides.
     bool lx = asz.x >= asz.y;
@@ -2201,7 +2220,10 @@ GenOut gen(vec2 p) {
         if (smallP) sw = min(sw, max(sl.y - 2.0, 2.0));
         vec2 o = lo2 + floor((sl - (n * pitch - (pitch - sw))) * 0.5);
         vec2 j = clamp(floor((ql - o - 0.5 * sw) / pitch + 0.5), vec2(0.0), n - 1.0);
-        vec2 s0 = o + j * pitch;
+        // (Masonry bond: every second row of holes half a pitch along, one fewer, so it stays in the area.)
+        bool bond = kind == 3 && u_hole_bond == 1 && mod(j.y, 2.0) > 0.5 && n.x >= 2.0;
+        if (bond) j.x = clamp(floor((ql.x - o.x - 0.5 * sw) / pitch), 0.0, n.x - 2.0);
+        vec2 s0 = o + j * pitch + (bond ? vec2(0.5 * pitch, 0.0) : vec2(0.0));
         // A perforation needs at least 3 × 3 holes (fewer read as dice), a grille or ribs three bars (fewer read as
         // scratches) — the kind choice above sees to that, but a bay's walls may still take the room.
         if ((kind == 3 && min(n.x, n.y) < 3.0) || (!smallP && kind != 3 && n.y < 3.0)) s0 = vec2(-1e4);
@@ -2333,20 +2355,22 @@ GenOut gen(vec2 p) {
           // A rocker: a bezel round a paddle in two halves — the thrown half high, the other low, a dark split between.
           vec2 hb2 = vec2(0.27, 0.42) * u0;
           float dz = grb_rbox(lp, -hb2, hb2, 0.1 * u0);
-          float dpad = dz + max(1.0, 0.07 * u0);
+          float dpad = dz + max(1.5, 0.12 * u0);
           dD = dz;
-          v += 0.3 * hd * grb_cov(dz) - 0.5 * hd * grb_cov(dpad + 0.5);
+          // (A raised bezel, a dark well inside it round the paddle.)
+          v = mix(v, vh + 0.35 * hd, grb_cov(dz));
+          v = mix(v, vh - 0.6 * hd, grb_cov(dz + max(1.0, 0.06 * u0)));
           float hi = step(0.0, lp.y * sg2);
           float pv = vh + hd * mix(0.2, 0.75, hi) * (1.0 - 0.25 * hi * clamp(abs(lp.y) / hb2.y, 0.0, 1.0));
           v = mix(v, pv - 0.3 * hd * grb_cov(abs(lp.y) - 0.5), smoothstep(0.0, 1.0, -dpad));
         } else {
           // A toggle: a round washer, a hex nut, a lever thrown up or down rising to a ball tip (it leans out of the plate),
           // on some banks a U-guard round each lever.
-          float wash = length(lp) - 0.33 * u0;
-          float nut = grb_hexagon(lp, 0.19 * u0);
-          float lr = max(0.085 * u0, 0.9);
-          vec2 tipc = vec2(0.0, 0.42 * u0 * sg2);
-          float tl = clamp(lp.y * sg2 / (0.42 * u0), 0.0, 1.0);
+          float wash = length(lp) - 0.22 * u0;
+          float nut = grb_hexagon(lp, 0.13 * u0);
+          float lr = max(0.09 * u0, 1.0);
+          vec2 tipc = vec2(0.0, 0.4 * u0 * sg2);
+          float tl = clamp(lp.y * sg2 / (0.4 * u0), 0.0, 1.0);
           float lev = min(sdSegment(lp, vec2(0.0), tipc) - lr, length(lp - tipc) - 1.5 * lr);
           float gw = max(0.06 * u0, 0.8), gy = 0.47 * u0;
           float grd = pb2.z < 0.5 ? max(min(abs(abs(lp.x) - 0.3 * u0) - gw, abs(lp.y * sg2 - gy) - gw), max(abs(lp.x) - 0.3 * u0 - gw, abs(lp.y * sg2 - 0.5 * gy) - 0.5 * gy - gw)) : 1e4;
@@ -2704,8 +2728,8 @@ GenOut gen(vec2 p) {
     if (cs == 0) env = max(env, (mtop + 0.04 * (bTop - bBase)) * atC * onB * step(top2 ? bl + fe : -1.0, ce));
     // Into a module's side: a socket boss across the bundle's end, the collars seated in it.
     if (top2 && !dive) {
-      float dB = max(max(max(x0 - 2.0 - bU, bU - xe - 2.0), ce - 0.45 * bl), -ce);
-      env = max(env, mix(0.0, mtop - 0.15 * u_inset_depth, smoothstep(0.0, 1.0, -dB / 1.5)));
+      float dB = max(max(max(x0 - 3.0 - bU, bU - xe - 3.0), ce - 0.7 * bl), -ce);
+      env = max(env, mix(0.0, mtop + 0.2 * u_inset_depth, smoothstep(0.0, 1.0, -dB / 1.5)));
       cov2 = max(cov2, 1.0 - smoothstep(-0.5, 0.5, dB));
       dTube = min(dTube, dB);
     }
