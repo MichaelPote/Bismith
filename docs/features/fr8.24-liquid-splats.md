@@ -14,7 +14,10 @@ pixel art: a clumpy splat with one long run on a 64 px wall.
 **CPU geometry** (`buildSplats`, `cpuData` → a data texture, as Pipes): every splat is a list of primitives —
 ellipses, tapered capsules, and bites (ellipses cut out) — built from the seed; the shader loops over all of them
 (count from the texture's header, so D3D11 doesn't unroll: 0.28 s cold compile; 13.6 ms per layer at 2048², between
-Noise and Grass). Splats sit on a jittered grid, by the number of splats and the texture's shape only; each is:
+Noise and Grass). Splats sit on a jittered grid, by the number of splats and the texture's shape only. The shader's
+4000 primitives are shared out: each splat gets an even share of what's left, its core first, then runs, jets,
+spikes, droplets and mist until the share runs out — so many splats each throw less, rather than the later ones
+going missing. Each is:
 
 - **Core**: a body (sagging and stretched downhill with gravity) and lobes round it (Ragged core: more lobes,
   straying further, of mixed size), bites out of its rim (concave bays), clumps breaking off it; a pour (low Splash)

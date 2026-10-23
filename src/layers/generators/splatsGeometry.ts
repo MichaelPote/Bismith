@@ -248,6 +248,9 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 		const nMist = r();
 		const nRun = r();
 		const runOffset = r();
+		// Its share of the primitives left: with many splats each gets fewer runs, jets, spikes, droplets and specks (in
+		// that order) instead of the last splats going missing.
+		const end = prims.length + Math.floor((MAX_SPLAT_PRIMS - prims.length) / (n - s));
 
 		// The core: a body and lobes around it, sagging downhill with gravity; with Ragged core, clumps breaking off it.
 		const sag = 0.5 * g * R;
@@ -307,6 +310,25 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			);
 		}
 
+		// Gravity: runs from the core's downhill edge and from the bigger drops.
+		if (g > 0) {
+			const runs = Math.round(o.runs * g * (0.4 + 0.8 * nRun));
+			for (let u = 0; u < runs && prims.length < end; u++) {
+				const r = stream(RUN, s, u);
+				// Spread along the downhill edge, the first near the middle, the others by the golden ratio — so runs don't
+				// fall on one line, and one more doesn't move the rest.
+				const jit = r();
+				const across =
+					u === 0 ? (jit - 0.5) * 0.4 * R : (((runOffset + u * 0.618034 + 0.15 * (jit - 0.5)) % 1) - 0.5) * 1.5 * R;
+				const edge = Math.sqrt(Math.max(0, 1 - (across / (0.9 * R)) ** 2));
+				const x = cx + gx * (0.7 * R * edge + sag) - gy * across;
+				const y = cy + gy * (0.7 * R * edge + sag) + gx * across;
+				const w = R * (0.08 + 0.08 * r()) * (u === 0 ? 1.25 : 1);
+				const len = R * o.runLength * g * (u === 0 ? 1 : 0.25 + 0.65 * r());
+				run(r, x, y, Math.max(0.5, w), len, rnd, 0.25 * R);
+			}
+		}
+
 		/** A streak from the core's edge outwards: tapering to a point, slightly bent, maybe a drop beyond its tip. */
 		const streak = (r: () => number, a: number, len: number, w0: number, tipDrop: number) => {
 			const ax = Math.sin(a);
@@ -342,17 +364,9 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 				dr *= 0.5 + 0.35 * r();
 			}
 		};
-		// A crown of short spikes round the rim, and a few long jets — the longest few much longer than the rest.
-		const spikes = Math.round(2 * o.jets * splash * (0.5 + nSpike));
-		for (let j = 0; j < spikes; j++) {
-			const r = stream(SPIKE, s, j);
-			const a = sprayAngle(r);
-			const len = R * splash * (0.25 + 0.6 * r());
-			const w0 = R * (0.07 + 0.12 * r());
-			streak(r, a, len, w0, r() < 0.3 ? 1 : 0);
-		}
+		// A few long jets — the longest few much longer than the rest.
 		const jets = Math.round(o.jets * splash * (0.5 + nJet));
-		for (let j = 0; j < jets; j++) {
+		for (let j = 0; j < jets && prims.length < end; j++) {
 			const r = stream(JET, s, j);
 			const a = sprayAngle(r);
 			const len = R * o.jetLength * splash * (0.3 + 2.4 * r() ** 3);
@@ -361,10 +375,19 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			const tips = r();
 			streak(r, a, len, w0, tip < 0.6 ? 1 + Math.floor(3 * tips) : 0);
 		}
+		// A crown of short spikes round the rim.
+		const spikes = Math.round(2 * o.jets * splash * (0.5 + nSpike));
+		for (let j = 0; j < spikes && prims.length < end; j++) {
+			const r = stream(SPIKE, s, j);
+			const a = sprayAngle(r);
+			const len = R * splash * (0.25 + 0.6 * r());
+			const w0 = R * (0.07 + 0.12 * r());
+			streak(r, a, len, w0, r() < 0.3 ? 1 : 0);
+		}
 
 		// Satellite droplets: many tiny, a few big; the far ones stretched along their flight with a short tail.
 		const drops = Math.round(60 * o.drops * splash * (0.6 + 0.8 * nDrop));
-		for (let d = 0; d < drops && prims.length < MAX_SPLAT_PRIMS; d++) {
+		for (let d = 0; d < drops && prims.length < end; d++) {
 			const r = stream(DROP, s, d);
 			const a = sprayAngle(r);
 			const ax = Math.sin(a);
@@ -410,31 +433,12 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 		// Fine mist: specks of a px or two, flying furthest.
 		// As many as a splat this size can throw (fewer on small ones), thinning out with distance.
 		const mist = Math.round(150 * o.mist * splash * Math.min(1, (R / 15) ** 1.5) * (0.6 + 0.8 * nMist));
-		for (let d = 0; d < mist && prims.length < MAX_SPLAT_PRIMS; d++) {
+		for (let d = 0; d < mist && prims.length < end; d++) {
 			const r = stream(MIST, s, d);
 			const a = sprayAngle(r);
 			const dist = R * (0.9 + 1.3 * o.reach * r() ** 1.6);
 			const dr = Math.max(0.6, R * (0.025 + 0.05 * r() ** 2));
 			ellipse(cx + Math.sin(a) * dist, cy - Math.cos(a) * dist, 1, 0, dr, dr, 0.2 * dr, 1, rnd);
-		}
-
-		// Gravity: runs from the core's downhill edge and from the bigger drops.
-		if (g > 0) {
-			const runs = Math.round(o.runs * g * (0.4 + 0.8 * nRun));
-			for (let u = 0; u < runs; u++) {
-				const r = stream(RUN, s, u);
-				// Spread along the downhill edge, the first near the middle, the others by the golden ratio — so runs don't
-				// fall on one line, and one more doesn't move the rest.
-				const jit = r();
-				const across =
-					u === 0 ? (jit - 0.5) * 0.4 * R : (((runOffset + u * 0.618034 + 0.15 * (jit - 0.5)) % 1) - 0.5) * 1.5 * R;
-				const edge = Math.sqrt(Math.max(0, 1 - (across / (0.9 * R)) ** 2));
-				const x = cx + gx * (0.7 * R * edge + sag) - gy * across;
-				const y = cy + gy * (0.7 * R * edge + sag) + gx * across;
-				const w = R * (0.08 + 0.08 * r()) * (u === 0 ? 1.25 : 1);
-				const len = R * o.runLength * g * (u === 0 ? 1 : 0.25 + 0.65 * r());
-				run(r, x, y, Math.max(0.5, w), len, rnd, 0.25 * R);
-			}
 		}
 	}
 	return prims.slice(0, MAX_SPLAT_PRIMS);

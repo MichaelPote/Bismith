@@ -78,6 +78,13 @@ describe('splats geometry', () => {
 		expect((tex.data[0] << 8) | tex.data[1]).toBe(many.length);
 	});
 
+	it('shares the primitives out, so more splats always put more on screen', () => {
+		// Every splat's body is its first primitive, and each draws its own random.
+		const splats = (count: number) => new Set(buildSplats({ ...base, count, size: 40 }).map((p) => p.rnd)).size;
+		expect(splats(24)).toBeGreaterThan(20);
+		expect(splats(100)).toBeGreaterThanOrEqual(100);
+	});
+
 	it('keeps the layout while any other param changes: only the splat count and the seed move the splats', () => {
 		const centres = (o: Partial<SplatOptions>) => {
 			const prims = buildSplats({ ...base, gravity: 0, ...o });
