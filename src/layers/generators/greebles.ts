@@ -1927,7 +1927,10 @@ GenOut gen(vec2 p) {
   if (rb) { plo = pb.xy; phi = pb.zw; psz = phi - plo; pcen = 0.5 * (plo + phi); phb = 0.5 * psz; side = min(psz.x, psz.y); rr = min(rr, max(0.5 * cell.dw - 1.0, 0.5)); }
   if (rb || (!deco && !none && u_rivets > 0 && lr2.w < u_rivet_chance && area >= float(u_rivet_min))) {
     float D = 2.0 * rr;
-    float m = rb ? grb_snapC(0.5 * cell.dw, D) : grb_rivetM(u_rivet_inset, D);
+    // (Far enough in that the whole head — a sunk kind's counterbore, 1.55 × it — stays on this module: a bolt crossing
+    // its edge is cut off where the neighbour or an edge strip is drawn.)
+    bool sunkK = u_rivet_style == 2 || u_rivet_style == 4 || u_rivet_style == 8;
+    float m = rb ? grb_snapC(0.5 * cell.dw, D) : max(grb_rivetM(u_rivet_inset, D), (sunkK ? 1.55 : 1.0) * rr + 1.5);
     vec2 a = plo + m, b = phi - m;   // rectangle of rivet centres
     bvec2 thin = lessThan(b - a, vec2(2.0 * D));
     int rm = rb ? 2 : u_rivets == 4 ? 1 + int(floor(grb_rand4(id, 53u).x * 2.999)) : u_rivets;   // 1 corners, 2 edges, 3 long sides
@@ -2364,6 +2367,25 @@ GenOut gen(vec2 p) {
         // pins) — and fine traces between them on the floor. In a dark pocket the parts stand Pocket parts high.
         float dg = grb_box(ql, lo2, hi2);
         float cp = pkt ? clamp(0.14 * min(sl.x, sl.y), 9.0, 26.0) : max(5.0, 0.3 * sl.y);
+        // A cable bundle from a header in every dark pocket ≥ 60 × 24 px (laid out here: the chips keep its lane clear).
+        // (Measured and placed in the straight box — the grown one reaches past the walls.)
+        vec4 cw4 = grb_rand4(pid, 152u);
+        vec2 sbl = horiz ? pb.xy : pb.yx, sbh = horiz ? pb.zw : pb.wz, sbs = sbh - sbl;
+        bool wOn = pkt && sbs.x >= 60.0 && sbs.y >= 24.0;
+#ifndef GRB_POCKET
+        wOn = false;
+#endif
+        float cy = 0.5 * (sbl.y + sbh.y);
+        bool atLo = cw4.y < 0.5;
+        float cl = max(4.0, 0.07 * sbs.x);
+        float x0 = atLo ? sbl.x + 0.12 * sbs.x : sbh.x - 0.12 * sbs.x - cl, x1 = x0 + cl;
+        float nw = 2.0 + floor(cw4.z * 2.999);
+        float wr = clamp(0.022 * sbs.y, 0.9, 3.0), wsp = max(3.0 * wr, 3.0);
+        float xs = atLo ? x1 : x0, xe = atLo ? sbh.x - 0.1 * sbs.x : sbl.x + 0.1 * sbs.x, dir = atLo ? 1.0 : -1.0;
+        float o = (cw4.w < 0.5 ? -1.0 : 1.0) * 0.2 * sbs.y;
+        float xj = mix(xs, xe, 0.3 + 0.3 * fract(cw4.w * 7.0));
+        // The bundle's lane, as its middle line and half width (plus the header).
+        float lane = 0.5 * nw * wsp + 2.0 * wr + 2.0;
         vec2 cc = floor((ql - lo2) / cp);
         // A board, not a lattice: one hero chip (3 × 2 or 2 × 2 cells) somewhere in a dark pocket; every other cell along
         // x may join its right neighbour into a long chip; the rest are chips, capacitors, headers or a pair of small
@@ -2411,6 +2433,13 @@ GenOut gen(vec2 p) {
           }
           if (cw > -1.0 - max(u_bevel, 1.0)) off = true;
         }
+        // (Chips in the cable lane or under the header are left out: the bundle lies on clear floor.)
+        if (wOn && !off) {
+          vec2 he = 0.5 * csz;
+          float dl = min(min(grb_seg(ccen, vec2(xs, cy), vec2(xj, cy)), grb_seg(ccen, vec2(xj, cy), vec2(xj + dir * abs(o), cy + o))),
+                         grb_seg(ccen, vec2(xj + dir * abs(o), cy + o), vec2(xe + dir * 2.0 * wr, cy + o)));
+          if (dl < lane + length(he) * 0.8 || grb_box(ccen, vec2(min(x0, x1), cy - lane), vec2(max(x0, x1), cy + lane)) < length(he)) off = true;
+        }
         if (off) { dc2 = 1e3; pin = 1e3; }
         // (In a dark pocket: none on its walls.)
         if (pkt) { dc2 = max(dc2, 2.0 + max(u_bevel, 1.0) - cA); pin = max(pin, 2.0 + max(u_bevel, 1.0) - cA); }
@@ -2429,39 +2458,35 @@ GenOut gen(vec2 p) {
         v = mix(v, flr + 0.4 * ph, grb_cov(pin) * (1.0 - grb_cov(dc2)));
         // In a dark pocket at least 60 px long: a connector block near one end with 2–4 wires fanning out along the
         // floor, each stepping aside at 45° somewhere along the way.
-        vec4 cw4 = grb_rand4(pid, 152u);
-        // (Measured and placed in the straight box — the grown one reaches past the walls — the connector a little in
-        // from the end, clear of a corner cut there.)
-        vec2 sbl = horiz ? pb.xy : pb.yx, sbh = horiz ? pb.zw : pb.wz, sbs = sbh - sbl;
 #ifdef GRB_POCKET
-        if (pkt && sbs.x >= 60.0 && sbs.y >= 24.0) {
-          float cy = 0.5 * (sbl.y + sbh.y);
-          bool atLo = cw4.y < 0.5;
-          float cl = max(4.0, 0.1 * sbs.x);
-          float x0 = atLo ? sbl.x + 0.12 * sbs.x : sbh.x - 0.12 * sbs.x - cl, x1 = x0 + cl;
-          float nw = 2.0 + floor(cw4.z * 2.999);
-          float wsp = max(3.0, 0.16 * sbs.y), wr = max(0.9, 0.035 * sbs.y);
-          float dCn = grb_rbox(ql, vec2(x0, cy - 0.5 * nw * wsp - 1.0), vec2(x1, cy + 0.5 * nw * wsp + 1.0), 1.0);
-          // The wires: out of the connector's face, along, then aside by o at 45°, then along to the far end.
-          float dW = 1e4;
-          float xs = atLo ? x1 : x0, xe = atLo ? sbh.x - 3.0 : sbl.x + 3.0, dir = atLo ? 1.0 : -1.0;
-          float o = (cw4.w < 0.5 ? -1.0 : 1.0) * 0.22 * sbs.y;
-          float xj = mix(xs, xe, 0.3 + 0.4 * fract(cw4.w * 7.0));
-          // (One flat loop over every wire's three segments: one segment distance in the shader.)
+        if (wOn) {
+          // The cable bundle: from the header's face, along, a 45° jog (each wire's corners shifted by 0.414 × its offset,
+          // so the spacing holds through the bend), along again, each wire ending a little short of the last (a staggered
+          // row of ends) where it dives into the floor through a raised grommet. One flat loop over all segments.
+          float dW = 1e4, dE = 1e4, aE = 1e4;
           for (int k = 0; k < 12 * GRB_1; k++) {
             float kw2 = floor(float(k) / 3.0), sk = float(k) - 3.0 * kw2;
             if (kw2 < nw) {
-              float y0 = cy + (kw2 - 0.5 * (nw - 1.0)) * wsp;
-              vec2 A = sk < 0.5 ? vec2(xs, y0) : sk < 1.5 ? vec2(xj, y0) : vec2(xj + dir * abs(o), y0 + o);
-              vec2 B2 = sk < 0.5 ? vec2(xj, y0) : sk < 1.5 ? vec2(xj + dir * abs(o), y0 + o) : vec2(xe, y0 + o);
+              float yo = (kw2 - 0.5 * (nw - 1.0)) * wsp, y0 = cy + yo;
+              float xjk = xj - dir * 0.41421356 * sign(o) * yo;
+              float xek = xe - dir * kw2 * 1.6 * wsp;
+              vec2 A = sk < 0.5 ? vec2(xs, y0) : sk < 1.5 ? vec2(xjk, y0) : vec2(xjk + dir * abs(o), y0 + o);
+              vec2 B2 = sk < 0.5 ? vec2(xjk, y0) : sk < 1.5 ? vec2(xjk + dir * abs(o), y0 + o) : vec2(xek, y0 + o);
               dW = min(dW, grb_seg(ql, A, B2) - wr);
+              if (sk > 1.5) { float e = length(ql - B2); if (e < dE) { dE = e; aE = dir * (B2.x - ql.x); } }
             }
           }
           dW = max(dW, 2.0 + max(u_bevel, 1.0) - cA);
+          // The header: a raised block, a dark gap round its foot, a socket per wire in its face.
+          float dCn = grb_rbox(ql, vec2(x0, cy - 0.5 * nw * wsp - 1.5), vec2(x1, cy + 0.5 * nw * wsp + 1.5), 1.0);
           dCn = max(dCn, 2.0 + max(u_bevel, 1.0) - cA);
-          // (Opaque, above the chips: a round wire covering whatever is under it.)
-          v = mix(v, flr + 1.0 * ph + 1.4 * ph * grb_dome(max(dW + wr, 0.0), wr), grb_cov(dW));
-          v = mix(v, flr + 2.6 * ph, smoothstep(0.0, 1.0, -dCn / 1.5));
+          v -= 0.4 * ph * grb_cov(abs(dCn - 1.0) - 0.8);
+          // Round cables, their noses dipping into the grommets (aE: along, from the end back up the wire).
+          float nose = smoothstep(-wr, wr, aE);
+          v = mix(v, flr + 0.8 * ph + 1.2 * ph * grb_dome(max(dW + wr, 0.0), wr) * mix(0.35, 1.0, nose), grb_cov(dW));
+          float gr = abs(dE - 1.6 * wr) - 0.55 * wr;   // the grommet ring round each end
+          v = max(v, mix(v, flr + 1.1 * ph * grb_dome(abs(dE - 1.6 * wr), 0.6 * wr), grb_cov(gr) * (1.0 - grb_cov(dW + 0.3))));
+          v = mix(v, flr + 2.6 * ph - 0.6 * ph * grb_cov(length(vec2(ql.x - (atLo ? x1 - 1.0 : x0 + 1.0), fract((ql.y - cy) / wsp + 0.5 * nw + 0.5) * wsp - 0.5 * wsp)) - 0.7 * wr), smoothstep(0.0, 1.0, -dCn / 1.5));
         }
 #endif
         dD = dg;
@@ -2520,8 +2545,12 @@ GenOut gen(vec2 p) {
     bool top2 = cell.kind != 3 && !p2;
     float ce = top2 ? min(bT - cell.ovt.x, cell.ovt.y - bT) : 1e4;
     float bl = max(4.0, 1.4 * u_tube_big), fe = max(2.0, 0.7 * u_tube_big);
-    // The fitting at each end: a round collar on each tube, 1.3 × its diameter, flat-topped like a short cylinder.
-    float atE = top2 ? 1.0 - smoothstep(bl - 1.0, bl, ce) : 0.0;
+    // How the run ends here (each end its own): diving into the panel below — the tubes' rounded noses going down
+    // through a raised grommet — or into the side of a module — a collar on each tube seated in a socket boss.
+    bool lowEnd = bT - cell.ovt.x < cell.ovt.y - bT;
+    bool dive = top2 && grb_rand(bId, lowEnd ? 131u : 132u) < 0.55;
+    float atE = top2 && !dive ? 1.0 - smoothstep(bl - 1.0, bl, ce) : 0.0;
+    float rcap = 0.0, grom = 0.0;   // a dive's nose centre (along, from the end); the grommet height
     float vl = v;   // the surface under the run
     // (Laid on top: on the top plate level, covering what is under them — the panels' detail doesn't print through.)
     float base = bBase;
@@ -2536,6 +2565,13 @@ GenOut gen(vec2 p) {
         // (Couplings: a ring a fifth wider on the thick tubes; collars a quarter wider.)
         float rr2 = r * (1.0 + (cs == 1 && dm >= u_tube_big ? 0.2 * atC : 0.0) + 0.3 * atE);
         float x = abs(bU - tc);
+        // (Diving: the tube ends in a hemispherical nose rcap from the end, a grommet ring round it.)
+        if (dive) {
+          rcap = 1.6 * r + 2.0;
+          float dEn = length(vec2(x, max(rcap - ce, 0.0)));
+          x = ce < rcap ? dEn : x;
+          grom = max(grom, grb_dome(abs(length(vec2(bU - tc, rcap - ce)) - 1.2 * r), 0.3 * r));
+        }
         // Its height in proportion to its radius (round cables, Pipe lift: a thick pipe level with the plates at 1).
         float rk = clamp(rr2 / max(0.5 * u_tube_big, 0.5), 0.15, 1.3) * u_tube_lift;
         float ht = top2 ? base + 2.0 * u_inset_depth * rk : bBase + (bTop - bBase) * 0.97 * rk * sink;
@@ -2557,8 +2593,17 @@ GenOut gen(vec2 p) {
     // Clamp bands: a strap just over the bundle, a hair above its tallest tube.
     float onB = 1.0 - smoothstep(0.0, 1.0, max(x0 - 0.5 - bU, bU - xe - 0.5));
     if (cs == 0) env = max(env, (mtop + 0.04 * (bTop - bBase)) * atC * onB * step(top2 ? bl + fe : -1.0, ce));
-    // The connector blocks: a rounded box a little wider than the bundle, standing as high as its tallest tube.
-    if (top2) {
+    // Into a module's side: a socket boss across the bundle's end, the collars seated in it.
+    if (top2 && !dive) {
+      float dB = max(max(x0 - 2.0 - bU, bU - xe - 2.0), ce - 0.45 * bl);
+      env = max(env, mix(0.0, mtop - 0.15 * u_inset_depth, smoothstep(0.0, 1.0, -dB / 1.5)));
+      cov2 = max(cov2, 1.0 - smoothstep(-0.5, 0.5, dB));
+      dTube = min(dTube, dB);
+    }
+    // Diving: the grommet rings, low on the plate.
+    if (dive) {
+      env = max(env, (base + 0.45 * u_inset_depth * grom) * step(0.01, grom));
+      cov2 = max(cov2, step(0.01, grom));
     }
     // Laid on top: the tubes replace the surface under them (and a dark contact groove lies between and beside them);
     // in a channel they stand on its floor.
