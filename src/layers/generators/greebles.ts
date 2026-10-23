@@ -2104,6 +2104,10 @@ GenOut gen(vec2 p) {
         if (dc4.x + dc4.y < grb_pick(kc, i) + 1.5 * km) rhi = rlo;
       }
       if (min(csz.x, csz.y) < 8.0) rhi = rlo;
+      // (Nor where a side's jogs could reach it: the free area caps their wander at a quarter of the panel, a part must
+      // clear all of it.)
+      vec2 ulo = ilo0 + cell.jm4.xz + 2.0, uhi = ihi0 - cell.jm4.yw - 2.0;
+      if (any(lessThan(rlo, ulo)) || any(greaterThan(rhi, uhi))) rhi = rlo;
     }
     // Paired: split along the longer side, a gap between, the pixel's part decides.
     bool lx = asz.x >= asz.y;
@@ -2366,19 +2370,22 @@ GenOut gen(vec2 p) {
         } else {
           // A toggle: a round washer, a hex nut, a lever thrown up or down rising to a ball tip (it leans out of the plate),
           // on some banks a U-guard round each lever.
-          float wash = length(lp) - 0.22 * u0;
+          float wash = length(lp) - 0.2 * u0;
           float nut = grb_hexagon(lp, 0.13 * u0);
-          float lr = max(0.09 * u0, 1.0);
-          vec2 tipc = vec2(0.0, 0.4 * u0 * sg2);
-          float tl = clamp(lp.y * sg2 / (0.4 * u0), 0.0, 1.0);
+          float lr = max(0.11 * u0, 1.2);
+          vec2 tipc = vec2(0.0, 0.44 * u0 * sg2);
+          float tl = clamp(lp.y * sg2 / (0.44 * u0), 0.0, 1.0);
           float lev = min(sdSegment(lp, vec2(0.0), tipc) - lr, length(lp - tipc) - 1.5 * lr);
           float gw = max(0.06 * u0, 0.8), gy = 0.47 * u0;
+          // (A pilot lamp on the pad behind the lever, on banks without a guard.)
+          float lmp = length(lp + vec2(0.0, 0.36 * u0 * sg2)) - max(0.08 * u0, 1.0);
           float grd = pb2.z < 0.5 ? max(min(abs(abs(lp.x) - 0.3 * u0) - gw, abs(lp.y * sg2 - gy) - gw), max(abs(lp.x) - 0.3 * u0 - gw, abs(lp.y * sg2 - 0.5 * gy) - 0.5 * gy - gw)) : 1e4;
           dD = min(min(wash, lev), grd);
           // (In a dark well round the nut, as the panel's toggles are: the lever reads light against it.)
           v = mix(v, vh - 0.9 * hd, grb_cov(wash));
           v = mix(v, vh + 0.3 * hd, smoothstep(0.0, 1.0, -nut / max(0.06 * u0, 0.6)));
           v = max(v, mix(v, vh + 0.6 * hd, grb_cov(grd)));
+          if (pb2.z >= 0.5) { v = mix(v, vh - 0.3 * hd, grb_cov(lmp - 1.0)); v = mix(v, vh + 0.35 * hd * grb_dome(max(lmp + max(0.08 * u0, 1.0), 0.0), max(0.08 * u0, 1.0)), grb_cov(lmp)); dD = min(dD, lmp); }
           v = mix(v, vh + hd * (0.55 + 0.55 * tl + 0.25 * grb_dome(max(lev + 1.5 * lr, 0.0), 1.5 * lr)), grb_cov(lev));
         }
       } else if (kind == 8) {
