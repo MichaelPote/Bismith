@@ -1,11 +1,9 @@
 import type * as THREE from 'three';
 import type { ParamDef, GroupDef } from '@/core/params';
-import type { PostFilter, Project } from '@/core/project';
-import type { Gpu, Uniforms } from '@/gpu/context';
+import type { PostFilter } from '@/core/project';
+import type { Uniforms } from '@/gpu/context';
 
 export interface PostContext {
-	gpu: Gpu;
-	project: Project;
 	filter: PostFilter;
 	width: number;
 	height: number;
@@ -17,8 +15,8 @@ export interface PostContext {
 	material(key: string, body: string, extraUniforms?: Uniforms): THREE.RawShaderMaterial;
 	/** Run a pass. Sets uRes (to the target size) and uTile; `input` is bound to tInput when given. */
 	run(mat: THREE.RawShaderMaterial, target: THREE.WebGLRenderTarget, input?: THREE.Texture | null): void;
-	/** A float RGBA scratch target, cached by name and size. Linear filtering when `linear`. */
-	scratch(name: string, width?: number, height?: number, linear?: boolean): THREE.WebGLRenderTarget;
+	/** A float RGBA scratch target (nearest filtering), cached by name and size. */
+	scratch(name: string, width?: number, height?: number): THREE.WebGLRenderTarget;
 }
 
 export interface PostDef {

@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import type { Project } from '@/core/project';
-import { Gpu, PingPong, type Uniforms } from '@/gpu/context';
+import { Gpu, PingPong, ScratchPool, type Uniforms } from '@/gpu/context';
 import { createUniforms, declareUniforms, updateUniforms } from '@/gpu/uniforms';
 import { GLSL_COMMON } from '@/layers/glsl/common';
 import { getPostDef } from './registry';
@@ -12,8 +12,7 @@ export class PostStack {
 	private gpu: Gpu;
 	private pp: PingPong | null = null;
 	private materials = new Map<string, THREE.RawShaderMaterial>();
-	private scratchTargets = new Map<string, THREE.WebGLRenderTarget>();
-	private copyMat: THREE.RawShaderMaterial;
+	private scratch: ScratchPool;
 	private width = 0;
 	private height = 0;
 	output: THREE.Texture | null = null;
@@ -21,18 +20,13 @@ export class PostStack {
 
 	constructor(gpu: Gpu) {
 		this.gpu = gpu;
-		this.copyMat = gpu.material(
-			GLSL_COMMON +
-				`uniform sampler2D tInput; out vec4 oColor; void main() { oColor = texelFetch(tInput, ivec2(gl_FragCoord.xy), 0); }`,
-			{ uRes: { value: new THREE.Vector2() }, uTile: { value: true }, tInput: { value: null } }
-		);
+		this.scratch = new ScratchPool(gpu);
 	}
 
 	private ensure(w: number, h: number): void {
 		if (this.pp && this.width === w && this.height === h) return;
 		this.pp?.dispose();
-		for (const t of this.scratchTargets.values()) t.dispose();
-		this.scratchTargets.clear();
+		this.scratch.clear();
 		this.pp = new PingPong(this.gpu, w, h);
 		this.width = w;
 		this.height = h;
@@ -44,27 +38,22 @@ export class PostStack {
 		const pp = this.pp!;
 		this.errors.clear();
 		// Start from a copy so filters never write into the tracer's accumulation buffer.
-		this.copyMat.uniforms.tInput.value = input;
-		this.gpu.run(this.copyMat, pp.write);
+		this.gpu.copy(input, pp.write);
 		pp.swap();
 
 		for (const filter of project.post) {
 			if (!filter.enabled) continue;
 			const def = getPostDef(filter.type);
 			if (!def) continue;
-			// oxlint-disable-next-line no-this-alias -- the context object reads pipeline state
-			const self = this;
 			const ctx: PostContext = {
-				gpu: this.gpu,
-				project,
 				filter,
 				width: this.width,
 				height: this.height,
-				material(key, body, extra?: Uniforms) {
+				material: (key, body, extra?: Uniforms) => {
 					const k = `${def.type}:${key}`;
-					let mat = self.materials.get(k);
+					let mat = this.materials.get(k);
 					if (!mat) {
-						mat = self.gpu.material(
+						mat = this.gpu.material(
 							GLSL_COMMON + declareUniforms(def.params) + 'uniform sampler2D tInput;\nout vec4 oColor;\n' + body,
 							{
 								uRes: { value: new THREE.Vector2() },
@@ -74,29 +63,20 @@ export class PostStack {
 								...(extra ?? {})
 							}
 						);
-						self.materials.set(k, mat);
+						this.materials.set(k, mat);
 					}
 					updateUniforms(mat.uniforms, def.params, filter.params);
 					return mat;
 				},
-				run(mat, target, inputTex) {
+				run: (mat, target, inputTex) => {
 					const u = mat.uniforms;
 					if (u.uRes) (u.uRes.value as THREE.Vector2).set(target.width, target.height);
 					if (u.uTile) u.uTile.value = project.tileable;
 					if (inputTex !== undefined && u.tInput) u.tInput.value = inputTex;
-					self.gpu.run(mat, target);
+					this.gpu.run(mat, target);
 				},
-				scratch(name, w, h, linear) {
-					const width = w ?? self.width;
-					const height = h ?? self.height;
-					const k = `${def.type}:${name}:${width}x${height}:${linear ? 'l' : 'n'}`;
-					let t = self.scratchTargets.get(k);
-					if (!t) {
-						t = self.gpu.target(width, height, { linear });
-						self.scratchTargets.set(k, t);
-					}
-					return t;
-				}
+				// Per filter instance, so two filters of one type with different sizes don't reallocate each other's.
+				scratch: (name, w = this.width, h = this.height) => this.scratch.get(`${filter.id}:${name}`, w, h)
 			};
 			try {
 				if (def.run) {
@@ -125,7 +105,6 @@ export class PostStack {
 	dispose(): void {
 		this.pp?.dispose();
 		for (const m of this.materials.values()) m.dispose();
-		for (const t of this.scratchTargets.values()) t.dispose();
-		this.copyMat.dispose();
+		this.scratch.clear();
 	}
 }

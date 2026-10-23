@@ -3,6 +3,8 @@
 
 import * as THREE from 'three';
 import type { Gpu } from '@/gpu/context';
+import { GLSL_COMMON } from '@/layers/glsl/common';
+import { MASK_EMPTY } from './materialPipeline';
 
 export type ChannelView =
 	| 'final'
@@ -29,6 +31,7 @@ export const CHANNEL_VIEWS: { id: ChannelView; label: string; key: string }[] = 
 	{ id: 'masks', label: 'Masks', key: '0' }
 ];
 
+/** The shader's mode per channel (MODE_<CHANNEL> in it). */
 const MODE: Record<ChannelView, number> = {
 	final: 0,
 	diffuse: 1,
@@ -56,7 +59,15 @@ export interface DisplayOptions {
 	checker: boolean;
 }
 
+/** The viewport round the texture (display sRGB). */
+export const VOID_COLOR: readonly [number, number, number] = [0.09, 0.098, 0.11];
+
+const glFloat = (x: number) => (Number.isInteger(x) ? x.toFixed(1) : String(x));
+
 const FRAG = /* glsl */ `
+${Object.entries(MODE)
+	.map(([k, v]) => `#define MODE_${k.toUpperCase()} ${v}`)
+	.join('\n')}
 uniform sampler2D tImage;
 uniform int uMode;
 uniform vec2 uTex;
@@ -70,7 +81,7 @@ uniform vec2 uHRange;
 uniform float uSS;      // texels of tImage per texture pixel (supersampled material maps)
 out vec4 oColor;
 
-vec3 voidColor = vec3(0.090, 0.098, 0.110);
+const vec3 voidColor = vec3(${VOID_COLOR.map(glFloat).join(', ')});
 
 void main() {
   vec2 fc = vec2(gl_FragCoord.x, uCanvas.y - gl_FragCoord.y);      // canvas px, y down
@@ -85,17 +96,17 @@ void main() {
   vec3 col;
   float alpha = 1.0;
   bool encode = true;
-  if (uMode == 0 || uMode == 1) { col = max(v.rgb, 0.0); alpha = clamp(v.a, 0.0, 1.0); }
-  else if (uMode == 2) { float span = max(uHRange.y - uHRange.x, 1e-5); col = vec3((v.w - uHRange.x) / span); encode = false; }
-  else if (uMode == 3) { col = vec3(v.g); encode = false; }
-  else if (uMode == 4) { col = v.xyz * 0.5 + 0.5; encode = false; }
-  else if (uMode == 5) { col = v.rgb / (1.0 + luma(v.rgb)); }
-  else if (uMode == 6 || uMode == 8) { col = vec3(v.a); encode = false; }
-  else if (uMode == 9) { col = vec3(v.r); encode = false; }
+  if (uMode == MODE_FINAL || uMode == MODE_DIFFUSE) { col = max(v.rgb, 0.0); alpha = clamp(v.a, 0.0, 1.0); }
+  else if (uMode == MODE_HEIGHT) { float span = max(uHRange.y - uHRange.x, 1e-5); col = vec3((v.w - uHRange.x) / span); encode = false; }
+  else if (uMode == MODE_ROUGHNESS) { col = vec3(v.g); encode = false; }
+  else if (uMode == MODE_NORMAL) { col = v.xyz * 0.5 + 0.5; encode = false; }
+  else if (uMode == MODE_EMISSIVE) { col = v.rgb / (1.0 + luma(v.rgb)); }
+  else if (uMode == MODE_OPACITY || uMode == MODE_SPECULAR) { col = vec3(v.a); encode = false; }
+  else if (uMode == MODE_AO) { col = vec3(v.r); encode = false; }
   else {
     // A mask (FR8.23): distance bands, inside orange — or, where there are features, each its own hue (by its random).
     float d = v.x;
-    if (d > 5000.0) col = vec3(0.12);
+    if (d > ${glFloat(MASK_EMPTY * 0.5)}) col = vec3(0.12);
     else {
       vec3 hue = clamp(abs(mod(v.y * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
       vec3 inside = v.z > 0.5 ? mix(vec3(0.96, 0.43, 0.06), hue, 0.55) : vec3(0.96, 0.43, 0.06), outside = vec3(0.49, 0.66, 0.69);
@@ -125,9 +136,9 @@ export class Display {
 	private gpu: Gpu;
 	private mat: THREE.RawShaderMaterial;
 
-	constructor(gpu: Gpu, common: string) {
+	constructor(gpu: Gpu) {
 		this.gpu = gpu;
-		this.mat = gpu.material(common + FRAG, {
+		this.mat = gpu.material(GLSL_COMMON + FRAG, {
 			uRes: { value: new THREE.Vector2() },
 			uTile: { value: false },
 			tImage: { value: null },

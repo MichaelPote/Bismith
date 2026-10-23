@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { hiddenByMaterial, type Layer, type Project } from '@/core/project';
 import { hexToLinear } from '@/core/color';
-import { Gpu, PingPong, type Uniforms } from '@/gpu/context';
+import { Gpu, PingPong, ScratchPool, type Uniforms } from '@/gpu/context';
 import { createUniforms, declareUniforms, mixSeed, updateUniforms } from '@/gpu/uniforms';
 import { GLSL_COMMON } from '@/layers/glsl/common';
 import { GLSL_NOISE } from '@/layers/glsl/noise';
@@ -35,11 +35,19 @@ uniform float uDepth;
 `;
 
 /** Reading the current layer's masks (after GLSL_COMMON: fetchT wraps on tileable projects). */
+/** An empty mask's distance: outside everywhere, far from any edge. */
+export const MASK_EMPTY = 1e4;
+
 const GLSL_MASKS = /* glsl */ `
 float maskIn(ivec2 c) { return fetchT(tMaskIn, c).x; }
-float maskSrc(ivec2 c) { return fetchT(tMaskSrc, c).x; }
+// The feature random and flag the mask before the layer records at a texel (FR8.23).
+vec2 maskInFeat(ivec2 c) { return fetchT(tMaskIn, c).yz; }
+// Whether a mask distance is an empty mask's (nothing written yet: outside everywhere).
+bool maskEmpty(float d) { return d > ${(MASK_EMPTY * 0.5).toFixed(1)}; }
+// The layer's limit as a signed distance at a texel (< 0 inside; 0 = no limit).
+float limitDist(ivec2 c) { return uLimit * texelFetch(tLimit, c, 0).x; }
 // How much the layer's limit lets through at a texel (1 = no limit).
-float limitAt(ivec2 c) { return uLimit == 0.0 ? 1.0 : clamp(0.5 - uLimit * texelFetch(tLimit, c, 0).x, 0.0, 1.0); }
+float limitAt(ivec2 c) { return uLimit == 0.0 ? 1.0 : clamp(0.5 - limitDist(c), 0.0, 1.0); }
 `;
 
 // The fourth attachment carries the mask a generator writes (its target's new version), copied into a slot after the
@@ -74,6 +82,9 @@ const float NO_SDF = -9e4;
 // colour, and feat zeroed where a generator varies heights itself; −1 for patterns without features.
 struct GenOut { float value; float mask; float rnd; float sdf; float feat; float height; int own; float hval; float bdist; float fid; };
 GenOut genOut(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 0, -1.0, NO_SDF, rnd); }
+// Height › Per-feature variation's draw for a feature random: the height is scaled by 1 − variation × featVar(rnd).
+// Generators that vary heights themselves (and zero feat) use it too, so they match the wrapper.
+float featVar(float rnd) { return fract(rnd * 61.37 + 0.123); }
 // Patterns without features (smooth noise, clouds): rnd is a continuous value there, so per-feature variation has
 // nothing to vary — fract(rnd · k) would turn it into terraces along the pattern's contours.
 GenOut genOutSmooth(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 0.0, NO_SDF, 0, -1.0, NO_SDF, -1.0); }
@@ -98,11 +109,14 @@ int maskOp() { return uMaskKind == 1 ? u_mk_op + 1 : 0; }
 /** Everything a GLSL snippet in the material stage can rely on. */
 export const MATERIAL_PRELUDE = STATE_DECLS + GLSL_COMMON + GLSL_MASKS + GLSL_NOISE + GLSL_SDF;
 
-/** An empty mask's distance: outside everywhere, far from any edge. */
-export const MASK_EMPTY = 1e4;
-
 /** Masks a combined limit reads at most: a layer's own four terms and its material's four. */
 const MAX_LIMIT_INPUTS = 8;
+
+/** uMaskKind for a mask write: 0 nothing, 1 its shape (a distance), 2 its coverage. */
+const maskKind = (w: { kind: string } | null | undefined) => (w ? (w.kind === 'shape' ? 1 : 2) : 0);
+
+/** The prelude of layer-independent filter passes (FilterContext.sharedMaterial): no noise, no layer params. */
+const SHARED_PRELUDE = STATE_DECLS + GLSL_COMMON + GLSL_MASKS + GLSL_SDF;
 
 export interface FilterContext {
 	gpu: Gpu;
@@ -128,11 +142,16 @@ export interface FilterContext {
 	mrtMaterial(key: string, body: string, extraUniforms?: Uniforms): THREE.RawShaderMaterial;
 	/** A single-output material (`out vec4 oColor`). Same prelude and param uniforms. Cached by key. */
 	material(key: string, body: string, extraUniforms?: Uniforms): THREE.RawShaderMaterial;
+	/**
+	 * A single-output material for a pass that doesn't depend on the layer (no u_<param> uniforms, noise or bevel
+	 * curves; the state, common and mask helpers and SDFs only): one program for the whole app, cached by key alone.
+	 */
+	sharedMaterial(key: string, body: string, extraUniforms?: Uniforms): THREE.RawShaderMaterial;
 	/** Run an MRT pass into the back state buffer and swap: state textures then point at the result. */
 	runMRT(mat: THREE.RawShaderMaterial): void;
 	/** Run a single-output pass into a target. Common uniforms are refreshed automatically. */
 	run(mat: THREE.RawShaderMaterial, target: THREE.WebGLRenderTarget): void;
-	/** A float RGBA scratch target (texture size unless given), cached by name. */
+	/** A float RGBA scratch target (texture size unless given), cached by name (remade when its size changes). */
 	scratch(name: string, width?: number, height?: number): THREE.WebGLRenderTarget;
 }
 
@@ -176,7 +195,9 @@ function keyDefines(key: string): string {
 export class MaterialPipeline {
 	private gpu: Gpu;
 	private state: PingPong | null = null;
-	normal: THREE.WebGLRenderTarget | null = null;
+	private normal: THREE.WebGLRenderTarget | null = null;
+	/** Evaluations run so far: what's derived from the result (the tracer's AO) can tell when it changed. */
+	evaluations = 0;
 	private width = 0;
 	private height = 0;
 	private materials = new Map<string, THREE.RawShaderMaterial>();
@@ -193,7 +214,10 @@ export class MaterialPipeline {
 	private pendingVariants = new Set<string>();
 	/** A comment in generator shaders (measuring cold compiles: a new salt defeats the browser's and driver's caches). */
 	private salt = '';
-	private scratchTargets = new Map<string, THREE.WebGLRenderTarget>();
+	/** Scratch targets: filters' by their names, the pipeline's own prefixed `~`. */
+	private scratchPool: ScratchPool;
+	/** Filter materials whose param uniforms are up to date: the evaluation and layer they were last set for. */
+	private updatedFor = new Map<THREE.RawShaderMaterial, string>();
 	/** Mask slot textures (FR8.23), as many as the last plan needed; `emptyMask` holds MASK_EMPTY everywhere. */
 	private slots: THREE.WebGLRenderTarget[] = [];
 	private emptyMask: THREE.WebGLRenderTarget | null = null;
@@ -212,7 +236,6 @@ export class MaterialPipeline {
 		limit: null,
 		limitSign: 0
 	};
-	private copyTexMat: THREE.RawShaderMaterial | null = null;
 	private fillMat: THREE.RawShaderMaterial | null = null;
 	private limitMat: THREE.RawShaderMaterial | null = null;
 	private clearMat: THREE.RawShaderMaterial;
@@ -226,9 +249,9 @@ export class MaterialPipeline {
 
 	constructor(gpu: Gpu) {
 		this.gpu = gpu;
+		this.scratchPool = new ScratchPool(gpu);
 		this.clearMat = gpu.material(
-			GLSL_COMMON +
-				MRT_OUTS +
+			MRT_OUTS +
 				/* glsl */ `
       uniform vec4 uBaseAlbedo;
       uniform vec4 uBaseSurface;
@@ -240,8 +263,6 @@ export class MaterialPipeline {
         oMask = vec4(0.0);
       }`,
 			{
-				uRes: { value: new THREE.Vector2() },
-				uTile: { value: true },
 				uBaseAlbedo: { value: new THREE.Vector4() },
 				uBaseSurface: { value: new THREE.Vector4() },
 				uBaseSpecular: { value: 0.5 }
@@ -335,14 +356,12 @@ export class MaterialPipeline {
 		if (this.state && this.width === w && this.height === h) return;
 		this.state?.dispose();
 		this.normal?.dispose();
-		for (const t of this.scratchTargets.values()) t.dispose();
-		this.scratchTargets.clear();
-		for (const t of this.slots) t.dispose();
-		this.slots = [];
-		this.emptyMask?.dispose();
-		this.emptyMask = null;
+		this.scratchPool.clear();
+		this.disposeMasks();
 		this.state = new PingPong(this.gpu, w, h, { count: 4 });
-		this.normal = this.gpu.target(w, h);
+		// Linear and repeating: the tracer samples heights between texels along its rays, across the seam on tileable
+		// projects (clamping in the shader otherwise). Three applies a target's sampler state only at creation.
+		this.normal = this.gpu.target(w, h, { linear: true, wrap: THREE.RepeatWrapping });
 		this.width = w;
 		this.height = h;
 	}
@@ -366,6 +385,13 @@ export class MaterialPipeline {
 
 	// ---------------------------------------------------------------------------------------------- masks (FR8.23)
 
+	private disposeMasks(): void {
+		for (const t of this.slots) t.dispose();
+		this.slots = [];
+		this.emptyMask?.dispose();
+		this.emptyMask = null;
+	}
+
 	/** Slot targets for `n` slots, and the empty mask (filled once per size). */
 	private ensureMaskTargets(n: number): void {
 		while (this.slots.length < n) this.slots.push(this.gpu.target(this.width, this.height));
@@ -384,20 +410,6 @@ export class MaterialPipeline {
 	/** The texture holding a mask version (the empty mask before anything wrote it). */
 	private refTexture(r: MaskRef): THREE.Texture {
 		return r.slot >= 0 ? this.slots[r.slot].texture : this.emptyMask!.texture;
-	}
-
-	/** Copy a texture into a target (a written mask version into its slot). */
-	private copyInto(src: THREE.Texture, target: THREE.WebGLRenderTarget): void {
-		if (!this.copyTexMat) {
-			this.copyTexMat = this.gpu.material(
-				'uniform sampler2D tSrc;\nout vec4 oColor;\nvoid main() { oColor = texelFetch(tSrc, ivec2(gl_FragCoord.xy), 0); }\n',
-				{
-					tSrc: { value: null }
-				}
-			);
-		}
-		this.copyTexMat.uniforms.tSrc.value = src;
-		this.gpu.run(this.copyTexMat, target);
 	}
 
 	/**
@@ -471,21 +483,15 @@ ${fetches}
 			(u.uGroups.value as Int32Array)[i] = t?.group ?? 0;
 		}
 		u.uCount.value = n;
-		const target = this.scratch('limit');
+		const target = this.scratch('~limit');
 		this.gpu.run(this.limitMat, target);
 		this.cur.limit = target.texture;
 		this.cur.limitSign = 1;
 	}
 
-	/** A float RGBA scratch target of the texture size, cached by name. */
-	private scratch(name: string): THREE.WebGLRenderTarget {
-		const k = `${name}:${this.width}x${this.height}`;
-		let t = this.scratchTargets.get(k);
-		if (!t) {
-			t = this.gpu.target(this.width, this.height);
-			this.scratchTargets.set(k, t);
-		}
-		return t;
+	/** A float RGBA scratch target (texture size unless given), cached by name. */
+	private scratch(name: string, width = this.width, height = this.height): THREE.WebGLRenderTarget {
+		return this.scratchPool.get(name, width, height);
 	}
 
 	private blank: THREE.DataTexture | null = null;
@@ -575,11 +581,33 @@ ${fetches}
 	private compileVariant(def: LayerDef, key: string): void {
 		if (this.pendingVariants.has(key)) return;
 		this.pendingVariants.add(key);
-		void this.gpu.compile([this.generatorMaterial(def, key)]).then(() => {
-			this.pendingVariants.delete(key);
-			this.compiled.add(key);
-			this.onVariantReady?.();
-		});
+		this.gpu
+			.compile([this.generatorMaterial(def, key)])
+			.then(() => {
+				this.pendingVariants.delete(key);
+				this.compiled.add(key);
+				this.onVariantReady?.();
+			})
+			// Retried on the variant's next use.
+			.catch(() => this.pendingVariants.delete(key));
+	}
+
+	/**
+	 * A layer-stage material: the prelude, `outs`, the layer type's u_<param> uniforms (and bevel curves), then `body`;
+	 * `head` goes before it all (variant #defines).
+	 */
+	private stageMaterial(
+		type: string,
+		outs: string,
+		body: string,
+		extra: Uniforms = {},
+		head = ''
+	): THREE.RawShaderMaterial {
+		const defs = layerParamDefs(type);
+		return this.gpu.material(
+			head + bevelCurveDefine(defs) + MATERIAL_PRELUDE + outs + declareUniforms(defs) + bevelCurveImpl(defs) + body,
+			{ ...this.commonUniforms(), ...createUniforms(defs), ...extra }
+		);
 	}
 
 	/** shader: the shaderKey of the variant (default: the plain shader). */
@@ -587,27 +615,20 @@ ${fetches}
 		const key = `gen:${shader}${this.salt}`;
 		let mat = this.materials.get(key);
 		if (!mat) {
-			const defs = layerParamDefs(def.type);
-			const frag =
-				(this.salt ? `// salt ${this.salt}\n` : '') +
-				keyDefines(shader) +
-				bevelCurveDefine(defs) +
-				MATERIAL_PRELUDE +
-				MRT_OUTS +
-				declareUniforms(defs) +
-				bevelCurveImpl(defs) +
+			const body =
 				GENOUT +
 				(def.sdf ? GLSL_BEVEL : '') +
 				(def.textures ?? []).map((t) => `uniform sampler2D t_${t};\n`).join('') +
 				(def.glsl ?? '') +
 				GLSL_GENERATOR_MAIN(def.sdf === 'mask' ? 'mask' : Boolean(def.sdf));
 			const tex = Object.fromEntries((def.textures ?? []).map((t) => [`t_${t}`, { value: this.blankTexture() }]));
-			mat = this.gpu.material(frag, {
-				...this.commonUniforms(),
-				...createUniforms(defs),
-				...tex,
-				uMaskKind: { value: 0 }
-			});
+			mat = this.stageMaterial(
+				def.type,
+				MRT_OUTS,
+				body,
+				{ ...tex, uMaskKind: { value: 0 } },
+				(this.salt ? `// salt ${this.salt}\n` : '') + keyDefines(shader)
+			);
 			this.materials.set(key, mat);
 		}
 		return mat;
@@ -616,23 +637,19 @@ ${fetches}
 	private filterContext(project: Project, layer: Layer, seed: number): FilterContext {
 		// oxlint-disable-next-line no-this-alias -- getters on the context object need the pipeline
 		const self = this;
-		const defs = layerParamDefs(layer.type);
 		const build = (key: string, body: string, outs: string, extra?: Uniforms) => {
 			const k = `flt:${layer.type}:${key}`;
 			let mat = self.materials.get(k);
 			if (!mat) {
-				const full = outs === MRT_OUTS ? withMaskOut(body) : body;
-				mat = self.gpu.material(
-					bevelCurveDefine(defs) + MATERIAL_PRELUDE + outs + declareUniforms(defs) + bevelCurveImpl(defs) + full,
-					{
-						...self.commonUniforms(),
-						...createUniforms(defs),
-						...(extra ?? {})
-					}
-				);
+				mat = self.stageMaterial(layer.type, outs, outs === MRT_OUTS ? withMaskOut(body) : body, extra);
 				self.materials.set(k, mat);
 			}
-			updateUniforms(mat.uniforms, defs, layer.params);
+			// Once per layer and evaluation: text params re-pack, curves recompute their tangents.
+			const stamp = `${self.evaluations}:${layer.id}`;
+			if (self.updatedFor.get(mat) !== stamp) {
+				updateUniforms(mat.uniforms, layerParamDefs(layer.type), layer.params);
+				self.updatedFor.set(mat, stamp);
+			}
 			return mat;
 		};
 		return {
@@ -657,6 +674,18 @@ ${fetches}
 			seed,
 			mrtMaterial: (key, body, extra) => build(key, body, MRT_OUTS, extra),
 			material: (key, body, extra) => build(key, body, 'out vec4 oColor;\n', extra),
+			sharedMaterial(key, body, extra) {
+				const k = `shared:${key}`;
+				let mat = self.materials.get(k);
+				if (!mat) {
+					mat = self.gpu.material(SHARED_PRELUDE + 'out vec4 oColor;\n' + body, {
+						...self.commonUniforms(),
+						...extra
+					});
+					self.materials.set(k, mat);
+				}
+				return mat;
+			},
 			runMRT(mat) {
 				self.setCommon(mat, project, seed);
 				self.gpu.run(mat, self.state!.write);
@@ -666,17 +695,7 @@ ${fetches}
 				self.setCommon(mat, project, seed);
 				self.gpu.run(mat, target);
 			},
-			scratch(name, w, h) {
-				const width = w ?? self.width;
-				const height = h ?? self.height;
-				const k = `${name}:${width}x${height}`;
-				let t = self.scratchTargets.get(k);
-				if (!t) {
-					t = self.gpu.target(width, height);
-					self.scratchTargets.set(k, t);
-				}
-				return t;
-			}
+			scratch: (name, w, h) => self.scratch(name, w, h)
 		};
 	}
 
@@ -687,12 +706,19 @@ ${fetches}
 		this.resize(project.width, project.height);
 		const state = this.state!;
 		this.errors.clear();
+		this.evaluations++;
+		// CPU data of layers no longer in the stack.
+		const ids = new Set(project.layers.map((l) => l.id));
+		for (const [id, hit] of this.cpuCache) {
+			if (ids.has(id)) continue;
+			for (const t of Object.values(hit.tex)) t.dispose();
+			this.cpuCache.delete(id);
+		}
 
 		// Clear to the base material.
 		const base = project.base;
 		const lin = hexToLinear(base.color);
 		const cu = this.clearMat.uniforms;
-		(cu.uRes.value as THREE.Vector2).set(this.width, this.height);
 		(cu.uBaseAlbedo.value as THREE.Vector4).set(lin[0], lin[1], lin[2], base.opacity);
 		(cu.uBaseSurface.value as THREE.Vector4).set(base.height, base.roughness, 0, 0);
 		cu.uBaseSpecular.value = base.specular;
@@ -731,20 +757,20 @@ ${fetches}
 						updateUniforms(mat.uniforms, layerParamDefs(def.type), e.params);
 						this.cur.input = this.refTexture(e.input);
 						this.setCommon(mat, project, seed);
-						mat.uniforms.uMaskKind.value = e.write.kind === 'shape' ? 1 : 2;
+						mat.uniforms.uMaskKind.value = maskKind(e.write);
 						this.gpu.run(mat, state.write);
-						if (e.write.slot >= 0) this.copyInto(state.write.textures[3], this.slots[e.write.slot]);
+						if (e.write.slot >= 0) this.gpu.copy(state.write.textures[3], this.slots[e.write.slot]);
 					}
 					if (masks?.extra.length) this.cur.input = masks.input ? this.refTexture(masks.input) : null;
 					updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params);
 					this.setCommon(mat, project, seed);
 					const w = masks?.write;
-					mat.uniforms.uMaskKind.value = w ? (w.kind === 'shape' ? 1 : 2) : 0;
+					mat.uniforms.uMaskKind.value = maskKind(w);
 					this.gpu.run(mat, state.write);
 					this.compiled.add(key);
 					state.swap();
 					// The new version of its mask, kept while a later layer reads it.
-					if (w && w.slot >= 0) this.copyInto(state.read.textures[3], this.slots[w.slot]);
+					if (w && w.slot >= 0) this.gpu.copy(state.read.textures[3], this.slots[w.slot]);
 				} else if (def.run) {
 					// Multi-pass filters: limited, they run on the whole state and are blended back by the limit after.
 					const limited = Boolean(masks?.limit);
@@ -794,7 +820,8 @@ ${fetches}
 			this.snapshotTarget.height !== this.height
 		) {
 			this.snapshotTarget?.dispose();
-			this.snapshotTarget = this.gpu.target(this.width, this.height, { count: 4 });
+			// The three state attachments (blendLimited reads them); the pass's mask output goes nowhere.
+			this.snapshotTarget = this.gpu.target(this.width, this.height, { count: 3 });
 		}
 		if (!this.copyMat) {
 			this.copyMat = this.gpu.material(
@@ -849,12 +876,7 @@ ${fetches}
 		while (first || w > 8 || h > 8) {
 			const nw = Math.max(1, Math.ceil(w / 8));
 			const nh = Math.max(1, Math.ceil(h / 8));
-			const key = `reduce${level}:${nw}x${nh}`;
-			let t = this.scratchTargets.get(key);
-			if (!t) {
-				t = this.gpu.target(nw, nh);
-				this.scratchTargets.set(key, t);
-			}
+			const t = this.scratch(`~reduce${level}`, nw, nh);
 			const u = this.reduceMat.uniforms;
 			u.tSrc.value = src;
 			(u.uSrcSize.value as THREE.Vector2).set(w, h);
@@ -875,11 +897,6 @@ ${fetches}
 		}
 		if (!Number.isFinite(min) || !Number.isFinite(max)) min = max = 0;
 		this.heightStats = { min, max };
-	}
-
-	/** Read one attachment of the current state as RGBA float (GL row order). */
-	readState(index: 0 | 1 | 2 | 3): Float32Array {
-		return this.gpu.readTexture(this.state!.read.textures[index], this.width, this.height);
 	}
 
 	/** Read the material at one texel (x, y in user space: y down). */
@@ -905,19 +922,22 @@ ${fetches}
 		return buf;
 	}
 
-	readNormal(): Float32Array {
-		return this.gpu.readTexture(this.normal!.texture, this.width, this.height);
-	}
-
 	dispose(): void {
 		this.state?.dispose();
 		this.normal?.dispose();
 		for (const m of this.materials.values()) m.dispose();
-		for (const t of this.scratchTargets.values()) t.dispose();
+		this.updatedFor.clear();
+		this.scratchPool.clear();
+		this.disposeMasks();
 		this.clearMat.dispose();
 		this.normalMat.dispose();
 		this.reduceMat.dispose();
 		this.copyMat?.dispose();
+		this.fillMat?.dispose();
+		this.limitMat?.dispose();
 		this.snapshotTarget?.dispose();
+		this.blank?.dispose();
+		for (const hit of this.cpuCache.values()) for (const t of Object.values(hit.tex)) t.dispose();
+		this.cpuCache.clear();
 	}
 }

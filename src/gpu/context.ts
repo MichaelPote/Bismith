@@ -8,8 +8,10 @@ export type Uniforms = Record<string, THREE.IUniform>;
 
 export interface TargetOptions {
 	count?: number;
-	type?: THREE.TextureDataType;
 	linear?: boolean;
+	/** Wrap mode for sampled (not texelFetch) reads; clamp to edge by default. Fixed at creation (three never re-applies
+	 * a render target texture's sampler state). */
+	wrap?: THREE.Wrapping;
 }
 
 export class GpuError extends Error {}
@@ -22,6 +24,8 @@ export class Gpu {
 	private readonly mesh: THREE.Mesh;
 	private readonly copyMat: THREE.RawShaderMaterial;
 	private readTarget: THREE.WebGLRenderTarget | null = null;
+	private readonly canvasSize = new THREE.Vector2();
+	private readonly clearColor = new THREE.Color();
 	/** The browser compiles shaders off the main thread (KHR_parallel_shader_compile): compile() doesn't stall. */
 	readonly parallelCompile: boolean;
 
@@ -44,6 +48,8 @@ export class Gpu {
 		if (!gl.getExtension('EXT_color_buffer_float')) {
 			throw new GpuError('This GPU/browser cannot render to float textures (EXT_color_buffer_float).');
 		}
+		// Linear filtering of float targets (the tracer's height reads, post's `linear` scratch targets).
+		gl.getExtension('OES_texture_float_linear');
 		renderer.autoClear = false;
 		// The output colour space stays three's default: setting it assigns gl.drawingBufferColorSpace, and Firefox (seen
 		// with Windows HDR) then colour-manages the canvas and shifts its hues, though the value is 'srgb' either way. Our
@@ -73,14 +79,11 @@ export class Gpu {
 	}
 
 	/** A full-screen pass material. `frag` should not include the version/precision header. */
-	material(frag: string, uniforms: Uniforms, defines: Record<string, string | number> = {}): THREE.RawShaderMaterial {
-		const defs = Object.entries(defines)
-			.map(([k, v]) => `#define ${k} ${v}\n`)
-			.join('');
+	material(frag: string, uniforms: Uniforms): THREE.RawShaderMaterial {
 		return new THREE.RawShaderMaterial({
 			glslVersion: THREE.GLSL3,
 			vertexShader: GLSL_HEADER + FULLSCREEN_VERT,
-			fragmentShader: GLSL_HEADER + defs + frag,
+			fragmentShader: GLSL_HEADER + frag,
 			uniforms,
 			depthTest: false,
 			depthWrite: false,
@@ -101,17 +104,18 @@ export class Gpu {
 
 	target(width: number, height: number, opts: TargetOptions = {}): THREE.WebGLRenderTarget {
 		const filter = opts.linear ? THREE.LinearFilter : THREE.NearestFilter;
+		const wrap = opts.wrap ?? THREE.ClampToEdgeWrapping;
 		const t = new THREE.WebGLRenderTarget(width, height, {
 			count: opts.count ?? 1,
-			type: opts.type ?? THREE.FloatType,
+			type: THREE.FloatType,
 			format: THREE.RGBAFormat,
 			minFilter: filter,
 			magFilter: filter,
 			depthBuffer: false,
 			stencilBuffer: false,
 			generateMipmaps: false,
-			wrapS: THREE.ClampToEdgeWrapping,
-			wrapT: THREE.ClampToEdgeWrapping
+			wrapS: wrap,
+			wrapT: wrap
 		});
 		for (const tex of t.textures) tex.colorSpace = THREE.NoColorSpace;
 		return t;
@@ -136,7 +140,7 @@ export class Gpu {
 		} else if (target) {
 			target.viewport.set(0, 0, target.width, target.height);
 		} else {
-			const s = r.getSize(new THREE.Vector2());
+			const s = r.getSize(this.canvasSize);
 			r.setViewport(0, 0, s.x, s.y);
 		}
 		r.render(this.scene, this.camera);
@@ -144,8 +148,14 @@ export class Gpu {
 
 	clearCanvas(r = 0, g = 0, b = 0, a = 0): void {
 		this.renderer.setRenderTarget(null);
-		this.renderer.setClearColor(new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace), a);
+		this.renderer.setClearColor(this.clearColor.setRGB(r, g, b, THREE.SRGBColorSpace), a);
 		this.renderer.clear(true, false, false);
+	}
+
+	/** Copy a texture texel for texel into `target` (from its bottom-left corner). */
+	copy(src: THREE.Texture, target: THREE.WebGLRenderTarget): void {
+		this.copyMat.uniforms.tSrc.value = src;
+		this.run(this.copyMat, target);
 	}
 
 	/** Read any texture back as RGBA float (rows bottom-up, GL order). */
@@ -154,8 +164,7 @@ export class Gpu {
 			this.readTarget?.dispose();
 			this.readTarget = this.target(width, height);
 		}
-		this.copyMat.uniforms.tSrc.value = texture;
-		this.run(this.copyMat, this.readTarget);
+		this.copy(texture, this.readTarget);
 		const out = new Float32Array(width * height * 4);
 		this.renderer.readRenderTargetPixels(this.readTarget, 0, 0, width, height, out);
 		return out;
@@ -196,5 +205,37 @@ export class PingPong {
 	dispose(): void {
 		this.read.dispose();
 		this.write.dispose();
+	}
+}
+
+/**
+ * Float scratch targets cached by name: asking for a name at another size replaces its target, so sizes that follow a
+ * param (a slider being dragged) don't pile up targets. A name keeps the options it was first created with.
+ */
+export class ScratchPool {
+	private readonly gpu: Gpu;
+	private targets = new Map<string, THREE.WebGLRenderTarget>();
+
+	constructor(gpu: Gpu) {
+		this.gpu = gpu;
+	}
+
+	get(name: string, width: number, height: number, opts?: TargetOptions): THREE.WebGLRenderTarget {
+		let t = this.targets.get(name);
+		if (t && (t.width !== width || t.height !== height)) {
+			t.dispose();
+			t = undefined;
+		}
+		if (!t) {
+			t = this.gpu.target(width, height, opts);
+			this.targets.set(name, t);
+		}
+		return t;
+	}
+
+	/** Free every target (they are made again on demand). */
+	clear(): void {
+		for (const t of this.targets.values()) t.dispose();
+		this.targets.clear();
 	}
 }

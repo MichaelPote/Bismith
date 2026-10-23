@@ -1,21 +1,12 @@
 // ParamDef → GLSL uniform declarations and values. Every param `key` becomes `u_<key>`:
 //   float/seed → float · int → int · bool → bool · enum → int (option index)
 //   color → vec3 (LINEAR rgb) · gradient → vec4 u_<key>_stops[8] (sRGB rgb, position) + int u_<key>_count
-//   text with `bitmap` → ivec4 u_<key>[64] (packed cells) or vec4 u_<key>[64] (polygon vertices) + ivec2 u_<key>_size;
-//   other text params are not uploaded
+//   text with a 'points' / 'lines' `bitmap` → vec4 u_<key>[64] (polygon vertices) + ivec2 u_<key>_size;
+//   other text params are not uploaded (Stamp's pixels and Label's text are read on the CPU)
 
 import * as THREE from 'three';
 import { hexToLinear, hexToRgb } from '@/core/color';
-import {
-	BITMAP_MAX,
-	MAX_PATH_POINTS,
-	packBitmap,
-	packPolygons,
-	parseBitmap,
-	parsePolygons,
-	textBitmap,
-	parsePolylines
-} from '@/core/bitmap';
+import { MAX_PATH_POINTS, packPolygons, parsePolygons, parsePolylines } from '@/core/bitmap';
 import {
 	MAX_CURVE_POINTS,
 	MAX_GRADIENT_STOPS,
@@ -28,10 +19,35 @@ import {
 } from '@/core/params';
 import type { Uniforms } from './context';
 
+/** Text params uploaded as path vertices. */
+const isPathBitmap = (d: ParamDef) => d.bitmap === 'points' || d.bitmap === 'lines';
+/** Params that become uniforms: all but `uniform: false` and text other than paths. */
+const hasUniform = (d: ParamDef) => d.uniform !== false && (d.type !== 'text' || isPathBitmap(d));
+
+/** A text param's packed uniform: its data and `_size`. */
+interface PackedText {
+	data: Float32Array;
+	size: [number, number];
+}
+/** Packed text by kind and value: materials are updated many times per evaluation, the text rarely changes. */
+const packedText = new Map<string, PackedText>();
+
+function packText(d: ParamDef, value: string): PackedText {
+	const key = `${d.bitmap}\u0000${value}`;
+	let p = packedText.get(key);
+	if (!p) {
+		const pk = packPolygons(d.bitmap === 'lines' ? parsePolylines(value) : parsePolygons(value));
+		p = { data: pk.data, size: [pk.count, pk.polygons] };
+		if (packedText.size >= 64) packedText.clear();
+		packedText.set(key, p);
+	}
+	return p;
+}
+
 export function declareUniforms(defs: ParamDef[]): string {
 	const lines: string[] = [];
 	for (const d of defs) {
-		if (d.uniform === false || (d.type === 'text' && !d.bitmap)) continue;
+		if (!hasUniform(d)) continue;
 		const n = `u_${d.key}`;
 		switch (d.type) {
 			case 'float':
@@ -78,9 +94,7 @@ export function declareUniforms(defs: ParamDef[]): string {
 				);
 				break;
 			case 'text':
-				if (d.bitmap === 'points' || d.bitmap === 'lines')
-					lines.push(`uniform vec4 ${n}[${MAX_PATH_POINTS}];`, `uniform ivec2 ${n}_size;`);
-				else lines.push(`uniform ivec4 ${n}[${BITMAP_MAX}];`, `uniform ivec2 ${n}_size;`);
+				lines.push(`uniform vec4 ${n}[${MAX_PATH_POINTS}];`, `uniform ivec2 ${n}_size;`);
 				break;
 		}
 	}
@@ -90,19 +104,14 @@ export function declareUniforms(defs: ParamDef[]): string {
 export function createUniforms(defs: ParamDef[]): Uniforms {
 	const u: Uniforms = {};
 	for (const d of defs) {
-		if (d.uniform === false || (d.type === 'text' && !d.bitmap)) continue;
+		if (!hasUniform(d)) continue;
 		const n = `u_${d.key}`;
 		if (d.type === 'color') u[n] = { value: new THREE.Vector3() };
 		else if (d.type === 'curve') {
 			u[`${n}_pts`] = { value: Array.from({ length: MAX_CURVE_POINTS }, () => new THREE.Vector4()) };
 			u[`${n}_count`] = { value: 0 };
 		} else if (d.type === 'text') {
-			u[n] = {
-				value:
-					d.bitmap === 'points' || d.bitmap === 'lines'
-						? new Float32Array(MAX_PATH_POINTS * 4)
-						: new Int32Array(BITMAP_MAX * 4)
-			};
+			u[n] = { value: new Float32Array(MAX_PATH_POINTS * 4) };
 			u[`${n}_size`] = { value: new Int32Array(2) };
 		} else if (d.type === 'gradient') {
 			u[`${n}_stops`] = { value: Array.from({ length: MAX_GRADIENT_STOPS }, () => new THREE.Vector4()) };
@@ -114,7 +123,7 @@ export function createUniforms(defs: ParamDef[]): Uniforms {
 
 export function updateUniforms(u: Uniforms, defs: ParamDef[], values: ParamValues): void {
 	for (const d of defs) {
-		if (d.uniform === false || (d.type === 'text' && !d.bitmap)) continue;
+		if (!hasUniform(d)) continue;
 		const n = `u_${d.key}`;
 		const v = values[d.key] ?? d.default;
 		switch (d.type) {
@@ -136,15 +145,10 @@ export function updateUniforms(u: Uniforms, defs: ParamDef[], values: ParamValue
 			}
 			case 'text': {
 				if (!u[n]) break;
-				if (d.bitmap === 'points' || d.bitmap === 'lines') {
-					const pk = packPolygons(d.bitmap === 'lines' ? parsePolylines(String(v)) : parsePolygons(String(v)));
-					u[n].value = pk.data;
-					u[`${n}_size`].value = new Int32Array([pk.count, pk.polygons]);
-					break;
-				}
-				const b = d.bitmap === 'font' ? textBitmap(String(v)) : parseBitmap(String(v));
-				u[n].value = packBitmap(b);
-				u[`${n}_size`].value = new Int32Array([b.width, b.height]);
+				const p = packText(d, String(v));
+				// (Shared between materials: never written to.)
+				u[n].value = p.data;
+				(u[`${n}_size`].value as Int32Array).set(p.size);
 				break;
 			}
 			case 'curve': {

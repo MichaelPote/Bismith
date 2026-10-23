@@ -24,7 +24,9 @@ export function encodePreview(
 	const src = document.createElement('canvas');
 	src.width = width;
 	src.height = height;
-	src.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(pixels), width, height), 0, 0);
+	// A view of the pixels, not a copy (readbacks are never shared buffers).
+	const clamped = new Uint8ClampedArray(pixels.buffer as ArrayBuffer, pixels.byteOffset, pixels.length);
+	src.getContext('2d')!.putImageData(new ImageData(clamped, width, height), 0, 0);
 	const k = Math.min(1, max / Math.max(width, height));
 	const dst = document.createElement('canvas');
 	dst.width = Math.max(1, Math.round(width * k));
@@ -43,7 +45,8 @@ export function capturePreview(engine: Engine | null | undefined): string | unde
 	try {
 		const { width, height, pixels } = mapPixels(engine, 'final');
 		return width > 0 && height > 0 ? encodePreview(pixels, width, height) : undefined;
-	} catch {
+	} catch (e) {
+		console.warn('[bismith] preview capture failed', e);
 		return undefined;
 	}
 }

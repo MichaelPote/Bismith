@@ -9,17 +9,19 @@ import { GLSL_COMMON } from '@/layers/glsl/common';
 import type { MaterialPipeline } from './materialPipeline';
 
 export const MAX_LIGHTS = 8;
-/** Distance (px) at which a point light of intensity 1 lights a white surface to 1.0. */
+/** Distance (px) at which a point light of intensity 1 lights a white surface to 1.0 (× the supersampling). */
 export const POINT_LIGHT_REF_DIST = 64;
+/** Height-field march steps (0.75 px each) per supersampling factor: shadows reach 384 texture px at any factor. */
+const MARCH_STEPS = 512;
 
 const TRACE_FRAG = /* glsl */ `
 uniform sampler2D tAlbedo;
 uniform sampler2D tSurface;
 uniform sampler2D tEmissive;
-uniform sampler2D tNormal;   // xyz normal, w = world height px (linear filtered)
+uniform sampler2D tNormal;   // xyz normal, w = world height px (linear filtered; repeats, clamped here when not tileable)
 uniform sampler2D tAccum;
-uniform float uN;            // samples already accumulated
-uniform int uFrame;
+uniform float uN;            // samples already accumulated (also the frame's random stream)
+uniform int uSteps;          // height-field march steps
 uniform float uMaxH;
 uniform float uMinH;
 uniform int uBounces;
@@ -50,8 +52,10 @@ float rnd() { rngState = pcg(rngState); return u2f(rngState); }
 vec2 rnd2() { return vec2(rnd(), rnd()); }
 
 // ---------------------------------------------------------------- surface queries
+// Explicit LOD: an implicit-gradient read in the march loops makes D3D11 force [loop] and flatten every if around them
+// (docs/shader-compilation.md §Derivatives).
 vec4 normalHeight(vec2 px) {
-  return texture(tNormal, px / uRes);
+  return textureLod(tNormal, (uTile ? px : clamp(px, vec2(0.5), uRes - 0.5)) / uRes, 0.0);
 }
 float heightAt(vec2 px) { return normalHeight(px).w; }
 
@@ -69,7 +73,7 @@ float traceHeight(vec3 ro, vec3 rd, float tMax) {
   float dt = 0.75 / max(hxy, 1e-4);
   float prevT = 0.0;
   float t = 0.0;
-  for (int i = 0; i < 512; i++) {
+  for (int i = 0; i < uSteps; i++) {
     t = min(t + dt, tMax);
     vec3 p = ro + rd * t;
     float diff = p.z - heightAt(p.xy);
@@ -205,49 +209,47 @@ vec3 sky(vec3 d) {
   return mix(uSkyHorizon, uSkyZenith, sqrt(clamp(d.z, 0.0, 1.0)));
 }
 
-// Uniform direction in a cone around axis (cosMax = cos of half angle).
-vec3 sampleCone(vec3 axis, float cosMax, vec2 u) {
-  float c = mix(1.0, cosMax, u.x);
-  float s = sqrt(max(0.0, 1.0 - c * c));
-  float phi = TAU * u.y;
-  vec3 t, b;
-  basis(axis, t, b);
-  return normalize(t * (cos(phi) * s) + b * (sin(phi) * s) + axis * c);
-}
-
-vec3 directLight(Mat m, vec3 p, vec3 n, vec3 v) {
+// Direct light from every light, shadow rays from ro. The branches only choose the direction, distance and scale, so the
+// shadow march and the BRDF are inlined once (D3D inlines every call site).
+vec3 directLight(Mat m, vec3 ro, vec3 p, vec3 n, vec3 v) {
   vec3 sum = vec3(0.0);
-  vec3 ro = p + n * 0.05 + vec3(0.0, 0.0, 0.02);
-  for (int i = 0; i < ${MAX_LIGHTS}; i++) {
-    if (i >= uLightCount) break;
-    if (uLType[i] == 0) {
-      vec3 l = uLSize[i] > 0.0 ? sampleCone(uLVec[i], cos(uLSize[i]), rnd2()) : uLVec[i];
-      if (dot(n, l) <= 0.0 || l.z <= 0.0) continue;
-      if (uShadows && !visible(ro, l, 1e6)) continue;
-      sum += evalBRDF(m, n, v, l) * uLColor[i] * PI;
-    } else {
-      vec3 lp = uLVec[i];
-      vec3 toL = lp - p;
+  for (int i = 0; i < uLightCount; i++) {
+    bool point = uLType[i] != 0;
+    // Directional: uLVec the direction; point: its position.
+    vec3 axis = uLVec[i];
+    vec3 toL = vec3(0.0);
+    if (point) {
+      toL = uLVec[i] - p;
       if (uTile) toL.xy = wrapDelta(toL.xy);
-      float d0 = length(toL);
-      vec3 axis = toL / max(d0, 1e-4);
-      if (uLSize[i] > 0.0) {
-        vec3 t, b;
-        basis(axis, t, b);
-        vec2 u = rnd2();
-        float r = uLSize[i] * sqrt(u.x), phi = TAU * u.y;
-        toL += t * (r * cos(phi)) + b * (r * sin(phi));
-      }
-      float dist = length(toL);
-      vec3 l = toL / max(dist, 1e-4);
-      if (dot(n, l) <= 0.0) continue;
-      float win = 1.0;
-      if (uLRange[i] > 0.0) { float x = dist / uLRange[i]; win = clamp(1.0 - x * x * x * x, 0.0, 1.0); win *= win; }
-      if (win <= 0.0) continue;
-      if (uShadows && !visible(ro, l, dist)) continue;
-      float falloff = (uRefDist * uRefDist) / max(dist * dist, 1.0);
-      sum += evalBRDF(m, n, v, l) * uLColor[i] * PI * falloff * win;
+      axis = toL / max(length(toL), 1e-4);
     }
+    vec3 l = axis;
+    if (uLSize[i] > 0.0) {
+      // Soft lights: a direction in the sun's cone (uLSize its angular radius), or a point on the point light's disc
+      // facing the surface (uLSize its radius).
+      vec3 t, b;
+      basis(axis, t, b);
+      vec2 u = rnd2();
+      float phi = TAU * u.y;
+      if (point) {
+        float r = uLSize[i] * sqrt(u.x);
+        toL += t * (r * cos(phi)) + b * (r * sin(phi));
+      } else {
+        float c = mix(1.0, cos(uLSize[i]), u.x);
+        float s = sqrt(max(0.0, 1.0 - c * c));
+        l = normalize(t * (cos(phi) * s) + b * (sin(phi) * s) + axis * c);
+      }
+    }
+    float dist = 1e6, falloff = 1.0, win = 1.0;
+    if (point) {
+      dist = length(toL);
+      l = toL / max(dist, 1e-4);
+      if (uLRange[i] > 0.0) { float x = dist / uLRange[i]; win = clamp(1.0 - x * x * x * x, 0.0, 1.0); win *= win; }
+      falloff = (uRefDist * uRefDist) / max(dist * dist, 1.0);
+    }
+    bool skip = dot(n, l) <= 0.0 || (point ? win <= 0.0 : l.z <= 0.0);
+    if (!skip && uShadows) skip = !visible(ro, l, dist);
+    if (!skip) sum += evalBRDF(m, n, v, l) * uLColor[i] * PI * falloff * win;
   }
   return sum;
 }
@@ -280,12 +282,13 @@ vec3 clampLum(vec3 c) {
 
 void main() {
   ivec2 ip = ivec2(gl_FragCoord.xy);
-  rngState = pcg3(uvec3(uint(ip.x), uint(ip.y), uint(uFrame) * 9781u + 1u));
+  rngState = pcg3(uvec3(uint(ip.x), uint(ip.y), uint(uN) * 9781u + 1u));
 
   vec2 px = gl_FragCoord.xy;
   if (uJitter) px += rnd2() - 0.5;
 
   Mat m = fetchMat(gl_FragCoord.xy);
+  float alpha0 = m.alpha;
   vec3 n = normalize(texelFetch(tNormal, ip, 0).xyz);
   m.rough = filteredRough(m.rough, ip, n); // primary hit only: bounces are blurred anyway
   vec3 p = vec3(px, heightAt(px));
@@ -296,13 +299,15 @@ void main() {
   vec3 L = m.albedo * uAmbient * (1.0 - m.metal);
   vec3 thr = vec3(1.0);
 
-  for (int bounce = 0; bounce <= 4; bounce++) {
-    vec3 direct = thr * directLight(m, p, n, v);
+  // To the uniform (0..4), not a constant cap with a break: FXC unrolls the latter.
+  for (int bounce = 0; bounce <= uBounces; bounce++) {
+    // Rays leave just above the surface.
+    vec3 ro = p + n * 0.05 + vec3(0.0, 0.0, 0.02);
+    vec3 direct = thr * directLight(m, ro, p, n, v);
     L += bounce == 0 ? direct : clampLum(direct);
 
     vec3 l, w;
     if (!sampleBRDF(m, n, v, l, w)) break;
-    vec3 ro = p + n * 0.05 + vec3(0.0, 0.0, 0.02);
     float t = traceHeight(ro, l, 1e6);
     if (t == -1.0 || (t == -2.0 && l.z >= 0.0)) {
       L += clampLum(thr * w * sky(l));
@@ -327,8 +332,7 @@ void main() {
   L += E0;
 
   vec4 prev = texelFetch(tAccum, ip, 0);
-  vec4 cur = vec4(L, m.alpha);
-  cur.a = texelFetch(tAlbedo, ip, 0).a;
+  vec4 cur = vec4(L, alpha0);
   oColor = uN <= 0.0 ? cur : mix(prev, cur, 1.0 / (uN + 1.0));
 }
 `;
@@ -342,6 +346,9 @@ export class PathTracer {
 	samples = 0;
 	private width = 0;
 	private height = 0;
+	/** What the AO map was last computed from: it only changes with the height, its radius and the tiling. */
+	private aoKey = '';
+	private aoNormal: THREE.Texture | null = null;
 
 	constructor(gpu: Gpu) {
 		this.gpu = gpu;
@@ -354,7 +361,7 @@ export class PathTracer {
 			tNormal: { value: null },
 			tAccum: { value: null },
 			uN: { value: 0 },
-			uFrame: { value: 0 },
+			uSteps: { value: MARCH_STEPS },
 			uMaxH: { value: 0 },
 			uMinH: { value: 0 },
 			uBounces: { value: 2 },
@@ -409,13 +416,17 @@ export class PathTracer {
 		);
 	}
 
-	/** Ambient-occlusion map (R), recomputed on every configure. */
+	/** Ambient-occlusion map (R), recomputed when the height (a material evaluation), its radius or the tiling change. */
 	get aoTexture(): THREE.Texture | null {
 		return this.ao?.texture ?? null;
 	}
 
 	/** Horizon-based AO from the world height (normal texture w): 16 directions × 8 steps within the radius. */
-	private computeAO(project: Project, normal: THREE.Texture, radius: number): void {
+	private computeAO(project: Project, normal: THREE.Texture, evaluation: number, radius: number): void {
+		const key = `${evaluation}:${radius}:${project.tileable}`;
+		if (this.ao && this.aoNormal === normal && this.aoKey === key) return;
+		this.aoNormal = normal;
+		this.aoKey = key;
 		if (!this.ao || this.ao.width !== project.width || this.ao.height !== project.height) {
 			this.ao?.dispose();
 			this.ao = this.gpu.target(project.width, project.height);
@@ -445,8 +456,11 @@ export class PathTracer {
 		this.samples = 0;
 	}
 
-	/** Upload scene uniforms. Call after the material changed or lighting/render settings changed. */
-	configure(project: Project, material: MaterialPipeline, override?: { bounces?: number }): void {
+	/**
+	 * Upload scene uniforms. Call after the material changed or lighting/render settings changed. `ss`: the supersampling
+	 * factor `project` is scaled by (pixel lengths fixed in the shader follow it); `bounces` overrides the project's.
+	 */
+	configure(project: Project, material: MaterialPipeline, opts: { bounces?: number; ss?: number } = {}): void {
 		this.ensure(project.width, project.height);
 		const u = this.mat.uniforms;
 		(u.uRes.value as THREE.Vector2).set(project.width, project.height);
@@ -455,22 +469,19 @@ export class PathTracer {
 		u.tSurface.value = material.surface;
 		u.tEmissive.value = material.emissive;
 		const nt = material.normalTex!;
-		const wrap = project.tileable ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
-		if (nt.wrapS !== wrap || nt.minFilter !== THREE.LinearFilter) {
-			nt.wrapS = nt.wrapT = wrap;
-			nt.minFilter = nt.magFilter = THREE.LinearFilter;
-			nt.needsUpdate = true;
-		}
 		u.tNormal.value = nt;
+		const ss = opts.ss ?? 1;
+		u.uSteps.value = MARCH_STEPS * ss;
+		u.uRefDist.value = POINT_LIGHT_REF_DIST * ss;
 		u.uMaxH.value = material.heightStats.max + 0.01;
 		u.uMinH.value = material.heightStats.min;
 		const r = project.render;
-		u.uBounces.value = override?.bounces ?? r.bounces;
+		u.uBounces.value = Math.min(4, Math.max(0, opts.bounces ?? r.bounces));
 		u.uF0.value = 0.08 * r.specular;
 		u.uSpecTint.value = r.specularTint ?? 1;
 		u.uAO.value = r.ao ?? 0;
 		// Always computed (cheap) so the AO channel can be viewed and exported even at strength 0.
-		this.computeAO(project, nt, r.aoRadius ?? 4);
+		this.computeAO(project, nt, material.evaluations, r.aoRadius ?? 4);
 		u.tAO.value = this.ao!.texture;
 		u.uJitter.value = r.jitter;
 		u.uClamp.value = r.clamp;
@@ -521,7 +532,6 @@ export class PathTracer {
 		while (done < count && this.samples < maxSamples) {
 			u.tAccum.value = this.accum.read.texture;
 			u.uN.value = this.samples;
-			u.uFrame.value = this.samples;
 			this.gpu.run(this.mat, this.accum.write);
 			this.accum.swap();
 			this.samples++;

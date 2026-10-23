@@ -253,17 +253,13 @@ export class TextureNet {
 						}
 			const b = new Float32Array(sout * 4);
 			for (let i = 0; i < spec.cout; i++) b[i] = values[spec.b + i];
-			const mat = gpu.material(
-				CONV,
-				{
-					tIn: { value: null },
-					tW: { value: null },
-					tB: { value: null },
-					uSize: { value: new THREE.Vector2() },
-					uWrap: { value: true }
-				},
-				{ SIN: sin }
-			);
+			const mat = gpu.material(`#define SIN ${sin}\n` + CONV, {
+				tIn: { value: null },
+				tW: { value: null },
+				tB: { value: null },
+				uSize: { value: new THREE.Vector2() },
+				uWrap: { value: true }
+			});
 			return {
 				spec,
 				sin,

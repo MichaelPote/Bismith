@@ -17,6 +17,10 @@ export const GLSL_COMMON = /* glsl */ `
 uniform vec2 uRes;
 uniform bool uTile;
 
+// 1, read from a uniform: a loop bound \`n * UNI_1\` keeps D3D from unrolling the loop (docs/shader-compilation.md).
+// No ?: — ANGLE rewrites a loop whose condition has one.
+#define UNI_1 int(uRes.x > 0.0)
+
 // ---------------------------------------------------------------- hashing (PCG)
 uint pcg(uint v) {
   uint state = v * 747796405u + 2891336453u;

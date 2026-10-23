@@ -3,19 +3,19 @@
 // the stages that a change invalidates.
 
 import * as THREE from 'three';
-import { SHAPE_MASK, hiddenByMaterial, type Project } from '@/core/project';
+import { SHAPE_MASK, type Project } from '@/core/project';
 import { Gpu } from '@/gpu/context';
-import { GLSL_COMMON } from '@/layers/glsl/common';
 import { MaterialPipeline, shaderKey } from './materialPipeline';
 import { PathTracer } from './pathtracer';
 import { PostStack } from './post/stack';
-import { Display, type ChannelView, type DisplayOptions, type ViewTransform } from './display';
+import { Display, VOID_COLOR, type ChannelView, type DisplayOptions, type ViewTransform } from './display';
 import { ensureBuiltins } from './builtins';
 import { scaleProject, supersampleFactor } from '@/core/supersample';
 import { clamp01, linearToSrgb1 } from '@/core/color';
 import { onImageReady, pendingImages } from '@/core/images';
 
-// Box filter for supersampling: average each k×k block of the traced image (linear HDR) into one texel.
+// Box filter for supersampling: average each k×k block of a k× texture (the traced image, linear HDR, or a material
+// map) into one texel.
 const DOWNSAMPLE = /* glsl */ `
 uniform sampler2D tSrc;
 uniform int uK;
@@ -23,13 +23,8 @@ out vec4 oColor;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy) * uK;
   vec4 s = vec4(0.0);
-  for (int y = 0; y < 4; y++) {
-    if (y >= uK) break;
-    for (int x = 0; x < 4; x++) {
-      if (x >= uK) break;
-      s += texelFetch(tSrc, p + ivec2(x, y), 0);
-    }
-  }
+  for (int y = 0; y < uK; y++)
+    for (int x = 0; x < uK; x++) s += texelFetch(tSrc, p + ivec2(x, y), 0);
   oColor = s / float(uK * uK);
 }
 `;
@@ -93,6 +88,8 @@ export class Engine {
 	private ss = 1;
 	private inner: Project | null = null;
 	private down: THREE.WebGLRenderTarget | null = null;
+	/** A material map box-filtered to the texture size, for readback. */
+	private mapDown: THREE.WebGLRenderTarget | null = null;
 	private downMat: THREE.RawShaderMaterial | null = null;
 	private traceKey = '';
 	private postKey = '';
@@ -103,7 +100,8 @@ export class Engine {
 	private raf = 0;
 	private running = false;
 	private suspended = false;
-	private sampleTimes: number[] = [];
+	/** Samples traced per frame over the last second: [time, count]. */
+	private sampleTimes: [number, number][] = [];
 	private shaderErrors = new Map<string, string>();
 	/** Time of the last material / lighting edit; while recent, the tracer runs in draft quality. */
 	private lastEdit = -Infinity;
@@ -132,7 +130,6 @@ export class Engine {
 	constructor(canvas: HTMLCanvasElement) {
 		ensureBuiltins();
 		this.gpu = new Gpu(canvas);
-		this.gpu.gl.getExtension('OES_texture_float_linear');
 		this.gpu.renderer.debug.onShaderError = (gl, _program, vs, fs) => {
 			const log = (gl.getShaderInfoLog(fs) || '') + (gl.getShaderInfoLog(vs) || '');
 			this.shaderErrors.set(this.currentShaderOwner || 'shader', log.trim() || 'Shader failed to compile');
@@ -153,7 +150,7 @@ export class Engine {
 		});
 		this.tracer = new PathTracer(this.gpu);
 		this.post = new PostStack(this.gpu);
-		this.display = new Display(this.gpu, GLSL_COMMON);
+		this.display = new Display(this.gpu);
 	}
 
 	setProject(project: Project): void {
@@ -163,6 +160,8 @@ export class Engine {
 		const inner = scaleProject(project, this.ss);
 		this.inner = inner;
 		const upTo = this.view.previewUpTo;
+		// Smart materials: their members, on/off and Limit to (planMasks reads it) change the stack; their macro values
+		// reach it through the members' params.
 		const mKey = JSON.stringify([
 			inner.width,
 			inner.height,
@@ -172,9 +171,11 @@ export class Engine {
 			inner.base,
 			inner.layers,
 			upTo,
-			[...hiddenByMaterial(inner)]
+			inner.materials?.map((m) => [m.id, m.members, m.enabled !== false, m.limit ?? null])
 		]);
-		const tKey = JSON.stringify([inner.lighting, inner.render, this.ss]);
+		// Sample counts and export settings don't change the image: raising Max samples continues the accumulation.
+		const { maxSamples, samplesPerFrame, exportSamples, exportSupersample, ...look } = inner.render;
+		const tKey = JSON.stringify([inner.lighting, look, this.ss]);
 		const pKey = JSON.stringify(project.post);
 		const first = this.materialKey === '';
 		if (mKey !== this.materialKey) {
@@ -329,11 +330,10 @@ export class Engine {
 			this.releaseWaiters();
 		}
 		if (this.traceDirty) {
-			this.tracer.configure(
-				project,
-				this.material,
-				this.draft ? { bounces: Math.min(1, project.render.bounces) } : undefined
-			);
+			this.tracer.configure(project, this.material, {
+				bounces: this.draft ? Math.min(1, project.render.bounces) : undefined,
+				ss: this.ss
+			});
 			this.tracer.reset();
 			this.traceDirty = false;
 			this.postDirty = true;
@@ -351,15 +351,10 @@ export class Engine {
 			traced = this.tracer.trace(this.draft ? 1 : Math.max(1, r.samplesPerFrame), r.maxSamples);
 			if (traced > 0) this.postDirty = true;
 			const now = performance.now();
-			for (let i = 0; i < traced; i++) this.sampleTimes.push(now);
-			while (this.sampleTimes.length && now - this.sampleTimes[0] > 1000) this.sampleTimes.shift();
+			if (traced > 0) this.sampleTimes.push([now, traced]);
+			while (this.sampleTimes.length && now - this.sampleTimes[0][0] > 1000) this.sampleTimes.shift();
 		}
-		if (this.postDirty && this.tracer.output) {
-			this.currentShaderOwner = 'post';
-			this.post.run(project, this.traced()!);
-			this.postDirty = false;
-			this.displayDirty = true;
-		}
+		if (this.postDirty && this.tracer.output) this.runPost();
 		if (this.displayDirty) {
 			this.draw();
 			this.displayDirty = false;
@@ -378,7 +373,7 @@ export class Engine {
 			...this.stats,
 			samples: this.tracer.samples,
 			maxSamples: project.render.maxSamples,
-			samplesPerSec: this.sampleTimes.length,
+			samplesPerSec: this.sampleTimes.reduce((n, [, c]) => n + c, 0),
 			draft: this.draft,
 			heightMin: this.material.heightStats.min / this.ss,
 			heightMax: this.material.heightStats.max / this.ss,
@@ -412,8 +407,8 @@ export class Engine {
 	private draw(): void {
 		const project = this.project!;
 		const tex = this.textureFor(this.view.channel);
-		this.gpu.clearCanvas(0.09, 0.098, 0.11, 1);
-		if (!tex) return;
+		// (The display pass writes every canvas pixel, the void round the texture included.)
+		if (!tex) return this.gpu.clearCanvas(...VOID_COLOR, 1);
 		const hs = this.material.heightStats;
 		this.display.draw(
 			tex,
@@ -429,32 +424,46 @@ export class Engine {
 
 	// ------------------------------------------------------------------ synchronous rendering (export, harness)
 
+	/** Run the post stack on the traced image (its shader errors reported against 'post'). */
+	private runPost(): void {
+		this.currentShaderOwner = 'post';
+		this.post.run(this.project!, this.traced()!);
+		this.postDirty = false;
+		this.displayDirty = true;
+	}
+
+	/**
+	 * Start a deterministic trace (renderNow, renderExport): full quality (no draft) from the first sample, whatever the
+	 * interactive loop accumulated meanwhile — otherwise the same project could score differently depending on timing.
+	 * The GPU is waited for before tracing here, and the caller waits again after: with several pages rendering at once
+	 * (parallel harness workers on ANGLE / D3D11), renders of one project otherwise differed in the last bits from run to
+	 * run — enough to send identical optimiser runs apart; with these sync points they match exactly.
+	 */
+	private beginTrace(): WebGL2RenderingContext {
+		this.prepare();
+		const gl = this.gpu.gl;
+		gl.finish();
+		this.tracer.reset();
+		return gl;
+	}
+
 	/** Render the current project to completion (or `samples`) synchronously and run post. */
 	renderNow(samples?: number): void {
 		if (!this.project) throw new Error('No project');
-		// Deterministic: full quality (no draft) from the first sample, whatever the interactive loop accumulated meanwhile
-		// — otherwise the same project could score differently depending on timing.
-		this.prepare();
-		// Wait for the GPU before and after tracing. With several pages rendering at once (parallel harness workers on
-		// ANGLE / D3D11), renders of one project otherwise differed in the last bits from run to run — enough to send
-		// identical optimiser runs apart; with these two sync points they match exactly.
-		const gl = this.gpu.renderer.getContext();
-		gl.finish();
-		this.tracer.reset();
+		const gl = this.beginTrace();
 		const target = samples ?? this.project.render.maxSamples;
 		while (this.tracer.samples < target) {
 			this.tracer.trace(Math.min(16, target - this.tracer.samples), target);
 		}
 		gl.finish();
-		this.post.run(this.project, this.traced()!);
-		this.postDirty = false;
-		this.displayDirty = true;
+		this.runPost();
 		this.kick();
 	}
 
 	/**
 	 * Render the project for an export (FR8.16a) and `read` the result: `samples` from zero (never fewer than its
-	 * maxSamples) at `supersample` (a project supersampled more keeps its own), with jitter on so edges are antialiased.
+	 * maxSamples) at `supersample` (a project supersampled more keeps its own), with jitter on so shadow edges are
+	 * antialiased.
 	 * Unlike renderNow it traces in chunks with a painted frame between, so the page stays responsive and `onProgress`
 	 * (0..1) can show it; `signal` cancels (null is returned). `samples` 0 traces nothing: material maps only. The interactive loop is suspended meanwhile and resumed
 	 * with the user's project after.
@@ -474,10 +483,7 @@ export class Engine {
 			this.setProject({ ...project, render: { ...r, supersample, jitter: true } });
 			await this.precompile((this.inner ?? project).layers.map(shaderKey));
 			if (opts.signal?.aborted) return null;
-			this.prepare();
-			const gl = this.gpu.renderer.getContext();
-			gl.finish();
-			this.tracer.reset();
+			const gl = this.beginTrace();
 			// Chunks sized to ~40 ms of GPU work, so a big texture doesn't block for long and a small one isn't held back
 			// by a frame per few samples.
 			let chunk = 2;
@@ -491,7 +497,7 @@ export class Engine {
 				await painted();
 				if (opts.signal?.aborted) return null;
 			}
-			if (target > 0) this.post.run(this.project!, this.traced()!);
+			if (target > 0) this.runPost();
 			return read();
 		} finally {
 			if (wasSuspended) this.setProject(project);
@@ -503,16 +509,22 @@ export class Engine {
 	private traced(): THREE.Texture | null {
 		const src = this.tracer.output;
 		if (!src || this.ss <= 1) return src;
+		this.down = this.downsample(src, this.down);
+		return this.down.texture;
+	}
+
+	/** Box-filter a k× texture into `target` (made, or remade, at the texture size). */
+	private downsample(src: THREE.Texture, target: THREE.WebGLRenderTarget | null): THREE.WebGLRenderTarget {
 		const p = this.project!;
-		if (!this.down || this.down.width !== p.width || this.down.height !== p.height) {
-			this.down?.dispose();
-			this.down = this.gpu.target(p.width, p.height);
+		if (!target || target.width !== p.width || target.height !== p.height) {
+			target?.dispose();
+			target = this.gpu.target(p.width, p.height);
 		}
 		this.downMat ??= this.gpu.material(DOWNSAMPLE, { tSrc: { value: null }, uK: { value: 1 } });
 		this.downMat.uniforms.tSrc.value = src;
 		this.downMat.uniforms.uK.value = this.ss;
-		this.gpu.run(this.downMat, this.down);
-		return this.down.texture;
+		this.gpu.run(this.downMat, target);
+		return target;
 	}
 
 	/**
@@ -544,10 +556,8 @@ export class Engine {
 
 	/** Read the ambient-occlusion map (R = AO, 1 = open). */
 	readAO(): ImageData32 {
-		const p = this.inner ?? this.project!;
 		this.prepare();
-		const data = this.gpu.readTexture(this.tracer.aoTexture!, p.width, p.height);
-		return this.toTextureSize({ width: p.width, height: p.height, data: flipRows(data, p.width, p.height) });
+		return this.readAtTextureSize(this.tracer.aoTexture!);
 	}
 
 	/** Supersampling factor of the current project (material maps are this many texels per texture pixel). */
@@ -555,30 +565,22 @@ export class Engine {
 		return this.ss;
 	}
 
-	/** Box-filter a k× map readback to the texture size. */
-	private toTextureSize(img: ImageData32): ImageData32 {
-		const k = this.ss;
-		if (k <= 1) return img;
-		const w = Math.floor(img.width / k);
-		const h = Math.floor(img.height / k);
-		const out = new Float32Array(w * h * 4);
-		for (let y = 0; y < h; y++)
-			for (let x = 0; x < w; x++)
-				for (let c = 0; c < 4; c++) {
-					let s = 0;
-					for (let j = 0; j < k; j++)
-						for (let i = 0; i < k; i++) s += img.data[((y * k + j) * img.width + x * k + i) * 4 + c];
-					out[(y * w + x) * 4 + c] = s / (k * k);
-				}
-		return { width: w, height: h, data: out };
+	/** Read a k× material map at the texture size (box-filtered on the GPU when supersampling), rows top-to-bottom. */
+	private readAtTextureSize(tex: THREE.Texture): ImageData32 {
+		const p = this.project!;
+		if (this.ss > 1) {
+			this.mapDown = this.downsample(tex, this.mapDown);
+			tex = this.mapDown.texture;
+		}
+		const data = this.gpu.readTexture(tex, p.width, p.height);
+		return { width: p.width, height: p.height, data: flipRows(data, p.width, p.height) };
 	}
 
 	/** Read a material map: 0 albedo, 1 surface (h, rough, metal, sdf), 2 emissive, 3 normal (xyz, h px). */
 	readMap(index: 0 | 1 | 2 | 3): ImageData32 {
-		const p = this.inner ?? this.project!;
 		this.prepare();
-		const data = index === 3 ? this.material.readNormal() : this.material.readState(index);
-		return this.toTextureSize({ width: p.width, height: p.height, data: flipRows(data, p.width, p.height) });
+		const m = this.material;
+		return this.readAtTextureSize([m.albedo, m.surface, m.emissive, m.normalTex][index]!);
 	}
 
 	dispose(): void {
@@ -587,6 +589,7 @@ export class Engine {
 		this.material.dispose();
 		this.tracer.dispose();
 		this.down?.dispose();
+		this.mapDown?.dispose();
 		this.downMat?.dispose();
 		this.post.dispose();
 		this.display.dispose();

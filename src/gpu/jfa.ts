@@ -18,6 +18,7 @@
 // neighbouring torus copy), a = 1 if a boundary point was found (else r = ±1e4).
 
 import * as THREE from 'three';
+import type { Uniforms } from '@/gpu/context';
 import type { FilterContext } from '@/render/materialPipeline';
 
 /** Mask sources, in the order of the filters' `source` enum. */
@@ -31,13 +32,13 @@ export const DISTANCE_SOURCE = {
 } as const;
 
 export interface DistanceFieldOptions {
-	/** 0 height, 1 opacity, 2 diffuse luminance (perceptual, sRGB), 3 a mask's coverage (`mask`), 8 custom (`custom`). */
+	/** A DISTANCE_SOURCE: height, opacity, diffuse luminance (perceptual, sRGB), a mask's coverage, custom. */
 	source: number;
-	/** Source 3: the mask texture (distance in .x). */
+	/** Source `mask`: the mask texture (distance in .x). */
 	mask?: THREE.Texture;
 	/**
-	 * Source 8: GLSL defining `float jfaCustom(ivec2 c)`, > 0 inside — continuous across the edge for a sub-pixel
-	 * boundary. It may use the layer's u_<param> uniforms and the state textures. Materials are cached per `name`.
+	 * Source `custom`: GLSL defining `float jfaCustom(ivec2 c)`, > 0 inside — continuous across the edge for a sub-pixel
+	 * boundary. It may use the layer's u_<param> uniforms and the state textures. Materials are cached per source text.
 	 */
 	custom?: string;
 	/** Inside = value above this (0.5 halves a mask's edge). */
@@ -71,31 +72,38 @@ float jfaValue(ivec2 c) {
 #ifdef JFA_CUSTOM
   if (uJfaSource == ${DISTANCE_SOURCE.custom}) v = jfaCustom(c); else
 #endif
-  if (uJfaSource == 0) v = fetchT(tSurface, c).r - uJfaThreshold;
-  else if (uJfaSource == 1) v = fetchT(tAlbedo, c).a - uJfaThreshold;
-  else if (uJfaSource == 2) v = luma(linearToSrgb(fetchT(tAlbedo, c).rgb)) - uJfaThreshold;
+  if (uJfaSource == ${DISTANCE_SOURCE.height}) v = fetchT(tSurface, c).r - uJfaThreshold;
+  else if (uJfaSource == ${DISTANCE_SOURCE.opacity}) v = fetchT(tAlbedo, c).a - uJfaThreshold;
+  else if (uJfaSource == ${DISTANCE_SOURCE.luminance}) v = luma(linearToSrgb(fetchT(tAlbedo, c).rgb)) - uJfaThreshold;
   else v = clamp(0.5 - fetchT(tJfaMask, c).x, 0.0, 1.0) - uJfaThreshold;
   return uJfaInvert ? -v : v;
 }
 `;
 
+// (Loops skip with flags, not `continue`, which ANGLE / D3D11 has miscompiled; the seed's one loop, bounded by a
+// uniform, takes the centre as step 0 so jfaValue — a custom source can be big — is inlined once.)
 const SEED = /* glsl */ `
 ${GLSL_JFA_SOURCE}
 void main() {
   ivec2 c = ivec2(gl_FragCoord.xy);
-  float s0 = jfaValue(c);
-  bool in0 = s0 > 0.0;
+  float s0 = 0.0;
+  bool in0 = false;
   float tx = 2.0, ty = 2.0, sx = 0.0, sy = 0.0;
-  for (int k = 0; k < 4; k++) {
-    ivec2 e = k == 0 ? ivec2(1, 0) : k == 1 ? ivec2(-1, 0) : k == 2 ? ivec2(0, 1) : ivec2(0, -1);
+  for (int k = 0; k < 5 * UNI_1; k++) {
+    ivec2 e = k == 1 ? ivec2(1, 0) : k == 2 ? ivec2(-1, 0) : k == 3 ? ivec2(0, 1) : k == 4 ? ivec2(0, -1) : ivec2(0);
     // Without tiling, fetches clamp at the border, so the image edge never counts as a boundary.
     ivec2 n = c + e;
-    if (!uTile && (n.x < 0 || n.y < 0 || n.x >= int(uRes.x) || n.y >= int(uRes.y))) continue;
-    float sn = jfaValue(n);
-    if ((sn > 0.0) == in0) continue;
-    float t = clamp(s0 / (s0 - sn), 0.0, 1.0);
-    if (e.x != 0) { if (t < tx) { tx = t; sx = float(e.x); } }
-    else if (t < ty) { ty = t; sy = float(e.y); }
+    if (uTile || !(n.x < 0 || n.y < 0 || n.x >= int(uRes.x) || n.y >= int(uRes.y))) {
+      float sn = jfaValue(n);
+      if (k == 0) {
+        s0 = sn;
+        in0 = sn > 0.0;
+      } else if ((sn > 0.0) != in0) {
+        float t = clamp(s0 / (s0 - sn), 0.0, 1.0);
+        if (e.x != 0) { if (t < tx) { tx = t; sx = float(e.x); } }
+        else if (t < ty) { ty = t; sy = float(e.y); }
+      }
+    }
   }
   // Seeds: rg = boundary point (px), ba = the texel that produced it (-1 = no seed).
   if (tx > 1.0 && ty > 1.0) { oColor = vec4(0.0, 0.0, -1.0, -1.0); return; }
@@ -125,12 +133,14 @@ void main() {
   int k = int(uJfaStep);
   for (int j = -1; j <= 1; j++)
   for (int i = -1; i <= 1; i++) {
-    if (i == 0 && j == 0) continue;
-    vec4 s = fetchT(tJfa, c + ivec2(i, j) * k);
-    if (s.b < 0.0) continue;
-    vec2 d = wrapDelta(s.xy - p);
-    float dd = dot(d, d);
-    if (dd < bd) { bd = dd; best = s; }
+    if (!(i == 0 && j == 0)) {
+      vec4 s = fetchT(tJfa, c + ivec2(i, j) * k);
+      if (!(s.b < 0.0)) {
+        vec2 d = wrapDelta(s.xy - p);
+        float dd = dot(d, d);
+        if (dd < bd) { bd = dd; best = s; }
+      }
+    }
   }
   oColor = best;
 }
@@ -152,13 +162,10 @@ void main() {
   ivec2 cs = ivec2(s.ba);
   for (int j = -1; j <= 1; j++)
   for (int i = -1; i <= 1; i++) {
-    if (i == 0 && j == 0) continue;
     vec4 n = fetchT(tSeed, cs + ivec2(i, j));
-    if (n.b < 0.0) continue;
     vec2 b = wrapDelta(n.xy - gl_FragCoord.xy);
     vec2 ab = b - a;
-    if (dot(ab, ab) > 2.25) continue;
-    d = min(d, sdSegment(vec2(0.0), a, b));
+    if (!(i == 0 && j == 0) && !(n.b < 0.0) && !(dot(ab, ab) > 2.25)) d = min(d, sdSegment(vec2(0.0), a, b));
   }
   oColor = vec4(sgn * d, s.xy, 1.0);
 }
@@ -179,14 +186,14 @@ void main() {
   for (int j = -R; j <= R; j++)
   for (int i = -R; i <= R; i++) {
     vec4 n = fetchT(tSeed, c + ivec2(i, j));
-    if (n.b < 0.0) continue;
     vec2 q = wrapDelta(n.xy - s.xy);
     float qq = dot(q, q);
-    if (qq > r2 + 0.5) continue;
-    float w = exp(-2.0 * qq / r2);
-    m += w * q;
-    m2 += w * vec3(q.x * q.x, q.x * q.y, q.y * q.y);
-    ws += w;
+    if (!(n.b < 0.0) && !(qq > r2 + 0.5)) {
+      float w = exp(-2.0 * qq / r2);
+      m += w * q;
+      m2 += w * vec3(q.x * q.x, q.x * q.y, q.y * q.y);
+      ws += w;
+    }
   }
   m /= ws;
   vec3 C = m2 / ws - vec3(m.x * m.x, m.x * m.y, m.y * m.y);
@@ -202,6 +209,13 @@ void main() {
   oColor = s;
 }
 `;
+
+/** A short hash of a custom source's GLSL, to cache its materials by. */
+function hashText(s: string): string {
+	let h = 5381;
+	for (let i = 0; i < s.length; i++) h = (Math.imul(h, 33) ^ s.charCodeAt(i)) | 0;
+	return (h >>> 0).toString(36);
+}
 
 function nextPow2(n: number): number {
 	let p = 1;
@@ -235,10 +249,12 @@ export function jumpFlood(ctx: FilterContext, opts: DistanceFieldOptions): THREE
 	const pong = ctx.scratch(`${name}:b`);
 	const out = ctx.scratch(`${name}:dist`);
 
-	// A custom source is compiled into its own seed and final materials.
+	// A custom source is compiled into its own seed and final materials, with the layer's params. The other passes don't
+	// depend on the layer: one program each for the whole app.
 	const custom = opts.source === DISTANCE_SOURCE.custom && opts.custom ? `#define JFA_CUSTOM\n${opts.custom}\n` : '';
-	const variant = custom ? `:${name}` : '';
-	const seedMat = ctx.material(`jfa:seed${variant}`, custom + SEED, sourceUniforms());
+	const material = (key: string, body: string, extra: Uniforms) =>
+		custom ? ctx.material(`${key}:${hashText(custom)}`, custom + body, extra) : ctx.sharedMaterial(key, body, extra);
+	const seedMat = material('jfa:seed', SEED, sourceUniforms());
 	setSource(seedMat, opts);
 	ctx.run(seedMat, seeds);
 
@@ -246,7 +262,7 @@ export function jumpFlood(ctx: FilterContext, opts: DistanceFieldOptions): THREE
 	const relax = Math.min(6, Math.max(0, opts.relax ?? 0));
 	if (relax > 0.25) {
 		seedTex = ctx.scratch(`${name}:relax`);
-		const relaxMat = ctx.material('jfa:relax', RELAX, { tSeed: { value: null }, uRelax: { value: 1 } });
+		const relaxMat = ctx.sharedMaterial('jfa:relax', RELAX, { tSeed: { value: null }, uRelax: { value: 1 } });
 		relaxMat.uniforms.tSeed.value = seeds.texture;
 		relaxMat.uniforms.uRelax.value = relax;
 		ctx.run(relaxMat, seedTex);
@@ -259,7 +275,7 @@ export function jumpFlood(ctx: FilterContext, opts: DistanceFieldOptions): THREE
 	for (let k = Math.min(full, limit); k >= 1; k = Math.floor(k / 2)) steps.push(k);
 	steps.push(1); // JFA+1: one extra unit step fixes most of the flood's rare misses.
 
-	const stepMat = ctx.material('jfa:step', STEP, { tJfa: { value: null }, uJfaStep: { value: 1 } });
+	const stepMat = ctx.sharedMaterial('jfa:step', STEP, { tJfa: { value: null }, uJfaStep: { value: 1 } });
 	let src = seedTex;
 	let dst = ping;
 	for (const k of steps) {
@@ -270,7 +286,7 @@ export function jumpFlood(ctx: FilterContext, opts: DistanceFieldOptions): THREE
 		dst = dst === ping ? pong : ping;
 	}
 
-	const finalMat = ctx.material(`jfa:final${variant}`, custom + FINAL, {
+	const finalMat = material('jfa:final', FINAL, {
 		...sourceUniforms(),
 		tJfa: { value: null },
 		tSeed: { value: null }
