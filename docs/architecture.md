@@ -224,6 +224,11 @@ The common generator wrapper then:
    leaves 0 would stall the drag.
    Anti-alias is read by the generator (`u_aa`); one that covers everything hides it (Hammered), Caustics the whole
    card.
+   **Soft edge** (`soft_edge`, px, both kinds) fades the layer's coverage in from its drawn outline (d = 0.5) to full that
+   far inside (`softEdge()` in GLSL_BEVEL), so every channel blends into what is under it; the mask it writes keeps the
+   plain distance. **Dilate** (`dilate`, px) grows the shape: `dilateShape()` shifts `GenOut.sdf` and `bdist` before
+   anything reads them (so the bevel, Soft edge and the mask it writes all follow) and widens the coverage to the new
+   outline; a mask-only generator's own value is what it gives out there (Splats: thin liquid).
 3. **Shaping.** `domain warp` (the sample position is displaced by smooth noise before `gen()` — the whole pattern
    warps coherently), `invert`, input levels (`lo..hi`), `gamma`, `posterize steps`, and a `cutoff` that keeps coverage
    only where the shaped value reaches it (sparse flecks from white noise, islands from fBm). The Value section

@@ -212,7 +212,23 @@ export const SDF_PARAMS: ParamDef[] = [
 		showIf: (p) => Number(p.bevel) > 0 && p.profile !== 'flat',
 		hint: 'Top / bottom bevel width against left / right: the two trade around Bevel (their geometric mean) — 2 makes top and bottom bevels 1.41× Bevel and left and right 0.71× (the ends of vertical planks round off twice as far in as their sides), 0.5 the reverse. Slanted edges and corners fall in between'
 	}),
-	P.bool('aa', 'Anti-alias', true, { group: 'shaping', section: 'Edge', hint: 'Off gives hard pixel edges' })
+	P.bool('aa', 'Anti-alias', true, { group: 'shaping', section: 'Edge', hint: 'Off gives hard pixel edges' }),
+	P.float('soft_edge', 'Soft edge', 0, 0, 256, {
+		softMax: 16,
+		unit: 'px',
+		step: 0.1,
+		group: 'shaping',
+		section: 'Edge',
+		hint: 'Fades the layer in over this far inside its outline — colour, height and every other channel blend into what is under it. The shape (and the mask it writes) stays where it is'
+	}),
+	P.float('dilate', 'Dilate', 0, 0, 256, {
+		softMax: 16,
+		unit: 'px',
+		step: 0.1,
+		group: 'shaping',
+		section: 'Edge',
+		hint: 'Grows the shape outwards by this far — what it draws and the mask it writes'
+	})
 ];
 
 /** The Edge card of a mask-only SDF layer (sdf: 'mask'): no bevel until asked for. */
@@ -247,6 +263,16 @@ float bevelAt(float d, vec2 g) {
   if (u_bevel <= 0.0 || u_profile == 0) return 1.0;
   return profileCurve(u_profile, max(-d, 0.0) / bevelWidth(g));
 }
+// Edge › Soft edge: the layer fading in from its outline (d = 0.5, where anti-aliasing reaches 0) to full a Soft edge
+// inside; 1 at 0.
+// Edge › Dilate: the shape grown outwards (its distances shifted), its coverage reaching the new outline.
+void dilateShape(inout GenOut g, inout float cov) {
+  if (u_dilate <= 0.0 || g.sdf <= NO_SDF) return;
+  g.sdf -= u_dilate;
+  if (g.bdist > NO_SDF) g.bdist -= u_dilate;
+  cov = max(cov, coverage(g.sdf, u_aa));
+}
+float softEdge(float d) { return u_soft_edge > 0.0 ? 1.0 - smoothstep(0.5 - u_soft_edge, 0.5, d) : 1.0; }
 // Whether the exact stretched bevels run: a Bevel and an aspect other than 1. Only the shader variant compiled for such a
 // layer (BEVEL_ASPECT) has them at all; at aspect 1 the plain bevel is the same, so the default compile carries none of
 // that code.
@@ -638,6 +664,7 @@ ${
   // Writing its shape (Mask › Write to), the layer combines it with the mask by the Mode (index + 1 = sdfCombine op) and
   // draws the combined shape. The combined distance and its screen-space gradient (Bevel aspect) are taken before
   // branching: derivatives need uniform control flow.
+  dilateShape(g, cov);
   int op = uMaskKind == 1 ? u_mk_op + 1 : 0;
   float d = op == 0 ? g.sdf : sdfCombine(op, prevReg, g.sdf, u_mk_smooth);
   vec2 dGrad = vec2(dFdx(d), dFdy(d));
@@ -669,6 +696,7 @@ ${
       // symmetrically across the boundary; profiled bevels rise from 0 at the edge.
       value = bev;
     }
+    cov *= softEdge(d);
   }
 `
 		: ''
@@ -681,6 +709,7 @@ ${
   // stands until a bevel is asked for. It is in every compile of the type (≈0.1 s), not a variant: a variant compiling
   // when the Bevel slider leaves 0 would stall the drag far longer. Its coverage stays its own (Anti-alias is the
   // generator's to apply). The gradient is taken before branching: derivatives need uniform control flow.
+  dilateShape(g, cov);
   float bd = g.bdist > NO_SDF ? g.bdist : g.sdf;
   vec2 gGrad = vec2(dFdx(bd), dFdy(bd));
   if (bd > NO_SDF && u_bevel > 0.0) {
@@ -699,6 +728,7 @@ ${
       if (u_mk_feather > 0.0) maskOut.x = clamp(d / u_mk_feather, -0.5, 0.5);
     }
     shapeV = clamp(0.5 - d, 0.0, 1.0);
+    cov *= softEdge(g.sdf);
   }
 `
 		: ''

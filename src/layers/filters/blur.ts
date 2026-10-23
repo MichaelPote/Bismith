@@ -15,8 +15,11 @@ void main() {
   vec4 A = texelFetch(tAlbedo, c, 0);
   vec4 S = texelFetch(tSurface, c, 0);
   vec4 E = texelFetch(tEmissive, c, 0);
-  int R = gaussTaps(uSigma);
-  float k = gaussK(uSigma);
+  // Feather: the radius growing from 0 on the limit's outline to full a Feather inside it (its distance in tLimit.x).
+  float sigma = uSigma;
+  if (u_feather > 0.0 && uLimit != 0.0) sigma *= clamp(-uLimit * texelFetch(tLimit, c, 0).x / u_feather, 0.0, 1.0);
+  int R = gaussTaps(sigma);
+  float k = gaussK(sigma);
   bool doA = u_diffuse || u_opacity;
   bool doS = u_height || u_roughness;
   vec3 rgbW = vec3(0.0), rgbP = vec3(0.0);
@@ -62,6 +65,13 @@ export const blurLayer: LayerDef = {
 			unit: 'px',
 			step: 0.1,
 			hint: 'Kernel reaches ~1.5 × radius (σ = radius / 2)'
+		}),
+		P.float('feather', 'Feather', 0, 0, 256, {
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => String(p.lim_1 ?? '').trim() !== '',
+			hint: 'With Limit to: no blur on the mask’s outline, rising to the full Radius this far inside it — the inside smooths out while the edges stay crisp'
 		}),
 		P.bool('diffuse', 'Diffuse', true),
 		P.bool('height', 'Height', true),

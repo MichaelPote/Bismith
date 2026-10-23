@@ -53,6 +53,8 @@ Lengths are px; heights are unitless (1.0 = `heightDepth` px).
 - **`blur`** (filter) — `radius` (σ = radius / 2, kernel ≈ 1.5 × radius), toggles `diffuse`, `height`,
   `roughness`, `emissive`, `opacity` (when opacity is blurred, colour is alpha-weighted so cut-outs don't
   bleed). Two MRT passes through the state ping-pong; metallic passes through (filters never change masks).
+  `feather` (px, with a Limit to): the radius grows per pixel from 0 on the limit's outline to full that far inside
+  (read from the limit's distance), so a limited blur smooths a shape's inside without smearing its edge.
 - **`bevel`** (filter) — `source` (`height` | `opacity` | `luminance` | `mask`), `source_mask` (a mask by name,
   Shape by default), `threshold`, `smooth` (edge smoothing, JFA sources only), `invert`, `width`, `profile` (shared `PROFILES`), `depth`,
   `direction` (`inner` | `outer` | `both`), `combine` (`add` | `max` | `min` | `replace`).
