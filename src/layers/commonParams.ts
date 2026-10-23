@@ -215,6 +215,9 @@ export const SDF_PARAMS: ParamDef[] = [
 	P.bool('aa', 'Anti-alias', true, { group: 'shaping', section: 'Edge', hint: 'Off gives hard pixel edges' })
 ];
 
+/** The Edge card of a mask-only SDF layer (sdf: 'mask'): no bevel until asked for. */
+export const MASK_SDF_PARAMS: ParamDef[] = SDF_PARAMS.map((p) => (p.key === 'bevel' ? { ...p, default: 0 } : p));
+
 /**
  * GLSL for SDF layers (needs their u_bevel, u_bevel_aspect, u_profile): the bevel profile at signed distance d (px,
  * < 0 inside) with screen-space gradient g — 0 at the edge rising to 1 a bevel in. Bevel aspect a makes left / right
@@ -672,6 +675,20 @@ ${
 }${
 	sdf === 'mask'
 		? /* glsl */ `
+  // The Edge card on the generator's own shape: its value (and Height value) × the bevel profile of its distance — that
+  // of the shape it writes, or GenOut.bdist (plain px) when its bevel follows more than it writes (Scratches: the faint
+  // ones too) — and its own signed height inside the shape (a lip outside stays). 1 at Bevel 0, so the generator's look
+  // stands until a bevel is asked for. It is in every compile of the type (≈0.1 s), not a variant: a variant compiling
+  // when the Bevel slider leaves 0 would stall the drag far longer. Its coverage stays its own (Anti-alias is the
+  // generator's to apply). The gradient is taken before branching: derivatives need uniform control flow.
+  float bd = g.bdist > NO_SDF ? g.bdist : g.sdf;
+  vec2 gGrad = vec2(dFdx(bd), dFdy(bd));
+  if (bd > NO_SDF && u_bevel > 0.0) {
+    float bev = bevelAt(bd, gGrad);
+    value *= bev;
+    if (g.hval >= 0.0) g.hval *= bev;
+    if (g.height > NO_SDF && bd < 0.0) g.height *= bev;
+  }
   if (g.sdf > NO_SDF) {
     // A shape for the mask only: the generator shapes its own value and coverage around it.
     int op = uMaskKind == 1 ? u_mk_op + 1 : 0;

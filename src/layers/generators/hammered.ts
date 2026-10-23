@@ -143,6 +143,8 @@ export const hammeredLayer: LayerDef = {
 	// The dents as discs, for a mask (opt-in: a hammered sheet usually works inside a plate's shape); the generator shapes
 	// its own value.
 	sdf: 'mask',
+	// Edge › Bevel rounds the dents' rims; no Anti-alias (the sheet covers everything).
+	sdfShowIf: (_p, key) => key !== 'aa',
 	migrate: migrateHammered,
 	defaults: {
 		mk_target: '',
@@ -309,7 +311,8 @@ void hmSmax(inout float m, inout float S, float d, float k) {
 GenOut gen(vec2 p) {
   float ringW0 = max(u_ring, 0.5);
   float sp0 = max(u_spacing, 0.5);
-  bool wantSdf = uMaskKind != 0;
+  // The dents' distance: for the mask, and for Edge › Bevel (rounding each dent's rim).
+  bool wantSdf = uMaskKind != 0 || u_bevel > 0.0;
   // Region variation scales a region's dents by up to 2^±(rv / 2).
   float sMax = exp2(0.5 * u_region_var);
   // Stretch lengthens the dents: along the course (> 1) or across it (< 1), the other axis keeping its width.

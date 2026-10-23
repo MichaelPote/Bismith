@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "name": "Oil spill",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_eoke40j",
+      "type": "splats",
+      "name": "Oil spill",
+      "enabled": true,
+      "params": {
+        "count": 2,
+        "size": 14,
+        "size_var": 0.5,
+        "ragged": 0.45,
+        "tear": 0.6,
+        "edge": 0.6,
+        "splash": 0.15,
+        "jets": 8,
+        "jet_len": 2.2,
+        "drops": 1,
+        "reach": 2.5,
+        "mist": 0.2,
+        "aim": 0,
+        "one_sided": 0,
+        "gravity": 0,
+        "grav_angle": 0,
+        "runs": 3,
+        "run_len": 4,
+        "bead": 0.6,
+        "meniscus": 3,
+        "rim": 0,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#2c2216"
+            },
+            {
+              "pos": 1,
+              "color": "#0b0805"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 1,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.12,
+        "r_b": 0.05,
+        "r_opacity": 1,
+        "s_on": true,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0.55,
+        "s_b": 0.7,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2,
+        "aa": true
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_mghdd0k",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_7bzc00l",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Pools of black oil with a few drips round them, glossy",
+  "preview": "data:image/webp;base64,UklGRmIEAABXRUJQVlA4WAoAAAAgAAAAfwAAfwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggdAIAAHARAJ0BKoAAgAA+tVagTKclIyIplrp44BaJaQAWzr5DfQOxVMmVA90L3Iz7y9LBziL8w6kDxv9Bkrc1TE8tzh6qraahXdDxokg/tAZ6oIF6gEtTo+7BDtzQeTpYLcNbvYigY3WMUIerkvd8cArz4DQwGXqPXpzmTxC9g8O356McVs9UO/VYAq0LeiPZtHnFeNDQDoAA/ubNubD8t9h6bCBwYk0ET2GkiOARYcOnmFvOIqq1o5HYOk1IBgeJcKezCsc23lSE3jqnYw6+J+us7rXblpSwDE0lPekngoayL95vXm2dQ8FXF2UnPOgiUCtaSgpysgmLp9PZG6B8AtblP2ZQDVTbLIetS/L2dWZTCeAR7VN8OKUxaDKkAiH56sSrKS4hT6aaXGZqtAJEctB6BhVLEbfvrDE41nDaUkaDHhwc3SgHmo0jXDCAe2v5gL32PFLVOd+bjCDfRPoUCR0LR1Onm3nPz9bLNXy4IjOq1N0F+y7ub4hJTHoFrAXwcyxi5WjNbID2ZnThrxt805XI1se5aJB8p+KIW9wG1GC4cEF+CBZZ/axPhvcub0BgBn8Ni9l1NUHO79DHtcus7eRzsU5oEUTM5TRIgOX06IKTW6Iw006LuQ+tjUL8WNJiBSxPffm4tJVQwEuMlj5iTICd3ZoyHr2ptsXbUOjfy7uH/Z5VSrhrc9T1V72s750jkpRDUt3xvmuawhxalyDMeV6cf9AkvRNctFrQqz2RCml28aMdSuZ5ocKpXSsl5FGiYxhd4P0iPnDi2tf1Tkkqrpbf3uCH8KKISWCykmzJBll7g/PgO5dcfL74/jV/ocK6b2LQcSYAAAA=",
+  "preset": {
+    "id": "pr_nokz7vk",
+    "category": "Liquids",
+    "kind": "layer",
+    "target": "splats"
+  }
+}

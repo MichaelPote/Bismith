@@ -425,7 +425,7 @@ export const concrete: RecipeDef = {
 						start: 0.6,
 						fade: 0.9,
 						wobble: 0.3,
-						hard: false,
+						aa: true,
 						seed: seed + 10,
 						h_on: false,
 						dif_on: true,

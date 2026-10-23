@@ -196,7 +196,7 @@ bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out flo
   }
   dens *= dr_wA() * dr_cluster((vec2(cw) + 0.5) * cs, cs);
   if (hashI(cw, uSeed + 5.0) >= dens) return false;
-  if (u_hard) src = floor(src) + 0.5;  // pixel centres, so 1 px trails and heads hit whole pixels
+  if (!u_aa) src = floor(src) + 0.5;  // pixel centres, so 1 px trails and heads hit whole pixels
   return true;
 }
 
@@ -210,7 +210,7 @@ bool dr_ledgeSource(ivec2 c, vec2 cellsB, vec2 csA, out ivec2 cw, out vec2 src, 
   drop = max(b.z, 0.0);
   cov = b.z >= 0.0 ? dr_span(b.xy) : 1.0;
   float dens = u_density * dr_wB() * dr_ledgeOk(drop) * dr_cluster((vec2(cw) + 0.5) * (uRes / cellsB), csA);
-  if (u_hard) src = floor(src) + 0.5;
+  if (!u_aa) src = floor(src) + 0.5;
   return b.z >= 0.0 && hashI(cw, uSeed + 7924.0) < dens;
 }
 
@@ -392,7 +392,7 @@ export const dripsLayer: LayerDef = {
 			softMax: 16,
 			unit: 'px',
 			step: 0.05,
-			showIf: (p) => stains(p) && !p.hard,
+			showIf: (p) => stains(p) && p.aa !== false,
 			hint: 'Blurs every edge of the stain over this many px: the trail, the wash, the runnels, their ends (0 = crisp, anti-aliased)'
 		}),
 		P.float('wander', 'Meander length', 28, 2, 2048, {
@@ -544,12 +544,14 @@ export const dripsLayer: LayerDef = {
 			showIf: sources,
 			hint: 'Blisters along every ledge too (the lower edges of raised features, by the ledge settings above), growing with the radius: 0 = only at the sources, 1 = as fast as the spots'
 		}),
-		P.bool('hard', 'Hard edges', true, { hint: 'No anti-aliasing (pixel art)' }),
 		P.seed()
 	],
 	groups: [{ id: 'relief', label: 'Relief' }],
 	// Sources: the blisters' outline goes to its mask; Drips shapes the peel itself.
 	sdf: 'mask',
+	// The Runnels style's stains (the ragged wash and its runnels) in a variant of their own: they were well over half of
+	// the cold compile, and Streak and Sources don't need them.
+	shaderFeatures: (p) => (isRunnels(p) ? ['DR_RUNNELS'] : []),
 	sdfShowIf: sources,
 	textures: ['ledges', 'cells', 'flow'],
 	prepare(ctx, layer): Record<string, Texture> {
@@ -638,6 +640,11 @@ export const dripsLayer: LayerDef = {
 	},
 	migrate: (p) => {
 		let q = p;
+		// Hard edges became the Edge card's Anti-alias.
+		if (q.hard !== undefined) {
+			const { hard, ...rest } = q;
+			q = { aa: hard !== true, ...rest };
+		}
 		// Before the blisters had their own radius, Sources used the head size (at least 0.75 px).
 		if (q.output === 'source' && q.blister === undefined && q.head !== undefined)
 			q = { ...q, blister: Math.max(Number(q.head), 0.75) };
@@ -682,13 +689,15 @@ export const dripsLayer: LayerDef = {
 			soft: r1(0.75 * k),
 			start: 0.9,
 			fade: 1.1,
-			hard: false,
+			aa: true,
 			// Sources, should the output be switched: blisters sized to the texture too.
 			blister: r1(1.5 * k),
 			lift_width: r1(1.2 * k)
 		};
 	},
 	defaults: {
+		// Pixel-crisp by default (Edge › Anti-alias).
+		aa: false,
 		h_on: false,
 		dif_on: true,
 		dif_grad: {
@@ -764,10 +773,10 @@ GenOut dr_peel(vec2 p, vec2 q, float d, float rnd, float lam0, int nL, float tea
   // The floor: a step down at the edge, then deeper towards the middle (over half the radius), unevenly.
   float bowl = smoothstep(0.0, max(1.5, 0.5 * R), -d) * (0.4 + 1.2 * n1);
   float floorH = -u_depth * (0.62 + 0.3 * bowl + 0.15 * tear);
-  float hole = u_hard ? (d <= 0.0 ? 1.0 : 0.0) : clamp(0.5 - d / 1.5, 0.0, 1.0);
+  float hole = !u_aa ? (d <= 0.0 ? 1.0 : 0.0) : clamp(0.5 - d / 1.5, 0.0, 1.0);
   // (The height ramps from the lifted lip down into the hole over a few px when anti-aliased — a slope, not a cliff.)
   float rampH = max(1.5, 0.4 * u_lift_width);
-  float holeH = u_hard ? hole : smoothstep(rampH, -rampH, d);
+  float holeH = !u_aa ? hole : smoothstep(rampH, -rampH, d);
   // The value is the floor's roughness, for a ramp to shade the rust by (darker, eaten deeper); coverage, the hole.
   return genOutHeight(clamp(0.78 + 0.2 * tear + 0.12 * bowl, 0.0, 1.0), hole, rnd, d, mix(lift, floorH, holeH));
 }
@@ -808,7 +817,7 @@ float dr_bj(float base, float y, float lam, float hwF, float rs, int j) {
 // Coverage of a signed distance (px, < 0 inside): stepped when hard, else anti-aliased over 1 + Softness px (eased
 // when soft, so a blurred edge has no visible ramp ends).
 float dr_cov(float dist) {
-  if (u_hard) return step(dist, 0.0);
+  if (!u_aa) return step(dist, 0.0);
   float c = clamp(0.5 - dist / (1.0 + u_soft), 0.0, 1.0);
   return u_soft > 0.0 ? c * c * (3.0 - 2.0 * c) : c;
 }
@@ -816,9 +825,10 @@ float dr_cov(float dist) {
 // One runnel-style stain, d from its source (px, y down), length len, head width w, strength st, per-stain seed rs,
 // shape sh (seep width, fan-out, taper), led 1 when it falls from a ledge: its strength here (already anti-aliased: the
 // caller uses it as both value and coverage).
+#ifdef DR_RUNNELS
 float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float led) {
   float lam = max(u_wander, 2.0);
-  float e = u_hard ? 0.0 : u_soft;
+  float e = !u_aa ? 0.0 : u_soft;
   float hwF = 0.5 * w;
   if (d.y < -2.0 - u_runnel_width - e || d.y > len + 6.0 * u_runnel_width + 2.0 + e) return 0.0;
   if (abs(d.x) > u_wobble + hwF * (1.0 + max(-sh.z, 0.0)) + 3.0 * u_runnel_width + 2.0 + e) return 0.0;
@@ -924,12 +934,13 @@ float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float 
   }
   return best;
 }
+#endif
 
 GenOut gen(vec2 p) {
   vec2 q = vec2(p.x, uRes.y - p.y);          // user space, y down (the direction drips run)
   bool blisters = u_output == 1;
   bool runnels = !blisters && u_style == 1;
-  float e = u_hard ? 0.0 : u_soft;
+  float e = !u_aa ? 0.0 : u_soft;
   // Two sets of source cells (see dr_wA): A the grid, B the ledges. For each, the cells to visit: columns either side
   // (cr) and rows from rs in steps of rowStep (nr of them); and for stains the longest trail its search can reach.
   vec2 cellsA = vec2(float(u_cols), float(u_rows));
@@ -1051,14 +1062,16 @@ GenOut gen(vec2 p) {
           w *= 1.0 + 0.5 * led * (hv.x + 0.5);
           // A drip off a short ledge (a rivet) runs on longer, faint, past the next rivet down rather than stopping.
           if (drop > 1e-4) len = min(len * mix(1.6, 1.0, lcov), isB ? capB : capA);
+#ifdef DR_RUNNELS
           float sr = dr_runnels(d, len, w, st, uSeed + 977.0 * rnd, sh, led);
           if (sr > v * cov) { v = sr; cov = 1.0; }
+#endif
         } else if (d.y >= -0.5 * e && d.y <= len) {
           // Trail below the source.
           float t = clamp(d.y / max(len, 1e-3), 0.0, 1.0);
           float cx = u_wobble * (sin(d.y * 0.7 * wf + rnd * 40.0) * 0.6 + sin(d.y * 0.23 * wf + rnd * 17.0) * 0.4);
           float hw = 0.5 * w * (1.0 - 0.5 * t);
-          if (u_hard) { cx = floor(cx + 0.5); hw = max(hw, 0.5); }
+          if (!u_aa) { cx = floor(cx + 0.5); hw = max(hw, 0.5); }
           float ct = dr_cov(abs(d.x - cx) - hw) * (e > 0.0 ? smoothstep(-0.5 * e, 0.5 * e, d.y) : 1.0);
           float vt = st * pow(1.0 - t, u_fade);
           if (ct > 0.0 && vt * ct > v * cov) { v = vt; cov = ct; }

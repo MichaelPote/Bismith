@@ -18,6 +18,7 @@ import {
 	OUTPUT_PARAMS,
 	PHASE_PARAM,
 	SDF_PARAMS,
+	MASK_SDF_PARAMS,
 	SHAPING_PARAMS,
 	WARP_PHASE_PARAM
 } from './commonParams';
@@ -50,7 +51,9 @@ export function registerLayer(def: LayerDef): void {
 					? [...own, PHASE_PARAM]
 					: [...own.slice(0, seedAt), PHASE_PARAM, ...own.slice(seedAt)];
 		const shaping = hasPhase || def.noise ? SHAPING_PARAMS : [...SHAPING_PARAMS, WARP_PHASE_PARAM];
-		let shape = def.sdf === true ? SDF_PARAMS : [];
+		// Shape layers and mask-only ones alike get the Edge card; on a mask-only layer the bevel shapes the generator's own
+		// value, so it starts at 0 (the generator's look) there.
+		let shape = def.sdf === true ? SDF_PARAMS : def.sdf === 'mask' ? MASK_SDF_PARAMS : [];
 		const when = def.sdfShowIf;
 		if (when)
 			shape = shape.map((p) => ({ ...p, showIf: (v: ParamValues) => when(v, p.key) && (!p.showIf || p.showIf(v)) }));

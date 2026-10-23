@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "name": "Blood splatter",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_0sikj01",
+      "type": "splats",
+      "name": "Blood splatter",
+      "enabled": true,
+      "params": {
+        "count": 3,
+        "size": 10,
+        "size_var": 0.5,
+        "ragged": 0.5,
+        "tear": 0.5,
+        "edge": 0.6,
+        "splash": 0.7,
+        "jets": 8,
+        "jet_len": 2.2,
+        "drops": 1,
+        "reach": 2.5,
+        "mist": 1,
+        "aim": 0,
+        "one_sided": 0,
+        "gravity": 0,
+        "grav_angle": 0,
+        "runs": 3,
+        "run_len": 4,
+        "bead": 0.6,
+        "meniscus": 2,
+        "rim": 0,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#c0160f"
+            },
+            {
+              "pos": 1,
+              "color": "#7d0807"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 1,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.25,
+        "r_b": 0.06,
+        "r_opacity": 1,
+        "s_on": true,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0.5,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2,
+        "aa": true
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_pel5u02",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_t3cg803",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Blood thrown at a surface: torn cores, long jets and a spray of droplets (paint and relief)",
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "id": "pr_y2m4vs7",
+    "category": "Liquids",
+    "kind": "layer",
+    "target": "splats"
+  }
+}

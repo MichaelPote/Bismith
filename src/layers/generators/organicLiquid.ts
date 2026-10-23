@@ -857,6 +857,9 @@ export const causticsLayer: LayerDef = {
 	// The cells (inside the rims / cracks) go to a mask when it writes one — e.g. a crust only on the blobs. None by
 	// default: a value pattern shouldn't replace the Shape mask unless asked.
 	sdf: 'mask',
+	// No Edge card: the caustics don't follow the cells' outline (a bevel would only darken towards it), and they cover
+	// everything (nothing to anti-alias). The shape still goes to the mask.
+	sdfShowIf: (_p, key) => key === undefined,
 	defaults: {
 		mk_target: '',
 		dif_on: true,

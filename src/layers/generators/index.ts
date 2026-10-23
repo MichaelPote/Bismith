@@ -9,6 +9,7 @@ import { GREEBLE_LAYERS } from './greeble';
 import { STAMP_LAYERS } from './stamp';
 import { cableLayer } from './cable';
 import { dripsLayer } from './drips';
+import { splatsLayer } from './splats';
 import { hammeredLayer } from './hammered';
 import { tabsLayer } from './tabs';
 import { tracesLayer } from './traces';
@@ -34,6 +35,7 @@ export const GENERATORS: LayerDef[] = [
 	...STAMP_LAYERS,
 	cableLayer,
 	dripsLayer,
+	splatsLayer,
 	hammeredLayer,
 	tabsLayer,
 	tracesLayer,

@@ -18,10 +18,11 @@ ensureBuiltins();
 const def = (key: string) => layerParamDefs('drips').find((p) => p.key === key)!;
 
 describe('drips blisters', () => {
-	it('writes the Shape mask without the bevel params', () => {
+	it('writes the Shape mask, with an Edge card whose bevel starts off', () => {
 		const keys = layerParamDefs('drips').map((p) => p.key);
-		expect(keys).toEqual(expect.arrayContaining(['mk_target', 'mk_op', 'mk_smooth']));
-		expect(keys).not.toContain('bevel');
+		expect(keys).toEqual(expect.arrayContaining(['mk_target', 'mk_op', 'mk_smooth', 'bevel', 'aa']));
+		expect(def('bevel').default).toBe(0);
+		expect(def('aa').default).toBe(false);
 		expect(def('mk_target').group).toBe('mask');
 		expect(def('mk_target').default).toBe('Shape');
 		expect(layerGroups(getLayerDef('drips')!).map((g) => g.id)).not.toContain('shape');
@@ -127,11 +128,11 @@ describe('drips stains', () => {
 	it('starts editor layers as a detailed stain from 128 px, crisp pixel streaks below', () => {
 		expect(freshParams('drips', { width: 512, height: 512 })).toMatchObject({
 			style: 'runnels',
-			hard: false,
+			aa: true,
 			dif_blend: 'multiply'
 		});
 		expect(freshParams('drips', { width: 64, height: 64 })).toMatchObject({ style: 'streak', dif_blend: 'multiply' });
-		expect(freshParams('drips', { width: 64, height: 64 }).hard).toBeUndefined();
+		expect(freshParams('drips', { width: 64, height: 64 }).aa).toBeUndefined();
 	});
 
 	it('fits the editor defaults in the ranges at every size up to 2048 px', () => {
@@ -149,9 +150,9 @@ describe('drips stains', () => {
 	});
 
 	it('hides the controls a style or switch does not use', () => {
-		const runnels = { ...createLayer('drips').params, style: 'runnels', hard: false };
+		const runnels = { ...createLayer('drips').params, style: 'runnels', aa: true };
 		expect(def('soft').showIf!(runnels)).toBe(true);
-		expect(def('soft').showIf!({ ...runnels, hard: true })).toBe(false);
+		expect(def('soft').showIf!({ ...runnels, aa: false })).toBe(false);
 		expect(def('streak_w').showIf!({ ...runnels, streaks: 0 })).toBe(false);
 		expect(def('streak_w').showIf!(runnels)).toBe(true);
 		expect(def('fan').showIf!({ ...runnels, style: 'streak' })).toBe(false);

@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "name": "Blood on a wall",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_6qqrf07",
+      "type": "splats",
+      "name": "Blood on a wall",
+      "enabled": true,
+      "params": {
+        "count": 3,
+        "size": 10,
+        "size_var": 0.5,
+        "ragged": 0.5,
+        "tear": 0.5,
+        "edge": 0.6,
+        "splash": 0.55,
+        "jets": 8,
+        "jet_len": 2.2,
+        "drops": 1,
+        "reach": 2.5,
+        "mist": 1,
+        "aim": 0,
+        "one_sided": 0,
+        "gravity": 1,
+        "grav_angle": 0,
+        "runs": 3,
+        "run_len": 4,
+        "bead": 0.6,
+        "meniscus": 2,
+        "rim": 0,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#c0160f"
+            },
+            {
+              "pos": 1,
+              "color": "#7d0807"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 1,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.25,
+        "r_b": 0.06,
+        "r_opacity": 1,
+        "s_on": true,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0.5,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2,
+        "aa": true
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_leoar08",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_83ymh09",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Blood splatter running down a wall in runs that end in a bead",
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "id": "pr_621p5qb",
+    "category": "Liquids",
+    "kind": "layer",
+    "target": "splats"
+  }
+}

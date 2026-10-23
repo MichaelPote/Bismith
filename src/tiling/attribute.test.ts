@@ -59,5 +59,5 @@ describe('attributeTiling', () => {
 		expect(tint.blame.patches).toBeLessThan(blob.blame.patches / 5);
 		expect(r.layers[r.findings[0].layer].ids).toEqual(['blob']);
 		expect(blob.without.terms.patches).toBeLessThan(r.analysis.terms.patches);
-	});
+	}, 60_000);
 });

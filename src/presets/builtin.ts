@@ -14,40 +14,44 @@ import f10 from '../../presets/layer/noise/rust-patches.json';
 import f11 from '../../presets/layer/noise/stone-grain.json';
 import f12 from '../../presets/layer/rock/rock-face.json';
 import f13 from '../../presets/layer/scratches/scratches.json';
-import f14 from '../../presets/layer/stone_blocks/frosted-blocks.json';
-import f15 from '../../presets/layer/stone_blocks/sandstone-ashlar.json';
-import f16 from '../../presets/layer/stone_blocks/slate-wall.json';
-import f17 from '../../presets/layer/voronoi/cobblestones.json';
-import f18 from '../../presets/light/raking-sun.json';
-import f19 from '../../presets/light/torch.json';
-import f20 from '../../presets/light/warm-key.json';
-import f21 from '../../presets/lighting/flat.json';
-import f22 from '../../presets/lighting/overhead.json';
-import f23 from '../../presets/lighting/raking.json';
-import f24 from '../../presets/lighting/torch.json';
-import f25 from '../../presets/lighting/ui-key.json';
-import f26 from '../../presets/material/liquid/water.json';
-import f27 from '../../presets/post/clamp.json';
-import f28 from '../../presets/post/quake-palette.json';
-import f29 from '../../presets/post/soft-glow.json';
-import f30 from '../../presets/project/ashlar.json';
-import f31 from '../../presets/project/blank.json';
-import f32 from '../../presets/project/bricks.json';
-import f33 from '../../presets/project/button.json';
-import f34 from '../../presets/project/cobbles.json';
-import f35 from '../../presets/project/frost.json';
-import f36 from '../../presets/project/gem.json';
-import f37 from '../../presets/project/grass.json';
-import f38 from '../../presets/project/lichen.json';
-import f39 from '../../presets/project/panel.json';
-import f40 from '../../presets/project/plates.json';
-import f41 from '../../presets/project/riveted.json';
-import f42 from '../../presets/project/rock.json';
-import f43 from '../../presets/project/rustwall.json';
-import f44 from '../../presets/project/slate.json';
-import f45 from '../../presets/project/tech.json';
-import f46 from '../../presets/project/water.json';
-import f47 from '../../presets/project/well.json';
+import f14 from '../../presets/layer/splats/blood-on-a-wall.json';
+import f15 from '../../presets/layer/splats/blood-splatter.json';
+import f16 from '../../presets/layer/splats/oil-spill.json';
+import f17 from '../../presets/layer/splats/water-splash.json';
+import f18 from '../../presets/layer/stone_blocks/frosted-blocks.json';
+import f19 from '../../presets/layer/stone_blocks/sandstone-ashlar.json';
+import f20 from '../../presets/layer/stone_blocks/slate-wall.json';
+import f21 from '../../presets/layer/voronoi/cobblestones.json';
+import f22 from '../../presets/light/raking-sun.json';
+import f23 from '../../presets/light/torch.json';
+import f24 from '../../presets/light/warm-key.json';
+import f25 from '../../presets/lighting/flat.json';
+import f26 from '../../presets/lighting/overhead.json';
+import f27 from '../../presets/lighting/raking.json';
+import f28 from '../../presets/lighting/torch.json';
+import f29 from '../../presets/lighting/ui-key.json';
+import f30 from '../../presets/material/liquid/water.json';
+import f31 from '../../presets/post/clamp.json';
+import f32 from '../../presets/post/quake-palette.json';
+import f33 from '../../presets/post/soft-glow.json';
+import f34 from '../../presets/project/ashlar.json';
+import f35 from '../../presets/project/blank.json';
+import f36 from '../../presets/project/bricks.json';
+import f37 from '../../presets/project/button.json';
+import f38 from '../../presets/project/cobbles.json';
+import f39 from '../../presets/project/frost.json';
+import f40 from '../../presets/project/gem.json';
+import f41 from '../../presets/project/grass.json';
+import f42 from '../../presets/project/lichen.json';
+import f43 from '../../presets/project/panel.json';
+import f44 from '../../presets/project/plates.json';
+import f45 from '../../presets/project/riveted.json';
+import f46 from '../../presets/project/rock.json';
+import f47 from '../../presets/project/rustwall.json';
+import f48 from '../../presets/project/slate.json';
+import f49 from '../../presets/project/tech.json';
+import f50 from '../../presets/project/water.json';
+import f51 from '../../presets/project/well.json';
 
 export const BUILTIN_FILES: Record<string, unknown> = {
 	'layer/bricks/stone-bricks': f0,
@@ -64,38 +68,42 @@ export const BUILTIN_FILES: Record<string, unknown> = {
 	'layer/noise/stone-grain': f11,
 	'layer/rock/rock-face': f12,
 	'layer/scratches/scratches': f13,
-	'layer/stone_blocks/frosted-blocks': f14,
-	'layer/stone_blocks/sandstone-ashlar': f15,
-	'layer/stone_blocks/slate-wall': f16,
-	'layer/voronoi/cobblestones': f17,
-	'light/raking-sun': f18,
-	'light/torch': f19,
-	'light/warm-key': f20,
-	'lighting/flat': f21,
-	'lighting/overhead': f22,
-	'lighting/raking': f23,
-	'lighting/torch': f24,
-	'lighting/ui-key': f25,
-	'material/liquid/water': f26,
-	'post/clamp': f27,
-	'post/quake-palette': f28,
-	'post/soft-glow': f29,
-	'project/ashlar': f30,
-	'project/blank': f31,
-	'project/bricks': f32,
-	'project/button': f33,
-	'project/cobbles': f34,
-	'project/frost': f35,
-	'project/gem': f36,
-	'project/grass': f37,
-	'project/lichen': f38,
-	'project/panel': f39,
-	'project/plates': f40,
-	'project/riveted': f41,
-	'project/rock': f42,
-	'project/rustwall': f43,
-	'project/slate': f44,
-	'project/tech': f45,
-	'project/water': f46,
-	'project/well': f47
+	'layer/splats/blood-on-a-wall': f14,
+	'layer/splats/blood-splatter': f15,
+	'layer/splats/oil-spill': f16,
+	'layer/splats/water-splash': f17,
+	'layer/stone_blocks/frosted-blocks': f18,
+	'layer/stone_blocks/sandstone-ashlar': f19,
+	'layer/stone_blocks/slate-wall': f20,
+	'layer/voronoi/cobblestones': f21,
+	'light/raking-sun': f22,
+	'light/torch': f23,
+	'light/warm-key': f24,
+	'lighting/flat': f25,
+	'lighting/overhead': f26,
+	'lighting/raking': f27,
+	'lighting/torch': f28,
+	'lighting/ui-key': f29,
+	'material/liquid/water': f30,
+	'post/clamp': f31,
+	'post/quake-palette': f32,
+	'post/soft-glow': f33,
+	'project/ashlar': f34,
+	'project/blank': f35,
+	'project/bricks': f36,
+	'project/button': f37,
+	'project/cobbles': f38,
+	'project/frost': f39,
+	'project/gem': f40,
+	'project/grass': f41,
+	'project/lichen': f42,
+	'project/panel': f43,
+	'project/plates': f44,
+	'project/riveted': f45,
+	'project/rock': f46,
+	'project/rustwall': f47,
+	'project/slate': f48,
+	'project/tech': f49,
+	'project/water': f50,
+	'project/well': f51
 };

@@ -284,7 +284,11 @@ export const greeblesLayer: LayerDef = {
 			'Crossings',
 			'over',
 			[
-				['box', 'Junction box', 'a box over each crossing (Box size), the down route’s tubes passing over the other’s round it'],
+				[
+					'box',
+					'Junction box',
+					'a box over each crossing (Box size), the down route’s tubes passing over the other’s round it'
+				],
 				['over', 'Over and under', 'no box: the down route’s tubes pass over the across route’s']
 			],
 			{ group: 'chan', showIf: (p) => Number(p.routes) > 1 }

@@ -65,8 +65,9 @@ describe('fill patterns', () => {
 		// Adding scratches never replaces a Shape mask built above them; given a mask, they start in Normal mode.
 		expect([p.mk_target, p.mk_op]).toEqual(['', 'replace']);
 		expect(def('scratches', 'mk_target')?.group).toBe('mask');
-		// A mask-only shape: no Edge (bevel) controls.
-		expect(def('scratches', 'bevel')).toBeUndefined();
+		// A mask-only shape: the Edge card shapes the scratches' own value, its bevel off until asked for.
+		expect(def('scratches', 'bevel')?.default).toBe(0);
+		expect(def('scratches', 'aa')?.default).toBe(true);
 		expect(layerGroups(scratchesLayer).some((g) => g.id === 'shape')).toBe(false);
 	});
 

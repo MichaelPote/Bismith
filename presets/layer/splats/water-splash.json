@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "name": "Water splash",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_9nawy0d",
+      "type": "splats",
+      "name": "Water splash",
+      "enabled": true,
+      "params": {
+        "count": 3,
+        "size": 12,
+        "size_var": 0.5,
+        "ragged": 0.35,
+        "tear": 0.35,
+        "edge": 0.6,
+        "splash": 0.35,
+        "jets": 3,
+        "jet_len": 2.2,
+        "drops": 0.6,
+        "reach": 2.5,
+        "mist": 0.3,
+        "aim": 0,
+        "one_sided": 0,
+        "gravity": 0,
+        "grav_angle": 0,
+        "runs": 3,
+        "run_len": 4,
+        "bead": 0.6,
+        "meniscus": 2.5,
+        "rim": 0,
+        "seed": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "multiply",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#b4b0aa"
+            },
+            {
+              "pos": 1,
+              "color": "#9a968f"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 0.6,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "value",
+        "r_mode": "replace",
+        "r_a": 0.12,
+        "r_b": 0.04,
+        "r_opacity": 1,
+        "s_on": true,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0.5,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2,
+        "aa": true
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_h09l60e",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_n8yvq0f",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "description": "Water spilt on a surface: darker and glossy where wet, few jets",
+  "preview": "data:image/webp;base64,UklGRtIDAABXRUJQVlA4WAoAAAAgAAAAfwAAfwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgg5AEAAJANAJ0BKoAAgAA+tVqkTiclo6ImFqk44BaJaQAWzB7BttQb+/ZMWAa0YV6mrL1o9nYrmt5jsito7mAEiBOjAUXxMCWT9Hgvif+tq3q4abwfxftEpd7YSyjECgBRXApguSu8IFgBrYoFwuqpaNVhXd3hPmz2UAD+5AF03FC2fNh5Jfa6lbKs/b2B84+iGo+48Ae78LLAXv0ce3kBAks95PpT6PcIHcbQlkpalw2Fg8Tk3UC30ng1WHsfb1UWcE6yJ//P5dJnASJ9595z3NxMbkYv/FcVX8N0J9i9avDh6XXloUPdTSBz3SvvSTW0CObaMSiK+ueAc3vviW4cYD5t35rhuaD6nQCKXmLXbOetgkSHlNHFIzELqZLeSIBgcGElrfqrM2CawuPwW3qwXyaw6n5b06HSfh1WT7lo7cFnpJtdP8lnEZSXs1wVJcNEnfpk9ifmg6E6LPmwNePAeA1bth3fVZwlu+ve+y8eqViS2kTXBCsmDvRz/cToBoKbKojGzmnlKSwKK9yYh9F3MfuonT9eYvG0wk37jLL1inp7FB7IzMXCy0fkD2CoRXiM3OYnmvJNN3KTT/pIVTx1UdmOMz+Z6gDJpjga8fAxCSRqOkVnul7LTsV2OUgZWuY3O84aB6QOBAA=",
+  "preset": {
+    "id": "pr_43unpuz",
+    "category": "Liquids",
+    "kind": "layer",
+    "target": "splats"
+  }
+}

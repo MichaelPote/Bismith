@@ -429,8 +429,8 @@ GenOut gen(vec2 p) {
     float hm = (m == 0 ? hA : hB) + cableFibre(m == 0 ? fA : fB, m == 0 ? pA : pB, geo, K, cb, yp);
     H = m == 0 ? hm : mix(hm, H, cA);
   }
-  // Coverage: of the union of the tubes (the outline's anti-aliasing), whichever of them is on top.
-  float cov = over ? 1.0 : max(cA, clamp(0.5 - sdf, 0.0, 1.0));
+  // Coverage: of the union of the tubes (the outline's anti-aliasing, Edge › Anti-alias), whichever of them is on top.
+  float cov = over ? 1.0 : max(cA, coverage(sdf, u_aa));
   // Height over the bed, over the cable's depth above it (the colour's range). Height › Pattern takes it over at least a
   // tube's diameter, so crowns that barely rise out of a deep bed keep their own gentle height instead of being
   // stretched to the full range (the same value at sinks up to about a half).

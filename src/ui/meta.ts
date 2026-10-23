@@ -124,6 +124,7 @@ const TYPE_ICON: Record<string, Component> = {
 	wood: IconWood,
 	marble: IconTexture,
 	drips: IconDropletHalf2,
+	splats: IconBucketDroplet,
 	chips: IconAxe,
 	rock: IconMountain,
 	stone_blocks: IconWall,

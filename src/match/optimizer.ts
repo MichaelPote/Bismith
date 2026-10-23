@@ -663,7 +663,7 @@ export const DEFAULT_LIBRARY: LayerTemplate[] = [
 			width_var: 0.5,
 			start: 0.8,
 			fade: 0.9,
-			hard: false,
+			aa: true,
 			h_on: false,
 			dif_on: true,
 			dif_blend: 'multiply',

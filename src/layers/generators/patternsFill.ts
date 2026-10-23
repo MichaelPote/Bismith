@@ -1049,12 +1049,17 @@ export const scratchesLayer: LayerDef = {
 			showIf: (p) => String(p.mk_target ?? '').trim() !== '',
 			hint: 'Only scratches at least this strong (Strength jitter) go to the mask: faint scuffs left out of what later layers are limited to (rust in the deep cuts only)'
 		}),
-		P.bool('hard', 'Hard edges', false, { hint: 'No anti-aliasing (pixel art)' }),
 		P.seed()
 	],
 	// The scratches' outline (a signed distance to the nearest one) goes to a mask when given one: later layers are limited
 	// to the scratches (rust in them) or, in Subtract mode, to what's around them (paint that skips them).
 	sdf: 'mask',
+	// Hard edges became the Edge card's Anti-alias.
+	migrate: (p) => {
+		if (p.hard === undefined) return p;
+		const { hard, ...rest } = p;
+		return { aa: hard !== true, ...rest };
+	},
 	// Added in the editor: lengths, density and widths sized to the texture (the plain defaults suit about 128 px).
 	fresh: ({ width, height }) => {
 		const k = Math.max(1, Math.min(width, height) / 128);
@@ -1104,6 +1109,7 @@ GenOut gen(vec2 p) {
   ivec2 ip = ivec2(floor(p / cs));
   float cov = 0.0, val = 0.0, score = 0.0, rnd = 0.0;
   float sd = 1e4;          // signed distance to the nearest scratch (px, < 0 inside)
+  float sdAll = 1e4;       // … to any scratch, faint ones too (Edge › Bevel)
   float hv = 0.0;          // deepest groove here (× coverage)
   float lip = 0.0;         // highest burr here
   // One flat loop over the 3x3 cells (one copy of the body), each with its slots.
@@ -1202,17 +1208,18 @@ GenOut gen(vec2 p) {
         float f = 1.0;
         if (u_breakup > 0.0) f = mix(1.0, smoothstep(0.6 * u_breakup - 0.2, 0.6 * u_breakup + 0.2, nb) * (0.4 + 0.6 * nb), u_breakup);
         th *= sqrt(f);
-        float gap = u_breakup > 0.0 ? (u_hard ? step(0.1, f) : smoothstep(0.0, 0.2, f)) : 1.0;
-        float rad = u_hard ? max(0.5 * th, 0.5) : 0.5 * th;
+        float gap = u_breakup > 0.0 ? (!u_aa ? step(0.1, f) : smoothstep(0.0, 0.2, f)) : 1.0;
+        float rad = !u_aa ? max(0.5 * th, 0.5) : 0.5 * th;
         // Coverage: anti-aliased over a pixel; Shallow hairlines: a cut under a pixel wide covers as much less (its
         // area), so thin lines and their tapered ends fade out instead of ending in dashes.
-        float cv = u_hard ? (dist <= rad ? 1.0 : 0.0) : (u_fine && th < 1.0 ? th * clamp(1.0 - dist, 0.0, 1.0) : clamp(rad + 0.5 - dist, 0.0, 1.0));
+        float cv = !u_aa ? (dist <= rad ? 1.0 : 0.0) : (u_fine && th < 1.0 ? th * clamp(1.0 - dist, 0.0, 1.0) : clamp(rad + 0.5 - dist, 0.0, 1.0));
         cv *= gap;
         float st0 = 1.0 - g.y * u_fade;
         float st = st0 * f;
         if (cv * st > score) { score = cv * st; val = st; rnd = h.x; }
         cov = max(cov, cv);
         if (st0 >= u_mask_min) sd = min(sd, dist - rad + (1.0 - gap));
+        sdAll = min(sdAll, dist - rad + (1.0 - gap));
         // Relief: the groove's cross-section (flat for scratches under ~2 px), and the burr beside the cut.
         float gk = u_groove > 0.0 ? clamp(th - 1.0, 0.0, 1.0) : 0.0;
         float gp = 1.0 - gk * pow(clamp(dist / max(0.5 * th, 1e-3), 0.0, 1.0), 1.0 / max(u_groove, 1e-3));
@@ -1245,13 +1252,14 @@ GenOut gen(vec2 p) {
     }
   }
   // Hard edges: snap the distance off ±0.5, so the shape-mask coverage is as hard as the scratches.
-  if (u_hard) sd = sd <= 0.0 ? min(sd, -0.5) : max(sd, 0.5);
+  if (!u_aa) sd = sd <= 0.0 ? min(sd, -0.5) : max(sd, 0.5);
   // Height reads the deepest groove (hval, shaped like the value); with a burr or heap, a signed profile of its own: the
   // cut down, the lip up (Height's default Subtract mode sinks the first and raises the second) — no lip inside another
   // scratch's cut.
   float hval = cov > 0.0 ? clamp(hv / cov, 0.0, 1.0) : 0.0;
   float height = u_burr > 0.0 || u_heap > 0.0 ? hv - lip * (1.0 - cov) : NO_SDF;
-  return GenOut(val, cov, rnd, sd, 1.0, height, 0, hval, NO_SDF, rnd);
+  // The bevel follows every scratch (the mask only those past its threshold).
+  return GenOut(val, cov, rnd, sd, 1.0, height, 0, hval, u_bevel > 0.0 ? sdAll : NO_SDF, rnd);
 }
 `
 };

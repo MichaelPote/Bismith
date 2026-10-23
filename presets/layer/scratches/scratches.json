@@ -50,7 +50,6 @@
         "burr_width": 2,
         "fine": true,
         "mask_min": 0,
-        "hard": true,
         "seed": 1,
         "ofs_x": 0,
         "ofs_y": 0,
@@ -121,7 +120,8 @@
         "e_src": "value",
         "e_mode": "add",
         "e_color": "#ff9019",
-        "e_intensity": 2
+        "e_intensity": 2,
+        "aa": false
       }
     }
   ],

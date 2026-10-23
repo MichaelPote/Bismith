@@ -333,7 +333,7 @@ export const stains: RecipeDef = {
 		const style = String(m.style ?? 'auto');
 		const runnels = style === 'runnels' || (style === 'auto' && Math.max(ctx.width, ctx.height) >= 128);
 		const w = num(m.width, 3);
-		const flow = { style: 'runnels', wobble: r2(w), wander: r2(Math.max(8, len * 0.6)), hard: false };
+		const flow = { style: 'runnels', wobble: r2(w), wander: r2(Math.max(8, len * 0.6)), aa: true };
 		// Wide stains need a coarser source grid than 1 px streaks (scattered sources only; ledges keep theirs).
 		const cells: ParamValues =
 			runnels && !ledges
@@ -404,7 +404,7 @@ export const stains: RecipeDef = {
 						str_var: 0.3,
 						start: 0.7,
 						fade: 0.9,
-						hard: false,
+						aa: true,
 						...waterFlow,
 						h_on: false,
 						dif_on: true,
@@ -431,7 +431,7 @@ export const stains: RecipeDef = {
 						str_var: 0,
 						start: 1,
 						fade: 1,
-						hard: true,
+						aa: false,
 						...rustFlow,
 						sh_cut: r2(lerp(0.9, 0.6, rust)),
 						sh_cut_soft: 0.05,
@@ -454,7 +454,7 @@ export const stains: RecipeDef = {
 						...cells,
 						blister: r2(0.6 + 2.4 * num(m.blisters, 0)),
 						ledge_mix: ledges ? 0.6 : 0,
-						hard: true,
+						aa: false,
 						mk_target: '',
 						h_on: true,
 						h_amount: 0.6,

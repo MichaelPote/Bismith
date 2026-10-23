@@ -162,7 +162,12 @@ function keyDefines(key: string): string {
 	const f = key.split(FEATURES_KEY)[1];
 	return (
 		(key.includes(ASPECT_KEY) ? '#define BEVEL_ASPECT\n' : '') +
-		(f ? f.split(',').map((n) => `#define ${n}\n`).join('') : '')
+		(f
+			? f
+					.split(',')
+					.map((n) => `#define ${n}\n`)
+					.join('')
+			: '')
 	);
 }
 
@@ -583,7 +588,7 @@ ${fetches}
 				declareUniforms(defs) +
 				bevelCurveImpl(defs) +
 				GENOUT +
-				(def.sdf === true ? GLSL_BEVEL : '') +
+				(def.sdf ? GLSL_BEVEL : '') +
 				(def.textures ?? []).map((t) => `uniform sampler2D t_${t};\n`).join('') +
 				(def.glsl ?? '') +
 				GLSL_GENERATOR_MAIN(def.sdf === 'mask' ? 'mask' : Boolean(def.sdf));

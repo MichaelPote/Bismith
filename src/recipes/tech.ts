@@ -602,7 +602,7 @@ export const metalPlate: RecipeDef = {
 						angle: 15,
 						angle_jitter: 50,
 						fade: 0.6,
-						hard: true,
+						aa: false,
 						seed: seed + 3,
 						h_on: false,
 						dif_on: true,

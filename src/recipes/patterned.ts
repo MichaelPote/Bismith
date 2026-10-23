@@ -217,7 +217,7 @@ export const stripes: RecipeDef = {
 						angle: 20,
 						angle_jitter: 60,
 						fade: 0.5,
-						hard: true,
+						aa: false,
 						seed: seed + 4,
 						...limitTo(SHAPE_MASK),
 						h_on: false,

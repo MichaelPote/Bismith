@@ -153,7 +153,9 @@ LayerDef {
   params: ParamDef[],            // drives both the UI and the uniforms
   glsl?: string,                 // generator: defines `GenOut gen(vec2 p)`
   sdf?: boolean | 'mask',        // generator produces a signed distance (shapes, bricks, voronoi); 'mask': for the
-                                 //   mask it writes only, the generator shapes its own value and coverage (Drips' blisters)
+                                 //   mask it writes only, the generator shapes its own value and coverage (Drips' blisters,
+                                 //   Splats, Scratches, Cable, Hammered, Caustics) — the Edge card still applies: Bevel (0 by
+                                 //   default) × its own value, Anti-alias read by the generator itself (u_aa)
   maskWrite?: (params) => 'shape' | 'coverage' | false, // what it writes into its mask (masks.ts, FR8.23)
   readsMask?: boolean,           // reads maskIn() in its shader (Chips, Tabs, Glass)
   maskSource?: (params) => string | null, // the mask it reads as its source (edge filters, Mask area)
@@ -214,6 +216,13 @@ The common generator wrapper then:
    by a long, gentle rise. Flat profiles (or zero bevel) output `1` and leave
    anti-aliasing to the coverage, so edges ramp symmetrically across the boundary. Periodic patterns place
    their edges on pixel boundaries so 1 px features stay crisp with anti-aliasing off.
+   **Mask-only generators** (`sdf: 'mask'`) keep their own value and coverage, and the same Edge card shapes them:
+   Bevel (0 by default there) × that value — and its Height value, and its own signed height inside the shape, a lip
+   outside left alone — by the profile of its distance (`GenOut.bdist` in plain px when given: Scratches' bevel follows
+   the faint ones its mask leaves out). In every compile of the type, not a variant: one compiling as the Bevel slider
+   leaves 0 would stall the drag.
+   Anti-alias is read by the generator (`u_aa`); one that covers everything hides it (Hammered), Caustics the whole
+   card.
 3. **Shaping.** `domain warp` (the sample position is displaced by smooth noise before `gen()` — the whole pattern
    warps coherently), `invert`, input levels (`lo..hi`), `gamma`, `posterize steps`, and a `cutoff` that keeps coverage
    only where the shaped value reaches it (sparse flecks from white noise, islands from fBm). The Value section
@@ -258,7 +267,9 @@ the tips and dark among the roots, with tufts, bare patches and two kinds of bla
 running through two courses — each face pitched with flake scars struck in from its edges, with outputs for the
 relief and for paint (joints, scars, open gaps). **Mask area** (FR8.23) only selects: from the surface so far
 (crevices, high spots, slopes, slopes facing a direction, a height range) or from a mask's features (inside each one
-with its own random, a gradient across each, a band at one side), with noise Breakup — to write a mask or paint.
+with its own random, a gradient across each, a band at one side), with noise Breakup — to write a mask or paint. **Liquid
+splats** (FR8.24) throws blood, water or oil — torn cores, jets, droplets and mist, or poured pools — lying flat or
+running down in runs that end in a bead, its value the liquid's thickness (a flat top over a rounded meniscus).
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
@@ -504,4 +515,5 @@ docs/
 | 8.21  | [Grass](features/fr8.21-grass.md)                                                            |
 | 8.22  | [Stone blocks (rock-faced ashlar)](features/fr8.22-stone-blocks.md)                          |
 | 8.23  | [One mask system and Mask area](features/fr8.23-masks.md)                                    |
+| 8.24  | [Liquid splats](features/fr8.24-liquid-splats.md)                                            |
 | 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                         |
