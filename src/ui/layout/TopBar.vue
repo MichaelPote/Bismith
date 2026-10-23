@@ -5,7 +5,14 @@
 	import { useActions } from '@/ui/actions';
 	import { CHANNEL_VIEWS } from '@/render/display';
 	import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue';
-	import { IconArrowBackUp, IconArrowForwardUp, IconDownload, IconStack2, IconTarget } from '@tabler/icons-vue';
+	import {
+		IconArrowBackUp,
+		IconArrowForwardUp,
+		IconDownload,
+		IconLayoutGrid,
+		IconStack2,
+		IconTarget
+	} from '@tabler/icons-vue';
 	import { vTip } from '@/ui/tooltip';
 
 	const store = useProjectStore();
@@ -76,6 +83,12 @@
 			label: 'Match',
 			icon: IconTarget,
 			hint: 'Match a reference image: templates, variations, the optimiser'
+		},
+		{
+			id: 'tiling',
+			label: 'Tiling',
+			icon: IconLayoutGrid,
+			hint: 'Hide the repeat: what gives it away, which layer draws it, and a fix that keeps the look'
 		}
 	] as const;
 

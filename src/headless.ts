@@ -9,12 +9,25 @@ import {
 	Matcher,
 	absDiff,
 	fromRgba8,
+	heatOverlay,
+	toOklab,
 	toRgba8,
 	type MatchImage,
 	type MetricOptions,
 	type MetricResult
 } from '@/match/metrics';
 import { Optimizer, type OptimizerOptions, type StepInfo } from '@/match/optimizer';
+import { analyzeTiling, type TilingAnalysis, type TilingOptions } from '@/tiling/analyze';
+import { attributeTiling, type Finding, type LayerBlame } from '@/tiling/attribute';
+import {
+	fixTiling,
+	type FixCandidate,
+	type FixChange,
+	type FixOptions,
+	type FixResult,
+	type FixTrial
+} from '@/tiling/fix';
+import { tilingEvaluator } from '@/tiling/evaluate';
 import { attachTexture, makeEvaluator, renderToMatchImage } from '@/match/evaluate';
 import { TextureNet, matchHistogram } from '@/match/vgg';
 import { fitColours as fitColoursImpl } from '@/match/colourFit';
@@ -126,11 +139,61 @@ export interface BismithHeadless {
 		b: TargetInput,
 		opts?: { wrap?: boolean; colourMatch?: boolean }
 	): Promise<{ distance: number; ms: number }>;
+	/** Tiling analysis of the current project and, per layer, how much it is to blame (FR9). */
+	tiling(opts?: HeadlessTilingOptions): Promise<HeadlessTilingResult>;
+	/**
+	 * Fix the current project's tiling (FR9): reseed and nudge the blamed layers, tiling score down with the look held
+	 * (Windows preset against the render before). The fixed project becomes the current one.
+	 */
+	tilingFix(opts?: HeadlessTilingFixOptions): Promise<HeadlessTilingFixResult>;
 	/** Fit the current project's colours to a reference (FR8.2; smart materials through their colour controls). */
 	fitColours(
 		target: TargetInput,
 		opts?: { samples?: number; rounds?: number }
 	): Promise<{ before: number; after: number; rounds: number; project: Project }>;
+}
+
+export interface HeadlessTilingOptions extends TilingOptions {
+	/** Samples per render (default 32; the leave-one-out renders use the same, so noise cancels). */
+	samples?: number;
+	/** Also return each layer's contribution map (ΔE, as a heat overlay PNG). */
+	maps?: boolean;
+	/** Analyse only, no leave-one-out (default false). */
+	analysisOnly?: boolean;
+}
+
+export interface HeadlessTilingResult {
+	score: number;
+	raw: TilingAnalysis['raw'];
+	terms: TilingAnalysis['terms'];
+	/** The render and its hotspot overlay (one tile, PNG data URLs). */
+	renderPng: string;
+	hotspotPng: string;
+	layers: (Omit<LayerBlame, 'map'> & { mapPng?: string })[];
+	findings: Finding[];
+	renders: number;
+	ms: number;
+}
+
+export interface HeadlessTilingFixOptions extends HeadlessTilingOptions, FixOptions {}
+
+export interface HeadlessTilingFixResult {
+	before: { score: number; drift: number; terms: TilingAnalysis['terms'] };
+	after: { score: number; drift: number; terms: TilingAnalysis['terms'] };
+	changes: FixChange[];
+	trials: FixTrial[];
+	driftFree: number;
+	/** The culprits found before the fix (names and what they were blamed for). */
+	findings: { name: string; term: string; weight: number }[];
+	/** Renders and hotspot overlays before and after (one tile, PNG data URLs). */
+	beforePng: string;
+	afterPng: string;
+	hotspotBeforePng: string;
+	hotspotAfterPng: string;
+	/** The fixed project (also loaded as the current one). */
+	project: Project;
+	evaluations: number;
+	ms: number;
 }
 
 export interface HeadlessEmulateResult extends EmulateResult {
@@ -359,6 +422,107 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			};
 			api.loadProject(fitted);
 			return { before: r.before, after: r.after, rounds: r.rounds, project: project! };
+		},
+
+		async tiling(opts = {}) {
+			const p = need();
+			const t0 = performance.now();
+			const samples = opts.samples ?? 32;
+			let renders = 0;
+			let image: MatchImage | null = null;
+			const render = (q: Project) => {
+				renders++;
+				const img = renderToMatchImage(engine, q, samples);
+				if (q === p) image = img;
+				return img;
+			};
+			const r = opts.analysisOnly
+				? { analysis: analyzeTiling(render(p), opts), layers: [], findings: [] }
+				: await attributeTiling(p, render, opts).finally(() => engine.setProject(p));
+			const full = image as MatchImage | null;
+			if (!full) throw new Error('tiling: no full render');
+			const lab = toOklab(full);
+			const { width, height } = full;
+			const peak = (m: Float32Array) => m.reduce((a, v) => Math.max(a, v), 0) || 1;
+			return {
+				score: r.analysis.score,
+				raw: r.analysis.raw,
+				terms: r.analysis.terms,
+				renderPng: imagePng(full),
+				hotspotPng: imagePng(heatOverlay(lab.L, r.analysis.maps.hotspot, width, height)),
+				layers: r.layers.map(({ map, ...l }) => {
+					if (!map) return l;
+					const k = peak(map);
+					return {
+						...l,
+						mapPng: imagePng(
+							heatOverlay(
+								lab.L,
+								map.map((v) => v / k),
+								width,
+								height
+							)
+						)
+					};
+				}),
+				findings: r.findings,
+				renders,
+				ms: performance.now() - t0
+			};
+		},
+
+		async tilingFix(opts = {}) {
+			const p = need();
+			const t0 = performance.now();
+			const samples = opts.samples ?? 32;
+			let original: MatchImage | null = null;
+			const attribution = await attributeTiling(
+				p,
+				(q) => {
+					const img = renderToMatchImage(engine, q, samples);
+					if (q === p) original = img;
+					return img;
+				},
+				opts
+			);
+			const ev = await tilingEvaluator(engine, original!, { samples, analysis: opts });
+			let r: FixResult;
+			try {
+				r = await fixTiling(p, attribution, (q) => ev.evaluate(q), opts);
+			} finally {
+				ev.dispose();
+			}
+			api.loadProject(r.project);
+			const side = (c: FixCandidate) => {
+				const img = ev.render(c.project);
+				const a = analyzeTiling(img, opts);
+				return {
+					score: { score: c.score, drift: c.drift, terms: a.terms },
+					png: imagePng(img),
+					hotspot: imagePng(heatOverlay(toOklab(img).L, a.maps.hotspot, img.width, img.height))
+				};
+			};
+			const before = side(r.before);
+			const after = side(r.after);
+			return {
+				before: before.score,
+				after: after.score,
+				changes: r.changes,
+				trials: r.trials,
+				driftFree: r.driftFree,
+				findings: attribution.findings.map((f) => ({
+					name: attribution.layers[f.layer].name,
+					term: f.term,
+					weight: f.weight
+				})),
+				beforePng: before.png,
+				afterPng: after.png,
+				hotspotBeforePng: before.hotspot,
+				hotspotAfterPng: after.hotspot,
+				project: project!,
+				evaluations: r.evaluations,
+				ms: performance.now() - t0
+			};
 		},
 
 		async textureDistance(a, b, opts = {}) {

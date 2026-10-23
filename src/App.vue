@@ -10,6 +10,7 @@
 	import Properties from '@/ui/layout/Properties.vue';
 	import StatusBar from '@/ui/layout/StatusBar.vue';
 	import MatchWorkspace from '@/ui/panels/MatchWorkspace.vue';
+	import TilingWorkspace from '@/ui/panels/TilingWorkspace.vue';
 	import BusyModal from '@/ui/components/BusyModal.vue';
 	import AskModal from '@/ui/components/AskModal.vue';
 	import EyedropperChip from '@/ui/components/EyedropperChip.vue';
@@ -176,6 +177,7 @@
 			<div class="centre">
 				<Viewport v-show="editor.workspace === 'create'" />
 				<KeepAlive><MatchWorkspace v-if="editor.workspace === 'match'" /></KeepAlive>
+				<KeepAlive><TilingWorkspace v-if="editor.workspace === 'tiling'" /></KeepAlive>
 			</div>
 			<div
 				class="gutter"

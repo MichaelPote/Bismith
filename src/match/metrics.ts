@@ -24,6 +24,7 @@
 
 import {
 	fitSize,
+	heatOverlay,
 	resample,
 	resampleLinear,
 	resampleLinearToOklab,
@@ -756,16 +757,12 @@ export class Matcher {
 			hi = Math.max(hi, v);
 		}
 		const span = Math.max(1e-6, hi - lo);
-		const data = new Float32Array(m.width * m.height * 4);
-		for (let i = 0; i < m.values.length; i++) {
-			const v = Math.max(0, Math.min(1, (m.values[i] - lo) / span));
-			const grey = 0.7 * Math.min(1, Math.max(0, r.lab.L[i]));
-			const a = 0.85 * v ** 1.5;
-			const heat = [0.55 + 0.45 * Math.min(1, v * 2), Math.max(0, v * 1.5 - 0.35), Math.max(0, v * 2 - 1.4)];
-			for (let c = 0; c < 3; c++) data[i * 4 + c] = grey * (1 - a) + heat[c] * a;
-			data[i * 4 + 3] = 1;
-		}
-		return { width: m.width, height: m.height, data };
+		return heatOverlay(
+			r.lab.L,
+			m.values.map((v) => (v - lo) / span),
+			m.width,
+			m.height
+		);
 	}
 
 	/** Bring an image to the comparison size. */

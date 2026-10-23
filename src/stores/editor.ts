@@ -17,7 +17,7 @@ export interface Selection {
 	id?: string;
 }
 
-export type Workspace = 'create' | 'match';
+export type Workspace = 'create' | 'match' | 'tiling';
 
 /** Viewport shape tools: edit the selected layer's shapes, or draw a new one (a new layer, or a run of the selected pipes). */
 export type ShapeTool = 'edit' | 'polygon' | 'freehand' | 'line';

@@ -410,8 +410,9 @@ The editor uses the _Blender-tempered_ Cinderforge editor language:
 
 Layout: top bar (menus, workspace rail, primary action) · left **Outliner** (Project, one Layers list with Diffuse /
 Height columns headed by the Base row, and collapsible smart materials, Lights, Post) · centre **Viewport** (channel rail, zoom/pan, tile
-preview, light gizmos, shape editor) · right **Properties** of the selection (the project node also holds world
-lighting and render settings) · bottom status bar.
+preview, light gizmos, shape editor), or the **Match** or **Tiling** workspace (FR9: 3 × 3 before / fixed / hotspots,
+the fix search's settings, Keep this / Discard) · right **Properties** of the selection (the project node also holds
+world lighting and render settings) · bottom status bar.
 
 ---
 
@@ -426,6 +427,7 @@ src/
   gpu/               three.js context, fullscreen pass helper, render-target utilities, jump flood
   render/            engine, material pipeline, normals, path tracer, post/ stack, display, export
   match/             metrics, VGG texture term, colour fit, optimiser, templates, emulation, variations
+  tiling/            what makes the repeat obvious, which layer is to blame, and a fix by reseeding it (FR9)
   recipes/           smart-material recipes (macro controls → member layers)
   stores/            Pinia: project (with undo/redo), editor (selection, view state), presets (built-ins + the user's, IndexedDB)
   ui/                components/ (fields, panel cards, icons), layout/ (bars, outliner, viewport, properties), panels/
@@ -438,6 +440,7 @@ tools/
   previews.ts        renders preset thumbnails into the files in presets/ (--missing, --only)
   presets-index.ts   regenerates src/presets/builtin.ts from presets/
   shot.ts            screenshots the editor UI (optionally after scripted clicks)
+  tiling.ts          tiling analysis + per-layer blame of projects / presets, tiled hotspot sheets; --fix (FR9)
   png.ts             Node PNG helpers (read/write, contact sheets)
 docs/
   architecture.md    this file
@@ -501,3 +504,4 @@ docs/
 | 8.21  | [Grass](features/fr8.21-grass.md)                                                            |
 | 8.22  | [Stone blocks (rock-faced ashlar)](features/fr8.22-stone-blocks.md)                          |
 | 8.23  | [One mask system and Mask area](features/fr8.23-masks.md)                                    |
+| 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                         |

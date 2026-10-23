@@ -389,3 +389,20 @@ export function circularShift(img: MatchImage, dx: number, dy: number): MatchIma
 	}
 	return { width: w, height: h, data: out };
 }
+
+/**
+ * An image dimmed to grey (from its OKLab L) under a heat overlay — clear where `v` is 0, red → yellow towards 1 — for
+ * maps of where something is (window mismatch, tiling hotspots).
+ */
+export function heatOverlay(L: Float32Array, v: ArrayLike<number>, width: number, height: number): MatchImage {
+	const data = new Float32Array(width * height * 4);
+	for (let i = 0; i < width * height; i++) {
+		const t = clamp01(v[i]);
+		const grey = 0.7 * clamp01(L[i]);
+		const a = 0.85 * t ** 1.5;
+		const heat = [0.55 + 0.45 * Math.min(1, t * 2), Math.max(0, t * 1.5 - 0.35), Math.max(0, t * 2 - 1.4)];
+		for (let c = 0; c < 3; c++) data[i * 4 + c] = grey * (1 - a) + heat[c] * a;
+		data[i * 4 + 3] = 1;
+	}
+	return { width, height, data };
+}
