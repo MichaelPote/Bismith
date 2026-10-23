@@ -2492,9 +2492,11 @@ GenOut gen(vec2 p) {
         float cl = max(10.0, 0.14 * sbs.x);
         float x0 = atLo ? sbl.x + 0.12 * sbs.x : sbh.x - 0.12 * sbs.x - cl, x1 = x0 + cl;
         float nw = 2.0 + floor(cw4.z * 2.999);
-        float wr = clamp(0.026 * sbs.y, 1.5, 3.5), wsp = max(3.0 * wr, 4.5);
-        float xs = atLo ? x1 : x0, xe = atLo ? sbh.x - 0.1 * sbs.x : sbl.x + 0.1 * sbs.x, dir = atLo ? 1.0 : -1.0;
-        float o = (cw4.w < 0.5 ? -1.0 : 1.0) * 0.2 * sbs.y;
+        float wr = clamp(0.026 * sbs.y, 1.5, 3.5), wsp = max(4.6 * wr, 6.0);   // (grommets 2.2 wr: clear of each other even level)
+        // (Ends and their grommets — 2.2 wire radii — clear of the walls along and across: the pocket's sides may step in.)
+        float wm = 3.0 * wr + 4.0 + max(u_bevel, 1.0);
+        float xs = atLo ? x1 : x0, xe = atLo ? min(sbh.x - 0.1 * sbs.x, sbh.x - wm) : max(sbl.x + 0.1 * sbs.x, sbl.x + wm), dir = atLo ? 1.0 : -1.0;
+        float o = (cw4.w < 0.5 ? -1.0 : 1.0) * clamp(0.5 * sbs.y - 0.5 * nw * wsp - wm, 0.0, 0.2 * sbs.y);
         // (The jog far enough from the header that no wire's shifted corner comes before its start.)
         float xj = xs + dir * max(abs(mix(xs, xe, 0.3 + 0.3 * fract(cw4.w * 7.0)) - xs), 0.414 * 0.5 * nw * wsp + 3.0 * wr);
         // The bundle's lane, as its middle line and half width (plus the header).
