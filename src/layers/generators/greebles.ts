@@ -2377,13 +2377,14 @@ GenOut gen(vec2 p) {
 #endif
         float cy = 0.5 * (sbl.y + sbh.y);
         bool atLo = cw4.y < 0.5;
-        float cl = max(4.0, 0.07 * sbs.x);
+        float cl = max(6.0, 0.11 * sbs.x);
         float x0 = atLo ? sbl.x + 0.12 * sbs.x : sbh.x - 0.12 * sbs.x - cl, x1 = x0 + cl;
         float nw = 2.0 + floor(cw4.z * 2.999);
-        float wr = clamp(0.022 * sbs.y, 0.9, 3.0), wsp = max(3.0 * wr, 3.0);
+        float wr = clamp(0.026 * sbs.y, 1.5, 3.5), wsp = max(3.0 * wr, 4.5);
         float xs = atLo ? x1 : x0, xe = atLo ? sbh.x - 0.1 * sbs.x : sbl.x + 0.1 * sbs.x, dir = atLo ? 1.0 : -1.0;
         float o = (cw4.w < 0.5 ? -1.0 : 1.0) * 0.2 * sbs.y;
-        float xj = mix(xs, xe, 0.3 + 0.3 * fract(cw4.w * 7.0));
+        // (The jog far enough from the header that no wire's shifted corner comes before its start.)
+        float xj = xs + dir * max(abs(mix(xs, xe, 0.3 + 0.3 * fract(cw4.w * 7.0)) - xs), 0.414 * 0.5 * nw * wsp + 3.0 * wr);
         // The bundle's lane, as its middle line and half width (plus the header).
         float lane = 0.5 * nw * wsp + 2.0 * wr + 2.0;
         vec2 cc = floor((ql - lo2) / cp);
@@ -2469,7 +2470,9 @@ GenOut gen(vec2 p) {
             if (kw2 < nw) {
               float yo = (kw2 - 0.5 * (nw - 1.0)) * wsp, y0 = cy + yo;
               float xjk = xj - dir * 0.41421356 * sign(o) * yo;
+              // (Staggered ends, but never before the wire's own last bend: no wire doubles back.)
               float xek = xe - dir * kw2 * 1.6 * wsp;
+              xek = dir > 0.0 ? max(xek, xjk + abs(o) + 2.0 * wr) : min(xek, xjk - abs(o) - 2.0 * wr);
               vec2 A = sk < 0.5 ? vec2(xs, y0) : sk < 1.5 ? vec2(xjk, y0) : vec2(xjk + dir * abs(o), y0 + o);
               vec2 B2 = sk < 0.5 ? vec2(xjk, y0) : sk < 1.5 ? vec2(xjk + dir * abs(o), y0 + o) : vec2(xek, y0 + o);
               dW = min(dW, grb_seg(ql, A, B2) - wr);
@@ -2483,7 +2486,7 @@ GenOut gen(vec2 p) {
           v -= 0.4 * ph * grb_cov(abs(dCn - 1.0) - 0.8);
           // Round cables, their noses dipping into the grommets (aE: along, from the end back up the wire).
           float nose = smoothstep(-wr, wr, aE);
-          v = mix(v, flr + 0.8 * ph + 1.2 * ph * grb_dome(max(dW + wr, 0.0), wr) * mix(0.35, 1.0, nose), grb_cov(dW));
+          v = mix(v, flr + 0.6 * ph + 2.4 * ph * grb_dome(max(dW + wr, 0.0), wr) * mix(0.3, 1.0, nose), grb_cov(dW));
           float gr = abs(dE - 1.6 * wr) - 0.55 * wr;   // the grommet ring round each end
           v = max(v, mix(v, flr + 1.1 * ph * grb_dome(abs(dE - 1.6 * wr), 0.6 * wr), grb_cov(gr) * (1.0 - grb_cov(dW + 0.3))));
           v = mix(v, flr + 2.6 * ph - 0.6 * ph * grb_cov(length(vec2(ql.x - (atLo ? x1 - 1.0 : x0 + 1.0), fract((ql.y - cy) / wsp + 0.5 * nw + 0.5) * wsp - 0.5 * wsp)) - 0.7 * wr), smoothstep(0.0, 1.0, -dCn / 1.5));
@@ -2508,6 +2511,9 @@ GenOut gen(vec2 p) {
   // (Thick share), the thick ones standing nearly to the plates (in a channel) or highest (on top) — centred or against a
   // side, clamped by bands or ringed by couplings every Clamp spacing, braided by Braid; a run laid on top ends in a collar
   // at each end. Measured across from its middle, so the tubes follow its bends.
+  // Pipes are solid: everything they meet joins them (max), nothing cuts into them. vPre: the surface before any pipe
+  // run is laid on it — what later tubes stand on, and the only thing contact lines and holes may lower.
+  float vPre = v;
 #ifdef GRB_CHAN
   // (Where two routes' channels cross, both bundles: pass 0 the down route's, pass 1 the across route's, a little lower
   // so it passes under.)
@@ -2550,10 +2556,12 @@ GenOut gen(vec2 p) {
     bool lowEnd = bT - cell.ovt.x < cell.ovt.y - bT;
     bool dive = top2 && grb_rand(bId, lowEnd ? 131u : 132u) < 0.55;
     float atE = top2 && !dive ? 1.0 - smoothstep(bl - 1.0, bl, ce) : 0.0;
-    float rcap = 0.0, grom = 0.0;   // a dive's nose centre (along, from the end); the grommet height
+    float rcap = 0.0, grom = 0.0, hole = 0.0;   // a dive's nose centre (along, from the end); the grommet height
     float vl = v;   // the surface under the run
     // (Laid on top: on the top plate level, covering what is under them — the panels' detail doesn't print through.)
-    float base = bBase;
+    // (One level across the hose — it runs along a cut, the plates either side may differ — at the highest a plate can
+    // stand, a raised border's step included, so it lies on top of raised modules rather than under them.)
+    float base = top2 ? bBase + (u_frame_chance > 0.0 ? u_inset_depth * min(u_frame_lift, 1.5) * 0.45 : 0.0) : bBase;
     float cov2 = 0.0;   // how much the tubes cover here
     float pos = x0, env = 0.0, mtop = base, used = 0.0, xe = x0;
     for (int i = 0; i < u_tube_count; i++) {
@@ -2566,18 +2574,26 @@ GenOut gen(vec2 p) {
         float rr2 = r * (1.0 + (cs == 1 && dm >= u_tube_big ? 0.2 * atC : 0.0) + 0.3 * atE);
         float x = abs(bU - tc);
         // (Diving: the tube ends in a hemispherical nose rcap from the end, a grommet ring round it.)
+        float fall = 1.0;
         if (dive) {
           rcap = 1.6 * r + 2.0;
           float dEn = length(vec2(x, max(rcap - ce, 0.0)));
           x = ce < rcap ? dEn : x;
-          grom = max(grom, grb_dome(abs(length(vec2(bU - tc, rcap - ce)) - 1.2 * r), 0.3 * r));
+          // The tube turns down: its height falls over its last diameter into the hole.
+          fall = mix(0.25, 1.0, smoothstep(rcap - 0.2 * r, rcap + 2.0 * r, ce));
+          // A thick tube's hole: a dark gap round its end, then a raised lip (thin cables just end, capped).
+          if (dm >= u_tube_big) {
+            float de = length(vec2(bU - tc, rcap - ce));
+            hole = max(hole, (1.0 - smoothstep(r + 1.0, r + 2.0, de)) * step(r - 0.5, de) * step(ce, rcap + r));
+            grom = max(grom, grb_dome(abs(de - (r + 3.0)), 1.2) * step(ce, rcap + r + 4.0));
+          }
         }
         // Its height in proportion to its radius (round cables, Pipe lift: a thick pipe level with the plates at 1).
         float rk = clamp(rr2 / max(0.5 * u_tube_big, 0.5), 0.15, 1.3) * u_tube_lift;
         float ht = top2 ? base + 2.0 * u_inset_depth * rk : bBase + (bTop - bBase) * 0.97 * rk * sink;
         float wv = 3.14159 / max(0.7 * r, 0.8);
         float br = u_braid * (1.0 - atE) * 0.15 * (0.5 + 0.5 * sin((bT + bU - tc) * wv) * sin((bT - bU + tc) * wv));
-        float dmh = grb_dome(x, rr2);
+        float dmh = grb_dome(x, rr2) * fall;
         // (A collar keeps the tube's round profile, wider; a fine groove rings it halfway along.)
         dmh *= 1.0 - 0.25 * atE * (1.0 - smoothstep(0.4, 1.2, abs(ce - 0.5 * bl)));
         // (Only under the tube itself: no flat bed beside it.)
@@ -2602,15 +2618,20 @@ GenOut gen(vec2 p) {
     }
     // Diving: the grommet rings, low on the plate.
     if (dive) {
-      env = max(env, (base + 0.45 * u_inset_depth * grom) * step(0.01, grom));
+      env = max(env, (base + 0.5 * u_inset_depth * grom) * step(0.01, grom));
       cov2 = max(cov2, step(0.01, grom));
+      // The hole: dark, below the plate, where no tube covers it.
+
     }
     // Laid on top: the tubes replace the surface under them (and a dark contact groove lies between and beside them);
     // in a channel they stand on its floor.
     if (top2) {
       // (A soft contact line 1–2 px beside each tube, a little below the surface — not a trench.)
-      v -= 0.06 * base * (1.0 - smoothstep(0.5, 2.5, dTube)) * (1.0 - cov2);
-      v = mix(v, env, cov2);
+      // (Both only on the bare plate: never into another solid.)
+      float bare = step(v, vPre + 0.001) * step(v, base + 0.01);
+      v -= 0.06 * base * (1.0 - smoothstep(0.5, 2.5, dTube)) * (1.0 - cov2) * bare;
+      v = mix(v, min(v, base - 0.35 * u_inset_depth), hole * bare * step(env, base + 0.01));
+      v = max(v, env * cov2);
     } else v = max(v, env * (p2 ? 1.0 - cov0 : 1.0));
     if (!p2) cov0 = cov2;
     dD = min(dD, dTube);
@@ -2626,7 +2647,7 @@ GenOut gen(vec2 p) {
     float jtop = max(0.75 + u_inset_depth, (0.75 + 0.75 * u_inset_depth) * 1.3 * u_tube_lift) + 0.1 * u_inset_depth;
     float jb = max(1.0, min(u_bevel + 1.0, 5.0));
     // (A flat lid replacing what is under it, just above the tallest tube the settings allow, so none prints through.)
-    v = mix(v, jtop, smoothstep(0.0, 1.0, -dJ / jb));
+    v = max(v, mix(v, jtop, smoothstep(0.0, 1.0, -dJ / jb)));
     // A screw in each corner of the lid (the shared heads: an Allen bolt), and a fine lid seam inset from its edge.
     // The box's half sides, from the crossing's middle: each channel's own half width (Width variation) and the margin.
     vec2 hsJ = vec2(rte.z, rteS.z) + jm2;
@@ -2671,10 +2692,11 @@ GenOut gen(vec2 p) {
     dD = min(dT, tM);
     tMk = min(tOn ? bevelLine(dT, tN) : 1e4, tMk);
     tC = vec2(-1e5);   // (the tubes: tMk)
-    float vh = v;
-    v -= 0.3 * u_inset_depth * grb_cov(abs(dT - 0.5) - 0.5) * grb_cov(-tM);
+    // (They stand on the surface under the pipe runs, and join whatever is there; the contact line only on bare plate.)
+    float vh = min(v, vPre);
+    v -= 0.3 * u_inset_depth * grb_cov(abs(dT - 0.5) - 0.5) * grb_cov(-tM) * step(v, vPre + 0.001);
     // (Thicker tubes stand taller, so they read round.)
-    v = mix(mix(v, vh + u_inset_depth * clamp(tp.w / 2.5, 1.0, 2.5) * grb_dome(dl, tp.w), grb_cov(dT)), vh + 0.6 * u_inset_depth, grb_cov(tM));
+    v = max(v, max(mix(v, vh + u_inset_depth * clamp(tp.w / 2.5, 1.0, 2.5) * grb_dome(dl, tp.w), grb_cov(dT)), mix(v, vh + 0.6 * u_inset_depth, grb_cov(tM))));
   }
 
   // ---- beams: long straps across everything, along lines that wrap round the tile (45° lines repeat every gcd of the
