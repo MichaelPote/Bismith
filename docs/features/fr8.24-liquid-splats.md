@@ -14,8 +14,7 @@ pixel art: a clumpy splat with one long run on a 64 px wall.
 **CPU geometry** (`buildSplats`, `cpuData` → a data texture, as Pipes): every splat is a list of primitives —
 ellipses, tapered capsules, and bites (ellipses cut out) — built from the seed; the shader loops over all of them
 (count from the texture's header, so D3D11 doesn't unroll: 0.28 s cold compile; 13.6 ms per layer at 2048², between
-Noise and Grass). Splats sit on a jittered grid (wider than tall under gravity, so a run doesn't fall into the splat
-below); each is:
+Noise and Grass). Splats sit on a jittered grid, by the number of splats and the texture's shape only; each is:
 
 - **Core**: a body (sagging and stretched downhill with gravity) and lobes round it (Ragged core: more lobes,
   straying further, of mixed size), bites out of its rim (concave bays), clumps breaking off it; a pour (low Splash)
@@ -29,6 +28,13 @@ below); each is:
 - **Gravity** (Gravity, Direction): runs from the core's downhill edge (stratified along it, the first near the
   middle the longest) and from the bigger drops, each with a neck into its source, meandering and narrowing, ending in
   a Bead sized from the run's starting width; big drops near the core slide (stretched downhill, often running on).
+
+**Stable layout.** Every splat, and every part of one (each lobe, bite, jet, droplet, speck, run), draws from a random
+stream of its own, keyed by the seed, what it is and its index; a splat draws where it sits, its size and the random
+factors of its part counts first, in a fixed order, and a spray direction always takes three draws. So the splats move
+only when the seed or the number of splats changes (one more splat on the same grid doesn't move the others); any other
+param reshapes the splats where they are, and a count adds or drops parts without moving the rest. (The grid is no
+longer widened under gravity for that reason: a run can now fall into the splat below.)
 
 Pieces longer than 0.4 of the tile are cut into segments, each measured around the wrap from its own anchor
 (`wrapDelta`), so long runs tile.

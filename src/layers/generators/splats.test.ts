@@ -78,6 +78,47 @@ describe('splats geometry', () => {
 		expect((tex.data[0] << 8) | tex.data[1]).toBe(many.length);
 	});
 
+	it('keeps the layout while any other param changes: only the splat count and the seed move the splats', () => {
+		const centres = (o: Partial<SplatOptions>) => {
+			const prims = buildSplats({ ...base, gravity: 0, ...o });
+			// Bodies: the ellipses whose radii are 0.75 × R and whose k is 0.2 × R (R = r0 / 0.75).
+			return prims
+				.filter((p) => p.kind === 0 && p.r0 === p.r1 && Math.abs(p.k - (0.2 * p.r0) / 0.75) < 1e-9)
+				.map((p) => [Math.round(p.x * 1000), Math.round(p.y * 1000), Math.round(p.r0 * 1000)]);
+		};
+		const ref = centres({});
+		expect(ref).toHaveLength(base.count);
+		for (const change of [
+			{ jets: 20 },
+			{ drops: 2.5 },
+			{ mist: 0 },
+			{ ragged: 1 },
+			{ splash: 0.2 },
+			{ oneSided: 0.9 },
+			{ reach: 6 },
+			{ jetLength: 5 }
+		])
+			expect(centres(change), JSON.stringify(change)).toEqual(ref);
+		expect(centres({ seed: 2 })).not.toEqual(ref);
+		// One more splat on the same grid (2 × 2) adds it without moving the three; a new grid lays them out anew.
+		expect(centres({ count: 4 }).slice(0, 3)).toEqual(ref);
+		expect(centres({ count: 7 }).slice(0, 3)).not.toEqual(ref);
+	});
+
+	it('adds a jet without moving the others, and Bead changes only the beads', () => {
+		const capsules = (o: Partial<SplatOptions>) =>
+			buildSplats({ ...base, count: 1, drops: 0, mist: 0, splash: 1, ...o })
+				.filter((p) => p.kind === SPLAT_CAPSULE)
+				.map((p) => [p.x, p.y, p.dx, p.dy].map((v) => Math.round(v * 1000)).join(','));
+		const eight = capsules({ jets: 8 });
+		const nine = new Set(capsules({ jets: 9 }));
+		// Spikes are 2 × jets, so the counts shift; every capsule of the 8-jet splat is still there with 9.
+		expect(eight.every((c) => nine.has(c))).toBe(true);
+		const runs = (bead: number) =>
+			buildSplats({ ...base, count: 1, splash: 0, gravity: 1, bead }).filter((p) => p.kind === SPLAT_CAPSULE);
+		expect(runs(0.2)).toEqual(runs(0.9));
+	});
+
 	it('sizes a new layer to the texture', () => {
 		ensureBuiltins();
 		expect(freshParams('splats', { width: 128, height: 128 }).size).toBe(10);
