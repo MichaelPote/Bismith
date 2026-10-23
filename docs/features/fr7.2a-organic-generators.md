@@ -6,7 +6,7 @@
 | File               | Contents                                                                                                                                        |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `organic.ts`       | `ORGANIC_LAYERS` = marble, caustics, wood, scales, cracks                                                                                       |
-| `organicShared.ts` | `ORG_GLSL` (lean fBm, tileable wave vector, line / breakup helpers, power-Voronoi cell distance), `ORG_GLSL_SDF` (bevel profile for SDF layers) |
+| `organicShared.ts` | `ORG_GLSL` (lean fBm, tileable wave vector, line / breakup helpers, power-Voronoi cell distance)                                                |
 | `organicLiquid.ts` | `marble`, `caustics` (value generators)                                                                                                         |
 | `organicWood.ts`   | `wood`, `scales` (SDF generators with a combined output)                                                                                        |
 | `organicCracks.ts` | `cracks` (SDF generator with a combined output; tests in `cracks.test.ts`)                                                                      |
@@ -143,7 +143,7 @@ integer vector with the wanted along-vein frequency (`cross(m, A) = ka`, via a B
 | `octave2`, `octave2_scale`, `octave2_nest`      | 0.3, 2, 1          | the finer net as rims / cracks of its own — cut in, darker and lower, in both modes — and in the height a soft groove of `½·rim + 3` px; its cells per main cell; how far it tapers (width and strength) toward the main rims (`smoothstep(0.05, 0.6, ·)` of the main cell's interior)                                                                                                                              |
 | `dome`, `dome_var`, `cell_h`                    | 0.8, 0.6, 0.4      | Height › Pattern: 0 = the brightness (flat where the glow fades), 1 = a rounded dome per cell, −1 = flat plates (only the rims / cracks cut in); each cell's dome flat-topped to peaked; each cell's rise above the common rim floor its own (Height › Per-feature variation scales the whole depth instead, so it steps at every rim)                                                                              |
 
-**Stretch** measures the cells in a metric where they are square (`cl_cells`, a copy of `org_cellDist` with that
+**Stretch** measures the cells in a metric where they are square (`cl_cells`, a Voronoi search in that
 metric, a border normal, a per-segment random and a second soft minimum, without `continue`), so the 5×5 searches stay
 exact — no straight cuts where a stretched cell outran them.
 
@@ -231,7 +231,7 @@ pixel crosses a column (cold D3D11 compile ≈ 0.65 s).
 
 | Param                             | Default            | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | --------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `output`                          | plates             | plates (painted by the layer, `genOutOwn`: value 1 on the plates × its own Shape bevel — `org_edgeProfile`, so no Bevel aspect and no bevel round a combined mask mode — the cracks sunk by their depth; the plate outline goes to the mask it writes) · shape (plate SDF → mask, the cracks show what is below)                                                                                                                                                                                                                                                                                                                                             |
+| `output`                          | plates             | plates (painted by the layer, `genOutOwn`: value 1 on the plates × its own Shape bevel — `bevelPlain`, so no Bevel aspect and no bevel round a combined mask mode — the cracks sunk by their depth; the plate outline goes to the mask it writes) · shape (plate SDF → mask, the cracks show what is below)                                                                                                                                                                                                                                                                                                                                             |
 | `scale`, `jitter`, `size_var`     | 5, 0.9, 0.5        | main plates across (0.5…256); jitter; power weights (main network only, 0…2: above 1 small plates get squeezed out)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `width`, `width_var`              | 2.5 px, 0.8        | main crack width (0…64 px); spread of widths — one random per border segment (0.55–1.45; both plates agree on it), blended between the two nearest borders where they swap (no step at a junction), × a noise along the cracks, × a flare towards the junctions where wide cracks meet (`1 + 1.5·width_var·exp(−second border distance / 0.15 plate)` × smoothstep(0.7, 1.3) of the two widths against the mean, off where the two borders' normals oppose: thin slivers). The fine cracks and shards follow the same noise (whole stretches of the fine network dark, others faint hairlines) × a mild per-segment spread (0.5–1.5)                         |
 | `fillet`                          | 0.05               | Junction rounding: each plate's corners round off with a circular fillet (`crk_round`, exact elsewhere) of this share of a plate × the meeting cracks' widths against the mean (0.5–1.5: thin cracks meet in tight corners); the band is laid round the rounded plate, so the gap between three plates is a dark wedge with concave sides. Fine cells (share of a fine cell), shards and fine–main joins alike (a fine segment dropped by Connected only gives up its rounding)                                                                                                                                                                              |
@@ -269,20 +269,20 @@ Invert on, diffuse off, emissive on (value = 1 in the cracks), or later layers l
   no-planks mode, where the ring spacing is snapped to a whole count; knot bending is windowed (fades out
   by 4 radii) and wraps. Scales force an even row count. Verified with 2×2 tiled renders.
 - **Combined outputs.** The generator wrapper replaces an SDF pixel's value with the bevel profile, so wood,
-  scales and cracks fold their own value × `org_edgeProfile(d)` × coverage into a NO_SDF pixel by default (no
+  scales and cracks fold their own value × `bevelPlain(d)` × coverage into a NO_SDF pixel by default (no
   mask write) and offer an SDF output for the mask. See _Recommended shared change_ below. (Since then
   wood and scales return their pattern with `genOutShaded`: the wrapper applies the bevel and writes the mask.
   So does cracks' Plates output, with its plate surface as `hval`.)
 - **Derivatives.** Wood fades growth rings that crowd closer than ~2 px with `dFdx/dFdy` of the ring field
   (anti-moiré); called in uniform control flow.
 - **Shader size.** The helpers use a lean `org_noiseFbm` (value / Perlin, optional billow) instead of
-  `fractalNoise`, whose generic dispatch inlines Worley at every call site. On D3D11 (Chrome's default on
+  the library's old generic `fractalNoise`, which inlined Worley at every call site. On D3D11 (Chrome's default on
   Windows) nested loops of noise calls compile slowly, so each shader runs its noise in **one flat loop** with a
   single call site, its arguments chosen per iteration. Marble's loop covers the warp components and the field at
   p and one px right / up; the background noise is a third pass of the vein-system loop; and its Worley border is a
-  flat-loop copy (`org_worleyBorder`). Cracks' loop covers the warp steps, the fine warp, zig-zag, roughness and
-  width noise. The Voronoi searches (`org_cellDist`, cracks' `crk_plates` and fine cracks) are single flat loops. Loop
-  bounds use `ORG_1` (1, read from a uniform), so D3D can't unroll them. Marble's quality pass folded all three
+  flat-loop copy (`mb_worleyBorder`). Cracks' loop covers the warp steps, the fine warp, zig-zag, roughness and
+  width noise. The Voronoi searches (`cl_cells`, cracks' `crk_plates` and fine cracks) are single flat loops. Loop
+  bounds use `UNI_1` (1, read from a uniform), so D3D can't unroll them. Marble's quality pass folded all three
   vein systems (each: its width / breakup noise, then the field's nine evaluations; the background) into one flat
   loop with a single `mb_fbm` call and no `continue` (ANGLE / D3D11 can miscompile it): with the new
   controls it compiles in ~1.4 s (0.8 s before the pass; 41 slots now — per system 20: the width noise, six field samples ×

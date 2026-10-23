@@ -23,8 +23,8 @@ doesn't.)
   script that imports `src/`) parses a left shift followed by an identifier named `out` — e.g. `1 << out[i]` — as
   the start of a TypeScript variance modifier (`<out T>`) and fails with _The modifier "out" is not valid here_.
   Vite / Vitest and `vue-tsc` accept it, so tests and typechecks stay green while every `tsx` tool crashes on
-  import. Parenthesise the operand — `1 << (out[i])` (see `src/layers/generators/traceLinks.ts`) — or don't name
-  the variable `out`. (`i < out.length` and other single `<` are fine.)
+  import. Parenthesise the operand — `1 << (out[i])` — or don't name the variable `out` (traceLinks.ts calls its
+  array `outDir`). (`i < out.length` and other single `<` are fine.)
 - **Masks are named and follow the stack** (docs/features/fr8.23-masks.md). A layer writes one (_Write to_:
   `mk_target`, '' = none; shape layers default to `Shape`) with `mk_op` (Normal = `replace`, Union, Subtract,
   Intersection, smooth variants — the option index + 1 is the `sdfCombine` op, so keep their order) and `mk_smooth`,
@@ -55,7 +55,7 @@ doesn't.)
   first and call once, use small lookup tables instead of a branch per case, loop over cases (axes, edges) so the
   body exists once. Nested loops of calls (a loop around a function that loops around noise) are much slower than
   one flat loop over all the evaluations, with the arguments chosen per iteration. Loop bounds read from a uniform
-  (`ORG_1`, `MOT_1`) stop D3D from unrolling. Measure cold compiles with `npx tsx tools/compile-time.ts <types…>`:
+  (`n * UNI_1`, from GLSL_COMMON) stop D3D from unrolling. Measure cold compiles with `npx tsx tools/compile-time.ts <types…>`:
   Tessellation went ~20 s → 1.9 s, Truchet 5.4 → 2.1 s, Marble 2.2 → 0.8 s and Cracks 1.5 → 0.8 s, output
   unchanged. For a generator with many modes, describe each mode as data (shapes, anchors) and run them all through
   one loop (`geometricTiles.ts`), and keep such tables small — a big `const` array costs per-pixel time too (check

@@ -31,7 +31,7 @@ layers (Clouds lives in FR2.4).
 
 ## Notes
 
-- **One flat octave loop.** The Noise layer sums its octaves itself (the same values as `fractalNoise()`), in one
+- **One flat octave loop.** The Noise layer sums its octaves itself (not through a generic fractal helper), in one
   loop with a runtime bound, so each base noise is compiled once; the library's generic dispatch inlines Worley in
   every unrolled octave. Cold D3D11 compile 2.3 s → 0.9 s (1.2 s with the turned lattice and Lp cells). Worley's cell random (`rnd`, per-feature variation) comes
   from the first octave.

@@ -16,7 +16,7 @@ game-style grass. Source: `src/layers/generators/grass.ts`.
   searches only the 3 × 3 cells about it. **Density** is how many blades lie over each spot on average; the count per
   cell follows from the blade area (capped at 256 per cell). **Tufts** gathers that share of a cell's roots round one
   spot. A bounding circle about each blade's middle (every point of a curve lies within half its length of its middle)
-  rejects most candidates before the polyline is walked. Loops are bounded by uniforms (`ORG_1`, the per-cell count),
+  rejects most candidates before the polyline is walked. Loops are bounded by uniforms (`UNI_1`, the per-cell count),
   so D3D doesn't unroll them.
 - **Depth.** Each blade has a random depth and climbs by **Rise** towards its tip (with **Arch**, it climbs to its
   middle and droops again), so tips lie over the roots of the blades about them. At each pixel the two highest blades

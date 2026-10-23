@@ -101,8 +101,8 @@ light through the path tracer.
   level). Defaults: "BAY 03" in the full font, Join diagonals, Smooth outline 1, Even strokes, rows two cells apart,
   Repeat random from 0.25; new layers in the editor take the compact font below 128 px and the plain pixel outline
   below 3 px cells.
-- **Path** (`path`) — exact polygon SDF, units px or fraction; tileable projects evaluate the 3×3 neighbouring copies
-  so a polygon may cross the tile edge (coordinates outside 0..size are fine). _Fill_: even–odd (overlaps cut holes),
+- **Path** (`path`) — exact polygon SDF, units px or fraction (in `paths.ts`, with Polyline); tileable projects evaluate every
+  copy within reach (`repGrid`), so a polygon may cross the tile edge (coordinates outside 0..size are fine). _Fill_: even–odd (overlaps cut holes),
   _Union_ (all solid, merged) or _First minus the rest_, combined with hg_sdf's round union / intersection at the
   Corner radius, so the corners where outlines cross round too (a union's inner ones, a cut's outer ones; at radius
   0 the union's inside is √(a² + b²) of the overlapping depths — no groove). _Corner radius_ rounds the corners — all,

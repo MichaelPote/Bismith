@@ -234,7 +234,7 @@ and relief to the texture (`fresh`: blocks ~12 % of the texture's mean side, Hei
 (warp, jaggies, roughness, rills' meander, breakup, zones, folds) runs in one flat loop and every generation in another
 (38 cells each, its bound the generation count — per pixel, as fracture zones can fade the last one out); the two
 generations of joints share one loop (one copy of the joint code); the coherence swell uses a copy of `valueNoise`
-without the animation code; the other loop bounds come from a uniform (ORG_1). Cold compile on D3D11 (RTX 5080):
+without the animation code; the other loop bounds come from a uniform (UNI_1). Cold compile on D3D11 (RTX 5080):
 **~3.7–3.9 s** (runs vary by ~0.15 s) — over Truchet's (2.0 s; Tessellation 1.8 s, Chips 1.67 s, Cracks 0.81 s). The
 long fractures cost ~0.3 s of it, the three-site skirt distances ~0.3 s, the streaks ~0.2 s, the bed snapping ~0.2 s
 (one flat loop of candidates × Euclid steps; a gcd loop called inside the candidate loop cost more), merging on the

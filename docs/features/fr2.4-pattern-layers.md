@@ -232,7 +232,7 @@ two sites tie are no border.
   mostly 0.45–1.55 cells (±0.75 at most), never closer than two line widths plus the bevels; a varied stripe thinner than
   its bevels likewise keeps its full rounding. Varied stripe widths are kept between 1.5 px and the period less 1.5 px; spacing jitter
   can move a stripe a quarter period into its neighbours' slots (they may merge).
-- **Compile time.** The pattern layers' fBm goes through `pat_fbm` (identical to the library's Perlin fBm, its
+- **Compile time.** The pattern layers' fBm goes through the library's `fbm` / `warpOffset` (its
   octave loop bounded by a uniform so D3D keeps it rolled); cold D3D11 compiles: bricks ≈ 1.25 s, hex ≈ 0.8 s,
   Voronoi ≈ 1.7 s, checker (since moved to Tiles) / grid / stripes ≈ 0.4 s. Shader loops avoid `continue` (ANGLE / D3D11 can miscompile it). After round 3: bricks ≈ 1.4 s, hex ≈ 0.95 s,
   Voronoi ≈ 1.75 s. After round 5: bricks ≈ 1.5 s, hex ≈ 0.95 s, Voronoi ≈ 2.1 s (most of it the two 5 × 5 site

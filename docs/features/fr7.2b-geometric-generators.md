@@ -299,7 +299,7 @@ Checked on a contact sheet (ref | render, palette Quake, ACES).
   mode, kinds, ratios, rotations, non-tiling), but for 1/255 in a few pixels of the parametric shapes (float rounding
   of the table) and checkerboards' even counts. Render cost per layer is unchanged within noise — but a table of three
   `vec2`s per vertex cost ~20 % more per pixel (D3D copies dynamically indexed constant arrays per pixel), hence
-  the packing. Shared `geoGlsl` loops run to `geo_n` (not unrolled to `GEO_NV`), `geo_gcd` is uniform-bounded and
+  the packing. Shared `geoGlsl` loops run to `geo_n` (not unrolled to `GEO_NV`), `igcd` (GLSL_COMMON) is uniform-bounded and
   `geo_finish` is one in-place pass: Setts' compile went 1.1 → 0.35 s, the other geometric generators unchanged
   (their output identical).
 
