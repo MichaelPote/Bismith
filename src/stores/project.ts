@@ -18,7 +18,7 @@ import { createLayer, createLight, createPostFilter, createProject, normalizePro
 import { freshParams, linkedChanges } from '@/layers/registry';
 import { newId } from '@/core/ids';
 import { MAX_LIGHTS } from '@/core/project';
-import { resizeProject } from '@/core/pixelScale';
+import { fitLight, resizeProject } from '@/core/pixelScale';
 import { builtinProject } from '@/presets';
 
 const AUTOSAVE_KEY = 'bismith:project';
@@ -318,7 +318,8 @@ export const useProjectStore = defineStore('project', () => {
 
 	function addLight(type: LightType): Light | undefined {
 		if (lights().length >= MAX_LIGHTS) return undefined;
-		lights().push(createLight(type));
+		// Sized to the canvas, like a fresh layer (a point light's height, size and falloff).
+		lights().push(fitLight(createLight(type), project.value));
 		return lights()[lights().length - 1];
 	}
 

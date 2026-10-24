@@ -324,6 +324,33 @@ describe('canvas resize', () => {
 		expect(resizeProject(p, 80, 80).post[0].params.size).toBe(4);
 		expect(resizeProject(p, 1, 1).post[0].params.size).toBe(1);
 	});
+
+	it('fits a fresh light to the canvas as a resize from the 128 px reference would', async () => {
+		const { fitLight, resizeProject } = await import('./pixelScale');
+		const { createLight } = await import('./serialize');
+		const { LIGHT_DEFS, LIGHT_REF_SIZE, POINT_LIGHT_REF_DIST } = await import('./lights');
+		const def = (k: string) => Number(LIGHT_DEFS.point.params.find((d) => d.key === k)!.default);
+		const at = (width: number, height: number) => fitLight(createLight('point'), { width, height });
+		const ref = at(LIGHT_REF_SIZE, LIGHT_REF_SIZE);
+		expect([ref.params.z, ref.params.radius, ref.refDist]).toEqual([def('z'), def('radius'), POINT_LIGHT_REF_DIST]);
+		const big = at(1024, 1024);
+		expect([big.params.z, big.params.radius, big.refDist]).toEqual([8 * def('z'), 8 * def('radius'), 512]);
+		const small = at(64, 64);
+		expect([small.params.z, small.refDist]).toEqual([def('z') / 2, 32]);
+		// Fractions, range 0 and colour stay; non-square canvases take √(w·h), like resizing.
+		expect([big.params.x, big.params.y, big.params.range, big.params.color]).toEqual([0.3, 0.3, 0, '#fff4e0']);
+		const wide = at(512, 128);
+		expect([wide.params.z, wide.refDist]).toEqual([2 * def('z'), 128]);
+		const p = createProject({ width: 128, height: 128 });
+		p.lighting.lights = [fitLight(createLight('point'), p)];
+		const q = resizeProject(p, 512, 256).lighting.lights[0];
+		const direct = at(512, 256);
+		expect([q.params.z, q.params.radius, q.refDist]).toEqual([direct.params.z, direct.params.radius, direct.refDist]);
+		// A directional light has nothing in px.
+		expect(fitLight(createLight('directional'), { width: 1024, height: 1024 })).toMatchObject({
+			params: createLight('directional').params
+		});
+	});
 });
 
 describe('shape mask (the register)', () => {

@@ -8,6 +8,12 @@ import { newId } from './ids';
  */
 export const POINT_LIGHT_REF_DIST = 64;
 
+/**
+ * The canvas side (px) the lights' px defaults (Height, Radius, POINT_LIGHT_REF_DIST) are authored for: the default
+ * canvas. A light added in the editor starts fitted to its canvas from here (fitLight in core/pixelScale.ts).
+ */
+export const LIGHT_REF_SIZE = 128;
+
 export interface LightDef {
 	type: LightType;
 	label: string;

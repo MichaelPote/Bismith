@@ -11,11 +11,11 @@
 // across"), fractions, angles and height amounts (height units × height depth) need nothing.
 
 import type { ParamDef, ParamValues } from './params';
-import type { Project } from './project';
+import type { Light, Project } from './project';
 import { layerParamDefs } from '@/layers/registry';
 import { getPostDef } from '@/render/post/registry';
 import { getRecipe } from '@/recipes';
-import { LIGHT_DEFS, POINT_LIGHT_REF_DIST } from './lights';
+import { LIGHT_DEFS, LIGHT_REF_SIZE, POINT_LIGHT_REF_DIST } from './lights';
 
 export interface PixelScale {
 	/** Texture pixels per old pixel along x and y. */
@@ -88,11 +88,7 @@ export function scalePixels(p: Project, scale: PixelScale & { post: boolean }): 
 	p.heightDepth = tidy(p.heightDepth * s);
 	p.render.aoRadius = tidy(p.render.aoRadius * s);
 	for (const l of p.layers) scaleParams(layerParamDefs(l.type), l.params, scale);
-	for (const light of p.lighting.lights) {
-		scaleParams(LIGHT_DEFS[light.type].params, light.params, scale);
-		// Its distances to the surface grow by s, so the inverse-square falloff's reference does too.
-		if (light.type === 'point') light.refDist = tidy((light.refDist ?? POINT_LIGHT_REF_DIST) * s);
-	}
+	for (const light of p.lighting.lights) scaleLight(light, scale);
 	for (const m of p.materials ?? []) {
 		const def = getRecipe(m.recipe);
 		if (def) scaleParams(def.params, m.params, scale);
@@ -103,6 +99,27 @@ export function scalePixels(p: Project, scale: PixelScale & { post: boolean }): 
 			if (def) scaleParams(def.params, f.params, scale);
 		}
 	}
+}
+
+/** Scale a light's px params in place, and a point light's falloff reference with them. */
+function scaleLight(light: Light, scale: PixelScale): void {
+	scaleParams(LIGHT_DEFS[light.type].params, light.params, scale);
+	// Its distances to the surface grow by s, so the inverse-square falloff's reference does too.
+	if (light.type === 'point') {
+		const ref = (light.refDist ?? POINT_LIGHT_REF_DIST) * Math.sqrt(scale.kx * scale.ky);
+		light.refDist = scale.tidy ? Number(ref.toPrecision(6)) : ref;
+	}
+}
+
+/**
+ * A light made from the defaults (createLight), fitted in place to a `width`×`height` canvas: its px values are
+ * authored for LIGHT_REF_SIZE² and scale like a resize from there (by √(w·h) / 128 — the same factor, so a fresh light
+ * on a 128 px canvas resized to 512 px matches one added at 512 px), so a new point light sits as high and lights as
+ * brightly relative to the texture at any size. For lights added in the editor; stored and preset lights keep theirs.
+ */
+export function fitLight(light: Light, { width, height }: { width: number; height: number }): Light {
+	scaleLight(light, { kx: width / LIGHT_REF_SIZE, ky: height / LIGHT_REF_SIZE, tidy: true });
+	return light;
 }
 
 /**

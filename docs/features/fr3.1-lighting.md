@@ -14,7 +14,10 @@ Global lighting as a project setting: sky light, ambient strength, and individua
 - Lights (≤ 8): directional (azimuth, elevation, angular radius for soft shadows) and point (x, y in user
   space, z height in px, radius for soft shadows, optional range). Inverse-square falloff (refDist / d)²: intensity 1
   lights a white surface to 1.0 at `refDist` px (default 64), which scales with the canvas like z, so a resize keeps
-  point lights as bright.
+  point lights as bright. A light added in the editor starts fitted to the canvas (`fitLight`, core/pixelScale.ts):
+  its px defaults (z 48, radius 6, refDist 64) are authored for a 128 px canvas and scale by √(w·h) / 128 — the
+  resize factor, so it sits as high and lights as brightly relative to the texture at any size. Saved projects and
+  presets keep their stored values.
 - Outliner "Lights" section: add / remove / enable / duplicate; properties panel per light.
 - Viewport gizmos: drag point lights in x/y; directional azimuth indicator.
 - Lighting presets: "Top-left key (UI)", "Overhead + sky", "Torch-lit (Quake)".

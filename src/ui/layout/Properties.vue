@@ -7,7 +7,7 @@
 	import { SHAPE_MASK, layerLimit, limitParams, maskChain, maskChainLabel, masksAbove } from '@/layers/masks';
 	import { LIMIT_PARAMS } from '@/layers/commonParams';
 	import { getPostDef } from '@/render/post/registry';
-	import { LIGHT_DEFS } from '@/core/lights';
+	import { LIGHT_DEFS, POINT_LIGHT_REF_DIST } from '@/core/lights';
 	import { BASE_DEFS, PROJECT_DEFS, RENDER_DEFS } from '@/core/settingsDefs';
 	import { P, type ParamDef, type ParamValue, type ParamValues } from '@/core/params';
 	import { layerUnits, SIZE_PRESETS } from '@/core/project';
@@ -440,7 +440,7 @@
 			<p class="desc">
 				{{
 					light.type === 'point'
-						? 'Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at 64 px.'
+						? `Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at ${Number((light.refDist ?? POINT_LIGHT_REF_DIST).toPrecision(4))} px.`
 						: 'Drag the sun gizmo around the texture to set the azimuth. Hold Shift to place it under the cursor, setting the elevation too (the centre is overhead, the dashed ring the horizon); hold Ctrl to snap to 15° steps.'
 				}}
 			</p>
