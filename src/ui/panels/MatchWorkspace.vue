@@ -1034,8 +1034,26 @@
 					:height="refPx?.height ?? 1"
 					label="Reference image"
 					pickable>
-					Load or drop an image to match. Texture references compare statistics (colour, frequency, edges); Windows
-					compares local patches wherever they are; the Layout preset also compares pixel positions for UI elements.
+					<h3>Match an existing texture</h3>
+					<p>
+						Use Match to copy a texture you already have, such as a photo or a texture from a game. Match adjusts your
+						project's settings until its render looks like that image.
+					</p>
+					<p>To start, load the image with <b>Load reference…</b>, or drop an image file onto this pane.</p>
+					<p>The metric, set below, decides what counts as looking alike:</p>
+					<ul>
+						<li>
+							<b>Texture</b> compares overall statistics of the images: colour, frequency and edges. Where things are
+							placed doesn't matter.
+						</li>
+						<li>
+							<b>Windows</b> compares local patches of the images, looking at finer texture instead of broader
+							structure.
+						</li>
+						<li><b>Tile</b> compares the structure of the images, allowing one to be shifted against the other.</li>
+						<li><b>Tile + windows</b> combines the two.</li>
+						<li><b>Layout</b> also compares where things are, pixel by pixel, for images such as UI elements.</li>
+					</ul>
 				</ImageCanvas>
 			</figure>
 			<figure>
@@ -1073,7 +1091,12 @@
 					:height="renderPx?.height ?? 1"
 					label="Rendered candidate"
 					pickable>
-					The render appears once a reference is loaded.
+					<h3>Your project's render</h3>
+					<p>
+						Once a reference is loaded, your project is rendered here at the reference's size, so you can compare the
+						two side by side.
+					</p>
+					<p>While Match runs, this pane shows the best result found so far.</p>
 				</ImageCanvas>
 			</figure>
 			<figure>
@@ -1090,7 +1113,14 @@
 					:pixels="diffPx?.pixels ?? null"
 					:width="diffPx?.width ?? 1"
 					:height="diffPx?.height ?? 1"
-					:label="diffMode === 'windows' ? 'Window mismatch' : 'Absolute difference'" />
+					:label="diffMode === 'windows' ? 'Window mismatch' : 'Absolute difference'">
+					<h3>Difference</h3>
+					<p>Shows where your render and the reference differ. Brighter areas differ more.</p>
+					<p>
+						With a Windows metric it shows something else: the patches of your render that have no close match anywhere
+						in the reference.
+					</p>
+				</ImageCanvas>
 			</figure>
 		</div>
 

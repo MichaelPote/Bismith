@@ -33,7 +33,8 @@ jarring, traces it to the layer responsible, and proposes the fix.
 
 The **Tiling** key on the workspace rail, laid out like Match (outliner and properties stay beside it, live):
 
-- **Bar:** _Analyse_ (the current project again), _Run fix_ / _Stop_, and once a run is done _Keep this_ (applies the fix
+- **Bar:** _Find culprits_ (which layers give the repeat away, without changing anything; listed below the terms,
+  and Run fix starts from them while the project is unchanged — an edit drops them), _Run fix_ / _Stop_, and once a run is done _Keep this_ (applies the fix
   to the project, Ctrl+Z undoes it; asks first when the project was edited during the run) and _Discard_.
 - **Panes:** _Current project / Before_ 3 × 3 with its tiling score · _Fixed_ (_Best so far_ while running) 3 × 3 with
   score and drift · _Hotspots_ 3 × 3, of before or of the fix.

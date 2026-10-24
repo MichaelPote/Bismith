@@ -1,6 +1,7 @@
 <script setup lang="ts">
 	// Shows 8-bit RGBA pixels scaled with nearest-neighbour sampling, fitted into its box. `pickable`: the eyedropper takes
-	// the pixel under the pointer. `tiles`: the image repeated tiles × tiles (drawn by the canvas, not copied).
+	// the pixel under the pointer. `tiles`: the image repeated tiles × tiles (drawn by the canvas, not copied). With no
+	// pixels the slot shows instead, on a panel: an <h3> heading and a few short <p>s (or a <ul>) saying what will appear.
 	import { onMounted, ref, watch } from 'vue';
 	import { pixelHex, vPick } from '@/ui/eyedropper';
 
@@ -92,9 +93,33 @@
 		object-fit: contain;
 	}
 	.placeholder {
-		color: var(--text-lo);
+		max-width: 340px;
+		margin: 16px;
+		padding: 12px 14px;
+		background: var(--raised);
+		border: 1px solid var(--line);
+		border-radius: var(--r-field);
+		color: var(--text-mid);
 		font-size: 12px;
-		text-align: center;
-		padding: 16px;
+		line-height: 1.5;
+	}
+	.placeholder :slotted(h3) {
+		margin: 0 0 6px;
+		color: var(--text-hi);
+		font-size: 13px;
+		font-weight: 600;
+	}
+	.placeholder :slotted(p) {
+		margin: 0 0 6px;
+	}
+	.placeholder :slotted(ul) {
+		margin: 0 0 6px;
+		padding-left: 16px;
+	}
+	.placeholder :slotted(li) {
+		margin-bottom: 3px;
+	}
+	.placeholder :slotted(:last-child) {
+		margin-bottom: 0;
 	}
 </style>

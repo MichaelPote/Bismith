@@ -27,7 +27,8 @@
 	import { attributeTiling, type Finding, type LayerBlame, type TilingAttribution } from '@/tiling/attribute';
 	import { fixTiling, type FixCandidate, type FixResult } from '@/tiling/fix';
 	import { renderFrame, tilingEvaluator } from '@/tiling/evaluate';
-	import { tilingGpu } from '@/tiling/gpu';
+	import { tilingGpu, type TilingGpu } from '@/tiling/gpu';
+	import type { Engine } from '@/render/engine';
 	import { nextFrame, yieldEvery } from '@/ui/schedule';
 	import {
 		autosaveRun,
@@ -177,6 +178,8 @@
 		const gpu = tilingGpu(engine.gpu);
 		try {
 			seen = snapshot();
+			// Culprits found in another version of the project no longer hold.
+			if (seen !== culpritsOf) attribution.value = null;
 			const frame = renderFrame(engine, toRaw(store.project), samples.value, gpu);
 			current.value = { frame, analysis: analyzeTiling(frame, {}, gpu) };
 			progress.value = '';
@@ -190,8 +193,62 @@
 		}
 	}
 
-	// ---------------------------------------------------------------- the run
+	// ---------------------------------------------------------------- the culprits
 	class Stopped extends Error {}
+
+	/** The project the shown culprits were found in: once it changes, they're stale. */
+	let culpritsOf = '';
+
+	/** Which layers give the repeat away: the project rendered with each left out in turn. */
+	function attribute(
+		engine: Engine,
+		project: Project,
+		gpu: TilingGpu | null,
+		yieldStep: () => Promise<void>
+	): Promise<TilingAttribution> {
+		return attributeTiling(
+			project,
+			async (q) => {
+				if (abort) throw new Stopped();
+				await yieldStep();
+				return renderFrame(engine, q, samples.value, gpu);
+			},
+			{ gpu, onProgress: (done, total) => (progress.value = `Finding the culprits · layer ${done} of ${total}`) }
+		);
+	}
+
+	/** Find the culprits without fixing anything: they show in the list, and Run fix starts from them. */
+	async function findCulprits(): Promise<void> {
+		const engine = editor.engine;
+		if (!engine || running.value || phase.value === 'done') return;
+		while (analysing) await nextFrame();
+		if (running.value) return;
+		abort = false;
+		phase.value = 'finding';
+		log.value = [];
+		attribution.value = null;
+		const start = snapshot();
+		await nextFrame();
+		engine.suspend();
+		const gpu = tilingGpu(engine.gpu);
+		try {
+			const a = await attribute(engine, JSON.parse(start) as Project, gpu, yieldEvery());
+			seen = culpritsOf = start;
+			current.value = { frame: a.frame, analysis: a.analysis };
+			attribution.value = a;
+			if (!a.findings.length) log.value = ['No single layer stands out as the cause of the repeat.'];
+		} catch (e) {
+			if (!(e instanceof Stopped))
+				editor.notify(`Finding the culprits failed: ${e instanceof Error ? e.message : e}`, 'error');
+		} finally {
+			phase.value = 'idle';
+			progress.value = '';
+			gpu?.release();
+			engine.resume(toRaw(store.project));
+		}
+	}
+
+	// ---------------------------------------------------------------- the run
 
 	/**
 	 * Find the culprits and fix them. `resume`: pick up a checkpointed run instead (its settings, project and culprits;
@@ -213,8 +270,10 @@
 		log.value = [];
 		best.value = null;
 		result.value = null;
-		attribution.value = null;
 		runStart = saved?.runStart ?? snapshot();
+		// Culprits already found in this very project (Find culprits) are where the fix starts.
+		const found = !saved && culpritsOf === runStart ? attribution.value : null;
+		attribution.value = null;
 		const project = JSON.parse(runStart) as Project;
 		// Tells other tabs this run is alive (they mustn't offer to resume its checkpoint).
 		releaseLock ??= holdRunLock('tiling');
@@ -234,17 +293,10 @@
 				await yieldStep();
 				const frame = renderFrame(engine, project, samples.value, gpu);
 				a = { frame, analysis: analyzeTiling(frame, {}, gpu), layers: saved.layers, findings: saved.findings };
-			} else {
-				// Which layers give the repeat away: each left out in turn.
-				a = await attributeTiling(
-					project,
-					async (q) => {
-						if (abort) throw new Stopped();
-						await yieldStep();
-						return renderFrame(engine, q, samples.value, gpu);
-					},
-					{ gpu, onProgress: (done, total) => (progress.value = `Finding the culprits · layer ${done}/${total}`) }
-				);
+			} else if (found) a = found;
+			else {
+				a = await attribute(engine, project, gpu, yieldStep);
+				culpritsOf = runStart;
 			}
 			current.value = { frame: a.frame, analysis: a.analysis };
 			attribution.value = a;
@@ -449,6 +501,17 @@
 		hotspotOf.value === 'fixed' && best.value ? best.value.analysis : current.value?.analysis
 	);
 	const fixedTerms = computed(() => best.value?.analysis.terms ?? null);
+	/** The bar's line: what is going on, or what to do next. */
+	const status = computed(() => {
+		if (progress.value) return progress.value;
+		if (phase.value === 'done')
+			return result.value?.changes.length
+				? 'Keep the fix, or discard it.'
+				: 'No change made the repeat less noticeable.';
+		const a = attribution.value;
+		if (a) return a.findings.length ? 'Culprits found. Run fix works on them.' : 'No single layer stands out.';
+		return 'Find what makes the repeat noticeable, then fix it.';
+	});
 	const culpritNames = computed(() => {
 		const a = attribution.value;
 		if (!a) return [];
@@ -463,23 +526,20 @@
 	<section class="tiling cf-panel">
 		<div class="bar">
 			<span class="cf-label">Tiling</span>
-			<span class="lo">{{
-				progress ||
-				(phase === 'done'
-					? result?.changes.length
-						? 'Keep the fix, or discard it'
-						: 'Nothing the search tried tiled better'
-					: 'What gives the repeat away, which layer draws it, and a fix that keeps the look')
-			}}</span>
+			<span class="lo">{{ status }}</span>
 			<span class="grow" />
 			<button
 				type="button"
 				class="cf-btn"
-				:disabled="!editor.engine || running"
-				title="Analyse the current project again"
-				@click="analyseCurrent">
+				:disabled="!editor.engine || running || phase === 'done'"
+				:title="
+					phase === 'done'
+						? 'Keep or discard the fix first'
+						: 'Find which layers make the repeat noticeable. Nothing is changed.'
+				"
+				@click="findCulprits">
 				<IconScan :size="13" />
-				Analyse
+				Find culprits
 			</button>
 			<button v-if="!running" type="button" class="fk primary" :disabled="!editor.engine" @click="run()">
 				<span class="fk-face"><IconPlayerPlay :size="12" />{{ phase === 'done' ? 'Run again' : 'Run fix' }}</span>
@@ -519,7 +579,16 @@
 					:tiles="3"
 					label="Current project tiled 3 by 3"
 					pickable>
-					The project tiled 3 × 3 appears here.
+					<h3>Your project, tiled 3 × 3</h3>
+					<p>
+						Use Tiling to remove obvious tiling artefacts: details that stand out every time the texture repeats, so the
+						repeat is easy to spot.
+					</p>
+					<p>
+						Your project is rendered and repeated three times in each direction, so you can see how it looks as a tiling
+						texture.
+					</p>
+					<p>It updates shortly after you edit the project.</p>
 				</ImageCanvas>
 			</figure>
 			<figure>
@@ -539,8 +608,18 @@
 					:tiles="3"
 					label="Fixed project tiled 3 by 3"
 					pickable>
-					Run the fix: it finds the layers that give the repeat away, reseeds them and nudges their pattern, keeping
-					whatever tiles better without changing the material.
+					<h3>No fix yet</h3>
+					<p>
+						A tiling texture can give its repeat away: a dark patch, a bright stone or a line that shows up in the same
+						place on every tile. Tiling finds these artefacts and tones them down.
+					</p>
+					<p><b>Find culprits</b> shows which layers make the repeat noticeable.</p>
+					<p>
+						<b>Run fix</b> then works on those layers. It tries new random seeds and small changes to their pattern
+						settings. It keeps only the changes that make the repeat less noticeable while the material still looks the
+						same.
+					</p>
+					<p>The result appears here. You can keep it or discard it.</p>
 				</ImageCanvas>
 			</figure>
 			<figure>
@@ -572,7 +651,14 @@
 					:width="hotspotPx?.width ?? 1"
 					:height="hotspotPx?.height ?? 1"
 					:tiles="3"
-					label="Where the repeat draws the eye" />
+					label="Where the repeat draws the eye">
+					<h3>Hotspots</h3>
+					<p>
+						Highlights the parts of the texture that give the repeat away, such as a patch that stands out or a line
+						that stops at the tile edge.
+					</p>
+					<p>Brighter areas draw the eye more.</p>
+				</ImageCanvas>
 			</figure>
 		</div>
 
@@ -646,6 +732,11 @@
 					>
 				</div>
 				<div class="log cf-mono">
+					<p v-if="!culpritNames.length && !log.length" class="hint">
+						Find culprits lists the layers that make the repeat noticeable here, the worst first, with what gives them
+						away.
+					</p>
+					<p v-if="culpritNames.length" class="hint">Layers to blame, worst first, and what gives them away:</p>
 					<div v-for="c in culpritNames" :key="c.name">{{ c.name }} · {{ c.term }} {{ c.weight.toFixed(2) }}</div>
 					<div v-for="(l, i) in log" :key="i">{{ l }}</div>
 				</div>
@@ -813,6 +904,12 @@
 	.tv {
 		color: var(--text);
 		text-align: right;
+	}
+
+	.log .hint {
+		margin: 0;
+		font-family: var(--font-sans);
+		color: var(--text-lo);
 	}
 
 	.log {
