@@ -119,6 +119,7 @@ in code.
 - The user's presets go in **IndexedDB** (database `bismith`, store `presets`, key `preset.id`, a random id). Each
   value is the preset file's text plus its `preset` header copied out for listing without parsing everything.
   IndexedDB holds far more than localStorage's ~5 MB, which the autosave and stored images already use.
+  The database is opened in one place, `src/core/idb.ts`, which also holds run checkpoints (FR6.3).
 - Built-ins are read-only and keyed separately (`builtin:<path>` against `user:<id>`), so the user's presets never
   collide with or shadow them. To start from a built-in, apply it and save it again.
 - Where the browser won't store them (a private window, blocked site data) presets last for the session, and the

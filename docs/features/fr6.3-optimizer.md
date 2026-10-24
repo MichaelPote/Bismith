@@ -323,3 +323,25 @@ Constraining the vector itself, in `score()`, covers every move — mutations, g
 - Measured on a lit photo of a lawn with leaf litter, 300 steps from the same start with the height depth held: without
   it the loss reached 0.147 with a purple base and a green stop in the soil ramp; with Normal it reached 0.131, every
   colour in the photo's family.
+
+## Run checkpoints (2026-10-24)
+
+A run outlives its page: Chrome discarding a background tab (Memory Saver, memory pressure) reloads it without a
+`beforeunload`, and a crash or a closed tab ends it the same way. While a run goes, the Match workspace checkpoints it
+in IndexedDB (`src/stores/runCheckpoint.ts`, store `checkpoints`) every ~10 s and at once on `visibilitychange` →
+hidden, `pagehide` and the Page Lifecycle `freeze` — only ever between steps (an event mid-step writes the state from
+before the step at once, then the state after it). A checkpoint holds the optimiser's whole search state
+(`Optimizer.snapshot()`: candidates' projects once each, vectors, σ and selection stats, move-mix stats, islands,
+tiers, RNG state, history), the press's limits (`RunLimits.snapshot()`: steps, stall count and time already used),
+the settings, the loss chart and log, and the project; the reference image goes in once per run, as the file it was
+loaded from. About 45 KB on a 64 px project after 14 steps, growing ~0.4 KB a step (the history); a save costs well
+under a millisecond on the page (the snapshot points at the optimiser's projects; IndexedDB copies it). The checkpoint
+is cleared when the run stops for any reason — finished, paused, reset, Apply best, leaving the workspace.
+
+At start-up (`src/ui/resumeRuns.ts`), once the engine is up, a checkpoint left behind asks _“A Match run was
+interrupted N minutes ago at step N (loss X). Resume it?”_ (Discard / Resume; Cancel asks again next time). If another
+project is open now it says so, and Resume reopens the run's project (undoable). Resume decodes the reference, puts the
+settings back, rebuilds the optimiser and `restore()`s it — the parents' renders are made again for colour fits — and
+carries on: the same steps the uninterrupted run would have taken (checked in the app: the log of a run reloaded at
+step 14 matches an uninterrupted one through step 24). A run still going in another tab holds a Web Lock
+(`bismith:run:match`), so that tab's checkpoint isn't offered. The Tiling fix can adopt the same module.

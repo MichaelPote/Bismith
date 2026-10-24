@@ -453,7 +453,8 @@ src/
   match/             metrics, VGG texture term, colour fit, optimiser, templates, emulation, variations
   tiling/            what makes the repeat obvious, which layer is to blame, and a fix by reseeding it (FR9)
   recipes/           smart-material recipes (macro controls → member layers)
-  stores/            Pinia: project (with undo/redo), editor (selection, view state), presets (built-ins + the user's, IndexedDB)
+  stores/            Pinia: project (with undo/redo), editor (selection, view state), presets (built-ins + the user's, IndexedDB),
+                     runCheckpoint (long runs saved for resuming after the page is lost)
   ui/                components/ (fields, panel cards, icons), layout/ (bars, outliner, viewport, properties), panels/
   presets/           preset loader (builtin.ts: generated index of presets/*.json), stage, apply / save, thumbnails
   headless.ts        window.__bismith API used by the harness

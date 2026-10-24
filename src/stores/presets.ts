@@ -8,6 +8,7 @@ import { computed, shallowRef } from 'vue';
 import type { PresetKind, Project } from '@/core/project';
 import { normalizeProject, projectFromJSON, projectToJSON } from '@/core/serialize';
 import { builtinPresets, type PresetEntry } from '@/presets';
+import { idbRun } from '@/core/idb';
 
 /** One stored user preset: the project file's text, and its header copied out for listing without parsing it all. */
 interface UserRecord {
@@ -21,35 +22,8 @@ interface UserRecord {
 	preview?: string;
 }
 
-const DB = 'bismith';
-const STORE = 'presets';
-
-function openDb(): Promise<IDBDatabase> {
-	return new Promise((resolve, reject) => {
-		const req = indexedDB.open(DB, 1);
-		req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
-		req.onsuccess = () => resolve(req.result);
-		req.onerror = () => reject(req.error);
-	});
-}
-
-function run<T>(mode: IDBTransactionMode, f: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-	return openDb().then(
-		(db) =>
-			new Promise<T>((resolve, reject) => {
-				const tx = db.transaction(STORE, mode);
-				const req = f(tx.objectStore(STORE));
-				tx.oncomplete = () => {
-					db.close();
-					resolve(req.result);
-				};
-				tx.onerror = tx.onabort = () => {
-					db.close();
-					reject(tx.error ?? req.error);
-				};
-			})
-	);
-}
+const run = <T>(mode: IDBTransactionMode, f: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> =>
+	idbRun('presets', mode, f);
 
 function toRecord(project: Project): UserRecord {
 	const h = project.preset!;

@@ -27,10 +27,20 @@
 		RunLimits,
 		STOP_LABELS,
 		extractParams,
+		type OptimizerSnapshot,
+		type RunLimitsSnapshot,
 		type StepInfo,
 		type StopCriteria,
 		type StopReason
 	} from '@/match/optimizer';
+	import {
+		autosaveRun,
+		holdRunLock,
+		runCheckpoints,
+		type Checkpoint,
+		type CheckpointInput
+	} from '@/stores/runCheckpoint';
+	import type { ResumeRunEvent } from '@/ui/resumeRuns';
 	import ImageCanvas from '@/ui/components/ImageCanvas.vue';
 	import LossChart from '@/ui/components/LossChart.vue';
 	import NumberField from '@/ui/components/NumberField.vue';
@@ -70,6 +80,36 @@
 	const space = ref({ layers: true, base: true, shading: true, lights: true, post: false, enums: false, seeds: false });
 	const structural = ref(true);
 
+	function settingsNow(): MatchSettings {
+		return {
+			preset: preset.value,
+			presetChosen,
+			windowDiv: windowDiv.value,
+			colourRange: colourRangeSel.value,
+			samples: samples.value,
+			maxSteps: maxSteps.value,
+			targetLoss: targetLoss.value,
+			timeLimit: timeLimit.value,
+			stallSteps: stallSteps.value,
+			space: { ...space.value },
+			structural: structural.value
+		};
+	}
+
+	function applySettings(s: MatchSettings): void {
+		preset.value = s.preset;
+		presetChosen = s.presetChosen;
+		windowDiv.value = s.windowDiv;
+		colourRangeSel.value = s.colourRange;
+		samples.value = s.samples;
+		maxSteps.value = s.maxSteps;
+		targetLoss.value = s.targetLoss;
+		timeLimit.value = s.timeLimit;
+		stallSteps.value = s.stallSteps;
+		space.value = { ...s.space };
+		structural.value = s.structural;
+	}
+
 	const running = ref(false);
 	const optimizer = shallowRef<Optimizer | null>(null);
 	/** The matcher the current optimiser scores with (its GPU texture statistics are freed on reset). */
@@ -100,6 +140,45 @@
 	 * reactive project (moving a layer, material helpers) leave proxies inside the raw object, which it can't clone.
 	 */
 	const copyProject = (): Project => JSON.parse(snapshot());
+
+	// ---------------------------------------------------------------- run checkpoints
+	// A run is checkpointed while it goes (stores/runCheckpoint.ts): every ~10 s and whenever the page is hidden, so a
+	// tab the browser discards in the background (or a crash) doesn't lose it — at the next start-up ui/resumeRuns.ts
+	// offers to resume it, and resumeRun() below carries on from the saved step. The checkpoint goes when the run stops.
+
+	/** The settings a run depends on (its optimiser's options, its matcher, its renders). */
+	interface MatchSettings {
+		preset: MetricPreset;
+		presetChosen: boolean;
+		windowDiv: string;
+		colourRange: string;
+		samples: number;
+		maxSteps: number;
+		targetLoss: number;
+		timeLimit: number;
+		stallSteps: number;
+		space: typeof space.value;
+		structural: boolean;
+	}
+
+	interface MatchRunState {
+		settings: MatchSettings;
+		/** The matcher's tiling (the project's when the run began). */
+		wrap: boolean;
+		/** The project the optimiser began from, as JSON; null when it is the checkpoint's project. */
+		runStart: string | null;
+		optimizer: OptimizerSnapshot;
+		/** This press's stop criteria and what it has used of them. */
+		limits: RunLimitsSnapshot;
+		curve: number[];
+		log: string[];
+		startLoss: number | null;
+		lastInfo: StepInfo | null;
+	}
+
+	/** The reference image as loaded (a file, or the blob a checkpoint kept): put in the checkpoint once per run. */
+	let refBlob: Blob | null = null;
+	const checkpoints = runCheckpoints<MatchRunState>('match');
 
 	const TERM_SHORT: Record<string, string> = {
 		colour: 'Colour',
@@ -144,16 +223,22 @@
 	const entryCount = computed(() => extractParams(store.project, { ...space.value }).entries.length);
 
 	// ---------------------------------------------------------------- reference loading
+	async function decodeImage(blob: Blob): Promise<MatchImage> {
+		const bmp = await createImageBitmap(blob);
+		const c = document.createElement('canvas');
+		c.width = bmp.width;
+		c.height = bmp.height;
+		const ctx = c.getContext('2d', { willReadFrequently: true })!;
+		ctx.drawImage(bmp, 0, 0);
+		const d = ctx.getImageData(0, 0, bmp.width, bmp.height);
+		return fromRgba8(d.data, d.width, d.height);
+	}
+
 	async function loadFile(file: File): Promise<void> {
 		try {
-			const bmp = await createImageBitmap(file);
-			const c = document.createElement('canvas');
-			c.width = bmp.width;
-			c.height = bmp.height;
-			const ctx = c.getContext('2d', { willReadFrequently: true })!;
-			ctx.drawImage(bmp, 0, 0);
-			const d = ctx.getImageData(0, 0, bmp.width, bmp.height);
-			reference.value = fromRgba8(d.data, d.width, d.height);
+			const d = await decodeImage(file);
+			reference.value = d;
+			refBlob = file;
 			refName.value = file.name;
 			// Big references are matched by local texture (fine detail, layout free); small game textures by Tile + windows,
 			// which also matches the layout (FR8.19).
@@ -194,6 +279,28 @@
 	}
 
 	// ---------------------------------------------------------------- evaluation
+	/** The tiling the run's matcher compares with. */
+	let runWrap = false;
+
+	/** The run's optimiser, scoring renders with `matcher` (the same options for a new run and a resumed one). */
+	function newOptimizer(start: Project, matcher: Matcher): Optimizer {
+		return new Optimizer(
+			start,
+			(p) => {
+				const image = renderImage(p);
+				const r = matcher.score(image);
+				return { loss: r.total, detail: r, image };
+			},
+			{
+				lambda: 4,
+				structural: structural.value,
+				colourRange: Number(colourRangeSel.value),
+				space: { ...space.value },
+				seed: 1,
+				target: matcher.target
+			}
+		);
+	}
 	/** A matcher for the reference, with the GPU texture term when the preset uses it. */
 	async function makeMatcher(target: MatchImage = reference.value!, wrap = store.project.tileable): Promise<Matcher> {
 		const m = new Matcher(target, {
@@ -353,11 +460,12 @@
 		el.addEventListener('pointerup', up);
 	}
 
-	async function run(): Promise<void> {
+	/** Run the optimiser (a new one, or on from where it is); `resume` carries on a checkpointed press's limits. */
+	async function run(resume?: RunLimitsSnapshot): Promise<void> {
 		const engine = editor.engine;
 		if (!engine || !reference.value || running.value) return;
 		// The run optimises the copy it began with: edits made since aren't in it, so ask before resuming without them.
-		if (optimizer.value && snapshot() !== runStart && snapshot() !== resumedWithout) {
+		if (!resume && optimizer.value && snapshot() !== runStart && snapshot() !== resumedWithout) {
 			const choice = await editor.ask({
 				title: 'The project has changed since this run began',
 				detail:
@@ -374,32 +482,22 @@
 		running.value = true;
 		runEditNoted = false;
 		abort = false;
+		// Tells other tabs this run is alive (they mustn't offer to resume its checkpoint).
+		const releaseLock = holdRunLock('match');
+		let autosave: ReturnType<typeof autosaveRun> | null = null;
+		if (refBlob) void checkpoints.putAsset('reference', { name: refName.value, blob: refBlob });
 		// One matcher per optimiser (its evaluate scores with it): created with the optimiser, reused by later presses.
 		if (!optimizer.value) {
 			runMatcher?.dispose();
-			runMatcher = await makeMatcher();
+			runWrap = store.project.tileable;
+			runMatcher = await makeMatcher(reference.value, runWrap);
 		}
 		const matcher = runMatcher!;
 		engine.suspend();
 		try {
 			if (!optimizer.value) {
 				runStart = snapshot();
-				const opt = new Optimizer(
-					JSON.parse(runStart) as Project,
-					(p) => {
-						const image = renderImage(p);
-						const r = matcher.score(image);
-						return { loss: r.total, detail: r, image };
-					},
-					{
-						lambda: 4,
-						structural: structural.value,
-						colourRange: Number(colourRangeSel.value),
-						space: { ...space.value },
-						seed: 1,
-						target: matcher.target
-					}
-				);
+				const opt = newOptimizer(JSON.parse(runStart) as Project, matcher);
 				startLoss.value = await opt.init();
 				optimizer.value = opt;
 				curve.value = [startLoss.value];
@@ -421,14 +519,19 @@
 				...(timeLimit.value > 0 ? { timeMs: timeLimit.value * 1000 } : {}),
 				...(stallSteps.value > 0 ? { patience: stallSteps.value } : {})
 			};
-			const limits = new RunLimits(stop, opt.best.loss);
+			const limits = resume ? RunLimits.restore(resume) : new RunLimits(stop, opt.best.loss);
 			stopped.value = null;
+			autosave = autosaveRun(
+				() => checkpointState(opt, limits),
+				(cp) => void checkpoints.save(cp)
+			);
 			let reason = limits.check(opt.best.loss, opt.evaluations);
 			while (!reason) {
 				if (abort) {
 					reason = 'aborted';
 					break;
 				}
+				autosave.beforeStep();
 				const info = await opt.step();
 				lastInfo.value = info;
 				curve.value = [...curve.value, info.bestLoss];
@@ -449,6 +552,7 @@
 					);
 				}
 				reason = limits.after(opt.best.loss, opt.evaluations);
+				autosave.afterStep();
 				await nextFrame();
 			}
 			stopped.value = reason;
@@ -460,6 +564,10 @@
 			editor.notify(`Optimiser stopped: ${e instanceof Error ? e.message : e}`, 'error');
 		} finally {
 			running.value = false;
+			// The run is over (finished, paused, reset, applied): nothing left to resume.
+			autosave?.stop();
+			void checkpoints.clear();
+			releaseLock();
 			// Reset during the run: its matcher goes with the optimiser, and the panes go back to the current project.
 			if (!optimizer.value) {
 				runMatcher?.dispose();
@@ -468,6 +576,82 @@
 			}
 			engine.resume(toRaw(store.project));
 		}
+	}
+
+	/**
+	 * The run's checkpoint, taken between steps (see autosaveRun) — cheap: it points at the optimiser's projects, which
+	 * never change, and IndexedDB copies it when it is written.
+	 */
+	function checkpointState(opt: Optimizer, limits: RunLimits): CheckpointInput<MatchRunState> {
+		const project = snapshot();
+		const state: MatchRunState = {
+			settings: settingsNow(),
+			wrap: runWrap,
+			runStart: runStart === project ? null : runStart,
+			optimizer: opt.snapshot(),
+			limits: limits.snapshot(),
+			curve: [...curve.value],
+			log: [...log.value],
+			startLoss: startLoss.value,
+			lastInfo: lastInfo.value
+		};
+		return { step: lastInfo.value?.step ?? 0, loss: curve.value.at(-1) ?? null, project, state };
+	}
+
+	/** Carry on a checkpointed run (ui/resumeRuns.ts has put its project back): reference, settings, optimiser, chart. */
+	async function resumeRun(cp: Checkpoint<MatchRunState>): Promise<void> {
+		const engine = editor.engine;
+		if (!engine || running.value || busy.value || fitting.value) return;
+		const s = cp.state;
+		const fail = (why: string) => {
+			editor.notify(`Couldn't resume the Match run: ${why}`, 'error');
+			void checkpoints.clear();
+		};
+		const asset = await checkpoints.getAsset<{ name: string; blob: Blob }>('reference');
+		if (!asset) return fail('its reference image is missing');
+		let target: MatchImage;
+		try {
+			target = await decodeImage(asset.blob);
+		} catch (e) {
+			return fail(`its reference image can't be read (${e instanceof Error ? e.message : e})`);
+		}
+		reset();
+		overlay.value = null;
+		reference.value = target;
+		refBlob = asset.blob;
+		refName.value = asset.name;
+		applySettings(s.settings);
+		runWrap = s.wrap;
+		runMatcher?.dispose();
+		runMatcher = await makeMatcher(target, runWrap);
+		const start = s.runStart ?? cp.project;
+		let opt: Optimizer;
+		engine.suspend();
+		try {
+			opt = newOptimizer(JSON.parse(start) as Project, runMatcher);
+			// Makes the renders the parents carried again (colour fits read them).
+			await opt.restore(s.optimizer);
+		} catch (e) {
+			return fail(e instanceof Error ? e.message : String(e));
+		} finally {
+			engine.resume(toRaw(store.project));
+		}
+		optimizer.value = opt;
+		runStart = start;
+		// Edits made during the run were never part of it: carry on without asking about them.
+		if (snapshot() !== runStart) resumedWithout = snapshot();
+		startLoss.value = s.startLoss;
+		curve.value = s.curve;
+		lastInfo.value = s.lastInfo;
+		const step = s.lastInfo?.step ?? 0;
+		log.value = [`resumed at step ${step}`, ...s.log].slice(0, 40);
+		editor.notify(`Resuming the Match run at step ${step}`);
+		await run(s.limits);
+	}
+
+	function onResumeEvent(e: Event): void {
+		const d = (e as CustomEvent<ResumeRunEvent>).detail;
+		if (d?.workspace === 'match') void resumeRun(d.checkpoint as Checkpoint<MatchRunState>);
 	}
 
 	// ---------------------------------------------------------------- suggest (templates) and variations
@@ -668,13 +852,17 @@
 		{ deep: true }
 	);
 
-	onMounted(() => window.addEventListener('bismith:reference', onDropEvent));
+	onMounted(() => {
+		window.addEventListener('bismith:reference', onDropEvent);
+		window.addEventListener('bismith:resume-run', onResumeEvent);
+	});
 	onBeforeUnmount(() => {
 		abort = true;
 		runMatcher?.dispose();
 		runMatcher = null;
 		freePaneMatcher();
 		window.removeEventListener('bismith:reference', onDropEvent);
+		window.removeEventListener('bismith:resume-run', onResumeEvent);
 	});
 	// Kept alive across workspace switches: the reference, settings and optimiser survive a visit to Create. Leaving pauses
 	// a run (the viewport needs the engine) and frees the panes' matcher; coming back shows edits made meanwhile.
@@ -742,7 +930,7 @@
 				<IconPalette :size="13" />
 				{{ fitting ? 'Fitting…' : 'Fit colours' }}
 			</button>
-			<button v-if="!running" type="button" class="fk primary" :disabled="!reference || !editor.engine" @click="run">
+			<button v-if="!running" type="button" class="fk primary" :disabled="!reference || !editor.engine" @click="run()">
 				<span class="fk-face"
 					><IconPlayerPlay :size="12" />{{
 						optimizer ? (stopped && stopped !== 'aborted' ? 'Continue' : 'Resume') : 'Optimise'

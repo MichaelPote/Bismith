@@ -3,6 +3,7 @@ import { createLayer, createProject, normalizeProject } from '@/core/serialize';
 import type { Gradient } from '@/core/params';
 import { layerParamDefs } from '@/layers/registry';
 import { hexToRgb } from '@/core/color';
+import { mulberry32 } from '@/core/hash';
 import { createImage } from './image';
 import type { Project } from '@/core/project';
 import {
@@ -17,7 +18,9 @@ import {
 	entryValue,
 	extractParams,
 	isEntryActive,
-	type ParamSpace
+	type OptimizerOptions,
+	type ParamSpace,
+	type StepInfo
 } from './optimizer';
 
 const EXAMPLE = {
@@ -599,5 +602,117 @@ describe('stop criteria', () => {
 		expect(l.after(0.95, 2)).toBe(null); // progress: resets
 		expect(l.after(0.949, 3)).toBe(null);
 		expect(l.after(0.948, 4)).toBe('stalled');
+	});
+});
+
+describe('snapshot / restore', () => {
+	it('Rng is mulberry32 and picks its sequence up from a saved state', () => {
+		const a = new Rng(42);
+		const m = mulberry32((42 >>> 0) ^ 0x9e3779b9);
+		for (let i = 0; i < 5; i++) expect(a.next()).toBe(m());
+		const b = new Rng(1);
+		b.state = a.state;
+		expect([a.next(), a.normal(), a.int(7)]).toEqual([b.next(), b.normal(), b.int(7)]);
+	});
+
+	it.each([
+		['adaptive move mix', { colourFitRate: 0.3 }],
+		['frequent colour fits', { colourFitRate: 0.5, adaptive: false }]
+	] as [string, OptimizerOptions][])(
+		'a restored optimiser takes exactly the steps the original would have (%s)',
+		async (_, extra) => {
+			// Every kind of state in play: islands, restarts and tiers, structural moves (inserts, removals), colour fits and
+			// residual colours (both read the parent's render, made again on restore), momentum, adaptive move rates.
+			const target = createImage(8, 8, [0.45, 0.25, 0.1, 1]);
+			const goal = project();
+			goal.layers[0].params.scale = 9;
+			goal.layers[0].params.h_amount = 1.1;
+			goal.layers[1].params.inset_x = 14;
+			const keys: [number, string][] = [
+				[0, 'scale'],
+				[0, 'h_amount'],
+				[1, 'inset_x']
+			];
+			let renders = 0;
+			const evaluate = (p: Project) => {
+				renders++;
+				const g = p.layers.find((l) => l.id === 'noise1')!.params.dif_grad as Gradient;
+				const [r, gr, b] = hexToRgb(g.stops[0].color);
+				const image = createImage(8, 8, [r, gr, b, 1]);
+				const shape = Math.hypot(
+					...keys.map(([l, k]) => Number(p.layers[l].params[k]) - Number(goal.layers[l].params[k]))
+				);
+				const colour = Math.hypot(r - 0.45, gr - 0.25, b - 0.1);
+				const layers = Math.abs(p.layers.filter((l) => l.enabled).length - 3) * 0.05;
+				return { loss: shape * 0.1 + colour + layers, image, detail: { shape, colour } };
+			};
+			const opts: OptimizerOptions = {
+				seed: 9,
+				lambda: 3,
+				islands: 2,
+				islandSteps: 4,
+				restartAfter: 4,
+				structural: true,
+				structuralWhen: 'always',
+				structuralRate: 0.25,
+				target,
+				colourRange: 0.1,
+				...extra
+			};
+			const strip = (h: StepInfo[]) => h.map(({ ms: _, ...rest }) => rest);
+			const layers = (p: Project) => p.layers.map((l) => [l.type, l.name, l.enabled, l.params]);
+
+			const original = new Optimizer(project(), evaluate, opts);
+			await original.run(30);
+			const snap = structuredClone(original.snapshot());
+			// Snapshots are data only and stay small: each project once.
+			expect(snap.bases.length).toBeLessThanOrEqual(snap.candidates.length + 2);
+			const before = renders;
+			const restored = new Optimizer(project(), evaluate, opts);
+			await restored.restore(snap);
+			const reRenders = renders - before;
+			expect(reRenders).toBe(snap.candidates.filter((c) => c.image).length);
+			expect(restored.evaluations).toBe(original.evaluations);
+			expect(strip(restored.history)).toEqual(strip(original.history));
+
+			const a = await original.run(40);
+			const b = await restored.run(40);
+			expect(strip(b)).toEqual(strip(a));
+			expect(a.some((s) => s.moves.includes('colour'))).toBe(true);
+			expect(a.some((s) => s.moves.some((m) => m.startsWith('structural')))).toBe(true);
+			expect(a.some((s) => s.restarted || s.opened)).toBe(true);
+			expect(restored.evaluations).toBe(original.evaluations);
+			expect(restored.best.loss).toBe(original.best.loss);
+			expect(restored.best.step).toBe(original.best.step);
+			expect(restored.best.detail).toEqual(original.best.detail);
+			expect(layers(restored.best.project)).toEqual(layers(original.best.project));
+			expect(layers(restored.current.project)).toEqual(layers(original.current.project));
+			expect(restored.entryStates().map(({ id: _, ...e }) => e)).toEqual(
+				original.entryStates().map(({ id: _, ...e }) => e)
+			);
+		}
+	);
+
+	it('restores before the first step, and RunLimits carry on with what was left', async () => {
+		const fresh = new Optimizer(project(), () => 1, { seed: 3 });
+		const snap = structuredClone(fresh.snapshot());
+		const again = new Optimizer(project(), () => 1, { seed: 3 });
+		await again.restore(snap);
+		expect(again.initialLoss).toBe(null);
+		expect(strip(await again.run(3))).toEqual(strip(await fresh.run(3)));
+
+		const l = new RunLimits({ steps: 5, patience: 2 }, 1);
+		l.after(0.5, 1);
+		l.after(0.5, 2);
+		const r = RunLimits.restore(structuredClone(l.snapshot()));
+		expect(r.after(0.5, 3)).toBe('stalled');
+		const s = RunLimits.restore({ ...l.snapshot(), stop: { steps: 3 } });
+		expect(s.after(0.1, 3)).toBe('steps');
+		const t = RunLimits.restore({ ...l.snapshot(), stop: { timeMs: 1000 }, elapsed: 5000 });
+		expect(t.check(1, 0)).toBe('time');
+
+		function strip(h: StepInfo[]) {
+			return h.map(({ ms: _, ...rest }) => rest);
+		}
 	});
 });

@@ -17,7 +17,6 @@
 
 import { linearToOklab, oklabToLinear, linearToSrgb1, srgbToLinear1, rgbToHex, hexToRgb, type RGB } from '@/core/color';
 import { isOptimizable, gradient, type Gradient, type ParamDef, type ParamValues } from '@/core/params';
-import { mulberry32 } from '@/core/hash';
 import type { Layer, Project } from '@/core/project';
 import { LIGHT_DEFS } from '@/core/lights';
 import { BASE_DEFS, PROJECT_DEFS, RENDER_DEFS } from '@/core/settingsDefs';
@@ -31,12 +30,19 @@ import type { MatchImage } from './image';
 
 // ------------------------------------------------------------------------------------------------ RNG
 
-/** Small seeded PRNG (mulberry32) with normal / integer helpers. */
+/** Small seeded PRNG (mulberry32 — the sequence of core/hash.ts's) with normal / integer helpers. */
 export class Rng {
-	readonly next: () => number;
+	/** The generator's whole state: save it to pick the sequence up later (Optimizer.snapshot). */
+	state: number;
 	constructor(seed = 1) {
-		this.next = mulberry32((seed >>> 0) ^ 0x9e3779b9);
+		this.state = ((seed >>> 0) ^ 0x9e3779b9) >>> 0;
 	}
+	readonly next = (): number => {
+		const a = (this.state = (this.state + 0x6d2b79f5) >>> 0);
+		let t = Math.imul(a ^ (a >>> 15), a | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
 	normal(): number {
 		let u = 0;
 		while (u === 0) u = this.next();
@@ -741,9 +747,18 @@ export interface RunOutcome {
 	ms: number;
 }
 
+export interface RunLimitsSnapshot {
+	stop: StopCriteria;
+	steps: number;
+	mark: number;
+	since: number;
+	/** Time used so far (ms). */
+	elapsed: number;
+}
+
 /** Tracks a run against its StopCriteria (shared by Optimizer.runUntil, the harness CLI and the Match workspace). */
 export class RunLimits {
-	private readonly t0 = Date.now();
+	private t0 = Date.now();
 	private steps = 0;
 	private mark: number;
 	private since = 0;
@@ -753,6 +768,20 @@ export class RunLimits {
 		bestLoss: number
 	) {
 		this.mark = bestLoss;
+	}
+
+	/** Where the run stands against its limits (a run checkpoint keeps it, to resume with what was left). */
+	snapshot(): RunLimitsSnapshot {
+		return { stop: { ...this.stop }, steps: this.steps, mark: this.mark, since: this.since, elapsed: this.elapsed() };
+	}
+
+	/** Limits that go on from a snapshot: the steps, stall count and time already used still count. */
+	static restore(s: RunLimitsSnapshot): RunLimits {
+		const l = new RunLimits(s.stop, s.mark);
+		l.steps = s.steps;
+		l.since = s.since;
+		l.t0 = Date.now() - s.elapsed;
+		return l;
 	}
 
 	elapsed(): number {
@@ -956,7 +985,7 @@ interface Island {
 	rounds: number;
 }
 
-interface EntryStats {
+export interface EntryStats {
 	sigma: number;
 	success: number;
 	fail: number;
@@ -1022,6 +1051,62 @@ export interface OptimizerBest {
 	detail?: unknown;
 	/** Step at which it was found (0 = initial project). */
 	step: number;
+}
+
+/**
+ * An optimiser's whole search state as plain, structured-cloneable data (Optimizer.snapshot / restore): a run checkpoint
+ * keeps it so a run lost with its page carries on exactly where it was. Projects are stored once each (candidates
+ * point at them by index); parameter spaces are rebuilt from them, and renders made again.
+ */
+export interface OptimizerSnapshot {
+	version: 1;
+	rng: number;
+	maxLayers: number;
+	evaluations: number;
+	initialLoss: number | null;
+	stepCount: number;
+	bestStep: number;
+	stage: number;
+	/** Every candidate's base project, once each. */
+	bases: Project[];
+	candidates: CandidateSnapshot[];
+	/** Index of the best candidate in `candidates` (null before init). */
+	best: number | null;
+	islands: {
+		id: number;
+		parent: number;
+		best: number;
+		stagnation: number;
+		stagRef: number;
+		rounds: number;
+		lastDelta: { base: number; delta: number[]; entries: number[] } | null;
+	}[];
+	/** Index of the current island. */
+	isl: number;
+	stats: [string, EntryStats][];
+	moveStats: [string, { gain: number; evals: number }][];
+	inserted: string[];
+	history: StepInfo[];
+}
+
+interface CandidateSnapshot {
+	base: number;
+	/** null: the base itself. */
+	project: Project | null;
+	vector: number[];
+	loss: number;
+	detail?: unknown;
+	/** Indices into its space's entries. */
+	mutated: number[];
+	structural: string | null;
+	inserted?: string;
+	removed?: boolean;
+	sweep?: boolean;
+	move?: string;
+	kind?: string;
+	cost?: number;
+	/** It had a render (made again on restore). */
+	image: boolean;
 }
 
 export class Optimizer {
@@ -1187,6 +1272,167 @@ export class Optimizer {
 				value: entryValue(e, this.parent.vector)
 			};
 		});
+	}
+
+	/**
+	 * The search state between steps (see OptimizerSnapshot). Holds references to the candidates' projects, which are
+	 * never changed once made: store a structured clone of it (IndexedDB does), not the object, if the run goes on.
+	 */
+	snapshot(): OptimizerSnapshot {
+		const bases: Project[] = [];
+		const baseIdx = new Map<Project, number>();
+		const base = (p: Project) => {
+			let i = baseIdx.get(p);
+			if (i === undefined) {
+				i = bases.push(p) - 1;
+				baseIdx.set(p, i);
+			}
+			return i;
+		};
+		const candidates: CandidateSnapshot[] = [];
+		const candIdx = new Map<Candidate, number>();
+		const cand = (c: Candidate) => {
+			let i = candIdx.get(c);
+			if (i !== undefined) return i;
+			const index = new Map(c.space.entries.map((e, k) => [e, k]));
+			candidates.push({
+				base: base(c.base),
+				project: c.project === c.base ? null : c.project,
+				vector: Array.from(c.vector),
+				loss: c.loss,
+				detail: c.detail,
+				mutated: c.mutated.map((e) => index.get(e) ?? -1).filter((k) => k >= 0),
+				structural: c.structural,
+				inserted: c.inserted,
+				removed: c.removed,
+				sweep: c.sweep,
+				move: c.move,
+				kind: c.kind,
+				cost: c.cost,
+				image: !!c.image
+			});
+			i = candidates.length - 1;
+			candIdx.set(c, i);
+			return i;
+		};
+		const islands = this.islands.map((isl) => {
+			const d = isl.lastDelta;
+			let lastDelta: OptimizerSnapshot['islands'][number]['lastDelta'] = null;
+			if (d) {
+				const owner = [isl.parent, this.bestC, ...this.islands.map((x) => x.parent)].find((c) => c?.space === d.space);
+				// Momentum only follows a delta made over its parent's space; one over another space is dead state.
+				if (owner) {
+					const index = new Map(d.space.entries.map((e, k) => [e, k]));
+					lastDelta = {
+						base: base(owner.base),
+						delta: Array.from(d.delta),
+						entries: d.entries.map((e) => index.get(e) ?? -1).filter((k) => k >= 0)
+					};
+				}
+			}
+			return {
+				id: isl.id,
+				parent: cand(isl.parent),
+				best: isl.best,
+				stagnation: isl.stagnation,
+				stagRef: isl.stagRef,
+				rounds: isl.rounds,
+				lastDelta
+			};
+		});
+		return {
+			version: 1,
+			rng: this.rng.state,
+			maxLayers: this.opts.maxLayers,
+			evaluations: this.evaluations,
+			initialLoss: this.initialLoss,
+			stepCount: this.stepCount,
+			bestStep: this.bestStep,
+			stage: this.stage,
+			bases,
+			candidates,
+			best: this.bestC ? cand(this.bestC) : null,
+			islands,
+			isl: this.islands.indexOf(this.isl),
+			stats: [...this.stats].map(([k, v]) => [k, { ...v }]),
+			moveStats: [...this.moveStats].map(([k, v]) => [k, { ...v }]),
+			inserted: [...this.inserted],
+			history: [...this.history]
+		};
+	}
+
+	/**
+	 * Continue from a snapshot: an optimiser made with the same evaluate and options as the one snapshotted then steps
+	 * exactly as it would have. The renders candidates carried (colour fits and residual colours read them) are made
+	 * again with `evaluate`, without counting as evaluations — pass `renders: false` to skip that (those moves then wait
+	 * for the parent's next change).
+	 */
+	async restore(s: OptimizerSnapshot, opts: { renders?: boolean } = {}): Promise<void> {
+		if (s.version !== 1) throw new Error(`Unknown optimiser snapshot version ${String(s.version)}`);
+		const spaces = s.bases.map((b) => extractParams(b, this.opts.space));
+		const cands = s.candidates.map((c): Candidate => {
+			const space = spaces[c.base];
+			return {
+				project: c.project ?? s.bases[c.base],
+				base: s.bases[c.base],
+				space,
+				vector: Float64Array.from(c.vector),
+				loss: c.loss,
+				detail: c.detail,
+				mutated: c.mutated.map((k) => space.entries[k]).filter((e) => !!e),
+				structural: c.structural,
+				inserted: c.inserted,
+				removed: c.removed,
+				sweep: c.sweep,
+				move: c.move,
+				kind: c.kind,
+				cost: c.cost
+			};
+		});
+		if (opts.renders !== false)
+			for (const [i, c] of cands.entries()) {
+				if (!s.candidates[i].image) continue;
+				try {
+					const r = await this.evaluate(c.project);
+					if (typeof r === 'object') c.image = r.image;
+				} catch (err) {
+					console.warn('[optimizer] re-render on restore failed', err);
+				}
+			}
+		this.rng.state = s.rng;
+		this.opts.maxLayers = s.maxLayers;
+		this.evaluations = s.evaluations;
+		this.initialLoss = s.initialLoss;
+		this.stepCount = s.stepCount;
+		this.bestStep = s.bestStep;
+		this.stage = s.stage;
+		this.bestC = s.best === null ? null : cands[s.best];
+		this.islands = s.islands.map((i) => {
+			const d = i.lastDelta;
+			const space = d ? spaces[d.base] : null;
+			return {
+				id: i.id,
+				parent: cands[i.parent],
+				best: i.best,
+				stagnation: i.stagnation,
+				stagRef: i.stagRef,
+				rounds: i.rounds,
+				lastDelta:
+					d && space
+						? {
+								space,
+								delta: Float64Array.from(d.delta),
+								entries: d.entries.map((k) => space.entries[k]).filter((e) => !!e)
+							}
+						: null
+			};
+		});
+		this.isl = this.islands[Math.max(0, s.isl)];
+		this.stats = new Map(s.stats.map(([k, v]) => [k, { ...v }]));
+		this.moveStats = new Map(s.moveStats.map(([k, v]) => [k, { ...v }]));
+		this.inserted = new Set(s.inserted);
+		this.history.length = 0;
+		this.history.push(...s.history);
 	}
 
 	/** Evaluate the starting project (called automatically by the first step()). */

@@ -16,6 +16,7 @@
 	import EyedropperChip from '@/ui/components/EyedropperChip.vue';
 	import NewProjectWizard from '@/ui/panels/NewProjectWizard.vue';
 	import PresetDialog from '@/ui/panels/PresetDialog.vue';
+	import { offerResume } from '@/ui/resumeRuns';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
@@ -159,7 +160,11 @@
 		}
 	);
 
-	onMounted(() => window.addEventListener('keydown', onKey));
+	onMounted(() => {
+		window.addEventListener('keydown', onKey);
+		// A long run (Match's optimiser) lost with the page — a discarded background tab, a crash — can carry on.
+		void offerResume();
+	});
 	onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 </script>
 
