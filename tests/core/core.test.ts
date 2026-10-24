@@ -204,7 +204,9 @@ describe('serialize', () => {
 	});
 	it('loads the sky environment image and rotation, none for projects saved before them', () => {
 		const old = normalizeProject({ lighting: { sky: { zenith: '#8090a0' } } }).lighting.sky;
-		expect([old.image, old.rotation]).toEqual(['', 0]);
+		expect([old.image, old.rotation, old.plane]).toEqual(['', 0, 'floor']);
+		expect(normalizeProject({ lighting: { sky: { plane: 'wall' } } }).lighting.sky.plane).toBe('wall');
+		expect(normalizeProject({ lighting: { sky: { plane: 'ceiling' } } }).lighting.sky.plane).toBe('floor');
 		const env = normalizeProject({ lighting: { sky: { image: 'hall.png', rotation: 400 } } }).lighting.sky;
 		expect([env.image, env.rotation]).toEqual(['hall.png', 180]);
 	});

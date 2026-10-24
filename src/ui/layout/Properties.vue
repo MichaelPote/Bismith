@@ -167,6 +167,27 @@
 	const hasEnv = (p: ParamValues) => Boolean(p.image);
 	const SKY_DEFS: ParamDef[] = [
 		P.bool('enabled', 'Sky light', true),
+		P.enum(
+			'plane',
+			'Plane',
+			'floor',
+			[
+				[
+					'floor',
+					'Floor',
+					'lying flat under the sky: the zenith straight out of it, read as a map (top north, right east)'
+				],
+				[
+					'wall',
+					'Wall',
+					'standing upright, the floor stood up on its bottom edge: the sky above its top, the ground below, east still to its right and its face looking south'
+				]
+			],
+			{
+				segmented: true,
+				hint: 'Where the sky (its gradient or environment image) sits round the texture. The lights keep their own directions, relative to the texture'
+			}
+		),
 		P.image('image', 'Environment', {
 			environment: true,
 			hint: 'A panorama (equirectangular, 2:1: its top row straight up, its left edge facing the top of the texture) in place of the zenith → horizon gradient: what metals reflect, coloured by direction, and the light rough surfaces get from the sky. OpenEXR, Radiance HDR and Ultra HDR JPEG keep their full range (a sun lights the scene); PNG, JPEG and WebP work too. Kept as a 512 px Ultra HDR JPEG; the project saves its file name and a lighting preset the image'

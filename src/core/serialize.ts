@@ -219,7 +219,8 @@ export function normalizeProject(input: unknown): Project {
 				horizon: hex(rl.sky?.horizon, lighting.sky.horizon),
 				intensity: num(rl.sky?.intensity, lighting.sky.intensity, 0, 1000),
 				image: typeof rl.sky?.image === 'string' ? rl.sky.image : '',
-				rotation: num(rl.sky?.rotation, 0, -180, 180)
+				rotation: num(rl.sky?.rotation, 0, -180, 180),
+				plane: rl.sky?.plane === 'wall' ? 'wall' : 'floor'
 			},
 			ambient: {
 				color: hex(rl.ambient?.color, lighting.ambient.color),

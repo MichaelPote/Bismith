@@ -7,6 +7,7 @@
 //
 // The JPEG codec is passed in: the browser's canvas in the app, jpeg-js in tools and tests.
 
+import { FloatType } from 'three';
 import { encodeJPEGMetadata } from '@monogrid/gainmap-js/libultrahdr';
 import { linearToSrgb1, srgbToLinear1 } from './color';
 
@@ -122,29 +123,50 @@ const toBuffer = (b: Uint8Array): Uint8Array<ArrayBuffer> => new Uint8Array(b);
 
 // ------------------------------------------------------------------------------------------------- sampling
 
+/** Where the texture sits under the sky (Sky light › Plane, Rotation): what its surface faces. */
+export interface SkyFacing {
+	/** The texture is a wall (its top the zenith, its face looking south), not a floor. */
+	wall: boolean;
+	/** The environment's rotation, in turns (clockwise). */
+	turn: number;
+}
+
 /**
  * The table the path tracer draws sky directions from (importance sampling, docs/features/fr3.1-lighting.md): for each
- * texel of the upper half — the sky a ray can reach — `table` holds (RG) the CDF along its row and its probability, in
- * proportion to its luminance × sin θ (its solid angle); row `upper` holds the rows' CDF in R. `tableWidth` is the
- * image's width, or more if the upper half has more rows than that. Each texel counts with the brightest of it and its
- * neighbours: the sky is read bilinearly, so a bright sun spills into the texels round it, and they must be drawn as
- * often as their light deserves (else a rare hit is a firefly). A little probability everywhere keeps black skies and
- * dark corners sampleable.
+ * texel, `table` holds (RG) the CDF along its row and its probability, in proportion to its luminance × sin θ (its
+ * solid angle); row `rows` holds the rows' CDF in R. `tableWidth` is the image's width, or more if it has more rows
+ * than that.
+ *
+ * Only texels the surface faces get any: a ray reaches the sky only going out of the plane (on a tiling height field
+ * anything heading into it hits the surface), so a floor draws from the upper half and a wall from the hemisphere in
+ * front of it, wherever the rotation turns it — none wasted on sky behind the plane. A texel counts if its centre is
+ * within about a texel's angle of the plane, so every reachable direction keeps a probability. Each texel weighs as
+ * the brightest of it and its neighbours: the sky is read bilinearly, so a bright sun spills into the texels round it,
+ * and they must be drawn as often as their light deserves (else a rare hit is a firefly). A little probability on
+ * every facing texel keeps black skies and dark corners sampleable.
  */
-export function skySamplingTable(img: HdrImage): { table: Float32Array; tableWidth: number; upper: number } {
+export function skySamplingTable(img: HdrImage, facing: SkyFacing): { table: Float32Array; tableWidth: number } {
 	const { width, height } = img;
-	const upper = Math.max(1, Math.ceil(height / 2));
-	const tableWidth = Math.max(width, upper);
+	const tableWidth = Math.max(width, height);
 	const lum = new Float32Array(width * height);
 	for (let p = 0; p < width * height; p++) {
 		const i = p * 4;
 		lum[p] = Math.max(0, 0.2126 * img.data[i] + 0.7152 * img.data[i + 1] + 0.0722 * img.data[i + 2]);
 	}
-	const f = new Float64Array(width * upper);
+	// The texel's direction as the tracer reads the sky (envSample): azimuth clockwise from north, turned; then into the
+	// texture's frame (fromSky), where z is out of the surface.
+	const margin = -Math.sin(Math.hypot(Math.PI / height, (2 * Math.PI) / width));
+	const f = new Float64Array(width * height);
 	let total = 0;
-	for (let y = 0; y < upper; y++) {
-		const sin = Math.sin((Math.PI * (y + 0.5)) / height);
+	for (let y = 0; y < height; y++) {
+		const th = (Math.PI * (y + 0.5)) / height;
+		const sin = Math.sin(th);
+		const cos = Math.cos(th);
 		for (let x = 0; x < width; x++) {
+			const az = 2 * Math.PI * ((x + 0.5) / width + facing.turn);
+			// fromSky: a floor's z is the sky's up; a wall's is the sky's −north.
+			const z = facing.wall ? -Math.cos(az) * sin : cos;
+			if (z <= margin) continue;
 			let m = 0;
 			for (let dy = -1; dy <= 1; dy++) {
 				const yy = Math.min(height - 1, Math.max(0, y + dy));
@@ -154,22 +176,23 @@ export function skySamplingTable(img: HdrImage): { table: Float32Array; tableWid
 			total += f[y * width + x];
 		}
 	}
-	const table = new Float32Array(tableWidth * (upper + 1) * 2);
+	const table = new Float32Array(tableWidth * (height + 1) * 2);
 	let rowsSum = 0;
-	for (let y = 0; y < upper; y++) {
+	for (let y = 0; y < height; y++) {
 		let row = 0;
 		for (let x = 0; x < width; x++) row += f[y * width + x];
 		let acc = 0;
 		for (let x = 0; x < width; x++) {
 			acc += f[y * width + x];
 			const o = (y * tableWidth + x) * 2;
-			table[o] = x === width - 1 ? 1 : acc / row;
+			// A row facing away is never drawn (its rows' CDF doesn't rise); a placeholder CDF keeps it well formed.
+			table[o] = x === width - 1 ? 1 : row > 0 ? acc / row : (x + 1) / width;
 			table[o + 1] = f[y * width + x] / total;
 		}
 		rowsSum += row;
-		table[(upper * tableWidth + y) * 2] = y === upper - 1 ? 1 : rowsSum / total;
+		table[(height * tableWidth + y) * 2] = y === height - 1 ? 1 : rowsSum / total;
 	}
-	return { table, tableWidth, upper };
+	return { table, tableWidth };
 }
 
 // ------------------------------------------------------------------------------------------------- decoding
@@ -356,18 +379,13 @@ export async function hdrFromFile(file: Blob): Promise<HdrImage> {
 	const bytes = new Uint8Array(await file.arrayBuffer());
 	const head = new TextDecoder().decode(bytes.subarray(0, 10));
 	if (bytes[0] === 0x76 && bytes[1] === 0x2f && bytes[2] === 0x31 && bytes[3] === 0x01) {
-		const [{ EXRLoader }, { FloatType }] = await Promise.all([
-			import('three/examples/jsm/loaders/EXRLoader.js'),
-			import('three')
-		]);
+		// The loaders load only when such a file is opened (three itself is already in the page).
+		const { EXRLoader } = await import('three/examples/jsm/loaders/EXRLoader.js');
 		// EXRLoader's rows run bottom-up (flipY false), as a texture's.
 		return fromLoader(new EXRLoader().setDataType(FloatType).parse(bytes.buffer) as HdrTexData, true);
 	}
 	if (head.startsWith('#?')) {
-		const [{ HDRLoader }, { FloatType }] = await Promise.all([
-			import('three/examples/jsm/loaders/HDRLoader.js'),
-			import('three')
-		]);
+		const { HDRLoader } = await import('three/examples/jsm/loaders/HDRLoader.js');
 		return fromLoader(new HDRLoader().setDataType(FloatType).parse(bytes.buffer) as HdrTexData, false);
 	}
 	return decodeUltraHdr(bytes, canvasJpeg);

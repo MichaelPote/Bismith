@@ -84,8 +84,19 @@ export interface Lighting {
 	 * The sky escaping rays see: a zenith → horizon gradient, or an environment image (core/images.ts file name, '' =
 	 * none) — an equirectangular panorama: its top row the zenith, across it the azimuth clockwise from the top of the
 	 * texture as the lights' (its left edge the top), turned clockwise by `rotation` degrees. Both × intensity.
+	 * `plane`: the texture as a floor (read as a map: its top north, its right east, the zenith straight out of it) or a
+	 * wall — that floor stood up on its bottom edge: the zenith above its top, east still to its right, the ground below,
+	 * and its face looking south (azimuth 180) at the horizon.
 	 */
-	sky: { enabled: boolean; zenith: string; horizon: string; intensity: number; image?: string; rotation?: number };
+	sky: {
+		enabled: boolean;
+		zenith: string;
+		horizon: string;
+		intensity: number;
+		image?: string;
+		rotation?: number;
+		plane?: 'floor' | 'wall';
+	};
 	ambient: { color: string; intensity: number };
 	lights: Light[];
 }
@@ -205,7 +216,15 @@ export const MAX_LIGHTS = 8;
 
 export function defaultLighting(): Lighting {
 	return {
-		sky: { enabled: true, zenith: '#9fb4c8', horizon: '#c8c2b8', intensity: 0.35, image: '', rotation: 0 },
+		sky: {
+			enabled: true,
+			zenith: '#9fb4c8',
+			horizon: '#c8c2b8',
+			intensity: 0.35,
+			image: '',
+			rotation: 0,
+			plane: 'floor'
+		},
 		ambient: { color: '#ffffff', intensity: 0.02 },
 		lights: []
 	};

@@ -79,27 +79,54 @@ describe('environment images (Ultra HDR)', () => {
 		expect(sum(small)).toBeCloseTo(sum(big), 4);
 	});
 
+	const prob = (t: { table: Float32Array; tableWidth: number }, x: number, y: number) =>
+		t.table[(y * t.tableWidth + x) * 2 + 1];
+
 	it("builds the sky's sampling table: CDFs that end at 1, probabilities that sum to 1, a sun drawn in proportion", () => {
 		const img = sky(64, 32);
-		const { table, tableWidth, upper } = skySamplingTable(img);
-		expect([tableWidth, upper]).toEqual([64, 16]);
+		const t = skySamplingTable(img, { wall: false, turn: 0 });
+		expect(t.tableWidth).toBe(64);
 		let sum = 0;
-		for (let y = 0; y < upper; y++) {
+		for (let y = 0; y < 32; y++) {
 			let prev = 0;
 			for (let x = 0; x < 64; x++) {
-				const cdf = table[(y * tableWidth + x) * 2];
+				const cdf = t.table[(y * t.tableWidth + x) * 2];
 				expect(cdf).toBeGreaterThanOrEqual(prev);
 				prev = cdf;
-				expect(table[(y * tableWidth + x) * 2 + 1]).toBeGreaterThan(0);
-				sum += table[(y * tableWidth + x) * 2 + 1];
+				sum += prob(t, x, y);
 			}
 			expect(prev).toBe(1);
 		}
 		expect(sum).toBeCloseTo(1, 5);
-		expect(table[(upper * tableWidth + upper - 1) * 2]).toBe(1);
-		// The sun (2×2 px at 30×) and its bilinear spill (±1 px) hold most of the draws; the rest of the sky the remainder.
+		expect(t.table[(32 * t.tableWidth + 31) * 2]).toBe(1);
+		// The sun (2×2 px at 30×, 1/512 of the texels) and its bilinear spill (±1 px) take about half of the draws.
 		let sun = 0;
-		for (let y = 11; y < 15; y++) for (let x = 43; x < 47; x++) sun += table[(y * tableWidth + x) * 2 + 1];
-		expect(sun).toBeGreaterThan(0.5);
+		for (let y = 11; y < 15; y++) for (let x = 43; x < 47; x++) sun += prob(t, x, y);
+		expect(sun).toBeGreaterThan(0.4);
+	});
+
+	it('draws only sky the surface faces: the upper half for a floor, the front for a wall, turned with the sky', () => {
+		const img = sky(64, 32);
+		// A floor: every texel above the horizon (and the row on it), none below.
+		const floor = skySamplingTable(img, { wall: false, turn: 0 });
+		for (let x = 0; x < 64; x++) {
+			expect(prob(floor, x, 4)).toBeGreaterThan(0);
+			expect(prob(floor, x, 16)).toBeGreaterThan(0);
+			expect(prob(floor, x, 20)).toBe(0);
+		}
+		// A wall faces south (azimuth 180°, the middle column): sky and ground in front, nothing behind (north, the edges).
+		const wall = skySamplingTable(img, { wall: true, turn: 0 });
+		for (const y of [4, 24]) {
+			expect(prob(wall, 32, y)).toBeGreaterThan(0);
+			expect(prob(wall, 0, y)).toBe(0);
+			expect(prob(wall, 63, y)).toBe(0);
+		}
+		// Turned a quarter clockwise, the texels a quarter to the left come to its front.
+		const turned = skySamplingTable(img, { wall: true, turn: 0.25 });
+		expect(prob(turned, 16, 10)).toBeGreaterThan(0);
+		expect(prob(turned, 48, 10)).toBe(0);
+		let sum = 0;
+		for (let y = 0; y < 32; y++) for (let x = 0; x < 64; x++) sum += prob(turned, x, y);
+		expect(sum).toBeCloseTo(1, 5);
 	});
 });

@@ -6,7 +6,7 @@ import type { Project } from '@/core/project';
 import { POINT_LIGHT_REF_DIST } from '@/core/lights';
 import { hexToLinear } from '@/core/color';
 import { getHdrImage, imagesVersion } from '@/core/images';
-import { skySamplingTable } from '@/core/environment';
+import { skySamplingTable, type SkyFacing } from '@/core/environment';
 import { Gpu, PingPong } from '@/gpu/context';
 import { GLSL_COMMON } from '@/layers/glsl/common';
 import type { MaterialPipeline } from './materialPipeline';
@@ -34,19 +34,19 @@ uniform bool uJitter;
 uniform float uClamp;
 uniform bool uShadows;
 uniform bool uSkyOn;
+uniform bool uSkyWall;        // the texture is a wall: the sky's zenith is up its image, not out of it
 uniform vec3 uSkyZenith;
 uniform vec3 uSkyHorizon;
 uniform bool uEnvOn;         // the sky is an environment image (equirectangular: top row the zenith, left edge north)
 uniform sampler2D tEnv;
 uniform float uEnvTurn;      // its rotation, in turns
 uniform float uSkyScale;     // its intensity
-// Importance sampling of the environment (PathTracer.envMaps): per texel of its upper half, r = the CDF along its row,
-// g = its probability; row uEnvHs (the last) holds the rows' CDF in r.
+// Importance sampling of the environment (PathTracer.envMaps, skySamplingTable): per texel, r = the CDF along its row,
+// g = its probability (0 for sky behind the plane); row uEnvH (the last) holds the rows' CDF in r.
 uniform sampler2D tEnvDist;
 uniform int uEnvW;           // environment width
-uniform int uEnvHs;          // rows of its upper half (the only ones a ray can reach)
-uniform float uEnvRows;      // all its rows
-uniform int uEnvSteps;       // binary search steps: ceil(log2(max(W, Hs))) + 1
+uniform int uEnvH;           // environment height
+uniform int uEnvSteps;       // binary search steps: ceil(log2(max(W, H))) + 1
 uniform float uEnvNorm;      // W·H / (2π²): probability → pdf per solid angle (÷ sin θ)
 uniform vec3 uAmbient;
 uniform int uLightCount;
@@ -225,8 +225,15 @@ bool sampleBRDF(Mat m, vec3 n, vec3 v, out vec3 l, out vec3 weight, out float pd
   return true;
 }
 
-vec3 sky(vec3 d) {
+// Texture directions (x right, y up the image, z out of the surface) to the sky's frame (x east, y north, z up), and
+// back. A floor reads as a map: its top north, its right east. A wall is that floor stood up on its bottom edge: its
+// top is the zenith, its right still east, so one looking at it looks north and its face looks south.
+vec3 toSky(vec3 d) { return uSkyWall ? vec3(d.x, -d.z, d.y) : d; }
+vec3 fromSky(vec3 s) { return uSkyWall ? vec3(s.x, s.z, -s.y) : s; }
+
+vec3 sky(vec3 dir) {
   if (!uSkyOn) return vec3(0.0);
+  vec3 d = toSky(dir);
   if (uEnvOn) {
     // Latitude-longitude: across by azimuth, clockwise from the top of the image as the lights' (turned clockwise by the
     // rotation), down from the zenith. atan(0, 0) is undefined: straight up, 0.
@@ -243,11 +250,14 @@ vec3 sky(vec3 d) {
 // hit it. A texel's probability P gives a pdf per solid angle of P · W·H / (2π² sin θ), uniform across the texel.
 
 // Its pdf for direction d (0 below the horizon, or without an environment image).
-float envPdf(vec3 d) {
-  if (!uEnvOn || !uSkyOn || d.z <= 0.0) return 0.0;
+float envPdf(vec3 dir) {
+  // Rays leave the surface (z > 0 in the texture's frame); the table covers what they can reach (the sky the plane
+  // faces: the upper half from a floor, the hemisphere in front of a wall).
+  if (!uEnvOn || !uSkyOn || dir.z <= 0.0) return 0.0;
+  vec3 d = toSky(dir);
   float az = abs(d.x) + abs(d.y) > 1e-6 ? atan(d.x, d.y) / TAU : 0.0;
   vec2 uv = vec2(fract(az - uEnvTurn), acos(clamp(d.z, -1.0, 1.0)) / PI);
-  ivec2 px = min(ivec2(uv * vec2(float(uEnvW), uEnvRows)), ivec2(uEnvW - 1, uEnvHs - 1));
+  ivec2 px = min(ivec2(uv * vec2(float(uEnvW), float(uEnvH))), ivec2(uEnvW - 1, uEnvH - 1));
   return texelFetch(tEnvDist, px, 0).g * uEnvNorm / max(sqrt(1.0 - d.z * d.z), 1e-4);
 }
 
@@ -256,8 +266,8 @@ vec3 envSample(out float pdf) {
   int x = 0;
   int y = 0;
   for (int phase = 0; phase < 2; phase++) {
-    int row = phase == 0 ? uEnvHs : y;
-    int n = phase == 0 ? uEnvHs : uEnvW;
+    int row = phase == 0 ? uEnvH : y;
+    int n = phase == 0 ? uEnvH : uEnvW;
     float u = rnd();
     int lo = 0;
     int hi = n - 1;
@@ -271,10 +281,10 @@ vec3 envSample(out float pdf) {
   }
   vec2 j = rnd2();
   float az = TAU * ((float(x) + j.x) / float(uEnvW) + uEnvTurn);
-  float th = PI * (float(y) + j.y) / uEnvRows;
+  float th = PI * (float(y) + j.y) / float(uEnvH);
   float s = sin(th);
   pdf = texelFetch(tEnvDist, ivec2(x, y), 0).g * uEnvNorm / max(s, 1e-4);
-  return vec3(sin(az) * s, cos(az) * s, cos(th));
+  return fromSky(vec3(sin(az) * s, cos(az) * s, cos(th)));
 }
 
 // Direct light from every light, shadow rays from ro. The branches only choose the direction, distance and scale, so the
@@ -429,8 +439,6 @@ interface EnvMaps {
 	dist: THREE.Texture;
 	width: number;
 	height: number;
-	/** Rows of the upper half. */
-	upper: number;
 }
 
 export class PathTracer {
@@ -446,6 +454,7 @@ export class PathTracer {
 	private aoKey = '';
 	private env: EnvMaps | null = null;
 	private envKey = '';
+	private envImageKey = '';
 	private aoNormal: THREE.Texture | null = null;
 
 	constructor(gpu: Gpu) {
@@ -471,6 +480,7 @@ export class PathTracer {
 			uClamp: { value: 8 },
 			uShadows: { value: true },
 			uSkyOn: { value: true },
+			uSkyWall: { value: false },
 			uSkyZenith: { value: new THREE.Vector3() },
 			uSkyHorizon: { value: new THREE.Vector3() },
 			uEnvOn: { value: false },
@@ -479,8 +489,7 @@ export class PathTracer {
 			uSkyScale: { value: 1 },
 			tEnvDist: { value: null },
 			uEnvW: { value: 1 },
-			uEnvHs: { value: 1 },
-			uEnvRows: { value: 2 },
+			uEnvH: { value: 1 },
 			uEnvSteps: { value: 1 },
 			uEnvNorm: { value: 1 },
 			uAmbient: { value: new THREE.Vector3() },
@@ -556,40 +565,42 @@ export class PathTracer {
 
 	/**
 	 * The sky's environment image as a texture of linear HDR radiance (half float, which WebGL 2 always filters; wraps
-	 * round the azimuth) and its importance-sampling table, or null while there is none or it is still decoding (the
-	 * engine configures again once it has).
-	 *
-	 * The table (`dist`, skySamplingTable) is read texel by texel.
+	 * round the azimuth) and its importance-sampling table (skySamplingTable, read texel by texel), or null while there is
+	 * none or it is still decoding (the engine configures again once it has). The table follows what the surface faces —
+	 * the plane and the rotation — so it is rebuilt (a few ms) when they change; the texture only with the image.
 	 */
-	private envMaps(name: string): EnvMaps | null {
+	private envMaps(name: string, facing: SkyFacing): EnvMaps | null {
 		const img = name ? getHdrImage(name) : null;
 		if (!img) return null;
-		const key = `${name}:${imagesVersion()}`;
+		const imageKey = `${name}:${imagesVersion()}`;
+		const key = `${imageKey}:${facing.wall}:${facing.turn}`;
 		if (this.env && this.envKey === key) return this.env;
-		if (this.env) {
-			this.env.texture.dispose();
-			this.env.dist.dispose();
-		}
 		const { width, height } = img;
-		const half = new Uint16Array(img.data.length);
-		for (let i = 0; i < half.length; i++) half[i] = THREE.DataUtils.toHalfFloat(Math.min(img.data[i], 65000));
-		const t = new THREE.DataTexture(half, width, height, THREE.RGBAFormat, THREE.HalfFloatType);
-		t.colorSpace = THREE.LinearSRGBColorSpace;
-		t.wrapS = THREE.RepeatWrapping;
-		t.wrapT = THREE.ClampToEdgeWrapping;
-		t.magFilter = THREE.LinearFilter;
-		t.minFilter = THREE.LinearFilter;
-		t.generateMipmaps = false;
-		t.needsUpdate = true;
-
-		const { table, tableWidth, upper } = skySamplingTable(img);
-		const dist = new THREE.DataTexture(table, tableWidth, upper + 1, THREE.RGFormat, THREE.FloatType);
+		let texture = this.env?.texture;
+		if (!texture || this.envImageKey !== imageKey) {
+			texture?.dispose();
+			const half = new Uint16Array(img.data.length);
+			for (let i = 0; i < half.length; i++) half[i] = THREE.DataUtils.toHalfFloat(Math.min(img.data[i], 65000));
+			const t = new THREE.DataTexture(half, width, height, THREE.RGBAFormat, THREE.HalfFloatType);
+			t.colorSpace = THREE.LinearSRGBColorSpace;
+			t.wrapS = THREE.RepeatWrapping;
+			t.wrapT = THREE.ClampToEdgeWrapping;
+			t.magFilter = THREE.LinearFilter;
+			t.minFilter = THREE.LinearFilter;
+			t.generateMipmaps = false;
+			t.needsUpdate = true;
+			texture = t;
+			this.envImageKey = imageKey;
+		}
+		this.env?.dist.dispose();
+		const { table, tableWidth } = skySamplingTable(img, facing);
+		const dist = new THREE.DataTexture(table, tableWidth, height + 1, THREE.RGFormat, THREE.FloatType);
 		dist.magFilter = THREE.NearestFilter;
 		dist.minFilter = THREE.NearestFilter;
 		dist.generateMipmaps = false;
 		dist.needsUpdate = true;
 
-		this.env = { texture: t, dist, width, height, upper };
+		this.env = { texture, dist, width, height };
 		this.envKey = key;
 		return this.env;
 	}
@@ -635,22 +646,24 @@ export class PathTracer {
 
 		const lt = project.lighting;
 		u.uSkyOn.value = lt.sky.enabled;
+		const wall = lt.sky.plane === 'wall';
+		u.uSkyWall.value = wall;
 		const z = hexToLinear(lt.sky.zenith).map((c) => c * lt.sky.intensity);
 		const hz = hexToLinear(lt.sky.horizon).map((c) => c * lt.sky.intensity);
 		(u.uSkyZenith.value as THREE.Vector3).set(z[0], z[1], z[2]);
 		(u.uSkyHorizon.value as THREE.Vector3).set(hz[0], hz[1], hz[2]);
-		const env = this.envMaps(lt.sky.image ?? '');
+		const turn = (lt.sky.rotation ?? 0) / 360;
+		const env = this.envMaps(lt.sky.image ?? '', { wall, turn });
 		u.uEnvOn.value = env !== null;
 		u.tEnv.value = env?.texture ?? null;
 		u.tEnvDist.value = env?.dist ?? null;
 		if (env) {
 			u.uEnvW.value = env.width;
-			u.uEnvHs.value = env.upper;
-			u.uEnvRows.value = env.height;
-			u.uEnvSteps.value = Math.ceil(Math.log2(Math.max(env.width, env.upper))) + 1;
+			u.uEnvH.value = env.height;
+			u.uEnvSteps.value = Math.ceil(Math.log2(Math.max(env.width, env.height))) + 1;
 			u.uEnvNorm.value = (env.width * env.height) / (2 * Math.PI * Math.PI);
 		}
-		u.uEnvTurn.value = (lt.sky.rotation ?? 0) / 360;
+		u.uEnvTurn.value = turn;
 		u.uSkyScale.value = lt.sky.intensity;
 		const amb = hexToLinear(lt.ambient.color).map((c) => c * lt.ambient.intensity);
 		(u.uAmbient.value as THREE.Vector3).set(amb[0], amb[1], amb[2]);
