@@ -29,7 +29,7 @@ the filter's properties (`src/ui/panels/PostExtras.vue`).
 ## Implementation notes
 
 Files: `src/render/post/palettes.ts` (data + pure-TS helpers), `src/render/post/palettize.ts` (the `palette`
-filter), `src/render/post/palettes.test.ts` (vitest).
+filter), `tests/render/post/palettes.test.ts` (vitest).
 
 **Palettes** (`BUILTIN_PALETTES`, ids in brackets): Quake [`quake`], Quake without the 32 fullbrights
 [`quake_nofb`, indices 0–223 — use it for textures that must not glow in-engine], Doom PLAYPAL #0 [`doom`], PICO-8

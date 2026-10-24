@@ -33,7 +33,7 @@ won't line up) and for laid-out UI elements (where they should).
 ## Notes
 
 Files: `src/match/image.ts` (image type and pixel helpers), `src/match/fft.ts`, `src/match/metrics.ts` (re-exports
-`image.ts`), tests in `src/match/metrics.test.ts` (synthetic images from `src/match/testUtils.ts`).
+`image.ts`), tests in `tests/match/metrics.test.ts` (synthetic images from `tests/match/testUtils.ts`).
 
 **Image convention (`MatchImage`).** RGBA `Float32Array`, rows top-down, **sRGB-encoded 0..1** (what a PNG
 stores ÷ 255, _not_ linear light), straight alpha. Converters: `fromLinear(engine.readFinal())` (the engine's

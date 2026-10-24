@@ -33,7 +33,7 @@ An automated, self-improving loop that iterates the project toward a reference t
 ## Notes
 
 Files: `src/match/optimizer.ts` (engine-agnostic), `src/match/evaluate.ts` (engine glue), tests in
-`src/match/optimizer.test.ts`.
+`tests/match/optimizer.test.ts`.
 
 **Parameter space.** `extractParams(project, opts?) → ParamSpace { entries, size, initial, options }` and
 `applyParams(project, space, vector) → Project` (a new project; the input is never mutated; gradient stops are
