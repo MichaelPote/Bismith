@@ -1,18 +1,42 @@
 <script setup lang="ts">
 	// Tiling (docs/features/fr9-tiling-workspace.md): see what gives the repeat away in a 3 × 3 tiling, which layer is to
 	// blame, and let the fix search reseed and nudge those layers — tiling score down, look held — then keep or discard.
-	import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, toRaw, watch } from 'vue';
+	import {
+		computed,
+		onActivated,
+		onBeforeUnmount,
+		onDeactivated,
+		onMounted,
+		ref,
+		shallowRef,
+		toRaw,
+		watch,
+		type WatchStopHandle
+	} from 'vue';
 	import type { Project } from '@/core/project';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
-	import { heatOverlayOn, tileImage, toRgba8, type MatchImage } from '@/match/image';
-	import { renderToMatchImage } from '@/match/evaluate';
-	import { TILING_TERMS, analyzeTiling, type TilingAnalysis, type TilingTerm } from '@/tiling/analyze';
-	import { attributeTiling, type TilingAttribution } from '@/tiling/attribute';
+	import { heatOverlay, toRgba8, type MatchImage } from '@/match/image';
+	import {
+		TILING_TERMS,
+		analyzeTiling,
+		type TilingAnalysis,
+		type TilingFrame,
+		type TilingTerm
+	} from '@/tiling/analyze';
+	import { attributeTiling, type Finding, type LayerBlame, type TilingAttribution } from '@/tiling/attribute';
 	import { fixTiling, type FixCandidate, type FixResult } from '@/tiling/fix';
-	import { tilingEvaluator } from '@/tiling/evaluate';
+	import { renderFrame, tilingEvaluator } from '@/tiling/evaluate';
 	import { tilingGpu } from '@/tiling/gpu';
-	import { nextFrame } from '@/ui/schedule';
+	import { nextFrame, yieldEvery } from '@/ui/schedule';
+	import {
+		autosaveRun,
+		holdRunLock,
+		runCheckpoints,
+		type Checkpoint,
+		type CheckpointInput
+	} from '@/stores/runCheckpoint';
+	import type { ResumeRunEvent } from '@/ui/resumeRuns';
 	import ImageCanvas from '@/ui/components/ImageCanvas.vue';
 	import LossChart from '@/ui/components/LossChart.vue';
 	import NumberField from '@/ui/components/NumberField.vue';
@@ -36,8 +60,74 @@
 	const running = computed(() => phase.value === 'finding' || phase.value === 'fixing');
 	let abort = false;
 
+	// ---------------------------------------------------------------- run checkpoints
+	// A fix is checkpointed while it goes (stores/runCheckpoint.ts): every ~10 s and whenever the page is hidden, so a
+	// tab the browser discards in the background (or a crash) doesn't lose it — at the next start-up ui/resumeRuns.ts
+	// offers to resume it. A checkpoint holds what the search needs to pick up again: its settings, the project it began
+	// from, the culprits and every evaluation's score and drift. Resuming renders and analyses that project again and
+	// replays the evaluations (fixTiling's `replay`: the search takes the same path without rendering them), then carries
+	// on. A run that ends with a fix not kept (stopped, finished, the workspace left) leaves a last checkpoint marked
+	// paused, which reopens to that result; Keep and Discard clear it. Its lock is held while the run or its result is
+	// here, so other tabs don't offer it.
+
+	interface TilingSettings {
+		seeds: number;
+		culprits: number;
+		stepSize: number;
+		holdLook: number;
+		minGain: number;
+		samples: number;
+		allowScale: boolean;
+	}
+
+	interface TilingRunState {
+		settings: TilingSettings;
+		/** The project the fix began from, as JSON. */
+		runStart: string;
+		/** Its tiling score then (the search's starting loss). */
+		beforeScore: number;
+		/** The culprits: the attribution without its render and maps. */
+		layers: Omit<LayerBlame, 'map'>[];
+		findings: Finding[];
+		/** Every evaluation so far, in order: replayed on resume. */
+		evals: { score: number; drift: number }[];
+		/** The run was stopped (not finished) before its result. */
+		stopped?: boolean;
+	}
+
+	const checkpoints = runCheckpoints<TilingRunState>('tiling');
+	/** Releases this tab's hold on the run (see holdRunLock): held from a run's start until its result is kept or discarded. */
+	let releaseLock: (() => void) | null = null;
+
+	const settingsNow = (): TilingSettings => ({
+		seeds: seeds.value,
+		culprits: culprits.value,
+		stepSize: stepSize.value,
+		holdLook: holdLook.value,
+		minGain: minGain.value,
+		samples: samples.value,
+		allowScale: allowScale.value
+	});
+	function applySettings(t: TilingSettings): void {
+		seeds.value = t.seeds;
+		culprits.value = t.culprits;
+		stepSize.value = t.stepSize;
+		holdLook.value = t.holdLook;
+		minGain.value = t.minGain;
+		samples.value = t.samples;
+		allowScale.value = t.allowScale;
+	}
+
+	/** Forget the run's checkpoint and let other tabs offer it no more. */
+	function dropCheckpoint(): void {
+		void checkpoints.clear();
+		releaseLock?.();
+		releaseLock = null;
+	}
+
+	/** A render (at most FRAME_SIZE px: the panes show it so) and its analysis (maps at the frame's size). */
 	interface Shot {
-		image: MatchImage;
+		frame: TilingFrame;
 		analysis: TilingAnalysis;
 	}
 	/** The project as it is (or was when the run began) and the best candidate of the run. */
@@ -46,7 +136,7 @@
 	const result = shallowRef<FixResult | null>(null);
 	const attribution = shallowRef<TilingAttribution | null>(null);
 	const hotspotOf = ref<'current' | 'fixed'>('current');
-	const curve = ref<number[]>([]);
+	const curve = shallowRef<number[]>([]);
 	const evaluations = ref(0);
 	const progress = ref('');
 	const log = ref<string[]>([]);
@@ -64,16 +154,12 @@
 	let runStart = '';
 
 	type Px = { pixels: Uint8ClampedArray; width: number; height: number };
-	/** An image repeated 3 × 3. */
-	const tiled = (img: MatchImage): Px => ({
-		pixels: tileImage(toRgba8(img), img.width, img.height, 3),
-		width: img.width * 3,
-		height: img.height * 3
-	});
-	const overlayOf = (s: Shot) => heatOverlayOn(s.image, s.analysis.maps.hotspot);
+	/** An image's pixels, for a pane that shows it repeated 3 × 3 (ImageCanvas tiles it). */
+	const tiled = (img: MatchImage): Px => ({ pixels: toRgba8(img), width: img.width, height: img.height });
+	const overlayOf = ({ frame: f, analysis }: Shot) => heatOverlay(f.L, analysis.maps.hotspot, f.width, f.height);
 
-	const currentPx = computed(() => (current.value ? tiled(current.value.image) : null));
-	const fixedPx = computed(() => (best.value ? tiled(best.value.image) : null));
+	const currentPx = computed(() => (current.value ? tiled(current.value.frame.image) : null));
+	const fixedPx = computed(() => (best.value ? tiled(best.value.frame.image) : null));
 	const hotspotPx = computed(() => {
 		const s = hotspotOf.value === 'fixed' && best.value ? best.value : current.value;
 		return s ? tiled(overlayOf(s)) : null;
@@ -88,16 +174,18 @@
 		progress.value = 'Analysing…';
 		await nextFrame();
 		engine.suspend();
+		const gpu = tilingGpu(engine.gpu);
 		try {
 			seen = snapshot();
-			const image = renderToMatchImage(engine, toRaw(store.project), samples.value);
-			current.value = { image, analysis: analyzeTiling(image, {}, tilingGpu(engine.gpu)) };
+			const frame = renderFrame(engine, toRaw(store.project), samples.value, gpu);
+			current.value = { frame, analysis: analyzeTiling(frame, {}, gpu) };
 			progress.value = '';
 		} catch (e) {
 			progress.value = '';
 			editor.notify(`Tiling analysis failed: ${e instanceof Error ? e.message : e}`, 'error');
 		} finally {
 			analysing = false;
+			gpu?.release();
 			engine.resume(toRaw(store.project));
 		}
 	}
@@ -105,10 +193,19 @@
 	// ---------------------------------------------------------------- the run
 	class Stopped extends Error {}
 
-	async function run(): Promise<void> {
+	/**
+	 * Find the culprits and fix them. `resume`: pick up a checkpointed run instead (its settings, project and culprits;
+	 * its evaluations replayed) — and, `paused`, only as far as it had got, back to its result.
+	 */
+	async function run(resume?: Checkpoint<TilingRunState>): Promise<void> {
 		const engine = editor.engine;
 		if (!engine || running.value) return;
+		// An analysis of the current project in flight drives the engine too: let it finish.
+		while (analysing) await nextFrame();
+		if (running.value) return;
 		if (phase.value === 'done') discard();
+		const saved = resume?.state;
+		if (saved) applySettings(saved.settings);
 		abort = false;
 		phase.value = 'finding';
 		curve.value = [];
@@ -117,24 +214,39 @@
 		best.value = null;
 		result.value = null;
 		attribution.value = null;
-		runStart = snapshot();
+		runStart = saved?.runStart ?? snapshot();
 		const project = JSON.parse(runStart) as Project;
+		// Tells other tabs this run is alive (they mustn't offer to resume its checkpoint).
+		releaseLock ??= holdRunLock('tiling');
 		await nextFrame();
 		engine.suspend();
 		let ev: Awaited<ReturnType<typeof tilingEvaluator>> | null = null;
+		let autosave: ReturnType<typeof autosaveRun> | null = null;
+		let state: TilingRunState | null = null;
+		const gpu = tilingGpu(engine.gpu);
+		// A frame painted at most every 100 ms: waiting for one per render costs a share of a fast candidate.
+		const yieldStep = yieldEvery();
 		try {
-			// Which layers give the repeat away: each left out in turn.
-			const gpu = tilingGpu(engine.gpu);
-			const a = await attributeTiling(
-				project,
-				async (q) => {
-					if (abort) throw new Stopped();
-					await nextFrame();
-					return renderToMatchImage(engine, q, samples.value);
-				},
-				{ gpu, onProgress: (done, total) => (progress.value = `Finding the culprits · layer ${done}/${total}`) }
-			);
-			current.value = { image: a.image, analysis: a.analysis };
+			let a: TilingAttribution;
+			if (saved) {
+				// The culprits as found then; the render (the panes', the drift's reference) made again.
+				progress.value = resume.paused ? 'Reopening the fix…' : 'Resuming the fix…';
+				await yieldStep();
+				const frame = renderFrame(engine, project, samples.value, gpu);
+				a = { frame, analysis: analyzeTiling(frame, {}, gpu), layers: saved.layers, findings: saved.findings };
+			} else {
+				// Which layers give the repeat away: each left out in turn.
+				a = await attributeTiling(
+					project,
+					async (q) => {
+						if (abort) throw new Stopped();
+						await yieldStep();
+						return renderFrame(engine, q, samples.value, gpu);
+					},
+					{ gpu, onProgress: (done, total) => (progress.value = `Finding the culprits · layer ${done}/${total}`) }
+				);
+			}
+			current.value = { frame: a.frame, analysis: a.analysis };
 			attribution.value = a;
 			const names = [...new Set(a.findings.map((f) => a.layers[f.layer].name))];
 			log.value = [`culprits: ${names.slice(0, culprits.value).join(', ') || 'none stands out'}`];
@@ -146,54 +258,112 @@
 
 			// The fix: reseed, then nudge the culprits' pattern params.
 			phase.value = 'fixing';
-			ev = await tilingEvaluator(engine, a.image, { samples: samples.value, gpu, yieldBefore: nextFrame });
+			ev = await tilingEvaluator(engine, a.frame, { samples: samples.value, gpu, yieldBefore: yieldStep });
 			const evaluator = ev;
 			const s = stepSize.value;
-			const r = await fixTiling(project, a, (q) => evaluator.evaluate(q), {
-				before: { score: a.analysis.score, drift: 0, detail: { image: a.image, analysis: a.analysis } },
-				seeds: seeds.value,
-				culprits: culprits.value,
-				steps: [-s, -0.4 * s, 0.4 * s, s],
-				driftWeight: holdLook.value,
-				minGain: minGain.value,
-				scale: allowScale.value,
-				shouldStop: () => abort,
-				onEvaluate: (n, c, kept) => {
-					evaluations.value = n;
-					curve.value = [...curve.value, kept.loss];
-					// The pane shows the lowest loss seen so far (the search keeps it once its round ends).
-					const shownLoss = best.value?.candidate.loss ?? kept.loss;
-					if (c.detail && c.loss < Math.min(shownLoss, kept.loss)) best.value = { ...c.detail, candidate: c };
-					progress.value = `Fixing · ${n} candidates · best ${(best.value?.candidate.score ?? kept.score).toFixed(3)}`;
-				}
+			const beforeScore = saved?.beforeScore ?? a.analysis.score;
+			const replay = saved?.evals ?? [];
+			const rec: TilingRunState = {
+				settings: settingsNow(),
+				runStart,
+				beforeScore,
+				layers: a.layers.map(({ map: _, ...l }) => l),
+				findings: a.findings,
+				evals: [...replay]
+			};
+			state = rec;
+			const take = (): CheckpointInput<TilingRunState> => ({
+				step: rec.evals.length,
+				loss: curve.value.at(-1) ?? null,
+				project: snapshot(),
+				state: { ...rec, evals: [...rec.evals] }
 			});
+			autosave = autosaveRun(take, (cp) => void checkpoints.save(cp));
+			const save = autosave;
+			const r = await fixTiling(
+				project,
+				a,
+				async (q, bar) => {
+					save.beforeStep();
+					const e = await evaluator.evaluate(q, bar);
+					rec.evals.push({ score: e.score, drift: e.drift });
+					save.afterStep();
+					return e;
+				},
+				{
+					before: { score: beforeScore, drift: 0, detail: { frame: a.frame, analysis: a.analysis } },
+					seeds: seeds.value,
+					culprits: culprits.value,
+					steps: [-s, -0.4 * s, 0.4 * s, s],
+					driftWeight: holdLook.value,
+					minGain: minGain.value,
+					scale: allowScale.value,
+					replay,
+					// Reopening a run that had stopped: as far as it had got.
+					shouldStop: () => abort || (!!resume?.paused && evaluations.value >= replay.length),
+					onEvaluate: (n, c, kept) => {
+						evaluations.value = n;
+						// A new array: LossChart's computeds see a change of the prop, not a push into it.
+						curve.value = [...curve.value, kept.loss];
+						// The pane shows the lowest loss seen so far (the search keeps it once its round ends).
+						const shownLoss = best.value?.candidate.loss ?? kept.loss;
+						if (c.detail && c.loss < Math.min(shownLoss, kept.loss)) best.value = { ...c.detail, candidate: c };
+						// Replayed candidates have no render: once the replay is through, show the best it reached.
+						if (n === replay.length && !resume?.paused && kept.project !== project && !kept.detail) {
+							const frame = evaluator.render(kept.project);
+							best.value = { frame, analysis: analyzeTiling(frame, {}, gpu), candidate: kept };
+						}
+						progress.value = `Fixing · ${n} candidates · best ${(best.value?.candidate.score ?? kept.score).toFixed(3)}`;
+					}
+				}
+			);
 			result.value = r;
 			// The live pane follows every better candidate, also ones the search then didn't keep (gain below Min gain).
 			const shownBest = best.value as (Shot & { candidate: FixCandidate }) | null;
 			if (r.after.project === r.before.project) best.value = null;
 			else if (shownBest?.candidate.project !== r.after.project) {
 				// The search keeps the result's render; render it again only if it didn't.
-				const image = r.after.detail?.image ?? evaluator.render(r.after.project);
-				const analysis = r.after.detail?.analysis ?? analyzeTiling(image, {}, gpu);
-				best.value = { image, analysis, candidate: r.after };
+				const frame = r.after.detail?.frame ?? evaluator.render(r.after.project);
+				const analysis = r.after.detail?.analysis ?? analyzeTiling(frame, {}, gpu);
+				best.value = { frame, analysis, candidate: r.after };
 			}
+			rec.stopped = resume?.paused ? !!saved?.stopped : abort;
 			log.value = [
 				...log.value,
 				...(r.changes.length
 					? r.changes.map((c) => `${c.name}: ${c.key} ${String(c.from)} → ${String(c.to)}`)
 					: ['no change helped']),
-				`${abort ? 'stopped' : 'done'} · ${r.evaluations} candidates · score ${r.before.score.toFixed(3)} → ${r.after.score.toFixed(3)}`
+				`${rec.stopped ? 'stopped' : 'done'} · ${r.evaluations} candidates · score ${r.before.score.toFixed(3)} → ${r.after.score.toFixed(3)}`
 			];
 			phase.value = 'done';
 			hotspotOf.value = r.changes.length ? 'fixed' : 'current';
+			if (resume?.paused) editor.notify(`Reopened the tiling fix: it isn't kept yet`);
 		} catch (e) {
 			if (!(e instanceof Stopped)) editor.notify(`Tiling fix failed: ${e instanceof Error ? e.message : e}`, 'error');
 			phase.value = 'idle';
 		} finally {
+			autosave?.stop();
 			ev?.dispose();
+			gpu?.release();
 			progress.value = '';
 			engine.resume(toRaw(store.project));
+			// A fix to keep or discard stays reopenable until then; anything else has nothing to come back to.
+			if (phase.value === 'done' && result.value?.changes.length && state)
+				void checkpoints.save({
+					step: state.evals.length,
+					loss: result.value.after.loss,
+					project: snapshot(),
+					paused: true,
+					state
+				});
+			else if (phase.value !== 'done') dropCheckpoint();
+			else void checkpoints.clear();
 		}
+	}
+
+	function onResumeEvent(e: Event): void {
+		const d = (e as CustomEvent<ResumeRunEvent>).detail;
+		if (d?.workspace === 'tiling') void run(d.checkpoint as Checkpoint<TilingRunState>);
 	}
 
 	function stop(): void {
@@ -227,6 +397,7 @@
 	}
 
 	function clearRun(): void {
+		dropCheckpoint();
 		phase.value = 'idle';
 		best.value = null;
 		result.value = null;
@@ -237,33 +408,41 @@
 	}
 
 	// Edits made beside the workspace (outliner, properties) are analysed once they pause, unless a run or its result
-	// holds the panes: a slider being dragged doesn't render and analyse on every step.
+	// holds the panes: a slider being dragged doesn't render and analyse on every step. Watched only while the workspace
+	// is shown (the deep watch walks the whole project on every edit).
 	let active = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
-	watch(
-		() => store.project,
-		() => {
-			if (!active || running.value || phase.value === 'done') return;
-			if (timer) clearTimeout(timer);
-			timer = setTimeout(() => {
-				timer = null;
-				if (active && snapshot() !== seen) void analyseCurrent();
-			}, 300);
-		},
-		{ deep: true }
-	);
+	let unwatch: WatchStopHandle | null = null;
 	onActivated(() => {
 		active = true;
+		unwatch ??= watch(
+			() => store.project,
+			() => {
+				if (!active || running.value || phase.value === 'done') return;
+				if (timer) clearTimeout(timer);
+				timer = setTimeout(() => {
+					timer = null;
+					if (active && snapshot() !== seen) void analyseCurrent();
+				}, 300);
+			},
+			{ deep: true }
+		);
 		if (!running.value && phase.value !== 'done' && snapshot() !== seen) void analyseCurrent();
 	});
 	// Leaving stops a run (the viewport needs the engine); its best so far stays to keep or discard.
 	onDeactivated(() => {
 		active = false;
 		abort = true;
+		unwatch?.();
+		unwatch = null;
 	});
+	onMounted(() => window.addEventListener('bismith:resume-run', onResumeEvent));
 	onBeforeUnmount(() => {
 		abort = true;
 		if (timer) clearTimeout(timer);
+		releaseLock?.();
+		releaseLock = null;
+		window.removeEventListener('bismith:resume-run', onResumeEvent);
 	});
 
 	const shown = computed(() =>
@@ -302,7 +481,7 @@
 				<IconScan :size="13" />
 				Analyse
 			</button>
-			<button v-if="!running" type="button" class="fk primary" :disabled="!editor.engine" @click="run">
+			<button v-if="!running" type="button" class="fk primary" :disabled="!editor.engine" @click="run()">
 				<span class="fk-face"><IconPlayerPlay :size="12" />{{ phase === 'done' ? 'Run again' : 'Run fix' }}</span>
 			</button>
 			<button v-else type="button" class="cf-btn" @click="stop">
@@ -337,6 +516,7 @@
 					:pixels="currentPx?.pixels ?? null"
 					:width="currentPx?.width ?? 1"
 					:height="currentPx?.height ?? 1"
+					:tiles="3"
 					label="Current project tiled 3 by 3"
 					pickable>
 					The project tiled 3 × 3 appears here.
@@ -356,6 +536,7 @@
 					:pixels="fixedPx?.pixels ?? null"
 					:width="fixedPx?.width ?? 1"
 					:height="fixedPx?.height ?? 1"
+					:tiles="3"
 					label="Fixed project tiled 3 by 3"
 					pickable>
 					Run the fix: it finds the layers that give the repeat away, reseeds them and nudges their pattern, keeping
@@ -390,6 +571,7 @@
 					:pixels="hotspotPx?.pixels ?? null"
 					:width="hotspotPx?.width ?? 1"
 					:height="hotspotPx?.height ?? 1"
+					:tiles="3"
 					label="Where the repeat draws the eye" />
 			</figure>
 		</div>
@@ -422,7 +604,9 @@
 					<span class="lbl">Min gain</span>
 					<NumberField v-model="minGain" :min="0" :max="0.2" :soft-max="0.05" :step="0.001" label="Minimum gain" />
 				</div>
-				<div class="row" title="Path-traced samples per candidate render">
+				<div
+					class="row"
+					title="Path-traced samples per candidate render. A canvas over 512 × 512 px gets fewer (at least 8): it is evaluated at 512 px, where its pixels average to as many">
 					<span class="lbl">Samples</span>
 					<NumberField v-model="samples" :min="1" :max="256" :soft-max="64" int label="Samples per candidate" />
 				</div>

@@ -94,6 +94,72 @@ describe('fixTiling', () => {
 		expect(seeds[1]).toBe(7);
 	}, 60_000);
 
+	it('skips the drift only of candidates that lose on their score, and never keeps one', async () => {
+		const attribution = await attributeTiling(project, render);
+		// The blob stays with seed 7 and a third of the others (they lose on their score); the drift differs per seed, so it picks.
+		const seedOf = (p: Project) => Number(p.layers[1].params.seed);
+		const scoreOf = (p: Project) =>
+			analyzeTiling(render(reseed(p, ['blob', 'blob2'], seedOf(p) === 7 || seedOf(p) % 3 === 0 ? 7 : 1))).score;
+		const drift = (p: Project) => (seedOf(p) % 7) / 100;
+		const full = await fixTiling(project, attribution, (p) => ({ score: scoreOf(p), drift: drift(p) }), {
+			seeds: 9,
+			culprits: 1,
+			driftFree: 0.02
+		});
+		let skipped = 0;
+		const r = await fixTiling(
+			project,
+			attribution,
+			(p, bar) => {
+				const score = scoreOf(p);
+				if (bar !== undefined && !(score < bar)) {
+					skipped++;
+					return { score, drift: NaN };
+				}
+				return { score, drift: drift(p) };
+			},
+			{ seeds: 9, culprits: 1, driftFree: 0.02 }
+		);
+		expect(skipped).toBeGreaterThan(0);
+		expect(r.changes).toEqual(full.changes);
+		expect(r.after.score).toBe(full.after.score);
+		expect(r.changes.length).toBe(1);
+		expect(r.after.drift).not.toBeNaN();
+	}, 60_000);
+
+	it('picks up an interrupted run from its recorded evaluations', async () => {
+		const attribution = await attributeTiling(project, render);
+		const drift = (p: Project) => (Number(p.layers[1].params.seed) % 5) / 40;
+		const opts = { seeds: 6, culprits: 1, driftFree: 0.05 };
+		const records: { score: number; drift: number }[] = [];
+		const evaluate = (p: Project, bar?: number) => {
+			const score = analyzeTiling(render(p)).score;
+			const e = { score, drift: bar !== undefined && !(score < bar) ? NaN : drift(p) };
+			records.push(e);
+			return e;
+		};
+		const whole = await fixTiling(project, attribution, evaluate, opts);
+		const all = records.splice(0);
+		const k = 4;
+		await fixTiling(project, attribution, evaluate, { ...opts, shouldStop: () => records.length >= k });
+		const first = records.splice(0);
+		expect(first.length).toBe(k);
+		let calls = 0;
+		const resumed = await fixTiling(
+			project,
+			attribution,
+			(p, bar) => {
+				calls++;
+				return evaluate(p, bar);
+			},
+			{ ...opts, replay: first }
+		);
+		expect(calls).toBe(all.length - k);
+		expect(records).toEqual(all.slice(k));
+		const strip = (r: typeof whole) => ({ ...r, before: r.before.score, after: r.after.score, project: r.project });
+		expect(strip(resumed)).toEqual(strip(whole));
+	}, 60_000);
+
 	it('reseeds only the given layers', () => {
 		const p = reseed(project, ['blob'], 11);
 		expect(p.layers.map((l) => l.params.seed)).toEqual([4, 11, 7]);

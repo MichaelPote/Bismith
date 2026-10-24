@@ -3,19 +3,24 @@
 // arithmetic as `tilingKernels` in analyze.ts (the reference), ≈1000 × faster than it on the CPU. Everything after
 // them (medians, quantiles, the low band, the scores) stays on the CPU, from one readback.
 //
+// It also makes the evaluation's frames (`frame`): the engine's output box-filtered to frameSize in linear light,
+// premultiplied, flipped to rows top-down — read back (≤ 4 MB) only when the CPU needs it; the kernels read it in place.
+//
 // Every loop's bound is a uniform (D3D can't unroll it) and nothing uses `continue` (ANGLE / D3D11 can miscompile it,
 // AGENTS.md). Wrapping uses texelFetch with integer indices, made positive before `%` (negative `%` is undefined).
 //
 //   const k = tilingGpu(engine.gpu)          // null when the GPU's result doesn't match the CPU's (then use the CPU)
-//   analyzeTiling(image, opts, k)
+//   analyzeTiling(k.frame(engine.finalTexture(), w, h), opts, k)
 
 import * as THREE from 'three';
 import { ScratchPool, type Gpu } from '@/gpu/context';
-import type { MatchImage } from '@/match/image';
+import { GLSL_COLOUR } from '@/layers/glsl/common';
+import { linearPremul, resamplePremul, type LinearPremul } from '@/match/image';
 import {
-	RARITY_KERNEL,
 	TILING_TERMS,
+	TilingFrame,
 	finishAnalysis,
+	frameSize,
 	tilingGeometry,
 	tilingKernels,
 	workLab,
@@ -24,24 +29,11 @@ import {
 	type TilingKernels
 } from './analyze';
 
-const LAB = /* glsl */ `
-vec3 oklab(vec3 c) {
-  vec3 lms = vec3(
-    dot(c, vec3(0.4122214708, 0.5363325363, 0.0514459929)),
-    dot(c, vec3(0.2119034982, 0.6806995451, 0.1073969566)),
-    dot(c, vec3(0.0883024619, 0.2817188376, 0.6299787005)));
-  lms = pow(max(lms, vec3(0.0)), vec3(1.0 / 3.0));
-  return vec3(
-    dot(lms, vec3(0.2104542553, 0.793617785, -0.0040720468)),
-    dot(lms, vec3(1.9779984951, -2.428592205, 0.4505937099)),
-    dot(lms, vec3(0.0259040371, 0.7827717662, -0.808675766)));
-}
-`;
-
 /**
  * Box filter along one axis (area average, as match/image.ts' resample 'box'): output texel i covers source
- * [i · uScale, (i + 1) · uScale). The first pass (uFirst) reads the sRGB render and filters linear, premultiplied
- * colour; the second ends in OKLab over mid grey (toOklab's background) with alpha in w.
+ * [i · uScale, (i + 1) · uScale). The source is premultiplied linear (uStraight: straight linear, clamped 0..1 as
+ * fromLinear clamps it, and premultiplied first; uFlip: its rows bottom-up, as the engine's are, read flipped). uLab
+ * ends in OKLab over mid grey (toOklab's background) with alpha in w; else premultiplied linear.
  */
 const DOWN = /* glsl */ `
 uniform sampler2D tSrc;
@@ -49,14 +41,12 @@ uniform ivec2 uAxis;
 uniform float uScale;
 uniform int uTaps;
 uniform int uSrcLen;
-uniform bool uFirst;
+uniform bool uStraight;
+uniform bool uFlip;
+uniform int uSrcH;
+uniform bool uLab;
 out vec4 oColor;
-${LAB}
-vec4 premulLinear(vec4 c) {
-  vec3 s = clamp(c.rgb, 0.0, 1.0);
-  vec3 lin = mix(pow((s + 0.055) / 1.055, vec3(2.4)), s / 12.92, vec3(lessThanEqual(s, vec3(0.04045))));
-  return vec4(lin * c.a, c.a);
-}
+${GLSL_COLOUR}
 void main() {
   ivec2 q = ivec2(gl_FragCoord.xy);
   int i = q.x * uAxis.x + q.y * uAxis.y;
@@ -69,16 +59,21 @@ void main() {
     int s = s0 + t;
     float w = max(0.0, min(b, float(s + 1)) - max(a, float(s)));
     ivec2 p = q * (ivec2(1) - uAxis) + uAxis * min(s, uSrcLen - 1);
+    if (uFlip) p.y = uSrcH - 1 - p.y;
     vec4 c = texelFetch(tSrc, p, 0);
-    sum += w * (uFirst ? premulLinear(c) : c);
+    if (uStraight) {
+      c = clamp(c, 0.0, 1.0);
+      c.rgb *= c.a;
+    }
+    sum += w * c;
     wsum += w;
   }
   sum /= max(wsum, 1e-12);
-  if (uFirst) { oColor = sum; return; }
+  if (!uLab) { oColor = sum; return; }
   float al = clamp(sum.a, 0.0, 1.0);
   vec3 rgb = clamp(sum.rgb * (sum.a > 1e-6 ? 1.0 / sum.a : 0.0), 0.0, 1.0);
   rgb = mix(vec3(0.2140411405), rgb, al); // mid grey (sRGB 0.5) in linear light
-  oColor = vec4(oklab(rgb), al);
+  oColor = vec4(linearToOklab(rgb), al);
 }
 `;
 
@@ -208,7 +203,21 @@ const LAB_BLOCK = 4;
 const RARITY_BLOCK = 5;
 const BLOCKS = 6;
 
-class TilingGpu implements TilingKernelSource {
+/** The GPU kernels, and the frames they read in place. */
+export interface TilingGpu extends TilingKernelSource {
+	/**
+	 * The engine's output texture (`src`: W × H texels, linear, straight alpha, rows bottom-up) as a frame at `size`
+	 * (default frameSize). `lazy`: its pixels are read back only when `lin` is first read, which must be before the
+	 * next frame is made (it throws otherwise).
+	 */
+	frame(src: THREE.Texture, W: number, H: number, opts?: { size?: [number, number]; lazy?: boolean }): TilingFrame;
+	/** Free the targets and textures sized for the last analysis (made again on demand). */
+	release(): void;
+	/** release() and free the shaders: the GPU kernels for this context are made again by tilingGpu. */
+	dispose(): void;
+}
+
+class Kernels implements TilingGpu {
 	private readonly gpu: Gpu;
 	private readonly pool: ScratchPool;
 	private readonly down: THREE.RawShaderMaterial;
@@ -217,15 +226,20 @@ class TilingGpu implements TilingKernelSource {
 	private readonly rarity: THREE.RawShaderMaterial;
 	private readonly lines: THREE.RawShaderMaterial;
 	private readonly pack: THREE.RawShaderMaterial;
-	private input: THREE.DataTexture | null = null;
 	private samples: { key: string; tex: THREE.DataTexture } | null = null;
+	/** Counts the frames made: a frame's pixels are in the 'frame' target while its number is the last. */
+	private generation = 0;
+	private readonly frames = new WeakMap<TilingFrame, number>();
 
 	constructor(gpu: Gpu) {
 		this.gpu = gpu;
 		this.pool = new ScratchPool(gpu);
 		const u = (names: string[]) =>
 			Object.fromEntries(names.map((n) => [n, { value: null }])) as THREE.ShaderMaterial['uniforms'];
-		this.down = gpu.material(DOWN, u(['tSrc', 'uAxis', 'uScale', 'uTaps', 'uSrcLen', 'uFirst']));
+		this.down = gpu.material(
+			DOWN,
+			u(['tSrc', 'uAxis', 'uScale', 'uTaps', 'uSrcLen', 'uStraight', 'uFlip', 'uSrcH', 'uLab'])
+		);
 		this.sobel = gpu.material(SOBEL, u(['tLab', 'uSize']));
 		this.blur = gpu.material(BLUR, u(['tSrc', 'uAxis', 'uSize', 'uR']));
 		this.rarity = gpu.material(
@@ -236,7 +250,53 @@ class TilingGpu implements TilingKernelSource {
 		this.pack = gpu.material(PACK, u(['tLab', 'tGrad', 'uOrigin']));
 	}
 
-	kernels(img: MatchImage, w: number, h: number): TilingKernels {
+	/** Box `src` (W × H) down to w × h into `dst`, x then y (through the target `tmp`). */
+	private boxDown(
+		src: THREE.Texture,
+		W: number,
+		H: number,
+		dst: THREE.WebGLRenderTarget,
+		tmp: string,
+		mode: { straight?: boolean; flip?: boolean; lab?: boolean }
+	): void {
+		const { width: w, height: h } = dst;
+		const mid = this.pool.get(tmp, w, H);
+		const pass = (tex: THREE.Texture, axis: THREE.Vector2, srcLen: number, dstLen: number, first: boolean) => {
+			const scale = srcLen / dstLen;
+			const m = this.down.uniforms;
+			m.tSrc.value = tex;
+			m.uAxis.value = axis;
+			m.uScale.value = scale;
+			m.uTaps.value = Math.ceil(scale) + 1;
+			m.uSrcLen.value = srcLen;
+			m.uStraight.value = first && !!mode.straight;
+			m.uFlip.value = first && !!mode.flip;
+			m.uSrcH.value = H;
+			m.uLab.value = !first && !!mode.lab;
+			this.gpu.run(this.down, first ? mid : dst);
+		};
+		pass(src, new THREE.Vector2(1, 0), W, w, true);
+		pass(mid.texture, new THREE.Vector2(0, 1), H, h, false);
+	}
+
+	frame(src: THREE.Texture, W: number, H: number, opts: { size?: [number, number]; lazy?: boolean } = {}): TilingFrame {
+		const [w, h] = opts.size ?? frameSize(W, H);
+		const target = this.pool.get('frame', w, h);
+		this.boxDown(src, W, H, target, 'frameTmp', { straight: true, flip: true });
+		const gen = ++this.generation;
+		const read = (): LinearPremul => {
+			if (gen !== this.generation) throw new Error('tiling gpu: a frame read back after the next one was made');
+			const data = new Float32Array(w * h * 4);
+			// Rows top-down already: texel row y is image row y (flipped by the box pass).
+			this.gpu.renderer.readRenderTargetPixels(target, 0, 0, w, h, data);
+			return { width: w, height: h, data };
+		};
+		const f = new TilingFrame(w, h, opts.lazy ? read : read());
+		this.frames.set(f, gen);
+		return f;
+	}
+
+	kernels(frame: TilingFrame, w: number, h: number): TilingKernels {
 		const { gpu, pool } = this;
 		const geo = tilingGeometry(w, h);
 		if (geo.radii.length !== 2 || geo.dirs.length !== 16) throw new Error('tiling gpu: kernel layout changed');
@@ -246,33 +306,16 @@ class TilingGpu implements TilingKernelSource {
 			for (const [k, v] of Object.entries(values)) m.uniforms[k].value = v;
 		};
 
-		// The render, as it is (rows top-down: texel row y is image row y throughout, no flips).
-		if (!this.input || this.input.image.width !== img.width || this.input.image.height !== img.height) {
-			this.input?.dispose();
-			this.input = floatTexture(img.data, img.width, img.height);
-		} else {
-			this.input.image.data = img.data;
-			this.input.needsUpdate = true;
-		}
+		// The frame where it is (the last one made), else uploaded (rows top-down: texel row y is image row y throughout).
+		let upload: THREE.DataTexture | null = null;
+		let src: THREE.Texture;
+		if (this.frames.get(frame) === this.generation) src = pool.get('frame', frame.width, frame.height).texture;
+		else src = upload = floatTexture(frame.lin.data, frame.width, frame.height);
 
 		// Box down to the work size, x then y, ending in OKLab.
-		const tmp = pool.get('down', w, img.height);
 		const lab = pool.get('lab', w, h);
-		const down = (src: THREE.Texture, axis: THREE.Vector2, srcLen: number, dstLen: number, first: boolean) => {
-			const scale = srcLen / dstLen;
-			set(this.down, {
-				tSrc: src,
-				uAxis: axis,
-				uScale: scale,
-				uTaps: Math.ceil(scale) + 1,
-				uSrcLen: srcLen,
-				uFirst: first
-			});
-		};
-		down(this.input, isize(1, 0), img.width, w, true);
-		gpu.run(this.down, tmp);
-		down(tmp.texture, isize(0, 1), img.height, h, false);
-		gpu.run(this.down, lab);
+		this.boxDown(src, frame.width, frame.height, lab, 'down', { lab: true });
+		upload?.dispose();
 
 		const grad = pool.get('grad', w, h);
 		set(this.sobel, { tLab: lab.texture, uSize: isize(w, h) });
@@ -305,8 +348,8 @@ class TilingGpu implements TilingKernelSource {
 			uSize: size,
 			uOrigin: isize(RARITY_BLOCK * w, 0),
 			uExclude: geo.exclude,
-			uInv: 1 / (2 * RARITY_KERNEL * RARITY_KERNEL),
-			uCut: 9 * RARITY_KERNEL * RARITY_KERNEL
+			uInv: geo.inv,
+			uCut: geo.cut
 		});
 		into(this.rarity, RARITY_BLOCK, 1);
 		set(this.lines, {
@@ -330,16 +373,8 @@ class TilingGpu implements TilingKernelSource {
 			}
 			return out;
 		};
-		const n = w * h;
 		return {
-			lab: {
-				width: w,
-				height: h,
-				L: plane(LAB_BLOCK, 0),
-				A: plane(LAB_BLOCK, 1),
-				B: plane(LAB_BLOCK, 2),
-				alpha: new Float32Array(n).fill(1)
-			},
+			lab: { width: w, height: h, L: plane(LAB_BLOCK, 0), A: plane(LAB_BLOCK, 1), B: plane(LAB_BLOCK, 2) },
 			density: plane(LAB_BLOCK, 3),
 			rarity: [plane(RARITY_BLOCK, 0), plane(RARITY_BLOCK, 1)],
 			lineSums: geo.dirs.map((_, k) => plane(k >> 2, k & 3))
@@ -358,6 +393,19 @@ class TilingGpu implements TilingKernelSource {
 		});
 		this.samples = { key, tex: floatTexture(data, samples.length, 1) };
 		return this.samples.tex;
+	}
+
+	release(): void {
+		this.pool.clear();
+		this.samples?.tex.dispose();
+		this.samples = null;
+		this.generation++; // the frames' pixels are gone
+	}
+
+	dispose(): void {
+		this.release();
+		for (const m of [this.down, this.sobel, this.blur, this.rarity, this.lines, this.pack]) m.dispose();
+		if (cache.get(this.gpu) === this) cache.delete(this.gpu);
 	}
 }
 
@@ -399,14 +447,14 @@ export function compareKernels(
 }
 
 /**
- * The GPU analysis against the CPU reference on one image: kernels (relative to each one's largest value) and the
- * analysis' score and terms.
+ * The GPU analysis against the CPU reference on one frame, at the work size or at w × h: kernels (relative to each one's
+ * largest value) and the analysis' score and terms.
  */
-export function checkTilingGpu(k: TilingKernelSource, img: MatchImage) {
-	const [w, h] = workSize(img.width, img.height);
-	const gpuK = k.kernels(img, w, h);
-	const cpuK = tilingKernels(workLab(img, w, h));
+export function checkTilingGpu(k: TilingKernelSource, frame: TilingFrame, w?: number, h?: number) {
+	[w, h] = w && h ? [w, h] : workSize(frame.width, frame.height);
+	const gpuK = k.kernels(frame, w, h);
 	if (!gpuK) return null;
+	const cpuK = tilingKernels(workLab(frame.lin, w, h));
 	const g = finishAnalysis(gpuK);
 	const c = finishAnalysis(cpuK);
 	return {
@@ -416,44 +464,92 @@ export function checkTilingGpu(k: TilingKernelSource, img: MatchImage) {
 	};
 }
 
-/** A test card for the self-check: dots, a blob, a crease and a gradient on a non-square tile, with transparency. */
-function testCard(): MatchImage {
-	const W = 72;
-	const H = 52;
+/** Largest difference between two frames' pixels, relative to 1. */
+function compareFrames(a: LinearPremul, b: LinearPremul): number {
+	if (a.width !== b.width || a.height !== b.height) return Infinity;
+	let max = 0;
+	for (let i = 0; i < a.data.length; i++) {
+		const d = Math.abs(a.data[i] - b.data[i]);
+		max = Math.max(max, Number.isNaN(d) ? Infinity : d);
+	}
+	return max;
+}
+
+/**
+ * A test card for the self-check, as the engine hands its output over (linear, straight alpha, HDR, rows bottom-up):
+ * dots, a blob, a crease, a gradient and highlights past 1 on a non-square tile, with transparency. 128 × 96, so the
+ * blur radii reach 4 and a frame or work size of half of it runs the real downsampling.
+ */
+function testCard(): { width: number; height: number; data: Float32Array } {
+	const W = 128;
+	const H = 96;
 	const data = new Float32Array(W * H * 4);
 	for (let y = 0; y < H; y++)
 		for (let x = 0; x < W; x++) {
-			let v = 0.55 + 0.1 * Math.sin(x * 0.7) * Math.cos(y * 1.3) + (0.15 * x) / W;
-			if ((x * 7 + y * 13) % 17 < 3) v -= 0.25;
-			if (Math.hypot(x - 20, y - 30) < 8) v = 0.1;
-			if (Math.abs(x - y - 10) < 1 && y > 5 && y < 40) v = 0.9;
-			const i = (y * W + x) * 4;
+			let v = 0.3 + 0.1 * Math.sin(x * 0.7) * Math.cos(y * 1.3) + (0.15 * x) / W;
+			if ((x * 7 + y * 13) % 17 < 3) v -= 0.2;
+			if (Math.hypot(x - 36, y - 54) < 14) v = 0.02;
+			if (Math.abs(x - y - 18) < 1.5 && y > 9 && y < 72) v = 0.9;
+			if ((x * 5 + y * 3) % 41 === 0) v = 1.6;
+			const i = ((H - 1 - y) * W + x) * 4;
 			data[i] = v;
-			data[i + 1] = v * 0.8 + 0.1;
-			data[i + 2] = 1 - v;
-			data[i + 3] = x < 4 ? 0.5 : 1;
+			data[i + 1] = v * 0.7 + 0.05;
+			data[i + 2] = Math.max(0, 0.9 - v);
+			data[i + 3] = x < 6 ? 0.5 : 1;
 		}
 	return { width: W, height: H, data };
 }
 
-const cache = new WeakMap<Gpu, TilingKernelSource | null>();
+/**
+ * The self-check: frames of the test card at its size and at half (the downsampling, the flip and the clamp) against
+ * the CPU's, and the kernels of the full frame at its work size (blur radii 2 and 4) and at half. A message saying what
+ * disagrees, or null.
+ */
+function selfCheck(t: Kernels): string | null {
+	const card = testCard();
+	const tex = floatTexture(card.data, card.width, card.height);
+	try {
+		const top = new Float32Array(card.data.length);
+		const row = card.width * 4;
+		for (let y = 0; y < card.height; y++)
+			top.set(card.data.subarray((card.height - 1 - y) * row, (card.height - y) * row), y * row);
+		const cpu = linearPremul({ width: card.width, height: card.height, data: top });
+		const half: [number, number] = [card.width / 2, card.height / 2];
+		const small = t.frame(tex, card.width, card.height, { size: half });
+		const dSmall = compareFrames(small.lin, resamplePremul(cpu, ...half, 'box'));
+		const full = t.frame(tex, card.width, card.height);
+		const dFull = compareFrames(full.lin, cpu);
+		if (!(dSmall < 1e-5 && dFull < 1e-5)) return `frames differ by ${dFull} (full), ${dSmall} (half)`;
+		for (const [w, h] of [[card.width, card.height], half]) {
+			const check = checkTilingGpu(t, full, w, h);
+			const bad = check && Object.entries(check.kernels).find(([, v]) => !(v.max < 0.02 && v.over < 8));
+			if (!check || bad || !(Math.abs(check.score.gpu - check.score.cpu) < 0.002))
+				return `kernels at ${w}×${h}: ${JSON.stringify(check)}`;
+		}
+		return null;
+	} finally {
+		tex.dispose();
+		t.release();
+	}
+}
+
+const cache = new WeakMap<Gpu, TilingGpu | null>();
 
 /**
  * The GPU kernels for `gpu`, checked once against the CPU on a test card: null (use the CPU) when the GPU can't run
  * them or gets a different answer — a shader that failed to compile renders nothing, without an error.
  */
-export function tilingGpu(gpu: Gpu | null | undefined): TilingKernelSource | null {
+export function tilingGpu(gpu: Gpu | null | undefined): TilingGpu | null {
 	if (!gpu) return null;
 	if (cache.has(gpu)) return cache.get(gpu)!;
-	let k: TilingKernelSource | null = null;
+	let k: TilingGpu | null = null;
 	try {
-		const t = new TilingGpu(gpu);
-		const card = testCard();
-		const check = checkTilingGpu(t, card);
-		const bad = check && Object.entries(check.kernels).find(([, v]) => !(v.max < 0.02 && v.over < 8));
-		if (!check || bad || !(Math.abs(check.score.gpu - check.score.cpu) < 0.002))
-			console.warn('tiling: GPU analysis disagrees with the CPU, using the CPU:', JSON.stringify(check));
-		else k = t;
+		const t = new Kernels(gpu);
+		const bad = selfCheck(t);
+		if (bad) {
+			console.warn('tiling: GPU analysis disagrees with the CPU, using the CPU:', bad);
+			t.dispose();
+		} else k = t;
 	} catch (e) {
 		console.warn('tiling: GPU analysis unavailable, using the CPU:', e instanceof Error ? e.message : e);
 	}

@@ -61,6 +61,23 @@ describe('lowBand', () => {
 			}
 		}
 	});
+
+	it("gives the band's sum of squares from its coefficients", () => {
+		const r = rng(2);
+		for (const [w, h] of [
+			[64, 64],
+			[48, 30]
+		]) {
+			const band = lowBand(w, h, 3);
+			const v = Float32Array.from({ length: w * h }, () => r());
+			const [coef] = band.coefficients([v]);
+			const s = band.synth(coef);
+			expect(band.energy(coef)).toBeCloseTo(
+				s.reduce((a, x) => a + x * x, 0),
+				4
+			);
+		}
+	});
 });
 
 describe('analyzeTiling', () => {

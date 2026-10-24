@@ -9,7 +9,9 @@
 // layer behind which term — and writes <out>/<name>.png: [render 3×3 | hotspots 3×3 | the top culprits'
 // contributions 3×3] and <name>.render.png (one tile). --presets runs the built-in example projects (all, or the listed ids). --json prints one line
 // of JSON per project instead of the table. --without also analyses each leave-one-out render (the "without it" score:
-// a whole analysis per layer). --cpu analyses on the CPU (the reference implementation) instead of the GPU.
+// a whole analysis per layer). --cpu analyses on the CPU (the reference implementation) instead of the GPU. --samples is
+// per render up to 512 × 512 traced px; a larger canvas gets proportionally fewer, at least 8 (frameSamples in
+// src/tiling/evaluate.ts), as in the workspace.
 //
 // --check compares the GPU analysis with the CPU reference on each project's render (kernels, score, terms) and times
 // both; it exits with 1 when they disagree.
@@ -117,7 +119,9 @@ function reportFix(name: string, r: HeadlessTilingFixResult): void {
 				after: r.after,
 				changes: r.changes,
 				trials: r.trials,
-				evaluations: r.evaluations
+				evaluations: r.evaluations,
+				driftFree: r.driftFree,
+				ms: Math.round(r.ms)
 			})
 		);
 		return;

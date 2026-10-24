@@ -7,27 +7,32 @@
 //
 // `drift` is the caller's: the headless page scores candidates against the render before the fix with the Windows
 // preset (colour, VGG texture and local windows — all layout-free, so a new layout of the same material costs little).
+// The drift is the costly part of an evaluation, and most candidates lose on their score alone: `evaluate` gets the bar
+// a candidate's score must beat to have a chance, and may skip the drift when it doesn't (the loss is never below the
+// score, and the bar only falls).
 //
 //   const r = await fixTiling(project, attribution, evaluate)     // r.project, r.before, r.after, r.changes
 
 import type { Project } from '@/core/project';
 import { patternKeys } from '@/core/links';
 import { Rng, extractParams, applyParams, isEntryActive, entryValue, type ParamEntry } from '@/match/optimizer';
-import type { MatchImage } from '@/match/image';
-import type { TilingAnalysis } from './analyze';
+import type { TilingAnalysis, TilingFrame } from './analyze';
 import type { TilingAttribution } from './attribute';
 
 export interface FixEvaluation {
 	/** Tiling score of the candidate (analyzeTiling). */
 	score: number;
-	/** How far its look is from the project before the fix (≈0 identical … 1 unrelated). */
+	/**
+	 * How far its look is from the project before the fix (≈0 identical … 1 unrelated); NaN when not measured because
+	 * the score missed the bar (the candidate lost on its score).
+	 */
 	drift: number;
 	/** The candidate's render and analysis, if the evaluation has them: kept for the result (`before`, `after`). */
 	detail?: FixDetail;
 }
 
 export interface FixDetail {
-	image: MatchImage;
+	frame: TilingFrame;
 	analysis: TilingAnalysis;
 }
 
@@ -60,6 +65,12 @@ export interface FixOptions {
 	 * The project's own evaluation, when the caller has it (attribution's analysis, drift 0): saves evaluating it again.
 	 */
 	before?: FixEvaluation;
+	/**
+	 * Evaluations of an interrupted run of the same search (its project, attribution, options and evaluator), in order:
+	 * taken instead of evaluating while they last (they have no detail), so the search picks up where that run stopped
+	 * (a checkpoint, TilingWorkspace.vue). A drift that run skipped (NaN, or null once through JSON) stays skipped.
+	 */
+	replay?: { score: number; drift: number | null }[];
 	/** Checked before each evaluation: true stops the search, which returns the best so far. */
 	shouldStop?: () => boolean;
 	/** Called after each evaluation with the candidate and the best kept so far. */
@@ -91,6 +102,7 @@ export interface FixTrial {
 	key: string;
 	value: number | string | boolean;
 	score: number;
+	/** NaN: not measured, the candidate lost on its score. */
 	drift: number;
 	loss: number;
 }
@@ -128,7 +140,7 @@ export function reseed(project: Project, ids: string[], seed: number): Project {
 export async function fixTiling(
 	project: Project,
 	attribution: Pick<TilingAttribution, 'layers' | 'findings'>,
-	evaluate: (p: Project) => Promise<FixEvaluation> | FixEvaluation,
+	evaluate: (p: Project, bar?: number) => Promise<FixEvaluation> | FixEvaluation,
 	opts: FixOptions = {}
 ): Promise<FixResult> {
 	let driftFree = opts.driftFree ?? 0.25;
@@ -139,10 +151,15 @@ export async function fixTiling(
 	const minGain = opts.minGain ?? 0.01;
 	const trials: FixTrial[] = [];
 	let evaluations = 0;
-	const lossOf = (e: FixEvaluation) => e.score + driftWeight * Math.max(0, e.drift - driftFree);
+	const lossOf = (e: FixEvaluation) =>
+		Number.isNaN(e.drift) ? Infinity : e.score + driftWeight * Math.max(0, e.drift - driftFree);
 
-	const judge = async (p: Project): Promise<FixCandidate> => {
-		const e = await evaluate(p);
+	/** Evaluate a candidate; `bar`: what its score must beat to have a chance (its drift may be skipped otherwise). */
+	let replayed = 0;
+	const judge = async (p: Project, bar?: number): Promise<FixCandidate> => {
+		const r = opts.replay?.[replayed];
+		if (r) replayed++;
+		const e: FixEvaluation = r ? { score: r.score, drift: r.drift ?? NaN } : await evaluate(p, bar);
 		evaluations++;
 		const c: FixCandidate = { project: p, score: e.score, drift: e.drift, loss: lossOf(e), detail: e.detail };
 		opts.onEvaluate?.(evaluations, c, best ?? c);
@@ -178,7 +195,11 @@ export async function fixTiling(
 			const tried: { seed: number; c: FixCandidate }[] = [];
 			for (let i = 0; i < (opts.seeds ?? 24) && !stop(); i++) {
 				const seed = rng.int(100000);
-				const c = await judge(reseed(best.project, ids, seed));
+				// Without a given allowance every reseed's drift counts: their median sets it.
+				const c = await judge(
+					reseed(best.project, ids, seed),
+					opts.driftFree !== undefined ? best.loss - minGain : undefined
+				);
 				// The loss is only known once the round sets the allowance, but it is never below the score, and the bar
 				// (best's loss) only falls: a candidate whose score misses it now can't win.
 				if (!(c.score < best.loss - minGain)) c.detail = undefined;
@@ -219,12 +240,14 @@ export async function fixTiling(
 			!SHIFT_KEYS.has(e.key) &&
 			!(e.def?.min === 0 && layerValue(best!.project, e) === 0) &&
 			(opts.scale || (e.def?.unit !== 'px' && e.key !== 'scale'));
-		const entryKeys = extractParams(best.project, { filter: pick })
-			.entries.filter((e) => isEntryActive(best!.project, e))
-			.map((e) => `${e.owner}\u0000${e.key}`);
-		for (const ek of entryKeys) {
+		// The params are listed once; each is extracted again from the best so far, so its steps start from the params
+		// kept before it (and applying them changes that one param only).
+		const entries = extractParams(best.project, { filter: pick }).entries.filter((e) =>
+			isEntryActive(best!.project, e)
+		);
+		for (const e0 of entries) {
 			if (stop()) break search;
-			const space = extractParams(best.project, { filter: (e) => pick(e) && `${e.owner}\u0000${e.key}` === ek });
+			const space = extractParams(best.project, { filter: (e) => e.owner === e0.owner && e.key === e0.key && pick(e) });
 			const e = space.entries[0];
 			if (!e) continue;
 			const from = entryValue(e, space.initial);
@@ -236,7 +259,7 @@ export async function fixTiling(
 				if (!e.wrap && (v < 0 || v > 1)) continue;
 				const vec = Float64Array.from(space.initial);
 				vec[e.offset] = v;
-				const c = await judge(applyParams(best.project, space, vec));
+				const c = await judge(applyParams(best.project, space, vec), won ? won.loss : best.loss - minGain);
 				const to = entryValue(e, vec);
 				trials.push({ name, key: e.key, value: to, score: c.score, drift: c.drift, loss: c.loss });
 				if (c.loss < (won ? won.loss : best.loss - minGain)) {

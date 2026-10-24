@@ -11,7 +11,10 @@ import { useProjectStore } from '@/stores/project';
 import { projectFromJSON } from '@/core/serialize';
 import { runCheckpoints, runLockHeld, timeAgo, type Checkpoint, type RunWorkspace } from '@/stores/runCheckpoint';
 
-const RESUMABLE: { workspace: RunWorkspace; label: string }[] = [{ workspace: 'match', label: 'Match' }];
+const RESUMABLE: { workspace: RunWorkspace; label: string }[] = [
+	{ workspace: 'match', label: 'Match' },
+	{ workspace: 'tiling', label: 'Tiling fix' }
+];
 
 export interface ResumeRunEvent {
 	workspace: RunWorkspace;

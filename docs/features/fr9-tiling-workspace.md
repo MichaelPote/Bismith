@@ -38,16 +38,28 @@ The **Tiling** key on the workspace rail, laid out like Match (outliner and prop
 - **Panes:** _Current project / Before_ 3 × 3 with its tiling score · _Fixed_ (_Best so far_ while running) 3 × 3 with
   score and drift · _Hotspots_ 3 × 3, of before or of the fix.
 - **Settings** — the search's inputs: _Seeds_ per layer (24), _Layers_ to fix (2), _Nudge_ (0.12 of a param's slider
-  range, also tried at 40 %), _Hold look_ (drift weight, 2), _Min gain_ (0.01), _Samples_ per candidate (32), _Allow
-  scale changes_ (off).
+  range, also tried at 40 %), _Hold look_ (drift weight, 2), _Min gain_ (0.01), _Samples_ per candidate (32; a canvas
+  over 512 × 512 traced px gets proportionally fewer, at least 8 — it is evaluated at 512 px, where its pixels average
+  to as many: `frameSamples`), _Allow scale changes_ (off).
 - **Progress:** candidates, score before → best, the look allowance; a chart of the kept best's loss.
 - **Terms:** a bar per term (of the hotspot pane's image), before → fixed values; below, the culprits and the changes.
 
 Edits made beside it are re-analysed once they pause (300 ms), except while a run or its result holds the panes.
 Leaving the workspace stops a run; its best so far stays to keep or discard. The run works on a copy of the project
-taken when it began. Candidates are rendered and analysed on the GPU (below), one per frame, so the page answers
-between them; a hidden tab keeps the run going (`nextFrame` in `src/ui/schedule.ts` yields through a MessageChannel
-there).
+taken when it began. Candidates are rendered and analysed on the GPU (below); the run yields to the page between them
+and paints at most every 100 ms (`yieldEvery` in `src/ui/schedule.ts`: waiting for a frame per candidate cost half a
+frame each), and a hidden tab keeps it going (it yields through a MessageChannel there). The panes show the frames
+(≤ 512 px, below), tiled 3 × 3.
+
+**Checkpoints** (as Match's, docs/features/fr6.3-optimizer.md): once the search runs, the run is checkpointed every
+~10 s and whenever the page is hidden — its settings, the project it began from, the culprits (findings and blame, no
+images) and every evaluation's score and drift. After a discarded tab, a crash or a closed tab, start-up offers to
+resume it: the project is rendered and analysed again (the panes, the drift's reference) and the search replays the
+recorded evaluations (`replay` in `fixTiling`: the same path, without rendering them), shows the best they reached and
+carries on — to the same result as a run never interrupted. A run that ends with a fix not kept (stopped, finished,
+the workspace left) leaves its checkpoint marked paused, offered as _Reopen_: the replay goes as far as the run had
+and the result comes back to keep or discard. _Keep this_ and _Discard_ clear it; the tab holds the run's lock from
+the run's start until then, so other tabs don't offer it.
 
 Planned on top: hovering a culprit to show its contribution, the Flatten tone fix as a button, per-finding fixes.
 
@@ -107,9 +119,13 @@ A narrow search over the blamed layers only, culprit by culprit in the order of 
 `__bismith.tilingFix(opts)` runs attribution and the search in the page, loads the fixed project and returns scores,
 drift, the changes, every trial, and before / after renders and hotspot overlays; `npx tsx tools/tiling.ts … --fix`
 prints them and writes `<name>.fix.png` [before 3 × 3 | after 3 × 3 | hotspots before | after] and
-`<name>.fixed.json`. ≈50–140 evaluations per project; an evaluation is the render, the GPU analysis and the drift
-(the Windows match: now the largest part). The original's evaluation is the attribution's (drift 0), and the search
-keeps the render and analysis of the candidate it may return, so nothing is rendered twice. Locked layers are left
+`<name>.fixed.json`. ≈50–160 evaluations per project; an evaluation is the render, the GPU analysis and the drift
+(the Windows match: the largest part). Most candidates lose on their score alone — the loss is never below the score,
+and the bar a candidate must beat only falls — so the search hands `evaluate` that bar and the drift is measured only
+for a candidate whose score beats it (otherwise NaN, the candidate can't win; reseeds always measure it while their
+drifts set the allowance): 60–70 % of layout steps skip it, with the same result. The original's evaluation is the
+attribution's (drift 0), and the search keeps the render and analysis of the candidate it may return, so nothing is
+rendered twice. Locked layers are left
 alone: a culprit's locked layers keep their seed and params, and a culprit with nothing unlocked is skipped.
 
 A fix that doesn't reach the target still reports which layer and which param kind (seed, density, size) is the
@@ -154,18 +170,31 @@ filter on albedo and height later (out of scope here).
 
 ## Implementation notes (analysis and attribution)
 
-- **Working size** (`analyzeTiling`): the render box-downsampled to 128 px on the short side (`WORK_SIZE`); lengths
-  below are px of that, the maps are upsampled back to the render's size when first read (`maps`; `work` has them at
-  the working size).
+- **Frames** (`TilingFrame`, `renderFrame` in src/tiling/evaluate.ts): a render enters as the engine's output texture
+  box-filtered on the GPU to at most 512 px on the long side (`FRAME_SIZE`: the drift's windows compare at 512, the
+  analysis at 128 — nothing needs more), in linear light with premultiplied alpha, its rows flipped to top-down in the
+  same pass. The analysis' kernels read it where it is; it is read back (≤ 4 MB) only when the drift is measured, and
+  its sRGB image and lightness (the panes, the PNGs, the overlays) are made from that when first read. The drift scores
+  it as it is (`Matcher.scoreLinear`: no sRGB round trip). Without the GPU the render is read back and filtered on the
+  CPU. Before, every candidate went through the CPU at full size (readback, linear → sRGB, sRGB → linear again):
+  ≈100 ms of a 330 ms evaluation at 1024 px.
+- **Working size** (`analyzeTiling`): the frame box-downsampled to 128 px on the short side (`WORK_SIZE`); lengths
+  below are px of that, the maps are upsampled back to the frame's size when first read (`maps`; `work` has them at
+  the working size; clumping, tone and the hotspot map are made only when read — the fix search reads none).
 - **GPU and CPU** (`src/tiling/gpu.ts`, `tilingKernels` in analyze.ts): the per-pixel kernels — box down to the working
   size and OKLab, Sobel, the blurs, colour rarity at both radii, the 16 directions' line sums — run as fragment passes
   into one atlas read back once; medians, quantiles, the low band and the scores stay on the CPU (`finishAnalysis`).
   The CPU kernels are the reference and the fallback (Node, tests, no float targets): rarity buckets the samples by
   colour (only the 27 cells within the kernel's cut) and tables the exponential, line sums are one sparse kernel per
   direction. `tilingGpu(gpu)` checks the GPU against the CPU once on a test card and returns null (CPU) if they
-  differ — a D3D shader that failed to compile renders nothing, without an error. `tools/tiling.ts --check` compares
-  them on real renders; `--cpu` runs the tool on the CPU. On an RTX 5080 (D3D11) an analysis takes 4–16 ms on the
-  GPU, 0.1–0.5 s on the CPU; a rock fix (98 evaluations at 128 px) 7.5 s, bricks 2.3 s.
+  differ — a D3D shader that failed to compile renders nothing, without an error. The test card (128 × 96, HDR
+  highlights, transparency) goes through the frame pass at its size and at half (the flip, the clamp, the real
+  downsampling) and the kernels at its working size (blur radii 2 and 4) and at half. `tools/tiling.ts --check`
+  compares them on real renders; `--cpu` runs the tool on the CPU. The targets sized for an analysis are freed after
+  it (`release()`; `dispose()` frees the shaders too). On an RTX 5080 (D3D11) an analysis takes 3–16 ms on the GPU,
+  0.1–0.5 s on the CPU. A fix of the eight presets of the table above takes 29 s together (rock 2.5 s, slate 5.9 s,
+  bricks 1.0 s), a 1024 px rock 17 s — 71 s and 52 s before the frames, the drift's bar, a radix histogram match for
+  the VGG term, the VGG work overlapped with the CPU's, only the weighted match features and the low band by Parseval.
 - **Patches** (`colourRarity`): OKLab blurred at radii 2 and 5 (two box passes); per pixel −log of a Gaussian kernel
   density (ΔE 0.02) over 2000 fixed sample pixels, leaving out samples within 16 px (wrapped) of it; minus the median,
   the larger of the two radii. The term is the mean of the top 2 %. Without the left-out neighbourhood, rarity by pixel
@@ -176,13 +205,16 @@ filter on albedo and height later (out of scope here).
   line running through the tile keeps it, and counts 0). The term is the mean of the top 1 %.
 - **Clumping:** Sobel magnitude of OKLab L as the density; rms of its low band relative to its mean. **Tone:** rms
   OKLab ΔE of the low band of L, a, b. The low band (≤ 3 cycles per tile within a circle) is summed directly per
-  frequency bin — a few dozen, any size, no FFT.
+  frequency bin — a few dozen, any size, no FFT — for the four planes in one pass; the score's sums of squares come
+  from the coefficients (Parseval), and the band is synthesised only for the maps.
 - **Scales and weights** (`TILING_SCALES`, raw → 0.5; `DEFAULT_TILING_WEIGHTS`): patches 1.5 / 1, lines 0.25 / 3,
   clumping 0.4 / 0.5, tone 0.03 / 0.5 — fitted to critics' ratings (_Calibration_ below).
 - **Hotspot map:** each term's map from its median (0) to its top ½ % (1), times `HOTSPOT_WEIGHTS` (patches 1, lines 1,
   clumping and tone 0.5), the largest — not the score's weights: patches find where better than they rank how bad.
-- **Blame** (`attributeTiling`): 32 spp for the full and each leave-one-out render, so noise mostly cancels; findings
-  need blame ≥ ¼ of the term's top and ≥ 0.0015 ΔE (`MIN_BLAME`, above what faint layers measure from noise).
+- **Blame** (`attributeTiling`): 32 spp for the full and each leave-one-out render, so noise mostly cancels; the
+  contributions and blame are measured at the working size, where the term maps are (each render box-filtered to it
+  in OKLab; contribution maps upsampled to the frame only when asked for). Findings need blame ≥ ¼ of the term's top
+  and ≥ 0.0015 ΔE (`MIN_BLAME`, above what faint layers measure from noise).
 - `__bismith.tiling({ samples, maps, analysisOnly })` returns the scores, render and hotspot PNGs, per-layer blame
   (with contribution maps) and findings; `heatOverlay` (`src/match/image.ts`) is shared with Match's window-mismatch
   pane.
@@ -255,6 +287,7 @@ set: refit when more are marked (`calib.ts` there scores maps and terms from the
       sheets [render | hotspots | top culprits' contributions] — fixing comes with the fix search
 - [ ] Flatten post filter (GPU FFT / DFT), smoke-tested at power-of-two and odd sizes
 - [x] Tiling workspace UI: 3 × 3 before / fixed / hotspots, settings, run / stop, Keep this / Discard (undoable)
+- [x] Run checkpoints: resume an interrupted fix (replaying its evaluations), reopen a stopped one
 - [x] Docs: architecture.md (layout, tools, tiling/), FR index
 - [ ] Post table entry with the Flatten filter
 

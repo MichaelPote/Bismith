@@ -11,12 +11,14 @@ import {
 	quantiles,
 	resample,
 	sortFloat32,
+	argsortFloat32,
 	toRgba8,
 	type MatchImage,
 	type MetricOptions,
 	type TermName
 } from './metrics';
 import { dft } from './fft';
+import { matchHistogram } from './vgg';
 import { addNoise, colourise, gaussBlur, rng, shiftColour, testPanel, testTexture } from './testUtils';
 
 const tex = testTexture(64, 64, 1);
@@ -131,11 +133,43 @@ describe('sortFloat32', () => {
 	});
 });
 
+describe('argsortFloat32', () => {
+	it('orders as a stable comparison sort by a − b', () => {
+		const r = rng(5);
+		for (const n of [0, 7, 3000]) {
+			const v = Float32Array.from({ length: n }, (_, i) =>
+				i % 13 === 0 ? 0 : i % 11 === 0 ? -0 : Math.round((r() - 0.5) * 40) / 8
+			);
+			const expected = Array.from(v.keys()).sort((i, j) => v[i] - v[j] || i - j);
+			expect(Array.from(argsortFloat32(v))).toEqual(expected);
+		}
+	});
+});
+
+describe('matchHistogram', () => {
+	it('gives every pixel the reference value of its rank, ties in pixel order', () => {
+		const src = testTexture(40, 30, 2);
+		const ref = testTexture(40, 30, 3);
+		// Repeated values and both zeros, so the tie order counts.
+		for (let i = 0; i < src.data.length; i += 7) src.data[i] = i % 3 ? 0.25 : -0;
+		const n = src.width * src.height;
+		const expected = new Float32Array(src.data);
+		for (let c = 0; c < 3; c++) {
+			const sorted = Float32Array.from({ length: n }, (_, i) => ref.data[i * 4 + c]).sort();
+			const order = Array.from({ length: n }, (_, i) => i).sort(
+				(i, j) => src.data[i * 4 + c] - src.data[j * 4 + c] || i - j
+			);
+			order.forEach((p, r) => (expected[p * 4 + c] = sorted[r]));
+		}
+		for (let k = 0; k < 2; k++) expect(Array.from(matchHistogram(src, ref).data)).toEqual(Array.from(expected));
+	});
+});
+
 describe('metrics', () => {
 	it('frees its texture scorer on dispose', () => {
 		const m = new Matcher(testTexture(16, 16, 1), { preset: 'tile' });
 		let disposed = 0;
-		m.texture = { distance: () => 0.1, dispose: () => disposed++ };
+		m.texture = { distance: () => 0.1, submit: () => () => 0.1, dispose: () => disposed++ };
 		m.dispose();
 		m.dispose();
 		expect(disposed).toBe(1);

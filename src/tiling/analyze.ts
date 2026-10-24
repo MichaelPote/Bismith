@@ -9,16 +9,25 @@
 //   - tone: the colour itself varying across the tile at low frequency — blotches, a lighter corner.
 //
 // Measured on a copy of the render at WORK_SIZE px (short side), in units of that size, so the terms don't change with
-// the canvas size or supersampling; the maps come back at the render's size (upsampled when first read). Low frequency
+// the canvas size or supersampling; the maps come back at the frame's size (upsampled when first read). Low frequency
 // is up to `cycles` cycles per tile on each axis (within a circle).
 //
 // The per-pixel work is in two kernels, the colour rarity and the line sums (`tilingKernels`); the GPU computes them in
 // a few ms (src/tiling/gpu.ts, passed as `gpu`), this file is the reference and the fallback where there is no GPU.
-// Sums over the tile, quantiles and the low band stay here.
+// Sums over the tile, quantiles and the low band stay here; maps nothing scores from (clumping, tone, the hotspot) are
+// made only when read.
 //
 //   const a = analyzeTiling(render)          // a.score 0..1, a.terms, a.maps.hotspot (0..1 per pixel)
 
-import { resampleLinearToOklab, toLinearPremul, toOklab, type LabPlanes, type MatchImage } from '@/match/image';
+import {
+	fitSize,
+	resampleLinear,
+	resampleLinearToOklab,
+	toLinearPremul,
+	type LabPlanes,
+	type LinearPremul,
+	type MatchImage
+} from '@/match/image';
 import { sortFloat32 } from '@/match/quantiles';
 
 export type TilingTerm = 'patches' | 'lines' | 'clumping' | 'tone';
@@ -38,6 +47,66 @@ export const HOTSPOT_WEIGHTS: Record<TilingTerm, number> = { patches: 1, lines: 
 
 /** Short side the terms are measured at (px). */
 export const WORK_SIZE = 128;
+
+/**
+ * Long side (px) a render is evaluated at: the drift's windows term compares at up to 512 px and the analysis at 128,
+ * so nothing needs more.
+ */
+export const FRAME_SIZE = 512;
+
+/** A frame's size for a W × H render: its long side brought to FRAME_SIZE (never up). */
+export function frameSize(width: number, height: number): [number, number] {
+	return fitSize(width, height, FRAME_SIZE);
+}
+
+/**
+ * A render as the analysis, the drift and the panes take it: linear light with premultiplied alpha, rows top-down
+ * (src/tiling/evaluate.ts makes one at frameSize on the GPU from the engine's output; an image given to analyzeTiling
+ * becomes one at its own size). `lin` may be read back when first read; the sRGB image and the lightness are made from
+ * it when first read.
+ */
+export class TilingFrame {
+	readonly width: number;
+	readonly height: number;
+	private linear: LinearPremul | null = null;
+	private read: (() => LinearPremul) | null;
+	private srgb: MatchImage | null;
+	private lightness: Float32Array | null = null;
+
+	constructor(width: number, height: number, lin: LinearPremul | (() => LinearPremul), image?: MatchImage) {
+		this.width = width;
+		this.height = height;
+		if (typeof lin === 'function') this.read = lin;
+		else {
+			this.linear = lin;
+			this.read = null;
+		}
+		this.srgb = image ?? null;
+	}
+
+	/** An image (sRGB, straight alpha) as a frame of its size. */
+	static of(img: MatchImage): TilingFrame {
+		return new TilingFrame(img.width, img.height, () => toLinearPremul(img), img);
+	}
+
+	get lin(): LinearPremul {
+		if (!this.linear) {
+			this.linear = this.read!();
+			this.read = null;
+		}
+		return this.linear;
+	}
+
+	/** sRGB, straight alpha (for display and PNGs). */
+	get image(): MatchImage {
+		return (this.srgb ??= resampleLinear(this.lin, this.width, this.height));
+	}
+
+	/** OKLab L per pixel (for the heat overlays). */
+	get L(): Float32Array {
+		return (this.lightness ??= resampleLinearToOklab(this.lin, this.width, this.height).L);
+	}
+}
 
 export interface TilingOptions {
 	/** Low band for clumping and tone, in cycles per tile (default 3). */
@@ -64,7 +133,7 @@ export interface TilingAnalysis {
 	raw: Record<TilingTerm, number>;
 	/** Normalised term values 0..1. */
 	terms: Record<TilingTerm, number>;
-	/** At the render's size (upsampled from the work size when first read). */
+	/** At the frame's size (upsampled from the work size when first read). */
 	maps: TilingMaps;
 	/** The maps at the work size. */
 	work: TilingMaps;
@@ -73,7 +142,7 @@ export interface TilingAnalysis {
 /** The per-pixel kernels of the analysis, at the work size: what the GPU computes (src/tiling/gpu.ts). */
 export interface TilingKernels {
 	/** The render in OKLab. */
-	lab: LabPlanes;
+	lab: Omit<LabPlanes, 'alpha'>;
 	/** Feature density: the Sobel gradient magnitude of L. */
 	density: Float32Array;
 	/** Per RARITY_RADII: −log of how common each pixel's blurred colour is among the rest of the tile. */
@@ -84,7 +153,7 @@ export interface TilingKernels {
 
 /** Computes the kernels elsewhere (the GPU); null when it can't, and the CPU does. */
 export interface TilingKernelSource {
-	kernels(img: MatchImage, width: number, height: number): TilingKernels | null;
+	kernels(frame: TilingFrame, width: number, height: number): TilingKernels | null;
 }
 
 const norm = (raw: number, scale: number) => (raw <= 0 ? 0 : raw / (raw + scale));
@@ -95,21 +164,21 @@ export function workSize(width: number, height: number): [number, number] {
 	return [Math.max(1, Math.round(width * k)), Math.max(1, Math.round(height * k))];
 }
 
-/** Analyse a final render (tileable: everything wraps). `gpu` computes the kernels when given. */
+/** Analyse a final render (tileable: everything wraps); the maps come at its size. `gpu` computes the kernels. */
 export function analyzeTiling(
-	img: MatchImage,
+	render: MatchImage | TilingFrame,
 	opts: TilingOptions = {},
 	gpu?: TilingKernelSource | null
 ): TilingAnalysis {
-	const [w, h] = workSize(img.width, img.height);
-	const kernels = gpu?.kernels(img, w, h) ?? tilingKernels(workLab(img, w, h));
-	return finishAnalysis(kernels, opts, img.width, img.height);
+	const frame = render instanceof TilingFrame ? render : TilingFrame.of(render);
+	const [w, h] = workSize(frame.width, frame.height);
+	const kernels = gpu?.kernels(frame, w, h) ?? tilingKernels(workLab(frame.lin, w, h));
+	return finishAnalysis(kernels, opts, frame.width, frame.height);
 }
 
-/** The render in OKLab at the work size (box-filtered in linear light). */
-export function workLab(img: MatchImage, w: number, h: number): LabPlanes {
-	if (w === img.width && h === img.height) return toOklab(img);
-	return resampleLinearToOklab(toLinearPremul(img), w, h, undefined, 'box');
+/** A render in OKLab at the work size (box-filtered in linear light). */
+export function workLab(lin: LinearPremul, w: number, h: number): LabPlanes {
+	return resampleLinearToOklab(lin, w, h, undefined, 'box');
 }
 
 /** The analysis from its kernels; the maps come back at `width` × `height`. */
@@ -134,41 +203,21 @@ export function finishAnalysis(
 	}
 	const dMean = mean(density) || 1e-6;
 	const lines = uniqueLines(kernels.lineSums, W, H, geo, dMean);
+
+	// Clumping and tone from the low band's coefficients: the score's sums of squares by Parseval, the maps when read.
 	const band = lowBand(W, H, cycles);
-
-	// Clumping: relative deviation of the low-passed density from its mean.
-	const dLow = band.lowpass(density);
-	const clumpMap = new Float32Array(n);
-	let clumpSq = 0;
-	for (let i = 0; i < n; i++) {
-		const r = (dLow[i] - dMean) / dMean;
-		clumpMap[i] = Math.abs(r);
-		clumpSq += r * r;
-	}
-
+	const coef = band.coefficients([density, lab.L, lab.A, lab.B]);
+	// Clumping: relative deviation of the low-passed density from its mean (dOff ≠ 0 only when the density is all 0).
+	const dOff = mean(density) - dMean;
+	const clumpSq = (band.energy(coef[0]) + n * dOff * dOff) / (dMean * dMean);
 	// Tone: OKLab ΔE of the low-passed colour from the mean colour (a, b weighted as L, as ΔE does).
-	const toneMap = new Float32Array(n);
-	let toneSq = 0;
-	const lows = [lab.L, lab.A, lab.B].map((c) => {
-		const m = mean(c);
-		const lp = band.lowpass(c);
-		for (let i = 0; i < lp.length; i++) lp[i] -= m;
-		return lp;
-	});
-	for (let i = 0; i < n; i++) {
-		const sq = lows[0][i] ** 2 + lows[1][i] ** 2 + lows[2][i] ** 2;
-		toneMap[i] = Math.sqrt(sq);
-		toneSq += sq;
-	}
+	const toneSq = band.energy(coef[1]) + band.energy(coef[2]) + band.energy(coef[3]);
 
-	const maps = { patches, lines, clumping: clumpMap, tone: toneMap };
-	const sorted = Object.fromEntries(TILING_TERMS.map((t) => [t, sortFloat32(maps[t])])) as Record<
-		TilingTerm,
-		Float32Array
-	>;
+	const sortedPatches = sortFloat32(patches);
+	const sortedLines = sortFloat32(lines);
 	const raw: Record<TilingTerm, number> = {
-		patches: topMean(sorted.patches, 0.02),
-		lines: topMean(sorted.lines, 0.01),
+		patches: topMean(sortedPatches, 0.02),
+		lines: topMean(sortedLines, 0.01),
 		clumping: Math.sqrt(clumpSq / n),
 		tone: Math.sqrt(toneSq / n)
 	};
@@ -179,31 +228,45 @@ export function finishAnalysis(
 	const wsum = TILING_TERMS.reduce((s, t) => s + Math.max(0, weights[t]), 0) || 1;
 	const score = TILING_TERMS.reduce((s, t) => s + Math.max(0, weights[t]) * terms[t], 0) / wsum;
 
+	const work = { width: W, height: H, patches, lines } as TilingMaps;
+	lazy(work, 'clumping', () => {
+		const m = band.synth(coef[0]);
+		for (let i = 0; i < n; i++) m[i] = Math.abs(m[i] + dOff) / dMean;
+		return m;
+	});
+	lazy(work, 'tone', () => {
+		const [l, a, b] = [1, 2, 3].map((k) => band.synth(coef[k]));
+		for (let i = 0; i < n; i++) l[i] = Math.sqrt(l[i] ** 2 + a[i] ** 2 + b[i] ** 2);
+		return l;
+	});
 	// Hotspot: each term's map from its median (0) to its top ½ % (1), weighted, the largest.
-	const hotspot = new Float32Array(n);
-	for (const t of TILING_TERMS) {
-		const m = maps[t];
-		const lo = quantile(sorted[t], 0.5);
-		const span = quantile(sorted[t], 0.995) - lo;
-		if (!(span > 0)) continue;
-		const w = HOTSPOT_WEIGHTS[t];
-		for (let i = 0; i < n; i++) hotspot[i] = Math.max(hotspot[i], w * Math.min(1, Math.max(0, (m[i] - lo) / span)));
-	}
-
-	const work: TilingMaps = { width: W, height: H, ...maps, hotspot };
+	lazy(work, 'hotspot', () => {
+		const hotspot = new Float32Array(n);
+		for (const t of TILING_TERMS) {
+			const m = work[t];
+			const sorted = t === 'patches' ? sortedPatches : t === 'lines' ? sortedLines : sortFloat32(m);
+			const lo = quantile(sorted, 0.5);
+			const span = quantile(sorted, 0.995) - lo;
+			if (!(span > 0)) continue;
+			const w = HOTSPOT_WEIGHTS[t];
+			for (let i = 0; i < n; i++) hotspot[i] = Math.max(hotspot[i], w * Math.min(1, Math.max(0, (m[i] - lo) / span)));
+		}
+		return hotspot;
+	});
 	return { score, raw, terms, maps: width === W && height === H ? work : upsampledMaps(work, width, height), work };
+}
+
+/** Defines `obj[key]` as made by `make` when first read. */
+function lazy<T extends object>(obj: T, key: keyof T, make: () => Float32Array): void {
+	let v: Float32Array | null = null;
+	Object.defineProperty(obj, key, { enumerable: true, get: () => (v ??= make()) });
 }
 
 /** `work` at w × h, each map upsampled when first read (the fix search reads none of them). */
 function upsampledMaps(work: TilingMaps, w: number, h: number): TilingMaps {
 	const maps = { width: w, height: h } as TilingMaps;
-	for (const key of [...TILING_TERMS, 'hotspot'] as const) {
-		let m: Float32Array | null = null;
-		Object.defineProperty(maps, key, {
-			enumerable: true,
-			get: () => (m ??= upsample(work[key], work.width, work.height, w, h))
-		});
-	}
+	for (const key of [...TILING_TERMS, 'hotspot'] as const)
+		lazy(maps, key, () => upsample(work[key], work.width, work.height, w, h));
 	return maps;
 }
 
@@ -237,6 +300,9 @@ export interface TilingGeometry {
 	half: number;
 	/** Line directions (cos, sin), 0 … π. */
 	dirs: [number, number][];
+	/** The rarity kernel e^−(d² · inv) and the squared colour distance past which it counts as 0. */
+	inv: number;
+	cut: number;
 }
 
 export function tilingGeometry(W: number, H: number): TilingGeometry {
@@ -251,12 +317,14 @@ export function tilingGeometry(W: number, H: number): TilingGeometry {
 		dirs: Array.from({ length: LINE_DIRS }, (_, k): [number, number] => {
 			const th = (Math.PI * k) / LINE_DIRS;
 			return [Math.cos(th), Math.sin(th)];
-		})
+		}),
+		inv: 1 / (2 * RARITY_KERNEL * RARITY_KERNEL),
+		cut: 9 * RARITY_KERNEL * RARITY_KERNEL
 	};
 }
 
 /** The kernels on the CPU, from the render in OKLab at the work size. */
-export function tilingKernels(lab: LabPlanes): TilingKernels {
+export function tilingKernels(lab: Omit<LabPlanes, 'alpha'>): TilingKernels {
 	const { width: W, height: H } = lab;
 	const geo = tilingGeometry(W, H);
 	const { gx, gy, mag } = sobel(lab.L, W, H);
@@ -276,16 +344,14 @@ const EXP_TABLE = Float64Array.from({ length: EXP_N + 2 }, (_, i) => Math.exp(-i
  * out the neighbourhood keeps it to unique ones (a dark dot among many has its equals at the other dots, however few
  * pixels they cover).
  */
-function colourRarity(lab: LabPlanes, geo: TilingGeometry): Float32Array[] {
+function colourRarity(lab: Omit<LabPlanes, 'alpha'>, geo: TilingGeometry): Float32Array[] {
 	const { width: W, height: H } = lab;
 	const n = W * H;
 	const idx = geo.samples;
 	const m = idx.length;
 	const px = Int32Array.from(idx, (j) => j % W);
 	const py = Int32Array.from(idx, (j) => Math.floor(j / W));
-	const ex = geo.exclude;
-	const inv = 1 / (2 * RARITY_KERNEL * RARITY_KERNEL);
-	const cut = 9 * RARITY_KERNEL * RARITY_KERNEL;
+	const { exclude: ex, inv, cut } = geo;
 	// Samples left in per pixel: m minus the samples in its wrapped neighbourhood (a box count of their positions).
 	const ind = new Float32Array(n);
 	for (let j = 0; j < m; j++) ind[py[j] * W + px[j]] += 1;
@@ -463,7 +529,7 @@ function bilinear(f: Float32Array, W: number, H: number, x: number, y: number): 
 }
 
 /** A periodic plane resampled bilinearly to w × h. */
-function upsample(f: Float32Array, W: number, H: number, w: number, h: number): Float32Array {
+export function upsample(f: Float32Array, W: number, H: number, w: number, h: number): Float32Array {
 	const out = new Float32Array(w * h);
 	for (let y = 0; y < h; y++)
 		for (let x = 0; x < w; x++)
@@ -474,36 +540,25 @@ function upsample(f: Float32Array, W: number, H: number, w: number, h: number): 
 /** Wrapped index i (−len ≤ i < 2 · len) into 0 … len − 1. */
 const wrap = (i: number, len: number) => (i < 0 ? i + len : i >= len ? i - len : i);
 
-/** Circular box blur of radius r, twice (≈ Gaussian). */
+/**
+ * Circular box blur of radius r, twice (≈ Gaussian). Offsets that wrap onto the same pixel (2r + 1 past the side)
+ * count each time, as the GPU's BLUR counts them.
+ */
 function boxBlur(f: Float32Array, W: number, H: number, r: number): Float32Array {
-	let src = f;
-	const tmp = new Float32Array(W * H);
-	for (let pass = 0; pass < 2; pass++) {
-		for (let y = 0; y < H; y++) {
-			const row = y * W;
-			let s = 0;
-			for (let d = -r; d <= r; d++) s += src[row + (((d % W) + W) % W)];
-			for (let x = 0; x < W; x++) {
-				tmp[row + x] = s / (2 * r + 1);
-				s += src[row + ((x + r + 1) % W)] - src[row + ((((x - r) % W) + W) % W)];
-			}
-		}
-		const out = new Float32Array(W * H);
-		for (let x = 0; x < W; x++) {
-			let s = 0;
-			for (let d = -r; d <= r; d++) s += tmp[(((d % H) + H) % H) * W + x];
-			for (let y = 0; y < H; y++) {
-				out[y * W + x] = s / (2 * r + 1);
-				s += tmp[((y + r + 1) % H) * W + x] - tmp[((((y - r) % H) + H) % H) * W + x];
-			}
-		}
-		src = out;
-	}
-	return src;
+	const k = 1 / (2 * r + 1);
+	return boxFilter(boxFilter(f, W, H, r, k, true), W, H, r, k, true);
 }
 
 /** Wrapped box sum, offsets −r … r on each axis (each counted once when 2r + 1 reaches the side). */
 function boxSum(f: Float32Array, W: number, H: number, r: number): Float32Array {
+	return boxFilter(f, W, H, r, 1, false);
+}
+
+/**
+ * Sum over the wrapped offsets −r … r along x, then y, each pass × k. `repeat`: offsets that wrap onto the same pixel
+ * count each time; otherwise once.
+ */
+function boxFilter(f: Float32Array, W: number, H: number, r: number, k: number, repeat: boolean): Float32Array {
 	const pass = (
 		src: Float32Array,
 		len: number,
@@ -512,19 +567,21 @@ function boxSum(f: Float32Array, W: number, H: number, r: number): Float32Array 
 		lineStride: number,
 		dst: Float32Array
 	) => {
-		const full = 2 * r + 1 >= len;
+		const full = !repeat && 2 * r + 1 >= len;
+		// wrap() reaches −len … 2 · len − 1: enough while r < len.
+		const at = r < len ? wrap : (i: number) => ((i % len) + len) % len;
 		for (let l = 0; l < lines; l++) {
 			const o = l * lineStride;
 			let s = 0;
 			if (full) {
 				for (let t = 0; t < len; t++) s += src[o + t * stride];
-				for (let t = 0; t < len; t++) dst[o + t * stride] = s;
+				for (let t = 0; t < len; t++) dst[o + t * stride] = s * k;
 				continue;
 			}
-			for (let d = -r; d <= r; d++) s += src[o + wrap(d, len) * stride];
+			for (let d = -r; d <= r; d++) s += src[o + at(d, len) * stride];
 			for (let t = 0; t < len; t++) {
-				dst[o + t * stride] = s;
-				s += src[o + wrap(t + r + 1, len) * stride] - src[o + wrap(t - r, len) * stride];
+				dst[o + t * stride] = s * k;
+				s += src[o + at(t + r + 1, len) * stride] - src[o + at(t - r, len) * stride];
 			}
 		}
 	};
@@ -557,11 +614,36 @@ function sobel(v: Float32Array, W: number, H: number): { gx: Float32Array; gy: F
 	return { gx, gy, mag };
 }
 
+/** The low band of a W × H periodic plane (`lowBand`). */
+export interface LowBand {
+	/** Per plane, the band's coefficients (re, im per bin): one pass over the pixels for all the planes. */
+	coefficients(planes: Float32Array[]): Float64Array[];
+	/** Σ over the pixels of the band's square (the mean left out), from its coefficients (Parseval). */
+	energy(coef: Float64Array): number;
+	/** The band per pixel, the mean left out. */
+	synth(coef: Float64Array): Float32Array;
+	/** The plane low-passed: the band plus the mean. */
+	lowpass(v: Float32Array): Float32Array;
+}
+
+const lowBands = new Map<string, LowBand>();
+
 /**
  * The low band of a W × H periodic plane: the frequencies (kx, ky) cycles per tile with 0 < kx² + ky² ≤ cycles², summed
- * directly (a few dozen bins — any size, no FFT needed). `lowpass` returns the band plus the mean.
+ * directly (a few dozen bins — any size, no FFT needed). Made once per size.
  */
-export function lowBand(W: number, H: number, cycles: number): { lowpass: (v: Float32Array) => Float32Array } {
+export function lowBand(W: number, H: number, cycles: number): LowBand {
+	const key = `${W}x${H}x${cycles}`;
+	let band = lowBands.get(key);
+	if (!band) {
+		if (lowBands.size >= 8) lowBands.clear();
+		band = makeLowBand(W, H, cycles);
+		lowBands.set(key, band);
+	}
+	return band;
+}
+
+function makeLowBand(W: number, H: number, cycles: number): LowBand {
 	const K = Math.max(0, Math.floor(cycles));
 	const table = (n: number) => {
 		const c: Float32Array[] = [];
@@ -574,6 +656,7 @@ export function lowBand(W: number, H: number, cycles: number): { lowpass: (v: Fl
 	};
 	const tx = table(W);
 	const ty = table(H);
+	const n = W * H;
 	// Half plane: ky > 0, or ky = 0 and kx > 0; the conjugates are implied (real input).
 	const bins: [number, number][] = [];
 	for (let ky = 0; ky <= K; ky++)
@@ -583,30 +666,55 @@ export function lowBand(W: number, H: number, cycles: number): { lowpass: (v: Fl
 			if (Math.abs(kx) * 2 >= W || ky * 2 >= H) continue; // above Nyquist on a tiny plane
 			bins.push([kx, ky]);
 		}
-	return {
-		lowpass(v) {
-			const out = new Float32Array(W * H).fill(mean(v));
-			const n = W * H;
-			for (const [kx, ky] of bins) {
+	const band: LowBand = {
+		coefficients(planes) {
+			const P = planes.length;
+			const out = planes.map(() => new Float64Array(2 * bins.length));
+			const re = new Float64Array(P);
+			const im = new Float64Array(P);
+			bins.forEach(([kx, ky], b) => {
 				const ax = Math.abs(kx);
 				const sx = kx < 0 ? -1 : 1;
+				re.fill(0);
+				im.fill(0);
 				// e^{-iθ}, θ = 2π (kx x / W + ky y / H): cos θ = cx cy − sx·sxk sy …, separably.
-				let re = 0;
-				let im = 0;
 				for (let y = 0; y < H; y++) {
 					const cy = ty.c[ky][y];
 					const sy = ty.s[ky][y];
+					const row = y * W;
 					for (let x = 0; x < W; x++) {
 						const cx = tx.c[ax][x];
 						const sxv = sx * tx.s[ax][x];
-						const val = v[y * W + x];
-						re += val * (cx * cy - sxv * sy);
-						im -= val * (sxv * cy + cx * sy);
+						const c = cx * cy - sxv * sy;
+						const s = sxv * cy + cx * sy;
+						for (let p = 0; p < P; p++) {
+							const val = planes[p][row + x];
+							re[p] += val * c;
+							im[p] -= val * s;
+						}
 					}
 				}
+				for (let p = 0; p < P; p++) {
+					out[p][2 * b] = re[p];
+					out[p][2 * b + 1] = im[p];
+				}
+			});
+			return out;
+		},
+		energy(coef) {
+			// Each bin and its conjugate: (2/n)(re cos θ − im sin θ), whose square sums to 2 (re² + im²) / n.
+			let e = 0;
+			for (let b = 0; b < bins.length; b++) e += coef[2 * b] ** 2 + coef[2 * b + 1] ** 2;
+			return (2 * e) / n;
+		},
+		synth(coef) {
+			const out = new Float32Array(n);
+			bins.forEach(([kx, ky], bin) => {
+				const ax = Math.abs(kx);
+				const sx = kx < 0 ? -1 : 1;
 				// Add the bin and its conjugate: (2/n)(re cos θ − im sin θ).
-				const a = (2 * re) / n;
-				const b = (2 * im) / n;
+				const a = (2 * coef[2 * bin]) / n;
+				const b = (2 * coef[2 * bin + 1]) / n;
 				for (let y = 0; y < H; y++) {
 					const cy = ty.c[ky][y];
 					const sy = ty.s[ky][y];
@@ -616,10 +724,17 @@ export function lowBand(W: number, H: number, cycles: number): { lowpass: (v: Fl
 						out[y * W + x] += a * (cx * cy - sxv * sy) - b * (sxv * cy + cx * sy);
 					}
 				}
-			}
+			});
+			return out;
+		},
+		lowpass(v) {
+			const out = band.synth(band.coefficients([v])[0]);
+			const m = mean(v);
+			for (let i = 0; i < n; i++) out[i] += m;
 			return out;
 		}
 	};
+	return band;
 }
 
 function mean(v: Float32Array): number {

@@ -12,6 +12,25 @@ precision highp int;
 precision highp sampler2D;
 `;
 
+/** sRGB ↔ linear and linear → OKLab (also used outside the layer passes: the tiling analysis, src/tiling/gpu.ts). */
+export const GLSL_COLOUR = /* glsl */ `
+vec3 srgbToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
+vec3 linearToSrgb(vec3 c) {
+  c = max(c, vec3(0.0));
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+vec3 linearToOklab(vec3 c) {
+  float l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
+  float m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
+  float s = 0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b;
+  l = pow(max(l, 0.0), 1.0 / 3.0); m = pow(max(m, 0.0), 1.0 / 3.0); s = pow(max(s, 0.0), 1.0 / 3.0);
+  return vec3(
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);
+}
+`;
+
 export const GLSL_COMMON = /* glsl */ `
 #define PI 3.14159265358979
 #define TAU 6.28318530717959
@@ -157,11 +176,7 @@ void repAt(RepGrid a, int e, out ivec2 c, out vec2 pos) {
 }
 
 // ---------------------------------------------------------------- colour
-vec3 srgbToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
-vec3 linearToSrgb(vec3 c) {
-  c = max(c, vec3(0.0));
-  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
-}
+${GLSL_COLOUR}
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
 vec3 rgb2hsv(vec3 c) {
@@ -175,17 +190,6 @@ vec3 rgb2hsv(vec3 c) {
 vec3 hsv2rgb(vec3 c) {
   vec3 p = abs(fract(c.xxx + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
   return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
-}
-
-vec3 linearToOklab(vec3 c) {
-  float l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
-  float m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
-  float s = 0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b;
-  l = pow(max(l, 0.0), 1.0 / 3.0); m = pow(max(m, 0.0), 1.0 / 3.0); s = pow(max(s, 0.0), 1.0 / 3.0);
-  return vec3(
-    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
-    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
-    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);
 }
 
 // Gradient ramp: stops are (sRGB rgb, position), sorted by position. Returns sRGB.

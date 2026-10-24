@@ -14,6 +14,7 @@
 import * as THREE from 'three';
 import type { Gpu } from '@/gpu/context';
 import type { MatchImage } from './image';
+import { argsortFloat32, sortFloat32 } from './quantiles';
 
 interface LayerSpec {
 	name: string;
@@ -34,6 +35,11 @@ interface Manifest {
 /** Bound to a target: distance of a render's texture statistics to the target's (0 = identical). */
 export interface TextureScorer {
 	distance(render: MatchImage): number;
+	/**
+	 * distance() in two halves: runs the network on the GPU and returns a function that reads the result back (and
+	 * waits for the GPU only then), so the CPU can do other work meanwhile. Call the function before the next submit.
+	 */
+	submit(render: MatchImage): () => number;
 	/** Free the GPU targets holding the reference's statistics (also done once the scorer is garbage-collected). */
 	dispose(): void;
 }
@@ -149,20 +155,27 @@ function floatTexture(data: Float32Array, width: number, height: number): THREE.
 	return t;
 }
 
-/** Per-channel histogram matching of `src` to `ref` (same size): keeps the arrangement, takes the colours. */
+/** Each reference's channels sorted (references are fixed: a scorer's target). */
+const sortedChannels = new WeakMap<MatchImage, Float32Array[]>();
+
+/**
+ * Per-channel histogram matching of `src` to `ref` (same size): keeps the arrangement, takes the colours. `ref` must not
+ * change afterwards: its sorted channels are kept for the next call.
+ */
 export function matchHistogram(src: MatchImage, ref: MatchImage): MatchImage {
 	const n = src.width * src.height;
+	let sorted = sortedChannels.get(ref);
+	if (!sorted) {
+		sorted = [0, 1, 2].map((c) => sortFloat32(Float32Array.from({ length: n }, (_, i) => ref.data[i * 4 + c])));
+		sortedChannels.set(ref, sorted);
+	}
 	const out = new Float32Array(src.data);
-	const order = new Uint32Array(n);
-	const sorted = new Float32Array(n);
+	const channel = new Float32Array(n);
 	for (let c = 0; c < 3; c++) {
-		for (let i = 0; i < n; i++) {
-			order[i] = i;
-			sorted[i] = ref.data[i * 4 + c];
-		}
-		sorted.sort();
-		order.sort((i, j) => src.data[i * 4 + c] - src.data[j * 4 + c] || i - j);
-		for (let r = 0; r < n; r++) out[order[r] * 4 + c] = sorted[r];
+		for (let i = 0; i < n; i++) channel[i] = src.data[i * 4 + c];
+		const order = argsortFloat32(channel);
+		const s = sorted[c];
+		for (let r = 0; r < n; r++) out[order[r] * 4 + c] = s[r];
 	}
 	return { width: src.width, height: src.height, data: out };
 }
@@ -347,8 +360,8 @@ export class TextureNet {
 		return grams;
 	}
 
-	/** Mean over the taps of ‖G − G_target‖ / (‖G‖ + ‖G_target‖), 0..1. */
-	private distanceTo(img: MatchImage, wrap: boolean, target: THREE.WebGLRenderTarget[]): number {
+	/** Mean over the taps of ‖G − G_target‖ / (‖G‖ + ‖G_target‖), 0..1: submitted, then read back when the result is called. */
+	private distanceTo(img: MatchImage, wrap: boolean, target: THREE.WebGLRenderTarget[]): () => number {
 		const grams = this.gramsOf(img, wrap);
 		const r = this.run(img.width, img.height);
 		const taps = this.layers.filter((l) => l.tap);
@@ -359,21 +372,23 @@ export class TextureNet {
 			m.uniforms.uSlices.value = l.sout;
 			this.gpu.run(m, r.reduce, { x: 0, y: t, w: l.spec.cout, h: 1 });
 		});
-		const out = this.gpu.readTexture(r.reduce.texture, r.reduce.width, r.reduce.height);
-		let sum = 0;
-		taps.forEach((l, t) => {
-			let d = 0;
-			let a = 0;
-			let b = 0;
-			for (let j = 0; j < l.spec.cout; j++) {
-				const o = (t * r.reduce.width + j) * 4;
-				d += out[o];
-				a += out[o + 1];
-				b += out[o + 2];
-			}
-			sum += Math.sqrt(d) / (Math.sqrt(a) + Math.sqrt(b) + 1e-9);
-		});
-		return sum / taps.length;
+		return () => {
+			const out = this.gpu.readTexture(r.reduce.texture, r.reduce.width, r.reduce.height);
+			let sum = 0;
+			taps.forEach((l, t) => {
+				let d = 0;
+				let a = 0;
+				let b = 0;
+				for (let j = 0; j < l.spec.cout; j++) {
+					const o = (t * r.reduce.width + j) * 4;
+					d += out[o];
+					a += out[o + 1];
+					b += out[o + 2];
+				}
+				sum += Math.sqrt(d) / (Math.sqrt(a) + Math.sqrt(b) + 1e-9);
+			});
+			return sum / taps.length;
+		};
 	}
 
 	/**
@@ -385,7 +400,8 @@ export class TextureNet {
 		this.gramsOf(target, wrap, own);
 		let alive = true;
 		const scorer: TextureScorer = {
-			distance: (render: MatchImage) => {
+			distance: (render: MatchImage) => scorer.submit(render)(),
+			submit: (render: MatchImage) => {
 				if (!alive) throw new Error('TextureScorer: disposed');
 				if (render.width !== target.width || render.height !== target.height)
 					throw new Error('TextureScorer: size mismatch');
@@ -406,7 +422,7 @@ export class TextureNet {
 	compare(a: MatchImage, b: MatchImage, wrap: boolean): number {
 		const own = this.layers.filter((l) => l.tap).map((l) => this.gpu.target(l.sout, l.spec.cout));
 		this.gramsOf(b, wrap, own);
-		const d = this.distanceTo(a, wrap, own);
+		const d = this.distanceTo(a, wrap, own)();
 		for (const t of own) t.dispose();
 		return d;
 	}

@@ -347,4 +347,13 @@ project is open now it says so, and Resume reopens the run's project (undoable).
 settings back, rebuilds the optimiser and `restore()`s it — the parents' renders are made again for colour fits — and
 carries on: the same steps the uninterrupted run would have taken (checked in the app: the log of a run reloaded at
 step 14 matches an uninterrupted one through step 24). A run still going in another tab holds a Web Lock
-(`bismith:run:match`), so that tab's checkpoint isn't offered. The Tiling fix can adopt the same module.
+(`bismith:run:match`), so that tab's checkpoint isn't offered.
+
+The **Tiling fix** uses the same module (workspace `'tiling'`, lock `bismith:run:tiling`; docs/features/fr9-tiling-workspace.md).
+Its search is deterministic given its inputs, so a checkpoint holds only those — the settings, the project the fix
+began from, the culprits (findings and blame) — and every evaluation's score and drift (16 bytes a candidate; a skipped
+drift stays NaN). Resuming renders and analyses the project again, and `fixTiling(…, { replay })` takes the recorded
+evaluations instead of rendering them, so the search walks the same path to where it stopped and carries on (checked in
+the app: the bricks preset checkpointed at candidate 45, reloaded and resumed, ends with the same changes and scores as
+an uninterrupted run, 114 candidates). A fix that ends unkept (stopped, finished, the workspace left) leaves a paused
+checkpoint; _Reopen_ replays it as far as it had got and shows the result to keep or discard, which clear it.

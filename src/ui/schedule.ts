@@ -36,3 +36,17 @@ export function nextFrame(): Promise<void> {
 		requestAnimationFrame(finish);
 	});
 }
+
+/**
+ * A yield for a run's every step that paints at most every `ms` (default 100): it resolves on the next task, and on
+ * the next frame (nextFrame, so a hidden tab still runs) once `ms` have passed since the last one. Waiting for a frame
+ * per step costs half a frame on average in a visible tab, a large share of a step that takes a few ms.
+ */
+export function yieldEvery(ms = 100): () => Promise<void> {
+	let last = -Infinity;
+	return async () => {
+		if (performance.now() - last < ms) return nextTask();
+		await nextFrame();
+		last = performance.now();
+	};
+}

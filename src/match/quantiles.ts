@@ -38,6 +38,45 @@ export function sortFloat32(values: Float32Array): Float32Array {
 	return new Float32Array(a.buffer, 0, n);
 }
 
+/**
+ * The indices that sort `values` ascending, ties in index order: the order a stable comparison sort by `a − b` gives
+ * (−0 and +0 tie). An LSD radix sort on the bit patterns, as sortFloat32.
+ */
+export function argsortFloat32(values: Float32Array): Uint32Array {
+	const n = values.length;
+	const folded = new Float32Array(n);
+	for (let i = 0; i < n; i++) folded[i] = values[i] + 0; // −0 → +0
+	const bits = new Uint32Array(folded.buffer);
+	let a = new Uint32Array(n);
+	let o = new Uint32Array(n);
+	for (let i = 0; i < n; i++) {
+		const x = bits[i];
+		a[i] = x & 0x80000000 ? ~x >>> 0 : (x | 0x80000000) >>> 0;
+		o[i] = i;
+	}
+	let b = new Uint32Array(n);
+	let p = new Uint32Array(n);
+	const count = new Uint32Array(2048);
+	for (let shift = 0; shift < 32; shift += 11) {
+		count.fill(0);
+		for (let i = 0; i < n; i++) count[(a[i] >>> shift) & 2047]++;
+		let sum = 0;
+		for (let k = 0; k < 2048; k++) {
+			const c = count[k];
+			count[k] = sum;
+			sum += c;
+		}
+		for (let i = 0; i < n; i++) {
+			const d = count[(a[i] >>> shift) & 2047]++;
+			b[d] = a[i];
+			p[d] = o[i];
+		}
+		[a, b] = [b, a];
+		[o, p] = [p, o];
+	}
+	return o;
+}
+
 /** Sorted quantiles (Q evenly spaced, linear interpolation) of `values`. */
 export function quantiles(values: ArrayLike<number>, q = 128): Float32Array {
 	const n = values.length;

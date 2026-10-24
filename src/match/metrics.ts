@@ -48,7 +48,7 @@ import {
 } from './windows';
 
 export * from './image';
-export { quantiles, sortFloat32 } from './quantiles';
+export { argsortFloat32, quantiles, sortFloat32 } from './quantiles';
 
 export type TermName =
 	| 'colour'
@@ -190,6 +190,11 @@ export interface MetricOptions {
 	windowMaxSize?: number;
 	/** Windows term: window side as a fraction of the short side (default ⅛; rounded to a power of two, 16…128 px). */
 	windowFraction?: number;
+	/**
+	 * Compute only the descriptors of the terms that weigh (default false): the others read 0. For callers that use only
+	 * the total (the tiling fix's drift); the weights must stay as they were at construction.
+	 */
+	weightedOnly?: boolean;
 }
 
 export interface MetricResult {
@@ -447,33 +452,44 @@ function localStd(L: Float32Array, w: number, h: number, wrap: boolean): Float32
 
 // ------------------------------------------------------------------------------------------------ public
 
-/** Compute the descriptors of an image at its own size (resample beforehand for comparisons). */
+/**
+ * Compute the descriptors of an image at its own size (resample beforehand for comparisons). With `weights`, only those
+ * of the terms that weigh (the rest are left empty and compare as 0).
+ */
 export function computeFeatures(
 	img: MatchImage,
-	opts: Pick<MetricOptions, 'wrap' | 'window' | 'background'> = {}
+	opts: Pick<MetricOptions, 'wrap' | 'window' | 'background'> = {},
+	weights?: MetricWeights
 ): Features {
 	const lab: LabPlanes = toOklab(img, opts.background);
 	const { width: w, height: h, L, A, B, alpha } = lab;
 	const n = w * h;
 	const wrap = opts.wrap ?? false;
+	const need = (t: TermName) => !weights || (weights[t] ?? 0) > 0;
 
 	// Colour: project (subsampled to ≤ 16k pixels with a fixed stride) onto each direction.
 	const stride = Math.max(1, Math.ceil(n / 16384));
 	const m = Math.ceil(n / stride);
 	const proj = new Float32Array(m);
-	const colourQ = COLOUR_DIRECTIONS.map(([dl, da, db]) => {
-		const ca = da * CHROMA_WEIGHT;
-		const cb = db * CHROMA_WEIGHT;
-		for (let i = 0, j = 0; i < n; i += stride, j++) proj[j] = L[i] * dl + A[i] * ca + B[i] * cb;
-		return quantiles(proj, 128);
-	});
+	const colourQ = need('colour')
+		? COLOUR_DIRECTIONS.map(([dl, da, db]) => {
+				const ca = da * CHROMA_WEIGHT;
+				const cb = db * CHROMA_WEIGHT;
+				for (let i = 0, j = 0; i < n; i += stride, j++) proj[j] = L[i] * dl + A[i] * ca + B[i] * cb;
+				return quantiles(proj, 128);
+			})
+		: [];
 
-	const spec = spectrumProfile(L, w, h, opts.window ?? false);
-	const grads = gradientHistograms(L, w, h, wrap);
+	const spec = need('spectrum')
+		? spectrumProfile(L, w, h, opts.window ?? false)
+		: { profile: new Float64Array(0), weight: new Float64Array(0) };
+	const grads = need('gradients')
+		? gradientHistograms(L, w, h, wrap)
+		: { mag: new Float64Array(0), ori: new Float64Array(0), weight: 0 };
 
 	const contrastQ: Float32Array[] = [];
 	let lv = { data: L, width: w, height: h };
-	for (let level = 0; level < 3; level++) {
+	for (let level = 0; level < 3 && need('contrast'); level++) {
 		if (level > 0) {
 			if (lv.width < 6 || lv.height < 6) break;
 			lv = boxDown(lv.data, lv.width, lv.height);
@@ -481,8 +497,9 @@ export function computeFeatures(
 		contrastQ.push(quantiles(localStd(lv.data, lv.width, lv.height, wrap), 64));
 	}
 
-	const pyramid: Features['pyramid'] = [{ width: w, height: h, planes: [L, A, B, alpha] }];
-	for (let level = 1; level < 3; level++) {
+	const pyramid: Features['pyramid'] =
+		need('aligned') || need('structure') ? [{ width: w, height: h, planes: [L, A, B, alpha] }] : [];
+	for (let level = 1; level < 3 && pyramid.length; level++) {
 		const prev = pyramid[level - 1];
 		if (prev.width < 4 || prev.height < 4) break;
 		const planes = prev.planes.map((p) => boxDown(p, prev.width, prev.height).data);
@@ -509,18 +526,20 @@ export function computeFeatures(
 		pyramid,
 		alphaQ: opaque ? null : quantiles(alpha, 64),
 		wrap: Boolean(opts.wrap),
-		zPyramid: pyramid.map((lv) => {
-			const Lp = lv.planes[0];
-			let m = 0;
-			for (let i = 0; i < Lp.length; i++) m += Lp[i];
-			m /= Lp.length;
-			let v = 0;
-			for (let i = 0; i < Lp.length; i++) v += (Lp[i] - m) ** 2;
-			const sd = Math.max(Math.sqrt(v / Lp.length), 0.02);
-			const z = new Float32Array(Lp.length);
-			for (let i = 0; i < Lp.length; i++) z[i] = (Lp[i] - m) / sd;
-			return { width: lv.width, height: lv.height, z };
-		})
+		zPyramid: need('structure')
+			? pyramid.map((lv) => {
+					const Lp = lv.planes[0];
+					let m = 0;
+					for (let i = 0; i < Lp.length; i++) m += Lp[i];
+					m /= Lp.length;
+					let v = 0;
+					for (let i = 0; i < Lp.length; i++) v += (Lp[i] - m) ** 2;
+					const sd = Math.max(Math.sqrt(v / Lp.length), 0.02);
+					const z = new Float32Array(Lp.length);
+					for (let i = 0; i < Lp.length; i++) z[i] = (Lp[i] - m) / sd;
+					return { width: lv.width, height: lv.height, z };
+				})
+			: []
 	};
 }
 
@@ -621,7 +640,7 @@ export function compareFeatures(
 	// Colour: 2 × mean W1 over directions ≈ ΔE for a uniform shift (E|u·d| = |d|/2 on the sphere).
 	let c = 0;
 	for (let i = 0; i < a.colourQ.length; i++) c += w1(a.colourQ[i], b.colourQ[i]);
-	raw.colour = (2 * c) / a.colourQ.length;
+	raw.colour = a.colourQ.length ? (2 * c) / a.colourQ.length : 0;
 
 	// Spectrum shape: weighted mean |Δlog10| after removing the best (weighted-median) constant offset —
 	// overall contrast is the contrast term's job, and a noisy lowest band would otherwise shift every band.
@@ -629,17 +648,19 @@ export function compareFeatures(
 
 	// Gradients: magnitude EMD in octaves (bins are half-octaves) + orientation EMD (0..0.5 of a turn),
 	// the latter only counting when there are edges to orient, scaled ×4 so a quarter-turn ≈ 1 octave.
-	const magEmd = emdLinear(a.gradMag, b.gradMag) * 0.5;
-	const edge = Math.min(1, Math.max(a.gradWeight, b.gradWeight) / 0.01);
-	const oriEmd = emdCircular(a.gradOri, b.gradOri) * 4 * edge;
-	raw.gradients = 0.5 * magEmd + 0.5 * oriEmd;
+	if (a.gradMag.length) {
+		const magEmd = emdLinear(a.gradMag, b.gradMag) * 0.5;
+		const edge = Math.min(1, Math.max(a.gradWeight, b.gradWeight) / 0.01);
+		const oriEmd = emdCircular(a.gradOri, b.gradOri) * 4 * edge;
+		raw.gradients = 0.5 * magEmd + 0.5 * oriEmd;
+	} else raw.gradients = 0;
 
 	let ct = 0;
 	const levels = Math.min(a.contrastQ.length, b.contrastQ.length);
 	for (let i = 0; i < levels; i++) ct += w1(a.contrastQ[i], b.contrastQ[i]);
 	raw.contrast = levels ? ct / levels : 0;
 
-	raw.structure = weights.structure > 0 ? structureDistance(a, b) : 0;
+	raw.structure = weights.structure > 0 && a.zPyramid.length ? structureDistance(a, b) : 0;
 
 	let al = 0;
 	const plevels = Math.min(a.pyramid.length, b.pyramid.length);
@@ -716,8 +737,8 @@ export class Matcher {
 		this.opts = opts;
 		[this.width, this.height] = comparisonSize(target, opts);
 		this.target = resample(target, this.width, this.height);
-		this.targetFeatures = computeFeatures(this.target, opts);
 		this.weights = resolveWeights(opts);
+		this.targetFeatures = computeFeatures(this.target, opts, opts.weightedOnly ? this.weights : undefined);
 		if ((this.weights.windows ?? 0) > 0) {
 			const [w, h] = comparisonSize(target, { size: opts.size, maxSize: opts.windowMaxSize ?? 512 });
 			this.windowTarget = windowBank(resample(target, w, h), {
@@ -733,10 +754,16 @@ export class Matcher {
 		const t = this.windowTarget;
 		if (!t) return null;
 		const bg = this.opts.background;
-		const lab =
+		return this.windowsOfLab(
 			render.width === t.width && render.height === t.height
 				? toOklab(render, bg)
-				: resampleLinearToOklab(lin ?? toLinearPremul(render), t.width, t.height, bg);
+				: resampleLinearToOklab(lin ?? toLinearPremul(render), t.width, t.height, bg)
+		);
+	}
+
+	private windowsOfLab(lab: LabPlanes): (WindowResult & { bank: WindowBank; lab: LabPlanes }) | null {
+		const t = this.windowTarget;
+		if (!t) return null;
 		const bank = windowBankOfLab(lab, { wrap: this.opts.wrap, like: t });
 		return { ...compareWindows(bank, t), bank, lab };
 	}
@@ -783,8 +810,24 @@ export class Matcher {
 				? toLinearPremul(render)
 				: undefined;
 		const fit = lin ? resampleLinear(lin, this.width, this.height) : this.fit(render);
-		const texture = this.texture && (this.weights.texture ?? 0) > 0 ? this.texture.distance(fit) : undefined;
-		const windows = this.windows(render, lin)?.raw;
-		return compareFeatures(computeFeatures(fit, this.opts), this.targetFeatures, this.weights, { texture, windows });
+		return this.scoreFit(fit, () => this.windows(render, lin)?.raw);
+	}
+
+	/** score() of a render already in linear light with premultiplied alpha (straight from the GPU: no sRGB round trip). */
+	scoreLinear(lin: LinearPremul): MetricResult {
+		const t = this.windowTarget;
+		const fit = resampleLinear(lin, this.width, this.height);
+		return this.scoreFit(
+			fit,
+			() => t && this.windowsOfLab(resampleLinearToOklab(lin, t.width, t.height, this.opts.background))?.raw
+		);
+	}
+
+	/** The total from the render at the comparison size; the VGG term runs on the GPU while the CPU does the rest. */
+	private scoreFit(fit: MatchImage, windows: () => number | null | undefined): MetricResult {
+		const texture = this.texture && (this.weights.texture ?? 0) > 0 ? this.texture.submit(fit) : undefined;
+		const w = windows() ?? undefined;
+		const features = computeFeatures(fit, this.opts, this.opts.weightedOnly ? this.weights : undefined);
+		return compareFeatures(features, this.targetFeatures, this.weights, { texture: texture?.(), windows: w });
 	}
 }

@@ -5,15 +5,19 @@
 //
 // Blame is concentration, not size: per term, the layer's mean contribution inside that term's hotspots minus its mean
 // contribution elsewhere. A base fill or an even noise changes a lot when removed, but everywhere alike — no blame; a
-// layer whose contribution piles up where the repeat draws the eye is the culprit.
+// layer whose contribution piles up where the repeat draws the eye is the culprit. Both are measured at the analysis'
+// work size, where its maps are.
 //
-//   const r = await attributeTiling(project, (p) => renderToMatchImage(engine, p, 32))
+//   const r = await attributeTiling(project, (p) => renderFrame(engine, p, 32, gpu))
 
 import { hiddenByMaterial, type Project } from '@/core/project';
-import { toOklab, type MatchImage } from '@/match/image';
+import type { MatchImage } from '@/match/image';
 import {
 	TILING_TERMS,
+	TilingFrame,
 	analyzeTiling,
+	upsample,
+	workLab,
 	type TilingAnalysis,
 	type TilingKernelSource,
 	type TilingOptions,
@@ -33,7 +37,7 @@ export interface LayerBlame {
 	blame: Record<TilingTerm, number>;
 	/** The tiling analysis without these layers (score and terms), when `without` was asked for. */
 	without?: { score: number; terms: Record<TilingTerm, number> };
-	/** Per-pixel ΔE (for showing what the layers add), when `maps` was asked for. */
+	/** Per-pixel ΔE at the frame's size (for showing what the layers add), when `maps` was asked for. */
 	map?: Float32Array;
 }
 
@@ -47,7 +51,7 @@ export interface Finding {
 
 export interface TilingAttribution {
 	/** The full render, and its analysis. */
-	image: MatchImage;
+	frame: TilingFrame;
 	analysis: TilingAnalysis;
 	layers: LayerBlame[];
 	/** Culprits ranked: per term, the layers with clearly positive blame, most important first. */
@@ -65,7 +69,9 @@ export interface AttributeOptions extends TilingOptions {
 	onProgress?: (done: number, total: number) => void;
 }
 
-type Render = (p: Project) => MatchImage | Promise<MatchImage>;
+type Render = (p: Project) => TilingFrame | MatchImage | Promise<TilingFrame | MatchImage>;
+
+const asFrame = (r: TilingFrame | MatchImage) => (r instanceof TilingFrame ? r : TilingFrame.of(r));
 
 /** The units to leave out: each enabled, shown layer on its own, pattern copies (same type and seed) together. */
 export function blameUnits(project: Project): string[][] {
@@ -92,14 +98,15 @@ export async function attributeTiling(
 	render: Render,
 	opts: AttributeOptions = {}
 ): Promise<TilingAttribution> {
-	const fullImg = await render(project);
-	const full = toOklab(fullImg);
-	const analysis = analyzeTiling(fullImg, opts, opts.gpu);
-	const n = full.width * full.height;
+	const frame = asFrame(await render(project));
+	const analysis = analyzeTiling(frame, opts, opts.gpu);
+	const { width: w, height: h } = analysis.work;
+	const full = workLab(frame.lin, w, h);
+	const n = w * h;
 
 	// Per term, the hotspot weight of each pixel: the term's map relative to its peak; and the weights' sums in and out.
 	const hot = TILING_TERMS.map((t) => {
-		const m = analysis.maps[t];
+		const m = analysis.work[t];
 		let peak = 0;
 		for (let i = 0; i < n; i++) peak = Math.max(peak, m[i]);
 		const h = peak > 0 ? m.map((v) => v / peak) : new Float32Array(n);
@@ -120,9 +127,10 @@ export async function attributeTiling(
 	const layers: LayerBlame[] = [];
 	for (let u = 0; u < units.length; u++) {
 		const ids = units[u];
-		const offImg = await render(without(project, ids));
-		const img = toOklab(offImg);
-		if (img.width !== full.width || img.height !== full.height) throw new Error('attributeTiling: render size changed');
+		const off = asFrame(await render(without(project, ids)));
+		if (off.width !== frame.width || off.height !== frame.height)
+			throw new Error('attributeTiling: render size changed');
+		const img = workLab(off.lin, w, h);
 		const c = new Float32Array(n);
 		let total = 0;
 		for (let i = 0; i < n; i++) {
@@ -139,7 +147,7 @@ export async function attributeTiling(
 			}
 			blame[t] = wi > 0 && wo > 0 ? si / wi - so / wo : 0;
 		}
-		const a = opts.without ? analyzeTiling(offImg, opts, opts.gpu) : null;
+		const a = opts.without ? analyzeTiling(off, opts, opts.gpu) : null;
 		const first = byId.get(ids[0])!;
 		layers.push({
 			ids,
@@ -149,12 +157,12 @@ export async function attributeTiling(
 			contribution: total / n,
 			blame,
 			without: a ? { score: a.score, terms: a.terms } : undefined,
-			map: opts.maps ? c : undefined
+			map: opts.maps ? upsample(c, w, h, frame.width, frame.height) : undefined
 		});
 		opts.onProgress?.(u + 1, units.length);
 	}
 
-	return { image: fullImg, analysis, layers, findings: rankFindings(analysis, layers) };
+	return { frame, analysis, layers, findings: rankFindings(analysis, layers) };
 }
 
 /** Blame (ΔE) below which a layer's concentration is render noise: on the example projects, layers that barely

@@ -540,6 +540,15 @@ export class Engine {
 		return v && [linearToSrgb1(clamp01(v[0])), linearToSrgb1(clamp01(v[1])), linearToSrgb1(clamp01(v[2]))];
 	}
 
+	/**
+	 * The final post-processed image where it is, on the GPU (linear, display-referred, straight alpha; the project's
+	 * width × height texels, rows bottom-up), until the next render: for reading it without a round trip through the CPU
+	 * (the tiling analysis). Null before the first render.
+	 */
+	finalTexture(): THREE.Texture | null {
+		return this.post.output;
+	}
+
 	/** Read the final post-processed image (linear, display-referred), rows top-to-bottom. */
 	readFinal(): ImageData32 {
 		const p = this.project!;

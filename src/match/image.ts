@@ -172,6 +172,40 @@ export function toLinearPremul(img: MatchImage): LinearPremul {
 	return { width: img.width, height: img.height, data: lin };
 }
 
+/** Engine output (linear, straight alpha, possibly HDR) premultiplied, clamped 0..1 as fromLinear clamps it. */
+export function linearPremul(img: LinearImage): LinearPremul {
+	const d = img.data;
+	const lin = new Float32Array(d.length);
+	for (let i = 0; i < lin.length; i += 4) {
+		const a = clamp01(d[i + 3]);
+		lin[i] = clamp01(d[i]) * a;
+		lin[i + 1] = clamp01(d[i + 1]) * a;
+		lin[i + 2] = clamp01(d[i + 2]) * a;
+		lin[i + 3] = a;
+	}
+	return { width: img.width, height: img.height, data: lin };
+}
+
+/** resample() in linear light, premultiplied in and out (no conversion back to sRGB). */
+export function resamplePremul(
+	src: LinearPremul,
+	width: number,
+	height: number,
+	mode: ResampleMode = 'auto'
+): LinearPremul {
+	if (src.width === width && src.height === height) return src;
+	const tmp = horizontalPass(src, width, mode);
+	const ty = axisTaps(src.height, height, mode);
+	const out = new Float32Array(width * height * 4);
+	for (let y = 0; y < height; y++)
+		for (let i = 0; i < width * 4; i++) {
+			let v = 0;
+			for (let k = ty.start[y], e = k + ty.count[y]; k < e; k++) v += tmp[ty.index[k] * width * 4 + i] * ty.weight[k];
+			out[y * width * 4 + i] = v;
+		}
+	return { width, height, data: out };
+}
+
 /** resample() of an image already converted by toLinearPremul (the same result, bit for bit). */
 export function resampleLinear(
 	src: LinearPremul,
@@ -409,9 +443,9 @@ export function heatOverlay(L: Float32Array, v: ArrayLike<number>, width: number
 	return { width, height, data };
 }
 
-/** heatOverlay on an image (its OKLab L, dimmed). */
-export function heatOverlayOn(img: MatchImage, v: ArrayLike<number>): MatchImage {
-	return heatOverlay(toOklab(img).L, v, img.width, img.height);
+/** heatOverlay on an image (its OKLab L, dimmed; pass `L` when it is already known). */
+export function heatOverlayOn(img: MatchImage, v: ArrayLike<number>, L = toOklab(img).L): MatchImage {
+	return heatOverlay(L, v, img.width, img.height);
 }
 
 /** RGBA pixels (4 values each, rows top-down) repeated n × n, row by row. */
