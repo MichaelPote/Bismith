@@ -207,7 +207,7 @@
 	const TIPS: Record<string, Tip> = {
 		metric: {
 			title: 'Metric',
-			body: 'How Match measures whether your render looks like the reference. The optimiser tries to make this measure, the loss, as small as possible. Pick the one that suits your reference. Changing it starts the run over.',
+			body: 'The measure of whether your render looks like the reference image. The optimiser tries to make this measure, the loss, as small as possible. Pick the one that suits your reference. Changing it starts the run over.',
 			list: [
 				['Tile + windows', 'Tile and Windows together. A good default.'],
 				['Windows', "compares local patches. Use it when the layout doesn't matter, as with planks, stone or grass."],
@@ -218,11 +218,11 @@
 		},
 		window: {
 			title: 'Window size',
-			body: "The size of the local patches the Windows metric compares, as a share of the image's side. Smaller windows look at finer detail and ignore more of the layout. Larger windows also judge how features are arranged. Try Fine when small details or grain are what matter most. Changing it starts the run over."
+			body: 'The size of the local patches the Windows metric compares. Smaller windows look at finer detail and ignore more of the layout. Larger windows also judge how features are arranged. Try Fine when small details or grain are what matter most. Changing it starts the run over.'
 		},
 		colours: {
 			title: 'Colour range',
-			body: "Keeps the colours Match uses close to the colours in the reference. Without it, the optimiser can lower the loss with colours the reference doesn't have, for example by over-saturating a ramp to cancel out the lighting. Tight allows the least change and Loose the most. Off lets colours go anywhere. Greys are always allowed. Changing it starts the run over."
+			body: 'Keeps the colours used close to the colours in the reference. Without it, the optimiser tends to fix lighting or other macro-scale effects by, for example, over-saturating a gradient ramp with strong colours to cancel out the lighting. Tight allows the least change and Loose the most. Off lets colours go anywhere. Greys are always allowed. Changing it starts the run over.'
 		},
 		samples: {
 			title: 'Samples',
@@ -238,24 +238,30 @@
 		},
 		timeLimit: {
 			title: 'Time limit',
-			body: 'Stops each run after this many seconds. Useful when you leave a run going on its own. At 0 it is off.'
+			body: 'Stops each run after this many seconds. 0 means no time limit.'
 		},
 		stallAfter: {
 			title: 'Stall after',
-			body: 'Stops the run after this many steps in a row without the best result improving. A long stall usually means the optimiser has found what it can. At 0 it is off.'
+			body: 'Stops the run after this many steps in a row without the best result improving. A long stall usually means the optimiser has found the best it can do. At 0 it is off.'
 		},
 		tune: {
 			title: 'Tune',
-			body: 'Which parts of the project Match may change. Turn off anything you want to keep as it is. Fewer settings in play also make each step more effective. To keep a single layer fixed, lock it in the outliner. Changing these starts the run over.',
+			body: 'Which parts of the project Match may change. Turn off anything you want to keep as it is. Fewer settings in play also make each step more effective. You can also lock individual layers in the outliner to stop the optimiser touching them. Changing these starts the run over.',
 			list: [
-				['Layers', "the layers' own settings"],
-				['Base', "the base material's colour and surface"],
+				['Layers', 'all settings in the layers inspector'],
+				['Base', "the project's base material colour and surface properties"],
 				['Shading', 'ambient occlusion, specular and height depth'],
-				['Lights', "the lights' position, colour and strength"],
-				['Post', 'the post-processing filters'],
-				['Modes', "settings chosen from a list, such as a pattern's style"],
+				['Lights', 'all light positions, colours and strengths'],
+				['Post', 'all the post-processing filters'],
+				[
+					'Modes',
+					"allow the optimiser to change the mode of layers that have a dropdown of mode options, such as a pattern's style"
+				],
 				['Seeds', 'random seeds, which give a different random layout'],
-				['Add/remove layers', 'lets Match add layers or take them away']
+				[
+					'Add/remove layers',
+					'lets Match add layers or take them away, usually duplicating one of your own layers and tweaking it'
+				]
 			]
 		}
 	};
@@ -900,8 +906,8 @@
 			const choice = await editor.ask({
 				title: 'Replace your edits?',
 				detail:
-					"The best comes from the project as it was when this run began, so applying it undoes the edits you've made since. Ctrl+Z brings them back.",
-				choices: [{ id: 'apply', label: 'Apply best', primary: true }]
+					"You have edited the project since this optimised best was calculated. Applying it now will undo the edits you've made since. (You can always use Ctrl+Z to bring them back)",
+				choices: [{ id: 'apply', label: 'Apply', primary: true }]
 			});
 			if (choice !== 'apply' || optimizer.value !== opt || running.value) return;
 		}
@@ -983,7 +989,7 @@
 				v-if="reference"
 				type="button"
 				class="cf-btn"
-				title="Resize the project to the reference (long side ≤ 512)"
+				v-tip="'Resize the project to match the reference image (long side ≤ 512)'"
 				@click="matchSize">
 				Match size
 			</button>
@@ -992,7 +998,7 @@
 				type="button"
 				class="cf-btn"
 				:disabled="!reference || !editor.engine || running || !!busy"
-				title="Build every template in the reference's colours, ranked — pick the family to start from"
+				v-tip="'Build a set of starter templates in this reference image\'s colours — pick one to start from'"
 				@click="suggest">
 				<IconWand :size="13" />
 				Suggest
@@ -1001,7 +1007,7 @@
 				type="button"
 				class="cf-btn"
 				:disabled="!editor.engine || running || !!busy"
-				title="Eight variations around the current project — pick by eye, repeat"
+				v-tip="'Eight variations around the current project — pick by eye, repeat'"
 				@click="vary">
 				<IconGrid4x4 :size="13" />
 				Variations
@@ -1010,7 +1016,7 @@
 				type="button"
 				class="cf-btn"
 				:disabled="!reference || !editor.engine || running || !!busy || fitting"
-				title="Fit the current project's colours to the reference — materials through their colour controls, liquids by their tones (undo with Ctrl+Z)"
+				v-tip="'Fit the current project\'s colours to the reference image (undo with Ctrl+Z)'"
 				@click="fitColoursNow">
 				<IconPalette :size="13" />
 				{{ fitting ? 'Fitting…' : 'Fit colours' }}
@@ -1038,7 +1044,7 @@
 				<span class="lo">{{
 					busy ??
 					(overlay === 'suggest'
-						? 'Ranked by the metric (colours fitted) — your eye decides. Click one to start from it.'
+						? 'Ranked by the metric (colours fitted). Click one that looks good to start from it.'
 						: 'Click one to take it and vary again; the centre is the current project.')
 				}}</span>
 				<span class="grow" />
@@ -1094,11 +1100,11 @@
 					pickable>
 					<h3>Match an existing texture</h3>
 					<p>
-						Use Match to copy a texture you already have, such as a photo or a texture from a game. Match adjusts your
-						project's settings until its render looks like that image.
+						Use the Match workspace to copy a texture you already have, such as a photo or a texture from a game. The
+						optimiser will adjust your project's settings until it looks like that image (or as close as it can get).
 					</p>
 					<p>To start, load the image with <b>Load reference…</b>, or drop an image file onto this pane.</p>
-					<p>The metric, set below, decides what counts as looking alike:</p>
+					<p>Then choose which metric to judge the image match with and click <b>Optimise</b></p>
 					<ul>
 						<li>
 							<b>Texture</b> compares overall statistics of the images: colour, frequency and edges. Where things are
@@ -1108,9 +1114,15 @@
 							<b>Windows</b> compares local patches of the images, looking at finer texture instead of broader
 							structure.
 						</li>
-						<li><b>Tile</b> compares the structure of the images, allowing one to be shifted against the other.</li>
+						<li>
+							<b>Tile</b> compares the structure of the images, allowing one image to be shifted against the other in x
+							or y.
+						</li>
 						<li><b>Tile + windows</b> combines the two.</li>
-						<li><b>Layout</b> also compares where things are, pixel by pixel, for images such as UI elements.</li>
+						<li>
+							<b>Layout</b> also compares where things are, pixel by pixel. This is best for images where layout
+							matters, like UI elements or specific artwork.
+						</li>
 					</ul>
 				</ImageCanvas>
 			</figure>
@@ -1154,16 +1166,18 @@
 						Once a reference is loaded, your project is rendered here at the reference's size, so you can compare the
 						two side by side.
 					</p>
-					<p>While Match runs, this pane shows the best result found so far.</p>
+					<p>
+						Once you have loaded a reference and clicked <b>Optimise</b>, this pane shows the best result found so far.
+					</p>
 				</ImageCanvas>
 			</figure>
 			<figure>
 				<figcaption
 					class="cf-label"
-					:title="
+					v-tip="
 						diffMode === 'windows'
-							? 'Where the render\'s local texture is least like anything in the reference: dim = well matched, red → yellow = worst matched windows of this render'
-							: undefined
+							? 'Shows where your texture is least like anything in the reference: dim = well matched, red → yellow = patches of your render that have no close match anywhere'
+							: 'Shows where your texture is least like anything in the reference: Brighter areas are more different from eachother'
 					">
 					{{ diffMode === 'windows' ? 'Window mismatch' : 'Difference ×3' }}
 				</figcaption>
@@ -1175,8 +1189,8 @@
 					<h3>Difference</h3>
 					<p>Shows where your render and the reference differ. Brighter areas differ more.</p>
 					<p>
-						With a Windows metric it shows something else: the patches of your render that have no close match anywhere
-						in the reference.
+						With a Windows metric it shows the patches of your render that have no close match anywhere in the
+						reference.
 					</p>
 				</ImageCanvas>
 			</figure>

@@ -215,7 +215,7 @@
 						</label>
 						<p v-if="!presets.persistent" class="warn">
 							This browser won’t store presets (private window or blocked site data): this one lasts for the session.
-							Export it from My presets to keep it.
+							Export it from "My presets" to keep it.
 						</p>
 						<div class="buttons">
 							<button type="button" class="cf-btn" @click="close">Cancel</button>
@@ -273,7 +273,7 @@
 							</button>
 						</div>
 						<p v-if="!mine.length" class="empty">
-							No presets of your own yet. Save one from a card’s presets menu, or File ▸ Save as template….
+							You don’t have any presets yet. Save one from a layer’s presets menu, or use File ▸ Save as template…
 						</p>
 					</div>
 				</div>

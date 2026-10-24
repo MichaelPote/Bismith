@@ -1,8 +1,9 @@
 <script setup lang="ts">
 	// Shows 8-bit RGBA pixels scaled with nearest-neighbour sampling, fitted into its box. `pickable`: the eyedropper takes
 	// the pixel under the pointer. `tiles`: the image repeated tiles × tiles (drawn by the canvas, not copied). With no
-	// pixels the slot shows instead, on a panel: an <h3> heading and a few short <p>s (or a <ul>) saying what will appear.
-	// The `note` slot, given, shows on a panel over the image (what the pane shows) with a close button (`dismiss-note`).
+	// pixels the slot, given, shows instead, on a panel: an <h3> heading and a few short <p>s (or a <ul>) saying what will
+	// appear. The `note` slot, given, shows on a panel over the image (what the pane shows) with a close button
+	// (`dismiss-note`). `pending`: a pane that only waits for a render on its way leaves the default slot out and spins.
 	import { onMounted, ref, watch } from 'vue';
 	import { IconX } from '@tabler/icons-vue';
 	import { pixelHex, vPick } from '@/ui/eyedropper';
@@ -14,6 +15,7 @@
 		label?: string;
 		pickable?: boolean;
 		tiles?: number;
+		pending?: boolean;
 	}>();
 	const emit = defineEmits<{ dismissNote: [] }>();
 	const tiles = () => Math.max(1, Math.round(props.tiles ?? 1));
@@ -63,8 +65,9 @@
 			:aria-label="label"
 			role="img"
 			:style="{ aspectRatio: `${width * tiles()} / ${height * tiles()}` }" />
-		<div v-if="!pixels" class="card placeholder"><slot /></div>
-		<div v-else-if="$slots.note" class="card note">
+		<div v-if="!pixels && $slots.default" class="card placeholder"><slot /></div>
+		<span v-else-if="!pixels && pending" class="spin" role="status" aria-label="Rendering" />
+		<div v-else-if="pixels && $slots.note" class="card note">
 			<button
 				type="button"
 				class="note-x"
@@ -86,6 +89,7 @@
 		justify-content: center;
 		min-width: 0;
 		min-height: 0;
+		overflow: clip;
 		height: 100%;
 		background-color: var(--sunken);
 		background-image:
@@ -113,11 +117,29 @@
 		border: 1px solid var(--line);
 		border-radius: var(--r-field);
 		color: var(--text-mid);
-		font-size: 12px;
+		font-size: 14px;
 		line-height: 1.5;
 	}
 	.placeholder {
 		margin: 16px;
+	}
+	.spin {
+		width: 20px;
+		height: 20px;
+		border: 2px solid var(--line);
+		border-top-color: var(--accent);
+		border-radius: 50%;
+		animation: ic-spin 0.8s linear infinite;
+	}
+	@keyframes ic-spin {
+		to {
+			transform: rotate(1turn);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.spin {
+			animation-duration: 2.4s;
+		}
 	}
 	.note {
 		position: absolute;

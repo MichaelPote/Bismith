@@ -222,12 +222,6 @@
 		else if (key === 'height') store.resize(p.width, Number(v));
 		else assign(p, key, v);
 	}
-
-	function setDescription(text: string): void {
-		const t = text.trim();
-		if (t) store.project.description = t;
-		else delete store.project.description;
-	}
 </script>
 
 <template>
@@ -550,23 +544,9 @@
 		<template v-else>
 			<div class="title">
 				<IconBox :size="15" color="var(--text-lo)" />
-				<input
-					class="name"
-					:value="store.project.name"
-					aria-label="Project name"
-					@change="store.project.name = ($event.target as HTMLInputElement).value" />
+				<span class="name static">Project Base</span>
 			</div>
-			<div v-if="sel.kind === 'base'" class="sub"><span class="type">Base</span></div>
-			<textarea
-				class="proj-desc"
-				rows="2"
-				placeholder="Description"
-				aria-label="Project description"
-				:value="store.project.description ?? ''"
-				@change="setDescription(($event.target as HTMLTextAreaElement).value)" />
-			<p class="desc">
-				Texture size and tiling, the base material every layer builds on, world lighting and the path tracer.
-			</p>
+			<p class="desc">Base project, material and renderer settings.</p>
 			<div class="scroll">
 				<PanelCard title="Texture" :icon="cardIcon('Texture')">
 					<div class="sizes">
@@ -733,25 +713,6 @@
 		margin: 0 3px;
 		background: var(--hairline);
 	}
-	.proj-desc {
-		flex: none;
-		margin: 8px 10px 6px;
-		min-height: 24px;
-		resize: vertical;
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-field);
-		background: var(--sunken);
-		color: var(--text-hi);
-		padding: 4px 8px;
-		font: inherit;
-		font-size: 12px;
-		line-height: 1.4;
-	}
-	.proj-desc:focus {
-		outline: none;
-		border-color: var(--accent);
-		box-shadow: var(--halo);
-	}
 	.desc {
 		margin: 0;
 		padding: 0 10px 8px;
@@ -759,6 +720,9 @@
 		color: var(--text-lo);
 		line-height: 1.4;
 		flex: none;
+	}
+	.title + .desc {
+		padding-top: 8px;
 	}
 	.scroll {
 		flex: 1;

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 	// Scalar ramp (roughness, specular): the output where the source is 0 (left) and where it is 1 (right), shown as a
-	// grey ramp like the colour ramp. Drag a gem sideways to scrub its value (Shift fine, Ctrl whole numbers), or type
-	// in the fields below; ⇄ swaps the ends. The eyedropper takes the grey under the pointer.
+	// grey ramp like the colour ramp. Drag a gem sideways to scrub its value (Shift fine, Ctrl snaps to the range's
+	// divisions), or type in the fields below; ⇄ swaps the ends. The eyedropper takes the grey under the pointer.
 	import { computed, ref } from 'vue';
 	import NumberField from './NumberField.vue';
 	import { IconArrowsLeftRight } from '@tabler/icons-vue';
 	import { vTip } from '@/ui/tooltip';
 	import { vPick } from '@/ui/eyedropper';
+	import { snapDivision, snapTo } from '@/ui/snap';
 
 	const props = withDefaults(
 		defineProps<{
@@ -64,7 +65,7 @@
 		if (!drag) return;
 		const w = bar.value?.clientWidth ?? 160;
 		let v = drag.v + ((e.clientX - drag.x) / w) * span.value * (e.shiftKey ? 0.1 : 1);
-		v = e.ctrlKey || e.metaKey ? Math.round(v) : Math.round(v / props.step) * props.step;
+		v = snapTo(v, e.ctrlKey || e.metaKey ? snapDivision(span.value) : props.step);
 		setEnd(drag.end, Number(clamp(v).toFixed(6)));
 	}
 	function onUp(e: PointerEvent): void {

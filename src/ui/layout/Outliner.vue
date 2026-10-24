@@ -333,23 +333,34 @@
 	const renaming = ref<string | null>(null);
 	const renameText = ref('');
 	const renameInput = ref<HTMLInputElement[] | null>(null);
+	/** The project's own name renames in the root row; its input isn't in a v-for, so it has its own ref. */
+	const PROJECT = '\0project';
+	const projectInput = ref<HTMLInputElement | null>(null);
 
 	async function startRename(id: string, name: string): Promise<void> {
 		renaming.value = id;
 		renameText.value = name;
 		await nextTick();
-		renameInput.value?.[0]?.focus();
-		renameInput.value?.[0]?.select();
+		const input = id === PROJECT ? projectInput.value : renameInput.value?.[0];
+		input?.focus();
+		input?.select();
 	}
 
-	function finishRename(kind: 'layer' | 'light' | 'material', apply: boolean): void {
+	function finishRename(kind: 'project' | 'layer' | 'light' | 'material', apply: boolean): void {
 		const id = renaming.value;
 		renaming.value = null;
 		const name = renameText.value.trim();
 		if (!apply || !id || !name) return;
-		if (kind === 'layer') store.updateLayer(id, { name });
+		if (kind === 'project') store.project.name = name;
+		else if (kind === 'layer') store.updateLayer(id, { name });
 		else if (kind === 'material') store.renameMaterial(id, name);
 		else store.updateLight(id, { name });
+	}
+
+	function setDescription(text: string): void {
+		const t = text.trim();
+		if (t) store.project.description = t;
+		else delete store.project.description;
 	}
 
 	// ---------------------------------------------------------------- drag reorder
@@ -437,9 +448,21 @@
 			<span class="cf-label">Outliner</span>
 		</div>
 		<div ref="scroller" class="scroll">
-			<button type="button" class="row root" :class="{ sel: isSel('project') }" @click="editor.select('project')">
+			<div class="row root" :class="{ sel: isSel('project') }" @click="editor.select('project')">
 				<IconBox :size="15" :color="isSel('project') ? 'var(--accent-hi)' : 'var(--text-lo)'" />
-				<span class="name strong">{{ store.project.name }}</span>
+				<input
+					v-if="renaming === PROJECT"
+					ref="projectInput"
+					v-model="renameText"
+					class="rename"
+					aria-label="Project name"
+					@click.stop
+					@keydown.enter.prevent="finishRename('project', true)"
+					@keydown.esc.prevent="finishRename('project', false)"
+					@blur="finishRename('project', true)" />
+				<span v-else class="name strong" @dblclick.stop="startRename(PROJECT, store.project.name)">{{
+					store.project.name
+				}}</span>
 				<span
 					v-tip:right="
 						'Texture size @ supersampling. Select the project for the texture, base material, world lighting and render settings'
@@ -447,7 +470,14 @@
 					class="meta cf-mono"
 					>{{ store.project.width }}×{{ store.project.height }} @{{ supersampleFactor(store.project) }}x</span
 				>
-			</button>
+			</div>
+			<textarea
+				class="proj-desc"
+				rows="2"
+				placeholder="Project description"
+				aria-label="Project description"
+				:value="store.project.description ?? ''"
+				@change="setDescription(($event.target as HTMLTextAreaElement).value)" />
 
 			<!-- Layers -->
 			<div class="section">
@@ -912,6 +942,28 @@
 	}
 	.row.root {
 		padding-left: 10px;
+	}
+	.proj-desc {
+		display: block;
+		width: calc(100% - 20px);
+		margin: 2px 10px 4px;
+		min-height: 24px;
+		resize: vertical;
+		border: 1px solid var(--hairline);
+		border-radius: var(--r-field);
+		background: var(--sunken);
+		color: var(--text-hi);
+		padding: 4px 8px;
+		font: inherit;
+		font-size: 12px;
+		line-height: 1.4;
+		user-select: text;
+		-webkit-user-select: text;
+	}
+	.proj-desc:focus {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: var(--halo);
 	}
 	.row.mat {
 		padding-left: calc(1px + var(--lane, 0px));

@@ -611,7 +611,7 @@
 				<button
 					v-for="c in CHANNEL_VIEWS"
 					:key="c.id"
-					v-tip:bottom="`${c.label} · key ${c.key.toUpperCase()}`"
+					v-tip:bottom="`${c.description} (${c.key.toUpperCase()})`"
 					type="button"
 					role="tab"
 					class="fk"

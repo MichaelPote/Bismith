@@ -191,7 +191,7 @@
 		},
 		scale: {
 			title: 'Scale',
-			body: 'Lets the fix change sizes too, such as cell counts and feature sizes. A smaller pattern repeats more often inside the tile, which hides the repeat, but it gives a different-looking material. Off by default.'
+			body: 'Lets the optimiser change layer sizes too, such as cell counts and feature sizes. Smaller patterns reduce the tiling look, but it changes how your material looks. Off by default.'
 		}
 	};
 
@@ -483,7 +483,7 @@
 			const choice = await editor.ask({
 				title: 'Replace your edits?',
 				detail:
-					"The fix was made on the project as it was when the run began, so keeping it undoes the edits you've made since. Ctrl+Z brings them back.",
+					"You have edited the project since this optimised fix was calculated. Applying it now will undo the edits you've made since. (You can always use Ctrl+Z to bring them back)",
 				choices: [{ id: 'keep', label: 'Keep the fix', primary: true }]
 			});
 			if (choice !== 'keep' || result.value !== r) return;
@@ -563,7 +563,7 @@
 				? 'Keep the fix, or discard it.'
 				: 'No change made the repeat less noticeable.';
 		const a = attribution.value;
-		if (a) return a.findings.length ? 'Culprits found. Run fix works on them.' : 'No single layer stands out.';
+		if (a) return a.findings.length ? 'Culprits found. Click Fix to work on them.' : 'No single layer stands out.';
 		return 'Find what makes the repeat noticeable, then fix it.';
 	});
 	const culpritNames = computed(() => {
@@ -622,9 +622,12 @@
 			<figure>
 				<figcaption class="cf-label cap">
 					<span>{{ running || phase === 'done' ? 'Before' : 'Current project' }} · 3×3</span>
-					<span v-if="current" class="score cf-mono" title="Tiling score: 0 = repeat invisible … 1">{{
-						current.analysis.score.toFixed(3)
-					}}</span>
+					<span
+						v-if="current"
+						class="score cf-mono"
+						title="Tiling score: 0 = no tiling at all, 1 = extremely noticable tiling"
+						>{{ current.analysis.score.toFixed(3) }}</span
+					>
 				</figcaption>
 				<ImageCanvas
 					:pixels="currentPx?.pixels ?? null"
@@ -632,32 +635,19 @@
 					:height="currentPx?.height ?? 1"
 					:tiles="3"
 					label="Current project tiled 3 by 3"
+					pending
 					pickable
 					@dismiss-note="hideNotes">
 					<template v-if="notes" #note>
-						<h3>Your project, tiled 3 × 3</h3>
+						<h3>Your project tiled 3 × 3</h3>
 						<p>
-							Use Tiling to remove obvious tiling artefacts: details that stand out every time the texture repeats, so
-							the repeat is easy to spot.
-						</p>
-						<p>
-							This pane shows your project repeated three times in each direction, the way it looks when tiled. It
-							updates shortly after you edit the project.
+							This pane shows your project tiled three times in each direction. This is your existing project to compare
+							against. The middle pane will show you your project with the tiling fixes applied.
 						</p>
 						<p>
 							The number beside the title is the tiling score. At 0 the repeat can't be seen; at 1 it is very obvious.
 						</p>
 					</template>
-					<h3>Your project, tiled 3 × 3</h3>
-					<p>
-						Use Tiling to remove obvious tiling artefacts: details that stand out every time the texture repeats, so the
-						repeat is easy to spot.
-					</p>
-					<p>
-						Your project is rendered and repeated three times in each direction, so you can see how it looks as a tiling
-						texture.
-					</p>
-					<p>It updates shortly after you edit the project.</p>
 				</ImageCanvas>
 			</figure>
 			<figure>
@@ -677,18 +667,22 @@
 					:tiles="3"
 					label="Fixed project tiled 3 by 3"
 					pickable>
-					<h3>No fix yet</h3>
+					<h3>Tiling Workspace</h3>
 					<p>
-						A tiling texture can give its repeat away: a dark patch, a bright stone or a line that shows up in the same
-						place on every tile. Tiling finds these artefacts and tones them down.
+						Use the Tiling workspace to remove obvious tiling artefacts in your texture: details that stand out every
+						time the texture repeats which makes the repeat too noticable. Tiling finds these artefacts and tones them
+						down.
 					</p>
-					<p><b>Find culprits</b> shows which layers make the repeat noticeable.</p>
 					<p>
-						<b>Run fix</b> then works on those layers. It tries new random seeds and small changes to their pattern
-						settings. It keeps only the changes that make the repeat less noticeable while the material still looks the
-						same.
+						This pane will show you the best fix that has been found which makes the tiling repeating least noticable.
+						It doesnt affect your project unless you decide to keep the fixed settings.
 					</p>
-					<p>The result appears here. You can keep it or discard it.</p>
+					<p><b>Find culprits</b> shows which layers are mostly responsible for the tiling issues.</p>
+					<p>
+						<b>Run fix</b> then tweaks those layers. It tries new random seeds and small changes to their pattern
+						settings. It keeps only the changes that make the repeat less noticeable while keeping the material still
+						looking the same.
+					</p>
 				</ImageCanvas>
 			</figure>
 			<figure>
@@ -721,6 +715,7 @@
 					:height="hotspotPx?.height ?? 1"
 					:tiles="3"
 					label="Where the repeat draws the eye"
+					pending
 					@dismiss-note="hideNotes">
 					<template v-if="notes" #note>
 						<h3>Hotspots</h3>
@@ -730,12 +725,6 @@
 						</p>
 						<p>The bars below rate each kind of artefact over the whole texture.</p>
 					</template>
-					<h3>Hotspots</h3>
-					<p>
-						Highlights the parts of the texture that give the repeat away, such as a patch that stands out or a line
-						that stops at the tile edge.
-					</p>
-					<p>Brighter areas draw the eye more.</p>
 				</ImageCanvas>
 			</figure>
 		</div>

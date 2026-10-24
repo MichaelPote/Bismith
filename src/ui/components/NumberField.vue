@@ -1,10 +1,12 @@
 <script setup lang="ts">
-	// Blender-style number field: drag to scrub (Shift = fine, Ctrl = whole numbers), click to type, arrows to step
-	// (Ctrl = to the next whole number). Dragging stops at the soft range (softMin / softMax) like a notch; a new drag
-	// that starts at the soft max (or min) goes on to the hard max (or min), as do typing and the arrows. Double-click goes back to the value before the last change — again to return —
+	// Blender-style number field: drag to scrub (Shift = fine, Ctrl = snap to the range's divisions — 0.1 on 0–1, 10 on
+	// 0–360, see snapDivision), click to type, arrows to step (Ctrl = to the next division). Dragging stops at the soft
+	// range (softMin / softMax) like a notch; a new drag that starts at the soft max (or min) goes on to the hard max (or
+	// min), as do typing and the arrows. Double-click goes back to the value before the last change — again to return —
 	// or, if the field hasn't been changed, to its default. The fill bar shows the value within its soft range.
 	import { computed, nextTick, ref } from 'vue';
 	import { IconChevronLeft, IconChevronRight } from '@tabler/icons-vue';
+	import { snapDivision, snapStep, snapTo } from '@/ui/snap';
 
 	/** Previous values by memory key, so they outlive the field (the inspector rebuilds its fields on reselect). */
 	const previousByKey = new Map<string, number>();
@@ -52,6 +54,9 @@
 		if (props.step) return props.step;
 		return hasRange.value ? (hi.value - lo.value) / 100 : 0.01;
 	});
+
+	/** What Ctrl snaps to, from the soft range the fill bar shows. */
+	const division = computed(() => snapDivision(hasRange.value ? hi.value - lo.value : 0, props.int));
 
 	const decimals = computed(() => {
 		if (props.int) return 0;
@@ -122,13 +127,8 @@
 		if (props.disabled) return;
 		begin();
 		const v = props.modelValue;
-		// Ctrl: to the next whole number in that direction.
-		const next =
-			e && (e.ctrlKey || e.metaKey)
-				? dir > 0
-					? Math.floor(v + 1e-9) + 1
-					: Math.ceil(v - 1e-9) - 1
-				: v + dir * stepSize.value;
+		// Ctrl: to the next division in that direction.
+		const next = e && (e.ctrlKey || e.metaKey) ? snapStep(v, division.value, dir) : v + dir * stepSize.value;
 		set(next, true);
 		end();
 	}
@@ -158,7 +158,7 @@
 		else perPx = stepSize.value / 2;
 		if (e.shiftKey) perPx *= 0.1;
 		let v = startValue + dx * perPx;
-		if (e.ctrlKey || e.metaKey) v = Math.round(v);
+		if (e.ctrlKey || e.metaKey) v = snapTo(v, division.value);
 		else if (!props.int) v = round(v, stepSize.value / 10);
 		// The soft range bounds a drag, like a notch: a drag that starts at (or past) the soft max may carry on up to the
 		// hard max, and one that starts at (or below) the soft min down to the hard min.

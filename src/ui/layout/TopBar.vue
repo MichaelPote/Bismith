@@ -99,7 +99,7 @@
 		{ label: 'Middle / Space-drag — pan', disabled: true },
 		{ label: 'Drag a light gizmo — move light', disabled: true },
 		{ section: 'Fields' },
-		{ label: 'Drag — scrub · Shift fine · Ctrl whole numbers', disabled: true },
+		{ label: 'Drag — scrub · Shift fine · Ctrl snap to divisions', disabled: true },
 		{ label: 'Click — type a value or expression', disabled: true },
 		{ label: 'Double-click — back to the previous value', disabled: true },
 		{ label: 'Wheel / arrows over a dropdown — step through it', disabled: true }

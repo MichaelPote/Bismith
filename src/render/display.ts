@@ -19,18 +19,28 @@ export type ChannelView =
 	| 'opacity'
 	| 'masks';
 
-export const CHANNEL_VIEWS: { id: ChannelView; label: string; key: string }[] = [
-	{ id: 'final', label: 'Final', key: '1' },
-	{ id: 'diffuse', label: 'Diffuse', key: '2' },
-	{ id: 'height', label: 'Height', key: '3' },
-	{ id: 'roughness', label: 'Roughness', key: '4' },
-	{ id: 'specular', label: 'Specular', key: '5' },
-	{ id: 'metal', label: 'Metalness', key: 'm' },
-	{ id: 'normal', label: 'Normal', key: '6' },
-	{ id: 'ao', label: 'AO', key: '7' },
-	{ id: 'emissive', label: 'Emissive', key: '8' },
-	{ id: 'opacity', label: 'Opacity', key: '9' },
-	{ id: 'masks', label: 'Masks', key: '0' }
+export const CHANNEL_VIEWS: { id: ChannelView; label: string; key: string; description: string }[] = [
+	{ id: 'final', label: 'Final', key: '1', description: 'Final render output' },
+	{ id: 'diffuse', label: 'Diffuse', key: '2', description: 'Colour only - no lighting, depth or postprocessing' },
+	{ id: 'height', label: 'Height', key: '3', description: 'Height map' },
+	{ id: 'roughness', label: 'Roughness', key: '4', description: 'Roughness map (0 = smooth, 1 = rough)' },
+	{
+		id: 'specular',
+		label: 'Specular',
+		key: '5',
+		description: 'Specular map (0 = no highlights, 1 = strong highlights)'
+	},
+	{ id: 'metal', label: 'Metalness', key: 'm', description: 'Metalness map (0 = non-metal, 1 = metal)' },
+	{ id: 'normal', label: 'Normal', key: '6', description: 'Normal map (surface direction)' },
+	{ id: 'ao', label: 'AO', key: '7', description: 'Ambient Occlusion map (crevice shadows)' },
+	{
+		id: 'emissive',
+		label: 'Emissive',
+		key: '8',
+		description: 'Emissive map (0 = lit only by lights, 1 = emits strong light of its own)'
+	},
+	{ id: 'opacity', label: 'Opacity', key: '9', description: 'Opacity map (0 = fully transparent, 1 = opaque)' },
+	{ id: 'masks', label: 'Masks', key: '0', description: 'Masks (SDF texture)' }
 ];
 
 /** The shader's mode per channel (MODE_<CHANNEL> in it). */
