@@ -1,7 +1,8 @@
 // Offering to resume a run its page lost (src/stores/runCheckpoint.ts): at start-up, once the engine is up, a workspace
-// whose run left a checkpoint — and isn't still running in another tab — asks Resume / Discard. Resume reopens the
-// run's project if another one is open now, switches to the workspace and hands it the checkpoint as a
-// `bismith:resume-run` event (detail: { workspace, checkpoint }); the workspace restores its state and carries on.
+// whose run left a checkpoint — and isn't still running in another tab — asks Resume / Discard (Reopen for a run that
+// had stopped with its best unapplied). Resume reopens the run's project if another one is open now, switches to the
+// workspace and hands it the checkpoint as a `bismith:resume-run` event (detail: { workspace, checkpoint }); the
+// workspace restores its state and carries on (or, paused, shows it as it was).
 // Cancel leaves the checkpoint for next time. A workspace that keeps checkpoints is listed in RESUMABLE.
 
 import { nextTick, toRaw, watch } from 'vue';
@@ -62,15 +63,19 @@ export async function offerResume(): Promise<void> {
 		const loss = cp.loss !== null && Number.isFinite(cp.loss) ? ` (loss ${cp.loss.toFixed(4)})` : '';
 		const ago = timeAgo(Date.now() - cp.savedAt);
 		const at = `step ${cp.step}${loss}`;
-		const what = (document as Document & { wasDiscarded?: boolean }).wasDiscarded
-			? `The browser unloaded this tab in the background ${ago} ago, during a ${label} run at ${at}.`
-			: `A ${label} run was interrupted ${ago} ago at ${at}.`;
+		const discarded = (document as Document & { wasDiscarded?: boolean }).wasDiscarded;
+		const what = cp.paused
+			? `A ${label} run stopped ${ago} ago at ${at} without its best being applied.`
+			: discarded
+				? `The browser unloaded this tab in the background ${ago} ago, during a ${label} run at ${at}.`
+				: `A ${label} run was interrupted ${ago} ago at ${at}.`;
+		const verb = cp.paused ? 'Reopen' : 'Resume';
 		const choice = await editor.ask({
-			title: `Resume the interrupted ${label} run?`,
-			detail: `${what}${where} Resume it?`,
+			title: cp.paused ? `Reopen the unapplied ${label} run?` : `Resume the interrupted ${label} run?`,
+			detail: `${what}${where} ${verb} it?`,
 			choices: [
 				{ id: 'discard', label: 'Discard' },
-				{ id: 'resume', label: 'Resume', primary: true }
+				{ id: 'resume', label: verb, primary: true }
 			]
 		});
 		if (choice === 'discard') await checkpoints.clear();

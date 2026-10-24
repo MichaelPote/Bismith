@@ -144,7 +144,9 @@
 	// ---------------------------------------------------------------- run checkpoints
 	// A run is checkpointed while it goes (stores/runCheckpoint.ts): every ~10 s and whenever the page is hidden, so a
 	// tab the browser discards in the background (or a crash) doesn't lose it — at the next start-up ui/resumeRuns.ts
-	// offers to resume it, and resumeRun() below carries on from the saved step. The checkpoint goes when the run stops.
+	// offers to resume it, and resumeRun() below carries on from the saved step. A run that stops (paused, finished, the
+	// workspace left) leaves a last checkpoint marked paused, offered for reopening while its best is unapplied; Apply
+	// best and Reset clear it. Its lock is held as long as the run exists here, so other tabs don't offer it.
 
 	/** The settings a run depends on (its optimiser's options, its matcher, its renders). */
 	interface MatchSettings {
@@ -179,6 +181,8 @@
 	/** The reference image as loaded (a file, or the blob a checkpoint kept): put in the checkpoint once per run. */
 	let refBlob: Blob | null = null;
 	const checkpoints = runCheckpoints<MatchRunState>('match');
+	/** Releases this tab's hold on the run (see holdRunLock): held while an optimiser exists. */
+	let releaseLock: (() => void) | null = null;
 
 	const TERM_SHORT: Record<string, string> = {
 		colour: 'Colour',
@@ -483,8 +487,9 @@
 		runEditNoted = false;
 		abort = false;
 		// Tells other tabs this run is alive (they mustn't offer to resume its checkpoint).
-		const releaseLock = holdRunLock('match');
+		releaseLock ??= holdRunLock('match');
 		let autosave: ReturnType<typeof autosaveRun> | null = null;
+		let limits: RunLimits | null = null;
 		if (refBlob) void checkpoints.putAsset('reference', { name: refName.value, blob: refBlob });
 		// One matcher per optimiser (its evaluate scores with it): created with the optimiser, reused by later presses.
 		if (!optimizer.value) {
@@ -519,13 +524,14 @@
 				...(timeLimit.value > 0 ? { timeMs: timeLimit.value * 1000 } : {}),
 				...(stallSteps.value > 0 ? { patience: stallSteps.value } : {})
 			};
-			const limits = resume ? RunLimits.restore(resume) : new RunLimits(stop, opt.best.loss);
+			limits = resume ? RunLimits.restore(resume) : new RunLimits(stop, opt.best.loss);
+			const lim = limits;
 			stopped.value = null;
 			autosave = autosaveRun(
-				() => checkpointState(opt, limits),
+				() => checkpointState(opt, lim),
 				(cp) => void checkpoints.save(cp)
 			);
-			let reason = limits.check(opt.best.loss, opt.evaluations);
+			let reason = lim.check(opt.best.loss, opt.evaluations);
 			while (!reason) {
 				if (abort) {
 					reason = 'aborted';
@@ -551,23 +557,25 @@
 						40
 					);
 				}
-				reason = limits.after(opt.best.loss, opt.evaluations);
+				reason = lim.after(opt.best.loss, opt.evaluations);
 				autosave.afterStep();
 				await nextFrame();
 			}
 			stopped.value = reason;
 			log.value = [
-				`stopped · ${STOP_LABELS[reason]} · best ${opt.best.loss.toFixed(4)} · ${(limits.elapsed() / 1000).toFixed(0)} s`,
+				`stopped · ${STOP_LABELS[reason]} · best ${opt.best.loss.toFixed(4)} · ${(lim.elapsed() / 1000).toFixed(0)} s`,
 				...log.value
 			].slice(0, 40);
 		} catch (e) {
 			editor.notify(`Optimiser stopped: ${e instanceof Error ? e.message : e}`, 'error');
 		} finally {
 			running.value = false;
-			// The run is over (finished, paused, reset, applied): nothing left to resume.
 			autosave?.stop();
-			void checkpoints.clear();
-			releaseLock();
+			// Stopped with its best unapplied: kept for reopening (reset and Apply best have cleared it).
+			const opt = optimizer.value;
+			if (opt && limits) void checkpoints.save({ ...checkpointState(opt, limits), paused: true });
+			// Reset mid-step: a save the step had pending may have landed after reset's clear.
+			else if (!opt) void checkpoints.clear();
 			// Reset during the run: its matcher goes with the optimiser, and the panes go back to the current project.
 			if (!optimizer.value) {
 				runMatcher?.dispose();
@@ -644,6 +652,19 @@
 		curve.value = s.curve;
 		lastInfo.value = s.lastInfo;
 		const step = s.lastInfo?.step ?? 0;
+		if (cp.paused) {
+			// It had stopped: back as it was, paused on its best; Run carries on, Apply best takes it.
+			releaseLock ??= holdRunLock('match');
+			log.value = [`reopened at step ${step}`, ...s.log].slice(0, 40);
+			// reset() above cleared it: kept until the best is applied, like any stopped run.
+			void checkpoints.putAsset('reference', { name: asset.name, blob: asset.blob });
+			void checkpoints.save({ ...checkpointState(opt, RunLimits.restore(s.limits)), paused: true });
+			shownResult.value = (opt.best.detail as MetricResult) ?? null;
+			show(renderImage(opt.best.project), runMatcher);
+			showing.value = 'best';
+			editor.notify(`Reopened the Match run at step ${step}: its best isn't applied yet`);
+			return;
+		}
 		log.value = [`resumed at step ${step}`, ...s.log].slice(0, 40);
 		editor.notify(`Resuming the Match run at step ${step}`);
 		await run(s.limits);
@@ -799,6 +820,10 @@
 		startLoss.value = null;
 		runStart = '';
 		resumedWithout = '';
+		// Nothing left to reopen.
+		void checkpoints.clear();
+		releaseLock?.();
+		releaseLock = null;
 		// The best is gone (a run in progress shows the current project when it stops).
 		if (showing.value === 'best' && !running.value) void view();
 	}
@@ -860,6 +885,8 @@
 		abort = true;
 		runMatcher?.dispose();
 		runMatcher = null;
+		releaseLock?.();
+		releaseLock = null;
 		freePaneMatcher();
 		window.removeEventListener('bismith:reference', onDropEvent);
 		window.removeEventListener('bismith:resume-run', onResumeEvent);

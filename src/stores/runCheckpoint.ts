@@ -25,6 +25,8 @@ export interface Checkpoint<T> {
 	loss: number | null;
 	/** The project open when it was saved, as JSON: resuming in another project brings it back. */
 	project: string;
+	/** The run had stopped (paused, finished, the workspace left) with its best not applied: reopen it, don't carry on. */
+	paused?: boolean;
 	state: T;
 }
 

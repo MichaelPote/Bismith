@@ -335,8 +335,11 @@ before the step at once, then the state after it). A checkpoint holds the optimi
 tiers, RNG state, history), the press's limits (`RunLimits.snapshot()`: steps, stall count and time already used),
 the settings, the loss chart and log, and the project; the reference image goes in once per run, as the file it was
 loaded from. About 45 KB on a 64 px project after 14 steps, growing ~0.4 KB a step (the history); a save costs well
-under a millisecond on the page (the snapshot points at the optimiser's projects; IndexedDB copies it). The checkpoint
-is cleared when the run stops for any reason — finished, paused, reset, Apply best, leaving the workspace.
+under a millisecond on the page (the snapshot points at the optimiser's projects; IndexedDB copies it). A run that
+stops — finished, paused, the workspace left — leaves a last checkpoint marked `paused`, so an unapplied best survives
+too; Apply best, Reset or a new metric clear it. The tab holds the run's lock while the run exists (paused too), so
+other tabs don't offer it. A paused checkpoint is offered as _“Reopen the unapplied Match run?”_ and comes back as it
+was — paused on its best, Run carries on.
 
 At start-up (`src/ui/resumeRuns.ts`), once the engine is up, a checkpoint left behind asks _“A Match run was
 interrupted N minutes ago at step N (loss X). Resume it?”_ (Discard / Resume; Cancel asks again next time). If another
