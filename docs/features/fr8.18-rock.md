@@ -28,8 +28,8 @@ by default).
   t`), leaning otherwise — rhomboid blocks, as in jointed slate. When tiling, `s` is snapped so `u` moves a whole `kU`
   cells over the tile's height (coarse steps for big blocks). The tile's two periods then move the lattice by `(nu, ks)`
   and `(−kU, nv)`; cells are made seamless by reducing them with that lattice's Hermite basis `(g, B), (0, C)` (extended
-  Euclid on `nu` and `−kU`, once per pixel: a finer generation's lattice is the blocks' scaled per axis, so its basis is
-  theirs scaled). Checked numerically: every cell is invariant under both periods and the class count equals the
+  Euclid on `nu` and `−kU`, on the CPU once per render — a derived uniform, `rockDerived` — like the rest of the frame
+  and its snapping: a finer generation's lattice is the blocks' scaled per axis, so its basis is theirs scaled). Checked numerically: every cell is invariant under both periods and the class count equals the
   determinant.
 - **Blocks.** One jittered site per lattice cell, nearest site by a power distance in the metric `(u, kb·v)`, `kb = 1 +
   2·bedding`: distances across the bedding count more, so course joints lie flat while joints within a course stand
@@ -50,8 +50,8 @@ by default).
   the inner row border. When tiling, groups are 2 × 2 cells of the lattice reduced to one domain, whole groups only (an
   odd count leaves the last at the wrap single). The Hermite domain is gcd(nu, kU) cells wide — one when they are
   coprime, as at the defaults, and then no group was ever whole: merging did nothing at most angles. Reduced by the rows
-  first (the transposed lattice's Hermite basis, from the bed search's Euclid extended by one coefficient — a second
-  Euclid loop cost ~0.1 s of compile; checked equal on 32 090 lattices) the domain is gcd(shear, rows) rows high; groups
+  first (the transposed lattice's Hermite basis, from the bed search's Euclid extended by one coefficient, on the CPU
+  with the rest; checked equal on 32 090 lattices) the domain is gcd(shear, rows) rows high; groups
   use whichever of the two holds more whole groups. A group's identity (joints, ranking) is its group index offset by
   2²⁰, apart from any block's key.
 - **Stagger.** Every other row shifts half a cell along the bedding — a running bond, each block bridging a joint
@@ -211,13 +211,14 @@ its width (box filter), or diagonal hairlines break into dots.
 - _Random value_ (Diffuse › Random / jitter): per block, per bed (a row's value repeats where its thickness does), per
   bed varied a little per block, or per facet (patchwork colour).
 
-Every snapped count (beds, blocks, the cross-joint shear, rills, streak columns, fracture lanes) rounds ties down
-(`floor(x + 0.499)`). They are ratios of whole numbers and often exact halves, and `floor(x + 0.5)` then rounded them by
-the GPU's last-bit error — differently on D3D11 and OpenGL: a slate at −20° got another lattice on Windows (PSNR 21
-between the backends; 85 after). Renders were checked on both backends. The library's `cellsFor` has the same pattern:
-the folds' noise took its cell counts through it, and the default 1.5 folds landed on a tie (now counted from the scale
-itself, halves rounded up). Exact ties remain at _Irregularity_ 0, where the sites form a perfect lattice: about 0.3 %
-of the pixels along the borders can differ between the backends there.
+Every snapped count (beds, blocks, the cross-joint shear, rills, streak columns, fracture lanes, the noises' cell counts)
+is worked out once on the CPU (`rockDerived`, in float32 steps), so it comes out the same on every backend. On the GPU
+these counts — ratios of whole numbers, often exact halves — were rounded by the GPU's last-bit error, differently on
+D3D11 and OpenGL: a slate at −20° got another lattice on Windows (PSNR 21 between the backends). Snapped counts still
+round ties down (`floor(x + 0.499)`), the folds' halves up; the noises' counts go through `cellsFor`'s `floor(x + 0.5)`,
+which settles the default's tie at 96 / 192 / 384 px (the warp's 2.5 cells) at 3 on every backend. Exact ties remain at
+_Irregularity_ 0, where the sites form a perfect lattice: about 0.3 % of the pixels along the borders can differ between
+the backends there.
 
 A hidden _Pixel scale_ param (`unit: 'px'`, 1) tells the shader how big a texture pixel is under supersampling, which
 scales every px param by k: the facets' pixel-scale fade, the streak columns and the jaggies' and thinnest cracks'
@@ -235,11 +236,11 @@ and relief to the texture (`fresh`: blocks ~12 % of the texture's mean side, Hei
 (38 cells each, its bound the generation count — per pixel, as fracture zones can fade the last one out); the two
 generations of joints share one loop (one copy of the joint code); the coherence swell uses a copy of `valueNoise`
 without the animation code; the other loop bounds come from a uniform (UNI_1). Cold compile on D3D11 (RTX 5080):
-**~3.7–3.9 s** (runs vary by ~0.15 s) — over Truchet's (2.0 s; Tessellation 1.8 s, Chips 1.67 s, Cracks 0.81 s). The
-long fractures cost ~0.3 s of it, the three-site skirt distances ~0.3 s, the streaks ~0.2 s, the bed snapping ~0.2 s
-(one flat loop of candidates × Euclid steps; a gcd loop called inside the candidate loop cost more), merging on the
-reduced lattice and the fused groups' mates ~0.6 s, scarp steps, stagger, chevron folds and the facet cracks' breakup
-~0.2 s together. Flattening the noise loop over octaves, and uniform bounds on the small loops, made no difference. What
+**about 2.6 s** — over Truchet's (2.0 s; Tessellation 1.8 s, Chips 1.67 s, Cracks 0.81 s); ~3.7–3.9 s while the bed
+snapping, the lattice bases and the fractures' direction search still ran per pixel (they are derived uniforms now). The
+long fractures cost ~0.3 s of it, the three-site skirt distances ~0.3 s, the streaks ~0.2 s, merging on the reduced
+lattice and the fused groups' mates ~0.6 s, scarp steps, stagger, chevron folds and the facet cracks' breakup ~0.2 s
+together (measured before the port). Flattening the noise loop over octaves, and uniform bounds on the small loops, made no difference. What
 did: **`continue` and early `break` in the generations' loop** — the mates' four cells first skipped the rest of the
 body with `continue`, and a faded-out last generation broke out of the loop; together they cost 0.9 s (4.7 s → 3.8 s as
 an if / else chain, and the generation count worked out before the loop as the loop's bound; a break on it cost 0.3 s

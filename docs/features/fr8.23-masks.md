@@ -102,7 +102,7 @@ Breakup is on, which turns it into coverage too.
 - Bevel, Etch and Glass take a mask (or a limit expression) as their source. Exact when every writer of that mask
   version was a shape (the stored distance is real); otherwise jump flood from the coverage, as the mask sources do
   today.
-- Filters are limited by an expression like any layer (multi-pass filters keep the snapshot-and-blend).
+- Filters are limited by an expression like any layer (Blur, the one multi-pass filter, keeps the snapshot-and-blend).
 - One **Masks** viewport view with a picker (replaces _Shape Mask_ `0` and _Named masks_ `M`).
 
 ## Implementation

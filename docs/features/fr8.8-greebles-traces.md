@@ -12,11 +12,12 @@ by default.
 **Placement**
 
 - _Along the mask's edges_ (default): each pixel takes the nearest edge of the mask before it (the one the layer
-  writes, or Shape; distance and normal from the mask), follows it both ways to where it stops being straight — a
-  corner, a gap, the texture's border — and spreads that side's elements evenly over it, _into_ the shape or _out_ of
-  it. Exact distances read ~0
-  all along a straight side, so a tight threshold finds its ends (1 px steps, then bisection); curved edges never stay
-  straight long enough to hold one. Elements keep clear of the side's corners (their shape's own clearance plus
+  writes, or Shape; distance and normal from the mask), finds how far it runs straight both ways — to a corner, a
+  gap, the texture's border — and spreads that side's elements evenly over it, _into_ the shape or _out_ of it.
+  Passes before the layer (`prepare`) give every edge texel how far its side runs, by doubling (log₂ of the
+  texture's size passes, as in jump flooding); each pixel then refines its side's two ends locally (1 px steps from
+  just short of each, then bisection). Exact distances read ~0 all along a straight side, so a tight threshold finds
+  its ends; curved edges never stay straight long enough to hold one. Elements keep clear of the side's corners (their shape's own clearance plus
   _Corner clearance_); short sides get fewer or none. Edges filter sides by the way they face. With nothing in the
   mask, the texture's edges are used (`readsMask`).
 - _Along the texture edges_ (left + right, top + bottom, all, one).

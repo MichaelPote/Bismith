@@ -160,10 +160,13 @@ LayerDef {
   extraMaskWrites?: (params) => { target, params }[], // more masks, each a pass with these params (Stone blocks)
   readsMask?: boolean,           // reads maskIn() in its shader (Chips, Tabs, Glass)
   maskSource?: (params) => string | null, // the mask it reads as its source (edge filters, Mask area)
-  prepare?: (ctx, layer) => textures, // generator: GPU pre-passes over the current state (e.g. a jump-flood field)
+  prepare?: (ctx, layer) => textures, // generator or filterGlsl filter: GPU pre-passes over the current state
+                                 //   (jump-flood field, blur) whose `textures` the shader reads as t_<name>
+  derivedUniforms?: { decl, compute(params, canvas) }, // per-render CPU values as d_<name> uniforms (lattices,
+                                 //   gcds, fits) — uniform-only work that would otherwise run per pixel
   linkedDefaults?: (params) => params, // defaults that follow other params (Drips: Height on for Sources); a value
                                  //   still at its old default moves with them, one set by hand stays
-  run?: (ctx, layer) => void,    // filter: custom multi-pass implementation
+  run?: (ctx, layer) => void,    // filter: custom multi-pass implementation (Blur); limited, it pays a snapshot + blend
   defaults?: Partial<LayerOutputs>
 }
 ParamDef { key, label, type: float|int|bool|color|enum|seed|gradient|curve|text, default, min, max, softMin, softMax,
@@ -290,10 +293,10 @@ main thread where the browser has `KHR_parallel_shader_compile`, otherwise with 
 
 ### 5.3 Filters
 
-Filters read the current channels and rewrite them. They own a `run()` that may issue several passes:
-blur (separable Gaussian), bevel and etch (jump-flood distance field, or a mask's exact distance),
-cavity / edge wear (curvature = height − blur(height)), warp (noise displacement), adjustments
-(levels, HSV, height-from-diffuse).
+Filters read the current channels and rewrite them in one `filterGlsl` pass (`applyFilter`), which also applies
+their limit, after optional `prepare` pre-passes: bevel and etch (jump-flood distance field, or a mask's exact
+distance), cavity / edge wear (curvature = height − blur(height)), height-from-diffuse (blurred luminance); warp,
+glass, levels, HSV and symmetry need none. Only Blur (separable Gaussian) owns a multi-pass `run()`.
 
 ### 5.4 Channel storage (GPU)
 
@@ -337,8 +340,12 @@ Lighting {
 Light = { id, name, enabled, type: 'directional' | 'point', color, intensity,
           // directional: azimuth°, elevation°, angularRadius° (soft shadows)
           // point:       x, y (0..1 user space), z (px above height 0), radius (px), range (px, 0 = inverse-square only)
+          refDist?,  // point: px at which intensity 1 lights white to 1.0 (falloff (refDist / d)², default 64)
         }
 ```
+
+A point light's `refDist` is not a slider: it is a px length that `scalePixels` scales with the light's z, radius and
+range, so a resized canvas or a supersampled render keeps the light as bright (lights added later start at 64).
 
 Point lights are draggable gizmos in the viewport; so are suns, on a sky map about the texture centre (angle = azimuth,
 distance = elevation; FR3.1).

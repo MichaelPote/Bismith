@@ -29,9 +29,9 @@ register (one signed distance, rewritten by every shape layer) can't hold a hole
   on a scratch evaluation over the base (mask writers see no earlier shapes or heights); the evaluation then starts
   from the masks it left, and writers don't write again. So a mask applies wherever its writer sits — a Cut-out
   added after the materials still cuts them.
-- **Using** (generators and filters, Mask group): _Masked by_ 1–4, _Outside the mask_ to cut a hole. Single-pass
-  filters blend their result by the mask inline; multi-pass filters (blur, cavity, bevel …) run on the whole state
-  and are blended back against a snapshot taken before them.
+- **Using** (generators and filters, Mask group): _Masked by_ 1–4, _Outside the mask_ to cut a hole. Filters
+  blend their result by the mask in their own pass; only Blur (a multi-pass `run()`) runs on the whole state and is
+  blended back against a snapshot taken before it.
 - **As an edge**: Bevel and Etch take _Source › Mask 1–4_ — the mask above _Threshold_, turned into a distance by
   jump flood like the channel sources (FR2.5), so a mask's outline can be bevelled or grooved.
 - **Materials**: a material's Mask card (`SmartMaterial.mask`, `setMaterialMask`) clips every member; kept on the

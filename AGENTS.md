@@ -88,6 +88,11 @@ doesn't.)
 - **ANGLE / D3D11 can miscompile `continue` in a loop.** In Scratches' cell loop it cut the strokes short and thin
   at cell borders (SwiftShader was right). Wrap the loop body in `if (!skip) { … }` instead of `continue`, and check
   a generator's loops on the GPU backend, not only SwiftShader.
+- **D3D11 rejects shaders SwiftShader compiles.** FXC fails on an integer `%` or `/` that folds to a literal 0 — even
+  in a dead ternary branch (`imod(x, 0)` broke Wood) — and ANGLE's D3D backend on arrays inside structs (with an empty
+  info log). One failed layer shader also breaks the passes after it in the page (black normals, no post). A
+  SwiftShader regression can't see any of this: render the types you changed on the Windows backend (`precompile`,
+  then `render` and check its `errors`).
 - **`Matcher.score()` takes the render at its own size.** The Windows metric (FR8.19) compares at up to 512 px, finer
   than the 128 px of the other terms, so `matcher.score(matcher.fit(img))` silently scores it from the small copy.
   Pass the full render (keep `fit()` for display and for colour maps).
