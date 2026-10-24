@@ -20,7 +20,7 @@ Pipe runs as true cylinders — the value is the surface height, so the lights s
   horizontal … each resting on everything behind it, its runs apart from one another, each where it covers the most
   bare wall (`Coverage`, a ≤ 256-cell grid; one candidate always on a bare cell) — until that share of the bare wall
   is covered (1 = none left; at most 96 runs). A stack taller than 4 × the radius is scaled to fit the value range
-  (the header carries its height) instead of having its front pipes clipped flat; one that fits keeps the default,
+  (the derived uniform `d_hnorm` carries its height) instead of having its front pipes clipped flat; one that fits keeps the default,
   so ordinary layouts render as before. Projects whose run counts did not fit their texture now show the runs that
   used to be dropped.
 - **CPU → GPU**: runs become primitives — straight lengths, filleted elbows (arcs; bend radius in pipe radii,

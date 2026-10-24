@@ -1,5 +1,5 @@
 // Pipe networks (FR8.12), CPU side: runs (polylines) → primitives the Pipes shader draws — straight lengths, filleted
-// elbows (arcs) and fittings (collars, bolted flanges) — encoded into an RGBA8 texture (16-bit fixed point).
+// elbows (arcs) and fittings (collars, bolted flanges) — encoded into a primitive texture (primTexture.ts).
 //
 // Runs come from a drawn polyline list or a random, tileable layout: horizontal runs spanning the width (some jogging
 // up or down and back), vertical runs spanning the height or teeing between two horizontal runs; vertical runs pass in
@@ -8,7 +8,9 @@
 // left). When tiling, every run spans exactly one period (or ends on other pipes) and primitives near an edge are
 // copied across it, so the texture wraps.
 
+import { parsePolylines } from '@/core/bitmap';
 import { mulberry32 } from '@/core/hash';
+import { POS_RANGE, PrimWriter, binByReach, fitUnit, sizeRange, type PrimTexture } from '../primTexture';
 
 export interface PipeRun {
 	/** Centre line (px, y down). */
@@ -75,10 +77,10 @@ export interface PipeOptions {
 export const FLANGE_PROUD = 2.2;
 /** A branch teeing into a pipe is this much narrower (equal sizes meet in a sharp V, a narrower one in a saddle). */
 export const TEE_SHRINK = 0.85;
-/** The most primitives the shader reads (its loop bound); a layout past it loses its last ones. */
+/** The most primitives the texture holds; a layout past it loses its last ones. */
 export const MAX_PIPE_PRIMS = 4096;
-/** Texels per row of the primitive texture. */
-export const PRIM_ROW = 1024;
+/** Texels a primitive's record takes. */
+export const PIPE_STRIDE = 5;
 
 /** The highest a run reaches above the wall (px): its axis depth plus its radius, flanges included. */
 export const runTop = (run: PipeRun, o: PipeOptions) => run.depth + run.radius * (1 + FLANGE_PROUD * o.collar);
@@ -104,17 +106,8 @@ export const rng = (seed: number) => mulberry32((Math.floor(seed) >>> 0) ^ 0x9e3
 
 /** Polylines from a points list ("x,y x,y …", one run per line or "|"); `fraction` scales 0..1 to the texture. */
 export function parseRuns(text: string, fraction: boolean, width: number, height: number): [number, number][][] {
-	const out: [number, number][][] = [];
-	for (const part of text.split(/[|\n]/)) {
-		const pts = part
-			.trim()
-			.split(/\s+/)
-			.map((t) => t.split(',').map(Number))
-			.filter((v) => v.length === 2 && v.every(Number.isFinite))
-			.map(([x, y]) => (fraction ? [x * width, y * height] : [x, y]) as [number, number]);
-		if (pts.length >= 2) out.push(pts);
-	}
-	return out;
+	const [sx, sy] = fraction ? [width, height] : [1, 1];
+	return parsePolylines(text).map((run) => run.map(([x, y]): [number, number] => [x * sx, y * sy]));
 }
 
 /**
@@ -654,66 +647,58 @@ export function buildPrims(runs: PipeRun[], o: PipeOptions): PipePrim[] {
 }
 
 /**
- * The primitive texture, RGBA8, PRIM_ROW texels a row: texel 0 = header (count, height normalisation: px for a value
- * of 1, × 16), texel 1 = the length unit (px, a power of two: 1 unless the layout is too large for the fixed point at
- * 1); then 5 texels per primitive, two 16-bit values each (high byte first): [x, y] [x1, y1 | bend, a0 | angle, half
- * width] [sweep | outer, pipe id] [kind, radius] [depth, liquid level]. Lengths are in units: positions (and the level)
- * are (v + 4096) × 8, angles map −range..range onto 0..65535, sizes × 64 (bend × 8, depth and height × 16).
+ * The primitive texture (primTexture.ts), a record of 5 texels per primitive: [x, y] [x1, y1 | bend, a0 | angle, half
+ * width] [sweep | outer, pipe id] [kind, radius] [depth, liquid level]. Positions (and the level) are positions in the
+ * unit; angles map −range..range onto 0..65535; sizes × 64 (bend × 8, depth × 16). The cell lists (no wrapping: the
+ * tiling copies are primitives of their own) hold every primitive within 2 px of the cell — all that draw a pixel there;
+ * the mask outputs, whose distance is read far out, loop over them all. heightNorm: px for a value of 1.
  */
 export function encodePrims(
 	prims: PipePrim[],
-	heightNorm: number
-): { width: number; height: number; data: Uint8Array } {
-	const n = Math.min(prims.length, MAX_PIPE_PRIMS);
-	const list = prims.slice(0, n);
-	// The unit: the least power of two that keeps every value in range.
+	heightNorm: number,
+	canvas: { width: number; height: number }
+): PrimTexture & { heightNorm: number } {
+	const list = prims.slice(0, MAX_PIPE_PRIMS);
 	const most = (f: (p: PipePrim) => number) => list.reduce((m, p) => Math.max(m, f(p)), 0);
-	const need = Math.max(
-		most((p) => Math.max(Math.abs(p.x), Math.abs(p.y), Math.abs(p.x1), Math.abs(p.y1))) / 4095,
-		most((p) => Math.max(p.radius, p.halfWidth, p.outer)) / 1023,
-		most((p) => p.bend) / 8191,
-		Math.max(
-			most((p) => p.depth),
-			heightNorm
-		) / 4095
+	const unit = fitUnit(
+		// (Not the level: ±10⁴ marks a spanning run full or empty, and clamps to the same.)
+		[most((p) => Math.max(Math.abs(p.x), Math.abs(p.y), Math.abs(p.x1), Math.abs(p.y1))), POS_RANGE],
+		[most((p) => Math.max(p.radius, p.halfWidth, p.outer)), sizeRange(64)],
+		[most((p) => p.bend), sizeRange(8)],
+		[most((p) => p.depth), sizeRange(16)]
 	);
-	let unit = 1;
-	while (unit < need) unit *= 2;
-	const texels = 2 + 5 * n;
-	const width = Math.min(PRIM_ROW, texels);
-	const height = Math.ceil(texels / width);
-	const data = new Uint8Array(width * height * 4);
-	const put16 = (texel: number, slot: number, v: number) => {
-		const q = Math.max(0, Math.min(65535, Math.round(v)));
-		data[texel * 4 + slot * 2] = q >> 8;
-		data[texel * 4 + slot * 2 + 1] = q & 255;
-	};
-	const pos = (v: number) => (Math.max(-4096, Math.min(4095, v / unit)) + 4096) * 8;
-	const ang = (a: number, range: number) => ((a / range) * 0.5 + 0.5) * 65535;
-	put16(0, 0, n);
-	put16(0, 1, (heightNorm / unit) * 16);
-	put16(1, 0, unit);
+	const bins = binByReach(
+		list.map((p) =>
+			p.kind === PRIM_LINE
+				? { x: (p.x + p.x1) / 2, y: (p.y + p.y1) / 2, reach: Math.hypot(p.x1 - p.x, p.y1 - p.y) / 2 + p.radius + 2 }
+				: p.kind === PRIM_ARC
+					? { x: p.x, y: p.y, reach: p.bend + p.radius + 2 }
+					: { x: p.x, y: p.y, reach: Math.hypot(p.halfWidth, p.outer) + 2 }
+		),
+		{ ...canvas, tile: false }
+	);
+	const w = new PrimWriter(PIPE_STRIDE, list.length, bins, unit);
 	list.forEach((p, i) => {
-		const t = 2 + 5 * i;
-		put16(t, 0, pos(p.x));
-		put16(t, 1, pos(p.y));
+		const t = w.rec(i);
+		w.pos(t, 0, p.x);
+		w.pos(t, 1, p.y);
 		if (p.kind === PRIM_LINE) {
-			put16(t + 1, 0, pos(p.x1));
-			put16(t + 1, 1, pos(p.y1));
+			w.pos(t + 1, 0, p.x1);
+			w.pos(t + 1, 1, p.y1);
 		} else if (p.kind === PRIM_ARC) {
-			put16(t + 1, 0, (p.bend / unit) * 8);
-			put16(t + 1, 1, ang(p.a0, Math.PI));
-			put16(t + 2, 0, ang(p.sweep, 2 * Math.PI));
+			w.size(t + 1, 0, p.bend, 8);
+			w.ang(t + 1, 1, p.a0, Math.PI);
+			w.ang(t + 2, 0, p.sweep, 2 * Math.PI);
 		} else {
-			put16(t + 1, 0, ang(p.a0, Math.PI));
-			put16(t + 1, 1, (p.halfWidth / unit) * 64);
-			put16(t + 2, 0, (p.outer / unit) * 64);
+			w.ang(t + 1, 0, p.a0, Math.PI);
+			w.size(t + 1, 1, p.halfWidth, 64);
+			w.size(t + 2, 0, p.outer, 64);
 		}
-		put16(t + 2, 1, p.pipe);
-		data[(t + 3) * 4] = p.kind;
-		put16(t + 3, 1, (p.radius / unit) * 64);
-		put16(t + 4, 0, (p.depth / unit) * 16);
-		put16(t + 4, 1, pos(p.level));
+		w.u16(t + 2, 1, p.pipe);
+		w.u8(t + 3, 0, p.kind);
+		w.size(t + 3, 1, p.radius, 64);
+		w.size(t + 4, 0, p.depth, 16);
+		w.pos(t + 4, 1, p.level);
 	});
-	return { width, height, data };
+	return { ...w.finish(), heightNorm };
 }

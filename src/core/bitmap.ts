@@ -90,31 +90,22 @@ export const FONT: Record<string, string> = {
 
 export const MAX_PATH_POINTS = 64;
 
-/** Polygons for the Path generator: "x,y x,y …" per polygon, polygons separated by new lines or '|'. */
-export function parsePolygons(src: string): number[][][] {
-	return src
-		.split(/\n|\|/)
-		.map((line) =>
-			(line.match(/-?\d*\.?\d+(?:e-?\d+)?/gi) ?? [])
-				.map(Number)
-				.reduce<number[][]>((pts, v, i) => (i % 2 ? (pts[pts.length - 1].push(v), pts) : (pts.push([v]), pts)), [])
-				.filter((p) => p.length === 2)
-		)
-		.filter((poly) => poly.length >= 3);
+/**
+ * Point lists ("x,y x,y …", lines split by a newline or '|'): each line's numbers paired up, in order (an odd one out
+ * at a line's end is dropped). The shape editor's text, for Path and Polyline, pipe runs and hand-placed splats.
+ */
+export function parsePointLines(src: string): number[][][] {
+	return src.split(/\n|\|/).map((line) => {
+		const v = (line.match(/-?\d*\.?\d+(?:e-?\d+)?/gi) ?? []).map(Number);
+		return Array.from({ length: v.length >> 1 }, (_, i) => [v[2 * i], v[2 * i + 1]]);
+	});
 }
 
-/** Open polylines (Polyline layers, pipe runs): the same text format, two or more points each. */
-export function parsePolylines(src: string): number[][][] {
-	return src
-		.split(/\n|\|/)
-		.map((line) =>
-			(line.match(/-?\d*\.?\d+(?:e-?\d+)?/gi) ?? [])
-				.map(Number)
-				.reduce<number[][]>((pts, v, i) => (i % 2 ? (pts[pts.length - 1].push(v), pts) : (pts.push([v]), pts)), [])
-				.filter((p) => p.length === 2)
-		)
-		.filter((line) => line.length >= 2);
-}
+/** Polygons for the Path generator: point lists of three or more points. */
+export const parsePolygons = (src: string): number[][][] => parsePointLines(src).filter((l) => l.length >= 3);
+
+/** Open polylines (Polyline layers, pipe runs): point lists of two or more points. */
+export const parsePolylines = (src: string): number[][][] => parsePointLines(src).filter((l) => l.length >= 2);
 
 /** The polygons (or polylines) that fit in MAX_PATH_POINTS vertices: those before the first that would overflow. */
 export function takePolygons(polys: number[][][]): number[][][] {

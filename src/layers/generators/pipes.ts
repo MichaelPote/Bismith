@@ -7,16 +7,16 @@
 
 import { memoReads } from '@/core/memo';
 import { P } from '@/core/params';
-import type { ParamValues } from '@/core/params';
-import type { LayerDef } from '../types';
+import type { ParamDef, ParamValues } from '@/core/params';
+import { GLSL_PRIMTEX, PRIM_UNIFORMS, primUniforms } from '../primTexture';
+import type { LayerCanvas, LayerDef } from '../types';
 import {
 	FLANGE_PROUD,
-	MAX_PIPE_PRIMS,
+	PIPE_STRIDE,
 	PRIM_ARC,
 	PRIM_COLLAR,
 	PRIM_FLANGE,
 	PRIM_LINE,
-	PRIM_ROW,
 	buildPrims,
 	drawnRuns,
 	encodePrims,
@@ -44,6 +44,33 @@ export function pipeRuns(q: ParamValues, o: PipeOptions): PipeRun[] {
 		density: Number(q.density ?? 0)
 	});
 }
+
+/** The shape editor's Line tool on drawn runs (ParamDef.shapeEdit): it adds a run. */
+export const PIPE_RUNS_EDIT: ParamDef['shapeEdit'] = {
+	adds: 'Pipe run',
+	hint: 'a new run of the selected pipes',
+	budget: 512
+};
+
+/** The primitive texture, memoised by the params it reads: a colour or Height slider leaves the layout as it is. */
+const pipeTexture = memoReads((q: ParamValues, ctx: LayerCanvas) => {
+	const o: PipeOptions = {
+		width: ctx.width,
+		height: ctx.height,
+		tile: ctx.tileable,
+		seed: Math.floor(ctx.seed * 7919) + Number(q.seed ?? 0),
+		bend: Number(q.bend ?? 2),
+		spacing: Number(q.spacing ?? 48),
+		flanges: Number(q.flanges ?? 0.3),
+		collar: Number(q.collar ?? 0.15),
+		elbowFittings: q.elbow_fittings !== false,
+		fill: Number(q.fill ?? 0.5)
+	};
+	const prims = buildPrims(pipeRuns(q, o), o);
+	// Height for a value of 1: 4 × the pipe radius, or a taller stack (density, runs lying over runs) whole, scaled to
+	// fit rather than having its front pipes clipped flat.
+	return encodePrims(prims, Math.max(stackHeight(prims), 4 * Math.max(Number(q.radius ?? 6), 0.5)), ctx);
+});
 
 export const pipeworkLayer: LayerDef = {
 	type: 'pipework',
@@ -78,7 +105,8 @@ export const pipeworkLayer: LayerDef = {
 		P.bitmap('points', 'Runs', '0,24 40,24 40,48 64,48 | 20,0 20,24', 'lines', {
 			hint: 'x,y centre-line points (px from the top-left, or 0..1 with Units = fraction); one run per line or "|". Ends inside the texture get a flange; an end on another run tees into it',
 			showIf: isDrawn,
-			uniform: false
+			uniform: false,
+			shapeEdit: PIPE_RUNS_EDIT
 		}),
 		P.enum(
 			'units',
@@ -138,38 +166,22 @@ export const pipeworkLayer: LayerDef = {
 	],
 	defaults: { h_on: true, h_amount: 1, dif_on: true, bevel: 0, profile: 'flat' },
 	textures: ['pipes'],
-	// Memoised by the params it reads: a colour or Height slider leaves the layout as it is.
-	cpuData: memoReads((q, ctx) => {
-		const o: PipeOptions = {
-			width: ctx.width,
-			height: ctx.height,
-			tile: ctx.tileable,
-			seed: Math.floor(ctx.seed * 7919) + Number(q.seed ?? 0),
-			bend: Number(q.bend ?? 2),
-			spacing: Number(q.spacing ?? 48),
-			flanges: Number(q.flanges ?? 0.3),
-			collar: Number(q.collar ?? 0.15),
-			elbowFittings: q.elbow_fittings !== false,
-			fill: Number(q.fill ?? 0.5)
-		};
-		const prims = buildPrims(pipeRuns(q, o), o);
-		// Height for a value of 1: 4 × the pipe radius, or a taller stack (density, runs lying over runs) whole, scaled to
-		// fit rather than having its front pipes clipped flat.
-		return { pipes: encodePrims(prims, Math.max(stackHeight(prims), 4 * Math.max(Number(q.radius ?? 6), 0.5))) };
-	}),
+	cpuData: (q, ctx) => ({ pipes: pipeTexture(q, ctx).texture }),
+	derivedUniforms: {
+		decl: { ...PRIM_UNIFORMS, count: 'int', hnorm: 'float' },
+		compute: (q, ctx) => {
+			const t = pipeTexture(q, ctx);
+			return { ...primUniforms(t), count: t.count, hnorm: t.heightNorm };
+		}
+	},
 	glsl: /* glsl */ `
-vec4 pp_fetch(int t) { return texelFetch(t_pipes, ivec2(t % ${PRIM_ROW}, t / ${PRIM_ROW}), 0); }
-float pp_u16(vec2 b) { return floor(b.x * 255.0 + 0.5) * 256.0 + floor(b.y * 255.0 + 0.5); }
-vec2 pp_pos(vec4 t) { return vec2(pp_u16(t.rg), pp_u16(t.ba)) / 8.0 - 4096.0; }
-float pp_ang(vec2 b, float range) { return (pp_u16(b) / 65535.0 * 2.0 - 1.0) * range; }
+${GLSL_PRIMTEX}
+vec4 pp_at(ivec2 c, int k) { return texelFetch(t_pipes, c + ivec2(k, 0), 0); }
 
 GenOut gen(vec2 p) {
   vec2 q = vec2(p.x, uRes.y - p.y);
-  vec4 head = pp_fetch(0);
-  int n = int(pp_u16(head.rg));
-  // Lengths come in units of un px (a power of two: 1 unless the layout is very large); the height for a value of 1.
-  float un = pp_u16(pp_fetch(1).rg);
-  float hnorm = pp_u16(head.ba) / 16.0 * un;
+  // Lengths come in units of un px (a power of two: 1 unless the layout is very large).
+  float un = d_unit;
   float sd = 1e4;
   float sdFit = 1e4;
   float sdTube = 1e4;
@@ -190,14 +202,16 @@ GenOut gen(vec2 p) {
   // distance's own direction makes. Off at aspect 1: the wrapper's bevel, unchanged.
   bool asp = bevelAspectOn() && wantSd;
   float sdTubeB = 1e4, sdFitB = 1e4;
-  for (int i = 0; i < ${MAX_PIPE_PRIMS}; i++) {
-    if (i >= n) break;
-    int t = 2 + 5 * i;
-    vec4 t0 = pp_fetch(t), t1 = pp_fetch(t + 1), t3 = pp_fetch(t + 3);
+  // The mask's distance is read far out, so it is measured to every primitive; the surface needs only those within a
+  // pixel or so — the list of q's cell.
+  ivec2 range = wantSd ? ivec2(0, d_count) : cellRange(t_pipes, q, d_grid, d_table);
+  for (int e = range.x; e < range.y; e++) {
+    ivec2 c = recAt(wantSd ? e : listItem(t_pipes, d_list, e), ${PIPE_STRIDE});
+    vec4 t0 = pp_at(c, 0), t1 = pp_at(c, 1), t3 = pp_at(c, 3);
     vec4 t2 = vec4(0.0);
-    int kind = int(t3.r * 255.0 + 0.5);
-    float r = pp_u16(t3.ba) / 64.0 * un;
-    vec2 a = pp_pos(t0) * un;
+    int kind = int(texU8(t3.r));
+    float r = texU16(t3.ba) / 64.0 * un;
+    vec2 a = texPos(t0, un);
     // Cross-section: offset from the axis over the radius (2D) and the axis normal, for Underside and Facing.
     vec2 off = vec2(0.0), an = vec2(0.0, 1.0);
     float d = 1e4;                                // a tube: distance to its axis
@@ -207,7 +221,7 @@ GenOut gen(vec2 p) {
       vec2 dv, nb;
       if (kind == ${PRIM_LINE}) {
         // Straight length: distance to the centre line.
-        vec2 e = pp_pos(t1) * un - a;
+        vec2 e = texPos(t1, un) - a;
         float hs = clamp(dot(q - a, e) / max(dot(e, e), 1e-9), 0.0, 1.0);
         dv = q - (a + e * hs);
         d = length(dv);
@@ -215,10 +229,10 @@ GenOut gen(vec2 p) {
         an = normalize(vec2(-e.y, e.x));
       } else {
         // Elbow: an arc of the bend radius around its centre, within its sweep (the lengths' round ends close it).
-        t2 = pp_fetch(t + 2);
-        float rb = pp_u16(t1.rg) / 8.0 * un;
-        float a0 = pp_ang(t1.ba, 3.14159265);
-        float sw = pp_ang(t2.rg, 6.28318531);
+        t2 = pp_at(c, 2);
+        float rb = texU16(t1.rg) / 8.0 * un;
+        float a0 = texAng(t1.ba, 3.14159265);
+        float sw = texAng(t2.rg, 6.28318531);
         vec2 dl = q - a;
         float l = length(dl);
         if (!wantSd && abs(l - rb) > r + 1.0) continue;
@@ -237,10 +251,10 @@ GenOut gen(vec2 p) {
     } else {
       // Collar / flange: a short, wider cylinder around the axis. A flange is two plates (a groove between them)
       // with bolt heads standing on the rim.
-      t2 = pp_fetch(t + 2);
-      float ax = pp_ang(t1.rg, 3.14159265);
-      hw = pp_u16(t1.ba) / 64.0 * un;
-      ro = pp_u16(t2.rg) / 64.0 * un;
+      t2 = pp_at(c, 2);
+      float ax = texAng(t1.rg, 3.14159265);
+      hw = texU16(t1.ba) / 64.0 * un;
+      ro = texU16(t2.rg) / 64.0 * un;
       vec2 tx = vec2(cos(ax), sin(ax));
       an = vec2(-tx.y, tx.x);
       vec2 dv = q - a;
@@ -256,8 +270,8 @@ GenOut gen(vec2 p) {
       off = an * v / max(ro, 1e-3);
     }
     // Within a pixel of the piece: its coverage and surface.
-    vec4 t4 = pp_fetch(t + 4);
-    float depth = pp_u16(t4.rg) / 16.0 * un;
+    vec4 t4 = pp_at(c, 4);
+    float depth = texU16(t4.rg) / 16.0 * un;
     float h = -1.0, cv;
     if (kind <= ${PRIM_ARC}) {
       cv = clamp(r - d + 0.5, 0.0, 1.0);
@@ -284,9 +298,9 @@ GenOut gen(vec2 p) {
       best = h;
       fit = kind >= ${PRIM_COLLAR} ? 1.0 : 0.0;
       under = 0.5 + 0.5 * clamp(off.y, -1.0, 1.0);
-      liq = clamp(q.y - (pp_u16(t4.ba) / 8.0 - 4096.0) * un + 0.5, 0.0, 1.0);
+      liq = clamp(q.y - texPos(t4, un).y + 0.5, 0.0, 1.0);
       facing = 0.5 + 0.5 * clamp(dot(off, PP_D) / max(abs(dot(an, PP_D)), 0.3), -1.0, 1.0);
-      pid = pp_u16((kind == ${PRIM_LINE} ? pp_fetch(t + 2) : t2).ba);
+      pid = texU16((kind == ${PRIM_LINE} ? pp_at(c, 2) : t2).ba);
     }
   }
   float rnd = hashI(ivec2(int(pid), 3), uSeed);
@@ -301,7 +315,7 @@ GenOut gen(vec2 p) {
   if (u_output == 3) return genOut(under, cover, rnd, NO_SDF);
   if (u_output == 5) return genOut(facing, cover, rnd, NO_SDF);
   if (u_output == 6) return genOut(liq, cover, rnd, NO_SDF);
-  return genOut(clamp(max(best, 0.0) / hnorm, 0.0, 1.0), cover, rnd, NO_SDF);
+  return genOut(clamp(max(best, 0.0) / d_hnorm, 0.0, 1.0), cover, rnd, NO_SDF);
 }
 `
 };

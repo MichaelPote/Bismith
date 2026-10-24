@@ -5,9 +5,20 @@
 // tension holds a real one: small drops stay domed and low, big pools flat. Value = thickness (0..1) for the ramp and
 // Height; the outline goes to the mask it writes.
 
-import { P, defaultParams, gradient, type ParamDef } from '@/core/params';
-import type { LayerDef } from '../types';
-import { buildSplats, encodeSplats, parseSplatPoints } from './splatsGeometry';
+import { memoReads } from '@/core/memo';
+import { P, defaultParams, gradient, halfPx, type ParamDef, type ParamValues } from '@/core/params';
+import { PX_SCALE_PARAM } from '../commonParams';
+import { GLSL_PRIMTEX, PRIM_UNIFORMS, primUniforms } from '../primTexture';
+import { memoOn } from '@/core/memo';
+import type { LayerCanvas, LayerDef } from '../types';
+import {
+	SPLAT_STRIDE,
+	buildSplats,
+	encodeSplats,
+	parseSplatPoints,
+	type SplatGrid,
+	type SplatPrim
+} from './splatsGeometry';
 
 const sprayed = (p: Record<string, unknown>) => Number(p.splash) > 0;
 const isPlaced = (p: Record<string, unknown>) => p.layout === 'drawn';
@@ -26,7 +37,8 @@ const PARAMS: ParamDef[] = [
 	P.bitmap('points', 'Splats', '20,20 44,40', 'lines', {
 		hint: 'A splat on every point (x,y px from the top-left, or 0..1 with Units = fraction) — place them with the shape editor; the lines between points mean nothing',
 		showIf: isPlaced,
-		uniform: false
+		uniform: false,
+		shapeEdit: { adds: 'Splats', hint: 'a splat on each point', min: 1, budget: 512 }
 	}),
 	P.enum(
 		'units',
@@ -153,18 +165,60 @@ const PARAMS: ParamDef[] = [
 		section: 'Liquid',
 		hint: 'A darker, raised ring along the edge, where the liquid dried first'
 	}),
-	// Not a control: 1 px of the texture in shader px. Supersampling scales every px param by k, so this scales the few
-	// lengths fixed in px (the finest specks, a stream too thin to hold together, the rim's least width) with them.
-	P.float('px_scale', 'Pixel scale', 1, 1, 8, {
-		unit: 'px',
-		outputPx: true,
-		step: 1,
-		optimize: false,
-		showIf: () => false
-	}),
+	// The few lengths fixed in px (the finest specks, a stream too thin to hold together, the rim's least width) scale
+	// with supersampling.
+	PX_SCALE_PARAM,
 	P.seed()
 ];
 const DEFAULTS = defaultParams(PARAMS);
+const num = (q: ParamValues, key: string) => Number(q[key] ?? DEFAULTS[key]);
+
+/** The splats' primitives, by the params they read: a colour, Height or Edge change leaves them as they are. */
+const splatPrims = memoReads(
+	(q: ParamValues, ctx: LayerCanvas): SplatPrim[] =>
+		buildSplats({
+			width: ctx.width,
+			height: ctx.height,
+			tile: ctx.tileable,
+			seed: Math.floor(ctx.seed * 7919) + num(q, 'seed'),
+			count: num(q, 'count'),
+			at: isPlaced(q)
+				? parseSplatPoints(String(q.points ?? DEFAULTS.points), q.units === 'fraction', ctx.width, ctx.height)
+				: undefined,
+			size: num(q, 'size'),
+			sizeVar: num(q, 'size_var'),
+			splash: num(q, 'splash'),
+			ragged: num(q, 'ragged'),
+			jets: num(q, 'jets'),
+			jetLength: num(q, 'jet_len'),
+			drops: num(q, 'drops'),
+			reach: num(q, 'reach'),
+			mist: num(q, 'mist'),
+			aim: num(q, 'aim'),
+			oneSided: num(q, 'one_sided'),
+			gravity: num(q, 'gravity'),
+			gravityAngle: num(q, 'grav_angle'),
+			runs: num(q, 'runs'),
+			runLength: num(q, 'run_len'),
+			bead: num(q, 'bead'),
+			pxScale: num(q, 'px_scale')
+		}),
+	4
+);
+/** Their texture, by the primitives (the same array while they stand) and the grid. */
+const splatTexture = memoOn((prims: SplatPrim[], grid: SplatGrid) => encodeSplats(prims, grid), 4);
+
+function splatData(q: ParamValues, ctx: LayerCanvas) {
+	// The distance must be right as far as anything reads it: the thickness's meniscus, the dried rim, the Edge card
+	// (Bevel — its wider side with Bevel aspect —, Soft edge, Dilate, Edge roughness on top) and, for whatever reads the
+	// mask (Bevel, Etch), at least 8 px. Rounded up to 4 px, so dragging one of them re-encodes only now and then.
+	const card = (key: string) => Number(q[key] ?? 0);
+	const aspect = Math.max(Number(q.bevel_aspect ?? 1), 1e-3);
+	const bevel = card('bevel') * Math.sqrt(Math.max(aspect, 1 / aspect));
+	const reads = Math.max(bevel, card('soft_edge'), num(q, 'meniscus'), 8 * num(q, 'px_scale'));
+	const margin = Math.ceil((reads + card('dilate') + num(q, 'edge') + 1) / 4) * 4;
+	return splatTexture(splatPrims(q, ctx), { width: ctx.width, height: ctx.height, tile: ctx.tileable, margin });
+}
 
 export const splatsLayer: LayerDef = {
 	type: 'splats',
@@ -190,7 +244,7 @@ export const splatsLayer: LayerDef = {
 		const s = Math.sqrt(width * height) / 128;
 		const at = (fx: number, fy: number) => `${Math.round(fx * width)},${Math.round(fy * height)}`;
 		return {
-			size: Math.max(1, Math.round(10 * s * 2) / 2),
+			size: halfPx(10 * s, 1),
 			meniscus: Math.max(0.5, Math.round(2 * s * 4) / 4),
 			points: `${at(0.3, 0.3)} ${at(0.7, 0.6)}`
 		};
@@ -199,54 +253,16 @@ export const splatsLayer: LayerDef = {
 	// shapes the thickness further, Anti-alias its coverage (off: pixel art).
 	sdf: 'mask',
 	textures: ['splats'],
-	cpuData(q, ctx) {
-		const v = (key: string) => Number(q[key] ?? DEFAULTS[key]);
-		const prims = buildSplats({
-			width: ctx.width,
-			height: ctx.height,
-			tile: ctx.tileable,
-			seed: Math.floor(ctx.seed * 7919) + v('seed'),
-			count: v('count'),
-			at:
-				q.layout === 'drawn'
-					? parseSplatPoints(String(q.points ?? DEFAULTS.points), q.units === 'fraction', ctx.width, ctx.height)
-					: undefined,
-			size: v('size'),
-			sizeVar: v('size_var'),
-			splash: v('splash'),
-			ragged: v('ragged'),
-			jets: v('jets'),
-			jetLength: v('jet_len'),
-			drops: v('drops'),
-			reach: v('reach'),
-			mist: v('mist'),
-			aim: v('aim'),
-			oneSided: v('one_sided'),
-			gravity: v('gravity'),
-			gravityAngle: v('grav_angle'),
-			runs: v('runs'),
-			runLength: v('run_len'),
-			bead: v('bead'),
-			pxScale: v('px_scale')
-		});
-		// The distance must be right as far as anything reads it: the thickness's meniscus, the dried rim, the Edge card
-		// (Bevel, Soft edge, Dilate, Edge roughness on top) and, for whatever reads the mask (Bevel, Etch), at least 8 px.
-		const card = (key: string) => Number(q[key] ?? 0);
-		const reads = Math.max(card('bevel'), card('soft_edge'), v('meniscus'), 8 * v('px_scale'));
-		const margin = reads + card('dilate') + v('edge') + 1;
-		return {
-			splats: encodeSplats(prims, { width: ctx.width, height: ctx.height, tile: ctx.tileable, margin })
-		};
-	},
+	cpuData: (q, ctx) => ({ splats: splatData(q, ctx).texture }),
+	derivedUniforms: { decl: PRIM_UNIFORMS, compute: (q, ctx) => primUniforms(splatData(q, ctx)) },
 	glsl: /* glsl */ `
-float sp_u16(vec2 b) { return floor(b.x * 255.0 + 0.5) * 256.0 + floor(b.y * 255.0 + 0.5); }
-int sp_u32(vec4 t) { return int(sp_u16(t.rg)) * 65536 + int(sp_u16(t.ba)); }
-vec4 sp_fetch(int t, int w) { return texelFetch(t_splats, ivec2(t % w, t / w), 0); }
-vec2 sp_pos(vec4 t) { return vec2(sp_u16(t.rg), sp_u16(t.ba)) / 8.0 - 4096.0; }
+${GLSL_PRIMTEX}
+const float SP_OCT[3] = float[3](0.7, 0.28, 0.12);
 // Value noise's lattice at q for cells of about cell px: whole cells across the texture when tiling (period per).
 vec2 sp_lattice(vec2 q, float cell, out ivec2 per) {
-  per = uTile ? ivec2(max(vec2(1.0), floor(uRes / cell + 0.5))) : NO_PERIOD;
-  return uTile ? q / uRes * vec2(per) : q / cell;
+  vec2 c = snapCells(uRes / cell);
+  per = periodOf(c);
+  return q / uRes * c;
 }
 
 GenOut gen(vec2 p) {
@@ -254,57 +270,56 @@ GenOut gen(vec2 p) {
   // User px (y down).
   vec2 q = vec2(p.x, uRes.y - p.y);
   // Tear: three octaves of warp at the splats' own scale (wrapping with the texture) — lobes, bays, and the scallops of
-  // a pool's rim.
+  // a pool's rim. One noise call site for the six draws: x then y of each octave, both at the octave's q.
   if (u_tear > 0.0) {
-    for (int o = 0; o < 3 * UNI_1; o++) {
-      float cell = max(2.0 * pxs, u_size * (o == 0 ? 0.7 : o == 1 ? 0.28 : 0.12));
+    float nx = 0.0;
+    for (int i = 0; i < 6 * UNI_1; i++) {
+      int o = i >> 1;
+      float comp = float(i & 1);
+      float cell = max(2.0 * pxs, u_size * SP_OCT[o]);
       ivec2 per;
       vec2 x = sp_lattice(q, cell, per);
-      float s = uSeed + 31.0 + 7.0 * float(o);
-      q += u_tear * cell * (o == 2 ? 0.6 : 0.4) * (vec2(valueNoise(x, per, s), valueNoise(x + 17.3, per, s + 3.0)) * 2.0 - 1.0);
+      float n = valueNoise(x + 17.3 * comp, per, uSeed + 31.0 + 7.0 * float(o) + 3.0 * comp);
+      if ((i & 1) == 0) nx = n;
+      else q += u_tear * cell * (o == 2 ? 0.6 : 0.4) * (vec2(nx, n) * 2.0 - 1.0);
     }
   }
-  // The primitives (splatsGeometry.ts encodeSplats): 4 texels each from texel 4, on one row; only those listed for the
-  // grid cell q is in, which are all that can come within the margin of it (the cells wrap with the texture).
-  int w = textureSize(t_splats, 0).x;
-  vec4 h0 = texelFetch(t_splats, ivec2(0), 0);
-  ivec2 G = ivec2(int(sp_u16(h0.ba)), int(sp_u16(texelFetch(t_splats, ivec2(1, 0), 0).rg)));
-  int table = sp_u32(texelFetch(t_splats, ivec2(2, 0), 0));
-  int list = sp_u32(texelFetch(t_splats, ivec2(3, 0), 0));
-  ivec2 ci = ivec2(floor(q / (uRes / vec2(G))));
-  ci = uTile ? imod(ci, G) : clamp(ci, ivec2(0), G - 1);
-  int cell = table + ci.x + ci.y * G.x;
-  int e0 = sp_u32(sp_fetch(cell, w)), e1 = sp_u32(sp_fetch(cell + 1, w));
+  // The primitives (splatsGeometry.ts encodeSplats), only those listed for the grid cell q is in: all that can come
+  // within the margin of it (the cells wrap with the texture).
+  float un = d_unit;
+  ivec2 range = cellRange(t_splats, q, d_grid, d_table);
   float d = 1e4;
   float best = 1e4;
   float swell = 1.0;
   float rnd = 0.0;
-  for (int e = e0; e < e1; e++) {
-    vec4 l = sp_fetch(list + e / 2, w);
-    int t = 4 + 4 * int(sp_u16((e & 1) == 0 ? l.rg : l.ba));
-    ivec2 c = ivec2(t % w, t / w);
+  for (int e = range.x; e < range.y; e++) {
+    ivec2 c = recAt(listItem(t_splats, d_list, e), ${SPLAT_STRIDE});
     vec4 t0 = texelFetch(t_splats, c, 0), t1 = texelFetch(t_splats, c + ivec2(1, 0), 0);
     vec4 t2 = texelFetch(t_splats, c + ivec2(2, 0), 0), t3 = texelFetch(t_splats, c + ivec2(3, 0), 0);
-    vec2 v = wrapDelta(q - sp_pos(t0));
-    float r0 = sp_u16(t2.rg) / 64.0, r1 = sp_u16(t2.ba) / 64.0;
-    float kk = sp_u16(t3.rg);
-    int kind = int(kk / 16384.0);
-    float k = (kk - float(kind) * 16384.0) / 32.0;
+    vec2 v = wrapDelta(q - texPos(t0, un));
+    vec2 r = texU16x2(t2) / 64.0 * un;
+    int kk = int(texU16(t3.rg));
+    int kind = kk >> 14;
+    float k = float(kk & 16383) / 32.0 * un;
     float di;
     if (kind == 1) {
       // Tapered capsule: radius r0 at the anchor to r1 at its end.
-      vec2 e = sp_pos(t1);
+      vec2 e = texPos(t1, un);
       float h = clamp(dot(v, e) / max(dot(e, e), 1e-6), 0.0, 1.0);
-      di = length(v - e * h) - mix(r0, r1, h);
+      di = length(v - e * h) - mix(r.x, r.y, h);
     } else {
       // Ellipse r0 × r1 along its axis (a close distance near the outline).
-      vec2 ax = vec2(sp_u16(t1.rg), sp_u16(t1.ba)) / 32767.5 - 1.0;
-      di = sdEllipse(vec2(dot(v, ax), dot(v, vec2(-ax.y, ax.x))), max(vec2(r0, r1), vec2(0.05)));
+      vec2 ax = texUnitVec(t1);
+      di = sdEllipse(vec2(dot(v, ax), dot(v, vec2(-ax.y, ax.x))), max(r, vec2(0.05)));
     }
-    if (kind != 2 && di < best) {
-      best = di;
-      swell = t3.b * 2.55;
-      rnd = t3.a;
+    if (kind != 2) {
+      // The thickness's swell blends as the smooth union does (sdfCombine's weight), so a run or jet thins into the
+      // core without a step; the random is the nearest piece's.
+      swell = mix(texU8(t3.b) / 100.0, swell, clamp(0.5 + 0.5 * (di - d) / max(k, 1e-4), 0.0, 1.0));
+      if (di < best) {
+        best = di;
+        rnd = t3.a;
+      }
     }
     // A splat's pieces flow into one another (smooth union); a bite is cut out of what came before (smooth subtraction).
     d = sdfCombine(kind == 2 ? 6 : 5, d, di, k);

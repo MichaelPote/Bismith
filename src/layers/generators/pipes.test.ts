@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { PRIM_ROW, TexelReader } from '../primTexture';
 import {
 	Coverage,
 	MAX_PIPE_PRIMS,
+	PIPE_STRIDE,
 	PRIM_ARC,
 	PRIM_LINE,
-	PRIM_ROW,
 	buildPrims,
 	encodePrims,
 	parseRuns,
@@ -16,10 +17,6 @@ import {
 	type PipeOptions
 } from './pipesGeometry';
 import { pipeRuns } from './pipes';
-
-/** A 16-bit value of the primitive texture (texel, slot). */
-const u16 = (tex: { data: Uint8Array }, texel: number, slot: number) =>
-	tex.data[texel * 4 + slot * 2] * 256 + tex.data[texel * 4 + slot * 2 + 1];
 
 /** A straight horizontal run. */
 const straight = (x0: number, x1: number, radius: number) => ({
@@ -89,36 +86,61 @@ describe('pipe geometry', () => {
 		}
 	});
 
-	it('copies primitives across the edges when tiling, and encodes a header', () => {
+	it('copies primitives across the edges when tiling, and encodes them', () => {
 		const runs = randomRuns(opts, { runs: 2, drops: 1, radius: 5, variety: 0, jogs: 0, tees: 0 });
 		const prims = buildPrims(runs, opts);
 		const flat = buildPrims(runs, { ...opts, tile: false });
 		expect(prims.length).toBeGreaterThan(flat.length);
-		const tex = encodePrims(prims, 20);
-		expect(tex.width).toBe(2 + 5 * prims.length);
-		expect(u16(tex, 0, 0)).toBe(prims.length);
-		expect(u16(tex, 0, 1)).toBe(20 * 16);
-		expect(u16(tex, 1, 0)).toBe(1);
+		const tex = encodePrims(prims, 20, opts);
+		expect([tex.count, tex.unit, tex.heightNorm]).toEqual([prims.length, 1, 20]);
+		const r = new TexelReader(tex);
+		const t = r.rec(prims.length - 1, PIPE_STRIDE);
+		expect([r.pos(t, 0), r.pos(t, 1)]).toEqual([prims.at(-1)!.x, prims.at(-1)!.y].map((v) => Math.round(v * 8) / 8));
 	});
 
-	it('encodes large layouts in a coarser unit, wraps rows and caps the primitive count', () => {
+	it('lists every primitive that draws within a pixel of a cell', () => {
+		const prims = buildPrims(randomRuns(opts, { runs: 3, drops: 3, radius: 5, variety: 0.3, jogs: 1, tees: 1 }), opts);
+		const tex = encodePrims(prims, 20, opts);
+		const r = new TexelReader(tex);
+		expect(tex.grid[0] * tex.grid[1]).toBeGreaterThan(1);
+		// A primitive's box (around a length, an elbow's circle, a fitting) grown by a pixel.
+		const near = (p: (typeof prims)[number], x: number, y: number) => {
+			if (p.kind === PRIM_LINE) {
+				const ex = p.x1 - p.x;
+				const ey = p.y1 - p.y;
+				const h = Math.min(1, Math.max(0, ((x - p.x) * ex + (y - p.y) * ey) / Math.max(ex * ex + ey * ey, 1e-9)));
+				return Math.hypot(x - p.x - ex * h, y - p.y - ey * h) <= p.radius + 1;
+			}
+			if (p.kind === PRIM_ARC) return Math.hypot(x - p.x, y - p.y) <= p.bend + p.radius + 1;
+			return Math.hypot(x - p.x, y - p.y) <= Math.hypot(p.halfWidth, p.outer) + 1;
+		};
+		for (let y = 0.5; y < 128; y += 3)
+			for (let x = 0.5; x < 128; x += 3) {
+				const list = new Set(r.cellList(x, y, { ...opts, tile: false }));
+				prims.forEach((p, i) => near(p, x, y) && expect(list.has(i)).toBe(true));
+			}
+	});
+
+	it('encodes large layouts in a coarser unit, rows of whole records, and caps the primitive count', () => {
 		const line = { ...runPrims(straight(0, 100, 5), 1, opts, rng(1))[0], x: 6000, y: 7000, x1: -5000, y1: 50 };
-		const big = encodePrims([line], 4 * 5);
-		const unit = u16(big, 1, 0);
-		expect(unit).toBe(2);
+		const big = encodePrims([line], 4 * 5, opts);
+		expect(big.unit).toBe(2);
 		// Position (v / unit + 4096) × 8: back to px within the fixed point's step.
-		const at = (slot: number, texel: number) => (u16(big, texel, slot) / 8 - 4096) * unit;
-		expect(at(0, 2)).toBeCloseTo(6000, 0);
-		expect(at(1, 2)).toBeCloseTo(7000, 0);
-		expect(at(0, 3)).toBeCloseTo(-5000, 0);
-		// Many primitives: rows of PRIM_ROW texels, at most MAX_PIPE_PRIMS of them.
+		const r = new TexelReader(big);
+		expect(r.pos(0, 0)).toBeCloseTo(6000, 0);
+		expect(r.pos(0, 1)).toBeCloseTo(7000, 0);
+		expect(r.pos(1, 0)).toBeCloseTo(-5000, 0);
+		// Many primitives: rows of PRIM_ROW texels holding whole records, at most MAX_PIPE_PRIMS of them.
 		const many = encodePrims(
 			Array.from({ length: MAX_PIPE_PRIMS + 10 }, () => line),
-			20
+			20,
+			opts
 		);
-		expect(many.width).toBe(PRIM_ROW);
-		expect(many.height).toBe(Math.ceil((2 + 5 * MAX_PIPE_PRIMS) / PRIM_ROW));
-		expect(u16(many, 0, 0)).toBe(MAX_PIPE_PRIMS);
+		expect(many.texture.width).toBe(PRIM_ROW);
+		expect(many.count).toBe(MAX_PIPE_PRIMS);
+		const per = Math.floor(PRIM_ROW / PIPE_STRIDE);
+		expect(new TexelReader(many).rec(per, PIPE_STRIDE)).toBe(PRIM_ROW);
+		expect(many.table).toBe(Math.ceil(MAX_PIPE_PRIMS / per) * PRIM_ROW);
 	});
 
 	it('leaves out the empty length between two fillets that take all of it', () => {

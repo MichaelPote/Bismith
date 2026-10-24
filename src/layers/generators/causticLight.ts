@@ -19,6 +19,7 @@
 import { hashI } from '@/core/hash';
 import { P, type ParamValues } from '@/core/params';
 import { PHASE_PARAM } from '../commonParams';
+import { GLSL_PRIMTEX } from '../primTexture';
 import type { CpuTexture, LayerDef } from '../types';
 
 const LC_MAX = 16;
@@ -238,11 +239,9 @@ export const causticLightLayer: LayerDef = {
 	textures: ['waves'],
 	cpuData: (p, ctx) => ({ waves: waveTable(p, ctx) }),
 	glsl: /* glsl */ `
+${GLSL_PRIMTEX}
 // The wave table (waveTable, cpuData): float32 bits in RGBA8 texels.
-float lc_f(int x, int y) {
-  uvec4 b = uvec4(texelFetch(t_waves, ivec2(x, y), 0) * 255.0 + 0.5);
-  return uintBitsToFloat(b.r | (b.g << 8u) | (b.b << 16u) | (b.a << 24u));
-}
+float lc_f(int x, int y) { return texF32(t_waves, ivec2(x, y)); }
 const int LC_MAX = ${LC_MAX};
 vec2 lcK[LC_MAX];
 float lcPhi[LC_MAX];

@@ -4,6 +4,7 @@
 
 import { MAX_PATH_POINTS, parsePolygons, parsePolylines, takePolygons } from '@/core/bitmap';
 import { P, type ParamValues } from '@/core/params';
+import { GLSL_PRIMTEX } from '../primTexture';
 import type { CpuTexture, LayerDef } from '../types';
 
 type V2 = [number, number];
@@ -36,7 +37,7 @@ export function fillet(a: V2, v: V2, b: V2, R: number): [number, number, number,
 	return [t, v[0] + bis[0] * s, v[1] + bis[1] * s, r];
 }
 
-/** Floats as an RGBA8 texture `width` texels across, one per texel (its bits, little-endian): shp_flt reads them back. */
+/** Floats as an RGBA8 texture `width` texels across, one per texel (its bits, little-endian): texF32 reads them back. */
 function floatTexture(f: Float32Array, width: number): CpuTexture {
 	const height = Math.max(1, Math.ceil(f.length / width));
 	const data = new Uint8Array(width * height * 4);
@@ -58,12 +59,9 @@ function shaderPoints(lists: number[][][], k: V2): V2[][] {
 const unitsScale = (q: ParamValues, ctx: { width: number; height: number }): V2 =>
 	q.units === 'fraction' ? [ctx.width, ctx.height] : [1, 1];
 
-// Shared by Path and Polyline: a float from a data texture (floatTexture), and the sector test of a corner's round.
+// Shared by Path and Polyline: floats from a data texture (floatTexture: texF32), and the sector test of a corner's round.
 const PATHS_GLSL = /* glsl */ `
-float shp_flt(sampler2D t, ivec2 c) {
-  uvec4 b = uvec4(texelFetch(t, c, 0) * 255.0 + 0.5);
-  return uintBitsToFloat(b.x | (b.y << 8) | (b.z << 16) | (b.w << 24));
-}
+${GLSL_PRIMTEX}
 float shp_cross(vec2 a, vec2 b) { return a.x * b.y - a.y * b.x; }
 // p in the sector of the round (between its centre's rays to the two tangent points t1, t2)?
 bool shp_sector(vec2 p, vec2 c, vec2 t1, vec2 t2) {
@@ -139,7 +137,7 @@ float pth_bs;
 
 // Vertex v's round (t, centre, r): t_poly's row v.
 vec4 pth_fillet(int v) {
-  return vec4(shp_flt(t_poly, ivec2(0, v)), shp_flt(t_poly, ivec2(1, v)), shp_flt(t_poly, ivec2(2, v)), shp_flt(t_poly, ivec2(3, v)));
+  return vec4(texF32(t_poly, ivec2(0, v)), texF32(t_poly, ivec2(1, v)), texF32(t_poly, ivec2(2, v)), texF32(t_poly, ivec2(3, v)));
 }
 
 // Signed distance to the polygons and the filled region's polygon: the last polygon that contains the point (outside:
@@ -175,7 +173,7 @@ vec2 pathSdf(vec2 q, vec2 k) {
     if (u_radius > 0.0) {
       vec2 a = u_points[i].xy * k;
       vec4 fv = pth_fillet(vi);
-      float tw = shp_flt(t_poly, ivec2(0, wi));
+      float tw = texF32(t_poly, ivec2(0, wi));
       float L = max(length(e), 1e-6);
       vec2 t = e / L;
       vec2 h = qv - t * clamp(dot(qv, t), fv.x, max(L - tw, fv.x));
@@ -243,8 +241,8 @@ GenOut gen(vec2 p) {
   // Fractions of the texture's width and height, as the shape editor draws them.
   vec2 k = u_units == 1 ? uRes : vec2(1.0);
   // The bounds (t_poly's last row) and their centre, the pivot of Scale and Rotation.
-  vec2 lo = vec2(shp_flt(t_poly, ivec2(0, n)), shp_flt(t_poly, ivec2(1, n)));
-  vec2 hi = vec2(shp_flt(t_poly, ivec2(2, n)), shp_flt(t_poly, ivec2(3, n)));
+  vec2 lo = vec2(texF32(t_poly, ivec2(0, n)), texF32(t_poly, ivec2(1, n)));
+  vec2 hi = vec2(texF32(t_poly, ivec2(2, n)), texF32(t_poly, ivec2(3, n)));
   vec2 q0 = vec2(p.x, uRes.y - p.y);
   float sc = max(u_scale, 1e-3);
   float zs = 1.0 / sc;
@@ -470,7 +468,7 @@ const POLYLINE_GLSL = /* glsl */ `
 // t_line's rows: the lines' lengths from PLN_LROW, the bounds at PLN_BROW.
 #define PLN_LROW ${MAX_PATH_POINTS}
 #define PLN_BROW ${MAX_PATH_POINTS + PLN_LINES}
-float pln_f(int x, int y) { return shp_flt(t_line, ivec2(x, y)); }
+float pln_f(int x, int y) { return texF32(t_line, ivec2(x, y)); }
 
 // Width factor at x along a line of length L (0 = its start … 1 = its end) for the taper: s = 0 where the taper
 // starts … 1 at the tip, shaped by Taper shape.

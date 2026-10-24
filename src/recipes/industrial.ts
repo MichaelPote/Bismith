@@ -7,6 +7,7 @@ import { L, across, clamp, gradient, lerp, num, r2, shade } from './parts';
 const shadeHex = (hex: string, k: number) => shade(hex, k).stops[0].color;
 import type { RecipeDef, RecipeLayer } from './types';
 import { SHAPE_MASK, limitTo } from '@/layers/masks';
+import { PIPE_RUNS_EDIT } from '@/layers/generators/pipes';
 
 const drawn = (p: Record<string, unknown>) => p.layout === 'drawn';
 const random = (p: Record<string, unknown>) => (p.layout ?? 'random') === 'random';
@@ -58,7 +59,8 @@ export const pipes: RecipeDef = {
 		P.bitmap('points', 'Runs', '0,0.4 1,0.4 | 0.3,0.4 0.3,1', 'lines', {
 			group: 'layout',
 			showIf: drawn,
-			hint: 'Centre lines, x,y as fractions of the texture; one run per line or "|" (edit on the canvas with the shape editor)'
+			hint: 'Centre lines, x,y as fractions of the texture; one run per line or "|" (edit on the canvas with the shape editor)',
+			shapeEdit: PIPE_RUNS_EDIT
 		}),
 		P.int('runs', 'Horizontal runs', 3, 0, 64, {
 			group: 'layout',

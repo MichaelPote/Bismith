@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { freshParams } from '../registry';
 import { ensureBuiltins } from '@/render/builtins';
+import { PRIM_ROW, TexelReader } from '../primTexture';
 import {
 	MAX_SPLAT_PRIMS,
 	SPLAT_BITE,
 	SPLAT_CAPSULE,
+	SPLAT_STRIDE,
 	buildSplats,
 	encodeSplats,
 	parseSplatPoints,
-	type SplatOptions
+	type SplatOptions,
+	type SplatPrim
 } from './splatsGeometry';
 
 const base: SplatOptions = {
@@ -75,21 +78,50 @@ describe('splats geometry', () => {
 		}
 	});
 
-	it('stays within the shader loop and encodes every primitive', () => {
+	it('stays within the budget and encodes every primitive', () => {
 		const many = buildSplats({ ...base, count: 200, mist: 3, drops: 3 });
 		expect(many.length).toBeLessThanOrEqual(MAX_SPLAT_PRIMS);
 		const tex = encodeSplats(many, { width: 256, height: 256, tile: true, margin: 8 });
-		expect(tex.width).toBeLessThanOrEqual(1024);
-		expect(tex.width % 4).toBe(0);
-		expect(tex.width * tex.height).toBeGreaterThanOrEqual(4 + 4 * many.length);
-		expect((tex.data[0] << 8) | tex.data[1]).toBe(many.length);
+		expect(tex.texture.width).toBe(PRIM_ROW);
+		expect(tex.count).toBe(many.length);
+		expect(tex.table).toBeGreaterThan(new TexelReader(tex).rec(many.length - 1, SPLAT_STRIDE) + 3);
+		expect(tex.grid[0] * tex.grid[1]).toBeGreaterThan(1);
 	});
 
-	it('shares the primitives out, so more splats always put more on screen', () => {
-		// Every splat's body is its first primitive, and each draws its own random.
-		const splats = (count: number) => new Set(buildSplats({ ...base, count, size: 40 }).map((p) => p.rnd)).size;
-		expect(splats(24)).toBeGreaterThan(20);
-		expect(splats(100)).toBeGreaterThanOrEqual(100);
+	it('shares the primitives out, so more splats always put more on screen and none goes missing', () => {
+		// Every splat's body is its first primitive, and each draws its own random (a bite has none).
+		const splats = (o: Partial<SplatOptions>) =>
+			new Set(buildSplats({ ...base, ...o }).flatMap((p) => (p.kind === SPLAT_BITE ? [] : [p.rnd]))).size;
+		expect(splats({ count: 24, size: 40 })).toBe(24);
+		expect(splats({ count: 100, size: 40 })).toBe(100);
+		// Ragged cores alone (lobes, bites, clumps, puddles) would take the budget.
+		for (const splash of [0, 1])
+			expect(splats({ width: 512, height: 512, count: 200, size: 40, ragged: 1, splash })).toBe(200);
+	});
+
+	it('encodes positions far out in a coarser unit instead of clamping them', () => {
+		const p: SplatPrim = {
+			kind: SPLAT_CAPSULE,
+			x: 5000,
+			y: 8000,
+			dx: -4500,
+			dy: 30,
+			r0: 1500,
+			r1: 2,
+			k: 600,
+			swell: 1,
+			rnd: 0.5
+		};
+		const tex = encodeSplats([p], { width: 8192, height: 8192, tile: false, margin: 8 });
+		expect(tex.unit).toBe(2);
+		const r = new TexelReader(tex);
+		expect([r.pos(0, 0), r.pos(0, 1), r.pos(1, 0), r.pos(1, 1)]).toEqual([5000, 8000, -4500, 30]);
+		expect((r.u16(2, 0) / 64) * tex.unit).toBeCloseTo(1500, 1);
+		expect(((r.u16(3, 0) & 16383) / 32) * tex.unit).toBeCloseTo(600, 1);
+		expect(
+			encodeSplats([{ ...p, x: 100, y: 100, dx: 50, r0: 20, k: 4 }], { width: 256, height: 256, tile: true, margin: 8 })
+				.unit
+		).toBe(1);
 	});
 
 	it('keeps the layout while any other param changes: only the splat count and the seed move the splats', () => {
@@ -139,9 +171,8 @@ describe('splats geometry', () => {
 			const W = 128;
 			const margin = 6;
 			const prims = buildSplats({ ...base, width: W, height: W, tile, count: 5, size: 12, ragged: 1, gravity: 0.6 });
-			const { width, data } = encodeSplats(prims, { width: W, height: W, tile, margin });
-			const u16 = (t: number, s: number) => (data[t * 4 + s * 2] << 8) | data[t * 4 + s * 2 + 1];
-			const u32 = (t: number) => u16(t, 0) * 65536 + u16(t, 1);
+			const tex = encodeSplats(prims, { width: W, height: W, tile, margin });
+			const r = new TexelReader(tex);
 			const wrap = (v: number) => (tile ? v - W * Math.floor(v / W + 0.5) : v);
 			const sdEllipse = (x: number, y: number, a: number, b: number) => {
 				if (Math.abs(a - b) < 1e-3) return Math.hypot(x, y) - a;
@@ -151,22 +182,22 @@ describe('splats geometry', () => {
 			const dist = (qx: number, qy: number, list: number[]) => {
 				let d = 1e4;
 				for (const i of list) {
-					const t = 4 + 4 * i;
-					const vx = wrap(qx - (u16(t, 0) / 8 - 4096));
-					const vy = wrap(qy - (u16(t, 1) / 8 - 4096));
-					const r0 = u16(t + 2, 0) / 64;
-					const r1 = u16(t + 2, 1) / 64;
-					const kind = u16(t + 3, 0) >> 14;
-					const k = Math.max((u16(t + 3, 0) & 16383) / 32, 1e-4);
+					const t = r.rec(i, SPLAT_STRIDE);
+					const vx = wrap(qx - r.pos(t, 0));
+					const vy = wrap(qy - r.pos(t, 1));
+					const r0 = (r.u16(t + 2, 0) / 64) * tex.unit;
+					const r1 = (r.u16(t + 2, 1) / 64) * tex.unit;
+					const kind = r.u16(t + 3, 0) >> 14;
+					const k = Math.max(((r.u16(t + 3, 0) & 16383) / 32) * tex.unit, 1e-4);
 					let di: number;
 					if (kind === SPLAT_CAPSULE) {
-						const ex = u16(t + 1, 0) / 8 - 4096;
-						const ey = u16(t + 1, 1) / 8 - 4096;
+						const ex = r.pos(t + 1, 0);
+						const ey = r.pos(t + 1, 1);
 						const h = Math.min(1, Math.max(0, (vx * ex + vy * ey) / Math.max(ex * ex + ey * ey, 1e-6)));
 						di = Math.hypot(vx - ex * h, vy - ey * h) - (r0 + (r1 - r0) * h);
 					} else {
-						const ax = u16(t + 1, 0) / 32767.5 - 1;
-						const ay = u16(t + 1, 1) / 32767.5 - 1;
+						const ax = r.u16(t + 1, 0) / 32767.5 - 1;
+						const ay = r.u16(t + 1, 1) / 32767.5 - 1;
 						di = sdEllipse(vx * ax + vy * ay, -vx * ay + vy * ax, Math.max(r0, 0.05), Math.max(r1, 0.05));
 					}
 					// sdfCombine: smooth union (5), smooth subtraction (6).
@@ -178,26 +209,16 @@ describe('splats geometry', () => {
 				}
 				return d;
 			};
-			const gw = u16(0, 1);
-			const gh = u16(1, 0);
 			const all = prims.map((_, i) => i);
 			let near = 0;
 			for (let y = -10.5; y < W + 10; y += 1.7)
 				for (let x = -10.5; x < W + 10; x += 1.7) {
 					const full = dist(x, y, all);
 					if (Math.abs(full) >= margin) continue;
-					let cx = Math.floor(x / (W / gw));
-					let cy = Math.floor(y / (W / gh));
-					cx = tile ? ((cx % gw) + gw) % gw : Math.min(gw - 1, Math.max(0, cx));
-					cy = tile ? ((cy % gh) + gh) % gh : Math.min(gh - 1, Math.max(0, cy));
-					const c = u32(2) + cx + cy * gw;
-					const list: number[] = [];
-					for (let e = u32(c); e < u32(c + 1); e++) list.push(u16(u32(3) + (e >> 1), e & 1));
-					expect(dist(x, y, list)).toBeCloseTo(full, 4);
+					expect(dist(x, y, r.cellList(x, y, { width: W, height: W, tile }))).toBeCloseTo(full, 4);
 					near++;
 				}
 			expect(near).toBeGreaterThan(500);
-			expect(width % 4).toBe(0);
 		}
 	});
 
@@ -205,15 +226,31 @@ describe('splats geometry', () => {
 		// The body is a splat's first primitive (centred on it without gravity); each splat draws its own random.
 		const bodies = (at: [number, number][]) => {
 			const seen = new Map<number, [number, number]>();
-			for (const p of buildSplats({ ...base, at })) if (p.kind !== SPLAT_BITE && !seen.has(p.rnd)) seen.set(p.rnd, [p.x, p.y]);
+			for (const p of buildSplats({ ...base, at }))
+				if (p.kind !== SPLAT_BITE && !seen.has(p.rnd)) seen.set(p.rnd, [p.x, p.y]);
 			return [...seen.values()];
 		};
-		expect(bodies([[50, 60], [200, 100], [120, 220]])).toEqual([[50, 60], [200, 100], [120, 220]]);
+		expect(
+			bodies([
+				[50, 60],
+				[200, 100],
+				[120, 220]
+			])
+		).toEqual([
+			[50, 60],
+			[200, 100],
+			[120, 220]
+		]);
 		// Off a tileable texture it wraps back on.
 		expect(bodies([[-6, 300]])).toEqual([[250, 44]]);
 		// Moving a point moves its splat whole: the same pieces, shifted.
 		const rel = (x: number, y: number) =>
-			buildSplats({ ...base, at: [[x, y]] }).map((p) => [p.kind, Math.round((p.x - x) * 1e3), Math.round((p.y - y) * 1e3), p.r0]);
+			buildSplats({ ...base, at: [[x, y]] }).map((p) => [
+				p.kind,
+				Math.round((p.x - x) * 1e3),
+				Math.round((p.y - y) * 1e3),
+				p.r0
+			]);
 		expect(rel(100, 100)).toEqual(rel(130, 90));
 	});
 

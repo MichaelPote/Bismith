@@ -79,3 +79,16 @@ export function memoReads<P extends object, A extends unknown[], R>(
 		return value;
 	};
 }
+
+/**
+ * fn(items, key), remembered per items array — by its identity, as a memo hands the same array back — and by key
+ * (memoKey): the last `size` keys of each array. For work on a large array that memoKey would be slow to stringify.
+ */
+export function memoOn<T extends object, K, R>(fn: (items: T, key: K) => R, size = 4): (items: T, key: K) => R {
+	const cache = new WeakMap<T, Lru<R>>();
+	return (items, key) => {
+		let lru = cache.get(items);
+		if (!lru) cache.set(items, (lru = new Lru<R>(size)));
+		return lru.get(memoKey(key), () => fn(items, key));
+	};
+}

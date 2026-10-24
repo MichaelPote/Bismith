@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { FONT, MAX_PATH_POINTS, packPolygons, parseBitmap, parsePolygons, takePolygons } from './bitmap';
+import {
+	FONT,
+	MAX_PATH_POINTS,
+	packPolygons,
+	parseBitmap,
+	parsePointLines,
+	parsePolygons,
+	parsePolylines,
+	takePolygons
+} from './bitmap';
 
 describe('parseBitmap', () => {
 	it('maps cell characters to levels and trims blank edge rows', () => {
@@ -17,6 +26,33 @@ describe('parseBitmap', () => {
 });
 
 describe('polygons', () => {
+	it("pairs each line's numbers as points, an odd one out dropped; polygons keep 3+, polylines 2+", () => {
+		const text = '10,20,5\n30,40 | 1,2 3,4 5,6\n-1.5e1,.5';
+		expect(parsePointLines(text)).toEqual([
+			[[10, 20]],
+			[[30, 40]],
+			[
+				[1, 2],
+				[3, 4],
+				[5, 6]
+			],
+			[[-15, 0.5]]
+		]);
+		expect(parsePolygons(text)).toEqual([
+			[
+				[1, 2],
+				[3, 4],
+				[5, 6]
+			]
+		]);
+		expect(parsePolylines('0,0 1,1 | 2,2\n')).toEqual([
+			[
+				[0, 0],
+				[1, 1]
+			]
+		]);
+	});
+
 	it('parses vertex pairs per line and links each vertex to the next in its polygon', () => {
 		const polys = parsePolygons('0,0 10,0 10,10\n20,20, 30,20 30,30 20,30');
 		expect(polys).toEqual([

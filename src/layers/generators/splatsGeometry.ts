@@ -8,6 +8,11 @@
 // gravity, runs from the core's downhill edge (and from the bigger drops) that wobble down and end in a bead, and the
 // core sagging that way. The spray can be thrown all round or to one side.
 
+import { parsePointLines } from '@/core/bitmap';
+import { mulberry32 } from '@/core/hash';
+import { imod } from '../derivedMath';
+import { POS_RANGE, PrimWriter, binByReach, fitUnit, sizeRange, type PrimTexture } from '../primTexture';
+
 export const SPLAT_ELLIPSE = 0;
 export const SPLAT_CAPSULE = 1;
 /** An ellipse cut out of what came before it: a bite out of a core's rim. */
@@ -76,26 +81,16 @@ export interface SplatOptions {
  * splat — the lines between them mean nothing — in px, or fractions of the texture.
  */
 export function parseSplatPoints(text: string, fraction: boolean, width: number, height: number): [number, number][] {
-	const nums = (text.match(/-?\d*\.?\d+(?:e-?\d+)?/gi) ?? []).map(Number);
-	const out: [number, number][] = [];
-	for (let i = 0; i + 1 < nums.length; i += 2)
-		out.push(fraction ? [nums[i] * width, nums[i + 1] * height] : [nums[i], nums[i + 1]]);
-	return out;
+	const [sx, sy] = fraction ? [width, height] : [1, 1];
+	return parsePointLines(text)
+		.flat()
+		.map(([x, y]) => [x * sx, y * sy]);
 }
 
-/** Small seeded PRNG (mulberry32). */
-function rng(seed: number): () => number {
-	let a = seed >>> 0;
-	return () => {
-		a = (a + 0x6d2b79f5) >>> 0;
-		let t = a;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	};
-}
-
-/** Most primitives the shader loops over. */
+/**
+ * The texture's budget of primitives, shared out between the splats: it decides how much spray many big splats keep.
+ * (The shader loops over a grid cell's list only; the list indices are 16-bit.)
+ */
 export const MAX_SPLAT_PRIMS = 4000;
 
 /** What a random stream is for (with the splat and the part's index): every part draws from its own. */
@@ -119,7 +114,7 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 		let h = Math.imul(o.seed * 7919 + 13, 0x9e3779b1) ^ Math.imul(kind, 0x85ebca6b);
 		h = Math.imul(h ^ (h >>> 15) ^ Math.imul(a + 1, 0xc2b2ae35), 0x27d4eb2f);
 		h = Math.imul(h ^ (h >>> 13) ^ Math.imul(b + 1, 0x165667b1), 0x9e3779b1);
-		return rng(h ^ (h >>> 16));
+		return mulberry32(h ^ (h >>> 16));
 	};
 	const prims: SplatPrim[] = [];
 	const W = o.width;
@@ -140,37 +135,24 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 	const gy = Math.cos(ga);
 	const aim = (o.aim * Math.PI) / 180;
 	const n = o.at ? o.at.length : Math.max(0, Math.round(o.count));
+	// The splat being built: its random, and where its share of the primitives ends (the pieces past it are left out).
+	let rnd = 0;
+	let end = 0;
+	const add = (p: SplatPrim) => {
+		if (prims.length < end) prims.push(p);
+	};
 
-	const ellipse = (
-		x: number,
-		y: number,
-		ax: number,
-		ay: number,
-		ra: number,
-		rb: number,
-		k: number,
-		swell: number,
-		rnd: number
-	) => {
+	/** An ellipse ra × rb along the unit axis (ax, ay), of the splat being built. */
+	const ellipse = (x: number, y: number, ax: number, ay: number, ra: number, rb: number, k: number, swell = 1) => {
 		const f = fit(Math.max(ra, rb), k);
-		prims.push({ kind: SPLAT_ELLIPSE, x, y, dx: ax, dy: ay, r0: ra * f, r1: rb * f, k: k * f, swell, rnd });
+		add({ kind: SPLAT_ELLIPSE, x, y, dx: ax, dy: ay, r0: ra * f, r1: rb * f, k: k * f, swell, rnd });
 	};
 	const bite = (x: number, y: number, ax: number, ay: number, ra: number, rb: number, k: number) => {
 		const f = fit(Math.max(ra, rb), k);
-		prims.push({ kind: SPLAT_BITE, x, y, dx: ax, dy: ay, r0: ra * f, r1: rb * f, k: k * f, swell: 1, rnd: 0 });
+		add({ kind: SPLAT_BITE, x, y, dx: ax, dy: ay, r0: ra * f, r1: rb * f, k: k * f, swell: 1, rnd: 0 });
 	};
 	/** A tapered capsule from (x, y) by (dx, dy), cut into segments that fit. */
-	const capsule = (
-		x: number,
-		y: number,
-		dx: number,
-		dy: number,
-		ra: number,
-		rb: number,
-		k: number,
-		swell: number,
-		rnd: number
-	) => {
+	const capsule = (x: number, y: number, dx: number, dy: number, ra: number, rb: number, k: number, swell: number) => {
 		const f = fit(Math.max(ra, rb), k);
 		ra *= f;
 		rb *= f;
@@ -180,7 +162,7 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 		for (let i = 0; i < parts; i++) {
 			const t0 = i / parts;
 			const t1 = (i + 1) / parts;
-			prims.push({
+			add({
 				kind: SPLAT_CAPSULE,
 				x: x + dx * t0,
 				y: y + dy * t0,
@@ -209,9 +191,8 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 	 * A run: from a neck inside its source (x, y), wobbling down, width w narrowing a little as it leaves liquid behind,
 	 * a bead at its end.
 	 */
-	const run = (r: () => number, x: number, y: number, w: number, len: number, rnd: number, neck = 0) => {
-		if (neck > 0)
-			capsule(x - gx * neck, y - gy * neck, gx * neck * 1.6, gy * neck * 1.6, w * 1.9, w, 0.8 * w, 0.85, rnd);
+	const run = (r: () => number, x: number, y: number, w: number, len: number, neck = 0) => {
+		if (neck > 0) capsule(x - gx * neck, y - gy * neck, gx * neck * 1.6, gy * neck * 1.6, w * 1.9, w, 0.8 * w, 0.85);
 		const step = Math.max(3 * pxs, 3 * w);
 		const parts = Math.max(1, Math.ceil(len / step));
 		let px = x;
@@ -227,7 +208,7 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			const ex = gx * seg - gy * off;
 			const ey = gy * seg + gx * off;
 			const wb = Math.max(0.5 * pxs, wa * (0.9 + 0.08 * r()));
-			capsule(px, py, ex, ey, wa, wb, 0.6 * wa, 0.75, rnd);
+			capsule(px, py, ex, ey, wa, wb, 0.6 * wa, 0.75);
 			px += ex;
 			py += ey;
 			wa = wb;
@@ -236,17 +217,7 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			// From the run's starting width: the liquid it carried collects there.
 			const br = Math.max(wa, w * (0.9 + 1.4 * o.bead)) * (0.85 + 0.3 * r());
 			// Elongated along the fall, sitting just below the run's end.
-			ellipse(
-				px + gx * br * 0.4,
-				py + gy * br * 0.4,
-				gx,
-				gy,
-				br * (1 + 0.3 * o.bead),
-				br,
-				0.8 * wa,
-				1 + 0.6 * o.bead,
-				rnd
-			);
+			ellipse(px + gx * br * 0.4, py + gy * br * 0.4, gx, gy, br * (1 + 0.3 * o.bead), br, 0.8 * wa, 1 + 0.6 * o.bead);
 		}
 	};
 
@@ -260,6 +231,8 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 		const j = Math.floor(rg() * (i + 1));
 		[cells[i], cells[j]] = [cells[j], cells[i]];
 	}
+	// A placed splat off a tileable texture wraps back onto it.
+	const wrap = (v: number, m: number) => (o.tile ? imod(v, m) : v);
 	for (let s = 0; s < n && prims.length < MAX_SPLAT_PRIMS; s++) {
 		// The splat's own draws, in a fixed order: where it sits (drawn even when placed by hand, so a placed splat looks as
 		// the grid's would), its random, its size, then how many of each part.
@@ -267,10 +240,8 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 		const cell = cells[s % cells.length];
 		const gridX = ((cell % cols) + 0.15 + 0.7 * r()) * (W / cols);
 		const gridY = (Math.floor(cell / cols) + 0.15 + 0.7 * r()) * (H / rows);
-		// A placed splat off a tileable texture wraps back onto it.
-		const wrap = (v: number, m: number) => (o.tile ? ((v % m) + m) % m : v);
 		const [cx, cy] = o.at ? [wrap(o.at[s][0], W), wrap(o.at[s][1], H)] : [gridX, gridY];
-		const rnd = r();
+		rnd = r();
 		// Sizes spread log-normally-ish: most near Size, a few much bigger or smaller.
 		const R = Math.max(0.75 * pxs, o.size * Math.exp((r() + r() - 1) * 1.2 * o.sizeVar));
 		const k = 0.2 * R;
@@ -284,26 +255,28 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 		const nMist = r();
 		const nRun = r();
 		const runOffset = r();
-		// Its share of the primitives left: with many splats each gets fewer runs, jets, spikes, droplets and specks (in
-		// that order) instead of the last splats going missing.
-		const end = prims.length + Math.floor((MAX_SPLAT_PRIMS - prims.length) / (n - s));
+		// Its share of the primitives left, less a body for each splat still to come: with many splats each gets fewer
+		// runs, jets, spikes, droplets and specks (in that order), then fewer lobes, bites and clumps, instead of the last
+		// splats going missing. The body always fits.
+		const later = n - s - 1;
+		end = prims.length + Math.max(1, Math.floor((MAX_SPLAT_PRIMS - prims.length - later) / (later + 1)));
 
 		// The core: a body and lobes around it, sagging downhill with gravity; with Ragged core, clumps breaking off it.
 		const sag = 0.5 * g * R;
-		ellipse(cx + gx * sag * 0.5, cy + gy * sag * 0.5, gx, gy, R * 0.75 * (1 + 0.6 * g), R * 0.75, k, 1, rnd);
+		ellipse(cx + gx * sag * 0.5, cy + gy * sag * 0.5, gx, gy, R * 0.75 * (1 + 0.6 * g), R * 0.75, k);
 		const lobes = 4 + Math.round(10 * o.ragged * (0.5 + nLobe));
-		for (let l = 0; l < lobes; l++) {
+		for (let l = 0; l < lobes && prims.length < end; l++) {
 			const r = stream(LOBE, s, l);
 			const a = r() * 2 * Math.PI;
 			const dist = R * (0.25 + (0.75 + 0.35 * o.ragged) * o.ragged * r());
 			const lr = R * (0.15 + 0.4 * r() ** 1.5) * (1 - 0.35 * o.ragged * r());
 			const ax = Math.cos(a);
 			const ay = Math.sin(a);
-			ellipse(cx + ax * dist + gx * sag, cy + ay * dist + gy * sag, ax, ay, lr * (1 + 0.5 * r()), lr, k, 1, rnd);
+			ellipse(cx + ax * dist + gx * sag, cy + ay * dist + gy * sag, ax, ay, lr * (1 + 0.5 * r()), lr, k);
 		}
 		// Bites out of the rim: concave notches between the lobes.
 		const bites = Math.round(7 * o.ragged * (0.4 + nBite));
-		for (let l = 0; l < bites; l++) {
+		for (let l = 0; l < bites && prims.length < end; l++) {
 			const r = stream(BITE, s, l);
 			const a = r() * 2 * Math.PI;
 			const br = R * (0.12 + 0.22 * r());
@@ -313,19 +286,19 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			bite(cx + ax * dist + gx * sag, cy + ay * dist + gy * sag, -ay, ax, br * (1 + r()), br, 0.3 * br);
 		}
 		const clumps = Math.round(8 * o.ragged * splash * (0.3 + nClump));
-		for (let l = 0; l < clumps; l++) {
+		for (let l = 0; l < clumps && prims.length < end; l++) {
 			const r = stream(CLUMP, s, l);
 			const a = sprayAngle(r);
 			const ax = Math.sin(a);
 			const ay = -Math.cos(a);
 			const lr = R * (0.12 + 0.22 * r());
 			const dist = R * (0.95 + 0.5 * r()) + lr;
-			ellipse(cx + ax * dist, cy + ay * dist, ax, ay, lr * (1.2 + 0.6 * r()), lr, 0.4 * lr, 1, rnd);
+			ellipse(cx + ax * dist, cy + ay * dist, ax, ay, lr * (1.2 + 0.6 * r()), lr, 0.4 * lr);
 		}
 
 		// A pour spreads into a few satellite puddles at its rim.
 		const puddles = Math.round(4 * o.ragged * (1 - Math.min(1, splash)) * (0.3 + nPuddle));
-		for (let l = 0; l < puddles; l++) {
+		for (let l = 0; l < puddles && prims.length < end; l++) {
 			const r = stream(PUDDLE, s, l);
 			const a = r() * 2 * Math.PI;
 			const ax = Math.cos(a);
@@ -333,17 +306,7 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			const lr = R * (0.1 + 0.2 * r());
 			// A gap away from the rim, so they read as puddles of their own.
 			const dist = R * (1.05 + 0.3 * r()) + lr * 1.3;
-			ellipse(
-				cx + ax * dist + gx * sag,
-				cy + ay * dist + gy * sag,
-				ax,
-				ay,
-				lr * (1.1 + 0.5 * r()),
-				lr,
-				0.5 * lr,
-				1,
-				rnd
-			);
+			ellipse(cx + ax * dist + gx * sag, cy + ay * dist + gy * sag, ax, ay, lr * (1.1 + 0.5 * r()), lr, 0.5 * lr);
 		}
 
 		// Gravity: runs from the core's downhill edge and from the bigger drops.
@@ -361,7 +324,7 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 				const y = cy + gy * (0.7 * R * edge + sag) + gx * across;
 				const w = R * (0.08 + 0.08 * r()) * (u === 0 ? 1.25 : 1);
 				const len = R * o.runLength * g * (u === 0 ? 1 : 0.25 + 0.65 * r());
-				run(r, x, y, Math.max(0.5 * pxs, w), len, rnd, 0.25 * R);
+				run(r, x, y, Math.max(0.5 * pxs, w), len, 0.25 * R);
 			}
 		}
 
@@ -375,7 +338,7 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			if (w0 < 0.9 * pxs) {
 				for (let t = 2 * w0 + 1.5 * pxs * r(); t < len; t += pxs * (2.5 + 3 * r())) {
 					const dr = Math.max(0.5 * pxs, w0 * (0.8 + 0.6 * r()));
-					ellipse(sx + ax * t, sy + ay * t, ax, ay, dr * 1.3, dr, 0.3 * dr, 1, rnd);
+					ellipse(sx + ax * t, sy + ay * t, ax, ay, dr * 1.3, dr, 0.3 * dr);
 				}
 				return;
 			}
@@ -384,10 +347,10 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			const mx = ax * len * 0.5 - ay * bend;
 			const my = ay * len * 0.5 + ax * bend;
 			const wm = Math.max(0.6 * pxs, w0 * 0.55 + w1 * 0.45);
-			capsule(sx, sy, mx, my, w0, wm, 0.6 * w0, 0.8, rnd);
+			capsule(sx, sy, mx, my, w0, wm, 0.6 * w0, 0.8);
 			const ex = ax * len * 0.5 + ay * bend;
 			const ey = ay * len * 0.5 - ax * bend;
-			capsule(sx + mx, sy + my, ex, ey, wm, w1, 0.5 * wm, 0.7, rnd);
+			capsule(sx + mx, sy + my, ex, ey, wm, w1, 0.5 * wm, 0.7);
 			// Drops strung out beyond the tip, along the jet's line, smaller as they go.
 			let tx = sx + mx + ex;
 			let ty = sy + my + ey;
@@ -396,7 +359,7 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 				const gap = dr * (1.5 + 3 * r());
 				tx += ax * gap + (r() - 0.5) * dr;
 				ty += ay * gap + (r() - 0.5) * dr;
-				ellipse(tx, ty, ax, ay, dr * (1.2 + 0.5 * r()), dr, 0.4 * dr, 1, rnd);
+				ellipse(tx, ty, ax, ay, dr * (1.2 + 0.5 * r()), dr, 0.4 * dr);
 				dr *= 0.5 + 0.35 * r();
 			}
 		};
@@ -439,20 +402,13 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			const y = cy + ay * dist;
 			// Under gravity the bigger drops run (some), and one near the core slides: stretched downhill.
 			if (g > 0 && dr > 1.5 * pxs && runs < g * 0.6)
-				run(
-					r,
-					x + gx * dr * 0.6,
-					y + gy * dr * 0.6,
-					dr * 0.55,
-					R * o.runLength * g * 0.35 * (dr / R) * (0.5 + runLen),
-					rnd
-				);
+				run(r, x + gx * dr * 0.6, y + gy * dr * 0.6, dr * 0.55, R * o.runLength * g * 0.35 * (dr / R) * (0.5 + runLen));
 			if (g > 0 && dr > 0.12 * R && f < 0.5 && slide < 0.8 * g) {
-				ellipse(x, y, gx, gy, dr * (1 + g), dr * 0.85, 0.3 * dr, 0.8, rnd);
+				ellipse(x, y, gx, gy, dr * (1 + g), dr * 0.85, 0.3 * dr, 0.8);
 				continue;
 			}
 			// The bigger drops a little lower than the core, and with a tail along their flight.
-			ellipse(x, y, ax, ay, dr * stretch, dr, 0.3 * dr, dr > 0.15 * R ? 0.8 : 1, rnd);
+			ellipse(x, y, ax, ay, dr * stretch, dr, 0.3 * dr, dr > 0.15 * R ? 0.8 : 1);
 			if ((f > 0.4 || dr > 0.15 * R) && dr > 0.8 * pxs)
 				capsule(
 					x + ax * dr * stretch * 0.6,
@@ -462,8 +418,7 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 					dr * 0.45,
 					0.3 * pxs,
 					0.3 * dr,
-					0.7,
-					rnd
+					0.7
 				);
 		}
 		// Fine mist: specks of a px or two, flying furthest.
@@ -474,10 +429,10 @@ export function buildSplats(o: SplatOptions): SplatPrim[] {
 			const a = sprayAngle(r);
 			const dist = R * (0.9 + 1.3 * o.reach * r() ** 1.6);
 			const dr = Math.max(0.6 * pxs, R * (0.025 + 0.05 * r() ** 2));
-			ellipse(cx + Math.sin(a) * dist, cy - Math.cos(a) * dist, 1, 0, dr, dr, 0.2 * dr, 1, rnd);
+			ellipse(cx + Math.sin(a) * dist, cy - Math.cos(a) * dist, 1, 0, dr, dr, 0.2 * dr);
 		}
 	}
-	return prims.slice(0, MAX_SPLAT_PRIMS);
+	return prims;
 }
 
 /** The texture the primitives are laid out on (user px), and how far from its outline the splats' distance must be right. */
@@ -510,116 +465,48 @@ export function splatReach(p: SplatPrim, t: number): number {
 	return most * 1.02;
 }
 
+/** Texels a primitive's record takes. */
+export const SPLAT_STRIDE = 4;
+
 /**
- * The primitive texture, up to 1024 texels a row (a multiple of 4), two 16-bit values a texel (high byte first; a 32-bit
- * value takes a texel, high half first).
- *   Texels 0–3, the header: [count, grid columns] [grid rows, –] [where the cell table starts] [where the lists start].
- *   From texel 4, 4 texels per primitive, on one row: [x, y] [dx, dy] [r0, r1] [kind · k, swell, rnd]. Positions and
- *   capsule offsets are (v + 4096) × 8 (so within ±4096 px, to 1/8 px); an ellipse's (or bite's) unit axis (dx, dy) is
- *   (v + 1) × 32767.5; radii × 64 (up to 1023 px); k × 32 (up to 512 px) in the low 14 bits with the kind (0 ellipse,
- *   1 capsule, 2 bite) in the top two; then swell × 100 and rnd × 255 a byte each.
- *   The cell table: a grid over the texture (cells of width / columns × height / rows, row by row from the top), for
- *   each cell where its list starts (32-bit), and one more for where the last ends.
- *   The lists, two primitive indices a texel: per cell, every primitive whose distance can be within the margin
- *   (+ its smoothing radius, twice) somewhere in the cell — in their order, so a bite still cuts what came before it.
- *   Beyond the margin, inside or out, the distance only stays beyond it. When tiling, the cells wrap with the texture;
- *   otherwise the edge cells reach on outwards.
+ * The primitive texture (primTexture.ts), a record of 4 texels per primitive: [x, y] [dx, dy] [r0, r1] [kind · k, swell,
+ * rnd]. Positions and capsule offsets are positions in the unit; an ellipse's (or bite's) unit axis (dx, dy) a unit
+ * vector; radii sizes × 64; k × 32 in the low 14 bits with the kind (0 ellipse, 1 capsule, 2 bite) in the top two; then
+ * swell × 100 and rnd × 255 a byte each. The unit keeps them all in range (1 up to 4096 px across, 1023 px radii).
+ * The cell lists hold every primitive whose distance can be within the margin (+ its smoothing radius, twice) somewhere
+ * in the cell, in their order, so a bite still cuts what came before it. Beyond the margin, inside or out, the distance
+ * only stays beyond it.
  */
-export function encodeSplats(prims: SplatPrim[], grid: SplatGrid): { width: number; height: number; data: Uint8Array } {
-	const n = prims.length;
-	const { width: W, height: H, tile } = grid;
-	// Reach of each primitive, and the cells about half the typical reach across (at most 128 × 128).
-	const reach = prims.map((p) => splatReach(p, grid.margin + 2 * p.k) + 1);
-	const sorted = [...reach].sort((a, b) => a - b);
-	const cell = Math.max(4, 0.5 * (sorted[Math.floor(sorted.length / 2)] ?? 8));
-	const gw = Math.max(1, Math.min(128, Math.round(W / cell)));
-	const gh = Math.max(1, Math.min(128, Math.round(H / cell)));
-	const cw = W / gw;
-	const ch = H / gh;
-	const lists: number[][] = Array.from({ length: gw * gh }, () => []);
-	/** Distance from v to the cells' span [i0, i1) × size along one axis (with the edge cells open outwards untiled). */
-	const gap = (v: number, i: number, size: number, count: number, span: number) => {
-		const lo = i * size;
-		const hi = lo + size;
-		if (tile) {
-			const c = lo + 0.5 * size;
-			const w = v - span * Math.round((v - c) / span);
-			return Math.max(0, Math.abs(w - c) - 0.5 * size);
-		}
-		if (v < lo) return i === 0 ? 0 : lo - v;
-		if (v > hi) return i === count - 1 ? 0 : v - hi;
-		return 0;
-	};
-	prims.forEach((p, idx) => {
-		const r = reach[idx];
-		// The cells r reaches: around the torus when tiling (all of them once r spans it), clamped to the grid otherwise.
-		const range = (v: number, size: number, count: number) => {
-			let i0 = Math.floor((v - r) / size);
-			let i1 = Math.floor((v + r) / size);
-			if (tile) {
-				if (i1 - i0 + 1 >= count) return [0, count - 1, false] as const;
-				return [i0, i1, true] as const;
-			}
-			i0 = Math.max(0, Math.min(count - 1, i0));
-			i1 = Math.max(0, Math.min(count - 1, i1));
-			return [i0, i1, false] as const;
-		};
-		const [x0, x1, wx] = range(p.x, cw, gw);
-		const [y0, y1, wy] = range(p.y, ch, gh);
-		for (let yi = y0; yi <= y1; yi++) {
-			const cy = wy ? ((yi % gh) + gh) % gh : yi;
-			const dy = gap(p.y, cy, ch, gh, H);
-			if (dy > r) continue;
-			for (let xi = x0; xi <= x1; xi++) {
-				const cx = wx ? ((xi % gw) + gw) % gw : xi;
-				if (Math.hypot(gap(p.x, cx, cw, gw, W), dy) > r) continue;
-				const list = lists[cx + cy * gw];
-				// (A wide primitive can reach one cell from both sides round the torus.)
-				if (list[list.length - 1] !== idx) list.push(idx);
-			}
-		}
-	});
-	const entries = lists.reduce((s, l) => s + l.length, 0);
-	const table = 4 + 4 * n;
-	const listStart = table + gw * gh + 1;
-	const texels = listStart + Math.ceil(entries / 2);
-	const width = Math.min(1024, Math.ceil(texels / 4) * 4);
-	const height = Math.ceil(texels / width);
-	const data = new Uint8Array(width * height * 4);
-	const put16 = (texel: number, slot: number, v: number) => {
-		const q = Math.max(0, Math.min(65535, Math.round(v)));
-		data[texel * 4 + slot * 2] = q >> 8;
-		data[texel * 4 + slot * 2 + 1] = q & 255;
-	};
-	const put32 = (texel: number, v: number) => {
-		put16(texel, 0, Math.floor(v / 65536));
-		put16(texel, 1, v % 65536);
-	};
-	const pos = (v: number) => (Math.max(-4096, Math.min(4095, v)) + 4096) * 8;
-	const unit = (v: number) => (v + 1) * 32767.5;
-	put16(0, 0, n);
-	put16(0, 1, gw);
-	put16(1, 0, gh);
-	put32(2, table);
-	put32(3, listStart);
+export function encodeSplats(prims: SplatPrim[], grid: SplatGrid): PrimTexture {
+	const bins = binByReach(
+		prims.map((p) => ({ x: p.x, y: p.y, reach: splatReach(p, grid.margin + 2 * p.k) + 1 })),
+		grid
+	);
+	const most = (f: (p: SplatPrim) => number) => prims.reduce((m, p) => Math.max(m, f(p)), 0);
+	const unit = fitUnit(
+		[
+			most((p) =>
+				Math.max(Math.abs(p.x), Math.abs(p.y), p.kind === SPLAT_CAPSULE ? Math.max(Math.abs(p.dx), Math.abs(p.dy)) : 0)
+			),
+			POS_RANGE
+		],
+		[most((p) => Math.max(p.r0, p.r1)), sizeRange(64)],
+		[most((p) => p.k), 16383 / 32]
+	);
+	const w = new PrimWriter(SPLAT_STRIDE, prims.length, bins, unit);
 	prims.forEach((p, i) => {
-		const t = 4 + 4 * i;
-		put16(t, 0, pos(p.x));
-		put16(t, 1, pos(p.y));
-		const capsule = p.kind === SPLAT_CAPSULE;
-		put16(t + 1, 0, capsule ? pos(p.dx) : unit(p.dx));
-		put16(t + 1, 1, capsule ? pos(p.dy) : unit(p.dy));
-		put16(t + 2, 0, p.r0 * 64);
-		put16(t + 2, 1, p.r1 * 64);
-		put16(t + 3, 0, Math.min(16383, p.k * 32) + p.kind * 16384);
-		data[(t + 3) * 4 + 2] = Math.max(0, Math.min(255, Math.round(p.swell * 100)));
-		data[(t + 3) * 4 + 3] = Math.max(0, Math.min(255, Math.round(p.rnd * 255)));
+		const t = w.rec(i);
+		w.pos(t, 0, p.x);
+		w.pos(t, 1, p.y);
+		if (p.kind === SPLAT_CAPSULE) {
+			w.pos(t + 1, 0, p.dx);
+			w.pos(t + 1, 1, p.dy);
+		} else w.unitVec(t + 1, p.dx, p.dy);
+		w.size(t + 2, 0, p.r0, 64);
+		w.size(t + 2, 1, p.r1, 64);
+		w.u16(t + 3, 0, Math.min(16383, (p.k / unit) * 32) + p.kind * 16384);
+		w.u8(t + 3, 2, p.swell * 100);
+		w.u8(t + 3, 3, p.rnd * 255);
 	});
-	let e = 0;
-	lists.forEach((list, c) => {
-		put32(table + c, e);
-		for (const idx of list) put16(listStart + (e >> 1), e++ & 1, idx);
-	});
-	put32(table + gw * gh, e);
-	return { width, height, data };
+	return w.finish();
 }

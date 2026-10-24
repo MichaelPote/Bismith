@@ -88,6 +88,13 @@ export interface ParamDef {
 	 */
 	bitmap?: 'pixels' | 'font' | 'points' | 'lines';
 	/**
+	 * UI only, 'points' / 'lines' bitmaps the shape editor adds to (pipe runs, hand-placed splats): the Line tool's button
+	 * is named `adds` and adds a line here instead of creating a Polyline layer, its tooltip ending in `hint` ("a new run
+	 * of the selected pipes"). `min`: the fewest points a line keeps (default 2 open, 3 closed); `budget`: the most
+	 * vertices (default MAX_PATH_POINTS, a bitmap uniform's).
+	 */
+	shapeEdit?: { adds: string; hint: string; min?: number; budget?: number };
+	/**
 	 * Text params only: an image file (core/images.ts) — the value is its file name ('' = none), the inspector shows a
 	 * file picker and a thumbnail, and the layer reads the pixels in its cpuData (getImage).
 	 */

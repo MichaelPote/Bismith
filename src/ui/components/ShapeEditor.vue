@@ -10,7 +10,8 @@
 	// Drafts are kept in texture px and converted to the destination's units on commit. Vertices snap to half pixels
 	// (hold Alt for free placement). The `points` text stays the source of truth; the middle button still pans.
 	import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-	import { MAX_PATH_POINTS, parsePolygons, parsePolylines } from '@/core/bitmap';
+	import { MAX_PATH_POINTS, parsePointLines } from '@/core/bitmap';
+	import type { ParamDef } from '@/core/params';
 	import type { SmartMaterial } from '@/core/project';
 	import { layerParamDefs } from '@/layers/registry';
 	import { getRecipe, materialOf } from '@/recipes';
@@ -44,11 +45,24 @@
 		fraction: boolean;
 		budget: number;
 		text: string;
-		/** Pipe runs, hand-placed splats: the Line tool adds a line here instead of creating a layer (its button's name). */
+		/** ParamDef.shapeEdit: the Line tool adds a line here instead of creating a layer (its button's name, tooltip). */
 		adds: string | null;
+		hint: string | null;
 		/** Fewest points a shape keeps (1 for hand-placed splats, where each point is a splat; else 2 open, 3 closed). */
 		min: number;
 		write(text: string): void;
+	}
+
+	/** A source's shape from its param (ParamDef.shapeEdit, or a plain Path / Polyline one's). */
+	function shapeOf(d: ParamDef, edit = d.shapeEdit) {
+		const open = d.bitmap === 'lines';
+		return {
+			open,
+			adds: edit?.adds ?? null,
+			hint: edit?.hint ?? null,
+			min: edit?.min ?? (open ? 2 : 3),
+			budget: edit?.budget ?? MAX_PATH_POINTS
+		};
 	}
 
 	/** A material whose controls include its shapes (e.g. Pipes' runs): edited through the control, so every layer follows. */
@@ -57,13 +71,13 @@
 		if (!d) return null;
 		// Random layouts have no runs to edit; drawing one switches the layout to drawn runs.
 		const drawn = !('layout' in m.params) || m.params.layout === 'drawn';
+		// Its text is no uniform to fit.
+		const edit = d.shapeEdit;
 		return {
-			open: d.bitmap === 'lines',
+			...shapeOf(d, edit),
+			budget: edit?.budget ?? 512,
 			fraction: true,
-			budget: 512,
 			text: drawn ? String(m.params[d.key] ?? '') : '',
-			adds: d.bitmap === 'lines' ? 'Pipe run' : null,
-			min: d.bitmap === 'lines' ? 2 : 3,
 			write: (text) => {
 				if (!drawn) store.setMaterialParam(m.id, 'layout', 'drawn');
 				store.setMaterialParam(m.id, d.key, text);
@@ -88,14 +102,10 @@
 			(p) => p.key === 'layout' && p.options?.some((o) => o.value === 'drawn')
 		);
 		const drawn = !switchable || l.params.layout === 'drawn';
-		const adds = l.type === 'pipework' ? 'Pipe run' : l.type === 'splats' ? 'Splats' : null;
 		return {
-			open: d.bitmap === 'lines',
+			...shapeOf(d),
 			fraction: l.params.units === 'fraction',
-			budget: d.uniform === false ? 512 : MAX_PATH_POINTS,
 			text: drawn ? String(l.params[d.key] ?? '') : '',
-			adds,
-			min: l.type === 'splats' ? 1 : d.bitmap === 'lines' ? 2 : 3,
 			write: (text) => {
 				if (!drawn) store.setLayerParam(l.id, 'layout', 'drawn');
 				store.setLayerParam(l.id, d.key, text);
@@ -109,16 +119,8 @@
 	const shapes = computed<Pt[][]>(() => {
 		const s = source.value;
 		if (!s) return [];
-		// Single points kept too (hand-placed splats): every "x,y" pair of a line.
-		if (s.min < 2)
-			return s.text
-				.split(/\n|\|/)
-				.map((line) => {
-					const v = (line.match(/-?\d*\.?\d+(?:e-?\d+)?/gi) ?? []).map(Number);
-					return Array.from({ length: Math.floor(v.length / 2) }, (_, i): Pt => [v[2 * i], v[2 * i + 1]]);
-				})
-				.filter((p) => p.length > 0);
-		return (s.open ? parsePolylines(s.text) : parsePolygons(s.text)) as Pt[][];
+		// (Single points too for hand-placed splats, where each is a splat.)
+		return parsePointLines(s.text).filter((p) => p.length >= Math.max(1, s.min)) as Pt[][];
 	});
 	const total = computed(() => shapes.value.reduce((n, p) => n + p.length, 0));
 	const minPoints = computed(() => source.value?.min ?? (open.value ? 2 : 3));
@@ -510,13 +512,7 @@
 		<button
 			type="button"
 			:class="{ on: tool === 'line' }"
-			:title="
-				source?.adds === 'Splats'
-					? 'Line: click to place points; Enter, double-click or the last point ends it — a splat on each point'
-					: source?.adds
-						? 'Line: click to place points; Enter, double-click or the last point ends it — a new run of the selected pipes'
-						: 'Line: click to place points; Enter, double-click or the last point ends it — a new Polyline layer'
-			"
+			:title="`Line: click to place points; Enter, double-click or the last point ends it — ${source?.hint ?? 'a new Polyline layer'}`"
 			@click="tool = 'line'">
 			<IconLine :size="13" />{{ source?.adds ?? 'Line' }}
 		</button>
