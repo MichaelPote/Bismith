@@ -27,6 +27,17 @@ const hasJogs = (p: Record<string, unknown>) => Number(p.jog) > 0;
 const hasChan = (p: Record<string, unknown>) => Number(p.chan_chance) > 0 || Number(p.routes) > 0;
 const hasBeams = (p: Record<string, unknown>) => Number(p.beams) > 0;
 const isRelief = (p: Record<string, unknown>) => (p.output ?? 'relief') === 'relief';
+
+// The relief's extra masks (LayerDef.extraMaskWrites: extra passes of the same shader, one shape output each): param,
+// the output it writes, label, what it holds.
+const EXTRA_MASKS = [
+	['mk_lights', 'lights', 'Lights to', 'the lenses and pilot lamps (glow them with an Emissive layer limited to it)'],
+	['mk_pipes', 'pipes', 'Pipes to', 'the tubes and hoses with their collars and bosses'],
+	['mk_hardware', 'hardware', 'Hardware to', 'the switches, sockets, sliders, keypads and fans'],
+	['mk_rivets', 'rivets', 'Rivets to', 'the rivets and bolts'],
+	['mk_details', 'details', 'Details to', 'the vent slots, holes, recesses, light housings and hardware'],
+	['mk_seams', 'seams', 'Seams to', 'the gaps between the panels']
+] as const;
 const hasStep = (p: Record<string, unknown>) =>
 	hasFrame(p) && ['recess', 'raise', 'mixed'].includes(String(p.frame_style));
 const hasLine = (p: Record<string, unknown>) =>
@@ -103,6 +114,15 @@ export const greeblesLayer: LayerDef = {
 	category: 'pattern',
 	kind: 'generator',
 	sdf: true,
+	// The relief can write its lights, pipes, hardware, rivets, details and seams to masks of their own too (Masks).
+	extraMaskWrites: (p) =>
+		!isRelief(p)
+			? []
+			: EXTRA_MASKS.map(([key, output]) => ({ target: String(p[key] ?? ''), params: { output } })).filter((x) =>
+					x.target.trim()
+				),
+	// Its own levels per part for Roughness, Specular, Metalness and Emissive (gGenLevel).
+	parts: 'each part its own level: steel plates, pipes and bolts metal, switches and sockets plastic, grommets rubber; Emissive: only the lights glow',
 	// The relief writes its shape to the mask unless Shape for the mask is None; the shape outputs always do.
 	maskWrite: (p) => (!isRelief(p) || (p.mask ?? 'plates') !== 'none' ? 'shape' : false),
 	// The period of 45° lines that tile the canvas (beams): the gcd of its sides.
@@ -125,10 +145,12 @@ export const greeblesLayer: LayerDef = {
 				['rivets', 'Rivets (shape)'],
 				['details', 'Details (shape)'],
 				['lights', 'Lights (shape)'],
-				['beams', 'Beams (shape)']
+				['beams', 'Beams (shape)'],
+				['pipes', 'Pipes (shape)'],
+				['hardware', 'Hardware (shape)']
 			],
 			{
-				hint: 'Relief composes every element into one height value (uses the Edge bevel). The shape outputs give one element class as a shape — stack copies with the same seed for separate materials'
+				hint: 'Relief composes every element into one height value (uses the Edge bevel), and can write its lights, pipes, hardware and more to masks of their own (Masks). The shape outputs give one element class as a shape'
 			}
 		),
 		P.enum(
@@ -147,13 +169,23 @@ export const greeblesLayer: LayerDef = {
 				['frames', 'Inset frames', 'the frame lines, or the raised / recessed centres'],
 				['rivets', 'Rivets'],
 				['details', 'Details', 'vent slots, holes, recesses and light housings'],
-				['lights', 'Lights', 'the lenses'],
-				['beams', 'Beams']
+				['lights', 'Lights', 'the lenses and pilot lamps'],
+				['beams', 'Beams'],
+				['pipes', 'Pipes', 'the tubes and hoses, their collars and bosses'],
+				['hardware', 'Hardware', 'switches, sockets, sliders, keypads and fans']
 			],
 			{
 				showIf: isRelief,
 				hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (grime in the seams, paint on the plates only, glow in the lenses) or chip and bevel from — no second Greebles layer needed'
 			}
+		),
+		...EXTRA_MASKS.map(([key, , label, what]) =>
+			P.text(key, label, '', {
+				section: 'Masks',
+				mask: 'write',
+				showIf: isRelief,
+				hint: `Also write ${what} to this mask, from the same layout, for later layers to be limited to (as a Greebles layer with that shape output would): empty = none. Not Shape`
+			})
 		),
 		P.enum(
 			'root',
@@ -1002,11 +1034,15 @@ export const greeblesLayer: LayerDef = {
 		dif_jitter: 0.12,
 		dif_grad: gradient('#1d1e1f', '#5c6066', '#8f969c', '#bfc7ce', '#eff4f9'),
 		// Satin metal plates.
+		// Each part its own roughness and metalness (Source › Parts: steel plates and pipes, plastic switches), and
+		// Emissive, once switched on, lights only the lights.
 		r_on: true,
-		r_src: 'flat',
-		r_b: 0.5,
+		r_src: 'parts',
+		r_a: 0,
+		r_b: 1,
 		mt_on: true,
-		mt_src: 'flat'
+		mt_src: 'parts',
+		e_src: 'parts'
 	},
 	// Added in the editor: the plain defaults (a 128 px texture) scaled to the texture — panel sizes, seams, rivets, frames,
 	// slots, lights and tubes; small textures get crisp pixel edges with a 1 px ramp.
@@ -1299,6 +1335,18 @@ vec2 grb_wmLine(vec2 j, vec2 cw, uint id) {
 
 // The top plateau: the highest panel level, which the pieces' lifts, laid pipes and the junction lid measure from.
 #define GRB_TOP 0.75
+
+// Which part is on top at the pixel (Source › Parts, the Pipes / Hardware / Lights outputs and masks): distances the
+// stages leave as they draw (negative inside).
+float gPipeD = 1e4;   // tubes and hoses, their collars and bosses
+float gGromD = 1e4;   // grommets
+float gHwD = 1e4;     // hardware: switches, sockets, sliders, keypads, fans
+float gLampD = 1e4;   // the toggles' pilot lamps
+// Each part's levels (roughness, specular, metalness, emissive): 0 plate, 1 opening, 2 fastener, 3 board (a dark
+// pocket), 4 hardware, 5 light, 6 pipe, 7 grommet. Steel plates and pipes, plastic switches, rubber grommets.
+const vec4 GRB_PART_LEVEL[8] = vec4[8](vec4(0.45, 0.5, 0.8, 0.0), vec4(0.7, 0.3, 0.3, 0.0), vec4(0.35, 0.5, 1.0, 0.0),
+  vec4(0.6, 0.4, 0.15, 0.0), vec4(0.55, 0.5, 0.0, 0.0), vec4(0.1, 0.6, 0.0, 1.0), vec4(0.3, 0.5, 1.0, 0.0),
+  vec4(0.8, 0.3, 0.0, 0.0));
 
 // A piece's height on the surface it stands on (hb): a share g (its level) of the headroom up to the top plateau (GRB_TOP),
 // at least a quarter of the top's — so seams between pieces always cut down, finer and shallower deeper in.
@@ -2327,6 +2375,7 @@ float grb_switches(vec2 ql, vec2 lo2, vec2 hi2, vec4 pa, vec4 pb2, float hd, ino
     float gw = max(0.06 * u0, 0.8), gy = 0.47 * u0;
     // (A pilot lamp on the pad behind the lever, on banks without a guard.)
     float lmp = length(lp + vec2(0.0, 0.36 * u0 * sg2)) - max(0.08 * u0, 1.0);
+    if (pb2.z >= 0.5) gLampD = min(gLampD, lmp);
     float grd = pb2.z < 0.5 ? max(min(abs(abs(lp.x) - 0.3 * u0) - gw, abs(lp.y * sg2 - gy) - gw), max(abs(lp.x) - 0.3 * u0 - gw, abs(lp.y * sg2 - 0.5 * gy) - 0.5 * gy - gw)) : 1e4;
     dD = min(min(wash, lev), grd);
     // (In a dark well round the nut, as the panel's toggles are: the lever reads light against it.)
@@ -2408,20 +2457,24 @@ float grb_hardware(int kind, vec2 ql, vec2 lo2, vec2 hi2, vec4 pa, vec4 pb2, ino
     v = mix(v, vh + hd * (0.2 + 0.1 * smoothstep(0.0, 1.0, -dk / max(0.15 * kp, 0.6))), grb_cov(dk));
     dD = dbz;
   } else if (kind == 11) {
-    // A fan: a round housing sunk into the plate, a ring round it, curved blades round a domed hub.
+    // A fan: a round housing sunk into the plate, a shelf round its rim, curved blades round a domed hub below it.
     vec2 lp = ql - 0.5 * (lo2 + hi2);
     float R = 0.5 * min(sl.x, sl.y) - 1.0;
     float rho = length(lp);
     float dh = rho - R;
     float bf = fract((atan(lp.y, lp.x) / 6.2832 + 0.2 * rho / R) * 9.0);
     float blade = step(0.3 * R, rho) * step(rho, 0.9 * R) * smoothstep(0.0, 0.08, bf) * (1.0 - smoothstep(0.42, 0.5, bf));
-    float rw = max(1.0, 0.07 * R);
+    float rw = max(1.0, 0.07 * R), wall = max(1.0, 0.06 * R);
     float vh = v;
-    v -= 0.9 * hd * grb_cov(dh);
-    v += 0.35 * hd * grb_cov(abs(dh + rw) - rw);
-    v += 0.8 * hd * blade * (1.0 - 1.4 * bf) * grb_cov(dh);
+    // Sunk, nothing standing proud of the plate: a shelf a step down round the rim, then the bowl; the blades rise from
+    // its floor to below the shelf, the hub a little higher.
+    float dIn = rho - (R - 2.5 * rw);
+    float fl = vh - 1.2 * hd;
+    v = mix(v, vh - 0.45 * hd, smoothstep(0.0, 1.0, -dh / wall));
+    v = mix(v, fl, smoothstep(0.0, 1.0, -dIn / wall));
+    v = max(v, mix(v, fl + 0.65 * hd * (1.0 - 1.2 * bf), blade * grb_cov(dIn)));
     // (The hub only at the centre: a max over the whole housing flattened the blades.)
-    if (rho < 0.28 * R) v = max(v, vh - 0.2 * hd + 0.8 * hd * grb_dome(rho, 0.26 * R));
+    if (rho < 0.28 * R) v = max(v, fl + 0.85 * hd * grb_dome(rho, 0.26 * R));
     dD = dh;
   }
   return dD;
@@ -2469,6 +2522,7 @@ void grb_pocketCable(vec2 ql, float cy, float x0, float x1, float xs, float xe, 
   float nose = smoothstep(-wr, 0.0, aE);
   v = mix(v, flr + 0.6 * ph + 2.4 * ph * grb_dome(max(dW + wr, 0.0), wr) * mix(0.8, 1.0, nose), grb_cov(dW));
   float gr = abs(dE - 1.6 * wr) - 0.55 * wr;   // the grommet ring round each end
+  gGromD = min(gGromD, max(gr, -dW - 0.3));
   v = max(v, mix(v, flr + 1.1 * ph * grb_dome(abs(dE - 1.6 * wr), 0.6 * wr), grb_cov(gr) * (1.0 - grb_cov(dW + 0.3))));
   // (Stepped: a shell, a raised top 2 px in from its sides; at the face the wires plug into, a dark square socket per
   // wire, cut down to the shell's foot.)
@@ -2664,6 +2718,7 @@ void grb_part(vec2 q, uint pid, vec2 rlo, vec2 rhi, bvec4 pf, bool hwMod, float 
     grb_light(ql, lo2, hi2, horiz, hero, pb2, v, D);
   } else if (kind >= 7 && kind <= 11) {
     D.dD = grb_hardware(kind, ql, lo2, hi2, pa, pb2, v);
+    gHwD = D.dD;
   } else if (kind == 12) {
     // A mesh grille: a sunk panel (walls over Recess wall) behind a fine grid of wires.
     float dg = grb_box(ql, lo2, hi2);
@@ -2839,6 +2894,7 @@ void grb_bundleTubes(GrbBundle B, GrbCell cell, float dRt, float rte2, vec4 rteS
       if (dive) {
         env = max(env, (base + 0.5 * u_inset_depth * grom) * step(0.01, grom));
         cov2 = max(cov2, step(0.01, grom));
+        if (grom > 0.01 && dTube > 0.0) gGromD = -0.5;
       }
       // Laid on top: the tubes replace the surface under them (and a dark contact groove lies between and beside them);
       // in a channel they stand on its floor.
@@ -2853,6 +2909,7 @@ void grb_bundleTubes(GrbBundle B, GrbCell cell, float dRt, float rte2, vec4 rteS
       } else v = max(v, env * (p2 ? 1.0 - cov0 : 1.0));
       if (!p2) cov0 = cov2;
       dD = min(dD, dTube);
+      gPipeD = min(gPipeD, dTube);
     }
   }
 }
@@ -2913,6 +2970,7 @@ void grb_tubes(float vPre, inout float v, inout GrbDet D) {
   float dl = abs(D.tp.x - kr * D.tp.y);
   float dT = D.tOn ? dl - D.tp.w : 1e4;
   D.dD = min(dT, D.tM);
+  gPipeD = min(gPipeD, D.dD);
   D.tMk = min(D.tOn ? bevelLine(dT, D.tN) : 1e4, D.tMk);
   D.tC = vec2(-1e5);   // (the tubes: tMk)
   // (They stand on the surface under the pipe runs, and join whatever is there; the contact line only on bare plate.)
@@ -3145,16 +3203,28 @@ GenOut gen(vec2 p) {
   GrbBeam M = GrbBeam(1e4, 0.0, 1.0, -1e9, vec2(0.0, 1.0));
   if (u_beams > 0) M = grb_beams(q, v);
 
+  // The part on top, in drawing order (pipes over everything they cross), and its levels for Source › Parts.
+  float dLt = min(D.dL, gLampD);
+  int part = cell.pk ? 3 : 0;
+  if (dR < 0.0) part = 2;
+  if (D.dHole < 0.0) part = 1;
+  if (gHwD < 0.0) part = 4;
+  if (dLt < 0.0) part = 5;
+  if (gGromD < 0.0) part = 7;
+  if (gPipeD < 0.0) part = 6;
+  gGenLevel = GRB_PART_LEVEL[part];
+
   if (u_output == 0) {
     v = clamp(v / max(grb_peak(), 1.0), 0.0, 1.0);
     if (u_mask == 0) return genOut(v, 1.0, rnd, NO_SDF);
     float dm = u_mask == 1 ? max(max(dP, -D.dHole), -D.dSunk) : u_mask == 2 ? dP : u_mask == 3 ? -dP : u_mask == 4 ? dF
-             : u_mask == 5 ? dR : u_mask == 6 ? D.dD : u_mask == 7 ? D.dL : M.d;
+             : u_mask == 5 ? dR : u_mask == 6 ? D.dD : u_mask == 7 ? dLt : u_mask == 8 ? M.d : u_mask == 9 ? gPipeD : gHwD;
     return genOutOwn(v, 1.0, rnd, dm);
   }
-  float d = u_output == 1 ? dP : u_output == 2 ? -dP : u_output == 3 ? dF : u_output == 4 ? dR : u_output == 5 ? D.dD : u_output == 6 ? D.dL : M.d;
+  float d = u_output == 1 ? dP : u_output == 2 ? -dP : u_output == 3 ? dF : u_output == 4 ? dR : u_output == 5 ? D.dD : u_output == 6 ? dLt
+          : u_output == 7 ? M.d : u_output == 8 ? gPipeD : gHwD;
   GenOut g = genOut(0.0, 1.0, rnd, d);
-  if (bevelAspectOn() && u_output != 4) g.bdist = grb_bdist(q, d, cell, N, none, fs, D, M, bk, bkd);
+  if (bevelAspectOn() && u_output != 4 && u_output < 8) g.bdist = grb_bdist(q, d, cell, N, none, fs, D, M, bk, bkd);
   return g;
 }
 `

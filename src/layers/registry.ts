@@ -16,6 +16,7 @@ import {
 	MASK_PARAMS,
 	MASK_WRITE_PARAMS,
 	OUTPUT_PARAMS,
+	PARTS_SRC_KEYS,
 	PHASE_PARAM,
 	SDF_PARAMS,
 	MASK_SDF_PARAMS,
@@ -71,6 +72,10 @@ export function registerLayer(def: LayerDef): void {
 	} else {
 		// Filters: their own params, then Limit to (FR8.23).
 		all = [...own, ...LIMIT_PARAMS];
+	}
+	if (def.parts) {
+		const opt = { value: 'parts', label: 'Parts', hint: def.parts };
+		all = all.map((p) => (PARTS_SRC_KEYS.includes(p.key) ? { ...p, options: [...(p.options ?? []), opt] } : p));
 	}
 	if (def.defaults) {
 		all = all.map((p) => (p.key in def.defaults! ? { ...p, default: def.defaults![p.key] } : p));

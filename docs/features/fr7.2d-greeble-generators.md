@@ -188,6 +188,15 @@ raised top).
 
 The _Tech plates_ preset shows the octilinear look (jogs, cut corners, fill plates, borders, strips).
 
+**Masks and parts.** The relief's Masks section writes its lights (lenses and the toggles' pilot lamps), pipes (tubes,
+hoses, collars, bosses), hardware, rivets, details and seams to named masks of their own — extra passes of the same
+shader, as Stone blocks does — so later layers can be limited to them; the shape outputs gained Pipes and Hardware too.
+Roughness, Specular, Metalness and Emissive take **Source › Parts** (`LayerDef.parts`, `gGenLevel`): each part on top of
+the pixel brings its own level — steel plates (metal 0.8), pipes and bolts (1), switches, sockets and lights (0, plastic
+/ glass), grommets (rubber, rough), pocket boards (0.15) — through the output's At 0 … At 1 ramp; with Emissive on, only
+the lights glow. The layer starts with roughness and metalness from Parts. Fans sit sunk in the plate: a shelf round the
+rim, the bowl below it, blades and hub under the plate's surface.
+
 **One shader.** Every part — pipe channels and routes, jogs, beams, dark pockets, hardware — is in the one shader, so
 no setting change waits on a compile. Optional parts were once `#ifdef`'d into per-layer variants (4.1 s plain vs ~8 s
 cold on D3D11), but dragging a slider onto a part the current variant lacked hung the editor mid-drag while the next

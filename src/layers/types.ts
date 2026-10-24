@@ -121,6 +121,12 @@ export interface LayerDef {
 	 * grows faster than the shader (docs/shader-compilation.md); keep the names few and stable.
 	 */
 	shaderFeatures?: (params: ParamValues) => string[];
+	/**
+	 * Generators with a level of their own per part (Greebles: metal pipes, plastic switches, glowing lights): what the parts
+	 * are. Roughness, Specular, Metalness and Emissive then offer Source › Parts, which reads `gGenLevel` (x roughness,
+	 * y specular, z metalness, w emissive; < 0 = the Pattern value) as the generator sets it per pixel.
+	 */
+	parts?: string;
 	/** Rewrites params stored before a change to this type's params. */
 	migrate?: (params: ParamValues) => ParamValues;
 	/** Overrides for common param defaults (e.g. which channel outputs start enabled). */

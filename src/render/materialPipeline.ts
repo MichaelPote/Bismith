@@ -100,6 +100,9 @@ GenOut genOutOwn(float value, float mask, float rnd, float sdf) { return GenOut(
 GenOut genOutShaded(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 2, -1.0, NO_SDF, rnd); }
 // A colour of the generator's own for Diffuse (sRGB 0..1), in place of the ramp (Stamp's image); x < 0 = the ramp.
 vec3 gGenRgb = vec3(-1.0);
+// The generator's own levels per part (LayerDef.parts), for Roughness, Specular, Metalness and Emissive with Source
+// Parts: x roughness, y specular, z metalness, w emissive (0..1; < 0 = the Pattern value there).
+vec4 gGenLevel = vec4(-1.0);
 ${GLSL_MASK_OP}`;
 
 /** Everything a GLSL snippet in the material stage can rely on. */

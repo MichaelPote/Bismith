@@ -582,6 +582,9 @@ const levelOutput = (prefix: string, group: string, label: string, a: number, b:
 	];
 };
 
+/** The sources that take the Parts option on a generator with its own per-part levels (LayerDef.parts; srcLevel). */
+export const PARTS_SRC_KEYS = ['r_src', 's_src', 'mt_src', 'e_src'];
+
 export const OUTPUT_PARAMS: ParamDef[] = [
 	P.bool('dif_on', 'Diffuse', false, { group: 'diffuse' }),
 	source('dif_src', 'diffuse', 'dif_blend', 'Blend'),
@@ -735,6 +738,8 @@ float levelBlend(int mode, float o, float x) { return mode == 0 ? x : mode == 1 
 
 // shapeV: inside the layer's shape (Source › Shape), 1 for layers without one.
 float srcValue(int src, float value, float rnd, float shapeV) { return src == 1 ? 1.0 : src == 2 ? rnd : src == 3 ? shapeV : value; }
+// The level outputs' source, with Parts (4: the generator's own level there, gGenLevel; LayerDef.parts).
+float srcLevel(int src, float value, float rnd, float shapeV, float own) { return src == 4 ? (own >= 0.0 ? own : value) : srcValue(src, value, rnd, shapeV); }
 
 // A mask texel (distance, feature random, feature flag) after this layer's write: c is its own distance s combined with
 // the mask's by op; the feature comes from whichever side c follows (the earlier contents where this layer cuts).
@@ -879,25 +884,25 @@ ${
     S.r = mix(h, heightCombine(u_h_mode, h, v), own ? (g.height != 0.0 ? k : 0.0) : m);
   }
   if (u_r_on) {
-    float v = srcValue(u_r_src, value, g.rnd, shapeV);
+    float v = srcLevel(u_r_src, value, g.rnd, shapeV, gGenLevel.x);
     float r = mix(u_r_a, u_r_b, v);
     float o = S.g;
     S.g = clamp(mix(o, levelBlend(u_r_mode, o, r), m * u_r_opacity), 0.0, 1.0);
   }
   if (u_s_on) {
-    float v = srcValue(u_s_src, value, g.rnd, shapeV);
+    float v = srcLevel(u_s_src, value, g.rnd, shapeV, gGenLevel.y);
     float sp = mix(u_s_a, u_s_b, v);
     float o = E.a;
     E.a = clamp(mix(o, levelBlend(u_s_mode, o, sp), m * u_s_opacity), 0.0, 1.0);
   }
   if (u_mt_on) {
-    float v = srcValue(u_mt_src, value, g.rnd, shapeV);
+    float v = srcLevel(u_mt_src, value, g.rnd, shapeV, gGenLevel.z);
     float mt = mix(u_mt_a, u_mt_b, v);
     float o = S.b;
     S.b = clamp(mix(o, levelBlend(u_mt_mode, o, mt), m * u_mt_opacity), 0.0, 1.0);
   }
   if (u_e_on) {
-    float v = srcValue(u_e_src, value, g.rnd, shapeV);
+    float v = srcLevel(u_e_src, value, g.rnd, shapeV, gGenLevel.w);
     vec3 e = u_e_color * u_e_intensity * v;
     vec3 ne = u_e_mode == 0 ? E.rgb + e : u_e_mode == 1 ? e : max(E.rgb, e);
     E.rgb = mix(E.rgb, ne, m);
