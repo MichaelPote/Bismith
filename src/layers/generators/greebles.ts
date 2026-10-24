@@ -53,7 +53,7 @@ const DETAIL_KEYS = [
 	'det_circuit',
 	'det_fins'
 ];
-/** The hardware kinds (7–11): their code is the GRB_HW shader variant. */
+/** The hardware kinds (7–11). */
 const HW_KEYS = DETAIL_KEYS.slice(7, 12);
 /** The kinds a hero part may be. */
 const HERO_KEYS = [
@@ -105,18 +105,6 @@ export const greeblesLayer: LayerDef = {
 	sdf: true,
 	// The relief writes its shape to the mask unless Shape for the mask is None; the shape outputs always do.
 	maskWrite: (p) => (!isRelief(p) || (p.mask ?? 'plates') !== 'none' ? 'shape' : false),
-	// The shader's optional parts (#ifdef in the GLSL), compiled only into the variants of layers that use them: a plain
-	// layer's cold compile on D3D11 is seconds shorter without pipe channels and routes, jogs, beams, dark pockets and
-	// hardware details.
-	shaderFeatures: (p) => {
-		const f: string[] = [];
-		if (hasChan(p)) f.push('GRB_CHAN');
-		if (hasJogs(p)) f.push('GRB_JOG');
-		if (hasBeams(p)) f.push('GRB_BEAMS');
-		if (hasPocket(p)) f.push('GRB_POCKET');
-		if ((hasDetails(p) || hasEdges(p)) && HW_KEYS.some((k) => Boolean(p[k]))) f.push('GRB_HW');
-		return f;
-	},
 	// The period of 45° lines that tile the canvas (beams): the gcd of its sides.
 	derivedUniforms: {
 		decl: { beam_period: 'int' },
@@ -1605,18 +1593,11 @@ void grb_cutLine(vec2 q, int d, GrbRules R, GrbPiece P, vec2 c1, bvec4 can, vec4
     float hw = 0.5 * u_chan_width * (1.0 - u_chan_var * rt.z);
     bool chn = d < u_chan_levels && rt.w < u_chan_chance && min(c - lo1, hi1 - c) >= hw + 0.5 * min(R.mn.x, R.mn.y);
     // (Or laid on top of the pieces, crossing them: Laid on top. The first such run over the pixel is kept.)
-#ifndef GRB_CHAN
-    chn = false;
-#endif
     bool surf = chn && grb_rand(C.id, 5u) < u_chan_surface;
     if (surf) chn = false;
     float jA = u_jog * max(min(c - lo1 - grb_pick(C.jm4, a0i), hi1 - c - grb_pick(C.jm4, a0i + 1)) - R.jmar - (chn ? hw : 0.0), 0.0);
     float qu = (cutY ? q.y : q.x) - c;
-#if defined(GRB_JOG) || defined(GRB_CHAN)
     vec4 jg = jA >= 1.0 ? grb_jog(cutY ? q.x : q.y, qu, cutY ? bb.x : bb.y, cutY ? bb.z : bb.w, cutY ? uRes.x : uRes.y, C.id, jA, chn || surf ? u_chan_bend : 0.0, vec2(1.0, 0.0)) : vec4(0.0, 1e9, 1.0, cutY ? q.x : q.y);
-#else
-    vec4 jg = vec4(0.0, 1e9, 1.0, cutY ? q.x : q.y);
-#endif
     float s = qu - jg.x;
     float dl = min(abs(s), jg.y);
     bool upper = s >= 0.0;
@@ -1770,7 +1751,6 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
       GrbPiece P = grb_piece(q, C, R);
       // A dark pocket (Dark pockets): the piece sinks nearly to the floor over its bevel and stops splitting; its floor
       // is packed with parts (gen).
-#ifdef GRB_POCKET
       if (d > 0 && grb_rand(C.id, 97u) < u_pocket && min(P.sz.x, P.sz.y) >= 1.5 * min(R.mn.x, R.mn.y)
           && (u_pocket_max <= 0.0 || max(P.sz.x, P.sz.y) <= u_pocket_max)) {
         C.vb += (0.03 - C.hb) * P.rN.x;
@@ -1778,14 +1758,11 @@ GrbCell grb_panelAt(vec2 q, float dRt) {
         C.pk = true;
         W.done = true;
       }
-#endif
       if (!W.done && (d > 0 || u_root == 2)) grb_decorate(R, P, C, W.done);
       if (!W.done) grb_split(q, d, R, P, C, W);
     }
   }
-#ifdef GRB_CHAN
   if (W.hr.z > 0.0) C.hm = grb_hoseReach(C, W);
-#endif
   return C;
 }
 
@@ -2120,9 +2097,6 @@ void grb_detailBox(vec2 q, uint id, GrbCell cell, GrbPanel N, float bev, float k
   // A hardware module (Hardware share, rolled here, before the area is sized): the hardware fills nearly all of the
   // free area, centred, unpaired — a switch bank or socket sized to its module, not a speck on it.
   hwMod = !hero && !strip && !pkt && !smallP && grb_rand(id, 98u) < u_hw_share && (grb_kinds() & GRB_K_HW) != 0;
-#ifndef GRB_HW
-  hwMod = false;
-#endif
   float sz = pkt ? 1.0 : hero ? 0.9 : strip ? 0.96 : hwMod ? 0.95 : u_det_size * (1.0 - u_det_var * db.x);
   vec2 asz = min(N.sz - 2.0 * floor(N.sz * (1.0 - sz) * 0.5 + 0.5), fsz);
   // Placement: 0 centred, 1 against a random edge, 2 in a random corner.
@@ -2198,9 +2172,6 @@ int grb_partKind(vec2 sl0, vec4 pa, bool bayRoll, float wall, bool smallP, bool 
            | int(sl0.y >= 5.0 * pxs && sl0.x >= 2.0 * sl0.y) << 9 | int(sl0.y >= 9.0 * pxs) << 10
            | int(sl0.y >= 12.0 * pxs && sl0.x <= 1.7 * sl0.y) << 11 | int(min(sl0.x, sl0.y) >= 8.0 * pxs) << 12
            | int(min(sl0.x, sl0.y) >= 10.0 * pxs) << 13 | int(sl0.x >= 8.0 * pxs && sl0.y >= 4.0 * pxs) << 14);
-#ifndef GRB_HW
-  av &= ~GRB_K_HW;
-#endif
   // How many fit as a hero part, hardware, a panel's detail, a small part.
   ivec4 nk = ivec4(0);
   for (int i = 0; i < 15 * UNI_1; i++) nk += (ivec4(av & GRB_K_HERO, av & GRB_K_HW, av & GRB_K_PANEL, av & GRB_K_SMALL) >> i) & 1;
@@ -2521,9 +2492,6 @@ float grb_circuit(vec2 ql, vec2 lo2, vec2 hi2, bool horiz, uint pid, bool pkt, v
   vec4 cw4 = grb_rand4(pid, 152u);
   vec2 sbl = horiz ? pb.xy : pb.yx, sbh = horiz ? pb.zw : pb.wz, sbs = sbh - sbl;
   bool wOn = pkt && sbs.x >= 60.0 * u_px_scale && sbs.y >= 24.0 * u_px_scale;
-#ifndef GRB_POCKET
-  wOn = false;
-#endif
   float cy = 0.5 * (sbl.y + sbh.y);
   bool atLo = cw4.y < 0.5;
   float cl = max(10.0, 0.14 * sbs.x);
@@ -2617,9 +2585,7 @@ float grb_circuit(vec2 ql, vec2 lo2, vec2 hi2, bool horiz, uint pid, bool pkt, v
   v = mix(v, flr + 0.4 * ph, grb_cov(pin) * (1.0 - grb_cov(dc2)));
   // In a dark pocket at least 60 px long: a connector block near one end with 2–4 wires fanning out along the floor,
   // each stepping aside at 45° somewhere along the way.
-#ifdef GRB_POCKET
   if (wOn) grb_pocketCable(ql, cy, x0, x1, xs, xe, xj, o, dir, nw, wr, wsp, atLo, flr, ph, cA, v);
-#endif
   return dg;
 }
 
@@ -2696,10 +2662,8 @@ void grb_part(vec2 q, uint pid, vec2 rlo, vec2 rhi, bvec4 pf, bool hwMod, float 
     grb_pipePart(ql, lo2, hi2, horiz, hero, pa, pb2, D);
   } else if (kind == 1) {
     grb_light(ql, lo2, hi2, horiz, hero, pb2, v, D);
-#ifdef GRB_HW
   } else if (kind >= 7 && kind <= 11) {
     D.dD = grb_hardware(kind, ql, lo2, hi2, pa, pb2, v);
-#endif
   } else if (kind == 12) {
     // A mesh grille: a sunk panel (walls over Recess wall) behind a fine grid of wires.
     float dg = grb_box(ql, lo2, hi2);
@@ -3073,11 +3037,7 @@ GenOut gen(vec2 p) {
   float rteL = 1.0, rteL2 = 1.0;
   vec2 rteA = vec2(0.0);
   vec4 rteS = vec4(1e9, 0.0, 0.0, -1.0);
-#ifdef GRB_CHAN
   vec4 rte = u_routes > 0 ? grb_route(q, rte2, rteL, rteS, rteL2, rteA) : vec4(1e9, 0.0, 0.0, -1.0);
-#else
-  vec4 rte = vec4(1e9, 0.0, 0.0, -1.0);
-#endif
   float dRt = abs(rte.x) - rte.z;
   // (The pieces' side: the nearer edge of any route, so a second route's edge doesn't leave a ghost plate line.)
   GrbCell cell = grb_panelAt(q, min(dRt, rte2));
@@ -3170,26 +3130,20 @@ GenOut gen(vec2 p) {
   v += cell.vb + (P - cell.hb) * (u_fill == 1 ? max(r3.x, u_backing * r3.y) : r3.x);
   if (u_fill == 2) v += (grb_lift(cell.hb, mix(1.0, lowest, lf)) - cell.hb) * r3.y;
 
-#ifdef GRB_CHAN
   GrbBundle B = grb_channel(cell, chId, dRt, rte2, rteS, v, dP);
-#endif
   float dR = grb_rivets(q, id, cell, fs, !deco && !none && u_rivets > 0 && lr2.w < u_rivet_chance, N, v, keep);
   bool sPipe;
   grb_details(q, id, cell, N, deco, none, bev, keep, cA, v, D, sPipe);
 
   // The pipe runs, on the surface as it is now (vPre).
   float vPre = v;
-#ifdef GRB_CHAN
   grb_bundleTubes(B, cell, dRt, rte2, rteS, rteL2, rteA, vPre, v, D.dD);
   grb_junction(rte, rteS, dRt, rte2, v, D.dD, dP);
-#endif
   if (sPipe) grb_stripPipe(id, cell, bk, D);
   if (D.tOn || D.tM < 1e3) grb_tubes(vPre, v, D);
 
   GrbBeam M = GrbBeam(1e4, 0.0, 1.0, -1e9, vec2(0.0, 1.0));
-#ifdef GRB_BEAMS
   if (u_beams > 0) M = grb_beams(q, v);
-#endif
 
   if (u_output == 0) {
     v = clamp(v / max(grb_peak(), 1.0), 0.0, 1.0);

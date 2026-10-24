@@ -188,11 +188,10 @@ raised top).
 
 The _Tech plates_ preset shows the octilinear look (jogs, cut corners, fill plates, borders, strips).
 
-**Shader variants.** The optional parts — pipe channels and routes (`GRB_CHAN`), cut jogs (`GRB_JOG`), beams
-(`GRB_BEAMS`), dark pockets (`GRB_POCKET`), hardware details (`GRB_HW`) — are `#ifdef`'d in the GLSL and compiled only
-into the variant of a layer that uses them (`LayerDef.shaderFeatures`, `shaderKey` in `src/render/materialPipeline.ts`;
-the editor compiles a variant in the background and runs the plain shader meanwhile). Cold compile (D3D11): ~4.1 s
-plain, ~4.6 s with hardware (the default layer), ~7.9 s with every part on; renders are identical to the single shader.
+**One shader.** Every part — pipe channels and routes, jogs, beams, dark pockets, hardware — is in the one shader, so
+no setting change waits on a compile. Optional parts were once `#ifdef`'d into per-layer variants (4.1 s plain vs ~8 s
+cold on D3D11), but dragging a slider onto a part the current variant lacked hung the editor mid-drag while the next
+variant compiled; one compile up front (~9.5–11 s cold, D3D11) is the better trade.
 The descent's bevels (a piece's rise, a border's step) share one profile evaluation, as do the final plate's
 (`grb_rise3`); recess walls, ribs and beams use a plain smooth ramp.
 
