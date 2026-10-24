@@ -30,6 +30,7 @@
 	import { tilingGpu, type TilingGpu } from '@/tiling/gpu';
 	import type { Engine } from '@/render/engine';
 	import { nextFrame, yieldEvery } from '@/ui/schedule';
+	import { vTip, type Tip } from '@/ui/tooltip';
 	import {
 		autosaveRun,
 		holdRunLock,
@@ -161,6 +162,38 @@
 			/* storage unavailable: hidden until the page reloads */
 		}
 	}
+
+	/** The settings' tooltips: what each one is, and why you would change it. */
+	const TIPS: Record<string, Tip> = {
+		seeds: {
+			title: 'Seeds',
+			body: 'How many new random seeds the fix tries for each culprit layer. A different seed gives a different random layout, which often moves an artefact or removes it without changing the look. Copies of a pattern are reseeded together. More seeds can find a better layout, but the fix takes longer.'
+		},
+		layers: {
+			title: 'Layers',
+			body: 'How many of the blamed layers the fix works on, starting with the one most to blame. Raise it when the repeat comes from several layers. Keep it low to change as little as possible.'
+		},
+		nudge: {
+			title: 'Nudge',
+			body: "How far the fix moves each pattern setting of a culprit layer, as a share of the setting's slider range. It also tries 40 % of this. Larger nudges can remove stubborn artefacts, but they change the material more."
+		},
+		holdLook: {
+			title: 'Hold look',
+			body: 'How firmly the fix holds on to the look of the material. Every change that moves the look further than a new seed alone would counts against it. Raise it if fixes change the material too much. Lower it if the fix finds nothing. At 0 any change is allowed.'
+		},
+		minGain: {
+			title: 'Min gain',
+			body: 'How much a change must lower the tiling score to be kept. Smaller gains are within the noise of the measurement, and every kept change moves the look a little. Lower it to keep more small improvements.'
+		},
+		samples: {
+			title: 'Samples',
+			body: 'How many path-traced samples each candidate render uses. More samples give cleaner renders, so the scores are less noisy, but each candidate takes longer. Canvases larger than 512 × 512 px get fewer, at least 8: they are compared at 512 px, where their pixels average out the noise.'
+		},
+		scale: {
+			title: 'Scale',
+			body: 'Lets the fix change sizes too, such as cell counts and feature sizes. A smaller pattern repeats more often inside the tile, which hides the repeat, but it gives a different-looking material. Off by default.'
+		}
+	};
 
 	const TERM_LABELS: Record<TilingTerm, string> = {
 		patches: 'Unique patches',
@@ -709,42 +742,32 @@
 
 		<div class="lower">
 			<div class="settings">
-				<div class="row" title="New seeds tried for each culprit layer (pattern copies are reseeded together)">
-					<span class="lbl">Seeds</span>
+				<div class="row">
+					<span v-tip:right="TIPS.seeds" class="lbl">Seeds</span>
 					<NumberField v-model="seeds" :min="0" :max="200" :soft-min="4" :soft-max="64" int label="Seeds per layer" />
 				</div>
-				<div class="row" title="How many of the blamed layers to fix, most to blame first">
-					<span class="lbl">Layers</span>
+				<div class="row">
+					<span v-tip:right="TIPS.layers" class="lbl">Layers</span>
 					<NumberField v-model="culprits" :min="1" :max="8" :soft-max="4" int label="Layers to fix" />
 				</div>
-				<div
-					class="row"
-					title="How far each pattern param is nudged, as a share of its slider range (also tried at 40 % of it)">
-					<span class="lbl">Nudge</span>
+				<div class="row">
+					<span v-tip:right="TIPS.nudge" class="lbl">Nudge</span>
 					<NumberField v-model="stepSize" :min="0" :max="0.5" :soft-max="0.3" :step="0.01" label="Nudge size" />
 				</div>
-				<div
-					class="row"
-					title="How hard the look is held: the cost of drifting further than a reseed alone would (0 = anything goes)">
-					<span class="lbl">Hold look</span>
+				<div class="row">
+					<span v-tip:right="TIPS.holdLook" class="lbl">Hold look</span>
 					<NumberField v-model="holdLook" :min="0" :max="20" :soft-max="8" :step="0.1" label="Hold the look" />
 				</div>
-				<div
-					class="row"
-					title="How much a change has to improve the score to be kept — smaller gains are noise, and every change moves the look">
-					<span class="lbl">Min gain</span>
+				<div class="row">
+					<span v-tip:right="TIPS.minGain" class="lbl">Min gain</span>
 					<NumberField v-model="minGain" :min="0" :max="0.2" :soft-max="0.05" :step="0.001" label="Minimum gain" />
 				</div>
-				<div
-					class="row"
-					title="Path-traced samples per candidate render. A canvas over 512 × 512 px gets fewer (at least 8): it is evaluated at 512 px, where its pixels average to as many">
-					<span class="lbl">Samples</span>
+				<div class="row">
+					<span v-tip:right="TIPS.samples" class="lbl">Samples</span>
 					<NumberField v-model="samples" :min="1" :max="256" :soft-max="64" int label="Samples per candidate" />
 				</div>
-				<div
-					class="row"
-					title="Let the fix change sizes and cells across too. A smaller pattern hides the repeat, but it's a different material">
-					<span class="lbl">Scale</span>
+				<div class="row">
+					<span v-tip:right="TIPS.scale" class="lbl">Scale</span>
 					<CheckField v-model="allowScale" label="Allow scale changes" />
 				</div>
 			</div>
@@ -892,6 +915,7 @@
 		font-size: 12px;
 		color: var(--text-lo);
 		text-align: right;
+		cursor: help;
 	}
 
 	.progress {

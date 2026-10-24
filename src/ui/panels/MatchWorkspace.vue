@@ -47,6 +47,7 @@
 	import SelectField from '@/ui/components/SelectField.vue';
 	import CheckField from '@/ui/components/CheckField.vue';
 	import { nextFrame } from '@/ui/schedule';
+	import { vTip, type Tip } from '@/ui/tooltip';
 	import {
 		IconGrid4x4,
 		IconPalette,
@@ -202,6 +203,63 @@
 		{ value: 'texture', label: 'Texture (statistics)' },
 		{ value: 'layout', label: 'Layout (+ pixel aligned)' }
 	];
+	/** The settings' tooltips: what each one is, and why you would change it. */
+	const TIPS: Record<string, Tip> = {
+		metric: {
+			title: 'Metric',
+			body: 'How Match measures whether your render looks like the reference. The optimiser tries to make this measure, the loss, as small as possible. Pick the one that suits your reference. Changing it starts the run over.',
+			list: [
+				['Tile + windows', 'Tile and Windows together. A good default.'],
+				['Windows', "compares local patches. Use it when the layout doesn't matter, as with planks, stone or grass."],
+				['Tile', 'compares the structure, allowing a shift. Use it for regular repeating patterns.'],
+				['Texture', 'compares overall statistics: colour, frequency and edges. Use it for noisy, random textures.'],
+				['Layout', 'also compares where things are. Use it for images such as UI elements, where position matters.']
+			]
+		},
+		window: {
+			title: 'Window size',
+			body: "The size of the local patches the Windows metric compares, as a share of the image's side. Smaller windows look at finer detail and ignore more of the layout. Larger windows also judge how features are arranged. Try Fine when small details or grain are what matter most. Changing it starts the run over."
+		},
+		colours: {
+			title: 'Colour range',
+			body: "Keeps the colours Match uses close to the colours in the reference. Without it, the optimiser can lower the loss with colours the reference doesn't have, for example by over-saturating a ramp to cancel out the lighting. Tight allows the least change and Loose the most. Off lets colours go anywhere. Greys are always allowed. Changing it starts the run over."
+		},
+		samples: {
+			title: 'Samples',
+			body: 'How many path-traced samples each candidate render uses. More samples give a cleaner render, so noise affects the comparison less, but each step takes longer. Lower it to speed a run up. Raise it if the loss jumps around from one step to the next.'
+		},
+		maxSteps: {
+			title: 'Max steps',
+			body: 'How many steps each press of Optimise or Continue runs before it pauses. Each step renders a few changed versions of the project and keeps the best. At 0 there is no limit: the run goes on until another limit stops it or you pause it.'
+		},
+		stopAtLoss: {
+			title: 'Stop at loss',
+			body: 'Stops the run once the loss reaches this value. Use it to save time when a match is already good enough; the run shows its best loss as it goes. At 0 it is off.'
+		},
+		timeLimit: {
+			title: 'Time limit',
+			body: 'Stops each run after this many seconds. Useful when you leave a run going on its own. At 0 it is off.'
+		},
+		stallAfter: {
+			title: 'Stall after',
+			body: 'Stops the run after this many steps in a row without the best result improving. A long stall usually means the optimiser has found what it can. At 0 it is off.'
+		},
+		tune: {
+			title: 'Tune',
+			body: 'Which parts of the project Match may change. Turn off anything you want to keep as it is. Fewer settings in play also make each step more effective. To keep a single layer fixed, lock it in the outliner. Changing these starts the run over.',
+			list: [
+				['Layers', "the layers' own settings"],
+				['Base', "the base material's colour and surface"],
+				['Shading', 'ambient occlusion, specular and height depth'],
+				['Lights', "the lights' position, colour and strength"],
+				['Post', 'the post-processing filters'],
+				['Modes', "settings chosen from a list, such as a pattern's style"],
+				['Seeds', 'random seeds, which give a different random layout'],
+				['Add/remove layers', 'lets Match add layers or take them away']
+			]
+		}
+	};
+
 	const COLOUR_RANGE_OPTIONS = [
 		{ value: '0', label: 'Off' },
 		{ value: '0.03', label: 'Tight' },
@@ -1134,28 +1192,23 @@
 		<div class="lower">
 			<div class="settings">
 				<div class="row">
-					<span class="lbl">Metric</span>
+					<span v-tip:right="TIPS.metric" class="lbl">Metric</span>
 					<SelectField
 						v-model="preset"
 						:options="PRESET_OPTIONS"
 						label="Metric preset"
 						@update:model-value="metricChanged" />
 				</div>
-				<div
-					v-if="preset === 'windows' || preset === 'tilewin'"
-					class="row"
-					title="Size of the windows compared (at up to 512 px): smaller looks at finer detail and ignores more of the layout">
-					<span class="lbl">Window</span>
+				<div v-if="preset === 'windows' || preset === 'tilewin'" class="row">
+					<span v-tip:right="TIPS.window" class="lbl">Window</span>
 					<SelectField
 						v-model="windowDiv"
 						:options="WINDOW_OPTIONS"
 						label="Window size"
 						@update:model-value="metricChanged" />
 				</div>
-				<div
-					class="row"
-					title="Keep the layers' colours near the reference's own colours, so the optimiser can't win pixels with hues the reference doesn't have or saturate ramps to fight the lighting. Lightness is freer than hue and saturation; greys always pass">
-					<span class="lbl">Colours</span>
+				<div class="row">
+					<span v-tip:right="TIPS.colours" class="lbl">Colours</span>
 					<SelectField
 						v-model="colourRangeSel"
 						:options="COLOUR_RANGE_OPTIONS"
@@ -1163,7 +1216,7 @@
 						@update:model-value="reset" />
 				</div>
 				<div class="row">
-					<span class="lbl">Samples</span>
+					<span v-tip:right="TIPS.samples" class="lbl">Samples</span>
 					<NumberField
 						v-model="samples"
 						:min="1"
@@ -1173,8 +1226,8 @@
 						int
 						label="Samples per candidate" />
 				</div>
-				<div class="row" title="Each Optimise / Continue runs up to this many steps (0 = no limit)">
-					<span class="lbl">Max steps</span>
+				<div class="row">
+					<span v-tip:right="TIPS.maxSteps" class="lbl">Max steps</span>
 					<NumberField
 						v-model="maxSteps"
 						:min="0"
@@ -1184,12 +1237,12 @@
 						int
 						label="Max steps" />
 				</div>
-				<div class="row" title="Stop as soon as the best loss reaches this (0 = off)">
-					<span class="lbl">Stop at loss</span>
+				<div class="row">
+					<span v-tip:right="TIPS.stopAtLoss" class="lbl">Stop at loss</span>
 					<NumberField v-model="targetLoss" :min="0" :max="2" :soft-max="0.6" :step="0.001" label="Target loss" />
 				</div>
-				<div class="row" title="Stop after this long, per run (0 = off)">
-					<span class="lbl">Time limit</span>
+				<div class="row">
+					<span v-tip:right="TIPS.timeLimit" class="lbl">Time limit</span>
 					<NumberField
 						v-model="timeLimit"
 						:min="0"
@@ -1200,8 +1253,8 @@
 						int
 						label="Time limit" />
 				</div>
-				<div class="row" title="Stop after this many steps without progress, restarts included (0 = off)">
-					<span class="lbl">Stall after</span>
+				<div class="row">
+					<span v-tip:right="TIPS.stallAfter" class="lbl">Stall after</span>
 					<NumberField
 						v-model="stallSteps"
 						:min="0"
@@ -1212,7 +1265,7 @@
 						label="Stall after" />
 				</div>
 				<div class="row">
-					<span class="lbl">Tune</span>
+					<span v-tip:right="TIPS.tune" class="lbl">Tune</span>
 					<div class="checks">
 						<CheckField v-model="space.layers" label="Layers" @update:model-value="reset" />
 						<CheckField v-model="space.base" label="Base" @update:model-value="reset" />
@@ -1464,6 +1517,7 @@
 		font-size: 12px;
 		color: var(--text-lo);
 		text-align: right;
+		cursor: help;
 	}
 
 	.checks {
