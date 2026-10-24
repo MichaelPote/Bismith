@@ -45,7 +45,9 @@ The **Tiling** key on the workspace rail, laid out like Match (outliner and prop
 - **Progress:** candidates, score before → best, the look allowance; a chart of the kept best's loss.
 - **Terms:** a bar per term (of the hotspot pane's image), before → fixed values; below, the culprits and the changes.
 
-Edits made beside it are re-analysed once they pause (300 ms), except while a run or its result holds the panes.
+Until the first fix runs, notes over the Current and Hotspots panes say what they show (and what Tiling is for);
+running a fix or closing one hides them until the tab is closed (sessionStorage `cf-tiling-notes`). Empty panes say
+what will appear in them. Edits made beside it are re-analysed once they pause (300 ms), except while a run or its result holds the panes.
 Leaving the workspace stops a run; its best so far stays to keep or discard. The run works on a copy of the project
 taken when it began. Candidates are rendered and analysed on the GPU (below); the run yields to the page between them
 and paints at most every 100 ms (`yieldEvery` in `src/ui/schedule.ts`: waiting for a frame per candidate cost half a

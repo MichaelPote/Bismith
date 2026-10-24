@@ -142,6 +142,26 @@
 	const progress = ref('');
 	const log = ref<string[]>([]);
 
+	// Notes over the Current and Hotspots panes saying what they show: until the first fix runs (or they're closed),
+	// then not again until the tab is closed (sessionStorage).
+	const NOTES_KEY = 'cf-tiling-notes';
+	function readNotes(): boolean {
+		try {
+			return sessionStorage.getItem(NOTES_KEY) !== 'off';
+		} catch {
+			return true;
+		}
+	}
+	const notes = ref(readNotes());
+	function hideNotes(): void {
+		notes.value = false;
+		try {
+			sessionStorage.setItem(NOTES_KEY, 'off');
+		} catch {
+			/* storage unavailable: hidden until the page reloads */
+		}
+	}
+
 	const TERM_LABELS: Record<TilingTerm, string> = {
 		patches: 'Unique patches',
 		lines: 'Unique lines',
@@ -261,6 +281,7 @@
 		while (analysing) await nextFrame();
 		if (running.value) return;
 		if (phase.value === 'done') discard();
+		hideNotes();
 		const saved = resume?.state;
 		if (saved) applySettings(saved.settings);
 		abort = false;
@@ -578,7 +599,22 @@
 					:height="currentPx?.height ?? 1"
 					:tiles="3"
 					label="Current project tiled 3 by 3"
-					pickable>
+					pickable
+					@dismiss-note="hideNotes">
+					<template v-if="notes" #note>
+						<h3>Your project, tiled 3 × 3</h3>
+						<p>
+							Use Tiling to remove obvious tiling artefacts: details that stand out every time the texture repeats, so
+							the repeat is easy to spot.
+						</p>
+						<p>
+							This pane shows your project repeated three times in each direction, the way it looks when tiled. It
+							updates shortly after you edit the project.
+						</p>
+						<p>
+							The number beside the title is the tiling score. At 0 the repeat can't be seen; at 1 it is very obvious.
+						</p>
+					</template>
 					<h3>Your project, tiled 3 × 3</h3>
 					<p>
 						Use Tiling to remove obvious tiling artefacts: details that stand out every time the texture repeats, so the
@@ -651,7 +687,16 @@
 					:width="hotspotPx?.width ?? 1"
 					:height="hotspotPx?.height ?? 1"
 					:tiles="3"
-					label="Where the repeat draws the eye">
+					label="Where the repeat draws the eye"
+					@dismiss-note="hideNotes">
+					<template v-if="notes" #note>
+						<h3>Hotspots</h3>
+						<p>
+							Highlights the parts of the texture that give the repeat away, such as a patch that stands out or a line
+							that stops at the tile edge. Brighter areas draw the eye more.
+						</p>
+						<p>The bars below rate each kind of artefact over the whole texture.</p>
+					</template>
 					<h3>Hotspots</h3>
 					<p>
 						Highlights the parts of the texture that give the repeat away, such as a patch that stands out or a line

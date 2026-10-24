@@ -2,7 +2,9 @@
 	// Shows 8-bit RGBA pixels scaled with nearest-neighbour sampling, fitted into its box. `pickable`: the eyedropper takes
 	// the pixel under the pointer. `tiles`: the image repeated tiles × tiles (drawn by the canvas, not copied). With no
 	// pixels the slot shows instead, on a panel: an <h3> heading and a few short <p>s (or a <ul>) saying what will appear.
+	// The `note` slot, given, shows on a panel over the image (what the pane shows) with a close button (`dismiss-note`).
 	import { onMounted, ref, watch } from 'vue';
+	import { IconX } from '@tabler/icons-vue';
 	import { pixelHex, vPick } from '@/ui/eyedropper';
 
 	const props = defineProps<{
@@ -13,6 +15,7 @@
 		pickable?: boolean;
 		tiles?: number;
 	}>();
+	const emit = defineEmits<{ dismissNote: [] }>();
 	const tiles = () => Math.max(1, Math.round(props.tiles ?? 1));
 	const canvas = ref<HTMLCanvasElement | null>(null);
 
@@ -60,7 +63,18 @@
 			:aria-label="label"
 			role="img"
 			:style="{ aspectRatio: `${width * tiles()} / ${height * tiles()}` }" />
-		<div v-if="!pixels" class="placeholder"><slot /></div>
+		<div v-if="!pixels" class="card placeholder"><slot /></div>
+		<div v-else-if="$slots.note" class="card note">
+			<button
+				type="button"
+				class="note-x"
+				title="Hide these notes"
+				aria-label="Hide these notes"
+				@click="emit('dismissNote')">
+				<IconX :size="12" />
+			</button>
+			<slot name="note" />
+		</div>
 	</div>
 </template>
 
@@ -92,9 +106,8 @@
 		image-rendering: pixelated;
 		object-fit: contain;
 	}
-	.placeholder {
+	.card {
 		max-width: 340px;
-		margin: 16px;
 		padding: 12px 14px;
 		background: var(--raised);
 		border: 1px solid var(--line);
@@ -103,23 +116,54 @@
 		font-size: 12px;
 		line-height: 1.5;
 	}
-	.placeholder :slotted(h3) {
+	.placeholder {
+		margin: 16px;
+	}
+	.note {
+		position: absolute;
+		left: 12px;
+		right: 12px;
+		bottom: 12px;
+		margin: 0 auto;
+		padding-right: 28px;
+		box-shadow: 0 4px 16px rgb(0 0 0 / 0.45);
+	}
+	.note-x {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		display: grid;
+		place-items: center;
+		width: 20px;
+		height: 20px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--r-field);
+		background: transparent;
+		color: var(--text-lo);
+		cursor: pointer;
+	}
+	.note-x:hover {
+		color: var(--text-hi);
+		background: var(--panel);
+	}
+	.card :slotted(h3) {
 		margin: 0 0 6px;
 		color: var(--text-hi);
 		font-size: 13px;
 		font-weight: 600;
 	}
-	.placeholder :slotted(p) {
+	.card :slotted(p) {
 		margin: 0 0 6px;
 	}
-	.placeholder :slotted(ul) {
+	.card :slotted(ul) {
 		margin: 0 0 6px;
 		padding-left: 16px;
 	}
-	.placeholder :slotted(li) {
+	.card :slotted(li) {
 		margin-bottom: 3px;
 	}
-	.placeholder :slotted(:last-child) {
+	.card :slotted(:last-child) {
 		margin-bottom: 0;
 	}
 </style>
