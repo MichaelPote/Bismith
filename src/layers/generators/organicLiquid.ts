@@ -1,9 +1,10 @@
 // Organic value generators (FR7.2a): veined marble and liquid caustics. Both output a plain value (veins /
 // bright rims = 1) for the colour ramp; caustics can also hand its cells to a mask.
 
-import { P, gradient } from '@/core/params';
-import type { LayerDef } from '../types';
+import { P, enumIndex, gradient } from '@/core/params';
+import type { LayerCanvas, LayerDef } from '../types';
 import type { ParamValues } from '@/core/params';
+import { NO_PERIOD, cellsFor, f32, gcd, periodOf, radians } from '../derivedMath';
 import { ORG_GLSL } from './organicShared';
 
 // ------------------------------------------------------------------------------------------------ marble
@@ -12,6 +13,178 @@ import { ORG_GLSL } from './organicShared';
 const along = (style: unknown) => style === 'streaks' || style === 'ridges';
 // The fine veins' style, 'same' resolved.
 const fineStyle = (p: ParamValues) => (p.fine_style === 'same' ? p.style : p.fine_style);
+// Tiles turn the veins per tile, and the turn reaches veins along an angle: the wave vectors and turbulence lattices
+// then follow each tile's angle, per pixel (the MB_TILE_ROT variant); otherwise they are derived uniforms.
+const tileTurn = (p: ParamValues) =>
+	Number(p.tiles) > 0 && Number(p.tile_rot) !== 0 && (along(p.style) || (Number(p.fine) > 0 && along(fineStyle(p))));
+
+type V2 = [number, number];
+type I4 = [number, number, number, number];
+
+/** GLSL mb_waveCycles: whole cycles per texture of the wave vector for `count` bands at `deg` (never both 0). */
+function mbWaveCycles(count: number, deg: number, c: LayerCanvas): V2 {
+	const a = radians(deg);
+	const res = [c.width, c.height];
+	const cyc = [f32(Math.sin(a)), f32(Math.cos(a))].map((s, i) =>
+		Math.floor(f32(f32(f32(f32(s * count) / c.width) * res[i]) + 0.5))
+	) as V2;
+	if (cyc[0] === 0 && cyc[1] === 0) cyc[1] = 1;
+	return cyc;
+}
+
+/** GLSL mb_waveK: the wave vector (cycles per px) and the distinct bands per tile (NO_PERIOD untiled). */
+function mbWaveK(count: number, deg: number, c: LayerCanvas): { k: V2; g: number } {
+	if (!c.tileable) {
+		const a = radians(deg);
+		const k = [f32(Math.sin(a)), f32(Math.cos(a))].map((s) => f32(f32(s * count) / c.width)) as V2;
+		return { k, g: NO_PERIOD };
+	}
+	const cyc = mbWaveCycles(count, deg, c);
+	return { k: [f32(cyc[0] / c.width), f32(cyc[1] / c.height)], g: gcd(cyc[0], cyc[1]) };
+}
+
+/**
+ * GLSL mb_turbDir, for one wave vector c (cycles per texture): a small integer direction m near it and a Bezout pair
+ * (s, t) of it, as (m.x, m.y, s, t).
+ */
+function mbTurbDir(c: V2): I4 {
+	const len = Math.hypot(c[0], c[1]);
+	const cn = [c[0] / len, c[1] / len];
+	let m: V2 = [0, 1];
+	let best = -2;
+	for (let n = 1; n <= 4; n++) {
+		// Rounded in integers (c is whole), as the shader does: its ties round up.
+		const mx = Math.max(Math.abs(c[0]), Math.abs(c[1]));
+		const v = c.map((x) => Math.floor((2 * n * x + mx) / (2 * mx))) as V2;
+		const q = f32((v[0] * cn[0] + v[1] * cn[1]) / Math.hypot(v[0], v[1]));
+		// The first within ~6°, else the closest.
+		if (q > f32(best + 1e-4) && best <= f32(0.995)) [best, m] = [q, v];
+	}
+	// Extended Euclid: s·m.x + t·m.y = g, so the primitive m / g has the Bezout pair (s, t).
+	let a0 = [m[0], 1, 0];
+	let a1 = [m[1], 0, 1];
+	for (let i = 0; i < 8 && a1[0] !== 0; i++) {
+		const q = Math.trunc(a0[0] / a1[0]);
+		[a0, a1] = [a1, a0.map((x, j) => x - q * a1[j])];
+	}
+	if (a0[0] < 0) a0 = a0.map((x) => -x);
+	const g = Math.max(a0[0], 1);
+	return [Math.trunc(m[0] / g), Math.trunc(m[1] / g), a0[1], a0[2]];
+}
+
+/**
+ * GLSL mb_turbFrame: the turbulence lattice T (its columns, as a vec4) and its period lattice B for wave vector k, `ws`
+ * cells across, drawn out by `stretch` along the direction md (mbTurbDir).
+ */
+function mbTurbFrame(k: V2, ws: number, stretch: number, md: I4, c: LayerCanvas): { T: I4; B: I4 } {
+	const wc = cellsFor(ws, 1, c);
+	const per = periodOf(wc, c.tileable);
+	const B0: I4 = [per[0], 0, 0, per[1]];
+	if (Math.abs(f32(stretch - 1)) < 1e-3) return { T: [wc[0], 0, 0, wc[1]], B: B0 };
+	const kl = Math.hypot(k[0], k[1]);
+	const kn = [k[0] / kl, k[1] / kl];
+	if (!c.tileable) {
+		const s = [ws, f32(f32(c.height / c.width) * ws)];
+		return {
+			T: [f32((-kn[1] * s[0]) / stretch), f32((kn[0] * s[1]) / stretch), f32(kn[0] * s[0]), f32(kn[1] * s[1])],
+			B: B0
+		};
+	}
+	const m = [md[0], md[1]];
+	const L = f32(Math.hypot(m[0], m[1]));
+	// Along: cross(m, A) = ka gives ka / L cells per texture along the veins; then the least skew (A·m small).
+	const ka = Math.max(1, Math.floor(f32(f32(f32(ws / stretch) * L) + 0.5)));
+	let A = [-ka * md[3], ka * md[2]];
+	const mm = m[0] * m[0] + m[1] * m[1];
+	const sk = Math.floor((2 * (A[0] * m[0] + A[1] * m[1]) + mm) / (2 * mm));
+	A = [A[0] - sk * m[0], A[1] - sk * m[1]];
+	const kc = Math.max(1, Math.floor(f32(f32(ws / L) + 0.5)));
+	const C = [kc * m[0], kc * m[1]];
+	// The texture's repeats (1, 0) and (0, 1) land on (A.x, C.x) and (A.y, C.y).
+	return { T: [A[0], A[1], C[0], C[1]], B: [A[0], C[0], A[1], C[1]] };
+}
+
+/**
+ * Marble's uniform-only work (its derived uniforms): per vein system (main, fine; the background's turbulence lattice
+ * third) the wave vector snapped to whole cycles, its distinct bands, the turbulence lattice and its period lattice, and
+ * the noises' cell counts; the width-from-flow references; the tile grid. Under Tiles' per-tile vein turn (tileTurn) the
+ * shader works out the wave vectors and lattices per pixel instead.
+ */
+export function marbleDerived(p: ParamValues, c: LayerCanvas) {
+	const n = (key: string) => Number(p[key]);
+	const idx = (key: string) =>
+		enumIndex(
+			marbleLayer.params.find((d) => d.key === key)!,
+			p[key]
+		);
+	const tile = c.tileable;
+	const style = idx('style');
+	const fineIdx = idx('fine_style');
+	const veins = n('veins');
+	const ws = n('warp_scale');
+	const stretch = n('stretch');
+	const fineAng = f32(n('angle') + n('fine_angle'));
+	const fineCount = f32(veins * n('fine_scale'));
+
+	// The directions of the stretched turbulence lattices (main, fine) from their bands' whole cycles per texture.
+	let md: I4 = [0, 1, 0, 1];
+	let mdf = md;
+	if (tile && (f32(stretch) !== 1 || f32(n('cloud_stretch')) !== 1)) {
+		md = mbTurbDir(mbWaveCycles(veins, n('angle'), c));
+		mdf = mbTurbDir(mbWaveCycles(fineCount, fineAng, c));
+	}
+	const k: number[] = [];
+	const g: number[] = [];
+	const T: number[] = [];
+	const B: number[] = [];
+	const nc: number[] = [];
+	const wc: number[] = [];
+	const pc: number[] = [];
+	let km: V2 = [0, 1];
+	for (let sys = 0; sys < 2; sys++) {
+		const s = sys === 0 || fineIdx === 0 ? style : fineIdx - 1;
+		const [streaks, ridges] = [s === 0, s === 3];
+		const count = sys === 0 ? veins : fineCount;
+		const w = mbWaveK(count, sys === 0 ? n('angle') : fineAng, c);
+		if (sys === 0) km = w.k;
+		k.push(...w.k);
+		g.push(w.g);
+		const st = streaks || ridges ? (sys === 0 ? stretch : f32(stretch * n('fine_stretch'))) : 1;
+		const f = mbTurbFrame(w.k, ridges ? count : ws, st, sys === 0 ? md : mdf, c);
+		T.push(...f.T);
+		B.push(...f.B);
+		nc.push(...cellsFor(count, stretch, c));
+		wc.push(...(streaks ? cellsFor(Math.max(f32(ws * 0.5), 0.25), 1, c) : cellsFor(ws, 1, c)));
+		pc.push(...cellsFor(f32(Math.max(ws, 1) * (sys === 0 ? 1.2 : 0.75)), 1, c));
+	}
+	// The background: its own lattice, drawn out along the main veins by Cloud stretch.
+	const cs = n('cloud_scale') > 0 ? n('cloud_scale') : f32(Math.max(ws, 1) * 1.5);
+	const fc = mbTurbFrame(km, cs, style === 0 || style === 3 ? n('cloud_stretch') : 1, md, c);
+	T.push(...fc.T);
+	B.push(...fc.B);
+
+	// Width from flow: the typical |grad F| over the bands' own (streaks) / the contoured noise's (network) gradient,
+	// fitted to renders — raised by the turbulence and folding. og: how much steeper the Detail octaves make the noise
+	// than its first octave (the RMS of their gradients over the sum of their amplitudes), for all of them and for the
+	// first three (the fold's). foldK: how much the folding squeezes the turbulence's domain, typically (for the filter).
+	let flow = [1, 1, 1];
+	if (n('flow') > 0 || n('cull') > 0 || p.filter) {
+		const r = n('rough');
+		const r2 = 4 * r * r;
+		const og = [n('detail'), Math.min(n('detail'), 3)].map(
+			(o) => Math.sqrt(Math.abs(1 - r2) < 1e-3 ? o : (1 - r2 ** o) / (1 - r2)) / ((1 - r ** o) / (1 - r))
+		);
+		const wsv = ws / Math.max(veins, 0.25);
+		const t = 2.8 * og[0] * n('warp') * wsv;
+		const fo = 0.98 * og[1] * n('fold') * wsv;
+		const turb = idx('turb') === 0 ? 1 : 0.2;
+		flow = [Math.sqrt((1 + t * t * turb) * (1 + fo * fo)), 1.05 * Math.sqrt(1 + 0.25 * t * t), 1 + fo];
+	}
+	// Breakup noise cells, and the tiles across and down.
+	const bc = cellsFor(f32(Math.max(ws, 1) * 2), 1, c);
+	const tn = Math.max(1, Math.floor(f32(f32(f32(n('tiles') * c.height) / c.width) + 0.5)));
+	return { k, g, T, B, nc, wc, pc, flow, bt: [...bc, n('tiles'), tn] };
+}
 
 export const marbleLayer: LayerDef = {
 	type: 'marble',
@@ -259,6 +432,22 @@ export const marbleLayer: LayerDef = {
 			halo_width: r1(Math.max(3, 14 * k))
 		};
 	},
+	// Uniform-only work on the CPU (marbleDerived); per tile under Tiles' vein turn (tileTurn), in a variant of its own.
+	derivedUniforms: {
+		decl: {
+			k: 'vec2[2]',
+			g: 'ivec2',
+			T: 'vec4[3]',
+			B: 'ivec4[3]',
+			nc: 'vec2[2]',
+			wc: 'vec2[2]',
+			pc: 'vec2[2]',
+			flow: 'vec3',
+			bt: 'vec4'
+		},
+		compute: marbleDerived
+	},
+	shaderFeatures: (p) => (tileTurn(p) ? ['MB_TILE_ROT'] : []),
 	glsl:
 		ORG_GLSL +
 		/* glsl */ `
@@ -267,6 +456,10 @@ float mb_breakup(float n, float amount) {
   float c = clamp((n - 0.5) * 2.5 + 0.5, 0.0, 1.0);
   return smoothstep(amount * 1.3 - 0.3, amount * 1.3, c);
 }
+
+#ifdef MB_TILE_ROT
+// Tiles' vein turn: the wave vectors and turbulence lattices follow each tile's angle, so they are worked out per pixel
+// here; otherwise marbleDerived does it on the CPU (the same steps).
 
 // Whole cycles per texture (x, y) of the wave vector for count bands per texture width at deg clockwise from horizontal
 // on screen (never both 0).
@@ -291,6 +484,7 @@ vec2 mb_waveK(float count, float deg, out int g) {
   }
   return k;
 }
+#endif
 
 // worleyNoise(x, per, 1.0, 0, seed).wz — distance to the cell border (cells) and the cell's random — in one flat loop:
 // the 3×3 cells for the nearest point, then the 5×5 for the border (the library's nested loops compile slower).
@@ -374,6 +568,7 @@ float mb_cellPx(mat2 T) { return 1.0 / max(max(length(T[0] / uRes), length(T[1] 
 
 ivec4 mb_axisPer(vec2 cells) { ivec2 p = periodOf(cells); return ivec4(p.x, 0, 0, p.y); }
 
+#ifdef MB_TILE_ROT
 // Tiling: a small integer direction m (components up to 4) near c, the bands' wave vector in cycles per texture — the
 // first within ~6°, else the closest — and a Bezout pair (s, t) of it (s·m.x + t·m.y = 1): the streaks' stretched
 // turbulence lattice is built on them (mb_turbFrame). Once per pixel, outside the vein loop (D3D compiled loops in
@@ -383,9 +578,14 @@ void mb_turbDir(vec2 c0, vec2 c1, out ivec4 d0, out ivec4 d1) {
   vec2 cn0 = normalize(c0), cn1 = normalize(c1);
   vec2 m0 = vec2(0.0, 1.0), m1 = m0;
   vec2 best = vec2(-2.0);
+  // c / max|c| · n rounded, in integers (c is whole): floor((2nc + max|c|) / (2 max|c|)). In floats, D3D rounded the
+  // ties (c = (1, 2): ½ + ½) down, SwiftShader and the CPU (marbleDerived) up.
+  ivec2 i0 = ivec2(c0), i1 = ivec2(c1);
+  int x0 = max(abs(i0.x), abs(i0.y)), x1 = max(abs(i1.x), abs(i1.y));
   for (int n = 1; n <= 4 * UNI_1; n++) {
-    vec2 v0 = floor(c0 / max(abs(c0.x), abs(c0.y)) * float(n) + 0.5);
-    vec2 v1 = floor(c1 / max(abs(c1.x), abs(c1.y)) * float(n) + 0.5);
+    ivec2 a0 = 2 * n * i0 + x0, a1 = 2 * n * i1 + x1;
+    vec2 v0 = vec2((a0 - imod(a0, ivec2(2 * x0))) / (2 * x0));
+    vec2 v1 = vec2((a1 - imod(a1, ivec2(2 * x1))) / (2 * x1));
     vec2 q = vec2(dot(normalize(v0), cn0), dot(normalize(v1), cn1));
     // The first within ~6°, else the closest.
     if (q.x > best.x + 1e-4 && best.x <= 0.995) { best.x = q.x; m0 = v0; }
@@ -422,12 +622,15 @@ mat2 mb_turbFrame(vec2 k, float ws, float stretch, ivec4 md, out ivec4 B) {
   float L = length(vec2(m));
   // Along: cross(m, A) = ka gives ka / L cells per texture along the veins; then the least skew (A·m small).
   ivec2 A = max(1, int(floor(ws / stretch * L + 0.5))) * ivec2(-md.w, md.z);
-  A -= int(floor(float(A.x * m.x + A.y * m.y) / (L * L) + 0.5)) * m;
+  // (A·m / |m|² rounded, in integers: at 45°, |m|² = 2, its ties rounded either way in floats.)
+  int mm = m.x * m.x + m.y * m.y, sk = 2 * (A.x * m.x + A.y * m.y) + mm;
+  A -= (sk - imod(sk, 2 * mm)) / (2 * mm) * m;
   ivec2 C = max(1, int(floor(ws / L + 0.5))) * m;
   // The texture's repeats (1, 0) and (0, 1) land on (A.x, C.x) and (A.y, C.y).
   B = ivec4(A.x, C.x, A.y, C.y);
   return mat2(vec2(A), vec2(C));
 }
+#endif
 
 // Veins. Streaks and network: veins lie on the integer level sets of a field F — streaks: bands along the wave vector k
 // bent by turbulence (billow or signed, optionally stretched along the veins) and by an optional larger fold warp;
@@ -447,7 +650,8 @@ GenOut gen(vec2 p) {
   float ang = u_angle;
   float tileRnd = -1.0;
   if (u_tiles > 0) {
-    vec2 tn = vec2(float(u_tiles), max(1.0, floor(float(u_tiles) * uRes.y / uRes.x + 0.5)));
+    // Tiles across and down (marbleDerived).
+    vec2 tn = d_bt.zw;
     ivec2 ti = imod(ivec2(floor(p / (uRes / tn))), ivec2(tn));
     vec3 th = hash3I(ti, uSeed + 5.0);
     q = p + floor(th.xy * uRes);
@@ -455,41 +659,28 @@ GenOut gen(vec2 p) {
     tileRnd = hashI(ti, uSeed + 9.0);
   }
   vec2 u = q / uRes;
-  vec2 bc = cellsFor(max(u_warp_scale, 1.0) * 2.0, 1.0);
-  // Width from flow: the typical |grad F| over the bands' own (streaks) / the contoured noise's (network) gradient,
-  // fitted to renders — raised by the turbulence and folding. og: how much steeper the Detail octaves make the noise
-  // than its first octave (the RMS of their gradients over the sum of their amplitudes), for all of them and for the
-  // first three (the fold's).
-  vec2 flowRef = vec2(1.0);
-  // How much the folding squeezes the turbulence's domain, typically (for the filter; network, cells and ridges: the
-  // warp's squeeze, 1 + 3 · warp · warp scale / cells, in the loop).
-  float foldK = 1.0;
-  if (u_flow > 0.0 || u_cull > 0.0 || u_filter) {
-    float r = u_rough, r2 = 4.0 * r * r;
-    vec2 n = vec2(float(u_detail), float(min(u_detail, 3)));
-    vec2 og = sqrt(abs(1.0 - r2) < 1e-3 ? n : (1.0 - pow(vec2(r2), n)) / (1.0 - r2)) / ((1.0 - pow(vec2(r), n)) / (1.0 - r));
-    float ws = u_warp_scale / max(u_veins, 0.25);
-    float t = 2.8 * og.x * u_warp * ws;
-    float fo = 0.98 * og.y * u_fold * ws;
-    foldK = 1.0 + fo;
-    flowRef = vec2(sqrt((1.0 + t * t * (u_turb == 0 ? 1.0 : 0.2)) * (1.0 + fo * fo)), 1.05 * sqrt(1.0 + 0.25 * t * t));
-  }
+  // The breakup noise's cells; the width-from-flow references and the folding's squeeze (marbleDerived).
+  vec2 bc = d_bt.xy;
+  vec2 flowRef = d_flow.xy;
+  float foldK = d_flow.z;
+#ifdef MB_TILE_ROT
   // The directions of the stretched turbulence lattices — the main veins' and the fine ones' (Fine angle) — from their
   // bands' wave vectors in whole cycles per texture (as mb_waveK snaps them).
   ivec4 md = ivec4(0, 1, 0, 1), mdf = md;
   if (uTile && (u_stretch != 1.0 || u_cloud_stretch != 1.0))
     mb_turbDir(mb_waveCycles(u_veins, ang), mb_waveCycles(u_veins * u_fine_scale, ang + u_fine_angle), md, mdf);
+  vec2 km = vec2(0.0, 1.0);
+#endif
 
   float vein = 0.0, veinR = 0.0, rnd = 0.0, base = 0.0, dMain = 1e9, ffMain = 1.0, fadeMain = 1.0, fpatch = 1.0;
   // The current system's frame and state.
   float nb = 0.0, wm = 1.0, sd = 0.0;
   int g = 1;
-  vec2 k = vec2(0.0), nc = vec2(1.0), wc = vec2(1.0), w = vec2(0.0), x = vec2(0.0);
+  vec2 k = vec2(0.0), nc = vec2(1.0), wc = vec2(1.0), pc = vec2(1.0), w = vec2(0.0), x = vec2(0.0);
   vec4 f = vec4(0.0);
   vec2 fb = vec2(0.0);
   mat2 T = mat2(1.0);
   ivec4 B = ivec4(1, 0, 0, 1);
-  vec2 km = vec2(0.0, 1.0);
   bool streaks = true, cells = false, ridges = false, fold = false;
   float ns = 0.5;
   // No continue in this loop (ANGLE / D3D11 can miscompile it): skipped slots fall through the run test instead.
@@ -507,12 +698,19 @@ GenOut gen(vec2 p) {
         cells = style == 2;
         ridges = style == 3;
         // The fine streaks may run at an angle to the main ones (crossing them, branching off them).
+#ifdef MB_TILE_ROT
         k = mb_waveK(u_veins * wm, sys == 1 ? ang + u_fine_angle : ang, g);
         if (sys == 0) km = k;
-        nc = cellsFor(u_veins * wm, u_stretch);
-        // Streaks: Folding bends the whole band field (bands and turbulence together) by a smooth warp at half the scale.
+#else
+        k = d_k[sys];
+        g = sys == 0 ? d_g.x : d_g.y;
+#endif
+        // The noises' cells: the contoured noise's, the turbulence's (for streaks at half the scale: Folding bends the
+        // whole band field, bands and turbulence together, by a smooth warp), the fine patches' / ridges' strands'.
+        nc = d_nc[sys];
+        wc = d_wc[sys];
+        pc = d_pc[sys];
         fold = streaks && u_fold > 0.0;
-        wc = streaks ? cellsFor(max(u_warp_scale * 0.5, 0.25), 1.0) : cellsFor(u_warp_scale, 1.0);
         ns = 0.5;
         f = vec4(0.0);
         fb = vec2(0.0);
@@ -520,9 +718,14 @@ GenOut gen(vec2 p) {
       }
       // The turbulence lattice — for ridges the veins' own noise, Veins cells across; the fine veins' along their own
       // angle (Fine stretch) — and the background's (drawn out along the veins by Cloud stretch).
+#ifdef MB_TILE_ROT
       T = mb_turbFrame(cloud ? km : k, cloud ? (u_cloud_scale > 0.0 ? u_cloud_scale : max(u_warp_scale, 1.0) * 1.5) : ridges ? u_veins * wm : u_warp_scale,
                        cloud ? (u_style == 0 || u_style == 3 ? u_cloud_stretch : 1.0)
                              : streaks || ridges ? (sys == 0 ? u_stretch : u_stretch * u_fine_stretch) : 1.0, sys == 1 ? mdf : md, B);
+#else
+      T = mat2(d_T[sys]);
+      B = d_B[sys];
+#endif
     }
     bool field = j >= 1 && j <= 18;
     // Sample i: p, right, up, and for the main ridges' loop culling left, down, up-right (the crest's curvature);
@@ -546,8 +749,6 @@ GenOut gen(vec2 p) {
         x = streaks ? pw / uRes * T : (ridges ? pw / uRes * T : pw / uRes * nc) + (w - 0.5) * (u_warp + (sys == 1 ? u_fine_wander * wm : 0.0)) * 2.0;
       }
       bool last = j == 19;
-      // The fine veins' density patches' / the ridges' strand field's cells.
-      vec2 pc = cellsFor(max(u_warp_scale, 1.0) * (sys == 0 ? 1.2 : 0.75), 1.0);
       bool noise = !(field && !warp && cells) && (!last || (sys == 1 && u_fine_patch > 0.0) || (sys == 0 && ridges && u_fork > 0.0));
       if (noise) {
         // The noise call's arguments for this slot: lattice transform Tn, sample point xa and its period lattice Ba,

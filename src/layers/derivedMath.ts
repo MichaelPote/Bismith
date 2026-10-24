@@ -24,3 +24,13 @@ export function cellsFor(scale: number, stretch: number, c: LayerCanvas): [numbe
 		? [Math.max(1, Math.floor(f32(cx + 0.5))), Math.max(1, Math.floor(f32(cy + 0.5)))]
 		: [Math.max(cx, 1e-3), Math.max(cy, 1e-3)];
 }
+
+/** GLSL radians(deg), in float32. */
+export const radians = (deg: number): number => f32(deg * f32(Math.PI / 180));
+
+/** The noise library's NO_PERIOD (an untiled noise's period: never wraps). */
+export const NO_PERIOD = 1 << 20;
+
+/** GLSL periodOf(cells): the noise's period for `cells` across and down — whole when tiling, else NO_PERIOD. */
+export const periodOf = (cells: [number, number], tile: boolean): [number, number] =>
+	tile ? [Math.trunc(cells[0] + 0.5), Math.trunc(cells[1] + 0.5)] : [NO_PERIOD, NO_PERIOD];

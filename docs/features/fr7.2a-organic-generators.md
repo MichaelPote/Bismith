@@ -3,13 +3,13 @@
 **Status:** done. Five bespoke generator types in `src/layers/generators/organic*.ts`, exported as
 `ORGANIC_LAYERS` from `organic.ts` (already registered in `generators/index.ts`):
 
-| File               | Contents                                                                                                                                        |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `organic.ts`       | `ORGANIC_LAYERS` = marble, caustics, wood, scales, cracks                                                                                       |
-| `organicShared.ts` | `ORG_GLSL` (lean fBm, tileable wave vector, line / breakup helpers, power-Voronoi cell distance)                                                |
-| `organicLiquid.ts` | `marble`, `caustics` (value generators)                                                                                                         |
-| `organicWood.ts`   | `wood`, `scales` (SDF generators with a combined output)                                                                                        |
-| `organicCracks.ts` | `cracks` (SDF generator with a combined output; tests in `cracks.test.ts`)                                                                      |
+| File               | Contents                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| `organic.ts`       | `ORGANIC_LAYERS` = marble, caustics, wood, scales, cracks                                        |
+| `organicShared.ts` | `ORG_GLSL` (lean fBm, tileable wave vector, line / breakup helpers, power-Voronoi cell distance) |
+| `organicLiquid.ts` | `marble`, `caustics` (value generators)                                                          |
+| `organicWood.ts`   | `wood`, `scales` (SDF generators with a combined output)                                         |
+| `organicCracks.ts` | `cracks` (SDF generator with a combined output; tests in `cracks.test.ts`)                       |
 
 Part of FR7.2 (bespoke generators for emulating reference texture libraries).
 
@@ -122,10 +122,21 @@ clouds drown the veins.
 veins (`warp_scale / stretch` cells), axis 1 across. Tiling needs `T` integer, and a rotated lattice only repeats on a
 non-axis-aligned period lattice, so marble has its own Perlin fBm (`mb_fbm`) whose lattice points are reduced modulo
 any integer period basis `B` (to the cell `B·[0, 1)²`; exact in small integers). `T`'s across column is a multiple of
-a small integer direction within ~6° of the snapped wave vector (`mb_turbDir`, once per pixel), its along column the
+a small integer direction within ~6° of the snapped wave vector (`mb_turbDir`; on the CPU, below), its along column the
 integer vector with the wanted along-vein frequency (`cross(m, A) = ka`, via a Bezout pair of `m`) and the least skew;
 `B` is where `T` takes the texture's repeats. With an axis-aligned period `(Px, 0, 0, Py)` it is the noise library's
 `imod` wrap.
+
+**On the CPU.** The wave vectors, their distinct bands (`igcd`), the lattice directions and Bezout pairs, the lattices
+`T` / `B` of the three systems, the noises' cell counts, the width-from-flow references and the tile grid depend only
+on the params and the canvas, so `marbleDerived` works them out once per render (derived uniforms, `d_k`, `d_T`, …).
+Only Tiles' per-tile vein turn (Tiles > 0, Tile vein turn ≠ 0, main or fine veins along an angle) needs the wave
+vectors and lattices per tile; the turn is a continuous random per tile, so that case compiles the per-pixel helpers
+in a variant of its own (`MB_TILE_ROT`). The direction search and the lattice's skew round in integers
+(`floor((2a + b) / 2b)`): in floats D3D11 and SwiftShader rounded their exact ties (a wave vector of (1, 2) cycles,
+a 45° direction) differently, and tiled non-square marbles came out as different (equally tileable) lattices. Cold
+D3D11 compile 1.17 → 0.87 s (the variant 1.18 s); per pixel ~15 % less (2048², default 7.9 → 6.7 ms, streaks
+5.0 → 4.1 ms; with the turn 8.0 → 7.3 ms).
 
 ### caustics
 
@@ -231,7 +242,7 @@ pixel crosses a column (cold D3D11 compile ≈ 0.65 s).
 
 | Param                             | Default            | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | --------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `output`                          | plates             | plates (painted by the layer, `genOutOwn`: value 1 on the plates × its own Shape bevel — `bevelPlain`, so no Bevel aspect and no bevel round a combined mask mode — the cracks sunk by their depth; the plate outline goes to the mask it writes) · shape (plate SDF → mask, the cracks show what is below)                                                                                                                                                                                                                                                                                                                                             |
+| `output`                          | plates             | plates (painted by the layer, `genOutOwn`: value 1 on the plates × its own Shape bevel — `bevelPlain`, so no Bevel aspect and no bevel round a combined mask mode — the cracks sunk by their depth; the plate outline goes to the mask it writes) · shape (plate SDF → mask, the cracks show what is below)                                                                                                                                                                                                                                                                                                                                                  |
 | `scale`, `jitter`, `size_var`     | 5, 0.9, 0.5        | main plates across (0.5…256); jitter; power weights (main network only, 0…2: above 1 small plates get squeezed out)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `width`, `width_var`              | 2.5 px, 0.8        | main crack width (0…64 px); spread of widths — one random per border segment (0.55–1.45; both plates agree on it), blended between the two nearest borders where they swap (no step at a junction), × a noise along the cracks, × a flare towards the junctions where wide cracks meet (`1 + 1.5·width_var·exp(−second border distance / 0.15 plate)` × smoothstep(0.7, 1.3) of the two widths against the mean, off where the two borders' normals oppose: thin slivers). The fine cracks and shards follow the same noise (whole stretches of the fine network dark, others faint hairlines) × a mild per-segment spread (0.5–1.5)                         |
 | `fillet`                          | 0.05               | Junction rounding: each plate's corners round off with a circular fillet (`crk_round`, exact elsewhere) of this share of a plate × the meeting cracks' widths against the mean (0.5–1.5: thin cracks meet in tight corners); the band is laid round the rounded plate, so the gap between three plates is a dark wedge with concave sides. Fine cells (share of a fine cell), shards and fine–main joins alike (a fine segment dropped by Connected only gives up its rounding)                                                                                                                                                                              |
