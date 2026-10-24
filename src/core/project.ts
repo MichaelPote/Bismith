@@ -71,6 +71,12 @@ export interface Light {
 	name: string;
 	enabled: boolean;
 	params: ParamValues;
+	/**
+	 * Point lights: the distance (px) at which Intensity 1 lights a white surface to 1.0 — the falloff is
+	 * (refDist / distance)². Absent = POINT_LIGHT_REF_DIST (64). Not a slider: it scales with the canvas like the light's
+	 * px params (core/pixelScale.ts), so a resized or supersampled light stays as bright.
+	 */
+	refDist?: number;
 }
 
 export interface Lighting {

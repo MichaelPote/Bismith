@@ -12,7 +12,9 @@ Global lighting as a project setting: sky light, ambient strength, and individua
 - Sky: zenith and horizon colours + intensity, sampled by escaping BSDF rays.
 - Ambient: un-shadowed constant fill (colour × intensity) at the primary hit.
 - Lights (≤ 8): directional (azimuth, elevation, angular radius for soft shadows) and point (x, y in user
-  space, z height in px, radius for soft shadows, optional range).
+  space, z height in px, radius for soft shadows, optional range). Inverse-square falloff (refDist / d)²: intensity 1
+  lights a white surface to 1.0 at `refDist` px (default 64), which scales with the canvas like z, so a resize keeps
+  point lights as bright.
 - Outliner "Lights" section: add / remove / enable / duplicate; properties panel per light.
 - Viewport gizmos: drag point lights in x/y; directional azimuth indicator.
 - Lighting presets: "Top-left key (UI)", "Overhead + sky", "Torch-lit (Quake)".

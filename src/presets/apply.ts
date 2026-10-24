@@ -65,6 +65,9 @@ export function applyLightPreset(project: Project, light: Light, preset: Project
 	const item = fitted(preset, project).lighting.lights.find((l) => l.type === light.type);
 	if (!item) return false;
 	light.params = clone(item.params);
+	// Its falloff reference was fitted with its height; a point light without one uses the default.
+	if (item.refDist === undefined) delete light.refDist;
+	else light.refDist = item.refDist;
 	return true;
 }
 

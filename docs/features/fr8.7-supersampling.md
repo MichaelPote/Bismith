@@ -8,8 +8,9 @@ joints and small bolt holes are computed at k× and averaged instead of being de
 
 - `core/supersample.ts` — `scaleProject(p, k)`: width / height × k and every pixel-measured value scaled by k through
   `core/pixelScale.ts` (`scalePixels`): ParamDef `unit: 'px'` params (bevels, joints, radii, widths, white-noise block
-  sizes, stamp pixel sizes, path vertex lists in px), heightDepth, AO radius and point-light px params × k, so
-  patterns keep their size in texture pixels and slopes stay the same. Counts per pixel area (ParamDef `perArea`:
+  sizes, stamp pixel sizes, path vertex lists in px), heightDepth, AO radius and point lights' px params and falloff
+  reference `refDist` × k, so patterns keep their size in texture pixels, slopes stay the same and point lights stay
+  as bright. Counts per pixel area (ParamDef `perArea`:
   Scratches' density, per 64×64 px) ÷ k², so the texture keeps as many features — before, raising the supersampling
   multiplied the scratches by k² — and per-px quantities (`perPx`: Cavity's gain per px of curvature) ÷ k.
 - Resizing the canvas uses the same scaling (`resizeProject`, the store's `resize`): Width / Height, the size buttons

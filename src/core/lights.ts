@@ -2,6 +2,12 @@ import { P, type ParamDef, defaultParams } from './params';
 import type { Light, LightType } from './project';
 import { newId } from './ids';
 
+/**
+ * A point light's reference distance (px) when it has none (Light.refDist): at this distance Intensity 1 lights a white
+ * surface to 1.0.
+ */
+export const POINT_LIGHT_REF_DIST = 64;
+
 export interface LightDef {
 	type: LightType;
 	label: string;

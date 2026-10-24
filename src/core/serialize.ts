@@ -170,7 +170,10 @@ export function normalizeProject(input: unknown): Project {
 			type: l.type,
 			name: str(l.name, LIGHT_DEFS[l.type as 'point'].label),
 			enabled: l.enabled !== false,
-			params: sanitizeParams(LIGHT_DEFS[l.type as 'point'].params, l.params)
+			params: sanitizeParams(LIGHT_DEFS[l.type as 'point'].params, l.params),
+			...(l.type === 'point' && typeof l.refDist === 'number' && l.refDist > 0
+				? { refDist: Math.min(l.refDist, 1e6) }
+				: {})
 		}));
 
 	const post: PostFilter[] = (Array.isArray(raw.post) ? raw.post : [])

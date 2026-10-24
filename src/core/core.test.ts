@@ -143,6 +143,19 @@ describe('serialize', () => {
 		expect(p.post[0].params.operator).toBe('aces');
 		expect(p.lighting.sky.enabled).toBe(true);
 	});
+	it("keeps a point light's reference distance when valid", () => {
+		const p = normalizeProject({
+			lighting: {
+				lights: [
+					{ type: 'point', refDist: 128 },
+					{ type: 'point', refDist: -1 },
+					{ type: 'point', refDist: 'x' },
+					{ type: 'directional', refDist: 128 }
+				]
+			}
+		});
+		expect(p.lighting.lights.map((l) => l.refDist)).toEqual([128, undefined, undefined, undefined]);
+	});
 	it('puts a legacy relief stack first in the one list, with its colour outputs off', () => {
 		const p = normalizeProject({
 			relief: [
@@ -206,7 +219,7 @@ describe('zip', () => {
 describe('supersampling', () => {
 	it('scales pixel-unit params, point lists, height depth and AO radius; leaves counts and fractions alone', async () => {
 		const { scaleProject, supersampleFactor } = await import('./supersample');
-		const { createLayer, createProject } = await import('./serialize');
+		const { createLayer, createLight, createProject } = await import('./serialize');
 		const p = createProject({
 			width: 64,
 			height: 32,
@@ -231,6 +244,9 @@ describe('supersampling', () => {
 		// Scratches per 64×64 px: 9× the pixels at 3× → a ninth of the density, the same scratches in the texture.
 		expect(q.layers[3].params.density).toBe(2);
 		expect(q.render.aoRadius).toBe(p.render.aoRadius * 3);
+		p.lighting.lights.push(createLight('point', { z: 48 }));
+		const lit = scaleProject(p, 3).lighting.lights.at(-1)!;
+		expect([lit.params.z, lit.refDist]).toEqual([144, 192]);
 		expect(p.width).toBe(64); // input untouched
 	});
 });
@@ -267,6 +283,9 @@ describe('canvas resize', () => {
 		const { scaleProject } = await import('./supersample');
 		expect(scaleProject(p, 2).layers[4].params.px_scale).toBe(2);
 		expect(q.lighting.lights.at(-1)!.params.z).toBe(96);
+		// The point light's falloff reference grows with its distances, so it lights the surface as brightly.
+		expect(q.lighting.lights.at(-1)!.refDist).toBe(128);
+		expect(q.lighting.lights[0].refDist).toBeUndefined(); // directional
 		expect(q.materials!.find((x) => x.id === m.id)!.params.size).toBe(32);
 		expect(p.width).toBe(64); // input untouched
 		// Wider only: offsets and vertices follow their axis, lengths the side of the area (√2 here).

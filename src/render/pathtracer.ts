@@ -3,14 +3,13 @@
 
 import * as THREE from 'three';
 import type { Project } from '@/core/project';
+import { POINT_LIGHT_REF_DIST } from '@/core/lights';
 import { hexToLinear } from '@/core/color';
 import { Gpu, PingPong } from '@/gpu/context';
 import { GLSL_COMMON } from '@/layers/glsl/common';
 import type { MaterialPipeline } from './materialPipeline';
 
 export const MAX_LIGHTS = 8;
-/** Distance (px) at which a point light of intensity 1 lights a white surface to 1.0 (× the supersampling). */
-export const POINT_LIGHT_REF_DIST = 64;
 /** Height-field march steps (0.75 px each) per supersampling factor: shadows reach 384 texture px at any factor. */
 const MARCH_STEPS = 512;
 
@@ -38,11 +37,10 @@ uniform vec3 uSkyHorizon;
 uniform vec3 uAmbient;
 uniform int uLightCount;
 uniform int uLType[${MAX_LIGHTS}];
-uniform vec3 uLColor[${MAX_LIGHTS}];
+uniform vec3 uLColor[${MAX_LIGHTS}];  // colour × intensity; a point light's also × refDist² (its falloff is 1 / d²)
 uniform vec3 uLVec[${MAX_LIGHTS}];
 uniform float uLSize[${MAX_LIGHTS}];
 uniform float uLRange[${MAX_LIGHTS}];
-uniform float uRefDist;
 
 out vec4 oColor;
 
@@ -245,7 +243,7 @@ vec3 directLight(Mat m, vec3 ro, vec3 p, vec3 n, vec3 v) {
       dist = length(toL);
       l = toL / max(dist, 1e-4);
       if (uLRange[i] > 0.0) { float x = dist / uLRange[i]; win = clamp(1.0 - x * x * x * x, 0.0, 1.0); win *= win; }
-      falloff = (uRefDist * uRefDist) / max(dist * dist, 1.0);
+      falloff = 1.0 / max(dist * dist, 1.0);
     }
     bool skip = dot(n, l) <= 0.0 || (point ? win <= 0.0 : l.z <= 0.0);
     if (!skip && uShadows) skip = !visible(ro, l, dist);
@@ -381,8 +379,7 @@ export class PathTracer {
 			uLColor: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3()) },
 			uLVec: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3()) },
 			uLSize: { value: new Array(MAX_LIGHTS).fill(0) },
-			uLRange: { value: new Array(MAX_LIGHTS).fill(0) },
-			uRefDist: { value: POINT_LIGHT_REF_DIST }
+			uLRange: { value: new Array(MAX_LIGHTS).fill(0) }
 		});
 		this.aoMat = gpu.material(
 			GLSL_COMMON +
@@ -472,7 +469,6 @@ export class PathTracer {
 		u.tNormal.value = nt;
 		const ss = opts.ss ?? 1;
 		u.uSteps.value = MARCH_STEPS * ss;
-		u.uRefDist.value = POINT_LIGHT_REF_DIST * ss;
 		u.uMaxH.value = material.heightStats.max + 0.01;
 		u.uMinH.value = material.heightStats.min;
 		const r = project.render;
@@ -505,7 +501,9 @@ export class PathTracer {
 		const ranges = u.uLRange.value as number[];
 		lights.forEach((l, i) => {
 			const p = l.params;
-			const c = hexToLinear(String(p.color)).map((v) => v * Number(p.intensity));
+			// A point light's refDist is px like its position, so `project` (supersampled or resized) has scaled it.
+			const ref = l.type === 'point' ? (l.refDist ?? POINT_LIGHT_REF_DIST) : 1;
+			const c = hexToLinear(String(p.color)).map((v) => v * Number(p.intensity) * ref * ref);
 			colors[i].set(c[0], c[1], c[2]);
 			if (l.type === 'directional') {
 				types[i] = 0;

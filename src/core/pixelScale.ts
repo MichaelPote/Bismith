@@ -4,8 +4,8 @@
 //
 // What scales, by the length factor s (√(kx·ky): the side of the texture's area — path-independent, so 256² → 512×256
 // → 512² comes out as one 2× step): ParamDef unit 'px' values × s (bevels, joints, radii, widths, block sizes, light
-// heights …), perPx values ÷ s (gains per px of curvature), perArea counts ÷ kx·ky (scratches per 64×64 px), and the
-// project's height depth × s (so slopes stay the same). Lengths and positions tied to one axis follow that side alone:
+// heights …), point lights' falloff reference (Light.refDist) × s, perPx values ÷ s (gains per px of curvature),
+// perArea counts ÷ kx·ky (scratches per 64×64 px), and the project's height depth × s (so slopes stay the same). Lengths and positions tied to one axis follow that side alone:
 // ParamDef axis 'x' / 'y' (rect width / height, a band's thickness across horizontal bands) and sliderSpan offsets ×
 // kx / ky, and vertex lists ("x,y x,y …" in px) per coordinate. Counts per texture or per cell ("cells
 // across"), fractions, angles and height amounts (height units × height depth) need nothing.
@@ -15,7 +15,7 @@ import type { Project } from './project';
 import { layerParamDefs } from '@/layers/registry';
 import { getPostDef } from '@/render/post/registry';
 import { getRecipe } from '@/recipes';
-import { LIGHT_DEFS } from './lights';
+import { LIGHT_DEFS, POINT_LIGHT_REF_DIST } from './lights';
 
 export interface PixelScale {
 	/** Texture pixels per old pixel along x and y. */
@@ -88,7 +88,11 @@ export function scalePixels(p: Project, scale: PixelScale & { post: boolean }): 
 	p.heightDepth = tidy(p.heightDepth * s);
 	p.render.aoRadius = tidy(p.render.aoRadius * s);
 	for (const l of p.layers) scaleParams(layerParamDefs(l.type), l.params, scale);
-	for (const light of p.lighting.lights) scaleParams(LIGHT_DEFS[light.type].params, light.params, scale);
+	for (const light of p.lighting.lights) {
+		scaleParams(LIGHT_DEFS[light.type].params, light.params, scale);
+		// Its distances to the surface grow by s, so the inverse-square falloff's reference does too.
+		if (light.type === 'point') light.refDist = tidy((light.refDist ?? POINT_LIGHT_REF_DIST) * s);
+	}
 	for (const m of p.materials ?? []) {
 		const def = getRecipe(m.recipe);
 		if (def) scaleParams(def.params, m.params, scale);
