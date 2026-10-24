@@ -4,7 +4,7 @@
 // into a slot when a later layer reads it.
 
 import * as THREE from 'three';
-import { hiddenByMaterial, type Layer, type Project } from '@/core/project';
+import { hiddenByGroup, type Layer, type Project } from '@/core/project';
 import { hexToLinear } from '@/core/color';
 import { Gpu, PingPong, ScratchPool, type Uniforms } from '@/gpu/context';
 import { createUniforms, declareUniforms, mixSeed, updateUniforms } from '@/gpu/uniforms';
@@ -108,7 +108,7 @@ ${GLSL_MASK_OP}`;
 /** Everything a GLSL snippet in the material stage can rely on. */
 export const MATERIAL_PRELUDE = STATE_DECLS + GLSL_COMMON + GLSL_MASKS + GLSL_NOISE + GLSL_SDF;
 
-/** Masks a combined limit reads at most: a layer's own four terms and its material's four. */
+/** Masks a combined limit reads at most: a layer's own four terms and its group's four. */
 const MAX_LIMIT_INPUTS = 8;
 
 /** uMaskKind for a mask write: 0 nothing, 1 its shape (a distance), 2 its coverage. */
@@ -459,7 +459,7 @@ uniform int uGroups[${MAX_LIMIT_INPUTS}];
 uniform int uCount;
 out vec4 oColor;
 // A limit expression in distance terms (masks.ts LimitTerm): op 0 first, 1 or (min), 2 and (max), 3 minus; group 0 the
-// layer's own expression, group 1 its material's, intersected.
+// layer's own expression, group 1 its layer group's, intersected.
 void main() {
   ivec2 c = ivec2(gl_FragCoord.xy);
   float d[${MAX_LIMIT_INPUTS}];
@@ -680,7 +680,7 @@ ${fetches}
 				def.type,
 				MRT_OUTS,
 				body,
-				{ ...inputs.uniforms, uMaskKind: { value: 0 } },
+				{ ...inputs.uniforms, uMaskKind: { value: 0 }, uMaskSoft: { value: false } },
 				(this.salt ? `// salt ${this.salt}\n` : '') + keyDefines(shader)
 			);
 			this.materials.set(key, mat);
@@ -785,7 +785,7 @@ ${fetches}
 		this.maskPlan = plan;
 		this.ensureMaskTargets(plan.slots);
 
-		const hidden = hiddenByMaterial(project);
+		const hidden = hiddenByGroup(project);
 		project.layers.forEach((layer, index) => {
 			if (index > upTo || !layer.enabled || hidden.has(layer.id)) return;
 			const def = getLayerDef(layer.type);
@@ -814,6 +814,7 @@ ${fetches}
 						this.cur.input = this.refTexture(e.input);
 						this.setCommon(mat, project, seed);
 						mat.uniforms.uMaskKind.value = maskKind(e.write);
+						mat.uniforms.uMaskSoft.value = e.soft;
 						this.gpu.run(mat, state.write);
 						if (e.write.slot >= 0) this.gpu.copy(state.write.textures[3], this.slots[e.write.slot]);
 					});
@@ -823,6 +824,7 @@ ${fetches}
 					this.setCommon(mat, project, seed);
 					const w = masks?.write;
 					mat.uniforms.uMaskKind.value = maskKind(w);
+					mat.uniforms.uMaskSoft.value = false;
 					this.gpu.run(mat, state.write);
 					this.compiled.add(key);
 					state.swap();

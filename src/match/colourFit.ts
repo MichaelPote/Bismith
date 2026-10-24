@@ -10,10 +10,8 @@ import { linearToOklab, oklabToLinear, linearToSrgb1, srgbToLinear1, hexToRgb, r
 import type { Gradient } from '@/core/params';
 import type { Project } from '@/core/project';
 import { getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry';
-import { TONE_RANKS, targetTones } from './analyze';
 import { toOklab, type MatchImage } from './image';
 import type { Matcher } from './metrics';
-import { getRecipe, setMacro } from '@/recipes';
 
 /** One colour in a project the fit may change. */
 export interface ColourSlot {
@@ -27,70 +25,9 @@ export interface ColourSlot {
 
 const NORMAL_BLENDS = new Set(['normal', undefined]);
 
-/**
- * Member-layer params a smart material's colour controls drive (`layerId:key`): found by rebuilding the recipe with
- * every colour control changed and diffing — those colours are fitted through the controls instead.
- */
-function macroDriven(p: Project): Set<string> {
-	const out = new Set<string>();
-	for (const m of p.materials ?? []) {
-		const def = getRecipe(m.recipe);
-		if (!def) continue;
-		const alt = { ...m.params };
-		for (const d of def.params) {
-			if (d.type === 'color') alt[d.key] = '#010203';
-			else if (d.type === 'gradient' && m.params[d.key])
-				alt[d.key] = { stops: (m.params[d.key] as Gradient).stops.map((s) => ({ ...s, color: '#010203' })) };
-		}
-		const ctx = { width: p.width, height: p.height, depth: p.heightDepth };
-		const a = def.build(m.params, ctx);
-		const b = def.build(alt, ctx);
-		for (const x of a) {
-			const y = b.find((r) => r.role === x.role);
-			const id = m.members[x.role];
-			if (!y || !id) continue;
-			for (const k of Object.keys(x.layer.params))
-				if (JSON.stringify(x.layer.params[k]) !== JSON.stringify(y.layer.params[k])) out.add(`${id}:${k}`);
-		}
-	}
-	return out;
-}
-
-/**
- * The absolute colours of `p` (mutable through the slots): base colour, smart materials' colour controls (written
- * through setMacro, so the controls stay in charge), and enabled paint layers' other colours.
- */
+/** The absolute colours of `p` (mutable through the slots): the base colour and enabled paint layers' colours. */
 export function colourSlots(p: Project): ColourSlot[] {
 	const out: ColourSlot[] = [{ label: 'base', get: () => p.base.color, set: (c) => (p.base.color = c) }];
-	for (const m of p.materials ?? []) {
-		const def = getRecipe(m.recipe);
-		const lightnessOnly = def?.fit === 'lightness';
-		if (def?.fit === 'none' || def?.fit === 'tones') continue;
-		for (const d of def?.params ?? []) {
-			if (d.type === 'color' && typeof m.params[d.key] === 'string') {
-				out.push({
-					label: `${m.name} › ${d.key}`,
-					get: () => String(m.params[d.key]),
-					set: (c) => void setMacro(p, m, d.key, c),
-					lightnessOnly
-				});
-			} else if (d.type === 'gradient' && m.params[d.key]) {
-				(m.params[d.key] as Gradient).stops.forEach((_, i) =>
-					out.push({
-						lightnessOnly,
-						label: `${m.name} › ${d.key} #${i + 1}`,
-						get: () => (m.params[d.key] as Gradient).stops[i].color,
-						set: (c) => {
-							const g = JSON.parse(JSON.stringify(m.params[d.key])) as Gradient;
-							g.stops[i].color = c;
-							setMacro(p, m, d.key, g);
-						}
-					})
-				);
-			}
-		}
-	}
-	const driven = macroDriven(p);
 	// Relief layers' colours are discarded by the reset after the relief stack.
 	for (const layer of p.layers) {
 		if (!layer.enabled || layer.locked) continue;
@@ -105,7 +42,6 @@ export function colourSlots(p: Project): ColourSlot[] {
 		for (const d of layerParamDefs(layer.type)) {
 			const toggle = d.group ? toggles.get(d.group) : undefined;
 			if (toggle && q[toggle] !== true) continue;
-			if (driven.has(`${layer.id}:${d.key}`)) continue;
 			if (d.type === 'color' && typeof q[d.key] === 'string') {
 				out.push({ label: `${layer.name} › ${d.key}`, get: () => String(q[d.key]), set: (c) => (q[d.key] = c) });
 			} else if (
@@ -208,66 +144,7 @@ export function applyColourMap(p: Project, map: ColourMap): number {
 	return slots.length;
 }
 
-/**
- * Gradient stop positions for tones taken at lightness `ranks`, from the sorted values (0..1) of the layer they colour:
- * each tone sits at the value of the same rank (the ends at 1.5 % / 98.5 %, the middles of the reference's end bands),
- * so the value's distribution maps onto the tones in the reference's proportions.
- */
-export function tonePositions(sorted: ArrayLike<number>, ranks: number[] = TONE_RANKS): number[] {
-	const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))))];
-	let prev = -1;
-	return ranks.map((q) => {
-		const pos = Math.max(prev + 0.0005, Math.min(1, at(Math.min(0.985, Math.max(0.015, q)))));
-		prev = pos;
-		return Math.round(pos * 10000) / 10000;
-	});
-}
-
 type Render = (p: Project) => MatchImage | Promise<MatchImage>;
-
-/**
- * Tone fit for materials with `fit: 'tones'` (RecipeDef.fit): reads the distribution of the value the material's ramp
- * colours, then makes the ramp the target's tones at the value's quantiles and the colour controls its brightest tone.
- * The value comes from three probe renders with the other colour controls black (lighten layers off): ramp black →
- * white, all black and all white. Light is linear in albedo, so per pixel (a − black) / (white − black) is the ramp's
- * linear albedo whatever the lighting, sheen or glow adds. Returns a fitted copy.
- */
-export async function fitTones(project: Project, target: MatchImage, render: Render): Promise<Project> {
-	const p: Project = JSON.parse(JSON.stringify(project));
-	const tones = targetTones(target);
-	for (const m of p.materials ?? []) {
-		const def = getRecipe(m.recipe);
-		const ramp = def?.params.find((d) => d.type === 'gradient');
-		if (def?.fit !== 'tones' || !ramp) continue;
-		const probe = async (from: string, to: string): Promise<Float32Array> => {
-			const q: Project = JSON.parse(JSON.stringify(p));
-			const qm = q.materials!.find((x) => x.id === m.id)!;
-			setMacro(q, qm, ramp.key, {
-				stops: [
-					{ pos: 0, color: from },
-					{ pos: 1, color: to }
-				]
-			});
-			for (const d of def.params) if (d.type === 'color') setMacro(q, qm, d.key, '#000000');
-			const img = await render(q);
-			const out = new Float32Array(img.width * img.height);
-			for (let i = 0; i < out.length; i++)
-				out[i] = srgbToLinear1((img.data[i * 4] + img.data[i * 4 + 1] + img.data[i * 4 + 2]) / 3);
-			return out;
-		};
-		const a = await probe('#000000', '#ffffff');
-		const black = await probe('#000000', '#000000');
-		const white = await probe('#ffffff', '#ffffff');
-		const value = a.map((v, i) =>
-			linearToSrgb1(Math.min(1, Math.max(0, (v - black[i]) / Math.max(white[i] - black[i], 1e-4))))
-		);
-		value.sort();
-		const pos = tonePositions(value);
-		setMacro(p, m, ramp.key, { stops: tones.map((color, k) => ({ pos: pos[k], color })) });
-		for (const d of def.params) if (d.type === 'color') setMacro(p, m, d.key, tones[tones.length - 1]);
-	}
-	return p;
-}
 
 export interface ColourFitResult {
 	project: Project;
@@ -294,18 +171,6 @@ export async function fitColours(
 	const before = matcher.score(first).total;
 	let bestLoss = before;
 	let rounds = 0;
-	// Tone-fitted materials first (once); the colour maps below leave their ramps alone.
-	if ((best.materials ?? []).some((m) => getRecipe(m.recipe)?.fit === 'tones')) {
-		const toned = await fitTones(best, matcher.target, render);
-		const full = await render(toned);
-		const l = matcher.score(full).total;
-		if (l < bestLoss) {
-			best = toned;
-			bestLoss = l;
-			image = matcher.fit(full);
-			rounds++;
-		}
-	}
 	// 'auto' tries both kinds of map each round and keeps whichever scores better.
 	const modes: ColourFitMode[] =
 		opts.mode === 'quantile' ? ['quantile'] : opts.mode === 'moments' ? ['moments'] : ['moments', 'quantile'];

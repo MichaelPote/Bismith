@@ -9,9 +9,7 @@ import {
 	IconBlur,
 	IconBorderCorners,
 	IconBorderOuter,
-	IconBoxPadding,
 	IconBrush,
-	IconBuildingFactory2,
 	IconBulb,
 	IconCoin,
 	IconCircle,
@@ -46,7 +44,6 @@ import {
 	IconPolygon,
 	IconRipple,
 	IconRoute,
-	IconScissors,
 	IconShadow,
 	IconSpiral,
 	IconSquare,
@@ -172,33 +169,6 @@ const CATEGORY_ICON: Record<LayerCategory, Component> = {
 export function layerIcon(type: string): Component {
 	const def = getLayerDef(type);
 	return TYPE_ICON[type] ?? (def ? CATEGORY_ICON[def.category] : IconSquareRotated);
-}
-
-/** Smart-material recipes, by recipe id. */
-const RECIPE_ICON: Record<string, Component> = {
-	'dressed-stone': IconWall,
-	cobblestones: IconCircles,
-	liquid: IconRipple,
-	wood: IconWood,
-	marble: IconTexture,
-	rock: IconMountain,
-	'hammered-metal': IconHammer,
-	'brushed-metal': IconBrush,
-	stains: IconDropletHalf2,
-	stripes: IconSquaresDiagonal,
-	tiles: IconLayoutGrid,
-	concrete: IconBuildingFactory2,
-	grate: IconGridPattern,
-	'metal-plate': IconBoxPadding,
-	'light-panel': IconBulb,
-	circuit: IconCpu,
-	pipes: IconPipeline,
-	paint: IconPaint,
-	cutout: IconScissors
-};
-
-export function recipeIcon(id: string): Component {
-	return RECIPE_ICON[id] ?? IconSquareRotated;
 }
 
 export function layerHue(type: string): string {

@@ -1,0 +1,770 @@
+{
+  "version": 1,
+  "name": "Glass tubes",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#808080",
+    "roughness": 0.7,
+    "specular": 0.5,
+    "metalness": 0,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_nb5ma85",
+      "type": "pipework",
+      "name": "Pipes",
+      "enabled": true,
+      "params": {
+        "output": "height",
+        "layout": "random",
+        "points": "0,0.4 1,0.4 | 0.3,0.4 0.3,1",
+        "units": "fraction",
+        "runs": 3,
+        "drops": 2,
+        "jogs": 0.5,
+        "tees": 0.5,
+        "density": 0,
+        "radius": 8,
+        "variety": 0.3,
+        "bend": 2,
+        "spacing": 96,
+        "flanges": 0.35,
+        "collar": 0.18,
+        "elbow_fittings": true,
+        "fill": 0.6,
+        "seed": 3,
+        "bevel": 0,
+        "profile": "flat",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "soft_edge": 0,
+        "dilate": 0,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "mk_height": "",
+        "mk_cover": "Pipes",
+        "mk_fittings": "Fittings",
+        "mk_underside": "Underside",
+        "mk_tubes": "Tubes",
+        "mk_facing": "",
+        "mk_liquid": "Liquid",
+        "dif_on": false,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#786f65"
+            },
+            {
+              "pos": 1,
+              "color": "#f9e8cf"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "max",
+        "h_amount": 16,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "flat",
+        "r_mode": "replace",
+        "r_a": 0.26,
+        "r_b": 0.26,
+        "r_opacity": 1,
+        "s_on": true,
+        "s_src": "flat",
+        "s_mode": "replace",
+        "s_a": 0.75,
+        "s_b": 0.75,
+        "s_opacity": 1,
+        "mt_on": true,
+        "mt_src": "flat",
+        "mt_mode": "replace",
+        "mt_a": 0,
+        "mt_b": 0,
+        "mt_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_xt4ww86",
+      "type": "surfacemask",
+      "name": "Glass tubes",
+      "enabled": true,
+      "params": {
+        "select": "features",
+        "find": "crevices",
+        "radius": 8,
+        "depth": 0.5,
+        "steep": 0.2,
+        "hlevel": 0.5,
+        "hside": "above",
+        "src_mask": "Tubes",
+        "area": "inside",
+        "across": "whole",
+        "width": 4,
+        "band_soft": 0.5,
+        "dir": 180,
+        "spread": 60,
+        "reach": 128,
+        "level": 0.2,
+        "softness": 0.5,
+        "bk_amount": 0,
+        "bk_scale": 16,
+        "bk_seed": 1,
+        "bevel": 0,
+        "profile": "flat",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "soft_edge": 0,
+        "dilate": 0,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "Shape",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": false,
+        "dif_src": "random",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": []
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": false,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 1,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "flat",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.35,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "mt_on": true,
+        "mt_src": "flat",
+        "mt_mode": "replace",
+        "mt_a": 0,
+        "mt_b": 0,
+        "mt_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_w65e989",
+      "type": "glass",
+      "name": "Glass",
+      "enabled": true,
+      "params": {
+        "refraction": 4,
+        "tint": "#9ad0c0",
+        "tint_amount": 0.35,
+        "transmit": 0.7,
+        "rim": "#1c2a26",
+        "fresnel": 0.7,
+        "glint": 0.6,
+        "light": "top-left",
+        "roughness": 0.26,
+        "specular": 0.75,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false
+      }
+    },
+    {
+      "id": "ly_cnqtk8a",
+      "type": "surfacemask",
+      "name": "Liquid",
+      "enabled": true,
+      "params": {
+        "select": "features",
+        "find": "crevices",
+        "radius": 8,
+        "depth": 0.5,
+        "steep": 0.2,
+        "hlevel": 0.5,
+        "hside": "above",
+        "src_mask": "Liquid",
+        "area": "inside",
+        "across": "whole",
+        "width": 4,
+        "band_soft": 0.5,
+        "dir": 180,
+        "spread": 60,
+        "reach": 128,
+        "level": 0.2,
+        "softness": 0.5,
+        "bk_amount": 0,
+        "bk_scale": 16,
+        "bk_seed": 1,
+        "bevel": 0,
+        "profile": "flat",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "soft_edge": 0,
+        "dilate": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0.5,
+        "sh_cut_soft": 0.02,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "Pipes",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "flat",
+        "dif_blend": "normal",
+        "dif_opacity": 0.8,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#2aa070"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": false,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 1,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "flat",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.35,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "mt_on": false,
+        "mt_src": "flat",
+        "mt_mode": "replace",
+        "mt_a": 0,
+        "mt_b": 1,
+        "mt_opacity": 1,
+        "e_on": false,
+        "e_src": "flat",
+        "e_mode": "add",
+        "e_color": "#2aa070",
+        "e_intensity": 0
+      }
+    },
+    {
+      "id": "ly_ol0518b",
+      "type": "surfacemask",
+      "name": "Fittings",
+      "enabled": true,
+      "params": {
+        "select": "features",
+        "find": "crevices",
+        "radius": 8,
+        "depth": 0.5,
+        "steep": 0.2,
+        "hlevel": 0.5,
+        "hside": "above",
+        "src_mask": "Fittings",
+        "area": "inside",
+        "across": "whole",
+        "width": 4,
+        "band_soft": 0.5,
+        "dir": 180,
+        "spread": 60,
+        "reach": 128,
+        "level": 0.2,
+        "softness": 0.5,
+        "bk_amount": 0,
+        "bk_scale": 16,
+        "bk_seed": 1,
+        "bevel": 0,
+        "profile": "flat",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "soft_edge": 0,
+        "dilate": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0.5,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "Pipes",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "random",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#96a0a9"
+            },
+            {
+              "pos": 0.5,
+              "color": "#bfc9d2"
+            },
+            {
+              "pos": 1,
+              "color": "#e5eff8"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": false,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 1,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "flat",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.35,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "mt_on": true,
+        "mt_src": "flat",
+        "mt_mode": "replace",
+        "mt_a": 0,
+        "mt_b": 1,
+        "mt_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    },
+    {
+      "id": "ly_dymuf8c",
+      "type": "surfacemask",
+      "name": "Grime underneath",
+      "enabled": true,
+      "params": {
+        "select": "features",
+        "find": "crevices",
+        "radius": 8,
+        "depth": 0.5,
+        "steep": 0.2,
+        "hlevel": 0.5,
+        "hside": "above",
+        "src_mask": "Underside",
+        "area": "inside",
+        "across": "whole",
+        "width": 4,
+        "band_soft": 0.5,
+        "dir": 180,
+        "spread": 60,
+        "reach": 128,
+        "level": 0.2,
+        "softness": 0.5,
+        "bk_amount": 0,
+        "bk_scale": 16,
+        "bk_seed": 1,
+        "bevel": 0,
+        "profile": "flat",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "soft_edge": 0,
+        "dilate": 1,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "Pipes",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "multiply",
+        "dif_opacity": 0.15,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#ffffff"
+            },
+            {
+              "pos": 0.5,
+              "color": "#ffffff"
+            },
+            {
+              "pos": 1,
+              "color": "#4a3c30"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": false,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 1,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "flat",
+        "r_mode": "replace",
+        "r_a": 0.35,
+        "r_b": 0.35,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "mt_on": true,
+        "mt_src": "value",
+        "mt_mode": "multiply",
+        "mt_a": 1,
+        "mt_b": 0,
+        "mt_opacity": 0.5,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#a9bccd",
+      "horizon": "#c9c4bb",
+      "intensity": 0.35
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.02
+    },
+    "lights": [
+      {
+        "id": "lt_xywa880",
+        "type": "directional",
+        "name": "Sun",
+        "enabled": true,
+        "params": {
+          "color": "#fff4e6",
+          "intensity": 1.3,
+          "azimuth": 315,
+          "elevation": 40,
+          "angle": 3
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 64,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_s9nu681",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "gr_ddg2r8g",
+      "name": "Glass tubes",
+      "members": [
+        "ly_nb5ma85",
+        "ly_xt4ww86",
+        "ly_w65e989",
+        "ly_cnqtk8a",
+        "ly_ol0518b",
+        "ly_dymuf8c"
+      ]
+    }
+  ],
+  "description": "Pipe runs on a wall — rusty, painted, copper, steel, chrome, plastic or glass — with elbows, tees, crossings, collars and bolted flanges: round, glossy where they should be, shadow-casting, weathered.",
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "kind": "group",
+    "id": "group-pipes-glass",
+    "category": "Industrial"
+  }
+}

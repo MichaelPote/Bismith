@@ -9,12 +9,12 @@
 
 import {
 	SHAPE_MASK,
-	hiddenByMaterial,
+	hiddenByGroup,
 	type Layer,
 	type LimitExpr,
 	type LimitOp,
-	type Project,
-	type SmartMaterial
+	type LayerGroup,
+	type Project
 } from '@/core/project';
 import type { ParamValues } from '@/core/params';
 import { MAX_LIMIT_TERMS } from './commonParams';
@@ -52,6 +52,8 @@ export interface MaskWrite {
 	params: ParamValues;
 	/** One of LayerDef.extraMaskWrites (a pass of its own), not the layer's Write to. */
 	extra: boolean;
+	/** A coverage that takes the output's value too (LayerDef.extraMaskWrites `soft`). */
+	soft?: boolean;
 }
 
 /**
@@ -64,8 +66,10 @@ export function layerWrites(def: LayerDef | undefined, params: ParamValues): Mas
 	for (const x of def.extraMaskWrites?.(params) ?? []) {
 		const target = name(x.target);
 		const ps = { ...params, ...x.params, mk_target: target, mk_op: 'replace', mk_feather: 0, sh_cut: 0 };
-		const kind = target && maskWriteKind(def, ps);
-		if (kind) out.push({ target, kind, op: 'replace', params: ps, extra: true });
+		// A soft write is a coverage × value, which every output has (a shape distance only some do); not into Shape on a
+		// shape layer, whose Shape mask is a distance.
+		const kind = target && (x.soft ? (def.sdf && target === SHAPE_MASK ? false : 'coverage') : maskWriteKind(def, ps));
+		if (kind) out.push({ target, kind, op: 'replace', params: ps, extra: true, soft: x.soft === true });
 	}
 	const kind = maskWriteKind(def, params);
 	if (kind)
@@ -146,16 +150,16 @@ export function limitLabel(e: LimitExpr): string {
 	return e.outside ? `outside ${body}` : body;
 }
 
-/** Each layer's smart material (members only). */
-function materialOf(p: Pick<Project, 'materials'>): Map<string, SmartMaterial> {
-	const m = new Map<string, SmartMaterial>();
-	for (const mat of p.materials ?? []) for (const id of Object.values(mat.members)) m.set(id, mat);
+/** Each layer's group (members only). */
+function groupsOf(p: Pick<Project, 'groups'>): Map<string, LayerGroup> {
+	const m = new Map<string, LayerGroup>();
+	for (const g of p.groups ?? []) for (const id of g.members) m.set(id, g);
 	return m;
 }
 
-/** Layers that run, in order: enabled and not hidden by their material. */
+/** Layers that run, in order: enabled and not hidden by their group. */
 function running(p: Project): Layer[] {
-	const hidden = hiddenByMaterial(p);
+	const hidden = hiddenByGroup(p);
 	return p.layers.filter((l) => l.enabled && !hidden.has(l.id) && getLayerDef(l.type));
 }
 
@@ -223,9 +227,9 @@ export function maskLinks(p: Project): MaskLink[] {
 			for (const w of maskWriters(p, at, t.mask)) links.push({ reader, writer: w.id, mask: t.mask });
 	};
 	for (const l of p.layers) add(l.id, l.id, layerLimit(l.params));
-	for (const m of p.materials ?? []) {
-		const first = p.layers.find((l) => Object.values(m.members).includes(l.id));
-		if (first) add(`material:${m.id}`, first.id, m.limit);
+	for (const g of p.groups ?? []) {
+		const first = p.layers.find((l) => g.members.includes(l.id));
+		if (first) add(`group:${g.id}`, first.id, g.limit);
 	}
 	return links;
 }
@@ -275,7 +279,7 @@ export interface LayerMasks {
 	/** The version it writes; slot −1 when no later layer reads it (no copy). */
 	write: (MaskRef & { kind: 'shape' | 'coverage' }) | null;
 	/** Its extra writes (LayerDef.extraMaskWrites), each a pass of its own before the layer's: input, version, params. */
-	extra: { input: MaskRef; write: MaskRef & { kind: 'shape' | 'coverage' }; params: ParamValues }[];
+	extra: { input: MaskRef; write: MaskRef & { kind: 'shape' | 'coverage' }; params: ParamValues; soft: boolean }[];
 	/** Its limit, flattened (Invert folded in); null = none. */
 	limit: LimitTerm[] | null;
 	/** Its source mask (edge filters, Mask area), or null. */
@@ -306,7 +310,7 @@ function flatten(e: LimitExpr, group: 0 | 1): { mask: string; op: LimitOp | 'fir
 
 /** Plan the masks of one evaluation of the layers up to index `upTo` (FR8.23). */
 export function planMasks(p: Project, upTo = Infinity): MaskPlan {
-	const materials = materialOf(p);
+	const groups = groupsOf(p);
 	const list = running(p).filter((l) => p.layers.indexOf(l) <= upTo);
 	// Current version of each mask, and whether it's exact.
 	const current = new Map<string, { version: number; exact: boolean }>();
@@ -330,7 +334,7 @@ export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 
 		// Limits and sources first: every pass of the layer reads them as they were before it.
 		const own = layerLimit(params);
-		const mat = materials.get(layer.id)?.limit;
+		const mat = groups.get(layer.id)?.limit;
 		const flat = [...(own ? flatten(own, 0) : []), ...(mat?.terms.length ? flatten(mat, own ? 1 : 0) : [])];
 		const limit = flat.length ? flat.map((t) => ({ ref: refOf(t.mask), op: t.op, neg: t.neg, group: t.group })) : null;
 		for (const t of limit ?? []) read(t.ref, i);
@@ -352,7 +356,7 @@ export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 			.map((w) => {
 				const input = refOf(w.target);
 				read(input, i);
-				return { input, write: commit(w), params: w.params };
+				return { input, write: commit(w), params: w.params, soft: w.soft === true };
 			});
 
 		// A writer always reads its target (pixels it leaves keep it); other layers the Shape mask, if they read one at all.

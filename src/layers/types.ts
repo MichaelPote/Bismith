@@ -51,9 +51,12 @@ export interface LayerDef {
 	/**
 	 * More masks the layer writes beside its own (Stone blocks' relief: its joints, gaps and scars): each is the same
 	 * shader run again with `params` over the layer's, what it covers written to `target` in Normal mode. They run
-	 * before the layer's own pass, and see the masks as they were before it (masks.ts layerWrites).
+	 * before the layer's own pass, and see the masks as they were before it (masks.ts layerWrites). `soft`: a coverage
+	 * write takes the output's value too (coverage × value), so a gradient output (an underside, a falloff) becomes a mask
+	 * that fades along it. Generators with an Output enum get one per output from the registry (Mask › Outputs to masks)
+	 * unless they declare their own.
 	 */
-	extraMaskWrites?: (params: ParamValues) => { target: string; params: ParamValues }[];
+	extraMaskWrites?: (params: ParamValues) => { target: string; params: ParamValues; soft?: boolean }[];
 	/**
 	 * Reads the mask before it in its own shader (`maskIn()`: its write target's, or the Shape mask when it writes none)
 	 * — Chips damages the shape there, Tabs sit on its outline, Glass refracts inside it. Other layers read masks only

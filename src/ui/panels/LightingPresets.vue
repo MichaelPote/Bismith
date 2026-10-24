@@ -1,6 +1,7 @@
 <script setup lang="ts">
 	// The Lighting presets card (docs/features/fr5.4-presets.md): the lighting presets as thumbnail tiles — the built-ins
-	// and the user's own, by category — that replace the sky, ambient and lights; and Save the current lighting….
+	// and the user's own, by category — that replace the sky, ambient and lights (right-click one to edit it); and Save
+	// the current lighting….
 	import { usePresetsStore } from '@/stores/presets';
 	import { useEditorStore } from '@/stores/editor';
 	import { useActions } from '@/ui/actions';
@@ -25,7 +26,8 @@
 					type="button"
 					class="tile"
 					:class="{ mine: !e.builtin }"
-					@click="act.applyPreset(e, { kind: 'lighting' })">
+					@click="act.applyPreset(e, { kind: 'lighting' })"
+					@contextmenu.prevent="editor.presetDialog = { mode: 'edit', key: e.key, source: { kind: 'lighting' } }">
 					<img v-if="e.preview" :src="e.preview" alt="" draggable="false" />
 					<span class="lbl">{{ e.name }}</span>
 				</button>

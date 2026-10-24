@@ -2,12 +2,16 @@
 	// The preset dialog (docs/features/fr5.4-presets.md, editor.presetDialog):
 	//  - save: a card as a preset — name, description and category, beside its thumbnail, rendered off-screen on the
 	//    standard rig (and the stage, for an item without relief of its own) while the user's project is left untouched;
+	//  - edit (right-click on a preset's tile): its name, description and category, and optionally its settings retaken
+	//    from the card the menu belongs to, with a new thumbnail. A built-in is read-only, so saving one makes the user's
+	//    own copy;
 	//  - template: the whole project as a project preset (a Starter in the new-project wizard), its thumbnail what the
 	//    viewport shows;
 	//  - manage: the user's presets — rename, describe, recategorise, delete — and Import… / Export mine… to a file.
-	import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, toRaw } from 'vue';
+	import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, toRaw, watch } from 'vue';
 	import type { PresetKind, Project } from '@/core/project';
-	import { useEditorStore } from '@/stores/editor';
+	import { newId } from '@/core/ids';
+	import { useEditorStore, type PresetSource } from '@/stores/editor';
 	import { useProjectStore } from '@/stores/project';
 	import { usePresetsStore } from '@/stores/presets';
 	import { buildPreset, buildTemplate, presetItemOf } from '@/presets/apply';
@@ -15,6 +19,7 @@
 	import { capturePreview } from '@/render/preview';
 	import { downloadBlob } from '@/render/export';
 	import { IconDownload, IconTrash, IconUpload, IconX } from '@tabler/icons-vue';
+	import CheckField from '@/ui/components/CheckField.vue';
 	import { vTip } from '@/ui/tooltip';
 
 	const editor = useEditorStore();
@@ -26,13 +31,21 @@
 	const KIND_LABEL: Record<PresetKind, string> = {
 		project: 'Project template',
 		layer: 'Layer',
-		material: 'Smart material',
+		group: 'Group',
 		light: 'Light',
 		lighting: 'Lighting',
 		post: 'Post filter'
 	};
+	/** Edit mode's "Update its settings to the current …". */
+	const SOURCE_NOUN: Record<PresetSource['kind'], string> = {
+		layer: 'layer',
+		group: 'group',
+		light: 'light',
+		lighting: 'lighting',
+		post: 'post filter'
+	};
 
-	// ---------------------------------------------------------------- save / template
+	// ---------------------------------------------------------------- save / edit / template
 	const name = ref('');
 	const description = ref('');
 	const category = ref('');
@@ -40,20 +53,31 @@
 	const rendering = ref(false);
 	/** The preset project being saved (its thumbnail rendered from it). */
 	const draft = shallowRef<Project | null>(null);
+	/** Edit mode: the preset (undefined once it is gone). */
+	const edited = computed(() => {
+		const d = editor.presetDialog;
+		return d?.mode === 'edit' ? presets.entries.find((e) => e.key === d.key) : undefined;
+	});
+	/** Edit mode: replace the preset's settings with the card's (a fresh draft and thumbnail). */
+	const replace = ref(false);
+	/** Edit mode keeps the preset's thumbnail until its settings are replaced. */
+	const shownThumb = computed(() => (mode.value === 'edit' && !replace.value ? edited.value?.preview : thumb.value));
 	const saveKind = computed<PresetKind>(() => {
 		const d = editor.presetDialog;
-		return d?.mode === 'save' ? (d.source.kind === 'lighting' ? 'lighting' : d.source.kind) : 'project';
+		if (d?.mode === 'edit') return edited.value?.kind ?? d.source.kind;
+		return d?.mode === 'save' ? d.source.kind : 'project';
 	});
 
 	function defaultName(): string {
 		const d = editor.presetDialog;
 		const p = store.project;
+		if (d?.mode === 'edit') return edited.value?.name ?? 'Preset';
 		if (d?.mode !== 'save') return p.name;
 		switch (d.source.kind) {
 			case 'layer':
 				return store.getLayer(d.source.id)?.name ?? 'Layer';
-			case 'material':
-				return store.getMaterial(d.source.id)?.name ?? 'Material';
+			case 'group':
+				return store.getGroup(d.source.id)?.name ?? 'Group';
 			case 'light':
 				return store.getLight(d.source.id)?.name ?? 'Light';
 			case 'lighting':
@@ -74,8 +98,20 @@
 			thumb.value = capturePreview(editor.engine);
 			return;
 		}
-		if (d?.mode !== 'save') return;
-		const item = presetItemOf(project, d.source);
+		if (d?.mode === 'edit') {
+			const e = edited.value;
+			if (!e) return close();
+			description.value = e.description ?? '';
+			category.value = e.category ?? '';
+			return;
+		}
+		if (d?.mode === 'save') await buildDraft(d.source);
+	}
+
+	/** The preset project of the card `source`, and its thumbnail. */
+	async function buildDraft(source: PresetSource): Promise<void> {
+		const project = toRaw(store.project);
+		const item = presetItemOf(project, source);
 		if (!item) return close();
 		draft.value = buildPreset(project, item, { name: name.value });
 		const engine = editor.engine;
@@ -90,12 +126,18 @@
 		}
 	}
 
+	watch(replace, (on) => {
+		const d = editor.presetDialog;
+		if (on && !draft.value && d?.mode === 'edit') void buildDraft(d.source);
+	});
+
 	async function save(): Promise<void> {
 		const meta = {
 			name: name.value.trim() || defaultName(),
 			description: description.value.trim() || undefined,
 			category: category.value.trim() || undefined
 		};
+		if (mode.value === 'edit') return saveEdit(meta);
 		let p: Project;
 		if (mode.value === 'template') p = buildTemplate(toRaw(store.project), meta);
 		else {
@@ -114,6 +156,37 @@
 		close();
 	}
 
+	/**
+	 * Edit mode: a user preset is updated in place (keeping its id); a built-in, or new settings, means writing the
+	 * project afresh — for a built-in as the user's copy under a new id.
+	 */
+	async function saveEdit(meta: { name: string; description?: string; category?: string }): Promise<void> {
+		const e = edited.value;
+		if (!e) return close();
+		if (!e.builtin && !replace.value) {
+			await presets.update(e.key, { name: meta.name, description: description.value, category: category.value });
+		} else {
+			if (replace.value && !draft.value) return;
+			const p = replace.value ? { ...draft.value! } : e.project();
+			p.name = meta.name;
+			if (meta.description) p.description = meta.description;
+			else delete p.description;
+			const header = { ...p.preset!, id: e.builtin ? newId('pr') : e.key.slice('user:'.length) };
+			if (meta.category) header.category = meta.category;
+			else delete header.category;
+			p.preset = header;
+			if (replace.value && thumb.value) p.preview = thumb.value;
+			await presets.save(p);
+		}
+		editor.notify(e.builtin ? `Saved your copy of “${meta.name}”` : `Saved preset “${meta.name}”`);
+		close();
+	}
+
+	async function removeEdited(): Promise<void> {
+		const e = edited.value;
+		if (e && (await remove(e.key, e.name))) close();
+	}
+
 	// ---------------------------------------------------------------- manage
 	const filter = ref<PresetKind | 'all'>(
 		editor.presetDialog?.mode === 'manage' ? (editor.presetDialog.kind ?? 'all') : 'all'
@@ -129,9 +202,10 @@
 		void presets.update(key, { [field]: value });
 	}
 
-	async function remove(key: string, label: string): Promise<void> {
-		if (!confirm(`Delete the preset “${label}”?`)) return;
+	async function remove(key: string, label: string): Promise<boolean> {
+		if (!confirm(`Delete the preset “${label}”?`)) return false;
 		await presets.remove(key);
+		return true;
 	}
 
 	function exportMine(): void {
@@ -183,7 +257,15 @@
 			<div ref="dialog" class="dlg" :class="mode" role="dialog" aria-modal="true" aria-labelledby="preset-title">
 				<header class="head">
 					<h2 id="preset-title">
-						{{ mode === 'manage' ? 'My presets' : mode === 'template' ? 'Save as template' : 'Save as preset' }}
+						{{
+							mode === 'manage'
+								? 'My presets'
+								: mode === 'template'
+									? 'Save as template'
+									: mode === 'edit'
+										? 'Edit preset'
+										: 'Save as preset'
+						}}
 					</h2>
 					<span v-if="mode !== 'manage'" class="kind">{{ KIND_LABEL[saveKind] }}</span>
 					<span class="grow" />
@@ -194,7 +276,7 @@
 
 				<form v-if="mode !== 'manage'" class="save" @submit.prevent="save">
 					<div class="thumb">
-						<img v-if="thumb" :src="thumb" alt="Thumbnail" />
+						<img v-if="shownThumb" :src="shownThumb" alt="Thumbnail" />
 						<span v-else-if="rendering" class="spin" aria-label="Rendering the thumbnail" />
 					</div>
 					<div class="fields">
@@ -213,13 +295,30 @@
 								<option v-for="c in presets.categories(saveKind)" :key="c" :value="c" />
 							</datalist>
 						</label>
+						<template v-if="mode === 'edit' && editor.presetDialog?.mode === 'edit'">
+							<CheckField
+								v-model="replace"
+								:label="`Update its settings to the current ${SOURCE_NOUN[editor.presetDialog.source.kind]}`" />
+							<p v-if="edited?.builtin" class="note-inline">
+								Built-in presets can’t be changed: saving adds your own copy beside it.
+							</p>
+						</template>
 						<p v-if="!presets.persistent" class="warn">
 							This browser won’t store presets (private window or blocked site data): this one lasts for the session.
 							Export it from "My presets" to keep it.
 						</p>
 						<div class="buttons">
+							<button
+								v-if="mode === 'edit' && edited && !edited.builtin"
+								type="button"
+								class="cf-btn delete"
+								@click="removeEdited">
+								<IconTrash :size="13" />Delete
+							</button>
 							<button type="button" class="cf-btn" @click="close">Cancel</button>
-							<button type="submit" class="cf-btn primary" :disabled="rendering">Save</button>
+							<button type="submit" class="cf-btn primary" :disabled="rendering">
+								{{ mode === 'edit' && edited?.builtin ? 'Save a copy' : 'Save' }}
+							</button>
 						</div>
 					</div>
 				</form>
@@ -404,6 +503,14 @@
 	.cf-btn.primary {
 		border-color: var(--e400);
 		color: var(--text-hi);
+	}
+	.cf-btn.delete {
+		margin-right: auto;
+	}
+	.note-inline {
+		margin: 0;
+		font-size: 11.5px;
+		color: var(--text-lo);
 	}
 	.manage {
 		display: flex;

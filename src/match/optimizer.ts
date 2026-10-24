@@ -1902,8 +1902,8 @@ export class Optimizer {
 			this.inserted.add(layer.id);
 			inserted = layer.id;
 		} else if (kind === 'duplicate') {
-			// Another instance of a layer the project already has (new seed), right above it — or above its smart
-			// material, whose members stay together.
+			// Another instance of a layer the project already has (new seed), right above it — or above its group,
+			// whose members stay together.
 			const src = this.rng.pick(copyable);
 			const params: ParamValues = JSON.parse(JSON.stringify(src.params));
 			if (typeof params.seed === 'number') params.seed = 1 + this.rng.int(99998);
@@ -1914,8 +1914,8 @@ export class Optimizer {
 				params.scale = Math.min(def?.max ?? Infinity, Math.max(def?.min ?? 0, Number(params.scale) * octave));
 			}
 			const layer: Layer = { ...createLayer(src.type, params, `${src.name} (copy)`), params };
-			const block = (proj.materials ?? []).find((m) => Object.values(m.members).includes(src.id));
-			const members = new Set(block ? Object.values(block.members) : [src.id]);
+			const block = (proj.groups ?? []).find((g) => g.members.includes(src.id));
+			const members = new Set(block ? block.members : [src.id]);
 			let at = 0;
 			proj.layers.forEach((l, i) => {
 				if (members.has(l.id)) at = i + 1;

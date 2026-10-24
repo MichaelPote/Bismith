@@ -93,7 +93,14 @@ export interface ParamDef {
 	 * of the selected pipes"). `min`: the fewest points a line keeps (default 2 open, 3 closed); `budget`: the most
 	 * vertices (default MAX_PATH_POINTS, a bitmap uniform's).
 	 */
-	shapeEdit?: { adds: string; hint: string; min?: number; budget?: number };
+	shapeEdit?: {
+		adds: string;
+		hint: string;
+		min?: number;
+		budget?: number;
+		/** Each point stands alone (hand-placed splats): drawn as dots, no lines between them. */
+		dots?: boolean;
+	};
 	/**
 	 * Text params only: an image file (core/images.ts) — the value is its file name ('' = none), the inspector shows a
 	 * file picker and a thumbnail, and the layer reads the pixels in its cpuData (getImage).

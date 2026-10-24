@@ -160,8 +160,7 @@ export class Engine {
 		const inner = scaleProject(project, this.ss);
 		this.inner = inner;
 		const upTo = this.view.previewUpTo;
-		// Smart materials: their members, on/off and Limit to (planMasks reads it) change the stack; their macro values
-		// reach it through the members' params.
+		// Groups: their members, on/off and Limit to (planMasks reads it) change the stack.
 		const mKey = JSON.stringify([
 			inner.width,
 			inner.height,
@@ -171,7 +170,7 @@ export class Engine {
 			inner.base,
 			inner.layers,
 			upTo,
-			inner.materials?.map((m) => [m.id, m.members, m.enabled !== false, m.limit ?? null])
+			inner.groups?.map((g) => [g.id, g.members, g.enabled !== false, g.limit ?? null])
 		]);
 		// Sample counts and export settings don't change the image: raising Max samples continues the accumulation.
 		const { maxSamples, samplesPerFrame, exportSamples, exportSupersample, ...look } = inner.render;

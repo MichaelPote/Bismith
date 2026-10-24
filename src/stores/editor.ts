@@ -7,10 +7,10 @@ import type { ChannelView } from '@/render/display';
 import { SHAPE_MASK, type PresetKind } from '@/core/project';
 
 /** A card a preset is applied to or saved from. */
-export type PresetSource = { kind: 'layer' | 'material' | 'light' | 'post'; id: string } | { kind: 'lighting' };
+export type PresetSource = { kind: 'layer' | 'group' | 'light' | 'post'; id: string } | { kind: 'lighting' };
 
 /** 'base' is the Base row of the layer list: the project panel, highlighted on that row. */
-export type SelectionKind = 'project' | 'base' | 'layer' | 'light' | 'post' | 'material';
+export type SelectionKind = 'project' | 'base' | 'layer' | 'light' | 'post' | 'group';
 
 export interface Selection {
 	kind: SelectionKind;
@@ -69,11 +69,16 @@ export const useEditorStore = defineStore('editor', () => {
 	/** The new-project wizard is open. */
 	const wizard = ref(false);
 	/**
-	 * The preset dialog (FR5.4): save a card as a preset (`source` names it), save the project as a template, or manage
-	 * the user's presets (of `kind`, or all).
+	 * The preset dialog (FR5.4): save a card as a preset (`source` names it), edit the preset `key` (right-click on its
+	 * tile; `source` is the card it may take new settings from), save the project as a template, or manage the user's
+	 * presets (of `kind`, or all).
 	 */
 	const presetDialog = ref<
-		{ mode: 'save'; source: PresetSource } | { mode: 'template' } | { mode: 'manage'; kind?: PresetKind } | null
+		| { mode: 'save'; source: PresetSource }
+		| { mode: 'edit'; key: string; source: PresetSource }
+		| { mode: 'template' }
+		| { mode: 'manage'; kind?: PresetKind }
+		| null
 	>(null);
 	const shapeTool = ref<ShapeTool>('edit');
 

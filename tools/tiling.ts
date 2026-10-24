@@ -101,7 +101,7 @@ function report(name: string, r: HeadlessTilingResult): void {
 	if (!r.findings.length) console.log('  no culprit stands out');
 	for (const f of r.findings.slice(0, 6)) {
 		const l = r.layers[f.layer];
-		const where = l.material ? ` [${l.material}]` : '';
+		const where = l.group ? ` [${l.group}]` : '';
 		console.log(
 			`  ${f.term.padEnd(8)} ${f2(f.weight)}  ${l.name}${where} (${l.type})  blame ${l.blame[f.term].toFixed(3)} ΔE,` +
 				` adds ${l.contribution.toFixed(3)}` +

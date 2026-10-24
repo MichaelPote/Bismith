@@ -3,8 +3,7 @@ import { createLayer, createProject } from '@/core/serialize';
 import { gradient } from '@/core/params';
 import { hexToRgb } from '@/core/color';
 import type { Project } from '@/core/project';
-import { applyColourMap, colourMap, colourSlots, fitColours, quantileMap, tonePositions } from '@/match/colourFit';
-import { addMaterial } from '@/recipes';
+import { applyColourMap, colourMap, colourSlots, fitColours, quantileMap } from '@/match/colourFit';
 import { Matcher, fromRgba8, type MatchImage } from '@/match/metrics';
 
 function flat(hex: string, w = 16, h = 16): MatchImage {
@@ -62,28 +61,5 @@ describe('colour fitting', () => {
 		expect(r.after).toBeLessThan(r.before);
 		expect(r.project.base.color).toBe('#7a5030');
 		expect(p.base.color).toBe('#404040'); // input untouched
-	});
-});
-
-describe('tone fit', () => {
-	it('places each tone at the matching quantile of the value', () => {
-		const sorted = Array.from({ length: 1001 }, (_, i) => (i / 1000) ** 2); // a value skewed dark
-		const pos = tonePositions(sorted, [0, 0.2, 0.4, 0.6, 0.8, 1]);
-		expect(pos).toHaveLength(6);
-		expect(pos[0]).toBeCloseTo(0.015 ** 2, 3);
-		expect(pos[2]).toBeCloseTo(0.4 ** 2, 2);
-		expect(pos[5]).toBeCloseTo(0.985 ** 2, 2);
-		for (let i = 1; i < pos.length; i++) expect(pos[i]).toBeGreaterThan(pos[i - 1]);
-	});
-
-	it('keeps stops strictly increasing on a flat value', () => {
-		const pos = tonePositions(new Float32Array(100).fill(0.5));
-		for (let i = 1; i < pos.length; i++) expect(pos[i]).toBeGreaterThan(pos[i - 1]);
-	});
-
-	it("leaves 'tones' materials out of the colour maps", () => {
-		const p = createProject({ width: 16, height: 16, layers: [] });
-		addMaterial(p, 'liquid');
-		expect(colourSlots(p).map((s) => s.label)).toEqual(['base']);
 	});
 });

@@ -53,8 +53,19 @@ function toEntry(r: UserRecord): PresetEntry {
 	};
 }
 
-/** Categories listed first, in this order (the starters'); the rest follow alphabetically. */
-const CATEGORY_ORDER = ['Quake-style', 'UI surfaces', 'Nature', 'Basics'];
+/** Categories listed first, in this order (the starters' and the group presets'); the rest follow alphabetically. */
+const CATEGORY_ORDER = [
+	'Quake-style',
+	'UI surfaces',
+	'Stone',
+	'Floors & walls',
+	'Nature',
+	'Liquids',
+	'Metal',
+	'Industrial',
+	'Tech',
+	'Basics'
+];
 
 export interface PresetGroup {
 	category: string;

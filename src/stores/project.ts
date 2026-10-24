@@ -3,17 +3,16 @@
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
 import type { ParamValue } from '@/core/params';
-import type { Layer, LayerUnit, LimitExpr, Light, LightType, PostFilter, Project, SmartMaterial } from '@/core/project';
+import type { Layer, LayerGroup, LayerUnit, LimitExpr, Light, LightType, PostFilter, Project } from '@/core/project';
 import { flattenUnits, layerUnits } from '@/core/project';
 import {
-	addMaterial as recipeAdd,
-	deleteMaterial as recipeDelete,
-	pruneMaterials,
-	renameMask as recipeRenameMask,
-	setMacro,
-	setMaterialLimit as recipeLimit,
-	unpackMaterial as recipeUnpack
-} from '@/recipes';
+	addGroup as groupAdd,
+	deleteGroup as groupDelete,
+	pruneGroups,
+	renameMask as groupRenameMask,
+	setGroupLimit as groupLimit,
+	ungroup as groupUngroup
+} from '@/core/groups';
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize';
 import { freshParams, linkedChanges } from '@/layers/registry';
 import { newId } from '@/core/ids';
@@ -141,7 +140,7 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	// ---------------------------------------------------------------- layers
-	// One list in evaluation order (index 0 = earliest). A smart material's members sit together as one block (a unit);
+	// One list in evaluation order (index 0 = earliest). A group's members sit together as one block (a unit);
 	// moves keep them so: a member moves within its block, anything else moves past whole blocks.
 	const layers = () => project.value.layers;
 
@@ -153,22 +152,22 @@ export const useProjectStore = defineStore('project', () => {
 		return layers().find((l) => l.id === id);
 	}
 
-	const units = () => layerUnits(layers(), project.value.materials);
+	const units = () => layerUnits(layers(), project.value.groups);
 
-	/** The unit holding a layer (or a material's block, by the material's id) and its position. */
+	/** The unit holding a layer (or a group's block, by the group's id) and its position. */
 	function unitOf(id: string): { index: number; unit: LayerUnit } | undefined {
 		const us = units();
 		const index = us.findIndex((u) =>
-			u.material ? u.material.id === id || u.layers.some((l) => l.id === id) : u.layer.id === id
+			u.group ? u.group.id === id || u.layers.some((l) => l.id === id) : u.layer.id === id
 		);
 		return index < 0 ? undefined : { index, unit: us[index] };
 	}
 
-	/** The first index at or after `i` that is not inside a material's block. */
+	/** The first index at or after `i` that is not inside a group's block. */
 	function outsideBlocks(i: number): number {
 		let at = 0;
 		for (const u of units()) {
-			const n = u.material ? u.layers.length : 1;
+			const n = u.group ? u.layers.length : 1;
 			if (i > at && i < at + n) return at + n;
 			at += n;
 		}
@@ -183,7 +182,7 @@ export const useProjectStore = defineStore('project', () => {
 		return seed;
 	}
 
-	/** Insert a new layer at `atIndex` (default last, on top); never inside a material's block. It starts from the editor
+	/** Insert a new layer at `atIndex` (default last, on top); never inside a group's block. It starts from the editor
 	 * defaults (freshParams: shape-driven roughness, the type's LayerDef.fresh); a seeded layer gets a seed no other layer has. */
 	function addLayer(type: string, atIndex?: number, overrides: Record<string, ParamValue> = {}): Layer {
 		const fresh = freshParams(type, { width: project.value.width, height: project.value.height });
@@ -198,10 +197,10 @@ export const useProjectStore = defineStore('project', () => {
 	function removeLayer(id: string): void {
 		const i = layerIndex(id);
 		if (i >= 0) layers().splice(i, 1);
-		pruneMaterials(project.value);
+		pruneGroups(project.value);
 	}
 
-	/** Copy a layer just after it — after its material's block when it is a member (the copy is a free layer). */
+	/** Copy a layer just after it — after its group's block when it is a member (the copy is a free layer). */
 	function duplicateLayer(id: string): Layer | undefined {
 		const i = layerIndex(id);
 		if (i < 0) return undefined;
@@ -212,7 +211,7 @@ export const useProjectStore = defineStore('project', () => {
 		return layers()[at];
 	}
 
-	/** Move a free layer or a whole material (by its id) to unit position `to`. */
+	/** Move a free layer or a whole group (by its id) to unit position `to`. */
 	function moveUnit(id: string, to: number): void {
 		const us = units();
 		const at = unitOf(id);
@@ -224,10 +223,10 @@ export const useProjectStore = defineStore('project', () => {
 		project.value.layers = flattenUnits(us);
 	}
 
-	/** Move a material member to position `to` within its block. */
+	/** Move a group member to position `to` within its block. */
 	function moveMember(id: string, to: number): void {
 		const at = unitOf(id);
-		if (!at?.unit.material) return;
+		if (!at?.unit.group) return;
 		const block = at.unit.layers;
 		const from = block.findIndex((l) => l.id === id);
 		const j = Math.max(0, Math.min(block.length - 1, to));
@@ -237,12 +236,11 @@ export const useProjectStore = defineStore('project', () => {
 		layers().splice(start + j, 0, l);
 	}
 
-	/** One step earlier (−1) or later (+1): a member within its block, a free layer or material past the next unit. */
+	/** One step earlier (−1) or later (+1): a member within its block, a free layer or group past the next unit. */
 	function stepLayer(id: string, dir: number): void {
 		const at = unitOf(id);
 		if (!at) return;
-		if (at.unit.material && at.unit.material.id !== id)
-			moveMember(id, at.unit.layers.findIndex((l) => l.id === id) + dir);
+		if (at.unit.group && at.unit.group.id !== id) moveMember(id, at.unit.layers.findIndex((l) => l.id === id) + dir);
 		else moveUnit(id, at.index + dir);
 	}
 
@@ -252,56 +250,54 @@ export const useProjectStore = defineStore('project', () => {
 		if (l) Object.assign(l.params, linkedChanges(l.type, l.params, key, value));
 	}
 
-	// ---------------------------------------------------------------- smart materials
-	function getMaterial(id: string): SmartMaterial | undefined {
-		return project.value.materials?.find((m) => m.id === id);
+	// ---------------------------------------------------------------- groups
+	function getGroup(id: string): LayerGroup | undefined {
+		return project.value.groups?.find((g) => g.id === id);
 	}
 
-	/** Add a smart material as one block at `atIndex` (default last; never inside another material's block). */
-	function addMaterial(recipeId: string, atIndex?: number): SmartMaterial {
-		return recipeAdd(
-			project.value,
-			recipeId,
-			{},
-			undefined,
-			atIndex === undefined ? undefined : outsideBlocks(atIndex)
-		);
+	/**
+	 * Add `layers` as one new group at `atIndex` (default last; never inside another group's block): a group preset's
+	 * layers, with fresh ids.
+	 */
+	function addGroup(
+		name: string,
+		newLayers: Layer[],
+		atIndex?: number,
+		extra: Pick<LayerGroup, 'limit'> = {}
+	): LayerGroup {
+		const at = outsideBlocks(atIndex === undefined ? layers().length : Math.max(0, Math.min(layers().length, atIndex)));
+		return groupAdd(project.value, name, newLayers, at, extra);
 	}
 
-	function setMaterialParam(id: string, key: string, value: ParamValue): void {
-		const m = getMaterial(id);
-		if (m) setMacro(project.value, m, key, value);
-	}
-
-	function setMaterialLimit(id: string, limit: LimitExpr | null): void {
-		const m = getMaterial(id);
-		if (m) recipeLimit(m, limit);
+	function setGroupLimit(id: string, limit: LimitExpr | null): void {
+		const g = getGroup(id);
+		if (g) groupLimit(g, limit);
 	}
 
 	/** Rename a mask wherever it is named (FR8.23). */
 	function renameMask(from: string, to: string): number {
-		return recipeRenameMask(project.value, from, to);
+		return groupRenameMask(project.value, from, to);
 	}
 
-	/** Show or hide a whole smart material (its members keep their own on/off states). */
-	function setMaterialEnabled(id: string, enabled: boolean): void {
-		const m = getMaterial(id);
-		if (!m) return;
-		if (enabled) delete m.enabled;
-		else m.enabled = false;
+	/** Show or hide a whole group (its members keep their own on/off states). */
+	function setGroupEnabled(id: string, enabled: boolean): void {
+		const g = getGroup(id);
+		if (!g) return;
+		if (enabled) delete g.enabled;
+		else g.enabled = false;
 	}
 
-	function renameMaterial(id: string, name: string): void {
-		const m = getMaterial(id);
-		if (m && name.trim()) m.name = name.trim();
+	function renameGroup(id: string, name: string): void {
+		const g = getGroup(id);
+		if (g && name.trim()) g.name = name.trim();
 	}
 
-	function unpackMaterial(id: string): void {
-		recipeUnpack(project.value, id);
+	function ungroup(id: string): void {
+		groupUngroup(project.value, id);
 	}
 
-	function deleteMaterial(id: string): void {
-		recipeDelete(project.value, id);
+	function deleteGroup(id: string): void {
+		groupDelete(project.value, id);
 	}
 
 	function updateLayer(id: string, patch: Partial<Pick<Layer, 'name' | 'enabled' | 'locked'>>): void {
@@ -407,15 +403,14 @@ export const useProjectStore = defineStore('project', () => {
 		stepLayer,
 		setLayerParam,
 		updateLayer,
-		getMaterial,
-		addMaterial,
-		setMaterialParam,
-		setMaterialLimit,
+		getGroup,
+		addGroup,
+		setGroupLimit,
 		renameMask,
-		setMaterialEnabled,
-		renameMaterial,
-		unpackMaterial,
-		deleteMaterial,
+		setGroupEnabled,
+		renameGroup,
+		ungroup,
+		deleteGroup,
 		getLight,
 		addLight,
 		removeLight,

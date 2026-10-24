@@ -21,7 +21,6 @@
 	import ShapeEditor from '@/ui/components/ShapeEditor.vue';
 	import LayerGizmo from '@/ui/components/LayerGizmo.vue';
 	import { hasGizmo } from '@/ui/gizmos';
-	import { getRecipe } from '@/recipes';
 	import SelectField from '@/ui/components/SelectField.vue';
 	import { vTip } from '@/ui/tooltip';
 	import { vPick } from '@/ui/eyedropper';
@@ -229,20 +228,13 @@
 	});
 
 	// ---------------------------------------------------------------- shape editor
-	/** The selected layer or material whose shapes the editor edits (Path / Line layers, pipe runs); null = drawing only. */
-	const shapeTarget = computed<{ kind: 'layer' | 'material'; id: string } | null>(() => {
+	/** The selected layer whose shapes the editor edits (Path / Line layers, pipe runs, splats); null = drawing only. */
+	const shapeTarget = computed<{ kind: 'layer'; id: string } | null>(() => {
 		const s = editor.selection;
-		if (!s.id) return null;
+		if (!s.id || s.kind !== 'layer') return null;
 		const shaped = (d: { bitmap?: string }) => d.bitmap === 'points' || d.bitmap === 'lines';
-		if (s.kind === 'layer') {
-			const l = store.getLayer(s.id);
-			return l && layerParamDefs(l.type).some(shaped) ? { kind: 'layer', id: l.id } : null;
-		}
-		if (s.kind === 'material') {
-			const m = store.getMaterial(s.id);
-			return m && getRecipe(m.recipe)?.params.some(shaped) ? { kind: 'material', id: m.id } : null;
-		}
-		return null;
+		const l = store.getLayer(s.id);
+		return l && layerParamDefs(l.type).some(shaped) ? { kind: 'layer', id: l.id } : null;
 	});
 
 	const CHANNEL_OPTIONS = CHANNEL_VIEWS.map((c) => ({ value: c.id, label: `${c.label} · ${c.key.toUpperCase()}` }));

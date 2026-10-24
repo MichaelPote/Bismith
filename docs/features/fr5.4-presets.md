@@ -1,6 +1,6 @@
 # FR5.4 — Presets
 
-**Status:** v2 done — presets as files in `presets/`, a presets menu on every layer, smart material, light and post
+**Status:** v2 done — presets as files in `presets/`, a presets menu on every layer, group, light and post
 filter card (and the Lighting presets card), the user's own presets in the browser. v2 supersedes v1's starters built
 in code.
 
@@ -22,9 +22,9 @@ in code.
 - **One format for everything.** A preset is an ordinary project file (`projectToJSON`; it loads with
   `projectFromJSON`) with an extra `preset` key: `{ kind, target?, id, category?, tags? }`. `id` is random, and lets
   an import recognise a preset it already has.
-  - `kind`: `project` (a wizard starter), `layer`, `material` (a smart material, FR8.3), `light`, `lighting` (the
-    whole rig: sky, ambient and every light) or `post`.
-  - `target`: what it applies to. The layer type (`bricks`), the recipe id (smart material), the light type
+  - `kind`: `project` (a wizard starter), `layer`, `group` (a group of layers, FR8.3; files saved as `material` load
+    as `group`), `light`, `lighting` (the whole rig: sky, ambient and every light) or `post`.
+  - `target`: what it applies to. The layer type (`bricks`), the light type
     (`directional`) or the post filter type. Not used for `project` and `lighting`.
   - `category`: how menus group it (the starters' `Quake-style`, `UI surfaces`, `Nature`, `Basics`; free text
     elsewhere).
@@ -36,7 +36,7 @@ in code.
   (`core/images.ts`); the pixels stay in the browser that loaded them. A preset embeds the images its project uses as
   `preset.images: { name: dataURL }`, and applying it (or opening a starter, `asProject`) `putImage`s them first.
 - **Built-ins live in `presets/` at the repository root**, one file each, in a folder per kind:
-  `presets/project/bricks.json`, `presets/layer/<type>/<name>.json`, `presets/material/<recipe>/<name>.json`,
+  `presets/project/bricks.json`, `presets/layer/<type>/<name>.json`, `presets/group/<name>.json`,
   `presets/light/…`, `presets/lighting/…`, `presets/post/…`. They are bundled (the app works offline and from a
   static host, which couldn't list a folder) through `src/presets/builtin.ts`, an index of static imports generated
   by `npx tsx tools/presets-index.ts`. Static imports load the same way in the app, Vitest and `tsx` tools; Vite's
@@ -55,7 +55,7 @@ in code.
 
 ### What a preset is rendered with
 
-- **Items with their own relief** — generators that write height (shapes, noise, patterns) and smart materials —
+- **Items with their own relief** — generators that write height (shapes, noise, patterns) and groups —
   are saved as they are: the item alone on the base material, under the standard light rig below. No stage.
 - **Items without relief of their own** get a stage: `presetStage(item)` puts a fixed scene under them, so the
   thumbnail shows something. Used for the built-ins (the tool) and the user's presets (the app) alike:
@@ -75,7 +75,7 @@ in code.
 
 ### Menus
 
-- **Every card title row** (layer, smart material, each light, each post filter) gets a presets button
+- **Every card title row** (layer, group, each light, each post filter) gets a presets button
   (`PresetMenu.vue`). It opens a drop-down of thumbnail tiles for that card's `kind` and `target`, grouped by category
   (`DropMenu`'s tiles, placed `under` the button). The user's presets and the built-ins are mixed in the same groups,
   in name order: the starters' categories first in their usual order (Quake-style, UI surfaces, Nature, Basics), then
@@ -83,9 +83,13 @@ in code.
 - **The Lighting presets card** (project view) shows the lighting presets as tiles in the card itself, with **Save this
   lighting…** under them.
 - Hovering a tile shows its name and description. Clicking applies it. The user's own tiles are edged in ember.
+- **Right-clicking a tile edits the preset** (`PresetDialog`'s edit mode): its name, description and category, and
+  **Update its settings to the current …** to retake them from the card the menu belongs to (or the current lighting),
+  with a fresh thumbnail. The user's presets are changed in place (same id) and can be deleted there; a built-in is
+  read-only, so saving one adds the user's own copy (new id) beside it.
 - At the bottom: **Save as preset…** and **Manage mine…**, which opens **My presets** (also File ▸ My presets…):
   each of the user's presets with its name, category and description to edit, a delete button, and **Import…** /
-  **Export mine…** (see Storage). Built-ins can't be edited.
+  **Export mine…** (see Storage). Built-ins aren't listed there (right-click one for an edited copy).
 
 ### Applying
 
@@ -96,7 +100,8 @@ in code.
 - **Pixel units**: the preset's params are at its own size. They are rescaled to the project with `scaleParams`
   (`core/pixelScale.ts`, kx = project width / preset width, ky likewise, and the project's supersampling), as a
   canvas resize would, so a 128 px preset looks the same in a 512 px project.
-- **Smart material**: same recipe only. Macros and member params are replaced; the material's `limit` is kept.
+- **Group**: any group preset. The group's layers are replaced by the preset's (fresh ids, in place); the group's name
+  and `limit` are kept. A group preset is also added whole from the add menu's _Presets_ tab (FR8.3).
 - **Light**: same type only; all its params. **Lighting**: sky, ambient and the light list. Render settings
   (shadows, AO) are left alone.
 - **Post filter**: same type only; all its params.
@@ -140,7 +145,8 @@ Card presets (v2), harvested from the starters' tuned layers at 128 px with thei
 - Layers: Stone bricks, Cobblestones, Sandstone ashlar, Frosted blocks, Slate wall, Rock face (Stone); Brushed metal,
   Rivets (Metal); Panel seams, Tech plates (Tech); Stone grain (Surface); Moss, Orange lichen, Grass (Organic);
   Scratches, Rust patches, Cracks, Grime & wear (Wear).
-- Smart material: Water (Liquid). Lights: Warm key, Raking sun, Torch. Post filters: Quake palette, Soft glow, Clamp.
+- Groups: the 25 looks that were smart materials (FR8.3) — stone, floors, wood, liquids, metals, pipes, tech.
+- Lights: Warm key, Raking sun, Torch. Post filters: Quake palette, Soft glow, Clamp.
 - Lighting: UI key, Overhead, Torch-lit, Raking, Flat (v1's lighting buttons).
 
 Starters (v1):
@@ -175,7 +181,7 @@ Starters (v1):
 - [x] Generated static-import index (`tools/presets-index.ts` → `src/presets/builtin.ts`); wizard reads from it
 - [x] `presets.test.ts`, `tools/previews.ts`, `tools/presets.ts` work on the files
 - [x] Standard rig, `presetStage` (relief-less items only); thumbnails rendered off-screen without touching the project
-- [x] Apply: layers (mask wiring kept, pixel units rescaled), smart materials, lights, lighting, post filters; one
+- [x] Apply: layers (mask wiring kept, pixel units rescaled), groups, lights, lighting, post filters; one
       undo step each
 - [x] Presets button and thumbnail drop-down on every card title row; Lighting presets card as tiles
 - [x] Save as preset… dialog; File ▸ Save as template…; My presets (rename, describe, recategorise, delete)

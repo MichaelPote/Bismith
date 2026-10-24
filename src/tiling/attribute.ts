@@ -10,7 +10,7 @@
 //
 //   const r = await attributeTiling(project, (p) => renderFrame(engine, p, 32, gpu))
 
-import { hiddenByMaterial, type Project } from '@/core/project';
+import { hiddenByGroup, type Project } from '@/core/project';
 import type { MatchImage } from '@/match/image';
 import {
 	TILING_TERMS,
@@ -29,8 +29,8 @@ export interface LayerBlame {
 	ids: string[];
 	name: string;
 	type: string;
-	/** Smart material the layers belong to, if any. */
-	material?: string;
+	/** The group the layers belong to, if any. */
+	group?: string;
 	/** Mean OKLab ΔE the layers add over the whole tile. */
 	contribution: number;
 	/** Per term: mean ΔE inside the term's hotspots minus outside (≤ 0: not concentrated there). */
@@ -75,7 +75,7 @@ const asFrame = (r: TilingFrame | MatchImage) => (r instanceof TilingFrame ? r :
 
 /** The units to leave out: each enabled, shown layer on its own, pattern copies (same type and seed) together. */
 export function blameUnits(project: Project): string[][] {
-	const hidden = hiddenByMaterial(project);
+	const hidden = hiddenByGroup(project);
 	const units = new Map<string, string[]>();
 	for (const l of project.layers) {
 		if (!l.enabled || hidden.has(l.id)) continue;
@@ -121,8 +121,8 @@ export async function attributeTiling(
 
 	const units = blameUnits(project);
 	const byId = new Map(project.layers.map((l) => [l.id, l]));
-	const materialOf = new Map<string, string>();
-	for (const m of project.materials ?? []) for (const id of Object.values(m.members)) materialOf.set(id, m.name);
+	const groupOf = new Map<string, string>();
+	for (const g of project.groups ?? []) for (const id of g.members) groupOf.set(id, g.name);
 
 	const layers: LayerBlame[] = [];
 	for (let u = 0; u < units.length; u++) {
@@ -153,7 +153,7 @@ export async function attributeTiling(
 			ids,
 			name: ids.length > 1 ? `${first.name} (+${ids.length - 1} copies)` : first.name,
 			type: first.type,
-			material: materialOf.get(ids[0]),
+			group: groupOf.get(ids[0]),
 			contribution: total / n,
 			blame,
 			without: a ? { score: a.score, terms: a.terms } : undefined,

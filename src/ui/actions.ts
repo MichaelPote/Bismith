@@ -15,11 +15,11 @@ import {
 	applyLayerPreset,
 	applyLightPreset,
 	applyLightingPreset,
-	applyMaterialPreset,
+	applyGroupPreset,
+	groupPresetLayers,
 	applyPostPreset
 } from '@/presets/apply';
 import { getLayerDef } from '@/layers/registry';
-import { getRecipe, recipeLayerTypes } from '@/recipes';
 
 /** Resolves once the browser has painted the current DOM (so a modal is on screen before blocking work starts). */
 export function afterPaint(): Promise<void> {
@@ -203,8 +203,8 @@ export function useActions() {
 			const list = store.project.layers;
 			const next = at >= 0 ? list[Math.min(at, list.length - 1)] : undefined;
 			editor.select(next ? 'layer' : 'project', next?.id);
-		} else if (s.kind === 'material') {
-			store.deleteMaterial(s.id);
+		} else if (s.kind === 'group') {
+			store.deleteGroup(s.id);
 			editor.select('project');
 		} else if (s.kind === 'light') {
 			store.removeLight(s.id);
@@ -227,13 +227,13 @@ export function useActions() {
 		}
 	}
 
-	/** Where a new layer or material goes: just after the selected layer or material (after its block), else last. */
+	/** Where a new layer or group goes: just after the selected layer or group (after its block), else last. */
 	function insertionIndex(): number | undefined {
 		const s = editor.selection;
-		if ((s.kind !== 'layer' && s.kind !== 'material') || !s.id) return undefined;
+		if ((s.kind !== 'layer' && s.kind !== 'group') || !s.id) return undefined;
 		const at = store.unitOf(s.id);
 		if (!at) return undefined;
-		const last = at.unit.material ? at.unit.layers[at.unit.layers.length - 1] : at.unit.layer;
+		const last = at.unit.group ? at.unit.layers[at.unit.layers.length - 1] : at.unit.layer;
 		return store.layerIndex(last.id) + 1;
 	}
 
@@ -283,11 +283,15 @@ export function useActions() {
 		});
 	}
 
-	/** Add a smart material (one block of layers) just after the selection. */
-	async function addMaterial(recipeId: string): Promise<void> {
-		await withShaders(recipeLayerTypes(recipeId, store.project), getRecipe(recipeId)?.label ?? recipeId, () => {
-			const m = store.addMaterial(recipeId, insertionIndex());
-			editor.select('material', m.id);
+	/** Add a group preset's layers as a new group just after the selection (the New Layer menu's Presets tab). */
+	async function addGroupPreset(entry: PresetEntry): Promise<void> {
+		const preset = entry.project();
+		const types = [...new Set(preset.layers.map((l) => l.type))];
+		await withShaders(types, entry.name, () => {
+			const item = groupPresetLayers(store.project, preset);
+			if (!item) return;
+			const g = store.addGroup(item.name, item.layers, insertionIndex(), item.limit ? { limit: item.limit } : {});
+			editor.select('group', g.id);
 		});
 	}
 
@@ -310,9 +314,9 @@ export function useActions() {
 				ok = !!l && applyLayerPreset(p, l, preset);
 				break;
 			}
-			case 'material': {
-				const m = store.getMaterial(source.id);
-				ok = !!m && applyMaterialPreset(p, m, preset);
+			case 'group': {
+				const g = store.getGroup(source.id);
+				ok = !!g && applyGroupPreset(p, g, preset);
 				break;
 			}
 			case 'light': {
@@ -350,6 +354,6 @@ export function useActions() {
 		deleteSelection,
 		duplicateSelection,
 		addLayer,
-		addMaterial
+		addGroupPreset
 	};
 }

@@ -3,13 +3,14 @@ import { ensureBuiltins } from '@/render/builtins';
 import { createProject } from '@/core/serialize';
 import type { Layer } from '@/core/project';
 import type { ParamValues } from '@/core/params';
-import { createLayer } from '@/layers/registry';
+import { createLayer, layerParamDefs } from '@/layers/registry';
 import {
 	foldLimit,
 	layerLimit,
 	limitLabel,
 	limitParams,
 	limitTo,
+	layerWrites,
 	maskChain,
 	maskChainLabel,
 	maskLinks,
@@ -257,20 +258,36 @@ describe('mask links (the outliner lane)', () => {
 			[grime.id, vent.id, 'Shape'],
 			[grime.id, moss.id, 'Moss']
 		]);
-		p.materials = [
-			{
-				id: 'm1',
-				recipe: 'tiles',
-				name: 'M',
-				params: {},
-				members: { x: late.id },
-				limit: { terms: [{ mask: 'Moss', op: 'and' }], outside: false }
-			}
+		p.groups = [
+			{ id: 'g1', name: 'G', members: [late.id], limit: { terms: [{ mask: 'Moss', op: 'and' }], outside: false } }
 		];
 		expect(
 			maskLinks(p)
-				.filter((l) => l.reader === 'material:m1')
+				.filter((l) => l.reader === 'group:g1')
 				.map((l) => l.writer)
 		).toEqual([moss.id]);
+	});
+});
+
+describe('outputs to masks', () => {
+	it('gives every generator with an Output enum a mask field per output, written as a soft coverage', () => {
+		ensureBuiltins();
+		const keys = layerParamDefs('pipework').map((d) => d.key);
+		for (const o of ['height', 'cover', 'fittings', 'underside', 'tubes', 'facing', 'liquid'])
+			expect(keys).toContain(`mk_${o}`);
+		// Stone blocks names its own extra masks: no generated ones.
+		expect(layerParamDefs('stone_blocks').map((d) => d.key)).not.toContain('mk_relief');
+		const pipes = createLayer('pipework', { mk_fittings: 'Fittings', mk_underside: 'Under' });
+		const writes = layerWrites(getLayerDef('pipework'), pipes.params).filter((w) => w.extra);
+		expect(writes.map((w) => [w.target, w.kind, w.soft, w.params.output])).toEqual([
+			['Fittings', 'coverage', true, 'fittings'],
+			['Under', 'coverage', true, 'underside']
+		]);
+		// Never a coverage into the Shape mask of a shape layer.
+		expect(
+			layerWrites(getLayerDef('pipework'), { ...pipes.params, mk_cover: 'Shape' }).some(
+				(w) => w.extra && w.target === 'Shape'
+			)
+		).toBe(false);
 	});
 });

@@ -9,7 +9,6 @@ import { getPostDef } from '@/render/post/registry';
 import { LIGHT_DEFS } from '@/core/lights';
 import { isPreview, normalizeProject } from '@/core/serialize';
 import type { Project } from '@/core/project';
-import { getRecipe } from '@/recipes';
 import { ensureBuiltins } from '@/render/builtins';
 import { applyLightingPreset, buildPreset, presetItemOf } from '@/presets/apply';
 import { imageUrl, putImage } from '@/core/images';
@@ -73,10 +72,14 @@ describe('presets', () => {
 					expect(p.layers.some((l) => l.type === entry.target)).toBe(true);
 					expect(path.split('/')[1], 'presets/layer/<type>/').toBe(entry.target);
 					break;
-				case 'material':
-					expect(getRecipe(entry.target ?? '')).toBeTruthy();
-					expect(p.materials?.some((m) => m.recipe === entry.target)).toBe(true);
+				case 'group': {
+					// One group, of layers the preset holds.
+					expect(p.groups?.length).toBe(1);
+					const ids = new Set(p.layers.map((l) => l.id));
+					expect(p.groups![0].members.length).toBeGreaterThan(0);
+					for (const id of p.groups![0].members) expect(ids.has(id)).toBe(true);
 					break;
+				}
 				case 'light':
 					expect(p.lighting.lights.some((l) => l.type === entry.target)).toBe(true);
 					break;

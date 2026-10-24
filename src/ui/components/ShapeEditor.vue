@@ -7,24 +7,24 @@
 	//   Freehand  press and draw a closed shape → a new Path layer
 	//   Line      click to place points; Enter, double-click or a click on the last point ends it → a new Polyline layer, or a
 	//             new run of the selected Pipes, or a splat on each point of the selected Liquid splats
+	// Backspace drops the last point placed, Esc cancels; a hint under the tools says how to go on and finish. Splats'
+	// points stand alone (ShapeEdit.dots): drawn as dots, no lines, and a click near the last one places another.
 	// Drafts are kept in texture px and converted to the destination's units on commit. Vertices snap to half pixels
 	// (hold Alt for free placement). The `points` text stays the source of truth; the middle button still pans.
 	import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 	import { MAX_PATH_POINTS, parsePointLines } from '@/core/bitmap';
 	import type { ParamDef } from '@/core/params';
-	import type { SmartMaterial } from '@/core/project';
 	import { layerParamDefs } from '@/layers/registry';
-	import { getRecipe, materialOf } from '@/recipes';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore, type ShapeTool } from '@/stores/editor';
 	import { useActions } from '@/ui/actions';
-	import { IconLine, IconPolygon, IconTrash, IconVectorSpline } from '@tabler/icons-vue';
+	import { IconKeyboard, IconLine, IconPolygon, IconTrash, IconVectorSpline } from '@tabler/icons-vue';
 
 	type Pt = [number, number];
 
 	const props = defineProps<{
-		/** The selected layer or material whose shapes are edited (null: drawing only). */
-		target: { kind: 'layer' | 'material'; id: string } | null;
+		/** The selected layer whose shapes are edited (null: drawing only). */
+		target: { kind: 'layer'; id: string } | null;
 		/** The texture's rectangle on screen (CSS px, relative to the stage). */
 		rect: { x: number; y: number; w: number; h: number };
 		texW: number;
@@ -50,6 +50,8 @@
 		hint: string | null;
 		/** Fewest points a shape keeps (1 for hand-placed splats, where each point is a splat; else 2 open, 3 closed). */
 		min: number;
+		/** Each point stands alone (ShapeEdit.dots, hand-placed splats): dots, no lines between them. */
+		dots: boolean;
 		write(text: string): void;
 	}
 
@@ -61,42 +63,17 @@
 			adds: edit?.adds ?? null,
 			hint: edit?.hint ?? null,
 			min: edit?.min ?? (open ? 2 : 3),
+			dots: edit?.dots ?? false,
 			budget: edit?.budget ?? MAX_PATH_POINTS
-		};
-	}
-
-	/** A material whose controls include its shapes (e.g. Pipes' runs): edited through the control, so every layer follows. */
-	function materialSource(m: SmartMaterial): Source | null {
-		const d = getRecipe(m.recipe)?.params.find((p) => p.bitmap === 'points' || p.bitmap === 'lines');
-		if (!d) return null;
-		// Random layouts have no runs to edit; drawing one switches the layout to drawn runs.
-		const drawn = !('layout' in m.params) || m.params.layout === 'drawn';
-		// Its text is no uniform to fit.
-		const edit = d.shapeEdit;
-		return {
-			...shapeOf(d, edit),
-			budget: edit?.budget ?? 512,
-			fraction: true,
-			text: drawn ? String(m.params[d.key] ?? '') : '',
-			write: (text) => {
-				if (!drawn) store.setMaterialParam(m.id, 'layout', 'drawn');
-				store.setMaterialParam(m.id, d.key, text);
-			}
 		};
 	}
 
 	const source = computed<Source | null>(() => {
 		const t = props.target;
 		if (!t) return null;
-		if (t.kind === 'material') {
-			const m = store.getMaterial(t.id);
-			return m ? materialSource(m) : null;
-		}
 		const l = store.getLayer(t.id);
 		const d = l && layerParamDefs(l.type).find((p) => p.bitmap === 'points' || p.bitmap === 'lines');
 		if (!l || !d) return null;
-		const m = materialOf(store.project, l.id);
-		if (m && getRecipe(m.recipe)?.params.some((p) => p.key === d.key && p.bitmap)) return materialSource(m);
 		// A layer with a random layout (Pipework, Liquid splats): drawing switches it to the drawn one.
 		const switchable = layerParamDefs(l.type).some(
 			(p) => p.key === 'layout' && p.options?.some((o) => o.value === 'drawn')
@@ -114,6 +91,9 @@
 	});
 
 	const open = computed(() => source.value?.open ?? false);
+	/** Points that stand alone (hand-placed splats): dots, no lines — also while placing new ones. */
+	const dots = computed(() => source.value?.dots ?? false);
+	const drawingDots = computed(() => dots.value && tool.value === 'line');
 	const fraction = computed(() => source.value?.fraction ?? false);
 	/** The source's shapes, in its units (px, or fractions of the texture). */
 	const shapes = computed<Pt[][]>(() => {
@@ -312,7 +292,9 @@
 		};
 		// Polygon: a click on the first vertex closes it. Line: a click on the last point ends it.
 		if (tool.value === 'polygon' && draft.value.length >= 3 && near(draft.value[0])) return commit();
-		if (tool.value === 'line' && draft.value.length >= 2 && near(draft.value[draft.value.length - 1])) return commit();
+		// (Not for splats: placing them close together would end the batch by accident.)
+		if (tool.value === 'line' && !dots.value && draft.value.length >= 2 && near(draft.value[draft.value.length - 1]))
+			return commit();
 		draft.value = [...draft.value, p];
 	}
 
@@ -409,6 +391,10 @@
 		if (e.key === 'Enter' && (tool.value === 'polygon' || tool.value === 'line') && draft.value.length) {
 			e.preventDefault();
 			commit();
+		} else if (e.key === 'Backspace' && (tool.value === 'polygon' || tool.value === 'line') && draft.value.length) {
+			e.preventDefault();
+			e.stopPropagation();
+			draft.value = draft.value.slice(0, -1);
 		} else if (e.key === 'Escape' && (draft.value.length || tool.value !== 'edit')) {
 			e.preventDefault();
 			e.stopPropagation();
@@ -418,6 +404,26 @@
 	}
 	onMounted(() => window.addEventListener('keydown', onKey, true));
 	onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
+
+	/** While drawing: what the next click does and how to finish — shown under the tools. */
+	const drawHint = computed(() => {
+		const n = draft.value.length;
+		const undo = n ? ' · Backspace removes the last' : '';
+		if (tool.value === 'freehand') return 'Press and draw; release to close the shape · Esc cancels';
+		if (tool.value === 'polygon')
+			return n < 3
+				? `Click to place vertices (${n} of at least 3) · Esc cancels${undo}`
+				: `Click to add vertices · close it: click the first vertex, double-click or Enter${undo} · Esc cancels`;
+		if (tool.value !== 'line') return '';
+		const what = source.value?.adds ? source.value.adds.toLowerCase() : 'points';
+		if (drawingDots.value)
+			return n
+				? `${n} placed · click to place more · add them: double-click or Enter${undo} · Esc cancels`
+				: `Click to place ${what}, one on each click · then double-click or press Enter · Esc cancels`;
+		return n < 2
+			? `Click to place points (${n} of at least 2) · Esc cancels${undo}`
+			: `Click to add points · finish: click the last point, double-click or Enter${undo} · Esc cancels`;
+	});
 
 	const draftClosed = computed(() => tool.value === 'polygon' || tool.value === 'freehand');
 	const draftPath = computed(() => {
@@ -449,13 +455,14 @@
 			@dblclick="onCaptureDbl" />
 		<g v-for="(p, i) in shapes" :key="`p${i}`" :class="{ sel: selected === i, open }">
 			<path
+				v-if="!dots"
 				:d="pathD(p, !open)"
 				class="fill"
 				:class="{ live: tool === 'edit' }"
 				@pointerdown="onShapeDown($event, i)" />
 			<template v-if="tool === 'edit'">
 				<line
-					v-for="([a, b], j) in edges(p)"
+					v-for="([a, b], j) in dots ? [] : edges(p)"
 					:key="`e${j}`"
 					class="edge"
 					:x1="toScreen(a)[0]"
@@ -467,21 +474,24 @@
 					<circle class="hit" :cx="toScreen(q)[0]" :cy="toScreen(q)[1]" :r="GRAB" />
 					<circle
 						class="vertex"
-						:class="{ end: open && (j === 0 || j === p.length - 1) }"
+						:class="{ end: open && !dots && (j === 0 || j === p.length - 1) }"
 						:cx="toScreen(q)[0]"
 						:cy="toScreen(q)[1]"
 						r="4.5" />
 				</g>
 			</template>
+			<template v-else-if="dots">
+				<circle v-for="(q, j) in p" :key="`o${j}`" class="dot" :cx="toScreen(q)[0]" :cy="toScreen(q)[1]" r="2.5" />
+			</template>
 			<path v-else :d="pathD(p, !open)" class="outline" />
 		</g>
 		<template v-if="draft.length">
-			<path :d="draftPath" class="draft" :class="{ open: !draftClosed }" />
+			<path v-if="!drawingDots" :d="draftPath" class="draft" :class="{ open: !draftClosed }" />
 			<circle
 				v-for="(q, j) in tool === 'freehand' ? [] : draft"
 				:key="`d${j}`"
 				class="vertex draftv"
-				:class="{ first: tool === 'polygon' ? j === 0 : j === draft.length - 1 }"
+				:class="{ first: !drawingDots && (tool === 'polygon' ? j === 0 : j === draft.length - 1) }"
 				:cx="pxToScreen(q)[0]"
 				:cy="pxToScreen(q)[1]"
 				r="4" />
@@ -527,6 +537,10 @@
 		<span v-if="source" class="count cf-mono" :class="{ full: total >= source.budget }" title="Vertices used"
 			>{{ total }}/{{ source.budget }}</span
 		>
+	</div>
+	<div v-if="drawHint" class="draw-hint" role="status">
+		<IconKeyboard :size="13" />
+		<span>{{ drawHint }}</span>
 	</div>
 </template>
 
@@ -622,6 +636,34 @@
 	}
 	.draftv.first {
 		fill: var(--accent-hi);
+	}
+	/* While drawing: how to go on and finish, under the tools. */
+	.draw-hint {
+		position: absolute;
+		left: 12px;
+		top: 84px;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		max-width: calc(100% - 24px);
+		padding: 4px 9px;
+		background: rgba(23, 25, 28, 0.88);
+		border: 1px solid var(--hairline);
+		border-radius: 6px;
+		color: var(--text-hi);
+		font-size: 12px;
+		pointer-events: none;
+		z-index: 3;
+	}
+	.draw-hint svg {
+		flex: none;
+		color: var(--accent-hi);
+	}
+	.dot {
+		fill: var(--text-hi);
+		stroke: rgba(23, 25, 28, 0.8);
+		stroke-width: 1;
+		pointer-events: none;
 	}
 	.shape-tools {
 		position: absolute;

@@ -1,7 +1,7 @@
 // Card presets (docs/features/fr5.4-presets.md): copy a preset's item onto a layer, smart material, light, the lighting
 // or a post filter of the open project — and build the preset project a card is saved as.
 
-import type { Layer, Light, PostFilter, Project, SmartMaterial } from '@/core/project';
+import type { Layer, LayerGroup, LimitExpr, Light, PostFilter, Project } from '@/core/project';
 import type { ParamValues } from '@/core/params';
 import { newId } from '@/core/ids';
 import { resizeProject } from '@/core/pixelScale';
@@ -45,18 +45,31 @@ export function applyLayerPreset(project: Project, layer: Layer, preset: Project
 	return true;
 }
 
-/** Apply a smart material preset (same recipe): macros and members' params replaced by role; its limit is kept. */
-export function applyMaterialPreset(project: Project, material: SmartMaterial, preset: Project): boolean {
+/**
+ * A group preset's layers to add to `project`: fitted to its size, with fresh ids (the same preset can go in twice), and
+ * its group's name and limit. Its images are stored in this browser first.
+ */
+export function groupPresetLayers(
+	project: Project,
+	preset: Project
+): { name: string; layers: Layer[]; limit?: LimitExpr } | undefined {
 	const p = fitted(preset, project);
-	const item = p.materials?.find((m) => m.recipe === material.recipe);
-	if (!item) return false;
+	const g = p.groups?.[0];
+	if (!g) return undefined;
 	bringImages(preset);
-	material.params = clone(item.params);
-	for (const [role, id] of Object.entries(material.members)) {
-		const from = p.layers.find((l) => l.id === item.members[role]);
-		const into = project.layers.find((l) => l.id === id);
-		if (from && into && from.type === into.type) copyParams(into.params, from.params);
-	}
+	const layers = p.layers.filter((l) => g.members.includes(l.id)).map((l) => ({ ...clone(l), id: newId('ly') }));
+	return { name: preset.name || g.name, layers, ...(g.limit ? { limit: clone(g.limit) } : {}) };
+}
+
+/** Apply a group preset to a group: its layers replaced by the preset's, where they were; its name and limit kept. */
+export function applyGroupPreset(project: Project, group: LayerGroup, preset: Project): boolean {
+	const item = groupPresetLayers(project, preset);
+	if (!item) return false;
+	const old = new Set(group.members);
+	const at = project.layers.findIndex((l) => old.has(l.id));
+	project.layers = project.layers.filter((l) => !old.has(l.id));
+	project.layers.splice(at < 0 ? project.layers.length : at, 0, ...item.layers);
+	group.members = item.layers.map((l) => l.id);
 	return true;
 }
 
@@ -104,22 +117,18 @@ function imagesOf(p: Project): Record<string, string> | undefined {
 /** What to save as a preset, taken (copied) from the open project. */
 export function presetItemOf(
 	project: Project,
-	what: { kind: 'layer' | 'material' | 'light' | 'post'; id: string } | { kind: 'lighting' }
+	what: { kind: 'layer' | 'group' | 'light' | 'post'; id: string } | { kind: 'lighting' }
 ): PresetItem | undefined {
 	switch (what.kind) {
 		case 'layer': {
 			const layer = project.layers.find((l) => l.id === what.id);
 			return layer && { kind: 'layer', layer: clone(layer) };
 		}
-		case 'material': {
-			const material = project.materials?.find((m) => m.id === what.id);
-			if (!material) return undefined;
-			const ids = new Set(Object.values(material.members));
-			return {
-				kind: 'material',
-				material: clone(material),
-				layers: clone(project.layers.filter((l) => ids.has(l.id)))
-			};
+		case 'group': {
+			const group = project.groups?.find((g) => g.id === what.id);
+			if (!group) return undefined;
+			const ids = new Set(group.members);
+			return { kind: 'group', group: clone(group), layers: clone(project.layers.filter((l) => ids.has(l.id))) };
 		}
 		case 'light': {
 			const light = project.lighting.lights.find((l) => l.id === what.id);
@@ -145,7 +154,7 @@ export function buildPreset(
 	meta: { name: string; description?: string; category?: string }
 ): Project {
 	const base = presetBase(project.width, project.height, project.tileable);
-	if (item.kind === 'layer' || item.kind === 'material') base.heightDepth = project.heightDepth;
+	if (item.kind === 'layer' || item.kind === 'group') base.heightDepth = project.heightDepth;
 	const p = presetProject(
 		item,
 		base,

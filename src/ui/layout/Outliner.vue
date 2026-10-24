@@ -1,6 +1,6 @@
 <script setup lang="ts">
 	// Blender-style outliner: Project · Layers (one list in evaluation order: the Base material first, then the top row
-	// is applied first and the bottom row last, over everything) · Lights · Post. A smart material is one collapsible row
+	// is applied first and the bottom row last, over everything) · Lights · Post. A group is one collapsible row
 	// holding its member layers. The Diffuse and Height columns (headed on the Base row) show which channels each layer
 	// affects; clicking one flips the same tick as the inspector.
 	import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue';
@@ -10,9 +10,10 @@
 	import { allLayerDefs, CATEGORY_LABELS, getLayerDef, layerChannels } from '@/layers/registry';
 	import { allPostDefs } from '@/render/post/registry';
 	import type { LayerCategory } from '@/layers/types';
-	import { CATEGORY_HUE, layerHue, layerIcon, LIGHT_HUE, POST_HUE, recipeIcon } from '@/ui/meta';
-	import { layerUnits, MAX_LIGHTS, type Layer, type LayerUnit, type SmartMaterial } from '@/core/project';
-	import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue';
+	import { CATEGORY_HUE, layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta';
+	import { layerUnits, MAX_LIGHTS, type Layer, type LayerUnit, type LayerGroup } from '@/core/project';
+	import DropMenu, { type MenuItem, type MenuTab } from '@/ui/components/DropMenu.vue';
+	import { usePresetsStore } from '@/stores/presets';
 	import {
 		IconBox,
 		IconBulb,
@@ -27,7 +28,6 @@
 		IconSquareRotated,
 		IconSun
 	} from '@tabler/icons-vue';
-	import { RECIPES } from '@/recipes';
 	import { SHAPE_MASK, maskLinks } from '@/layers/masks';
 	import { supersampleFactor } from '@/core/supersample';
 	import { vTip, type Tip } from '@/ui/tooltip';
@@ -38,10 +38,10 @@
 	const act = useActions();
 
 	const errors = computed(() => editor.stats?.errors ?? {});
-	const MATERIAL_HUE = 'var(--accent-hi)';
+	const GROUP_HUE = 'var(--accent-hi)';
 
 	// ---------------------------------------------------------------- add menus
-	/** One tile grid: the generators, then the smart materials (composites of them), then filters and adjustments. */
+	/** One tile grid: the generators, then filters and adjustments. */
 	const addLayerItems = computed<MenuItem[]>(() => {
 		const items: MenuItem[] = [];
 		const section = (cat: LayerCategory) => {
@@ -57,19 +57,34 @@
 					action: () => act.addLayer(d.type)
 				});
 		};
-		for (const cat of ['noise', 'shape', 'pattern'] as const) section(cat);
-		items.push({ section: 'Smart materials' });
-		for (const r of RECIPES)
-			items.push({
-				label: r.label,
-				hint: r.description,
-				hue: MATERIAL_HUE,
-				icon: recipeIcon(r.id),
-				action: () => act.addMaterial(r.id)
-			});
-		for (const cat of ['filter', 'adjust'] as const) section(cat);
+		for (const cat of ['noise', 'shape', 'pattern', 'filter', 'adjust'] as const) section(cat);
 		return items;
 	});
+
+	// The Presets tab: group presets (presets/group/ and the user's own), by category; one adds its layers as a group.
+	const presets = usePresetsStore();
+	void presets.load();
+	const presetItems = computed<MenuItem[]>(() =>
+		presets.grouped('group').flatMap((g) => [
+			{ section: g.category },
+			...g.entries.map((e) => ({
+				label: e.name,
+				hint: e.description,
+				image: e.preview,
+				hue: GROUP_HUE,
+				icon: IconSquareRotated,
+				action: () => void act.addGroupPreset(e)
+			}))
+		])
+	);
+	const addTabs = computed<MenuTab[]>(() => [
+		{ label: 'New Layer', items: addLayerItems.value },
+		{
+			label: 'Presets',
+			items: presetItems.value,
+			empty: 'No group presets yet. Select a group and save it from its presets menu to add it here.'
+		}
+	]);
 
 	const addLightItems = computed<MenuItem[]>(() => [
 		{
@@ -108,38 +123,34 @@
 		return editor.selection.kind === kind && editor.selection.id === id;
 	}
 
-	// ---------------------------------------------------------------- layer units (free layers and materials)
-	const units = computed(() => layerUnits(store.project.layers, store.project.materials));
-	const unitKey = (u: LayerUnit) => (u.material ? u.material.id : u.layer.id);
+	// ---------------------------------------------------------------- layer units (free layers and groups)
+	const units = computed(() => layerUnits(store.project.layers, store.project.groups));
+	const unitKey = (u: LayerUnit) => (u.group ? u.group.id : u.layer.id);
 
-	/** Materials shown open (a new material starts collapsed). */
+	/** Groups shown open (a new group starts collapsed). */
 	const expanded = ref(new Set<string>());
 	function toggleExpanded(id: string): void {
 		if (expanded.value.has(id)) expanded.value.delete(id);
 		else expanded.value.add(id);
 	}
-	/** Rows under a unit: a free layer's own row, or an open material's members. */
-	const rowsOf = (u: LayerUnit): Layer[] =>
-		u.material ? (expanded.value.has(u.material.id) ? u.layers : []) : [u.layer];
+	/** Rows under a unit: a free layer's own row, or an open group's members. */
+	const rowsOf = (u: LayerUnit): Layer[] => (u.group ? (expanded.value.has(u.group.id) ? u.layers : []) : [u.layer]);
 
 	// ---------------------------------------------------------------- mask lane (FR8.23)
 	// Left of the icons, a line from each layer with a Limit to up to the layers that wrote the masks it reads: horizontal
 	// from the reader's icon, a rounded turn up, straight up, a rounded turn into the writer's icon. Links to one writer's
 	// mask share a lane (a trunk with a branch per reader); overlapping trunks take separate lanes, shorter ones inner.
 
-	/** The rows shown, top to bottom: a material's row (`material:<id>`), then its members' when it is open. */
+	/** The rows shown, top to bottom: a group's row (`group:<id>`), then its members' when it is open. */
 	const visibleRows = computed(() =>
-		units.value.flatMap((u) =>
-			u.material ? [`material:${u.material.id}`, ...rowsOf(u).map((l) => l.id)] : [u.layer.id]
-		)
+		units.value.flatMap((u) => (u.group ? [`group:${u.group.id}`, ...rowsOf(u).map((l) => l.id)] : [u.layer.id]))
 	);
-	/** The row a layer is drawn on: its own, or its material's while that is closed. */
+	/** The row a layer is drawn on: its own, or its group's while that is closed. */
 	const rowOfLayer = computed(() => {
 		const m = new Map<string, string>();
 		for (const u of units.value) {
-			if (!u.material) m.set(u.layer.id, u.layer.id);
-			else
-				for (const l of u.layers) m.set(l.id, expanded.value.has(u.material.id) ? l.id : `material:${u.material.id}`);
+			if (!u.group) m.set(u.layer.id, u.layer.id);
+			else for (const l of u.layers) m.set(l.id, expanded.value.has(u.group.id) ? l.id : `group:${u.group.id}`);
 		}
 		return m;
 	});
@@ -157,7 +168,7 @@
 	/** Trunks: one per (writer row, mask), with its readers' rows and its lane (0 = innermost). */
 	const laneTrunks = computed(() => {
 		const order = new Map(visibleRows.value.map((id, i) => [id, i]));
-		const rowOf = (id: string) => (id.startsWith('material:') ? id : rowOfLayer.value.get(id));
+		const rowOf = (id: string) => (id.startsWith('group:') ? id : rowOfLayer.value.get(id));
 		const trunks = new Map<
 			string,
 			{ writer: string; mask: string; readers: Set<string>; lo: number; hi: number; lane: number }
@@ -199,7 +210,7 @@
 		const pos = new Map<string, { y: number; x: number }>();
 		for (const el of list.querySelectorAll<HTMLElement>('[data-row]')) {
 			const r = el.getBoundingClientRect();
-			// The icon's left edge — or, on a material's row, its disclosure chevron's.
+			// The icon's left edge — or, on a group's row, its disclosure chevron's.
 			const icon = el.querySelector(':scope > .disclose, :scope > svg')?.getBoundingClientRect();
 			pos.set(el.dataset.row!, { y: r.top + r.height / 2 - box.top, x: (icon?.left ?? r.left + 14) - box.left });
 		}
@@ -237,12 +248,12 @@
 		return out;
 	});
 
-	// Selecting a member (from the viewport, after a delete …) opens its material.
+	// Selecting a member (from the viewport, after a delete …) opens its group.
 	watch(
 		() => editor.selection,
 		(s) => {
 			if (s.kind !== 'layer' || !s.id) return;
-			const m = (store.project.materials ?? []).find((x) => Object.values(x.members).includes(s.id!));
+			const m = (store.project.groups ?? []).find((x) => x.members.includes(s.id!));
 			if (m) expanded.value.add(m.id);
 		},
 		{ immediate: true }
@@ -258,9 +269,9 @@
 		}
 	);
 
-	const materialShown = (m: SmartMaterial) => m.enabled !== false;
+	const groupShown = (m: LayerGroup) => m.enabled !== false;
 	const containsSel = (u: LayerUnit) =>
-		!!u.material && editor.selection.kind === 'layer' && u.layers.some((l) => l.id === editor.selection.id);
+		!!u.group && editor.selection.kind === 'layer' && u.layers.some((l) => l.id === editor.selection.id);
 
 	// ---------------------------------------------------------------- Diffuse / Height columns
 	type Channel = 'diffuse' | 'height';
@@ -297,11 +308,10 @@
 		};
 	}
 
-	/** A material affects a channel when any of its shown members does. */
-	function materialChannel(u: LayerUnit, ch: Channel): boolean {
+	/** A group affects a channel when any of its shown members does. */
+	function groupChannel(u: LayerUnit, ch: Channel): boolean {
 		return (
-			!!u.material &&
-			u.layers.some((l) => l.enabled && (channelState(l, ch) === 'on' || channelState(l, ch) === 'always'))
+			!!u.group && u.layers.some((l) => l.enabled && (channelState(l, ch) === 'on' || channelState(l, ch) === 'always'))
 		);
 	}
 
@@ -310,16 +320,28 @@
 	const rowMenu = ref<InstanceType<typeof DropMenu> | null>(null);
 	const rowMenuItems = ref<MenuItem[]>([]);
 
-	async function onRowMenu(e: MouseEvent, kind: 'layer' | 'material', id: string): Promise<void> {
+	async function onRowMenu(e: MouseEvent, kind: 'layer' | 'group', id: string): Promise<void> {
 		const { clientX: x, clientY: y } = e;
 		editor.select(kind, id);
 		rowMenuItems.value = [
-			// Duplicating copies a layer; materials have no duplicate.
+			// Duplicating copies a layer; a group can be ungrouped instead.
 			...(kind === 'layer' ? [{ label: 'Duplicate', shortcut: 'Ctrl+D', action: act.duplicateSelection }] : []),
+			...(kind === 'group'
+				? [
+						{
+							label: 'Ungroup',
+							hint: 'Keep the layers, drop the group (its limit moves onto them)',
+							action: () => {
+								store.ungroup(id);
+								editor.select('project');
+							}
+						}
+					]
+				: []),
 			{
 				label: 'Delete',
 				shortcut: 'Del',
-				hint: kind === 'material' ? 'Delete the material and its layers' : undefined,
+				hint: kind === 'group' ? 'Delete the group and its layers' : undefined,
 				action: act.deleteSelection
 			}
 		];
@@ -346,14 +368,14 @@
 		input?.select();
 	}
 
-	function finishRename(kind: 'project' | 'layer' | 'light' | 'material', apply: boolean): void {
+	function finishRename(kind: 'project' | 'layer' | 'light' | 'group', apply: boolean): void {
 		const id = renaming.value;
 		renaming.value = null;
 		const name = renameText.value.trim();
 		if (!apply || !id || !name) return;
 		if (kind === 'project') store.project.name = name;
 		else if (kind === 'layer') store.updateLayer(id, { name });
-		else if (kind === 'material') store.renameMaterial(id, name);
+		else if (kind === 'group') store.renameGroup(id, name);
 		else store.updateLight(id, { name });
 	}
 
@@ -364,13 +386,13 @@
 	}
 
 	// ---------------------------------------------------------------- drag reorder
-	// Free layers and whole materials move between units; a member moves within its material; post filters in theirs.
+	// Free layers and whole groups move between units; a member moves within its group; post filters in theirs.
 	type Drag =
 		| { kind: 'unit'; id: string }
-		| { kind: 'member'; id: string; material: string }
+		| { kind: 'member'; id: string; group: string }
 		| { kind: 'post'; id: string };
 	const drag = ref<Drag | null>(null);
-	/** Drop slot: `list` is 'units', 'post' or a material id; `index` is the gap before that row. */
+	/** Drop slot: `list` is 'units', 'post' or a group id; `index` is the gap before that row. */
 	const dropAt = ref<{ list: string; index: number } | null>(null);
 
 	function onDragStart(e: DragEvent, d: Drag): void {
@@ -390,11 +412,11 @@
 		dropAt.value = { list: 'units', index: index + (lowerHalf(e) ? 1 : 0) };
 	}
 
-	function onMemberOver(e: DragEvent, material: string, index: number): void {
-		if (drag.value?.kind !== 'member' || drag.value.material !== material) return;
+	function onMemberOver(e: DragEvent, group: string, index: number): void {
+		if (drag.value?.kind !== 'member' || drag.value.group !== group) return;
 		e.preventDefault();
 		e.stopPropagation();
-		dropAt.value = { list: material, index: index + (lowerHalf(e) ? 1 : 0) };
+		dropAt.value = { list: group, index: index + (lowerHalf(e) ? 1 : 0) };
 	}
 
 	function onPostOver(e: DragEvent, index: number): void {
@@ -420,9 +442,9 @@
 					at.index
 				)
 			);
-		} else if (d.kind === 'member' && at.list === d.material) {
-			const u = units.value.find((x) => x.material?.id === d.material);
-			store.moveMember(d.id, target(u?.material ? u.layers.findIndex((l) => l.id === d.id) : -1, at.index));
+		} else if (d.kind === 'member' && at.list === d.group) {
+			const u = units.value.find((x) => x.group?.id === d.group);
+			store.moveMember(d.id, target(u?.group ? u.layers.findIndex((l) => l.id === d.id) : -1, at.index));
 		} else if (d.kind === 'post' && at.list === 'post') {
 			store.movePost(
 				d.id,
@@ -492,8 +514,8 @@
 				<span class="count cf-mono">{{ store.project.layers.length }}</span>
 				<span class="grow" />
 				<DropMenu
-					v-tip:right="'Add a layer or smart material'"
-					:items="addLayerItems"
+					v-tip:right="'Add a layer, or a preset (a group of layers)'"
+					:tabs="addTabs"
 					placement="right"
 					layout="tiles"
 					trigger-class="fk add"
@@ -545,98 +567,94 @@
 					:key="unitKey(u)"
 					class="unit"
 					:class="{
-						group: !!u.material,
-						open: !!u.material && expanded.has(u.material.id),
+						group: !!u.group,
+						open: !!u.group && expanded.has(u.group.id),
 						dropBefore: isDrop('units', ui),
 						dropAfter: isDrop('units', ui + 1) && ui === units.length - 1
 					}"
 					@dragover="onUnitOver($event, ui)"
 					@drop.prevent="onDrop">
-					<!-- Smart material: one collapsible row -->
+					<!-- Group: one collapsible row -->
 					<div
-						v-if="u.material"
-						:data-row="`material:${u.material.id}`"
+						v-if="u.group"
+						:data-row="`group:${u.group.id}`"
 						class="row mat"
 						:class="{
-							sel: isSel('material', u.material.id),
+							sel: isSel('group', u.group.id),
 							contains: containsSel(u),
-							off: !materialShown(u.material)
+							off: !groupShown(u.group)
 						}"
 						draggable="true"
-						@dragstart="onDragStart($event, { kind: 'unit', id: u.material.id })"
+						@dragstart="onDragStart($event, { kind: 'unit', id: u.group.id })"
 						@dragend="onDragEnd"
-						@click="editor.select('material', u.material.id)"
-						@contextmenu.prevent="onRowMenu($event, 'material', u.material.id)">
+						@click="editor.select('group', u.group.id)"
+						@contextmenu.prevent="onRowMenu($event, 'group', u.group.id)">
 						<button
 							type="button"
 							class="disclose"
-							:aria-expanded="expanded.has(u.material.id)"
-							:aria-label="expanded.has(u.material.id) ? 'Collapse material' : 'Expand material'"
-							@click.stop="toggleExpanded(u.material.id)">
-							<component :is="expanded.has(u.material.id) ? IconChevronDown : IconChevronRight" :size="12" />
+							:aria-expanded="expanded.has(u.group.id)"
+							:aria-label="expanded.has(u.group.id) ? 'Collapse group' : 'Expand group'"
+							@click.stop="toggleExpanded(u.group.id)">
+							<component :is="expanded.has(u.group.id) ? IconChevronDown : IconChevronRight" :size="12" />
 						</button>
-						<IconSquareRotated
-							:size="15"
-							:color="isSel('material', u.material.id) ? 'var(--accent-hi)' : MATERIAL_HUE" />
+						<IconSquareRotated :size="15" :color="isSel('group', u.group.id) ? 'var(--accent-hi)' : GROUP_HUE" />
 						<input
-							v-if="renaming === u.material.id"
+							v-if="renaming === u.group.id"
 							ref="renameInput"
 							v-model="renameText"
 							class="rename"
-							aria-label="Material name"
+							aria-label="Group name"
 							@click.stop
 							@contextmenu.stop
-							@keydown.enter.prevent="finishRename('material', true)"
-							@keydown.esc.prevent="finishRename('material', false)"
-							@blur="finishRename('material', true)" />
-						<span v-else class="name" @dblclick.stop="startRename(u.material.id, u.material.name)">{{
-							u.material.name
-						}}</span>
+							@keydown.enter.prevent="finishRename('group', true)"
+							@keydown.esc.prevent="finishRename('group', false)"
+							@blur="finishRename('group', true)" />
+						<span v-else class="name" @dblclick.stop="startRename(u.group.id, u.group.name)">{{ u.group.name }}</span>
 						<span v-tip:right="`${u.layers.length} layers`" class="meta cf-mono">{{ u.layers.length }}</span>
 						<span class="cells">
 							<span
 								v-for="ch in CHANNELS"
 								:key="ch"
 								v-tip:right="
-									materialChannel(u, ch)
+									groupChannel(u, ch)
 										? `Some of its layers ${ch === 'diffuse' ? 'colour' : 'shape'} the surface`
 										: undefined
 								"
 								class="ch fixed">
-								<component :is="CHANNEL_ICON[ch]" v-if="materialChannel(u, ch)" :size="14" />
+								<component :is="CHANNEL_ICON[ch]" v-if="groupChannel(u, ch)" :size="14" />
 							</span>
 							<button
-								v-tip:right="materialShown(u.material) ? 'Hide the material' : 'Show the material'"
+								v-tip:right="groupShown(u.group) ? 'Hide the group' : 'Show the group'"
 								type="button"
 								class="mini"
-								:aria-label="materialShown(u.material) ? 'Hide material' : 'Show material'"
-								@click.stop="store.setMaterialEnabled(u.material.id, !materialShown(u.material))">
-								<component :is="materialShown(u.material) ? IconEye : IconEyeOff" :size="14" />
+								:aria-label="groupShown(u.group) ? 'Hide group' : 'Show group'"
+								@click.stop="store.setGroupEnabled(u.group.id, !groupShown(u.group))">
+								<component :is="groupShown(u.group) ? IconEye : IconEyeOff" :size="14" />
 							</button>
 						</span>
 					</div>
 
-					<!-- Layers: a free layer's row, or an open material's members -->
+					<!-- Layers: a free layer's row, or an open group's members -->
 					<div
 						v-for="(layer, li) in rowsOf(u)"
 						:key="layer.id"
 						:data-row="layer.id"
 						class="row"
 						:class="{
-							member: !!u.material,
+							member: !!u.group,
 							sel: isSel('layer', layer.id),
-							off: !layer.enabled || (!!u.material && !materialShown(u.material)),
-							dropBefore: !!u.material && isDrop(u.material.id, li),
-							dropAfter: !!u.material && isDrop(u.material.id, li + 1) && li === u.layers.length - 1
+							off: !layer.enabled || (!!u.group && !groupShown(u.group)),
+							dropBefore: !!u.group && isDrop(u.group.id, li),
+							dropAfter: !!u.group && isDrop(u.group.id, li + 1) && li === u.layers.length - 1
 						}"
 						draggable="true"
 						@dragstart="
 							onDragStart(
 								$event,
-								u.material ? { kind: 'member', id: layer.id, material: u.material.id } : { kind: 'unit', id: layer.id }
+								u.group ? { kind: 'member', id: layer.id, group: u.group.id } : { kind: 'unit', id: layer.id }
 							)
 						"
-						@dragover="u.material && onMemberOver($event, u.material.id, li)"
+						@dragover="u.group && onMemberOver($event, u.group.id, li)"
 						@dragend="onDragEnd"
 						@click="editor.select('layer', layer.id)"
 						@contextmenu.prevent="onRowMenu($event, 'layer', layer.id)">
@@ -689,7 +707,7 @@
 						</span>
 					</div>
 				</div>
-				<div v-if="!units.length" class="empty">No layers yet. Add a layer or smart material with +.</div>
+				<div v-if="!units.length" class="empty">No layers yet. Add a layer or a preset with +.</div>
 			</div>
 
 			<!-- Lighting -->
@@ -971,7 +989,7 @@
 	.row.mat .name {
 		font-weight: 500;
 	}
-	/* Members sit under their material, on a guide line. */
+	/* Members sit under their group, on a guide line. */
 	.row.member {
 		padding-left: calc(28px + var(--lane, 0px));
 	}

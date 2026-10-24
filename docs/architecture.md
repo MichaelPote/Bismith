@@ -123,7 +123,7 @@ Project {
   seed,                     // global seed mixed into every layer seed
   base: { color, roughness, specular, height, opacity },
   layers: Layer[],          // the stack in evaluation order (first = earliest); relief = a layer with Diffuse off
-  materials?: SmartMaterial[], // recipes' macro controls over member layers, each a contiguous block (FR8.3, FR8.14)
+  groups?: LayerGroup[],    // named blocks of layers (members, limit, shown), each contiguous (FR8.3)
   lighting: Lighting,
   render: RenderSettings,
   post: PostFilter[],       // applied in order
@@ -438,7 +438,7 @@ The editor uses the _Blender-tempered_ Cinderforge editor language:
 - Field names carry tooltips (Tippy.js, theme `cinder`): the hint, what each option does, the key and default.
 
 Layout: top bar (menus, workspace rail, primary action) · left **Outliner** (Project, one Layers list with Diffuse /
-Height columns headed by the Base row, and collapsible smart materials, Lights, Post) · centre **Viewport** (channel rail, zoom/pan, tile
+Height columns headed by the Base row, and collapsible groups, Lights, Post) · centre **Viewport** (channel rail, zoom/pan, tile
 preview, light gizmos, shape editor), or the **Match** or **Tiling** workspace (FR9: 3 × 3 before / fixed / hotspots,
 the fix search's settings, Keep this / Discard) · right **Properties** of the selection (the project node also holds
 world lighting and render settings) · bottom status bar.
@@ -457,7 +457,6 @@ src/
   render/            engine, material pipeline, normals, path tracer, post/ stack, display, export
   match/             metrics, VGG texture term, colour fit, optimiser, templates, emulation, variations
   tiling/            what makes the repeat obvious, which layer is to blame, and a fix by reseeding it (FR9)
-  recipes/           smart-material recipes (macro controls → member layers)
   stores/            Pinia: project (with undo/redo), editor (selection, view state), presets (built-ins + the user's, IndexedDB),
                      runCheckpoint (long runs saved for resuming after the page is lost)
   ui/                components/ (fields, panel cards, icons), layout/ (bars, outliner, viewport, properties), panels/
@@ -513,7 +512,7 @@ docs/
 | 7.8   | [Craft heuristics for the optimiser](features/fr7.8-optimizer-heuristics.md) (rules removed) |
 | 8.1   | [Texture term: VGG-19 Gram statistics](features/fr8.1-texture-metric.md)                     |
 | 8.2   | [Colour fitting](features/fr8.2-colour-fit.md)                                               |
-| 8.3   | [Smart materials (recipes as a few controls)](features/fr8.3-smart-materials.md)             |
+| 8.3   | [Groups and group presets (were smart materials)](features/fr8.3-groups.md)                  |
 | 8.4   | [Start from a reference: Suggest and Variations](features/fr8.4-from-reference.md)           |
 | 8.5   | [Shape editor](features/fr8.5-shape-editor.md)                                               |
 | 8.6   | [Material lumps (recipes tuned against references)](features/fr8.6-material-lumps.md)        |

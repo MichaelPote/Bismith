@@ -90,6 +90,30 @@ describe('gizmos', () => {
 		expect(turnTo(v, project(), [228, 164]).angle).toBeCloseTo(-45);
 	});
 
+	it('turns a cable moved off-centre about its dot, steadily (no back-and-forth while dragging)', () => {
+		for (const tileable of [false, true]) {
+			const P = project(tileable);
+			let c = layer('cable', { axis: 'horizontal', angle: 0, pos: 0.8 });
+			const pivot = layerGizmo(c, P)!.move;
+			for (let deg = 0; deg < 360; deg += 5) {
+				const t = (deg * Math.PI) / 180;
+				const at: Pt = [pivot[0] + 40 * Math.cos(t), pivot[1] + 40 * Math.sin(t)];
+				c = apply(c, turnTo(c, P, at, 0, pivot));
+				// The same pointer again: the same angle (the dot used to move as the cable turned, and the angle with it).
+				const again = turnTo(c, P, at, 0, pivot);
+				expect(Math.abs(Number(again.angle) - Number(c.params.angle))).toBeLessThan(0.11);
+				// Untiled the line goes through the pivot (tiled, through one of its repeats).
+				if (!tileable) {
+					const g = layerGizmo(c, P)!;
+					const a = (g.turn! * Math.PI) / 180;
+					expect(Math.abs((pivot[0] - g.move[0]) * -Math.sin(a) + (pivot[1] - g.move[1]) * Math.cos(a))).toBeLessThan(
+						0.1
+					);
+				}
+			}
+		}
+	});
+
 	it('places a gradient’s centre and a symmetry’s fold centre in its top-left cell', () => {
 		const P = project();
 		const g = layer('gradient', { cx: 0.5, cy: 0.5, angle: 270 });

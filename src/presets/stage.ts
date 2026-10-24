@@ -2,7 +2,7 @@
 // thumbnails compare, and — only for an item without relief of its own (a filter, a paint layer, a light, a post
 // filter) — a fixed test scene under it, so its thumbnail shows something.
 
-import type { Layer, Lighting, PostFilter, PresetInfo, Project, SmartMaterial } from '@/core/project';
+import type { Layer, Lighting, PostFilter, PresetInfo, Project, LayerGroup } from '@/core/project';
 import { defaultRender } from '@/core/project';
 import { createLayer, createLight, createPostFilter, createProject, reliefOnly } from '@/core/serialize';
 import { getLayerDef } from '@/layers/registry';
@@ -94,7 +94,7 @@ export function presetLightStage(width: number): Layer[] {
 /** What a preset holds: the item and its kind. */
 export type PresetItem =
 	| { kind: 'layer'; layer: Layer }
-	| { kind: 'material'; material: SmartMaterial; layers: Layer[] }
+	| { kind: 'group'; group: LayerGroup; layers: Layer[] }
 	| { kind: 'light'; light: Lighting['lights'][number] }
 	| { kind: 'lighting'; lighting: Lighting }
 	| { kind: 'post'; filter: PostFilter };
@@ -116,10 +116,10 @@ export function presetProject(
 			p.layers = makesRelief(item.layer) ? [item.layer] : [...presetStage(p.width), item.layer];
 			p.preset = { ...info, kind: 'layer', target: item.layer.type };
 			break;
-		case 'material':
+		case 'group':
 			p.layers = item.layers;
-			p.materials = [item.material];
-			p.preset = { ...info, kind: 'material', target: item.material.recipe };
+			p.groups = [item.group];
+			p.preset = { ...info, kind: 'group' };
 			break;
 		case 'light':
 			p.layers = presetLightStage(p.width);

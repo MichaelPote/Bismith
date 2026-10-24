@@ -38,7 +38,7 @@ const PARAMS: ParamDef[] = [
 		hint: 'A splat on every point (x,y px from the top-left, or 0..1 with Units = fraction) — place them with the shape editor; the lines between points mean nothing',
 		showIf: isPlaced,
 		uniform: false,
-		shapeEdit: { adds: 'Splats', hint: 'a splat on each point', min: 1, budget: 512 }
+		shapeEdit: { adds: 'Splats', hint: 'a splat on each point', min: 1, budget: 512, dots: true }
 	}),
 	P.enum(
 		'units',

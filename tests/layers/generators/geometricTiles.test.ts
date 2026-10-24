@@ -4,8 +4,6 @@
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import type { ParamValues } from '@/core/params';
-import { createProject } from '@/core/serialize';
-import { addMaterial, setMacro } from '@/recipes';
 import { createLayer, freshParams, layerParamDefs, linkedChanges } from '@/layers/registry';
 import { TILE_MODES, tilesDerived, tilesLayer } from '@/layers/generators/geometricTiles';
 
@@ -51,20 +49,6 @@ describe('tiles', () => {
 		const p = createLayer('tiles', { laid: 2 }).params;
 		expect(linkedChanges('tiles', p, 'laid', 0).laid_turn).toBe(0);
 		expect(linkedChanges('tiles', { ...p, laid_turn: 5 }, 'laid', 0).laid_turn).toBeUndefined();
-	});
-
-	it('gives the Tiles recipe level tiles (its macros make the relief), tumbling blocks as rhombi with joints', () => {
-		for (const pattern of ['squares', 'herringbone', 'basketweave', 'bone', 'plus', 'rhombille', 'diagonal']) {
-			const p = createProject({ width: 64, height: 64, layers: [] });
-			const m = addMaterial(p, 'tiles');
-			setMacro(p, m, 'pattern', pattern);
-			const tess = p.layers.filter((l) => l.type === 'tiles');
-			expect(tess.length, pattern).toBeGreaterThan(0);
-			for (const l of tess) {
-				expect(l.params, `${pattern}/${l.name}`).toMatchObject({ tilt: 0, crown: 0, laid: 0 });
-				if (pattern === 'rhombille') expect(l.params, l.name).toMatchObject({ block_j: 1, block_iso: 0 });
-			}
-		}
 	});
 
 	it('weighs the tile kind by tiling until Kind contrast is set by hand', () => {

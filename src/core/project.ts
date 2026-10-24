@@ -22,25 +22,22 @@ export interface Layer {
 }
 
 /**
- * A smart material (docs/features/fr8.3-smart-materials.md): a recipe's handful of macro controls over ordinary
- * member layers, which sit together as one block of `project.layers` (see groupMaterials). Moving a macro rewrites only
- * the member params it affects; the layers stay normal, editable layers, and unpacking drops this record and keeps them.
+ * A group of layers (docs/features/fr8.3-groups.md): ordinary layers that sit together as one block of
+ * `project.layers` (see gatherGroups) under a name — a material put together from a preset, or any layers grouped by
+ * hand. The outliner shows it as one collapsible entry; it can be hidden, limited to masks and saved as a preset as a
+ * whole. Ungrouping drops this record and keeps the layers.
  */
-export interface SmartMaterial {
+export interface LayerGroup {
 	id: string;
-	/** Recipe id (src/recipes). */
-	recipe: string;
 	name: string;
-	/** Macro control values. */
-	params: ParamValues;
-	/** Role → member layer id. */
-	members: Record<string, string>;
+	/** Member layer ids. */
+	members: string[];
 	/**
 	 * Masks every member is limited to (FR8.23), on top of each member's own Limit to: terms read left to right, `outside`
-	 * inverting the whole — the material in front outside an opening, the one behind inside it.
+	 * inverting the whole — the group in front outside an opening, the one behind inside it.
 	 */
 	limit?: LimitExpr;
-	/** false hides the whole material (its members keep their own on/off states). Absent = shown. */
+	/** false hides the whole group (its members keep their own on/off states). Absent = shown. */
 	enabled?: boolean;
 }
 
@@ -56,10 +53,10 @@ export interface LimitExpr {
 /** The mask shape layers write by default (FR8.23); later layers limit to it, bevel from it, read its features. */
 export const SHAPE_MASK = 'Shape';
 
-/** Ids of the layers hidden because their smart material is. */
-export function hiddenByMaterial(p: Pick<Project, 'materials'>): Set<string> {
+/** Ids of the layers hidden because their group is. */
+export function hiddenByGroup(p: Pick<Project, 'groups'>): Set<string> {
 	const ids = new Set<string>();
-	for (const m of p.materials ?? []) if (m.enabled === false) for (const id of Object.values(m.members)) ids.add(id);
+	for (const g of p.groups ?? []) if (g.enabled === false) for (const id of g.members) ids.add(id);
 	return ids;
 }
 
@@ -159,7 +156,7 @@ export interface MaterialBase {
 }
 
 /** What a preset applies to (docs/features/fr5.4-presets.md). */
-export type PresetKind = 'project' | 'layer' | 'material' | 'light' | 'lighting' | 'post';
+export type PresetKind = 'project' | 'layer' | 'group' | 'light' | 'lighting' | 'post';
 
 /** The header that makes a project file a preset (Project.preset). */
 export interface PresetInfo {
@@ -195,8 +192,8 @@ export interface Project {
 	 * may still add fine relief tied to its colour (lit bumps on colour patches, as in hand-painted textures).
 	 */
 	layers: Layer[];
-	/** Smart materials over the layers (optional: absent = none). */
-	materials?: SmartMaterial[];
+	/** Groups of the layers (optional: absent = none). */
+	groups?: LayerGroup[];
 	lighting: Lighting;
 	render: RenderSettings;
 	post: PostFilter[];
@@ -252,48 +249,46 @@ export function defaultBase(): MaterialBase {
 	return { color: '#7a7570', roughness: 0.75, specular: 0.5, metalness: 0, height: 0, opacity: 1 };
 }
 
-/** One top-level entry of the layer list: a free layer, or a smart material's block of member layers. */
-export type LayerUnit =
-	| { layer: Layer; material?: undefined }
-	| { material: SmartMaterial; layers: Layer[]; layer?: undefined };
+/** One top-level entry of the layer list: a free layer, or a group's block of member layers. */
+export type LayerUnit = { layer: Layer; group?: undefined } | { group: LayerGroup; layers: Layer[]; layer?: undefined };
 
-/** Split `layers` into units (a material's members must already sit together, see groupMaterials). */
-export function layerUnits(layers: Layer[], materials: SmartMaterial[] | undefined): LayerUnit[] {
-	const owner = new Map<string, SmartMaterial>();
-	for (const m of materials ?? []) for (const id of Object.values(m.members)) owner.set(id, m);
+/** Split `layers` into units (a group's members must already sit together, see gatherGroups). */
+export function layerUnits(layers: Layer[], groups: LayerGroup[] | undefined): LayerUnit[] {
+	const owner = new Map<string, LayerGroup>();
+	for (const g of groups ?? []) for (const id of g.members) owner.set(id, g);
 	const units: LayerUnit[] = [];
 	for (const l of layers) {
-		const m = owner.get(l.id);
+		const g = owner.get(l.id);
 		const last = units[units.length - 1];
-		if (!m) units.push({ layer: l });
-		else if (last?.material === m) last.layers.push(l);
-		else units.push({ material: m, layers: [l] });
+		if (!g) units.push({ layer: l });
+		else if (last?.group === g) last.layers.push(l);
+		else units.push({ group: g, layers: [l] });
 	}
 	return units;
 }
 
-export const flattenUnits = (units: LayerUnit[]): Layer[] => units.flatMap((u) => (u.material ? u.layers : [u.layer]));
+export const flattenUnits = (units: LayerUnit[]): Layer[] => units.flatMap((u) => (u.group ? u.layers : [u.layer]));
 
 /**
- * Reorder `layers` so each smart material's members sit together, gathered where the material's last member is
- * (members keep their relative order, other layers theirs). The outliner shows a material as one collapsible block.
- * Gathering at the last member keeps every colour layer in order when a legacy project's relief stack is merged in:
- * the material's relief members move up to join its paint members.
+ * Reorder `layers` so each group's members sit together, gathered where the group's last member is (members keep their
+ * relative order, other layers theirs). The outliner shows a group as one collapsible block. Gathering at the last
+ * member keeps every colour layer in order when a legacy project's relief stack is merged in: the group's relief
+ * members move up to join its paint members.
  */
-export function groupMaterials(layers: Layer[], materials: SmartMaterial[] | undefined): Layer[] {
-	if (!materials?.length) return layers;
-	const owner = new Map<string, SmartMaterial>();
-	for (const m of materials) for (const id of Object.values(m.members)) owner.set(id, m);
-	const last = new Map<SmartMaterial, string>();
+export function gatherGroups(layers: Layer[], groups: LayerGroup[] | undefined): Layer[] {
+	if (!groups?.length) return layers;
+	const owner = new Map<string, LayerGroup>();
+	for (const g of groups) for (const id of g.members) owner.set(id, g);
+	const last = new Map<LayerGroup, string>();
 	for (const l of layers) {
-		const m = owner.get(l.id);
-		if (m) last.set(m, l.id);
+		const g = owner.get(l.id);
+		if (g) last.set(g, l.id);
 	}
 	const out: Layer[] = [];
 	for (const l of layers) {
-		const m = owner.get(l.id);
-		if (!m) out.push(l);
-		else if (last.get(m) === l.id) out.push(...layers.filter((x) => owner.get(x.id) === m));
+		const g = owner.get(l.id);
+		if (!g) out.push(l);
+		else if (last.get(g) === l.id) out.push(...layers.filter((x) => owner.get(x.id) === g));
 	}
 	return out;
 }

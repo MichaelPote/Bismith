@@ -1,7 +1,7 @@
 <script setup lang="ts">
 	// A card's presets (docs/features/fr5.4-presets.md): a button in its title row opening thumbnail tiles of the presets
 	// for its kind and type — the built-ins and the user's own mixed, grouped by category — and Save as preset… /
-	// Manage…. Clicking a tile applies it.
+	// Manage…. Clicking a tile applies it; right-clicking edits it.
 	import { computed } from 'vue';
 	import type { PresetKind } from '@/core/project';
 	import { useEditorStore, type PresetSource } from '@/stores/editor';
@@ -27,7 +27,8 @@
 				// The user's own presets are edged in ember.
 				hue: e.builtin ? undefined : 'var(--e400)',
 				hint: [e.description, e.builtin ? '' : 'Yours'].filter(Boolean).join(' — ') || undefined,
-				action: () => act.applyPreset(e, props.source)
+				action: () => act.applyPreset(e, props.source),
+				context: () => (editor.presetDialog = { mode: 'edit', key: e.key, source: props.source })
 			}))
 		]),
 		{ section: 'Presets' },

@@ -217,19 +217,32 @@ export function moveTo(layer: Layer, project: Project, at: Pt): ParamPatch {
 
 /**
  * Turning the knob to point at `at` (texture px); `snap` rounds the angle to that many degrees (0: free). Stamps keep
- * their quarter turns (Rotate, in degrees) and take the rest as Angle; a cable's Angle is from its axis.
+ * their quarter turns (Rotate, in degrees) and take the rest as Angle; a cable's Angle is from its axis. `pivot`: what
+ * it turns about — the move dot as it was when the drag began (a cable's dot moves as it turns).
  */
-export function turnTo(layer: Layer, project: Project, at: Pt, snap = 0): ParamPatch {
+export function turnTo(layer: Layer, project: Project, at: Pt, snap = 0, pivot?: Pt): ParamPatch {
 	const g = layerGizmo(layer, project);
 	if (!g) return {};
-	let a = deg(Math.atan2(at[1] - g.move[1], at[0] - g.move[0]));
+	const c = pivot ?? g.move;
+	let a = deg(Math.atan2(at[1] - c[1], at[0] - c[0]));
 	if (snap > 0) a = round(a, snap);
 	const p = layer.params;
 	const t = layer.type;
 	if (SHAPES.has(t) || MOTIFS.has(t)) return { rotation: ang(a + 90) };
 	if (STAMPS.has(t)) return { angle: ang(a + 90 - num(p, 'rotate')) };
 	if (t === 'gradient' || t === 'symmetry') return { angle: ang(a) };
-	if (t === 'cable') return { angle: ang(a - cableFrame(p, project).base) };
+	if (t === 'cable') {
+		// Its centre line keeps through the pivot: Position (along the turned normal) follows the angle, so the cable turns
+		// about the dot instead of swinging round the texture's centre (which moved the dot, and the angle with it).
+		const angle = ang(a - cableFrame(p, project).base);
+		const f = cableFrame({ ...p, angle }, project);
+		const [ox, oy] = offset(p);
+		const k = (c[0] - project.width / 2 - ox) * f.n[0] + (c[1] - project.height / 2 - oy) * f.n[1];
+		let pos = 0.5 + k / f.across;
+		// Tiled, the rows repeat every `across`: the same line from 0..1.
+		pos = project.tileable ? pos - Math.floor(pos) : Math.min(2, Math.max(-1, pos));
+		return { angle, pos: frac(pos) };
+	}
 	return {};
 }
 

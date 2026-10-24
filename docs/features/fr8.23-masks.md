@@ -56,8 +56,8 @@ The named-mask pre-pass goes away — a mask no longer reaches layers above its 
 - Terms combine with `sdfCombine` (min / max / max(a, −b)), so the result is still a distance and keeps a feature
   random (from the winning term).
 - Anything needing brackets, or shared by many layers, is a mask of its own: write it once, limit to it.
-- **Materials** keep a limit expression of their own (`SmartMaterial.mask`); each member's result is its own limit ∩
-  the material's.
+- **Groups** keep a limit expression of their own (`LayerGroup.limit`, FR8.3); each member's result is its own limit ∩
+  the group's.
 - The height-range limit (_Above / below level_, `m_hmode`) stays as it is: it reads the surface, not a mask.
 
 ### Selecting areas: the _Mask area_ generator
@@ -326,9 +326,25 @@ Where the build differs from the design above, or adds to it:
   writer's mask sharing a lane, overlapping spans in separate lanes, a closed material's members drawn on its row
   (`maskLinks` in masks.ts; `Outliner.vue` measures the rows). Between Limit to's mask fields, And / Or / Except (∩ ∪ −) are toggle buttons (`segmented`, the following masks'
   fields unlabelled: `bare`). The Masks view (`0`) has a picker and an inline
-  rename (`renameMask` in recipes/index.ts: writes, limits, sources, material limits and recipe macros). The Height
+  rename (`renameMask` in core/groups.ts: writes, limits, sources and group limits). The Height
   mask's field is _Height_ (it said _Limit to_ too). The cursor readout shows the viewed mask's distance (it read the
   old register slot).
+
+## Outputs to masks
+
+Looks used to stack one generator several times, identical but for its _Output_ (Pipework's height, cover, fittings,
+underside; Vents' frame and slots; Wood's boards and grain), because a mask carried a shape and not an output's value.
+Now one layer writes each output it is asked for to a mask of its own:
+
+- **Params**: every generator with an `output` enum and no extra writes of its own gets a text param per option,
+  `mk_<value>` (_<Option> to_, Mask › _Outputs to masks_, `mask: 'write'`), added by `outputMasks` in
+  `layers/registry.ts`. Empty = not written.
+- **Soft coverage**: an output write is `extraMaskWrites` with `soft: true` — coverage kind, storing
+  `0.5 − coverage × clamp(value)` (`uMaskSoft` in GLSL_GENERATOR_MAIN), the output's value after Shaping. A shape
+  output (Pipework's cover) gives a crisp mask; a gradient (underside, facing, grain) a mask that fades along it, and a
+  layer limited to it fades with it. Soft writes never go into _Shape_ (`layerWrites`), even on an SDF layer.
+- **Use**: paint a duplicate's colour with a paint layer (noise, flat colour, Mask area) limited to the output's mask,
+  after the writer. The group presets (FR8.3) are built this way.
 
 ## Phases
 
@@ -361,7 +377,8 @@ Each phase ends with `npm test`, `vue-tsc` and `npx tsx tools/smoke.ts` green.
   _Gaps to_ / _Scars to_): `layerWrites` lists every write a layer makes, `planMasks` gives each extra a version
   (`LayerMasks.extra`), and the pipeline runs the shader once more per extra with its params into the state's scratch
   side, copying only the mask output. Extras run before the layer's own pass and read the masks as they were before
-  it; their slots never reuse one freed by that layer, which its own pass still reads.
+  it; their slots never reuse one freed by that layer, which its own pass still reads. Every generator with an
+  _Output_ enum gets such extras for free — see _Outputs to masks_.
 - **Height-range limit on every layer** (`m_hmode`): _Mask area › Height range_ covers it as a mask; the per-layer
   limit could then go.
 - **Marching on huge features**: Gradient's march is bounded; features longer than the bound ramp only over the

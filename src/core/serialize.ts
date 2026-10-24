@@ -14,14 +14,14 @@ import {
 	defaultBase,
 	defaultLighting,
 	defaultRender,
-	groupMaterials,
+	gatherGroups,
 	type Layer,
 	type Light,
 	type PostFilter,
 	type PresetInfo,
 	type PresetKind,
 	type Project,
-	type SmartMaterial
+	type LayerGroup
 } from './project';
 
 export function createProject(overrides: Partial<Project> = {}): Project {
@@ -69,15 +69,17 @@ export function isPreview(v: unknown): v is string {
 	return typeof v === 'string' && v.length <= PREVIEW_LIMIT && PREVIEW_PATTERN.test(v);
 }
 
-const PRESET_KINDS: PresetKind[] = ['project', 'layer', 'material', 'light', 'lighting', 'post'];
+const PRESET_KINDS: PresetKind[] = ['project', 'layer', 'group', 'light', 'lighting', 'post'];
 const IMAGE_PATTERN = /^data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/]+=*$/;
 
 /** A valid preset header (Project.preset), or undefined; images that aren't base64 image data URLs are dropped. */
 function presetInfo(v: unknown): { preset: PresetInfo } | undefined {
 	if (!v || typeof v !== 'object') return undefined;
 	const r = v as Record<string, unknown>;
-	if (!PRESET_KINDS.includes(r.kind as PresetKind)) return undefined;
-	const preset: PresetInfo = { kind: r.kind as PresetKind, id: typeof r.id === 'string' && r.id ? r.id : newId() };
+	// (A smart material's preset is a group's now.)
+	const kind = r.kind === 'material' ? 'group' : r.kind;
+	if (!PRESET_KINDS.includes(kind as PresetKind)) return undefined;
+	const preset: PresetInfo = { kind: kind as PresetKind, id: typeof r.id === 'string' && r.id ? r.id : newId() };
 	if (typeof r.target === 'string' && r.target) preset.target = r.target;
 	if (typeof r.category === 'string' && r.category.trim()) preset.category = r.category.trim();
 	if (Array.isArray(r.tags)) preset.tags = r.tags.filter((t): t is string => typeof t === 'string');
@@ -146,21 +148,22 @@ export function normalizeProject(input: unknown): Project {
 	// Older projects had a separate relief stack, evaluated before the paint stack: it now leads the one list.
 	const flat = [...stack(raw.relief).map(reliefOnly), ...stack(raw.layers)];
 	const layerIds = new Set(flat.map((l) => l.id));
-	// Smart materials keep only members that still exist; one with none left is dropped.
-	const materials: SmartMaterial[] = (Array.isArray(raw.materials) ? raw.materials : [])
-		.filter((m: any) => m && typeof m.recipe === 'string')
-		.map((m: any) => ({
-			id: str(m.id, newId('sm')),
-			recipe: m.recipe,
-			name: str(m.name, m.recipe),
-			params: m.params && typeof m.params === 'object' ? JSON.parse(JSON.stringify(m.params)) : {},
-			members: Object.fromEntries(
-				Object.entries(m.members ?? {}).filter(([, id]) => typeof id === 'string' && layerIds.has(id as string))
-			) as Record<string, string>,
-			...(sanitizeLimit(m.limit) ? { limit: sanitizeLimit(m.limit) } : {}),
-			...(m.enabled === false ? { enabled: false } : {})
+	// Groups keep only members that still exist; one with none left is dropped. Older projects' smart materials load as
+	// groups (their members were by role; their recipe and macros are gone).
+	const groups: LayerGroup[] = (
+		Array.isArray(raw.groups) ? raw.groups : Array.isArray(raw.materials) ? raw.materials : []
+	)
+		.filter((g: any) => g && typeof g === 'object')
+		.map((g: any) => ({
+			id: str(g.id, newId('gr')),
+			name: str(g.name, typeof g.recipe === 'string' ? g.recipe : 'Group'),
+			members: (Array.isArray(g.members) ? g.members : Object.values(g.members ?? {})).filter(
+				(id: unknown): id is string => typeof id === 'string' && layerIds.has(id)
+			),
+			...(sanitizeLimit(g.limit) ? { limit: sanitizeLimit(g.limit) } : {}),
+			...(g.enabled === false ? { enabled: false } : {})
 		}))
-		.filter((m: SmartMaterial) => Object.keys(m.members).length > 0);
+		.filter((g: LayerGroup) => g.members.length > 0);
 
 	const lights: Light[] = (Array.isArray(rl.lights) ? rl.lights : [])
 		.filter((l: any) => l && (l.type === 'directional' || l.type === 'point'))
@@ -210,8 +213,8 @@ export function normalizeProject(input: unknown): Project {
 			height: num(rb.height, base.height, -64, 64),
 			opacity: num(rb.opacity, base.opacity, 0, 1)
 		},
-		layers: groupMaterials(flat, materials),
-		...(materials.length ? { materials } : {}),
+		layers: gatherGroups(flat, groups),
+		...(groups.length ? { groups } : {}),
 		lighting: {
 			sky: {
 				enabled: rl.sky?.enabled !== false,

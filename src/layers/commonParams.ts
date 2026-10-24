@@ -155,6 +155,8 @@ export const MASK_WRITE_PARAMS: ParamDef[] = [
  */
 export const GLSL_MASK_OP = /* glsl */ `
 uniform int uMaskKind;
+// A coverage write takes the output's value too (an extra, soft write: LayerDef.extraMaskWrites).
+uniform bool uMaskSoft;
 int maskOp() { return uMaskKind == 1 ? u_mk_op + 1 : 0; }
 `;
 
@@ -854,7 +856,7 @@ ${
   // Writing its coverage (layers without a shape): as a distance-like value that reads back as the coverage.
   if (uMaskKind == 2) {
     int cop = u_mk_op + 1;
-    float s = 0.5 - m;
+    float s = 0.5 - (uMaskSoft ? m * clamp(value, 0.0, 1.0) : m);
     maskOut = maskTexel(cop, sdfCombine(cop, prevDist, s, u_mk_smooth), s, g.fid, maskPrev);
   }
 

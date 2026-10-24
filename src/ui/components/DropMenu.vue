@@ -4,7 +4,8 @@
 	// beside the trigger (teleported to <body> so the panel it sits in can't clip it). placement="pointer" is a context
 	// menu: no trigger, opened at the cursor with `openAt(e.clientX, e.clientY)` from a contextmenu handler.
 	// placement="under" is "below" teleported (right-aligned under the trigger), for triggers in panels that clip.
-	import { computed, nextTick, onBeforeUnmount, ref, type Component } from 'vue';
+	// `tabs` (tile layout): a row of tabs over the tiles, each its own items; the menu opens on the first.
+	import { computed, nextTick, onBeforeUnmount, ref, watch, type Component } from 'vue';
 	import { IconSquareRotated } from '@tabler/icons-vue';
 	import { vTip } from '@/ui/tooltip';
 
@@ -24,11 +25,22 @@
 		/** Tile layout: thumbnail image URL; replaces the icon. */
 		image?: string;
 		action?: () => void;
+		/** Right-click on the item: closes the menu and runs this (e.g. a preset tile's Edit). */
+		context?: () => void;
+	}
+
+	/** A tab of a tiled menu: its own items, and what it says when it has none. */
+	export interface MenuTab {
+		label: string;
+		items: MenuItem[];
+		empty?: string;
 	}
 
 	const props = withDefaults(
 		defineProps<{
-			items: MenuItem[];
+			items?: MenuItem[];
+			/** Tile layout: tabs, each with its own items (in place of `items`). */
+			tabs?: MenuTab[];
 			label?: string;
 			align?: 'left' | 'right';
 			placement?: 'below' | 'right' | 'pointer' | 'under';
@@ -39,6 +51,7 @@
 		{
 			align: 'left',
 			placement: 'below',
+			items: () => [],
 			layout: 'list',
 			triggerClass: 'menu-trigger'
 		}
@@ -55,11 +68,18 @@
 	/** Pointer placement: where the menu was opened (viewport px). */
 	let at = { x: 0, y: 0 };
 
+	/** The open tab (tabs only); the menu opens on the first. */
+	const tab = ref(0);
+	const currentTab = computed(() =>
+		props.tabs?.length ? props.tabs[Math.min(tab.value, props.tabs.length - 1)] : null
+	);
+	const shown = computed(() => currentTab.value?.items ?? props.items);
+
 	/** Tile layout: items grouped under their section headers (separators are dropped). */
 	const groups = computed(() => {
 		const out: { section?: string; items: MenuItem[] }[] = [];
 		let group: (typeof out)[number] | undefined;
-		for (const item of props.items) {
+		for (const item of shown.value) {
 			if (item.separator) continue;
 			if (item.section !== undefined || !group) out.push((group = { section: item.section, items: [] }));
 			if (item.section === undefined) group.items.push(item);
@@ -101,6 +121,7 @@
 	}
 
 	async function show(): Promise<void> {
+		tab.value = 0;
 		open.value = true;
 		document.addEventListener('pointerdown', onDocDown, true);
 		document.addEventListener('keydown', onKey);
@@ -142,6 +163,19 @@
 		item.action?.();
 	}
 
+	function runContext(item: MenuItem): void {
+		if (!item.context || item.disabled) return;
+		close();
+		item.context();
+	}
+
+	// Another tab may be taller or shorter: keep a floating menu inside the viewport.
+	watch(tab, async () => {
+		if (!open.value || !floating.value) return;
+		await nextTick();
+		place();
+	});
+
 	onBeforeUnmount(close);
 	defineExpose({ toggle, close, openAt });
 </script>
@@ -172,6 +206,20 @@
 				role="menu"
 				@contextmenu.prevent>
 				<template v-if="layout === 'tiles'">
+					<div v-if="tabs?.length" class="tabs" role="tablist">
+						<button
+							v-for="(t, ti) in tabs"
+							:key="t.label"
+							type="button"
+							role="tab"
+							class="tabbtn"
+							:class="{ on: ti === tab }"
+							:aria-selected="ti === tab"
+							@click="tab = ti">
+							{{ t.label }}
+						</button>
+					</div>
+					<p v-if="currentTab && !groups.length" class="empty">{{ currentTab.empty ?? 'Nothing here yet.' }}</p>
 					<div v-for="(g, gi) in groups" :key="gi" role="group" :aria-label="g.section">
 						<div v-if="g.section" class="section">{{ g.section }}</div>
 						<div class="tileset">
@@ -184,7 +232,8 @@
 								class="tile"
 								:disabled="item.disabled"
 								:style="item.hue ? { '--hue': item.hue } : undefined"
-								@click="run(item)">
+								@click="run(item)"
+								@contextmenu="runContext(item)">
 								<span class="thumb">
 									<img v-if="item.image" :src="item.image" alt="" />
 									<component :is="item.icon ?? IconSquareRotated" v-else :size="22" />
@@ -204,7 +253,8 @@
 						role="menuitem"
 						class="item"
 						:disabled="item.disabled"
-						@click="run(item)">
+						@click="run(item)"
+						@contextmenu="runContext(item)">
 						<span
 							class="tick"
 							:style="item.hue ? { borderColor: item.hue } : undefined"
@@ -290,6 +340,41 @@
 	}
 	.tiled .section {
 		padding: 10px 0 6px;
+	}
+	/* Tabs over the tiles: stay in view while the tiles scroll. */
+	.tabs {
+		position: sticky;
+		top: -2px;
+		z-index: 1;
+		display: flex;
+		gap: 2px;
+		margin: 0 -12px;
+		padding: 8px 12px 0;
+		background: var(--panel);
+		border-bottom: 1px solid var(--hairline);
+	}
+	.tabbtn {
+		height: 26px;
+		padding: 0 12px;
+		border: 0;
+		border-bottom: 2px solid transparent;
+		background: transparent;
+		color: var(--text-lo);
+		font-size: 12px;
+	}
+	.tabbtn:hover {
+		color: var(--text-hi);
+	}
+	.tabbtn.on {
+		color: var(--text-hi);
+		border-bottom-color: var(--e400);
+	}
+	.empty {
+		margin: 14px 0 2px;
+		max-width: 52ch;
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--text-lo);
 	}
 	.tileset {
 		display: flex;

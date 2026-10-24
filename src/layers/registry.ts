@@ -1,4 +1,5 @@
 import {
+	P,
 	defaultParams,
 	sanitizeParams,
 	type GroupDef,
@@ -38,9 +39,38 @@ export const CATEGORY_LABELS: Record<LayerCategory, string> = {
 	adjust: 'Adjust'
 };
 
+/**
+ * Each of a generator's outputs to a mask of its own (Mask › Outputs to masks): one layer gives the masks that copies of
+ * it set to each output used to, for later layers to be limited to. A shape output writes its shape; a gradient one
+ * (an underside, a falloff) a soft mask, its coverage × its value. For generators with an Output enum that write no extra
+ * masks of their own (Stone blocks and Greebles name theirs).
+ */
+function outputMasks(
+	def: LayerDef,
+	own: ParamDef[]
+): { params: ParamDef[]; writes: LayerDef['extraMaskWrites'] } | null {
+	const output = own.find((p) => p.key === 'output' && p.type === 'enum');
+	if (def.kind !== 'generator' || !output?.options?.length || def.extraMaskWrites) return null;
+	const outs = output.options;
+	const params = outs.map((o) =>
+		P.text(`mk_${o.value}`, `${o.label} to`, '', {
+			group: 'mask',
+			section: 'Outputs to masks',
+			mask: 'write',
+			hint: `Also write the ${o.label} output${o.hint ? ` (${o.hint})` : ''} to this mask, from this same layer, for later layers to be limited to — as a copy of the layer set to that output would. A shape is exact; a gradient becomes a soft mask that layers limited to it fade along. Empty = none`
+		})
+	);
+	const writes: LayerDef['extraMaskWrites'] = (p) =>
+		outs
+			.map((o) => ({ target: String(p[`mk_${o.value}`] ?? ''), params: { output: o.value }, soft: true }))
+			.filter((x) => x.target.trim() !== '');
+	return { params, writes };
+}
+
 export function registerLayer(def: LayerDef): void {
-	defs.set(def.type, def);
 	const own = def.params.map((p) => ({ ...p, group: p.group ?? 'params' }));
+	const outMasks = outputMasks(def, own);
+	defs.set(def.type, outMasks ? { ...def, extraMaskWrites: outMasks.writes } : def);
 	let all: ParamDef[];
 	if (def.kind === 'generator') {
 		// Every generator has a `phase` (the wrapper sets the noise library's gPhase from it): its own, the noise one in
@@ -68,7 +98,7 @@ export function registerLayer(def: LayerDef): void {
 			const q = p.key === 'mk_target' && def.sdf ? { ...p, default: SHAPE_MASK } : p;
 			return { ...q, showIf: (v: ParamValues) => writable(v) && (!q.showIf || q.showIf(v)) };
 		});
-		all = [...pattern, ...shape, ...shaping, ...mask, ...OUTPUT_PARAMS];
+		all = [...pattern, ...shape, ...shaping, ...mask, ...(outMasks?.params ?? []), ...OUTPUT_PARAMS];
 	} else {
 		// Filters: their own params, then Limit to (FR8.23).
 		all = [...own, ...LIMIT_PARAMS];

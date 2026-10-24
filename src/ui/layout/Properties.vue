@@ -31,7 +31,6 @@
 		IconTrash
 	} from '@tabler/icons-vue';
 	import PostExtras from '@/ui/panels/PostExtras.vue';
-	import { getRecipe } from '@/recipes';
 	import LightingPresets from '@/ui/panels/LightingPresets.vue';
 	import PresetMenu from '@/ui/components/PresetMenu.vue';
 	import { vTip } from '@/ui/tooltip';
@@ -62,45 +61,29 @@
 	const post = computed(() => (sel.value.kind === 'post' && sel.value.id ? store.getPost(sel.value.id) : undefined));
 	const postDef = computed(() => (post.value ? getPostDef(post.value.type) : undefined));
 
-	// Smart materials (recipes as a few controls over ordinary layers).
-	const material = computed(() =>
-		sel.value.kind === 'material' && sel.value.id ? store.getMaterial(sel.value.id) : undefined
-	);
-	const recipe = computed(() => (material.value ? getRecipe(material.value.recipe) : undefined));
-	const materialCards = computed(() => {
-		const r = recipe.value;
-		if (!r) return [];
-		const first = Object.values(material.value!.members)[0];
-		return r.groups
-			.map((g) => ({
-				group: g,
-				defs: r.params.filter((d) => (d.group ?? r.groups[0].id) === g.id).map((d) => withMasks(d, first))
-			}))
-			.filter((c) => c.defs.length > 0);
-	});
-	const layerMaterial = computed(() =>
-		layer.value
-			? (store.project.materials ?? []).find((m) => Object.values(m.members).includes(layer.value!.id))
-			: undefined
+	// Groups of layers (a material from a preset, or layers grouped by hand).
+	const group = computed(() => (sel.value.kind === 'group' && sel.value.id ? store.getGroup(sel.value.id) : undefined));
+	const layerGroup = computed(() =>
+		layer.value ? (store.project.groups ?? []).find((g) => g.members.includes(layer.value!.id)) : undefined
 	);
 
-	// A material's limit (FR8.23): the same controls as a layer's Limit to, applied to every member on top of its own.
-	const materialLimitDefs = computed<ParamDef[]>(() => {
-		const first = Object.values(material.value?.members ?? {})[0];
+	// A group's limit (FR8.23): the same controls as a layer's Limit to, applied to every member on top of its own.
+	const groupLimitDefs = computed<ParamDef[]>(() => {
+		const first = group.value?.members[0];
 		return LIMIT_PARAMS.map((d) => withMasks({ ...d, group: undefined, section: undefined }, first));
 	});
-	const materialLimit = computed<ParamValues>(() => limitParams(material.value?.limit ?? null));
-	function setMaterialLimit(key: string, value: ParamValue): void {
-		const m = material.value;
-		if (!m) return;
-		store.setMaterialLimit(m.id, layerLimit({ ...materialLimit.value, [key]: value }));
+	const groupLimit = computed<ParamValues>(() => limitParams(group.value?.limit ?? null));
+	function setGroupLimit(key: string, value: ParamValue): void {
+		const g = group.value;
+		if (!g) return;
+		store.setGroupLimit(g.id, layerLimit({ ...groupLimit.value, [key]: value }));
 	}
 
-	function unpackMaterial(): void {
-		const m = material.value;
-		if (!m) return;
-		const first = Object.values(m.members)[0];
-		store.unpackMaterial(m.id);
+	function ungroup(): void {
+		const g = group.value;
+		if (!g) return;
+		const first = g.members[0];
+		store.ungroup(g.id);
 		editor.select(first ? 'layer' : 'project', first);
 	}
 
@@ -142,25 +125,25 @@
 		);
 	});
 
-	/** Position in the layer list (top = applied first), or within its material. */
+	/** Position in the layer list (top = applied first), or within its group. */
 	function layerIndexLabel(): string {
 		const l = layer.value;
 		const at = l ? store.unitOf(l.id) : undefined;
 		if (!l || !at) return '';
-		if (at.unit.material) return `${at.unit.layers.findIndex((x) => x.id === l.id) + 1} of ${at.unit.layers.length}`;
+		if (at.unit.group) return `${at.unit.layers.findIndex((x) => x.id === l.id) + 1} of ${at.unit.layers.length}`;
 		return `${store.layerIndex(l.id) + 1} of ${store.project.layers.length}`;
 	}
 
-	/** Can the selected layer / material move one step earlier (−1) or later (+1)? */
+	/** Can the selected layer / group move one step earlier (−1) or later (+1)? */
 	function canStep(id: string, dir: number): boolean {
 		const at = store.unitOf(id);
 		if (!at) return false;
-		if (at.unit.material && at.unit.material.id !== id) {
+		if (at.unit.group && at.unit.group.id !== id) {
 			const i = at.unit.layers.findIndex((x) => x.id === id) + dir;
 			return i >= 0 && i < at.unit.layers.length;
 		}
 		const j = at.index + dir;
-		return j >= 0 && j < layerUnits(store.project.layers, store.project.materials).length;
+		return j >= 0 && j < layerUnits(store.project.layers, store.project.groups).length;
 	}
 
 	// ---------------------------------------------------------------- project / world param tables
@@ -248,8 +231,8 @@
 				<span class="type">{{ layerDef.label }}</span>
 				<span
 					v-tip="
-						layerMaterial
-							? `Position within ${layerMaterial.name} (top = applied first)`
+						layerGroup
+							? `Position within ${layerGroup.name} (top = applied first)`
 							: 'Position in the layer list (top = applied first)'
 					"
 					class="cf-mono lo"
@@ -307,13 +290,13 @@
 				</button>
 			</div>
 			<p v-if="layerDef.description" class="desc">{{ layerDef.description }}</p>
-			<div v-if="layerMaterial" class="links">
+			<div v-if="layerGroup" class="links">
 				<button
-					v-tip="`Part of the smart material ${layerMaterial.name} — select it`"
+					v-tip="`Part of the group ${layerGroup.name} — select it`"
 					type="button"
 					class="chip"
-					@click="editor.select('material', layerMaterial.id)">
-					<IconSquareRotated :size="11" />{{ layerMaterial.name }}
+					@click="editor.select('group', layerGroup.id)">
+					<IconSquareRotated :size="11" />{{ layerGroup.name }}
 				</button>
 			</div>
 			<div class="scroll">
@@ -344,86 +327,75 @@
 			</div>
 		</template>
 
-		<!-- Smart material -->
-		<template v-else-if="material && recipe">
+		<!-- Group -->
+		<template v-else-if="group">
 			<div class="title">
 				<IconSquareRotated :size="15" color="var(--accent-hi)" />
 				<input
 					class="name"
-					:value="material.name"
-					aria-label="Material name"
-					@change="store.renameMaterial(material.id, ($event.target as HTMLInputElement).value)" />
-				<PresetMenu kind="material" :target="material.recipe" :source="{ kind: 'material', id: material.id }" />
+					:value="group.name"
+					aria-label="Group name"
+					@change="store.renameGroup(group.id, ($event.target as HTMLInputElement).value)" />
+				<PresetMenu kind="group" :source="{ kind: 'group', id: group.id }" />
 				<label v-tip="'Shown'" class="en">
 					<input
 						type="checkbox"
-						:checked="material.enabled !== false"
-						aria-label="Material shown"
-						@change="store.setMaterialEnabled(material.id, ($event.target as HTMLInputElement).checked)" />
+						:checked="group.enabled !== false"
+						aria-label="Group shown"
+						@change="store.setGroupEnabled(group.id, ($event.target as HTMLInputElement).checked)" />
 				</label>
 			</div>
 			<div class="sub">
-				<span class="type">{{ recipe.label }}</span>
-				<span class="cf-mono lo">{{ Object.keys(material.members).length }} layers</span>
+				<span class="type">Group</span>
+				<span class="cf-mono lo">{{ group.members.length }} layers</span>
 				<span class="grow" />
 				<button
 					v-tip="'Move up: applied earlier'"
 					type="button"
 					class="cf-ico-btn"
-					aria-label="Move material up"
-					:disabled="!canStep(material.id, -1)"
-					@click="store.stepLayer(material.id, -1)">
+					aria-label="Move group up"
+					:disabled="!canStep(group.id, -1)"
+					@click="store.stepLayer(group.id, -1)">
 					<IconArrowUp :size="13" />
 				</button>
 				<button
 					v-tip="'Move down: applied later, over more'"
 					type="button"
 					class="cf-ico-btn"
-					aria-label="Move material down"
-					:disabled="!canStep(material.id, 1)"
-					@click="store.stepLayer(material.id, 1)">
+					aria-label="Move group down"
+					:disabled="!canStep(group.id, 1)"
+					@click="store.stepLayer(group.id, 1)">
 					<IconArrowDown :size="13" />
 				</button>
 				<button
-					v-tip="'Unpack: keep the layers, drop the controls'"
+					v-tip="'Ungroup: keep the layers, drop the group'"
 					type="button"
 					class="cf-ico-btn"
-					aria-label="Unpack material"
-					@click="unpackMaterial">
+					aria-label="Ungroup"
+					@click="ungroup">
 					<IconStack2 :size="13" />
 				</button>
 				<button
-					v-tip="'Delete the material and its layers (Del)'"
+					v-tip="'Delete the group and its layers (Del)'"
 					type="button"
 					class="cf-ico-btn"
-					aria-label="Delete material"
+					aria-label="Delete group"
 					@click="act.deleteSelection">
 					<IconTrash :size="13" />
 				</button>
 			</div>
 			<p class="desc">
-				{{ recipe.description }} Its layers are ordinary layers — open it in the outliner to edit one; a control here
-				rewrites only the settings it governs.
+				Ordinary layers kept together — open the group in the outliner to edit one. Hide, move or limit them as one, or
+				save them as a preset from the presets menu.
 			</p>
 			<div class="scroll">
-				<PanelCard
-					v-for="c in materialCards"
-					:key="`${material.id}:${c.group.id}`"
-					:title="c.group.label"
-					:icon="cardIcon(c.group.id)"
-					:storage-key="`material:${recipe.id}:${c.group.id}`">
-					<ParamList
-						:defs="c.defs"
-						:values="material.params"
-						@change="(k, v) => store.setMaterialParam(material!.id, k, v)" />
-				</PanelCard>
-				<PanelCard title="Mask" :icon="cardIcon('Mask')" storage-key="material:mask">
+				<PanelCard title="Mask" :icon="cardIcon('Mask')" storage-key="group:mask">
 					<p class="hint">
-						Limit every layer of this material to masks written by layers above it (e.g. a Cut-out's opening), on top of
-						each layer's own Limit to. Cutting a hole: the material in front limited to the mask with Invert, the one
+						Limit every layer of this group to masks written by layers above it (e.g. a Cut-out's opening), on top of
+						each layer's own Limit to. Cutting a hole: the group in front limited to the mask with Invert, the one
 						behind to the mask — otherwise the hidden one's glow and relief show through.
 					</p>
-					<ParamList :defs="materialLimitDefs" :values="materialLimit" @change="setMaterialLimit" />
+					<ParamList :defs="groupLimitDefs" :values="groupLimit" @change="setGroupLimit" />
 				</PanelCard>
 			</div>
 		</template>

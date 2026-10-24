@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { hexToRgb, linearToOklab, linearToSrgb1, oklabToLinear, rgbToHex, srgbToLinear1 } from '@/core/color';
 import { P, evalCurve, sanitizeParams, sanitizeValue } from '@/core/params';
 import { createProject, normalizeProject, projectFromJSON, projectToJSON } from '@/core/serialize';
-import { groupMaterials, layerUnits } from '@/core/project';
+import { gatherGroups, layerUnits } from '@/core/project';
 import { crc32, zipStore } from '@/core/zip';
 
 describe('color', () => {
@@ -170,7 +170,7 @@ describe('serialize', () => {
 		expect(p.layers[2].params.dif_on).toBe(true);
 		expect('relief' in p).toBe(false);
 	});
-	it("gathers each smart material's members into one block where its last member is", () => {
+	it("gathers each group's members into one block where its last member is (old smart materials load as groups)", () => {
 		const p = normalizeProject({
 			relief: [
 				{ id: 'a1', type: 'bricks' },
@@ -187,11 +187,15 @@ describe('serialize', () => {
 				{ id: 'mb', recipe: 'tiles', members: { r: 'b1', p: 'b2' } }
 			]
 		});
-		// Colour layers keep their order (y, a2, b2); the relief members join their material.
+		// Colour layers keep their order (y, a2, b2); the relief members join their group.
 		expect(p.layers.map((l) => l.id)).toEqual(['x', 'y', 'a1', 'a2', 'b1', 'b2']);
-		const units = layerUnits(p.layers, p.materials);
-		expect(units.map((u) => (u.material ? u.material.id : u.layer.id))).toEqual(['x', 'y', 'ma', 'mb']);
-		expect(groupMaterials(p.layers, p.materials)).toEqual(p.layers);
+		expect(p.groups!.map((g) => [g.id, g.members])).toEqual([
+			['ma', ['a1', 'a2']],
+			['mb', ['b1', 'b2']]
+		]);
+		const units = layerUnits(p.layers, p.groups);
+		expect(units.map((u) => (u.group ? u.group.id : u.layer!.id))).toEqual(['x', 'y', 'ma', 'mb']);
+		expect(gatherGroups(p.layers, p.groups)).toEqual(p.layers);
 	});
 	it('migrates the old single specular setting to base level × render scale with the same F0', () => {
 		const old = normalizeProject({ base: { color: '#806040' }, render: { specular: 0.8 } });
@@ -268,7 +272,6 @@ describe('canvas resize', () => {
 	it('scales pixel-measured values with the canvas: lengths by the side, positions per axis, counts per area', async () => {
 		const { resizeProject } = await import('@/core/pixelScale');
 		const { createLayer, createLight, createPostFilter } = await import('@/core/serialize');
-		const { addMaterial } = await import('@/recipes');
 		const p = createProject({
 			width: 64,
 			height: 64,
@@ -283,7 +286,6 @@ describe('canvas resize', () => {
 			post: [createPostFilter('pixelate', { size: 3 })]
 		});
 		p.lighting.lights.push(createLight('point', { z: 48 }));
-		const m = addMaterial(p, 'tiles', { size: 16 });
 		const q = resizeProject(p, 128, 128);
 		expect([q.width, q.height, q.heightDepth, q.render.aoRadius]).toEqual([128, 128, 4, p.render.aoRadius * 2]);
 		expect([q.layers[0].params.columns, q.layers[0].params.mortar, q.layers[0].params.bevel]).toEqual([4, 3, 4]);
@@ -299,7 +301,6 @@ describe('canvas resize', () => {
 		// The point light's falloff reference grows with its distances, so it lights the surface as brightly.
 		expect(q.lighting.lights.at(-1)!.refDist).toBe(128);
 		expect(q.lighting.lights[0].refDist).toBeUndefined(); // directional
-		expect(q.materials!.find((x) => x.id === m.id)!.params.size).toBe(32);
 		expect(p.width).toBe(64); // input untouched
 		// Wider only: offsets and vertices follow their axis, lengths the side of the area (√2 here).
 		const w = resizeProject(p, 128, 64);

@@ -66,7 +66,7 @@
 	});
 
 	type Part = 'move' | 'turn' | 'end0' | 'end1';
-	let drag: { part: Part; id: number; grab: Pt; fixed?: Pt; svg: DOMRect } | null = null;
+	let drag: { part: Part; id: number; grab: Pt; fixed?: Pt; pivot?: Pt; svg: DOMRect } | null = null;
 	let last: { x: number; y: number; ctrl: boolean } = { x: 0, y: 0, ctrl: false };
 
 	function onDown(e: PointerEvent, part: Part): void {
@@ -79,6 +79,8 @@
 		const h = part === 'move' ? centre.value! : part === 'turn' ? knob.value! : ends.value![part === 'end0' ? 0 : 1];
 		drag = { part, id: e.pointerId, grab: [h[0] - at[0], h[1] - at[1]], svg };
 		if (part === 'end0' || part === 'end1') drag.fixed = g.value.ends![part === 'end0' ? 1 : 0];
+		// Turning: about the move dot where it is now (a cable's dot would otherwise move as it turns).
+		if (part === 'turn') drag.pivot = g.value.move;
 		(e.currentTarget as Element).setPointerCapture(e.pointerId);
 		window.addEventListener('keydown', onKey);
 		window.addEventListener('keyup', onKey);
@@ -97,7 +99,7 @@
 				last.ctrl ? [Math.round(at[0] * 2) / 2, Math.round(at[1] * 2) / 2] : at
 			);
 		} else if (drag.part === 'turn') {
-			patch = turnTo(props.layer, props.project, at, snap);
+			patch = turnTo(props.layer, props.project, at, snap, drag.pivot);
 		} else {
 			patch = endTo(props.layer, props.project, drag.part === 'end0' ? 0 : 1, at, snap, drag.fixed);
 		}

@@ -14,7 +14,6 @@ import type { ParamDef, ParamValues } from './params';
 import type { Light, Project } from './project';
 import { layerParamDefs } from '@/layers/registry';
 import { getPostDef } from '@/render/post/registry';
-import { getRecipe } from '@/recipes';
 import { LIGHT_DEFS, LIGHT_REF_SIZE, POINT_LIGHT_REF_DIST } from './lights';
 
 export interface PixelScale {
@@ -89,10 +88,6 @@ export function scalePixels(p: Project, scale: PixelScale & { post: boolean }): 
 	p.render.aoRadius = tidy(p.render.aoRadius * s);
 	for (const l of p.layers) scaleParams(layerParamDefs(l.type), l.params, scale);
 	for (const light of p.lighting.lights) scaleLight(light, scale);
-	for (const m of p.materials ?? []) {
-		const def = getRecipe(m.recipe);
-		if (def) scaleParams(def.params, m.params, scale);
-	}
 	if (scale.post) {
 		for (const f of p.post) {
 			const def = getPostDef(f.type);
