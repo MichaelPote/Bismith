@@ -1,12 +1,12 @@
 <script setup lang="ts">
 	// Shape editor (docs/features/fr8.5-shape-editor.md): draw and edit shapes on the viewport.
 	//   Edit      the selected item's shapes only — a Path layer's polygons, a Polyline layer's lines, the runs of a Pipes
-	//             material or pipework layer: drag vertices (a press within GRAB px grabs one), click an edge to insert a
-	//             vertex, right-click or double-click a vertex to delete it, click a shape to select it
+	//             material or pipework layer, hand-placed splats: drag vertices (a press within GRAB px grabs one), click
+	//             an edge to insert a vertex, right-click or double-click a vertex to delete it, click a shape to select it
 	//   Polygon   click to place vertices; Enter, double-click or a click on the first vertex closes it → a new Path layer
 	//   Freehand  press and draw a closed shape → a new Path layer
 	//   Line      click to place points; Enter, double-click or a click on the last point ends it → a new Polyline layer, or a
-	//             new run of the selected Pipes
+	//             new run of the selected Pipes, or a splat on each point of the selected Liquid splats
 	// Drafts are kept in texture px and converted to the destination's units on commit. Vertices snap to half pixels
 	// (hold Alt for free placement). The `points` text stays the source of truth; the middle button still pans.
 	import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -44,8 +44,10 @@
 		fraction: boolean;
 		budget: number;
 		text: string;
-		/** Pipe runs: the Line tool adds runs here instead of creating a layer. */
-		pipes: boolean;
+		/** Pipe runs, hand-placed splats: the Line tool adds a line here instead of creating a layer (its button's name). */
+		adds: string | null;
+		/** Fewest points a shape keeps (1 for hand-placed splats, where each point is a splat; else 2 open, 3 closed). */
+		min: number;
 		write(text: string): void;
 	}
 
@@ -60,7 +62,8 @@
 			fraction: true,
 			budget: 512,
 			text: drawn ? String(m.params[d.key] ?? '') : '',
-			pipes: d.bitmap === 'lines',
+			adds: d.bitmap === 'lines' ? 'Pipe run' : null,
+			min: d.bitmap === 'lines' ? 2 : 3,
 			write: (text) => {
 				if (!drawn) store.setMaterialParam(m.id, 'layout', 'drawn');
 				store.setMaterialParam(m.id, d.key, text);
@@ -80,14 +83,19 @@
 		if (!l || !d) return null;
 		const m = materialOf(store.project, l.id);
 		if (m && getRecipe(m.recipe)?.params.some((p) => p.key === d.key && p.bitmap)) return materialSource(m);
-		const pipes = l.type === 'pipework';
-		const drawn = !pipes || l.params.layout === 'drawn';
+		// A layer with a random layout (Pipework, Liquid splats): drawing switches it to the drawn one.
+		const switchable = layerParamDefs(l.type).some(
+			(p) => p.key === 'layout' && p.options?.some((o) => o.value === 'drawn')
+		);
+		const drawn = !switchable || l.params.layout === 'drawn';
+		const adds = l.type === 'pipework' ? 'Pipe run' : l.type === 'splats' ? 'Splats' : null;
 		return {
 			open: d.bitmap === 'lines',
 			fraction: l.params.units === 'fraction',
 			budget: d.uniform === false ? 512 : MAX_PATH_POINTS,
 			text: drawn ? String(l.params[d.key] ?? '') : '',
-			pipes,
+			adds,
+			min: l.type === 'splats' ? 1 : d.bitmap === 'lines' ? 2 : 3,
 			write: (text) => {
 				if (!drawn) store.setLayerParam(l.id, 'layout', 'drawn');
 				store.setLayerParam(l.id, d.key, text);
@@ -101,10 +109,19 @@
 	const shapes = computed<Pt[][]>(() => {
 		const s = source.value;
 		if (!s) return [];
+		// Single points kept too (hand-placed splats): every "x,y" pair of a line.
+		if (s.min < 2)
+			return s.text
+				.split(/\n|\|/)
+				.map((line) => {
+					const v = (line.match(/-?\d*\.?\d+(?:e-?\d+)?/gi) ?? []).map(Number);
+					return Array.from({ length: Math.floor(v.length / 2) }, (_, i): Pt => [v[2 * i], v[2 * i + 1]]);
+				})
+				.filter((p) => p.length > 0);
 		return (s.open ? parsePolylines(s.text) : parsePolygons(s.text)) as Pt[][];
 	});
 	const total = computed(() => shapes.value.reduce((n, p) => n + p.length, 0));
-	const minPoints = computed(() => (open.value ? 2 : 3));
+	const minPoints = computed(() => source.value?.min ?? (open.value ? 2 : 3));
 
 	const tool = computed<ShapeTool>({ get: () => editor.shapeTool, set: (v) => (editor.shapeTool = v) });
 	const selected = ref<number | null>(null);
@@ -253,17 +270,17 @@
 	/** Drop repeated points (a double-click places its point twice). */
 	const dedupe = (pts: Pt[]) => pts.filter((p, i) => i === 0 || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1]);
 
-	/** Finish the draft: a new Path or Polyline layer, or a new run of the selected pipes. */
+	/** Finish the draft: a new Path or Polyline layer, or a new line of the selected pipes or splats. */
 	function commit(): void {
 		const pts = dedupe(draft.value);
 		const kind = tool.value;
 		draft.value = [];
 		hover.value = null;
 		if (kind === 'line') {
-			if (pts.length < 2) return;
 			const s = source.value;
-			if (s?.pipes) {
-				const run = shapeText([pts.map((p) => pxToSrc(p, s.fraction))], s.fraction, 2);
+			if (pts.length < (s?.adds ? s.min : 2)) return;
+			if (s?.adds) {
+				const run = shapeText([pts.map((p) => pxToSrc(p, s.fraction))], s.fraction, s.min);
 				s.write(s.text.trim() ? `${s.text.trim()}\n${run}` : run);
 				selected.value = shapes.value.length - 1;
 			} else void act.addShapeLayer('polyline', shapeText([pts], false, 2));
@@ -494,12 +511,14 @@
 			type="button"
 			:class="{ on: tool === 'line' }"
 			:title="
-				source?.pipes
-					? 'Line: click to place points; Enter, double-click or the last point ends it — a new run of the selected pipes'
-					: 'Line: click to place points; Enter, double-click or the last point ends it — a new Polyline layer'
+				source?.adds === 'Splats'
+					? 'Line: click to place points; Enter, double-click or the last point ends it — a splat on each point'
+					: source?.adds
+						? 'Line: click to place points; Enter, double-click or the last point ends it — a new run of the selected pipes'
+						: 'Line: click to place points; Enter, double-click or the last point ends it — a new Polyline layer'
 			"
 			@click="tool = 'line'">
-			<IconLine :size="13" />{{ source?.pipes ? 'Pipe run' : 'Line' }}
+			<IconLine :size="13" />{{ source?.adds ?? 'Line' }}
 		</button>
 		<button
 			v-if="shapes.length > 1"

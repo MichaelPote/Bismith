@@ -16,8 +16,11 @@ layers — each drawn shape a layer in the layer list.
   - **Line**: click to place points; Enter, double-click or a click on the last point ends it → a **new Polyline
     layer** (open polylines with a width, round or flat ends). With **Pipes** selected (the material, one of its
     layers or a bare Pipework layer) the tool reads _Pipe run_ and adds a run to them instead — one Pipes entry holds
-    many runs, so tees and crossings join; a random layout switches to drawn runs.
-  - **Edit**: only the selected item's shapes — a Path's polygons, a Polyline's lines, the Pipes' runs: drag vertices
+    many runs, so tees and crossings join; a random layout switches to drawn runs. With a **Liquid splats** layer
+    selected it reads _Splats_ and puts a splat on every point placed (a single click and Enter is one splat; the lines
+    between points mean nothing); a random layout switches to Placed by hand.
+  - **Edit**: only the selected item's shapes — a Path's polygons, a Polyline's lines, the Pipes' runs, the placed
+    splats (deleting a splat's last point removes it): drag vertices
     (a press within 10 screen px grabs one), click an edge to insert one, right-click or double-click a vertex to
     delete it, click a shape to select it (🗑 deletes it when there are several). A shape can't be edited unless its
     layer (or material) is selected.
