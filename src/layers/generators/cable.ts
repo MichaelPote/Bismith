@@ -13,7 +13,7 @@
 // rounded strand tips.
 
 import { P, orientAxis, round1 as r1, type ParamValues } from '@/core/params';
-import type { LayerDef } from '../types';
+import type { LayerCanvas, LayerDef } from '../types';
 
 const AXES = { horizontal: 'x', vertical: 'y' } as const;
 /** Is the cable turned well off its Axis (by more than 30°)? Its px lengths then scale with both texture axes. */
@@ -23,6 +23,56 @@ const across = orientAxis('axis', AXES, true);
 /** The texture axis the cable runs along / across, for resizing its px lengths. */
 const cableAlong = (p: ParamValues) => (offAxis(p) ? null : along(p));
 const cableAcross = (p: ParamValues) => (offAxis(p) ? null : across(p));
+
+/**
+ * The cable's frame in y-down pixels (its derived uniforms; the same at every pixel): d along it, its length len along
+ * d, the spacing of its parallel copies across, and how far along the next copy across sits (wrapU). Tiling, the
+ * direction snaps to (a·W, b·H) for small coprime a, b, so the cable closes on the torus (wrapU is 0 for horizontal and
+ * vertical cables).
+ */
+export function cableDerived(p: ParamValues, c: LayerCanvas): { frame: number[]; wrapU: number } {
+	const vert = p.axis === 'vertical';
+	const res = [c.width, c.height];
+	const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1];
+	// Turned clockwise on screen by Angle (y down).
+	const a = ((Number(p.angle) || 0) * Math.PI) / 180;
+	const d0 = vert ? [0, 1] : [1, 0];
+	let d = [Math.cos(a) * d0[0] - Math.sin(a) * d0[1], Math.sin(a) * d0[0] + Math.cos(a) * d0[1]];
+	let len = Math.abs(d[0]) * res[0] + Math.abs(d[1]) * res[1];
+	let lat = [0, 0];
+	if (c.tileable) {
+		// The nearest of the first 12 lattice directions m·d (rounded; in tile units).
+		const tu = [d[0] / res[0], d[1] / res[1]];
+		const m0 = Math.max(Math.abs(tu[0]), Math.abs(tu[1]));
+		let ab = [1, 0];
+		let best = 2;
+		for (let m = 1; m <= 12; m++) {
+			const k = tu.map((x) => Math.floor((m * x) / m0 + 0.5));
+			const v = [k[0] * res[0], k[1] * res[1]];
+			const e = 1 - dot(v, d) / Math.hypot(v[0], v[1]);
+			if (e < best - 1e-7) [best, ab] = [e, k];
+		}
+		const v = [ab[0] * res[0], ab[1] * res[1]];
+		len = Math.hypot(v[0], v[1]);
+		d = [v[0] / len, v[1] / len];
+		// A lattice step (k.x·W, k.y·H) one copy across: a·k.y − b·k.x = 1.
+		lat = [-1 / (Math.abs(ab[1]) > 0.5 ? ab[1] : 1), 0];
+		for (let k1 = -12; k1 <= 12 && Math.abs(ab[0]) > 0.5; k1++) {
+			const k2 = (1 + ab[1] * k1) / ab[0];
+			if (Math.abs(k2 - Math.round(k2)) < 1e-3) {
+				lat = [k1, Math.round(k2)];
+				break;
+			}
+		}
+		lat = [lat[0] * res[0], lat[1] * res[1]];
+	}
+	// n across (a vertical cable's frame is mirrored: across runs to the right).
+	const nv = vert ? [d[1], -d[0]] : [-d[1], d[0]];
+	const across = c.tileable ? (res[0] * res[1]) / len : Math.abs(nv[0]) * res[0] + Math.abs(nv[1]) * res[1];
+	if (dot(lat, nv) < 0) lat = [-lat[0], -lat[1]];
+	const wrapU = dot(lat, d);
+	return { frame: [d[0], d[1], len, across], wrapU: wrapU - len * Math.floor(wrapU / len + 0.5) };
+}
 
 export const cableLayer: LayerDef = {
 	type: 'cable',
@@ -37,6 +87,7 @@ export const cableLayer: LayerDef = {
 			['vertical', 'Vertical']
 		]),
 		P.float('angle', 'Angle', 0, -180, 180, {
+			uniform: false,
 			softMin: -90,
 			softMax: 90,
 			step: 0.1,
@@ -171,6 +222,8 @@ export const cableLayer: LayerDef = {
 			yarns: Math.max(3, Math.min(16, Math.round((2 * Math.PI * r) / 6)))
 		};
 	},
+	// Uniform-only work on the CPU (cableDerived); the params only it reads are `uniform: false`.
+	derivedUniforms: { decl: { frame: 'vec4', wrapU: 'float' }, compute: cableDerived },
 	glsl: /* glsl */ `
 const float CABLE_TAU = 6.28318530718;
 
@@ -219,44 +272,15 @@ float cableFibre(vec4 f, vec2 px, vec4 geo, float K, float cb, float yp) {
 GenOut gen(vec2 p) {
   bool vert = u_axis == 1;
   vec2 q = vec2(p.x, uRes.y - p.y);
-  // The cable's frame in y-down pixels: d along it, n across (a vertical cable's frame is mirrored: across runs to the
-  // right), its length len along d and the spacing of its parallel copies. Tiling, the direction snaps to (a·W, b·H)
-  // for small coprime a, b, so the cable closes on the torus, and the next copy across sits wrapU further along (0 for
-  // horizontal and vertical cables).
-  vec2 d = vert ? vec2(0.0, 1.0) : vec2(1.0, 0.0);
-  if (u_angle != 0.0) d = rot2(radians(u_angle)) * d;
-  float len = abs(d.x) * uRes.x + abs(d.y) * uRes.y;
-  vec2 lat = vec2(0.0);
-  if (uTile) {
-    vec2 tu = d / uRes;
-    tu /= max(abs(tu.x), abs(tu.y));
-    vec2 ab = vec2(1.0, 0.0);
-    float best = 2.0;
-    int mMax = 12 * UNI_1;
-    for (int m = 1; m <= mMax; m++) {
-      vec2 c = floor(float(m) * tu + 0.5);
-      float e = 1.0 - dot(normalize(c * uRes), d);
-      if (e < best - 1e-7) { best = e; ab = c; }
-    }
-    len = length(ab * uRes);
-    d = ab * uRes / len;
-    // A lattice step (k.x·W, k.y·H) one copy across: a·k.y − b·k.x = 1.
-    lat = vec2(-1.0 / (abs(ab.y) > 0.5 ? ab.y : 1.0), 0.0);
-    for (int i = 0; i <= 2 * mMax; i++) {
-      float k1 = float(i - mMax), k2 = (1.0 + ab.y * k1) / ab.x;
-      if (abs(ab.x) > 0.5 && abs(k2 - floor(k2 + 0.5)) < 1e-3) { lat = vec2(k1, floor(k2 + 0.5)); break; }
-    }
-    lat *= uRes;
-  }
+  // The cable's frame in y-down pixels (cableDerived): d along it, n across (a vertical cable's frame is mirrored), its
+  // length len along d, the spacing of its parallel copies across, and how far along the next copy across sits (wrapU).
+  vec2 d = d_frame.xy;
+  float len = d_frame.z, across = d_frame.w, wrapU = d_wrapU;
   vec2 nv = vert ? vec2(d.y, -d.x) : vec2(-d.y, d.x);
-  float across = uTile ? uRes.x * uRes.y / len : abs(nv.x) * uRes.x + abs(nv.y) * uRes.y;
-  if (dot(lat, nv) < 0.0) lat = -lat;
-  float wrapU = dot(lat, d);
-  wrapU -= len * floor(wrapU / len + 0.5);
   vec2 cc = 0.5 * uRes + (u_pos - 0.5) * across * nv;
   float u = dot(q - cc, d) + 0.5 * len;
   float v = dot(q - cc, nv);
-  float turns = uTile ? max(1.0, floor(u_count + 0.5)) : u_count;
+  float turns = snapCells(u_count);
   float P = len / turns;
 
   float irr = u_irregular;

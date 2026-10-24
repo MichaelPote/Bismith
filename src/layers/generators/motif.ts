@@ -5,6 +5,7 @@
 // project is tileable.
 
 import { hash3I, hashI, mulberry32, pcg, pcg3, u2f, unionFind } from '@/core/hash';
+import { memoReads } from '@/core/memo';
 import { P, round1 as r1, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
 import { GLSL_MOT_COMMON, MOTIF_DEFAULTS } from './motifCommon';
@@ -886,16 +887,15 @@ export const truchetLayer: LayerDef = {
 	// Added in the editor: lines thick enough to read as raised wires at the texture's size (6 px at 512).
 	fresh: ({ width, height }) => ({ width: Math.max(1, Math.round(Math.min(width, height) / 85)) }),
 	textures: ['cells'],
-	cpuData: truchetCells,
+	// Memoised by the params it reads: a colour or Height slider leaves the layout as it is.
+	cpuData: memoReads(truchetCells, 4),
 	defaults: MOTIF_DEFAULTS,
 	glsl:
 		GLSL_MOT_COMMON +
 		/* glsl */ `
-ivec2 mot_wrap(ivec2 c, ivec2 n) { return uTile ? imod(c, n) : c; }
-
 // Per-cell data from the CPU (truchetCells): cell c at texel c + 1; none (0) outside the texture.
 vec4 mot_cellData(ivec2 c, ivec2 n) {
-  ivec2 t = mot_wrap(c, n) + 1;
+  ivec2 t = wrapCell(c, n) + 1;
   return any(lessThan(t, ivec2(0))) || any(greaterThanEqual(t, textureSize(t_cells, 0))) ? vec4(0.0) : texelFetch(t_cells, t, 0);
 }
 
@@ -963,7 +963,7 @@ vec2 mot_seg(vec2 p, vec2 a, vec2 b, float hw) {
 // segments (at most two: a0 → b0, a1 → b1) and pads (at most two: at p0, p1); one loop then measures them, so every primitive is compiled once (D3D inlines each call site). Flags and edges are bit
 // masks, not arrays (D3D compiles dynamically indexed local arrays slowly).
 vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr, out vec2 st, out vec4 pad) {
-  ivec2 cw = mot_wrap(c, n);
+  ivec2 cw = wrapCell(c, n);
   vec2 h = 0.5 * cs;
   vec2 eR = vec2(h.x, 0.0), eL = vec2(-h.x, 0.0), eU = vec2(0.0, h.y), eD = vec2(0.0, -h.y), O = vec2(0.0);
   vec4 td = mot_cellData(c, n);
@@ -1126,7 +1126,7 @@ GenOut gen(vec2 p) {
     for (int j = -UNI_1; j <= UNI_1; j++)
     for (int i = -UNI_1; i <= UNI_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
-      ivec2 cw = mot_wrap(c, n);
+      ivec2 cw = wrapCell(c, n);
       vec3 h = hash3I(cw, MOT_SEED);
       // (An if around the body, not continue: ANGLE / D3D can miscompile continue in a loop.)
       if (h.x < dens) {
@@ -1249,11 +1249,16 @@ GenOut gen(vec2 p) {
     // in clockwise (up 2k + 1, right 2k + 1, down 2k, left 2k − 1, … 1), steps across, and spirals back out between
     // its own turns (… 2k, 2k + 1) to leave along the bottom into the next unit's corner; with Border lines a rail
     // runs one cell below. Every move, the step and the rail go through one segment call.
+    // Each unit's lines (and rails) lie within its own PP box (a rail drawn on past its ends for Bevel aspect only
+    // repeats its neighbour's), so the 2 × 2 units nearest the pixel are enough: its own and the neighbours on the side
+    // of each half it is in. Every point of a unit further off has one of theirs nearer on both axes, so they hold the
+    // nearest line at any cell aspect, with round or square caps.
     vec2 g = u / cs;
     ivec2 k0 = ivec2(floor(g / vec2(PP)));
+    k0 -= ivec2(lessThan(g - vec2(k0 * PP), 0.5 * vec2(PP)));   // the 2 × 2's lower-left unit
     int nIn = running ? 2 * key + 2 : 2 * key, nOut = running ? 2 * key + 1 : 0;
-    for (int j = -UNI_1; j <= UNI_1; j++)
-    for (int i = -UNI_1; i <= UNI_1; i++) {
+    for (int j = 0; j <= UNI_1; j++)
+    for (int i = 0; i <= UNI_1; i++) {
       ivec2 k = k0 + ivec2(i, j);
       vec2 lq = g - vec2(k * PP);
       lq.y = float(PP.y) - lq.y - (running && u_borders ? 1.0 : 0.0);   // the key grows up from the band's bottom
@@ -1282,7 +1287,7 @@ GenOut gen(vec2 p) {
           bestS = min(bestS, sg.y);
         }
       }
-      if (d < best) { best = d; rnd = hashI(mot_wrap(k, max(n / PP, ivec2(1))), MOT_SEED); }
+      if (d < best) { best = d; rnd = hashI(wrapCell(k, max(n / PP, ivec2(1))), MOT_SEED); }
     }
   } else {
     // Circuit: tiles centred on lattice nodes (traces run along lattice lines), laid out on the CPU.

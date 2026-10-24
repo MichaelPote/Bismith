@@ -9,6 +9,7 @@
 // one random per connected trace (Per-feature variation, Random jitter).
 
 import { hashI } from '@/core/hash';
+import { memoReads } from '@/core/memo';
 import { P, halfPx, type ParamValues } from '@/core/params';
 import { modeIs } from '../commonParams';
 import type { LayerDef } from '../types';
@@ -43,6 +44,73 @@ const num = (q: ParamValues, key: string) => Number(q[key] ?? tracesLayer.params
 
 /** Combined search reach is capped at this many extra rings of nodes (features up to ~8 cells across). */
 const MAX_RINGS = 8;
+
+/**
+ * The links, flags (1 pad end, 2 via, 4 crowded end) and trace ids of every node — the routing, the slow part — kept for
+ * the params it reads: a colour, Height or Wide slider reuses it (memoReads).
+ */
+const traceNet = memoReads(
+	(q: ParamValues, ctx: { width: number; height: number; tileable: boolean; seed: number }) => {
+		const nx = Math.min(1024, Math.max(1, Math.round(num(q, 'cells'))));
+		const cw = ctx.width / nx;
+		const ch = cw * Math.tan((Math.min(80, Math.max(10, num(q, 'angle'))) * Math.PI) / 180);
+		const ny = Math.min(4096, Math.max(1, Math.round(ctx.height / ch)));
+		const n = nx * ny;
+		const m = String(q.mode ?? 'fill');
+		let links: Uint8Array;
+		let flags: Uint8Array;
+		if (m === 'fill') {
+			const dirs = num(q, 'directions');
+			const r = routeTraces({
+				nx,
+				ny,
+				wrap: ctx.tileable,
+				seed: Math.floor(ctx.seed * 7919) + 1,
+				seeds: Math.round(num(q, 'seeds')),
+				seedLength: Math.round(num(q, 'seed_length')),
+				minLength: Math.round(num(q, 'min_length')),
+				maxLength: Math.round(num(q, 'max_length')),
+				gap: Math.round(num(q, 'gap')),
+				straight: num(q, 'straight'),
+				directions: dirs === 4 ? 4 : dirs === 6 ? 6 : 8,
+				hug: num(q, 'hug'),
+				fill: num(q, 'fill'),
+				vias: num(q, 'vias'),
+				pins: num(q, 'pins'),
+				bias: num(q, 'bias'),
+				open: num(q, 'open'),
+				openSize: num(q, 'open_size')
+			});
+			links = new Uint8Array(n);
+			for (let i = 0; i < n; i++) if (r.out[i] >= 0) links[i] = 1 << r.out[i];
+			flags = r.flags.map((f) => f & 3); // the router's bit 2 (on a trace) is not ours
+		} else {
+			({ links, flags } = traceLinks({
+				mode: m === 'maze' ? 'maze' : m === 'labyrinth' ? 'labyrinth' : 'route',
+				nx,
+				ny,
+				wrap: ctx.tileable,
+				seed: ctx.seed,
+				density: num(q, 'density'),
+				diagonal: num(q, 'diagonal'),
+				bias: num(q, 'bias'),
+				straight: num(q, 'straight'),
+				grouping: num(q, 'grouping'),
+				block: num(q, 'block'),
+				vias: num(q, 'vias'),
+				branching: num(q, 'branching')
+			}));
+		}
+		const id =
+			m === 'route' || m === 'maze'
+				? dropShort(links, flags, nx, ny, Math.round(num(q, 'min_links')))
+				: traceIds(links, nx, ny);
+		spaceVias(links, flags, nx, ny);
+		if (m === 'fill') markCrowdedEnds(links, flags, nx, ny);
+		return { nx, ny, links, flags, id };
+	},
+	4
+);
 
 export const tracesLayer: LayerDef = {
 	type: 'traces',
@@ -290,62 +358,8 @@ export const tracesLayer: LayerDef = {
 	// (fill's ends without room for a full one), 8 on a wide trace; B + 256 A = connected trace id (16 bits: on boards of
 	// more than 65 535 traces, ids repeat).
 	cpuData(q, ctx) {
-		const nx = Math.min(1024, Math.max(1, Math.round(num(q, 'cells'))));
-		const cw = ctx.width / nx;
-		const ch = cw * Math.tan((Math.min(80, Math.max(10, num(q, 'angle'))) * Math.PI) / 180);
-		const ny = Math.min(4096, Math.max(1, Math.round(ctx.height / ch)));
+		const { nx, ny, links, flags, id } = traceNet(q, ctx);
 		const n = nx * ny;
-		const m = String(q.mode ?? 'fill');
-		let links: Uint8Array;
-		let flags: Uint8Array;
-		if (m === 'fill') {
-			const dirs = num(q, 'directions');
-			const r = routeTraces({
-				nx,
-				ny,
-				wrap: ctx.tileable,
-				seed: Math.floor(ctx.seed * 7919) + 1,
-				seeds: Math.round(num(q, 'seeds')),
-				seedLength: Math.round(num(q, 'seed_length')),
-				minLength: Math.round(num(q, 'min_length')),
-				maxLength: Math.round(num(q, 'max_length')),
-				gap: Math.round(num(q, 'gap')),
-				straight: num(q, 'straight'),
-				directions: dirs === 4 ? 4 : dirs === 6 ? 6 : 8,
-				hug: num(q, 'hug'),
-				fill: num(q, 'fill'),
-				vias: num(q, 'vias'),
-				pins: num(q, 'pins'),
-				bias: num(q, 'bias'),
-				open: num(q, 'open'),
-				openSize: num(q, 'open_size')
-			});
-			links = new Uint8Array(n);
-			for (let i = 0; i < n; i++) if (r.out[i] >= 0) links[i] = 1 << r.out[i];
-			flags = r.flags.map((f) => f & 3); // the router's bit 2 (on a trace) is not ours
-		} else {
-			({ links, flags } = traceLinks({
-				mode: m === 'maze' ? 'maze' : m === 'labyrinth' ? 'labyrinth' : 'route',
-				nx,
-				ny,
-				wrap: ctx.tileable,
-				seed: ctx.seed,
-				density: num(q, 'density'),
-				diagonal: num(q, 'diagonal'),
-				bias: num(q, 'bias'),
-				straight: num(q, 'straight'),
-				grouping: num(q, 'grouping'),
-				block: num(q, 'block'),
-				vias: num(q, 'vias'),
-				branching: num(q, 'branching')
-			}));
-		}
-		const id =
-			m === 'route' || m === 'maze'
-				? dropShort(links, flags, nx, ny, Math.round(num(q, 'min_links')))
-				: traceIds(links, nx, ny);
-		spaceVias(links, flags, nx, ny);
-		if (m === 'fill') markCrowdedEnds(links, flags, nx, ny);
 		// Per trace and per end, drawn here rather than per pixel for every node in reach: which traces are wide, and which
 		// ends get their pad (bit for bit the shader's hashI, against the float uniforms it would have compared with).
 		const wide = Math.fround(num(q, 'wide'));
@@ -368,7 +382,6 @@ const ivec2 KING[8] = ivec2[8](${KING.map(([x, y]) => `ivec2(${x}, ${y})`).join(
 ivec2 tr_n;
 vec2 tr_cs;
 
-ivec2 tr_w(ivec2 k) { return uTile ? imod(k, tr_n) : k; }
 bool tr_in(ivec2 k) { return uTile || (k.x >= 0 && k.y >= 0 && k.x < tr_n.x && k.y < tr_n.y); }
 // Node centres snapped to pixel centres, so 1 px traces stay 1 px (a centre on a pixel edge smears into two).
 vec2 tr_node(ivec2 k) { return floor((vec2(k) + 0.5) * tr_cs) + 0.5; }
@@ -417,7 +430,7 @@ GenOut gen(vec2 p) {
   for (int c = 0; c < span * span; c++) {
     ivec2 k = c0 + ivec2(c % span, c / span) - off;
     if (tr_in(k)) {
-      vec4 t = texelFetch(t_route, tr_w(k), 0);
+      vec4 t = texelFetch(t_route, wrapCell(k, tr_n), 0);
       int links = int(t.r * 255.0 + 0.5);
       int fl = int(t.g * 255.0 + 0.5);
       float id = floor(t.b * 255.0 + 0.5) + 256.0 * floor(t.a * 255.0 + 0.5);

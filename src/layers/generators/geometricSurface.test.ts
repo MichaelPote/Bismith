@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, layerParamDefs, linkedChanges } from '../registry';
 import { treadplateLayer, weaveLayer } from './geometricSurface';
+import { GEO_DERIVED, geoAB } from './geometricCommon';
 
 const tex = { width: 512, height: 512 };
 
@@ -82,5 +83,16 @@ describe('weave', () => {
 			dif_src: 'value'
 		});
 		freshKnown('weave');
+	});
+});
+
+describe('geometric frame', () => {
+	it("gives diagonal frames the canvas's sides over their gcd from the CPU", () => {
+		expect(geoAB({ width: 96, height: 64, tileable: true, seed: 0 })).toEqual([3, 2]);
+		expect(geoAB({ width: 97, height: 64, tileable: true, seed: 0 })).toEqual([97, 64]);
+		for (const def of [treadplateLayer, weaveLayer]) {
+			expect(def.derivedUniforms).toBe(GEO_DERIVED);
+			expect(def.glsl).not.toMatch(/igcd/);
+		}
 	});
 });

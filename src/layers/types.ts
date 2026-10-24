@@ -63,28 +63,41 @@ export interface LayerDef {
 	/** The mask a layer reads as its source with these params (`tMaskSrc`; edge filters, Mask area), or null. */
 	maskSource?: (params: ParamValues) => string | null;
 	/**
-	 * Filters: a single MRT pass. GLSL defining `void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip)`
-	 * (note: `filter` is a reserved word in GLSL ES 3.00).
+	 * Filters: a single MRT pass, limited by the layer's Limit to. GLSL defining
+	 * `void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip)` (note: `filter` is a reserved word in GLSL ES
+	 * 3.00). With `prepare` and `textures` it can read pre-passes (a blur, a distance field).
 	 */
 	filterGlsl?: string;
-	/** Filters: full control, may issue several passes. Takes precedence over filterGlsl. */
+	/**
+	 * Filters: full control, may issue several passes (Blur's two). Takes precedence over filterGlsl. Limited, the
+	 * pipeline copies the state aside before and blends the result back by the limit after (two more full passes):
+	 * filterGlsl with `prepare` avoids them.
+	 */
 	run?: (ctx: FilterContext, layer: Layer) => void;
 	/**
 	 * Generators: data computed on the CPU from the params — global, sequential algorithms a pixel shader can't run (e.g.
 	 * routing). Returns RGBA8 textures by name, bound as `uniform sampler2D t_<name>` (declare the names in `textures`).
 	 * Recomputed only when the params, size, tiling or seed change.
 	 */
-	cpuData?: (
-		params: ParamValues,
-		ctx: { width: number; height: number; tileable: boolean; seed: number }
-	) => Record<string, CpuTexture>;
+	cpuData?: (params: ParamValues, ctx: LayerCanvas) => Record<string, CpuTexture>;
+	/** Names of the `uniform sampler2D t_<name>` that cpuData or prepare bind. */
 	textures?: string[];
 	/**
-	 * Generators: GPU passes over the current state run just before the layer (e.g. a distance field of something in
-	 * the heights below). Returns textures by name, bound like cpuData's (declare the names in `textures`; any it leaves
-	 * out stay blank). Runs on every evaluation, so keep it to what the layer's params ask for.
+	 * GPU passes over the current state run just before the layer (generators: a distance field of something in the
+	 * heights below; filterGlsl filters: a blur or jump flood their applyFilter reads). Returns textures by name, bound
+	 * like cpuData's (declare the names in `textures`; any it leaves out stay blank). Runs on every evaluation, so keep it
+	 * to what the layer's params ask for. The layer's own pass still applies its limit, so a limited filter costs nothing
+	 * extra.
 	 */
 	prepare?: (ctx: FilterContext, layer: Layer) => Record<string, THREE.Texture>;
+	/**
+	 * Values the layer's shader needs that depend only on its params and the canvas (a lattice that tiles the canvas, a
+	 * gcd of its sides, a fit): computed once per render on the CPU instead of at every pixel. Each name in `decl` is a
+	 * `uniform <type> d_<name>;` in the layer's shader (generators and filterGlsl filters); `compute` returns their
+	 * values (a number, or the components in order for a vector or array). The params are already pixel-scaled
+	 * (supersampling, canvas size). Recomputed only when the params, size, tiling or seed change.
+	 */
+	derivedUniforms?: DerivedUniforms;
 	/**
 	 * Generators: the pattern comes from the noise library (glsl/noise.ts) or its cell points, so a Phase param in the
 	 * Pattern card animates it. Other generators get the Phase in Shaping, shown while a domain warp is on.
@@ -126,6 +139,28 @@ export interface LayerDef {
 export interface LayerChannels {
 	diffuse?: string | true;
 	height?: string | true;
+}
+
+/** The canvas a layer renders on, for what it computes on the CPU (cpuData, derivedUniforms). */
+export interface LayerCanvas {
+	/** Size in px (the project's, × the supersampling). */
+	width: number;
+	height: number;
+	tileable: boolean;
+	/** The layer's combined seed (uSeed). */
+	seed: number;
+}
+
+/** A derived uniform's GLSL type: a scalar or vector, or a fixed-size array of one (`'float[16]'`, `'ivec2[4]'`). */
+export type DerivedUniformType = DerivedUniformBase | `${DerivedUniformBase}[${number}]`;
+export type DerivedUniformBase = 'int' | 'float' | 'ivec2' | 'ivec3' | 'ivec4' | 'vec2' | 'vec3' | 'vec4';
+
+/** LayerDef.derivedUniforms: what the shader declares, and how to compute it. */
+export interface DerivedUniforms {
+	/** Name → type, declared as `uniform <type> d_<name>;`. */
+	decl: Record<string, DerivedUniformType>;
+	/** A value per declared name: a number (int types must be integers), or a vector's or array's components in order. */
+	compute: (params: ParamValues, ctx: LayerCanvas) => Record<string, number | ArrayLike<number>>;
 }
 
 /** An RGBA8 texture computed on the CPU (LayerDef.cpuData). */

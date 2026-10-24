@@ -372,7 +372,7 @@ vec2 mb_lines(vec3 d, vec3 wt, float w, vec2 s) {
 // The smallest lattice cell (px) of noise sampled at (p / uRes) * T.
 float mb_cellPx(mat2 T) { return 1.0 / max(max(length(T[0] / uRes), length(T[1] / uRes)), 1e-6); }
 
-ivec4 mb_axisPer(vec2 cells) { ivec2 p = org_per(cells); return ivec4(p.x, 0, 0, p.y); }
+ivec4 mb_axisPer(vec2 cells) { ivec2 p = periodOf(cells); return ivec4(p.x, 0, 0, p.y); }
 
 // Tiling: a small integer direction m (components up to 4) near c, the bands' wave vector in cycles per texture — the
 // first within ~6°, else the closest — and a Bezout pair (s, t) of it (s·m.x + t·m.y = 1): the streaks' stretched
@@ -626,7 +626,7 @@ GenOut gen(vec2 p) {
         vec2 sep = vec2(0.0), spr = vec2(0.0);
         float vr = 0.0, fade = 1.0, fadeS = 1.0, ff = 1.0, gEst = 0.0;
         if (cells) {
-          vec2 wb = mb_worleyBorder(x, org_per(nc), sd);
+          vec2 wb = mb_worleyBorder(x, periodOf(nc), sd);
           vec2 cs = uRes / nc;
           ds.x = wb.x * sqrt(cs.x * cs.y);
           vr = wb.y;
@@ -707,7 +707,7 @@ GenOut gen(vec2 p) {
           // its gradient is trustworthy; where contours still crowd (below), the veins blend to their average cover.
           gEst = grad;
           int band = int(floor(f0 + 0.5));
-          if (streaks && uTile) band = imod(band, g);
+          if (streaks) band = wrapCell(band, g);
           vr = ridges ? 0.5 : hashI(ivec2(band, 3), sd);
         }
         float wv = mix(1.0, clamp(0.25 + 1.5 * nb, 0.25, 2.0), u_width_var);
@@ -947,7 +947,7 @@ export const causticsLayer: LayerDef = {
 // both cells), and dg, the border distance under a smooth minimum of the two nearest bisectors (width kg px, 0 = the
 // rims' distance) for the glow and dome: no creases along the medial axis.
 vec4 cl_cells(vec2 p, vec2 cells, vec2 M, float jitter, float sizeVar, float k, float kg, float seed, out vec2 nrm, out float er, out float dg) {
-  ivec2 per = org_per(cells);
+  ivec2 per = periodOf(cells);
   vec2 cs = uRes / cells;
   ivec2 ip = ivec2(floor(p / cs));
   vec2 csm = cs * M;
@@ -1075,7 +1075,7 @@ GenOut gen(vec2 p) {
         vec2 wc = cellsFor(sc * (ci < 2 ? u_warp_scale : 3.0), u_stretch);
         vec2 pp = p + (si == 1 ? vec2(1.0, 0.0) : si == 2 ? vec2(0.0, 1.0) : vec2(0.0));
         // Soft octaves: smooth, blobby distortion rather than jagged borders.
-        float n = org_noiseFbm(1, false, pp / uRes * wc + (ci == 1 ? 17.3 : 0.0), org_per(wc), ci < 2 ? u_warp_detail : 2, 0.35,
+        float n = org_noiseFbm(1, false, pp / uRes * wc + (ci == 1 ? 17.3 : 0.0), periodOf(wc), ci < 2 ? u_warp_detail : 2, 0.35,
                                seed + (ci == 0 ? 101.0 : ci == 1 ? 211.0 : 307.0));
         if (si == 0) nz[ci] = n;
         else if (si == 1) wx[ci] = n;

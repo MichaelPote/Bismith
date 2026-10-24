@@ -7,7 +7,7 @@ import type { ParamValues } from '@/core/params';
 import { createProject } from '@/core/serialize';
 import { addMaterial, setMacro } from '@/recipes';
 import { createLayer, freshParams, layerParamDefs, linkedChanges } from '../registry';
-import { tilesLayer } from './geometricTiles';
+import { TILE_MODES, tilesDerived, tilesLayer } from './geometricTiles';
 
 describe('tiles', () => {
 	ensureBuiltins();
@@ -151,5 +151,40 @@ describe('tiles', () => {
 		expect(glsl).toContain(
 			'(u_split_rule == 1 && col) || (u_split_rule == 2 && row) || (u_split_rule == 3 && col && row)'
 		);
+	});
+
+	it('fits whole periods that keep the tile shape, at any size and rotation (on the CPU)', () => {
+		const base = createLayer('tiles').params;
+		for (const [width, height] of [
+			[64, 64],
+			[96, 96],
+			[512, 512],
+			[97, 61],
+			[300, 200],
+			[1, 1]
+		])
+			for (const [mode] of TILE_MODES)
+				for (const orient of ['0', '45', '90', '135']) {
+					const at = `${mode} ${orient} ${width}×${height}`;
+					const c = { width, height, tileable: true, seed: 0 };
+					const { U, k } = tilesDerived({ ...base, mode, orient }, c);
+					expect(U[0] >= 1 && U[1] >= 1, at).toBe(true);
+					for (const x of k) expect(Number.isInteger(x) && x >= 1, at).toBe(true);
+					// Off: exactly Scale across (rounded), the rows rounded.
+					const off = tilesDerived({ ...base, mode, orient, fit: false }, c).k;
+					expect(
+						off.every((x) => Number.isInteger(x) && x >= 1),
+						at
+					).toBe(true);
+				}
+		// Squares at 512 px, Aspect 1.3: Keep tile shape moves the count across so whole rows keep the shape (within 3 %);
+		// a checkerboard keeps even counts.
+		const c = { width: 512, height: 512, tileable: true, seed: 0 };
+		const sq = { ...base, mode: 'squares', scale: 7, aspect: 1.3, rnd_mode: 'class' };
+		const [kx, ky] = tilesDerived(sq, c).k;
+		expect(kx % 2 === 0 && ky % 2 === 0).toBe(true);
+		expect(Math.abs(kx / ky / 1.3 - 1)).toBeLessThan(0.03);
+		// Untiled: Scale across exactly.
+		expect(tilesDerived(sq, { ...c, tileable: false }).k[0]).toBeCloseTo(7, 6);
 	});
 });

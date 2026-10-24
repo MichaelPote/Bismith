@@ -4,7 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, linkedChanges } from '../registry';
-import { rockLayer } from './rock';
+import { imod } from '../derivedMath';
+import { rockDerived, rockLayer } from './rock';
 
 describe('rock', () => {
 	ensureBuiltins();
@@ -63,5 +64,65 @@ describe('rock', () => {
 			expect(Number(d.default), d.key).toBeGreaterThanOrEqual(d.min ?? -Infinity);
 			expect(Number(d.default), d.key).toBeLessThanOrEqual(d.max ?? Infinity);
 		}
+	});
+
+	it('works out a strata lattice that tiles, at any size and angle', () => {
+		const base = createLayer('rock').params;
+		// rk_wrap: a cell reduced by the basis (g, B, C).
+		const wrap = (x: number, y: number, [g, B, C]: number[]) => {
+			const i = imod(x, g);
+			return [i, imod(y - ((x - i) / g) * B, C)];
+		};
+		const sizes = [
+			[64, 64],
+			[96, 96],
+			[128, 128],
+			[256, 256],
+			[512, 512],
+			[97, 61],
+			[300, 200],
+			[1, 1]
+		];
+		for (const [width, height] of sizes)
+			for (const angle of [-15, 0, 20, 45, -60, 80, 90])
+				for (const extra of <Record<string, number>[]>[
+					{},
+					{ cross: 15, stagger: 1 },
+					{ size: 40, elong: 3, cross: -30 }
+				]) {
+					const p = { ...base, angle, ...extra };
+					const at = `${width}×${height} ${angle}° ${JSON.stringify(extra)}`;
+					const d = rockDerived(p, { width, height, tileable: true, seed: 0 });
+					const [H, W, s, t] = d.frame;
+					const [sx, sy] = d.vert ? [height, width] : [width, height];
+					// Whole cells along and across the bedding, a whole shear and cross-joint lean over the tile.
+					const nu = sx / W,
+						nv = sy / H,
+						ks = (t * sx) / H,
+						kU = (s * sy) / W;
+					for (const k of [nu, nv, ks, kU]) expect(Math.abs(k - Math.round(k)), at).toBeLessThan(1e-3);
+					// The basis reduces both of the tile's periods to the origin, and spans the same area: the same lattice.
+					const [u, v, sh, ku] = [nu, nv, ks, kU].map(Math.round);
+					expect(wrap(u, sh, d.wrap0), at).toEqual([0, 0]);
+					expect(wrap(-ku, v, d.wrap0), at).toEqual([0, 0]);
+					expect(d.wrap0[0] * d.wrap0[2], at).toBe(Math.abs(u * v + ku * sh));
+					// The merge domain, by the rows first (transposed), likewise.
+					expect(wrap(sh, u, d.wrapT), at).toEqual([0, 0]);
+					expect(wrap(v, -ku, d.wrapT), at).toEqual([0, 0]);
+					// Rows repeat every gR beds: a divisor of the beds that the shear carries across the tile.
+					expect(v % d.gR, at).toBe(0);
+					expect(Math.abs(sh % d.gR), at).toBe(0);
+					// Long fractures: whole lanes across the tile and whole segments along it.
+					const [fx, fy, lane, segL] = d.frac;
+					const [nL, nS] = d.frac2;
+					expect(Math.hypot(fx, fy), at).toBeCloseTo(1, 5);
+					expect(Number.isInteger(nL) && Number.isInteger(nS) && nL >= 1 && nS >= 1, at).toBe(true);
+					const Lp = nS * segL;
+					expect(nL * lane * Lp, at).toBeCloseTo(width * height, 2);
+				}
+		// Untiled, nothing is snapped.
+		const u = rockDerived(base, { width: 100, height: 70, tileable: false, seed: 0 });
+		expect(u.frac2[0]).toBe(1e6);
+		expect(u.wrap0).toEqual([1, 1, 1]);
 	});
 });

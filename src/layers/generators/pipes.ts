@@ -5,6 +5,7 @@
 // pipe radius (value 1); Coverage writes the pipes' outline to its mask (signed distance) so later layers
 // can be limited to them.
 
+import { memoReads } from '@/core/memo';
 import { P } from '@/core/params';
 import type { ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
@@ -137,7 +138,8 @@ export const pipeworkLayer: LayerDef = {
 	],
 	defaults: { h_on: true, h_amount: 1, dif_on: true, bevel: 0, profile: 'flat' },
 	textures: ['pipes'],
-	cpuData(q, ctx) {
+	// Memoised by the params it reads: a colour or Height slider leaves the layout as it is.
+	cpuData: memoReads((q, ctx) => {
 		const o: PipeOptions = {
 			width: ctx.width,
 			height: ctx.height,
@@ -154,7 +156,7 @@ export const pipeworkLayer: LayerDef = {
 		// Height for a value of 1: 4 × the pipe radius, or a taller stack (density, runs lying over runs) whole, scaled to
 		// fit rather than having its front pipes clipped flat.
 		return { pipes: encodePrims(prims, Math.max(stackHeight(prims), 4 * Math.max(Number(q.radius ?? 6), 0.5))) };
-	},
+	}),
 	glsl: /* glsl */ `
 vec4 pp_fetch(int t) { return texelFetch(t_pipes, ivec2(t % ${PRIM_ROW}, t / ${PRIM_ROW}), 0); }
 float pp_u16(vec2 b) { return floor(b.x * 255.0 + 0.5) * 256.0 + floor(b.y * 255.0 + 0.5); }

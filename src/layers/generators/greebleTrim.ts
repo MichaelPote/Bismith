@@ -514,16 +514,25 @@ float grb_elemSdf(int kind, vec2 d, float r, float len) {
   return length(d) - h.x;
 }
 
-GenOut gen(vec2 p) {
-  bool vert = u_orient == 1;
-  // s: along the strip (left → right, or top → bottom); aT: across the texture, from the top (or left) edge.
-  float s = vert ? uRes.y - p.y : p.x;
-  float aT = vert ? p.x : uRes.y - p.y;
-  float LA = vert ? uRes.y : uRes.x;
-  float AT = vert ? uRes.x : uRes.y;
+// The band stack of strip si (its heights, profiles, levels and bases are arrays beside it: trm_bands): the room for it
+// (avail: the strip, each half when mirrored), the bands' scale bs, the stretch band (fill); its places across: the
+// face fLo..fHi, the innermost band's start l0, the selected band bnd0..bnd1 (1e9: none). (No arrays in structs: ANGLE's
+// D3D backend fails on them.)
+struct TrmBands { int fill; float avail; float bs; float fLo; float fHi; float l0; float bnd0; float bnd1; };
 
-  // ---- strips across: each in an equal share of the texture (edges on whole px), Strip height px centred on the
-  // share's Position; a: across the strip under the pixel, A its height.
+// The dividers' layout round the pixel: the distance to the nearest divider (dDiv; dd along, span across: where the
+// dividers stop short of the strip's edges), to its block's material (dBlk), the block's extent blo..bhi along, its
+// index kbi and random; w: the divider width; bq: leading edges k0 - 1 … k0 + 2.
+struct TrmDiv { float dDiv; float dBlk; float dd; float span; float rnd; float blo; float bhi; int kbi; float w; vec4 bq; };
+
+// The nearest element: its footprint's distance dE, centre offset loc, turn ang and random; and the nearest missing
+// one's hole (dMiss, mLoc).
+struct TrmElem { float dE; vec2 loc; float ang; float rnd; float dMiss; vec2 mLoc; };
+
+// The strip under the pixel (aT: across the texture from its top or left edge, AT: the texture across): each in an
+// equal share of the texture (edges on whole px), Strip height px centred on the share's Position — Alternate heights
+// splitting each pair's shares. a: across the strip, A: its height, si: its index.
+void trm_strip(float aT, float AT, out float a, out float A, out int si) {
   int ns = max(u_strips, 1);
   float ps = AT / float(ns), po = u_strip_pos - 0.5;
   float kS = floor(aT / ps - po);
@@ -543,86 +552,42 @@ GenOut gen(vec2 p) {
     p0 = second ? S : P0;
     p1 = second ? P1 : S;
   }
-  float A = u_strip_h > 0 ? min(float(u_strip_h), p1 - p0) : p1 - p0;
-  float a = aT - p0 - floor(0.5 * (p1 - p0 - A));
-  int si = uTile ? imod(int(kS), ns) : int(kS);
-  float dStrip = -min(a, A - a);
+  A = u_strip_h > 0 ? min(float(u_strip_h), p1 - p0) : p1 - p0;
+  a = aT - p0 - floor(0.5 * (p1 - p0 - A));
+  si = wrapCell(int(kS), ns);
+}
 
-  // Strip variation: each strip by its own random halves or doubles its plates, runs plain (no dividers) or goes
-  // without elements.
-  int nd = u_div_count;
-  int ek = u_elem;
-  if (u_strip_var > 0.0 && ns > 1) {
-    float hv = hashI(ivec2(si, 101), uSeed), hp = hashI(ivec2(si, 102), uSeed), he = hashI(ivec2(si, 103), uSeed);
-    if (nd > 0) nd = hp < 0.25 * u_strip_var ? 0 : max(int(floor(float(nd) * (hv < 0.3 * u_strip_var ? 0.5 : hv > 1.0 - 0.3 * u_strip_var ? 2.0 : 1.0) + 0.5)), 1);
-    if (he < 0.25 * u_strip_var) ek = 0;
-  }
-
-  // ---- band heights: Band scale, or Fit — the stack as given spans the strip (each half when mirrored). Whole px.
-  float bh[6] = float[6](float(u_band1), float(u_band2), float(u_band3), float(u_band4), float(u_band5), float(u_band6));
-  float avail = u_mirror ? 0.5 * A : A;
+// The band stack (TrmBands) of strip si, A across: heights bh (whole px) by Band scale or Fit, shrunk to the room, the
+// stretch band filling what the others leave; profiles bp redrawn by Strip variation; levels bl and bases bb chained by
+// Join bands.
+TrmBands trm_bands(float A, int si, out float bh[6], out int bp[6], out float bl[6], out float bb[6]) {
+  TrmBands B;
+  int ns = max(u_strips, 1);
+  // Band heights: Band scale, or Fit — the stack as given spans the strip (each half when mirrored). Whole px.
+  bh = float[6](float(u_band1), float(u_band2), float(u_band3), float(u_band4), float(u_band5), float(u_band6));
+  B.avail = u_mirror ? 0.5 * A : A;
   float tot = 0.0;
   for (int i = 0; i < 6 * UNI_1; i++) tot += max(bh[i], 0.0);
-  float bs = u_band_fit ? (tot > 0.0 ? avail / tot : 1.0) : u_band_scale;
+  B.bs = u_band_fit ? (tot > 0.0 ? B.avail / tot : 1.0) : u_band_scale;
   float t2 = 0.0;
   for (int i = 0; i < 6 * UNI_1; i++) {
-    if (bs != 1.0) bh[i] = floor(max(bh[i], 0.0) * bs + 0.5);
+    if (B.bs != 1.0) bh[i] = floor(max(bh[i], 0.0) * B.bs + 0.5);
     t2 += max(bh[i], 0.0);
   }
   // A stack taller than the strip (each half when mirrored) shrinks to fit, so a narrow strip still shows its whole
   // moulding and a face. (The bands but the stretch band summed on the way: it fills what they leave.)
-  bool shrink = t2 > avail && t2 > 0.0;
-  int fill = u_fill - 1;
+  bool shrink = t2 > B.avail && t2 > 0.0;
+  B.fill = u_fill - 1;
   float others = 0.0;
   for (int i = 0; i < 6 * UNI_1; i++) {
-    if (shrink) bh[i] = floor(max(bh[i], 0.0) * avail / t2 + 0.5);
-    if (i != fill) others += max(bh[i], 0.0);
+    if (shrink) bh[i] = floor(max(bh[i], 0.0) * B.avail / t2 + 0.5);
+    if (i != B.fill) others += max(bh[i], 0.0);
   }
-  if (shrink) bs *= avail / t2;
-  // Element lengths in the bands' units when they scale with them.
-  float es = u_elem_fit ? bs : 1.0;
-  float ePitch = u_elem_pitch * es;
-
-  // Elements per row along the tile (Pitch, or Count).
-  int neT = ePitch > 0.0 ? max(int(floor(LA / ePitch + 0.5)), 1) : max(u_elem_count, 1);
-  // Alternate strips shift along by whole px (dividers and elements together).
-  if ((si & 1) == 1 && u_strip_stagger > 0.0) s += floor(u_strip_stagger * LA / float(nd > 0 ? nd : neT) + 0.5);
-
-  // ---- dividers (their layout first: the bands can turn the corner at the block ends). Leading edges on whole px.
-  float dDiv = 1e4, dBlk = dStrip, dd = 1e4, span = 1.0;
-  float blkRnd = hashI(ivec2(0, 1 + 2 * si), uSeed);
-  float blo = 0.0, bhi = LA;   // extent of the block under the pixel (along)
-  int kbi = 0;   // the block's index (round the tile: a block across its edge is one)
-  float w = max(u_div_width, 0.0);
-  float bq[4] = float[4](-1e5, -1e5, -1e5, -1e5);
-  if (nd > 0) {
-    float sp = LA / float(nd);
-    float k0 = floor(s / sp - u_div_offset);
-    // Divider leading edges k0 - 1 … k0 + 2, each moved by up to ±45% of a block (Length variation).
-    for (int i = 0; i < 4 * UNI_1; i++) {
-      float k = k0 - 1.0 + float(i);
-      float j = 0.9 * u_div_var * (hashI(ivec2(uTile ? imod(int(k), nd) : int(k), si), uSeed + 5.0) - 0.5);
-      bq[i] = floor((k + u_div_offset + j) * sp + 0.5);
-    }
-    float kb = k0, b0 = bq[1], b1 = bq[2];
-    if (s < bq[1]) { kb = k0 - 1.0; b0 = bq[0]; b1 = bq[1]; }
-    else if (s >= bq[2]) { kb = k0 + 1.0; b0 = bq[2]; b1 = bq[3]; }
-    dd = min(abs(s - (b0 + 0.5 * w)), abs(s - (b1 + 0.5 * w))) - 0.5 * w;
-    span = abs(a - 0.5 * A) - (0.5 * A - u_div_inset);
-    dDiv = max(dd, span);
-    dBlk = max(max(b0 + w - s, s - b1), dStrip);
-    blo = b0 + w; bhi = b1;
-    kbi = uTile ? imod(int(kb), nd) : int(kb);
-    // Blocks get their own random; the margins the dividers stop short of (Inset) run on as one piece.
-    if (span <= 0.0) blkRnd = hashI(ivec2(kbi, 1 + 2 * si), uSeed);
-  }
-
-  // ---- bands
-  int bp[6] = int[6](u_prof1, u_prof2, u_prof3, u_prof4, u_prof5, u_prof6);
-  float bl[6] = float[6](u_level1, u_level2, u_level3, u_level4, u_level5, u_level6);
-  float bb[6] = float[6](u_base1, u_base2, u_base3, u_base4, u_base5, u_base6);
-  float y = u_mirror ? min(a, A - a) : a;
-  if (fill >= 0) bh[fill] = max(bh[fill], avail - others);
+  if (shrink) B.bs *= B.avail / t2;
+  bp = int[6](u_prof1, u_prof2, u_prof3, u_prof4, u_prof5, u_prof6);
+  bl = float[6](u_level1, u_level2, u_level3, u_level4, u_level5, u_level6);
+  bb = float[6](u_base1, u_base2, u_base3, u_base4, u_base5, u_base6);
+  if (B.fill >= 0) bh[B.fill] = max(bh[B.fill], B.avail - others);
 
   // Join bands: each band but a flat one starts where the one before it ends — its base, or for the profiles that
   // start high (flute, groove, the falling ones) its level — and keeps its own rise, so the moulding runs on without
@@ -637,7 +602,7 @@ GenOut gen(vec2 p) {
     for (int i = 0; i < 6 * UNI_1; i++) {
       int pr = bp[i];
       int t = ((TRM_STARTS_HIGH >> pr) & 1) * 2 + ((TRM_ENDS_HIGH >> pr) & 1);
-      if (pr != 0 && i != fill) bp[i] = pv[t * 4 + int(floor(hashI(ivec2(si, 110 + i), uSeed) * (float(pn[t]) - 0.001)))];
+      if (pr != 0 && i != B.fill) bp[i] = pv[t * 4 + int(floor(hashI(ivec2(si, 110 + i), uSeed) * (float(pn[t]) - 0.001)))];
     }
   }
 
@@ -660,36 +625,61 @@ GenOut gen(vec2 p) {
   // The bands' places across, in one pass: the face — the stretch band (else the innermost band), across the strip from
   // fLo to fHi (both halves when mirrored and it reaches the centre line); the innermost band's start (l0: a framed
   // block's frame is the bands outside it); the selected band (Band output), bnd0..bnd1.
-  float fLo = 0.0, fHi = A, l0 = 0.0, bnd0 = 1e9, bnd1 = 1e9;
-  {
-    int sel = u_sel_band - 1;
-    float c0 = 0.0, f0 = 0.0, f1 = A, l1 = A;
-    for (int i = 0; i < 6 * UNI_1; i++) {
-      if (bh[i] > 0.0) {
-        if (i == fill) { f0 = c0; f1 = c0 + bh[i]; }
-        if (i == sel) { bnd0 = c0; bnd1 = c0 + bh[i]; }
-        l0 = c0; l1 = c0 + bh[i];
-        c0 += bh[i];
-      }
+  int sel = u_sel_band - 1;
+  float c0 = 0.0, f0 = 0.0, f1 = A, l1 = A;
+  B.l0 = 0.0; B.bnd0 = 1e9; B.bnd1 = 1e9;
+  for (int i = 0; i < 6 * UNI_1; i++) {
+    if (bh[i] > 0.0) {
+      if (i == B.fill) { f0 = c0; f1 = c0 + bh[i]; }
+      if (i == sel) { B.bnd0 = c0; B.bnd1 = c0 + bh[i]; }
+      B.l0 = c0; l1 = c0 + bh[i];
+      c0 += bh[i];
     }
-    if (fill < 0 || bh[max(fill, 0)] <= 0.0) { f0 = l0; f1 = l1; }
-    fLo = f0;
-    fHi = u_mirror && f1 >= avail - 1e-3 ? A - f0 : f1;
   }
+  if (B.fill < 0 || bh[max(B.fill, 0)] <= 0.0) { f0 = B.l0; f1 = l1; }
+  B.fLo = f0;
+  B.fHi = u_mirror && f1 >= B.avail - 1e-3 ? A - f0 : f1;
+  return B;
+}
 
-  // Framed blocks: within the frame (the bands outside the innermost one) of a block end, the bands run across the
-  // end too, meeting the long ones in a mitre.
-  bool wrapped = false;
-  float F = 0.0;   // frame width (0 unless framed)
-  float yA = y, yE = 1e9;   // (Bevel aspect: y across, and along from a framed block's end where it can turn the corner)
-  if (u_div_return && nd > 0) {
-    F = l0;
-    float dEnd = max(min(s - blo, bhi - s), 0.0);
-    if (span <= 0.0 && dEnd < min(F, y)) { y = dEnd; wrapped = true; }
-    if (span <= 0.0 && dEnd < F) yE = dEnd;
+// The dividers of strip si (nd of them along LA; s: along, a: across the strip, A its height, dStrip: the distance to
+// it). Leading edges on whole px.
+TrmDiv trm_dividers(float s, float a, float A, float LA, int nd, int si, float dStrip) {
+  TrmDiv D;
+  D.dDiv = 1e4; D.dBlk = dStrip; D.dd = 1e4; D.span = 1.0;
+  D.rnd = hashI(ivec2(0, 1 + 2 * si), uSeed);
+  D.blo = 0.0; D.bhi = LA;   // extent of the block under the pixel (along)
+  D.kbi = 0;   // the block's index (round the tile: a block across its edge is one)
+  D.w = max(u_div_width, 0.0);
+  float bq[4] = float[4](-1e5, -1e5, -1e5, -1e5);
+  if (nd > 0) {
+    float sp = LA / float(nd);
+    float k0 = floor(s / sp - u_div_offset);
+    // Divider leading edges k0 - 1 … k0 + 2, each moved by up to ±45% of a block (Length variation).
+    for (int i = 0; i < 4 * UNI_1; i++) {
+      float k = k0 - 1.0 + float(i);
+      float j = 0.9 * u_div_var * (hashI(ivec2(wrapCell(int(k), nd), si), uSeed + 5.0) - 0.5);
+      bq[i] = floor((k + u_div_offset + j) * sp + 0.5);
+    }
+    float kb = k0, b0 = bq[1], b1 = bq[2];
+    if (s < bq[1]) { kb = k0 - 1.0; b0 = bq[0]; b1 = bq[1]; }
+    else if (s >= bq[2]) { kb = k0 + 1.0; b0 = bq[2]; b1 = bq[3]; }
+    D.dd = min(abs(s - (b0 + 0.5 * D.w)), abs(s - (b1 + 0.5 * D.w))) - 0.5 * D.w;
+    D.span = abs(a - 0.5 * A) - (0.5 * A - u_div_inset);
+    D.dDiv = max(D.dd, D.span);
+    D.dBlk = max(max(b0 + D.w - s, s - b1), dStrip);
+    D.blo = b0 + D.w; D.bhi = b1;
+    D.kbi = wrapCell(int(kb), nd);
+    // Blocks get their own random; the margins the dividers stop short of (Inset) run on as one piece.
+    if (D.span <= 0.0) D.rnd = hashI(ivec2(D.kbi, 1 + 2 * si), uSeed);
   }
+  D.bq = vec4(bq[0], bq[1], bq[2], bq[3]);
+  return D;
+}
 
-  // Band under the pixel.
+// The moulding's height at y px in from the strip's edge (a: across the strip, A its height; wrapped: y runs round a
+// framed block's end): the band under the pixel, or past the last band its level.
+float trm_bandValue(float bh[6], int bp[6], float bl[6], float bb[6], float avail, float y, float a, float A, bool wrapped) {
   float y0 = 0.0, y1 = 0.0;
   int bi = -1, last = -1;
   for (int i = 0; i < 6 * UNI_1; i++) {
@@ -716,187 +706,265 @@ GenOut gen(vec2 p) {
     }
     v = mix(bp[bi] == 0 ? bl[bi] : bb[bi], bl[bi], sh);
   }
+  return v;
+}
+
+// The divider relief on v: gd 0..1 = how much of the groove's depth (bar's height) applies here.
+float trm_divRelief(TrmDiv D, float v) {
+  float gd;
+  if (u_div_prof == 0) gd = u_div_style == 2 ? grb_rise(D.dDiv, u_bevel) : 1.0 - grb_rise(-D.dDiv, u_bevel);
+  else if (u_div_prof == 1) gd = grb_cov(D.dDiv);
+  else {
+    // V / round across the divider's own width, its ends rounded off inside the strip (a capsule), so a bar or a
+    // groove dies away at the strip's edge instead of stopping square against the next strip.
+    float rad = length(vec2(D.dd + 0.5 * D.w, max(D.span + 0.5 * D.w, 0.0)));
+    float xn = clamp(rad / max(0.5 * D.w, 0.5), 0.0, 1.0);
+    gd = (u_div_prof == 2 ? 1.0 - xn : sqrt(max(1.0 - xn * xn, 0.0))) * grb_cov(rad - 0.5 * D.w);
+  }
+  if (u_div_style == 0) v *= 1.0 - u_div_depth * gd;
+  else if (u_div_style == 1) v = mix(v, v * (1.0 - u_div_depth), grb_cov(D.dDiv));
+  else v = mix(v, mix(v, 1.0, u_div_depth), gd);
+  return v;
+}
+
+// The elements of kind ek nearest the pixel (s along, a across strip si, A its height; LA: the strip's length): rows
+// along the strip, spaced evenly along the tile (neT per row) or within each block (D); es: their scale with the
+// bands, r: their radius, fw: their fillet; B: the face they may be placed on; F: a framed block's frame width.
+TrmElem trm_nearestElem(int ek, float s, float a, float A, float LA, int si, int nd, int neT, float ePitch, float es,
+                        float r, float fw, TrmBands B, TrmDiv D, float F) {
+  TrmElem E = TrmElem(1e4, vec2(1e4), 0.0, 0.0, 1e4, vec2(1e4));
+  int ns = max(u_strips, 1);
+  int nr = max(u_elem_rows, 1);
+  bool raised = ek == 1 || ek == 2 || ek >= 7;
+  float len = u_elem_len * es;
+  // fp: the extent pixel snapping centres; ext: the head's whole extent along (spacing, clearance).
+  vec2 fp = ek == 3 ? vec2(len, 2.0 * r) : ek == 4 ? vec2(2.0 * r, len) : vec2(2.0 * r);
+  float ext = ek == 2 || ek >= 11 ? 2.0 * trm_elemHalf(ek, r, len).x : fp.x;
+  float rg = u_elem_row_gap * es;
+  float a0 = (u_elem_ref == 1 ? B.fLo + u_elem_y * (B.fHi - B.fLo) : u_elem_y * A) - 0.5 * float(nr - 1) * rg;
+  int j0 = nr > 1 && rg > 0.0 ? int(clamp(floor((a - a0) / rg + 0.5), 0.0, float(nr - 1))) : 0;
+  // Within blocks needs dividers: a strip without them spaces its elements evenly along the tile (so it tiles).
+  bool perBlock = u_elem_layout == 1 && nd > 0;
+  // Clearance (and, within blocks, the inset) count from a framed block's frame.
+  float Fe = u_div_return && nd > 0 ? F : 0.0;
+  float clr = u_elem_clear > 0.0 && nd > 0 ? u_elem_clear * es + Fe : 0.0;
+  int ne = neT;
+  float lo = 0.0, se = LA / float(ne);
+  if (perBlock) {
+    // Inside the frames, from Inset to Inset (at least the clearance from the dividers); heads stay ≥ 1 px apart.
+    float L = D.bhi - D.blo - 2.0 * Fe;
+    float insMin = u_elem_clear > 0.0 && nd > 0 ? 0.5 * ext + u_elem_clear * es : 0.0;
+    float ins = max(u_elem_inset * es, insMin);
+    float minSp = ext + 1.0;
+    int n;   // gaps between the first and the last
+    if (ePitch > 0.0) {
+      // By Pitch: the spacing within 25% of it (one centred head where even one gap won't fit), the row centred.
+      float room = L - 2.0 * ins;
+      float pt = max(ePitch, minSp);
+      n = room > 0.0 ? min(int(floor(room / pt + 0.25)), int(floor(room / minSp))) : 0;
+      se = n > 0 ? min(pt, room / float(n)) : 0.0;
+    } else {
+      // By Count: in a short block the inset gives way (down to the clearance), then the count.
+      n = min(max(u_elem_count, 1), max(int(floor((L - 2.0 * insMin) / minSp)) + 1, 1)) - 1;
+      if (n > 0) ins = max(insMin, min(ins, 0.5 * (L - float(n) * minSp)));
+      se = n > 0 ? (L - 2.0 * ins) / float(n) : 0.0;
+    }
+    ne = n + 1;
+    lo = 0.5 * (D.blo + D.bhi) - 0.5 * float(n) * se;
+  }
+  // One flat loop over the 3 rows × (3 elements nearest the pixel + a block's fallback) — see UNI_1; no continue,
+  // see AGENTS.md.
+  float kb0 = ne > 1 ? clamp(floor((s - lo) / max(se, 1e-3) + 0.5), 0.0, float(ne - 1)) : 0.0;
+  bool clear = !perBlock && clr > 0.0;
+  float holeR = u_elem_hole * r;
+  for (int c = 0; c < 12 * UNI_1; c++) {
+    int row = j0 + c / 4 - 1;
+    int ci = c % 4;
+    float off = u_elem_offset + ((row & 1) == 1 && u_elem_stagger ? 0.5 : 0.0);
+    float k = (perBlock ? kb0 : floor(s / se - off)) + float(ci - 1);
+    float ay = grb_snapC(a0 + float(row) * rg, fp.y);
+    // Slots and heads kept inside the strip (by the fillet + 1 px, and clear of an unmirrored strip's joint bevel).
+    ay = clamp(ay, min(0.5 * fp.y + 1.0 + fw, 0.5 * A), max(A - 0.5 * fp.y - 1.0 - fw - (!u_mirror && ns > 1 ? u_bevel : 0.0), 0.5 * A));
+    bool inDiv = abs(ay - 0.5 * A) - (0.5 * A - u_div_inset) < 0.5 * fp.y;
+    bool ok = row >= 0 && row < nr && (ci < 3 ? (!perBlock || (k >= 0.0 && k <= float(ne - 1))) : clear && inDiv);
+    float sx = grb_snapC(ci == 3 ? 0.5 * (D.blo + D.bhi) : perBlock ? lo + k * se : (k + off + 0.5) * se, fp.x);
+    if (ok && ci == 3) {
+      // Fallback: a block whose evenly spaced heads all fall too near its dividers gets one at its centre.
+      float m = 0.5 * ext + clr;
+      ok = floor((D.bhi - m) / se - off - 0.5) < ceil((D.blo + m) / se - off - 0.5) && D.bhi - D.blo >= ext + 2.0;
+      k = 1000.0;
+    } else if (ok && clear && inDiv) {
+      // Evenly spaced heads too near a divider (where the dividers reach) are left out.
+      float c0 = sx - 0.5 * D.w;
+      float dv = min(min(abs(c0 - D.bq.x), abs(c0 - D.bq.y)), min(abs(c0 - D.bq.z), abs(c0 - D.bq.w)));
+      ok = dv - 0.5 * D.w - 0.5 * ext >= clr;
+    }
+    if (ok) {
+      vec2 dl = vec2(s - sx, a - ay);
+      int ki = ci == 3 ? 100000 + D.kbi : perBlock ? D.kbi * 64 + int(k) : wrapCell(int(k), ne);
+      ivec2 id = ivec2(ki, row + 64 * si);
+      // Missing ones (a share at random): raised heads leave their empty hole.
+      float hm = hashI(id, uSeed + 21.0);
+      if (hm < u_elem_missing) { if (raised && holeR > 0.0 && length(dl) - holeR < E.dMiss) { E.dMiss = length(dl) - holeR; E.mLoc = dl; } }
+      else {
+        float d = grb_elemSdf(ek, dl, r, len);
+        if (d < E.dE) { E.dE = d; E.loc = dl; E.ang = 3.14159265 * u_elem_turn * (fract(hm * 7.13) - 0.5); E.rnd = hashI(id, uSeed + 9.0); }
+      }
+    }
+  }
+  return E;
+}
+
+// The element E on the moulding v: raised heads (0..1) — a rivet's dome; a bolt's flat-topped head on a washer; a hex
+// head on its washer (flat top, chamfered round towards the corners, steep flats); a slotted pan-head screw — their
+// height under the relief's ceiling of 1, so a head on a high band keeps its round top; or cuts. A missing head leaves
+// its hole.
+float trm_elemRelief(int ek, TrmElem E, float r, float fw, float v) {
+  bool raised = ek == 1 || ek == 2 || ek >= 7;
+  float rw = grb_ringW(r);
+  float lr = length(E.loc);
+  vec2 q = rot2(E.ang) * E.loc;
+  float x = lr / r;
+  float eh = min(u_elem_height, max(1.0 - v, 0.0));
+  bool washer = ek == 2;
+  float rWash = r + 2.0 * rw;
+  // Seat: a fine sunken ring round each head (round a washer) — the shadow line that makes a small head read.
+  float ringW = 0.6 * rw;
+  float ringR = (washer ? rWash : ek >= 11 ? GRB_SINK_R * r : r) + ringW;
+  float ringK = 0.5 * u_elem_seat;
+  // Filleted, the ring is a rounded V (a countersink) instead of a flat-floored channel.
+  float ringV = clamp(1.0 - abs(lr - ringR) / (ringW + 0.5 * fw + 0.5), 0.0, 1.0);
+  float ringP = fw > 0.0 ? ringV * ringV * (3.0 - 2.0 * ringV) : grb_cov(abs(lr - ringR) - ringW);
+  if (raised && ringK > 0.0) v -= ringK * u_elem_height * ringP;
+  float head = grb_dome(lr, r);
+  if (ek == 2) head = grb_pan(x);
+  if (ek == 8) head = sqrt(max(1.0 - x * x * x * x, 0.0)) * (1.0 - 0.7 * grb_fil(abs(q.y) - max(0.16 * r, 0.5), 0.5 * fw));
+  // The shared heads (greebleCommon): a hex head, an Allen bolt, a cross screw, a sunk Allen bolt or hex head in its
+  // counterbore.
+  if (ek == 7 || ek >= 9) head = grb_fastener(ek == 7 ? 3 : ek == 9 ? 1 : ek == 10 ? 6 : ek == 11 ? 2 : 4, q, r, 0.6).x;
+  // The washer: a ring a little higher at its hole than at its rim, its edge filleted.
+  if (washer) head = max(head, (0.24 + 0.08 * clamp((rWash - lr) / max(rWash - r, 0.5), 0.0, 1.0)) * grb_fil(lr - rWash, max(fw, 0.5)));
+  if (raised) v += eh * head;
+  // Cuts: filleted, the walls slope and the floor dishes towards the middle (a lit far wall), else a hard cut.
+  else v = mix(v, v * (1.0 - u_elem_depth), fw > 0.0 ? grb_fil(E.dE, fw) * (0.75 + 0.25 * clamp(-E.dE / r, 0.0, 1.0)) : grb_cov(E.dE));
+  return v * (1.0 - 0.5 * grb_fil(E.dMiss, fw));
+}
+
+// Bevel aspect (greebleCommon): the output's shapes in the stretched space, k along (s) and across (a). Strips, blocks,
+// dividers and bands are slabs and boxes along those axes (a band turning a framed block's end mitres across both:
+// yA across, yE along from the block's end); the element (and a missing one's hole) a rounded box — one in the loop.
+float trm_bdist(bool vert, float s, float dStrip, int nd, int ek, float r, float es, TrmDiv D, TrmElem E, TrmBands B, float yA, float yE, float dBand) {
+  vec2 k = grb_bevK(vert);
+  float sStrip = dStrip * k.y;
+  float sBlk = nd > 0 ? max(max((D.blo - s) * k.x, (s - D.bhi) * k.x), sStrip) : sStrip;
+  float sE = 1e4, sMiss = 1e4;
+  for (int i = 0; i < (u_output == 5 ? 2 : u_output == 3 ? 1 : 0) * UNI_1; i++) {
+    bool el = i == 0;
+    vec2 hb = el ? trm_elemHalf(ek, r, u_elem_len * es) : vec2(u_elem_hole * r);
+    float e = grb_bevRBox(el ? E.loc : E.mLoc, hb, !el || (ek != 6) ? min(hb.x, hb.y) : 0.0, k);
+    if (el) sE = E.dE < 1e3 ? e : E.dE; else sMiss = E.dMiss < 1e3 ? e : E.dMiss;
+  }
+  float sMat = nd > 0 && u_div_style != 2 ? sBlk : sStrip;
+  if (ek >= 3 && ek <= 6) sMat = max(sMat, -sE);
+  sMat = max(sMat, -sMiss);
+  return u_output == 1 ? sBlk : u_output == 2 ? (nd > 0 ? max(D.dd * k.x, D.span * k.y) : D.dDiv) : u_output == 3 ? sE
+       : u_output == 4 ? (B.bnd0 < 1e8 ? max(max((B.bnd0 - yA) * k.y, (B.bnd0 - yE) * k.x), min((yA - B.bnd1) * k.y, (yE - B.bnd1) * k.x)) : dBand)
+       : sMat;
+}
+
+GenOut gen(vec2 p) {
+  bool vert = u_orient == 1;
+  // s: along the strip (left → right, or top → bottom); aT: across the texture, from the top (or left) edge.
+  float s = vert ? uRes.y - p.y : p.x;
+  float aT = vert ? p.x : uRes.y - p.y;
+  float LA = vert ? uRes.y : uRes.x;
+  float AT = vert ? uRes.x : uRes.y;
+
+  // ---- the strip across under the pixel (a: across it, A: its height).
+  int ns = max(u_strips, 1);
+  float a, A;
+  int si;
+  trm_strip(aT, AT, a, A, si);
+  float dStrip = -min(a, A - a);
+
+  // Strip variation: each strip by its own random halves or doubles its plates, runs plain (no dividers) or goes
+  // without elements.
+  int nd = u_div_count;
+  int ek = u_elem;
+  if (u_strip_var > 0.0 && ns > 1) {
+    float hv = hashI(ivec2(si, 101), uSeed), hp = hashI(ivec2(si, 102), uSeed), he = hashI(ivec2(si, 103), uSeed);
+    if (nd > 0) nd = hp < 0.25 * u_strip_var ? 0 : max(int(floor(float(nd) * (hv < 0.3 * u_strip_var ? 0.5 : hv > 1.0 - 0.3 * u_strip_var ? 2.0 : 1.0) + 0.5)), 1);
+    if (he < 0.25 * u_strip_var) ek = 0;
+  }
+
+  // ---- the band stack.
+  float bh[6], bl[6], bb[6];
+  int bp[6];
+  TrmBands B = trm_bands(A, si, bh, bp, bl, bb);
+  // Element lengths in the bands' units when they scale with them.
+  float es = u_elem_fit ? B.bs : 1.0;
+  float ePitch = u_elem_pitch * es;
+  // Elements per row along the tile (Pitch, or Count).
+  int neT = ePitch > 0.0 ? max(int(floor(LA / ePitch + 0.5)), 1) : max(u_elem_count, 1);
+  // Alternate strips shift along by whole px (dividers and elements together).
+  if ((si & 1) == 1 && u_strip_stagger > 0.0) s += floor(u_strip_stagger * LA / float(nd > 0 ? nd : neT) + 0.5);
+
+  // ---- dividers (their layout first: the bands can turn the corner at the block ends).
+  TrmDiv D = trm_dividers(s, a, A, LA, nd, si, dStrip);
+
+  // ---- bands
+  float y = u_mirror ? min(a, A - a) : a;
+  // Framed blocks: within the frame (the bands outside the innermost one) of a block end, the bands run across the
+  // end too, meeting the long ones in a mitre.
+  bool wrapped = false;
+  float F = 0.0;   // frame width (0 unless framed)
+  float yA = y, yE = 1e9;   // (Bevel aspect: y across, and along from a framed block's end where it can turn the corner)
+  if (u_div_return && nd > 0) {
+    F = B.l0;
+    float dEnd = max(min(s - D.blo, D.bhi - s), 0.0);
+    if (D.span <= 0.0 && dEnd < min(F, y)) { y = dEnd; wrapped = true; }
+    if (D.span <= 0.0 && dEnd < F) yE = dEnd;
+  }
+  float v = trm_bandValue(bh, bp, bl, bb, B.avail, y, a, A, wrapped);
 
   // Unmirrored strips fall to 0 at their far edge over the Edge bevel, meeting the next strip without a cliff.
   if (!u_mirror && ns > 1) v *= grb_rise(a - A, u_bevel);
 
   // Selected band region (both mirrored copies, and its returns round framed block ends).
-  float dBand = bnd0 < 1e8 ? max(bnd0 - y, y - bnd1) : 1e4;
+  float dBand = B.bnd0 < 1e8 ? max(B.bnd0 - y, y - B.bnd1) : 1e4;
 
-  // ---- divider relief: gd 0..1 = how much of the groove's depth (bar's height) applies here
-  if (nd > 0) {
-    float gd;
-    if (u_div_prof == 0) gd = u_div_style == 2 ? grb_rise(dDiv, u_bevel) : 1.0 - grb_rise(-dDiv, u_bevel);
-    else if (u_div_prof == 1) gd = grb_cov(dDiv);
-    else {
-      // V / round across the divider's own width, its ends rounded off inside the strip (a capsule), so a bar or a
-      // groove dies away at the strip's edge instead of stopping square against the next strip.
-      float rad = length(vec2(dd + 0.5 * w, max(span + 0.5 * w, 0.0)));
-      float xn = clamp(rad / max(0.5 * w, 0.5), 0.0, 1.0);
-      gd = (u_div_prof == 2 ? 1.0 - xn : sqrt(max(1.0 - xn * xn, 0.0))) * grb_cov(rad - 0.5 * w);
-    }
-    if (u_div_style == 0) v *= 1.0 - u_div_depth * gd;
-    else if (u_div_style == 1) v = mix(v, v * (1.0 - u_div_depth), grb_cov(dDiv));
-    else v = mix(v, mix(v, 1.0, u_div_depth), gd);
-  }
+  if (nd > 0) v = trm_divRelief(D, v);
 
   // ---- elements: rows along the strip, spaced evenly along the tile or within each block
-  float dE = 1e4, eRnd = 0.0, eAng = 0.0, dMiss = 1e4;
-  vec2 eLoc = vec2(1e4), mLoc = vec2(1e4);
+  TrmElem E = TrmElem(1e4, vec2(1e4), 0.0, 0.0, 1e4, vec2(1e4));
   float r = es != 1.0 ? max(floor(u_elem_size * es * 2.0 + 0.5) * 0.5, 0.5) : max(u_elem_size, 0.5);
-  float rw = grb_ringW(r);
   float fw = u_elem_bevel > 0.0 ? max(u_elem_bevel * r, 1.0) : 0.0;   // fillet of cuts and head edges
   if (ek > 0) {
-    int nr = max(u_elem_rows, 1);
-    bool raised = ek == 1 || ek == 2 || ek >= 7;
-    float len = u_elem_len * es;
-    // fp: the extent pixel snapping centres; ext: the head's whole extent along (spacing, clearance).
-    vec2 fp = ek == 3 ? vec2(len, 2.0 * r) : ek == 4 ? vec2(2.0 * r, len) : vec2(2.0 * r);
-    float ext = ek == 2 || ek >= 11 ? 2.0 * trm_elemHalf(ek, r, len).x : fp.x;
-    float rg = u_elem_row_gap * es;
-    float a0 = (u_elem_ref == 1 ? fLo + u_elem_y * (fHi - fLo) : u_elem_y * A) - 0.5 * float(nr - 1) * rg;
-    int j0 = nr > 1 && rg > 0.0 ? int(clamp(floor((a - a0) / rg + 0.5), 0.0, float(nr - 1))) : 0;
-    // Within blocks needs dividers: a strip without them spaces its elements evenly along the tile (so it tiles).
-    bool perBlock = u_elem_layout == 1 && nd > 0;
-    // Clearance (and, within blocks, the inset) count from a framed block's frame.
-    float Fe = u_div_return && nd > 0 ? F : 0.0;
-    float clr = u_elem_clear > 0.0 && nd > 0 ? u_elem_clear * es + Fe : 0.0;
-    int ne = neT;
-    float lo = 0.0, se = LA / float(ne);
-    if (perBlock) {
-      // Inside the frames, from Inset to Inset (at least the clearance from the dividers); heads stay ≥ 1 px apart.
-      float L = bhi - blo - 2.0 * Fe;
-      float insMin = u_elem_clear > 0.0 && nd > 0 ? 0.5 * ext + u_elem_clear * es : 0.0;
-      float ins = max(u_elem_inset * es, insMin);
-      float minSp = ext + 1.0;
-      int n;   // gaps between the first and the last
-      if (ePitch > 0.0) {
-        // By Pitch: the spacing within 25% of it (one centred head where even one gap won't fit), the row centred.
-        float room = L - 2.0 * ins;
-        float pt = max(ePitch, minSp);
-        n = room > 0.0 ? min(int(floor(room / pt + 0.25)), int(floor(room / minSp))) : 0;
-        se = n > 0 ? min(pt, room / float(n)) : 0.0;
-      } else {
-        // By Count: in a short block the inset gives way (down to the clearance), then the count.
-        n = min(max(u_elem_count, 1), max(int(floor((L - 2.0 * insMin) / minSp)) + 1, 1)) - 1;
-        if (n > 0) ins = max(insMin, min(ins, 0.5 * (L - float(n) * minSp)));
-        se = n > 0 ? (L - 2.0 * ins) / float(n) : 0.0;
-      }
-      ne = n + 1;
-      lo = 0.5 * (blo + bhi) - 0.5 * float(n) * se;
-    }
-    // One flat loop over the 3 rows × (3 elements nearest the pixel + a block's fallback) — see UNI_1; no continue,
-    // see AGENTS.md.
-    float kb0 = ne > 1 ? clamp(floor((s - lo) / max(se, 1e-3) + 0.5), 0.0, float(ne - 1)) : 0.0;
-    bool clear = !perBlock && clr > 0.0;
-    float holeR = u_elem_hole * r;
-    for (int c = 0; c < 12 * UNI_1; c++) {
-      int row = j0 + c / 4 - 1;
-      int ci = c % 4;
-      float off = u_elem_offset + ((row & 1) == 1 && u_elem_stagger ? 0.5 : 0.0);
-      float k = (perBlock ? kb0 : floor(s / se - off)) + float(ci - 1);
-      float ay = grb_snapC(a0 + float(row) * rg, fp.y);
-      // Slots and heads kept inside the strip (by the fillet + 1 px, and clear of an unmirrored strip's joint bevel).
-      ay = clamp(ay, min(0.5 * fp.y + 1.0 + fw, 0.5 * A), max(A - 0.5 * fp.y - 1.0 - fw - (!u_mirror && ns > 1 ? u_bevel : 0.0), 0.5 * A));
-      bool inDiv = abs(ay - 0.5 * A) - (0.5 * A - u_div_inset) < 0.5 * fp.y;
-      bool ok = row >= 0 && row < nr && (ci < 3 ? (!perBlock || (k >= 0.0 && k <= float(ne - 1))) : clear && inDiv);
-      float sx = grb_snapC(ci == 3 ? 0.5 * (blo + bhi) : perBlock ? lo + k * se : (k + off + 0.5) * se, fp.x);
-      if (ok && ci == 3) {
-        // Fallback: a block whose evenly spaced heads all fall too near its dividers gets one at its centre.
-        float m = 0.5 * ext + clr;
-        ok = floor((bhi - m) / se - off - 0.5) < ceil((blo + m) / se - off - 0.5) && bhi - blo >= ext + 2.0;
-        k = 1000.0;
-      } else if (ok && clear && inDiv) {
-        // Evenly spaced heads too near a divider (where the dividers reach) are left out.
-        float c0 = sx - 0.5 * w;
-        float dv = min(min(abs(c0 - bq[0]), abs(c0 - bq[1])), min(abs(c0 - bq[2]), abs(c0 - bq[3])));
-        ok = dv - 0.5 * w - 0.5 * ext >= clr;
-      }
-      if (ok) {
-        vec2 dl = vec2(s - sx, a - ay);
-        int ki = ci == 3 ? 100000 + kbi : perBlock ? kbi * 64 + int(k) : (uTile ? imod(int(k), ne) : int(k));
-        ivec2 id = ivec2(ki, row + 64 * si);
-        // Missing ones (a share at random): raised heads leave their empty hole.
-        float hm = hashI(id, uSeed + 21.0);
-        if (hm < u_elem_missing) { if (raised && holeR > 0.0 && length(dl) - holeR < dMiss) { dMiss = length(dl) - holeR; mLoc = dl; } }
-        else {
-          float d = grb_elemSdf(ek, dl, r, len);
-          if (d < dE) { dE = d; eLoc = dl; eAng = 3.14159265 * u_elem_turn * (fract(hm * 7.13) - 0.5); eRnd = hashI(id, uSeed + 9.0); }
-        }
-      }
-    }
-    float lr = length(eLoc);
-    vec2 q = rot2(eAng) * eLoc;
-    float x = lr / r;
-    // Raised heads (0..1): a rivet's dome; a bolt's flat-topped head on a washer; a
-    // hex head on its washer (flat top, chamfered round towards the corners, steep flats); a slotted pan-head screw.
-    // Their height stays under the relief's ceiling of 1, so a head on a high band keeps its round top.
-    float eh = min(u_elem_height, max(1.0 - v, 0.0));
-    bool washer = ek == 2;
-    float rWash = r + 2.0 * rw;
-    // Seat: a fine sunken ring round each head (round a washer) — the shadow line that makes a small head read.
-    float ringW = 0.6 * rw;
-    float ringR = (washer ? rWash : ek >= 11 ? GRB_SINK_R * r : r) + ringW;
-    float ringK = 0.5 * u_elem_seat;
-    // Filleted, the ring is a rounded V (a countersink) instead of a flat-floored channel.
-    float ringV = clamp(1.0 - abs(lr - ringR) / (ringW + 0.5 * fw + 0.5), 0.0, 1.0);
-    float ringP = fw > 0.0 ? ringV * ringV * (3.0 - 2.0 * ringV) : grb_cov(abs(lr - ringR) - ringW);
-    if (raised && ringK > 0.0) v -= ringK * u_elem_height * ringP;
-    float head = grb_dome(lr, r);
-    if (ek == 2) head = grb_pan(x);
-    if (ek == 8) head = sqrt(max(1.0 - x * x * x * x, 0.0)) * (1.0 - 0.7 * grb_fil(abs(q.y) - max(0.16 * r, 0.5), 0.5 * fw));
-    // The shared heads (greebleCommon): a hex head, an Allen bolt, a cross screw, a sunk Allen bolt or hex head in its
-    // counterbore.
-    if (ek == 7 || ek >= 9) head = grb_fastener(ek == 7 ? 3 : ek == 9 ? 1 : ek == 10 ? 6 : ek == 11 ? 2 : 4, q, r, 0.6).x;
-    // The washer: a ring a little higher at its hole than at its rim, its edge filleted.
-    if (washer) head = max(head, (0.24 + 0.08 * clamp((rWash - lr) / max(rWash - r, 0.5), 0.0, 1.0)) * grb_fil(lr - rWash, max(fw, 0.5)));
-    if (raised) v += eh * head;
-    // Cuts: filleted, the walls slope and the floor dishes towards the middle (a lit far wall), else a hard cut.
-    else v = mix(v, v * (1.0 - u_elem_depth), fw > 0.0 ? grb_fil(dE, fw) * (0.75 + 0.25 * clamp(-dE / r, 0.0, 1.0)) : grb_cov(dE));
-    v *= 1.0 - 0.5 * grb_fil(dMiss, fw);
+    E = trm_nearestElem(ek, s, a, A, LA, si, nd, neT, ePitch, es, r, fw, B, D, F);
+    v = trm_elemRelief(ek, E, r, fw, v);
   }
 
   // The strip's material: the blocks (or the whole strip when dividers don't cut it) less holes and seams.
-  float dMat = nd > 0 && u_div_style != 2 ? dBlk : dStrip;
-  if (ek >= 3 && ek <= 6) dMat = max(dMat, -dE);
-  dMat = max(dMat, -dMiss);
+  float dMat = nd > 0 && u_div_style != 2 ? D.dBlk : dStrip;
+  if (ek >= 3 && ek <= 6) dMat = max(dMat, -E.dE);
+  dMat = max(dMat, -E.dMiss);
 
   if (u_output == 0) {
     int m = u_mask_shape;
-    float dm = m == 1 ? dMat : m == 2 ? dBlk : m == 3 ? dDiv : m == 4 ? dE : dBand;
+    float dm = m == 1 ? dMat : m == 2 ? D.dBlk : m == 3 ? D.dDiv : m == 4 ? E.dE : dBand;
     float cov = grb_cov(dStrip);
     v = clamp(v, 0.0, 1.0);
     GenOut g;   // (no ternary on structs in WebGL)
-    if (m == 0) g = genOut(v, cov, blkRnd, NO_SDF);
-    else g = genOutOwn(v, cov, blkRnd, dm);
+    if (m == 0) g = genOut(v, cov, D.rnd, NO_SDF);
+    else g = genOutOwn(v, cov, D.rnd, dm);
     // Unframed blocks: the mouldings run on through the dividers, so Per-feature variation lifts only the face and its
     // heads (fading in over a few px outside it), not the bands — no steps at the dividers.
-    if (nd > 0 && !u_div_return) g.feat *= clamp(1.0 + min(a - fLo, fHi - a) / max(2.0, 0.15 * (fHi - fLo)), 0.0, 1.0);
+    if (nd > 0 && !u_div_return) g.feat *= clamp(1.0 + min(a - B.fLo, B.fHi - a) / max(2.0, 0.15 * (B.fHi - B.fLo)), 0.0, 1.0);
     return g;
   }
-  GenOut g = genOut(0.0, 1.0, u_output == 3 ? eRnd : blkRnd,
-                    u_output == 1 ? dBlk : u_output == 2 ? dDiv : u_output == 3 ? dE : u_output == 4 ? dBand : dMat);
-  if (bevelAspectOn()) {
-    // Bevel aspect (greebleCommon): the same shapes in the stretched space, k along (s) and across (a). Strips, blocks,
-    // dividers and bands are slabs and boxes along those axes (a band turning a framed block's end mitres across both);
-    // the element (and a missing one's hole) a rounded box — one in the loop.
-    vec2 k = grb_bevK(vert);
-    float sStrip = dStrip * k.y;
-    float sBlk = nd > 0 ? max(max((blo - s) * k.x, (s - bhi) * k.x), sStrip) : sStrip;
-    float sE = 1e4, sMiss = 1e4;
-    for (int i = 0; i < (u_output == 5 ? 2 : u_output == 3 ? 1 : 0) * UNI_1; i++) {
-      bool el = i == 0;
-      vec2 hb = el ? trm_elemHalf(ek, r, u_elem_len * es) : vec2(u_elem_hole * r);
-      float e = grb_bevRBox(el ? eLoc : mLoc, hb, !el || (ek != 6) ? min(hb.x, hb.y) : 0.0, k);
-      if (el) sE = dE < 1e3 ? e : dE; else sMiss = dMiss < 1e3 ? e : dMiss;
-    }
-    float sMat = nd > 0 && u_div_style != 2 ? sBlk : sStrip;
-    if (ek >= 3 && ek <= 6) sMat = max(sMat, -sE);
-    sMat = max(sMat, -sMiss);
-    g.bdist = u_output == 1 ? sBlk : u_output == 2 ? (nd > 0 ? max(dd * k.x, span * k.y) : dDiv) : u_output == 3 ? sE
-            : u_output == 4 ? (bnd0 < 1e8 ? max(max((bnd0 - yA) * k.y, (bnd0 - yE) * k.x), min((yA - bnd1) * k.y, (yE - bnd1) * k.x)) : dBand)
-            : sMat;
-  }
+  GenOut g = genOut(0.0, 1.0, u_output == 3 ? E.rnd : D.rnd,
+                    u_output == 1 ? D.dBlk : u_output == 2 ? D.dDiv : u_output == 3 ? E.dE : u_output == 4 ? dBand : dMat);
+  if (bevelAspectOn()) g.bdist = trm_bdist(vert, s, dStrip, nd, ek, r, es, D, E, B, yA, yE, dBand);
   return g;
 }
 `

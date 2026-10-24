@@ -41,7 +41,7 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   gPhase = u_phase;
   vec2 p = vec2(ip) + 0.5;
   vec2 cells = cellsFor(u_scale, 1.0);
-  ivec2 per = uTile ? ivec2(cells) : NO_PERIOD;
+  ivec2 per = periodOf(cells);
   vec2 x = p / uRes * cells;
   vec2 o = fbmPair(x, x, per, u_octaves, uSeed + 101.0, uSeed + 211.0, 2);
   readState(p + (o - 0.5) * 3.0 * u_strength, u_nearest, A, S, E);

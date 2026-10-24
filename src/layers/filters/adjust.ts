@@ -1,10 +1,11 @@
 // Per-pixel adjustments of the accumulated channels: height levels, diffuse HSV / brightness / contrast /
 // colourise, and height derived from diffuse luminance.
 
+import type { Texture } from 'three';
 import { P } from '@/core/params';
 import type { LayerDef } from '../types';
 import { HEIGHT_MODES } from '../commonParams';
-import { blurTexture, mrtApply } from './shared';
+import { blurTexture } from './shared';
 
 export const levelsLayer: LayerDef = {
 	type: 'levels',
@@ -78,15 +79,15 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
 `
 };
 
-const HFD_APPLY = mrtApply(/* glsl */ `
-uniform sampler2D tLum;
+const HFD_APPLY = /* glsl */ `
 void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
-  float l = luma(linearToSrgb(texelFetch(tLum, ip, 0).rgb));
+  // The diffuse, pre-blurred by prepare() when Pre-blur is on.
+  float l = luma(linearToSrgb(u_blur > 0.0 ? texelFetch(t_lum, ip, 0).rgb : A.rgb));
   if (u_invert) l = 1.0 - l;
   if (u_centre) l -= 0.5;
   S.r = heightCombine(u_mode, S.r, l * u_amount);
 }
-`);
+`;
 
 export const heightFromDiffuseLayer: LayerDef = {
 	type: 'heightFromDiffuse',
@@ -102,11 +103,10 @@ export const heightFromDiffuseLayer: LayerDef = {
 		P.bool('centre', 'Centre on mid-grey', false, { hint: 'Luminance − 0.5, so mid-grey leaves height unchanged' }),
 		P.float('blur', 'Pre-blur', 0, 0, 64, { softMax: 8, unit: 'px', step: 0.1 })
 	],
-	run(ctx, layer) {
+	textures: ['lum'],
+	prepare(ctx, layer): Record<string, Texture> {
 		const radius = Number(layer.params.blur ?? 0);
-		const src = radius > 0 ? blurTexture(ctx, ctx.albedo, radius).texture : ctx.albedo;
-		const mat = ctx.mrtMaterial('apply', HFD_APPLY, { tLum: { value: null } });
-		mat.uniforms.tLum.value = src;
-		ctx.runMRT(mat);
-	}
+		return radius > 0 ? { lum: blurTexture(ctx, ctx.albedo, radius).texture } : {};
+	},
+	filterGlsl: HFD_APPLY
 };

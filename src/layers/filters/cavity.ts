@@ -1,14 +1,11 @@
 // Cavity / edge wear: curvature = height − blur(height). Convex edges get worn (a highlight colour, usually
 // smoother), cavities collect dirt (a dark colour, usually rougher); both broken up by tileable fBm.
 
-import * as THREE from 'three';
 import { P } from '@/core/params';
 import type { LayerDef } from '../types';
-import { blurTexture, mrtApply } from './shared';
+import { blurTexture } from './shared';
 
-const CAVITY_APPLY = mrtApply(/* glsl */ `
-uniform sampler2D tBlur;
-
+const CAVITY_APPLY = /* glsl */ `
 // Remove part of a mask where the noise is low; amount 0 keeps everything, 1 removes everything.
 float breakup(float n, float amount) {
   float c = clamp((n - 0.5) * 2.5 + 0.5, 0.0, 1.0);
@@ -17,12 +14,12 @@ float breakup(float n, float amount) {
 
 void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   // Curvature in px of relief (height × heightDepth): > 0 convex, < 0 concave.
-  float c = (S.r - texelFetch(tBlur, ip, 0).r) * uDepth;
+  float c = (S.r - texelFetch(t_blur, ip, 0).r) * uDepth;
   vec2 m = clamp((vec2(c, -c) - u_threshold) * u_sensitivity, 0.0, 1.0); // wear, dirt
   if (u_wear_noise > 0.0 || u_dirt_noise > 0.0) {
     gPhase = u_phase;
     vec2 cells = cellsFor(u_noise_scale, 1.0);
-    ivec2 per = uTile ? ivec2(cells) : NO_PERIOD;
+    ivec2 per = periodOf(cells);
     vec2 x = gl_FragCoord.xy / uRes * cells;
     // Both masks' fBm in one call (breakup of amount 0 is 1).
     vec2 n = fbmPair(x, x, per, u_noise_octaves, uSeed + 11.0, uSeed + 57.0, 2);
@@ -34,7 +31,7 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   A.rgb = mix(A.rgb, u_wear_color, wear);
   S.g = clamp(S.g + wear * u_wear_rough + dirt * u_dirt_rough, 0.0, 1.0);
 }
-`);
+`;
 
 export const cavityLayer: LayerDef = {
 	type: 'cavity',
@@ -92,11 +89,7 @@ export const cavityLayer: LayerDef = {
 		{ id: 'dirt', label: 'Cavity dirt' },
 		{ id: 'breakup', label: 'Breakup noise', collapsed: true }
 	],
-	run(ctx, layer) {
-		const p = layer.params;
-		const blurred = blurTexture(ctx, ctx.surface, Number(p.radius ?? 3));
-		const mat = ctx.mrtMaterial('apply', CAVITY_APPLY, { tBlur: { value: null as THREE.Texture | null } });
-		mat.uniforms.tBlur.value = blurred.texture;
-		ctx.runMRT(mat);
-	}
+	textures: ['blur'],
+	prepare: (ctx, layer) => ({ blur: blurTexture(ctx, ctx.surface, Number(layer.params.radius ?? 3)).texture }),
+	filterGlsl: CAVITY_APPLY
 };

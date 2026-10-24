@@ -1,6 +1,7 @@
 // Tabs & notches: the CPU side — defaults, the editor's texture-sized defaults, the param table the shader reads.
 
 import { describe, expect, it } from 'vitest';
+import type { FilterContext } from '@/render/materialPipeline';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, layerParamDefs } from '../registry';
 import { tabsLayer } from './tabs';
@@ -46,5 +47,31 @@ describe('tabs', () => {
 		// D3D inlines every call: one element evaluation per pixel loop, and no continue in shader loops.
 		expect(glsl.match(/tb_shape\(/g)!.length).toBe(2);
 		expect(/\bcontinue\s*;/.test(glsl)).toBe(false);
+		// Along the mask: one edge test in the pixel's refine (the definition, then its call), and no long walks.
+		expect(glsl.match(/\btb_on\(/g)!.length).toBe(2);
+		for (const m of glsl.matchAll(/< (\d+) \* UNI_1/g)) expect(Number(m[1]), m[0]).toBeLessThanOrEqual(48);
+	});
+
+	it('finds the sides along the mask in log₂(size) passes before the layer, and only along the mask', () => {
+		const runs: string[] = [];
+		const bodies: string[] = [];
+		const ctx = {
+			width: 512,
+			height: 256,
+			scratch: (name: string) => ({ texture: { name } }),
+			sharedMaterial: (key: string, body: string, extra = {}) => {
+				bodies.push(body);
+				return { key, uniforms: extra };
+			},
+			run: (mat: { key: string }) => runs.push(mat.key)
+		} as unknown as FilterContext;
+		const layer = (place: string) => ({ ...createLayer('tabs'), params: { ...createLayer('tabs').params, place } });
+		expect(tabsLayer.prepare!(ctx, layer('grid'))).toEqual({});
+		expect(runs).toEqual([]);
+		const tex = tabsLayer.prepare!(ctx, layer('shape'));
+		expect(Object.keys(tex).sort()).toEqual([...tabsLayer.textures!].sort());
+		// The edge texels, then enough doubling passes for a run once round the tile's width plus height.
+		expect(runs).toEqual(['tabs:foot', ...Array(Math.ceil(Math.log2(512 + 256 + 1)) + 2).fill('tabs:run')]);
+		for (const b of bodies) expect(/\bcontinue\s*;/.test(b)).toBe(false);
 	});
 });

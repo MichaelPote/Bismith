@@ -236,7 +236,7 @@ float gr_u16(uint h, uint sh) { return float((h >> sh) & 0xffffu) / 65536.0; }
 // each, so the outline frays into islands and specks.
 float gr_patch(vec2 u) {
   vec2 cells = cellsFor(u_bare_scale, 1.0);
-  float n = org_noiseFbm(1, false, u * cells, org_per(cells), 3 + int(u_bare_detail * 3.0 + 0.5), 0.45 + 0.25 * u_bare_detail, u_patch_seed * 131.0 + 71.0);
+  float n = org_noiseFbm(1, false, u * cells, periodOf(cells), 3 + int(u_bare_detail * 3.0 + 0.5), 0.45 + 0.25 * u_bare_detail, u_patch_seed * 131.0 + 71.0);
   return u_bare_invert ? 1.0 - n : n;
 }
 
@@ -274,7 +274,7 @@ GenOut gen(vec2 p) {
     vec2 lo = vec2(cell) * cs;
     vec2 q = max(max(lo - p, p - lo - cs), 0.0);
     if (dot(q, q) < reach * reach) {
-      ivec2 key = uTile ? imod(cell, per) : cell;
+      ivec2 key = wrapCell(cell, per);
       uint hc = pcg3(uvec3(uint(key.x), uint(key.y), uint(uSeed)));
       vec2 tuft = lo + cs * (0.2 + 0.6 * vec2(gr_u16(hc, 0u), gr_u16(hc, 16u)));
       for (int k = 0; k < K; k++) {
@@ -360,7 +360,7 @@ GenOut gen(vec2 p) {
     int c = o / 4, oct = o - 4 * c;
     if (c == 0 ? u_patches > 0.0 : u_relief > 0.0) {
       vec2 cells = cellsFor(c == 0 ? u_patch_scale : u_relief_scale, 1.0);
-      float n = perlinNoise(u * cells * exp2(float(oct)), uTile ? org_per(cells) * (1 << oct) : NO_PERIOD, u_patch_seed * 131.0 + (c == 0 ? 113.0 : 29.0) + float(oct) * 31.0) * exp2(-float(oct));
+      float n = perlinNoise(u * cells * exp2(float(oct)), periodOf(cells * exp2(float(oct))), u_patch_seed * 131.0 + (c == 0 ? 113.0 : 29.0) + float(oct) * 31.0) * exp2(-float(oct));
       if (c == 0) sP += n;
       else sR += n;
     }

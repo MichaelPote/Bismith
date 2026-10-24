@@ -5,8 +5,10 @@
 // tileable, so the pattern repeats seamlessly. (Clouds, gradients and scratches live in patternsFill.ts.)
 
 import { hash2I, hashI } from '@/core/hash';
-import { P, gradient, round1 as r1 } from '@/core/params';
-import type { LayerDef } from '../types';
+import { memoReads } from '@/core/memo';
+import { P, gradient, round1 as r1, type ParamValues } from '@/core/params';
+import { f32, gcd } from '../derivedMath';
+import type { LayerCanvas, LayerDef } from '../types';
 import { gradientLayer, scratchesLayer } from './patternsFill';
 
 /**
@@ -173,8 +175,8 @@ const PAT_RELIEF_GLSL = /* glsl */ `
 // Smooth fractal noise with features about size px across (tileable; per-feature offsets keep it tileable too).
 float pat_noise(vec2 p, vec2 res, float size, int oct, float seed) {
   vec2 fc = res / max(size, 1.0);
-  if (uTile) fc = max(floor(fc + 0.5), vec2(1.0));
-  return fbm(p / res * fc, uTile ? ivec2(fc) : NO_PERIOD, oct, seed);
+  fc = snapCells(fc);
+  return fbm(p / res * fc, periodOf(fc), oct, seed);
 }
 
 // Height across a feature's face, 0..1: lumps and pits (Face relief), a pillow (Crown) and a tilt in a random direction
@@ -314,9 +316,9 @@ const PAT_CHIP_GLSL = /* glsl */ `
 // A chip floor's roughness, 0..1: two octaves of value noise with features about size px (tileable).
 float pat_rough(vec2 p, vec2 res, float size) {
   vec2 fc = res / max(size, 1.0);
-  if (uTile) fc = max(floor(fc + 0.5), vec2(1.0));
-  ivec2 fp = uTile ? ivec2(fc) : NO_PERIOD;
-  return 0.65 * valueNoise(p / res * fc, fp, uSeed + 137.0) + 0.35 * valueNoise(p / res * fc * 2.0, uTile ? fp * 2 : NO_PERIOD, uSeed + 139.0);
+  fc = snapCells(fc);
+  ivec2 fp = periodOf(fc);
+  return 0.65 * valueNoise(p / res * fc, fp, uSeed + 137.0) + 0.35 * valueNoise(p / res * fc * 2.0, periodOf(fc * 2.0), uSeed + 139.0);
 }
 
 // A chip's depth share at b px inside its hollow of size r: a crisp rim, then deeper towards the broken edge.
@@ -583,7 +585,7 @@ export const bricksLayer: LayerDef = {
 // Joint k of a row, in brick units. A shift < 0.45 keeps joints ordered (length variation).
 float pat_joint(int k, int rw) {
   if (u_len_var <= 0.0) return float(k);
-  int kw = uTile ? imod(k, u_columns) : k;
+  int kw = wrapCell(k, u_columns);
   return float(k) + (hashI(ivec2(kw, rw), uSeed + 23.0) - 0.5) * 0.9 * u_len_var * (1.0 - u_min_size);
 }
 
@@ -591,7 +593,7 @@ float pat_joint(int k, int rw) {
 // whole pixels so the jittered courses stay crisp.
 float pat_rowEdge(int r, float ch) {
   if (u_row_var <= 0.0) return float(r) * ch;
-  int rb = uTile ? imod(r, u_rows) : r;
+  int rb = wrapCell(r, u_rows);
   return floor((float(r) + (hashI(ivec2(rb, 3), uSeed + 61.0) - 0.5) * 0.9 * u_row_var * (1.0 - u_min_size)) * ch + 0.5);
 }
 
@@ -625,7 +627,7 @@ GenOut gen(vec2 p) {
   float RS[5], RE[6];
   for (int j = 0; j < (nr + 1) * UNI_1; j++) {
     RE[j] = pat_rowEdge(jr + j, cs.y);
-    if (j < nr) RS[j] = pat_rowShift(uTile ? imod(jr + j, u_rows) : jr + j);
+    if (j < nr) RS[j] = pat_rowShift(wrapCell(jr + j, u_rows));
   }
   // Every brick around the pixel (nr courses × 5): its distance, the pixel in its frame, half size, centre, turn, key.
   float DD[25];
@@ -636,13 +638,13 @@ GenOut gen(vec2 p) {
   for (int t = 0; t < nr * 5 * UNI_1; t++) {
     int j = t / 5;
     int r = jr + j;
-    int rw = uTile ? imod(r, u_rows) : r;
+    int rw = wrapCell(r, u_rows);
     float s = RS[j];
     float ry0 = RE[j], ry1 = RE[j + 1];
     int k = int(floor(p.x / cs.x - s)) + t % 5 - 2;
     float x0 = pat_joint(k, rw);
     float x1 = pat_joint(k + 1, rw);
-    ivec2 id = ivec2(uTile ? imod(k, u_columns) : k, rw);
+    ivec2 id = ivec2(wrapCell(k, u_columns), rw);
     // Mortar runs along the left and top (on screen) of each cell, so whole-pixel brick sizes and mortar
     // widths put every edge on a pixel boundary. Joint variation: each brick carries its own share of it.
     float mo = u_mortar * (1.0 - u_joint_var * hashI(id, uSeed + 191.0));
@@ -1002,6 +1004,22 @@ export const hexLayer: LayerDef = {
 		PAT_RELIEF_GLSL +
 		PAT_CHIP_GLSL +
 		/* glsl */ `
+// The neighbours whose bisectors can be among a tile's PAT_K nearest edges, by class: (rows off, half cells along),
+// each with its mirror images — 0, 1 the six neighbours; 2 the next centres off its corners beside them (a row off, 1.5
+// cells along); 3 two rows off straight across; 4 two cells along; 5 two rows off, a cell along; 6 three rows off; 7
+// three cells along.
+const ivec2 PAT_HEX_CLS[8] = ivec2[8](ivec2(0, 2), ivec2(1, 1), ivec2(1, 3), ivec2(2, 0), ivec2(0, 4), ivec2(2, 2), ivec2(3, 1), ivec2(0, 6));
+// The classes that can hold a PAT_K place somewhere in a tile, as bits, by the lattice's stretch q (row spacing / cell
+// width; regular: √3/2 ≈ 0.866), found by sampling the cell over q 0.3 … 3.4, with a margin: the corner centres from
+// q 0.46, two rows across up to 1.22, three rows below 0.54, three cells along above 2.17. Two cells along (above q
+// 0.866) and two rows a cell along (below it) only tie there — a regular lattice (the untiled one) needs neither — but
+// the joints' jitter moves the edges, so then both are in round it. (Exact for q 0.3 … 3.4: a lattice squashed further
+// reaches past these.)
+int pat_hexNeed(float q, bool jit) {
+  return 3 | (q > 0.45 ? 4 : 0) | (q < 1.25 ? 8 : 0) | (q > (jit ? 0.8 : 0.8669) ? 16 : 0)
+       | (q < (jit ? 0.93 : 0.8652) ? 32 : 0) | (q < 0.56 ? 64 : 0) | (q > 2.12 ? 128 : 0);
+}
+
 // Lattice centre of tile (c, r) in the working frame: rows run along x, odd rows shift half a cell.
 vec2 pat_hexCentre(int c, int r, vec2 cs) {
   return vec2((float(c) + 0.5 + 0.5 * float(r & 1)) * cs.x, (float(r) + 0.5) * cs.y);
@@ -1062,21 +1080,38 @@ GenOut gen(vec2 p) {
   }
   // Tile edges are the bisectors with the neighbouring centres, inset by half the gap — and, with Size jitter, each
   // side by its own random amount (an irregular hexagon, not one shrunk about its centre).
-  ivec2 id = uTile ? imod(bc, per) : bc;
+  ivec2 id = wrapCell(bc, per);
   float ms[PAT_K];
   vec2 ns[PAT_K];
   for (int i = 0; i < PAT_K; i++) { ms[i] = 1e9; ns[i] = vec2(0.0); }
-  // (The 5 × 5 round it, not just the six neighbours: on a lattice stretched to tile, a next-ring bisector can come
-  // nearer than a side at a corner and hold one of the PAT_K places there.)
-  for (int t = 0; t < 25 * UNI_1; t++) {
-    int j = t / 5 - 2, i = t % 5 - 2;
-    if (i != 0 || j != 0) {
-      vec2 rv = pat_hexCentre(bc.x + i, bc.y + j, cs) - q;
-      vec2 nn = normalize(rv - br);
-      // In or out by up to half the jitter (the mean joint stays), never closing the joint below a pixel.
-      float sj = u_size_jitter > 0.0 ? max(u_size_jitter * (hashI(ivec2(id.x * 5 + i + 2, id.y * 5 + j + 2), uSeed + 41.0) - 0.5), 0.5 - 0.5 * u_gap) : 0.0;
-      pat_pushEdge(ms, ns, dot(0.5 * (br + rv), nn) - 0.5 * u_gap - sj, nn);
+  // Not just the six neighbours: a farther centre's bisector can come nearer than a side at a corner and hold one of the
+  // PAT_K places there — which ones, by the lattice's stretch (PAT_HEX_CLS, pat_hexNeed). The classes needed, packed in
+  // order 3 bits each, and how many neighbours they hold; then one flat loop over those neighbours alone.
+  int need = pat_hexNeed(cs.y / cs.x, u_size_jitter > 0.0);
+  int order = 0, nCls = 0, nNb = 0;
+  for (int c = 0; c < 8 * UNI_1; c++) {
+    if (((need >> c) & 1) != 0) {
+      order |= c << (3 * nCls);
+      nCls++;
+      nNb += PAT_HEX_CLS[c].x == 0 || PAT_HEX_CLS[c].y == 0 ? 2 : 4;
     }
+  }
+  int ci = 0, k = 0;
+  for (int t = 0; t < 24 * UNI_1; t++) {
+    if (t >= nNb) break;
+    // Neighbour k of class ci: its mirror images by k's bits (one axis off: by the low bit), rows up or down, half cells
+    // along either way; the rows of odd offset sit half a cell along.
+    ivec2 cl = PAT_HEX_CLS[(order >> (3 * ci)) & 7];
+    int sa = (k & 1) != 0 ? -1 : 1, sb = (k & 2) != 0 ? -1 : 1;
+    int j = cl.x * (cl.y == 0 ? sa : sb), dx2 = cl.y * sa;
+    int i = (dx2 - ((j & 1) == 0 ? 0 : (bc.y & 1) == 0 ? 1 : -1)) / 2;
+    k++;
+    if (k == (cl.x == 0 || cl.y == 0 ? 2 : 4)) { k = 0; ci++; }
+    vec2 rv = pat_hexCentre(bc.x + i, bc.y + j, cs) - q;
+    vec2 nn = normalize(rv - br);
+    // In or out by up to half the jitter (the mean joint stays), never closing the joint below a pixel.
+    float sj = u_size_jitter > 0.0 ? max(u_size_jitter * (hashI(ivec2(id.x * 7 + i + 3, id.y * 7 + j + 3), uSeed + 41.0) - 0.5), 0.5 - 0.5 * u_gap) : 0.0;
+    pat_pushEdge(ms, ns, dot(0.5 * (br + rv), nn) - 0.5 * u_gap - sj, nn);
   }
   // The tile's corner radius (centre to corner, inside the grout).
   float Rt = (cs.x - u_gap) * 0.57735;
@@ -1381,7 +1416,8 @@ export const voronoiLayer: LayerDef = {
 	],
 	sdfShowIf: cellsOut,
 	textures: ['cells'],
-	cpuData: voronoiCells,
+	// Memoised by the params it reads: a colour or Height slider leaves the cells as they are.
+	cpuData: memoReads(voronoiCells),
 	// Crackle's lines are the high value: as Height they would stand up as ridges, so they cut in instead.
 	linkedDefaults: (p) => ({ h_mode: p.output === 'crackle' ? 'subtract' : 'add' }),
 	// Cells added in the editor: cobbles sized to the texture — bevel, gap, corner rounding, warp, size jitter and the
@@ -1438,13 +1474,13 @@ vec2 pat_metricGrad(vec2 v) {
 
 GenOut gen(vec2 p) {
   vec2 cells = cellsFor(u_scale, 1.0);
-  ivec2 per = uTile ? ivec2(cells) : NO_PERIOD;
+  ivec2 per = periodOf(cells);
   vec2 cs = uRes / cells;
   // The warped frame's axes on screen (Shaping › Domain warp, then Warp): Bevel aspect takes the cells' edges there.
   vec2 jx = dFdx(p), jy = dFdy(p);
   if (u_warp > 0.0) {
     vec2 wc = cellsFor(u_warp_scale, 1.0);
-    ivec2 wper = uTile ? ivec2(wc) : NO_PERIOD;
+    ivec2 wper = periodOf(wc);
     // The Warp displacement (warpOffset) — with Bevel aspect also a pixel right and up, for the
     // warp's Jacobian (dFdx of the warped position is constant over each 2 × 2 quad on some GPUs, which steps the
     // bevel's width). One loop, so the noise compiles once.
@@ -1606,8 +1642,8 @@ GenOut gen(vec2 p) {
   }
   // Smooth value noise (one octave, cheap to compile) for the cracks' width and the grout bed's lumps.
   vec2 fc = uRes / max(0.4 * L, 1.0);
-  if (uTile) fc = max(floor(fc + 0.5), vec2(1.0));
-  ivec2 fper = uTile ? ivec2(fc) : NO_PERIOD;
+  fc = snapCells(fc);
+  ivec2 fper = periodOf(fc);
   float nz = u_output == 0 && u_grout_level > 0.0 ? valueNoise(p / uRes * fc, fper, uSeed + 53.0) : 0.5;
   if (u_output == 4) {
     // Width variation: each of the two nearest edges a crack whose width and depth wander with smooth noise read on
@@ -1617,11 +1653,11 @@ GenOut gen(vec2 p) {
     // Broken lips: the cracks' rims fray with a noise about twice the Gap across (each side its own), so the frayed
     // edge scales with the crack instead of speckling per pixel.
     vec2 lc = uRes / max(2.0 * u_gap, 2.0);
-    if (uTile) lc = max(floor(lc + 0.5), vec2(1.0));
-    float lip = valueNoise(p / uRes * lc, uTile ? ivec2(lc) : NO_PERIOD, uSeed + 59.0);
+    lc = snapCells(lc);
+    float lip = valueNoise(p / uRes * lc, periodOf(lc), uSeed + 59.0);
     vec2 wfc = uRes / max(u_crack_scale * L, 1.0);
-    if (uTile) wfc = max(floor(wfc + 0.5), vec2(1.0));
-    ivec2 wper = uTile ? ivec2(wfc) : NO_PERIOD;
+    wfc = snapCells(wfc);
+    ivec2 wper = periodOf(wfc);
     // (Other metrics: the nearest edge only.)
     int ne = u_metric == 0 ? 2 : 1;
     for (int i = 0; i < ne * UNI_1; i++) {
@@ -1751,8 +1787,8 @@ vec2 pat_line(int k, int axis, int m, float cs, float off) {
     if (u_snap) return vec2(floor((float(k) + off) * cs + 0.5) / cs - off, u_width);
     return vec2(float(k), u_width);
   }
-  vec2 h = hash2I(ivec2(uTile ? imod(k, m) : k, axis), uSeed + 211.0);
-  float h0 = hashI(ivec2(uTile ? imod(k - 1, m) : k - 1, axis), uSeed + 211.0);
+  vec2 h = hash2I(ivec2(wrapCell(k, m), axis), uSeed + 211.0);
+  float h0 = hashI(ivec2(wrapCell(k - 1, m), axis), uSeed + 211.0);
   // Panel k spans 1 + ½ J (h(k+1) − h(k−1)) cells: up to ±0.75 at Jitter 1 (most within 0.45–1.55 cells), but never
   // closer than two line widths plus the bevels and 2 px.
   float J = min(1.5 * u_jitter, 2.0 * max(1.0 - (2.0 * u_width + 2.0 * u_bevel + 2.0) / cs, 0.0));
@@ -1800,7 +1836,7 @@ GenOut gen(vec2 p) {
   // Rounded panel corners: inside a panel, its distance to a rounded box's corner.
   bool corner = u_round > 0.0 && dl.x < u_round && dl.y < u_round;
   if (corner) d = u_round - length(max(u_round - dl, 0.0));
-  if (uTile) c = imod(c, m);
+  c = wrapCell(c, m);
   GenOut o = genOut(0.0, 1.0, hashI(c, uSeed), d);
   if (bevelAspectOn()) {
     // Bevel aspect: each line's distance in the space the aspect stretches (where lines cross, the deeper wins, as in
@@ -1821,6 +1857,21 @@ GenOut gen(vec2 p) {
 // ------------------------------------------------------------------------------------------------ stripes
 
 const stripeShape = (p: Record<string, unknown>) => p.mode === 'shape' || p.mode === 'square';
+
+/**
+ * Stripes' uniform-only work (its derived uniforms): the stripe normal in cycles per px (k) — when tiling snapped to
+ * whole cycles across each axis, which snaps the angle to the nearest seamless one — and how many stripes are told
+ * apart then (g, the gcd of those cycles). In float32 steps, as the shader did.
+ */
+export function stripesDerived(p: ParamValues, c: LayerCanvas): { k: number[]; g: number } {
+	const a = f32(f32(Number(p.angle)) * f32(Math.PI / 180));
+	const n = f32(Number(p.count));
+	const k = [f32(f32(-f32(Math.sin(a)) * n) / c.width), f32(f32(f32(Math.cos(a)) * n) / c.width)];
+	if (!c.tileable) return { k, g: 1 };
+	const cyc = [Math.floor(f32(f32(k[0] * c.width) + 0.5)), Math.floor(f32(f32(k[1] * c.height) + 0.5))];
+	if (cyc[0] === 0 && cyc[1] === 0) cyc[1] = 1;
+	return { k: [cyc[0] / c.width, cyc[1] / c.height], g: gcd(cyc[0], cyc[1]) };
+}
 
 export const stripesLayer: LayerDef = {
 	type: 'stripes',
@@ -1845,11 +1896,13 @@ export const stripesLayer: LayerDef = {
 			{ hint: 'Shape makes each stripe an SDF for bevels; the others are plain values across the period' }
 		),
 		P.float('count', 'Count', 8, 0.25, 512, {
+			uniform: false,
 			softMax: 64,
 			step: 0.01,
 			hint: 'Stripes per texture width (period = width / count). When tiling, whole cycles must fit across both axes, so a slanted count is rounded with the angle (e.g. 12 at 45° gives 8 crossings per edge, about 11.3)'
 		}),
 		P.float('angle', 'Angle', 0, -360, 360, {
+			uniform: false,
 			softMin: -180,
 			softMax: 180,
 			unit: '°',
@@ -1913,24 +1966,19 @@ export const stripesLayer: LayerDef = {
 	// Stripes added in the editor: a bevel that rounds each stripe into a band at this size.
 	fresh: ({ width }) => ({ bevel: r1(clamp((width / 8) * 0.5 * 0.25, 1, 32)) }),
 	defaults: { h_on: true, h_amount: 0.4, bevel: 2, profile: 'smooth' },
+	// Uniform-only work on the CPU (stripesDerived); the params only it reads are `uniform: false`.
+	derivedUniforms: { decl: { k: 'vec2', g: 'int' }, compute: stripesDerived },
 	glsl: /* glsl */ `
 GenOut gen(vec2 p) {
   vec2 up = vec2(p.x, uRes.y - p.y);             // user space (y down)
-  float a = radians(u_angle);
-  vec2 k = vec2(-sin(a), cos(a)) * u_count / uRes.x;   // stripe normal, cycles per px
-  int g = 1;
-  if (uTile) {
-    // Whole cycles across each axis -> seamless; this snaps the angle to the nearest tileable one.
-    vec2 cyc = floor(k * uRes + 0.5);
-    if (cyc.x == 0.0 && cyc.y == 0.0) cyc.y = 1.0;
-    k = cyc / uRes;
-    g = igcd(int(cyc.x), int(cyc.y));
-  }
+  // Stripe normal (cycles per px; whole cycles across each axis when tiling) and the stripes told apart (stripesDerived).
+  vec2 k = d_k;
+  int g = d_g;
   float f = dot(up, k) - u_offset;
   float period = 1.0 / length(k);
   float fi = floor(f);
   int idx = int(fi);
-  if (uTile) idx = imod(idx, g);
+  idx = wrapCell(idx, g);
   float rnd = hashI(ivec2(idx, 0), uSeed);
   // ph = 0 at a stripe's leading edge, which is a pixel boundary when the period is whole pixels. The stripe
   // covers ph in [0, duty).
@@ -1949,7 +1997,7 @@ GenOut gen(vec2 p) {
     vec3 lo = vec3(1e9), hi = vec3(-1e9), rr = vec3(rnd);
     for (int i = 0; i < 3; i++) {
       int si = int(fi) + i - 1;
-      int wi = uTile ? imod(si, g) : si;
+      int wi = wrapCell(si, g);
       vec4 h = vec4(hash3I(ivec2(wi, 5), uSeed + 211.0), hashI(ivec2(wi, 6), uSeed + 213.0));
       if (h.z >= u_skip) {
         float w = clamp(u_duty * (1.0 + u_width_var * (2.0 * h.x - 1.0)), min(u_duty, wmin), max(u_duty, 1.0 - wmin));

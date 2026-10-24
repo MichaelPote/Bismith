@@ -193,7 +193,7 @@ vec4 ma_src(vec2 q) { return fetchT(tMaskSrc, ivec2(floor(q))); }
 float ma_breakup(vec2 p, float fid) {
   vec2 cells = cellsFor(uRes.x / max(u_bk_scale, 1.0), 1.0);
   vec2 shift = fid >= 0.0 ? vec2(fid * 37.0, fract(fid * 91.7) * 23.0) : vec2(0.0);
-  return fbm(p / uRes * cells + shift, uTile ? ivec2(cells) : NO_PERIOD, 4, float(u_bk_seed) * 7.31 + 3.0);
+  return fbm(p / uRes * cells + shift, periodOf(cells), 4, float(u_bk_seed) * 7.31 + 3.0);
 }
 
 // Direction (degrees round the texture, 0 = top, 90 = right) as a GL vector (y up).

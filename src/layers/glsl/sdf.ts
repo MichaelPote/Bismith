@@ -92,6 +92,19 @@ vec2 sdBezierT(vec2 pos, vec2 A, vec2 B, vec2 C) {
   return d1 < d2 ? vec2(sqrt(d1), t.x) : vec2(sqrt(d2), t.y);
 }
 
+// Vesica (pointed lens, two circular arcs) along y: tips at (0, ±a), half-width b. A lens is never wider than it is
+// long: wider (b > a), it is the lens turned a quarter, its tips at (±b, 0) — so it always fills its 2a × 2b box, both
+// sizes stay live and it passes through the circle at b = a.
+float sdVesica(vec2 p, float a, float b) {
+  if (b > a) { p = p.yx; float t = a; a = b; b = t; }
+  b = max(b, 1e-3);
+  a = max(a, b);
+  float r = 0.5 * (a * a / b + b);
+  float d = r - b;
+  p = abs(p);
+  return ((p.y - a) * d > p.x * a) ? length(p - vec2(0.0, a)) : length(p + vec2(d, 0.0)) - r;
+}
+
 // Star with n points, outer radius r, inner ratio m (0..1).
 float sdStar(vec2 p, float r, int n, float m) {
   float an = PI / float(n);

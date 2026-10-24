@@ -787,7 +787,7 @@ float pp_sec(float R, float y) {
 // A run k's place across: its pipes' place (Diameter variation), the start of its bundle (shifted by the jitter within
 // its spacing) and the bundle's width.
 vec3 pp_run(int k, int n, float per, float D0, float gap, int nb) {
-  int kw = uTile ? imod(k, n) : k;
+  int kw = wrapCell(k, n);
   vec2 h = hash2I(ivec2(kw, 0), uSeed);
   float Ds = u_dia_var > 0.0 ? max(floor(D0 * (1.0 - u_dia_var * h.x) + 0.5), 1.0) : D0;
   float tot = Ds * float(nb) + gap * float(nb - 1);
@@ -851,7 +851,7 @@ GenOut gen(vec2 p) {
     runN = pp_run(k0 + i, n, per, D0, gap, nb);
    if (i > -K) {
     int k = k0 + i - 1;
-    int kw = uTile ? imod(k, n) : k;
+    int kw = wrapCell(k, n);
     float Ds = run.x, y0 = run.y, tot = run.z;
     float pitch = Ds + gap;
     float jj = clamp(floor((q.y - y0 + 0.5 * gap) / pitch), 0.0, float(nb - 1));
@@ -928,7 +928,7 @@ GenOut gen(vec2 p) {
         float uj = (q.x - lo) / spj - phj;
         float ij = floor(uj + 0.5) + ((e & 1) == 0 ? 0.0 : (uj > floor(uj + 0.5) ? 1.0 : -1.0));
         // (Its randoms by its index round the tile: the joint past one end is the one at the other.)
-        int ijw = uTile ? imod(int(ij), u_joints) : int(ij);
+        int ijw = wrapCell(int(ij), u_joints);
         float amp = min(0.3 * u_joint_spread, max(0.5 - (0.5 * abs(G) + extS + 1.0) / spj, 0.0));
         float xg = (ij + phj + amp * 2.0 * (hashI(ivec2(kw, ijw + 4099), uSeed) - 0.5)) * spj;
         if (clamped) {

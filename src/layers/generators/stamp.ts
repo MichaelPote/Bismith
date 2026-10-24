@@ -8,6 +8,7 @@
 // colour ramp paints multi-tone bitmaps; repeats can carry their own random instead.
 
 import { FONT, parseBitmap } from '@/core/bitmap';
+import { Lru } from '@/core/memo';
 import { P, type ParamDef, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
 import { getImage } from '@/core/images';
@@ -883,7 +884,7 @@ interface Grid {
 	M: number;
 	smooth: boolean;
 }
-const gridCache = new Map<string, Grid>();
+const gridCache = new Lru<Grid>(24);
 
 /** The grid the shader samples: the bitmap (or its smoothed outline, N× finer) with the margin round it. Cached. */
 function stampGrid(c: Cells, o: StampMap): Grid {
@@ -892,29 +893,25 @@ function stampGrid(c: Cells, o: StampMap): Grid {
 	const M = o.margin * N;
 	// (pre too: the texture's header holds it.)
 	const key = `${cellsKey(c)}:${o.margin}:${o.pre ?? 1}:${smooth ? `${o.smooth}:${N}` : 0}:${o.strokes ? `s${o.strokes.bold}` : ''}`;
-	const hit = gridCache.get(key);
-	if (hit) return hit;
-	let g: Grid;
-	if (smooth && o.strokes) {
-		// Straight runs of two steps (three cells) and more always stay; from Smooth outline 1.5 the single steps next to
-		// a junction or a stroke's end straighten too, and beyond 1 the strokes' bends round off (corner cutting up to a
-		// quarter of each segment at 2).
-		const a = o.smooth ?? 1;
-		const f = strokeCells(c, N, o.margin, o.strokes.bold, a < 1.5, 0.25 * Math.min(1, Math.max(0, a - 1)));
-		g = { W: f.w, H: f.h, lv: f.lv, sdf: f.sdf, N, M, smooth };
-	} else if (smooth) {
-		const f = smoothCells(c, o.smooth!, N, o.margin);
-		g = { W: f.w, H: f.h, lv: f.lv, N, M, smooth };
-	} else {
+	return gridCache.get(key, (): Grid => {
+		if (smooth && o.strokes) {
+			// Straight runs of two steps (three cells) and more always stay; from Smooth outline 1.5 the single steps next to
+			// a junction or a stroke's end straighten too, and beyond 1 the strokes' bends round off (corner cutting up to a
+			// quarter of each segment at 2).
+			const a = o.smooth ?? 1;
+			const f = strokeCells(c, N, o.margin, o.strokes.bold, a < 1.5, 0.25 * Math.min(1, Math.max(0, a - 1)));
+			return { W: f.w, H: f.h, lv: f.lv, sdf: f.sdf, N, M, smooth };
+		}
+		if (smooth) {
+			const f = smoothCells(c, o.smooth!, N, o.margin);
+			return { W: f.w, H: f.h, lv: f.lv, N, M, smooth };
+		}
 		const W = c.w + 2 * M;
 		const H = c.h + 2 * M;
 		const lv = new Uint8Array(W * H);
 		for (let y = 0; y < c.h; y++) for (let x = 0; x < c.w; x++) lv[(y + M) * W + x + M] = c.lv[y * c.w + x];
-		g = { W, H, lv, N, M, smooth };
-	}
-	gridCache.set(key, g);
-	if (gridCache.size > 24) gridCache.delete(gridCache.keys().next().value!);
-	return g;
+		return { W, H, lv, N, M, smooth };
+	});
 }
 
 const texCache = new WeakMap<Grid, CpuTexture>();

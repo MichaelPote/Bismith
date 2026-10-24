@@ -17,6 +17,8 @@ const noUniform = (d: ParamDef) => d.key === 'seed' || d.uniform === false;
  * tests cover their CPU side). A new layer of this kind must be added deliberately.
  */
 const READ_ELSEWHERE = new Set(['stamp', 'label', 'polyline', 'drips', 'splats', 'traces', 'causticlight', 'pipework']);
+/** Filter params read only by their prepare passes (the edge filters' jump flood, Cavity's blur). */
+const READ_IN_PREPARE = new Set(['bevel.threshold', 'bevel.smooth', 'etch.threshold', 'etch.smooth', 'cavity.radius']);
 
 /** The enum variants of a layer's own params (defaults, then each other option), to probe param-dependent hooks. */
 function variants(type: string, own: ParamDef[]): ParamValues[] {
@@ -34,8 +36,11 @@ describe('layer registry', () => {
 		for (const def of defs) {
 			const glsl = def.kind === 'generator' ? def.glsl : def.run ? undefined : def.filterGlsl;
 			if (!glsl || READ_ELSEWHERE.has(def.type)) continue;
-			for (const d of def.params)
-				if (!noUniform(d) && !new RegExp(`\\bu_${d.key}\\b`).test(glsl)) unused.push(`${def.type}.${d.key}`);
+			for (const d of def.params) {
+				// (A curve is read through curve_<key>, which the profile helpers may call: Bevel's custom profile.)
+				if (noUniform(d) || d.type === 'curve' || READ_IN_PREPARE.has(`${def.type}.${d.key}`)) continue;
+				if (!new RegExp(`\\bu_${d.key}\\b`).test(glsl)) unused.push(`${def.type}.${d.key}`);
+			}
 		}
 		expect(unused).toEqual([]);
 	});

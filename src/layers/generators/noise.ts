@@ -1,4 +1,5 @@
 import { pcg3, u2d } from '@/core/hash';
+import { memoize } from '@/core/memo';
 import { P, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
 
@@ -75,19 +76,12 @@ function fsNoise(basis: number, x: number, y: number, s: number): number {
 
 const STATS_N = 8192;
 
-/** fractalQuantiles' recent results, by their settings: cpuData runs on every param change (Levels, colours, …). */
-const statsCache = new Map<string, number[]>();
+/** measureQuantiles' recent results, by their settings: cpuData runs on every param change (Levels, colours, …). */
+const measured = memoize(measureQuantiles, 16);
 
 /** The 17 quantiles (1 % … 99 %) of the fractal sum's value for these settings (the shaders' octave loop on the CPU). */
 export function fractalQuantiles(o: FractalStats): number[] {
-	const key = [o.basis, o.mode, o.octaves, o.gain, o.lacunarity, o.crease, o.ridgeOffset, o.hier].join();
-	let q = statsCache.get(key);
-	if (!q) {
-		q = measureQuantiles(o);
-		if (statsCache.size >= 16) statsCache.delete(statsCache.keys().next().value!);
-	} else statsCache.delete(key);
-	statsCache.set(key, q);
-	return q.slice();
+	return measured(o).slice();
 }
 
 function measureQuantiles(o: FractalStats): number[] {
@@ -441,16 +435,16 @@ GenOut gen(vec2 p) {
   if (u_noise == 6) {
     float b = float(u_block);
     ivec2 c = ivec2(floor(p / b));
-    if (uTile) c = imod(c, ivec2(max(floor(uRes / b + 0.5), vec2(1.0))));
+    c = wrapCell(c, ivec2(snapCells(uRes / b)));
     float v = animValue(hashI(c, uSeed), c, uSeed);
     return genOut(v, 1.0, v, 0.0);
   }
   vec2 cells = cellsFor(u_scale, u_stretch);
-  ivec2 period = uTile ? ivec2(cells) : NO_PERIOD;
+  ivec2 period = periodOf(cells);
   vec2 x = p / uRes * cells;
   if (u_warp > 0.0) {
     vec2 wc = cellsFor(u_warp_scale, 1.0);
-    ivec2 wper = uTile ? ivec2(wc) : NO_PERIOD;
+    ivec2 wper = periodOf(wc);
     x += warpOffset(p / uRes * wc, wper, uSeed + 7.0) * u_warp * 2.0;
   }
   // The fractal sum in one flat loop with a runtime bound, so each base noise is compiled once (a generic dispatch

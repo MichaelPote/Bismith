@@ -5,10 +5,10 @@
 // combine params work. rnd is per tile, or per tile kind (cube face, H/V brick, octagon/square…). The Tones output
 // paints each tile kind its own tone instead (a two-tone checkerboard on squares), blurred by Softness.
 
-import { P, round1 as r1 } from '@/core/params';
-import type { LayerDef } from '../types';
+import { P, enumIndex, round1 as r1, type ParamValues } from '@/core/params';
+import type { LayerCanvas, LayerDef } from '../types';
 import { modeIs } from '../commonParams';
-import { GEO_FRAME_GLSL, geoPolyGlsl, orientParam, rndModeParam } from './geometricCommon';
+import { GEO_FRAME_GLSL, geoAB, geoCount, geoPolyGlsl, geoSpan, orientParam, rndModeParam } from './geometricCommon';
 
 export const TILE_MODES: [string, string][] = [
 	['squares', 'Squares / checkerboard'],
@@ -26,6 +26,68 @@ export const TILE_MODES: [string, string][] = [
 ];
 
 const isValue = (p: Record<string, unknown>) => p.output === 'value';
+
+/** A tiling's period in pattern units (TILE_MODES order) for the length ratio n. */
+function tilePeriod(mode: number, n: number): [number, number] {
+	if (mode === 3 || mode === 4) return [2 * n, 2 * n];
+	if (mode === 5) return [4, 2];
+	if (mode === 6) return [5, 5];
+	if (mode === 9) return [n * n + 1, n * n + 1];
+	return mode === 11 ? [2, 2] : [1, 1];
+}
+
+/**
+ * Tiles' uniform-only work (its derived uniforms): the period in pattern units (U) and the periods across and down the
+ * frame (k) — Scale, the shape's rows per column, whole counts when tiling (multiples that keep a checkerboard and split
+ * bands seamless), and Keep tile shape's search for the column count that fits the shape best.
+ */
+export function tilesDerived(p: ParamValues, c: LayerCanvas): { U: number[]; k: number[]; geo_AB: number[] } {
+	const idx = (key: string) =>
+		enumIndex(
+			tilesLayer.params.find((d) => d.key === key)!,
+			p[key]
+		);
+	const mode = idx('mode');
+	const n = Math.min(Math.max(Math.round(Number(p.ratio)), 1), 12);
+	const U = tilePeriod(mode, n);
+	// Natural height / width of a period: triangles and blocks are √3 tall.
+	const nat = mode === 2 || mode === 8 ? 1.7320508 : 1;
+	let multX = 1;
+	let multY = 1;
+	if (mode === 0) {
+		// A checkerboard (the kinds show) only repeats with even counts, split bands with whole periods.
+		const rnd = idx('rnd_mode');
+		const chk = isValue(p) || idx('only') > 0 || rnd === 1 || (rnd === 2 && Number(p.kind_w) > 0);
+		const split = Number(p.split) > 0;
+		const rule = idx('split_rule');
+		const P = Math.max(Math.round(Number(p.split_every)), 2);
+		multX = chk ? 2 : 1;
+		multY = chk || Number(p.stagger) > 0 ? 2 : 1;
+		if (split && (rule === 1 || rule === 3)) multX = multX === 1 || P % 2 === 0 ? P : 2 * P;
+		if (split && (rule === 2 || rule === 3)) multY = multY === 1 || P % 2 === 0 ? P : 2 * P;
+	}
+	const tile = c.tileable;
+	const span = geoSpan(idx('orient'), c);
+	const count = (k: number, m: number) => geoCount(k, m, tile);
+	// Rows per column for the tile shape asked for (natural shape × Aspect).
+	const rpc = span[1] / (span[0] * (U[1] / U[0]) * nat * Number(p.aspect));
+	const kx0 = (Number(p.scale) * span[0]) / c.width;
+	let kx = count(kx0, multX);
+	let ky = count(kx * rpc, multY);
+	if (tile && p.fit) {
+		// Keep tile shape: try column counts around Scale (and the one that gives a single row band when the rows would
+		// round away) and keep the best fit of shape, then of count — log errors, the shape weighing ~3× the count.
+		const lo = Math.max(1, Math.floor((kx0 * 0.6) / multX)) * multX;
+		const hi = Math.min(Math.max(Math.ceil(kx0 * 1.6), Math.floor(multY / rpc + 0.5)), lo + 47 * multX);
+		let best = 1e9;
+		for (let x = lo; x <= hi; x += multX) {
+			const y = Math.max(1, Math.floor((x * rpc) / multY + 0.5)) * multY;
+			const e = Math.abs(Math.log(y / (x * rpc))) + 0.35 * Math.abs(Math.log(x / Math.max(kx0, 1)));
+			if (e < best - 1e-4) [best, kx, ky] = [e, x, y];
+		}
+	}
+	return { U, k: [kx, ky], geo_AB: geoAB(c) };
+}
 const splitShown = (p: Record<string, unknown>) => p.mode === 'squares' && Number(p.split ?? 0) > 0;
 
 /** Tiles drawn: every tile, or one kind (option index = kind + 1 in the shader). */
@@ -216,11 +278,13 @@ export const tilesLayer: LayerDef = {
 			}
 		),
 		P.float('scale', 'Scale', 7, 0.25, 256, {
+			uniform: false,
 			softMax: 32,
 			step: 0.01,
 			hint: 'Pattern repeats across the width (whole counts when tiling). One repeat = 1 square / diamond pair / cube column / 2×2 herringbone or basket block / cross pair / 5 plus tiles / octagon / triangle pair / pinwheel / 2×2 Cairo cells. A checkerboard (Squares whose kinds show: Tones, a kind filter or a kind-weighted random) keeps even counts when tiling'
 		}),
 		P.float('aspect', 'Aspect', 1, 0.1, 10, {
+			uniform: false,
 			softMin: 0.25,
 			softMax: 4,
 			step: 0.01,
@@ -342,6 +406,7 @@ export const tilesLayer: LayerDef = {
 			hint: 'Height: the top face stays level and the two side faces slope down to the block’s bottom corner by this share of its height — each block raised like a box seen from above'
 		}),
 		P.bool('fit', 'Keep tile shape', true, {
+			uniform: false,
 			hint: 'Tiling needs whole repeats across and down. On: the count across may move off Scale a little so that the rows fit — tiles keep their shape (regular blocks and triangles) and Aspect holds at any scale. Off: exactly Scale across, the rows rounded (tiles may stretch or squash)'
 		}),
 		P.float('soft', 'Softness', 1.5, 0, 256, {
@@ -472,6 +537,8 @@ export const tilesLayer: LayerDef = {
 			]
 		}
 	},
+	// Uniform-only work on the CPU (tilesDerived); the params only it reads are `uniform: false`.
+	derivedUniforms: { decl: { U: 'vec2', k: 'vec2', geo_AB: 'ivec2' }, compute: tilesDerived },
 	glsl:
 		GEO_FRAME_GLSL +
 		geoPolyGlsl(Math.max(...SHAPES.flat().map((s) => s.verts.length))) +
@@ -763,65 +830,36 @@ GenOut gen(vec2 p) {
   int n = clamp(u_ratio, 1, 12);
   bool val = u_output == 1;
   int only = u_only - 1;   // -1: every kind
-  // Period in pattern units, its natural height/width ratio, tile kinds, smallest tile feature (units), the shape
-  // params (see the table).
-  vec2 U = vec2(1.0);
-  float nat = 1.0;
+  // Period in pattern units (tilesDerived), tile kinds, smallest tile feature (units), the shape params (see the table).
+  vec2 U = d_U;
   int ncls = 1;
   float feat = 0.5;
-  int multX = 1, multY = 1;
   vec2 t = vec2(float(n), 0.0);
   bool split = mode == 0 && u_split > 0.0;
   if (mode == 0) {
-    // A checkerboard (the kinds show) only repeats with even counts, split bands with whole periods.
-    bool chk = val || only >= 0 || u_rnd_mode == 1 || (u_rnd_mode == 2 && u_kind_w > 0.0);
     ncls = split && u_split_kinds == 0 ? 4 : 2;
     feat = split ? 0.5 : 1.0;
-    multX = chk ? 2 : 1;
-    multY = chk || u_stagger > 0.0 ? 2 : 1;
-    int P = max(u_split_every, 2);
-    if (split && (u_split_rule == 1 || u_split_rule == 3)) multX = multX == 1 || (P & 1) == 0 ? P : 2 * P;
-    if (split && (u_split_rule == 2 || u_split_rule == 3)) multY = multY == 1 || (P & 1) == 0 ? P : 2 * P;
   }
   else if (mode == 1) { ncls = 2; feat = 0.7; }
-  else if (mode == 2) { nat = 1.7320508; ncls = 3; feat = 0.25; }
-  else if (mode == 3 || mode == 4) { U = vec2(2.0 * float(n)); ncls = 2; feat = 1.0; }
+  else if (mode == 2) { ncls = 3; feat = 0.25; }
+  else if (mode == 3 || mode == 4) { ncls = 2; feat = 1.0; }
   else if (mode == 5) {
-    U = vec2(4.0, 2.0); ncls = 2; feat = 0.5;
+    ncls = 2; feat = 0.5;
     float pl = clamp(u_plateau, 0.01, 0.99);
     t = vec2(pl, (pl <= 0.5 ? 1.0 : -1.0) * max(clamp(u_step, 0.0, 1.0) * abs(1.0 - 2.0 * pl), 0.002));
   }
-  else if (mode == 6) { U = vec2(5.0); ncls = 5; feat = 1.0; }
+  else if (mode == 6) { ncls = 5; feat = 1.0; }
   else if (mode == 7) { ncls = 2; feat = 0.4; t.x = clamp(u_cut, 0.005, 0.495); }
-  else if (mode == 8) { nat = 1.7320508; ncls = 2; feat = 0.25; }
-  else if (mode == 9) { U = vec2(float(n * n + 1)); ncls = 2; feat = 1.0; }
+  else if (mode == 8) { ncls = 2; feat = 0.25; }
+  else if (mode == 9) { ncls = 2; feat = 1.0; }
   else if (mode == 10) { ncls = 3; feat = 0.3; t.x = clamp(u_inner, 0.02, 0.98); }
-  else { U = vec2(2.0); ncls = 4; feat = 0.4; t.x = 0.5 - clamp(u_cairo, 0.0, 0.45); }
+  else { ncls = 4; feat = 0.4; t.x = 0.5 - clamp(u_cairo, 0.0, 0.45); }
 
   // Odd gaps: shift the lattice half a pixel so both gap edges land on pixel boundaries.
   float sh = fract(0.5 * u_gap);
   geo_frame(p - sh, u_orient);
-  // Rows per column for the tile shape asked for (natural shape × Aspect).
-  float rpc = geo_span.y / (geo_span.x * (U.y / U.x) * nat * u_aspect);
-  float kx0 = u_scale * geo_span.x / uRes.x;
-  float kx = geo_count(kx0, multX);
-  float ky = geo_count(kx * rpc, multY);
-  if (uTile && u_fit) {
-    // Keep tile shape: try column counts around Scale (and the one that gives a single row band when the rows would
-    // round away) and keep the best fit of shape, then of count — log errors, the shape weighing ~3× the count.
-    float fx = float(multX), fy = float(multY);
-    float lo = max(1.0, floor(kx0 * 0.6 / fx)) * fx;
-    float hi = min(max(ceil(kx0 * 1.6), floor(fy / rpc + 0.5)), lo + 47.0 * fx);
-    float best = 1e9;
-    for (int i = 0; i < 48 * UNI_1; i++) {
-      float x = lo + float(i) * fx;
-      if (x > hi) break;
-      float y = max(1.0, floor(x * rpc / fy + 0.5)) * fy;
-      float e = abs(log(y / (x * rpc))) + 0.35 * abs(log(x / max(kx0, 1.0)));
-      if (e < best - 1e-4) { best = e; kx = x; ky = y; }
-    }
-  }
-  geo_periods(vec2(kx, ky));
+  // Periods across and down: Scale and Aspect, whole when tiling, fitted to the shape (tilesDerived).
+  geo_periods(d_k);
   geo_s = geo_cs / U;
 
   // Inset = half the gap + the rounding, capped by the smallest tile feature; the rounding gives way first, so heavy

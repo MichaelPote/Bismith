@@ -2,10 +2,11 @@
 // nested chevrons, and tech-wall Z steps (low run → rise → high run, chamfered ends), optionally with rails along
 // the lane edges. Exact distances (px) so bevels, profiles and masks work; rnd per bar / piece / lane.
 
-import { P, gradient, orientAxis } from '@/core/params';
-import type { LayerDef } from '../types';
+import { P, gradient, orientAxis, type ParamValues } from '@/core/params';
+import type { LayerCanvas, LayerDef } from '../types';
 import { modeIs } from '../commonParams';
-import { GEO_FRAME_GLSL, geoPolyGlsl } from './geometricCommon';
+import { gcd } from '../derivedMath';
+import { GEO_FRAME_GLSL, geoAB, geoCount, geoPolyGlsl, geoSpan } from './geometricCommon';
 
 // Band thickness, margins and rails are across the bands, the chamfer along them; diagonals scale with both.
 const BAND_AXIS: Record<string, 'x' | 'y'> = { '0': 'x', '180': 'x', '90': 'y', '270': 'y' };
@@ -24,6 +25,30 @@ const DIRECTIONS: [string, string][] = [
 	['315', 'Diagonal 315°']
 ];
 
+/**
+ * Bands' uniform-only work (its derived uniforms): the periods along and across (k: Count and Rows, whole when tiling;
+ * on diagonal frames per untiled span, so a tiling one keeps their density), and for diagonal bars that cross every
+ * lane when tiling (no margins) the repeats a bar advances per lane and how many bars are told apart (thr).
+ */
+export function bandsDerived(p: ParamValues, c: LayerCanvas): { k: number[]; thr: number[]; geo_AB: number[] } {
+	const tile = c.tileable;
+	const ori = DIRECTIONS.findIndex(([v]) => v === String(p.orient));
+	const span = geoSpan(ori, c);
+	const kc = ori % 2 === 1 ? [span[0] / (0.70710678 * c.width), span[1] / (0.70710678 * c.height)] : [1, 1];
+	const kx = geoCount(Number(p.count) * kc[0], 1, tile);
+	const ky = geoCount(Number(p.rows) * kc[1], p.mirror ? 2 : 1, tile);
+	const thr = [0, 1];
+	if (p.mode === 'diagonal' && tile && Number(p.margin_top) <= 0 && Number(p.margin_bottom) <= 0) {
+		// A bar crosses all lanes, advancing nRun repeats per lane, so bars are only told apart modulo gcd(kx, nRun ky).
+		const ang = Math.min(Math.max(Math.abs(Number(p.angle)), 1), 90);
+		const s = ang >= 89.99 ? 1e6 : Math.tan((ang * Math.PI) / 180);
+		const nRun = Math.floor(span[1] / ky / s / (span[0] / kx) + 0.5);
+		thr[0] = nRun;
+		thr[1] = gcd(Math.round(kx), nRun * Math.round(ky));
+	}
+	return { k: [kx, ky], thr, geo_AB: geoAB(c) };
+}
+
 export const bandsLayer: LayerDef = {
 	type: 'bands',
 	label: 'Bands',
@@ -39,8 +64,9 @@ export const bandsLayer: LayerDef = {
 			['chevron', 'Chevrons'],
 			['z', 'Z steps']
 		]),
-		P.int('count', 'Count', 2, 1, 128, { softMax: 32, hint: 'Repeats along the band direction' }),
+		P.int('count', 'Count', 2, 1, 128, { uniform: false, softMax: 32, hint: 'Repeats along the band direction' }),
 		P.int('rows', 'Rows', 3, 1, 128, {
+			uniform: false,
 			softMax: 32,
 			hint: 'Lanes stacked across the band direction (chevrons: stripe spacing)'
 		}),
@@ -208,6 +234,8 @@ export const bandsLayer: LayerDef = {
 			bevel: px(Math.max(1, 0.5 * w))
 		};
 	},
+	// Uniform-only work on the CPU (bandsDerived); the params only it reads are `uniform: false`.
+	derivedUniforms: { decl: { k: 'vec2', thr: 'ivec2', geo_AB: 'ivec2' }, compute: bandsDerived },
 	glsl:
 		GEO_FRAME_GLSL +
 		geoPolyGlsl(4) +
@@ -331,11 +359,9 @@ void bnd_zpiece(ivec2 kk, float x0, float L, float J, float pj, float rv, float 
 GenOut gen(vec2 p) {
   int mode = u_mode;
   geo_frame(p, u_orient);
-  // Diagonal frames: the counts are per untiled span (uRes / √2), so a tiling one (gcd(W, H) / √2) keeps their density.
-  vec2 kc = (u_orient & 1) == 1 ? geo_span / (0.70710678 * uRes) : vec2(1.0);
-  float kx = geo_count(float(u_count) * kc.x, 1);
-  float ky = geo_count(float(u_rows) * kc.y, u_mirror ? 2 : 1);
-  geo_periods(vec2(kx, ky));
+  // Periods along and across (bandsDerived).
+  float kx = d_k.x, ky = d_k.y;
+  geo_periods(d_k);
   float P = geo_cs.x, Hl = geo_cs.y;
   float fy = geo_f.y;
   int lane = int(floor(fy / Hl));
@@ -359,7 +385,7 @@ GenOut gen(vec2 p) {
   if (u_even && u_fill >= 1 && (mode == 1 || mode == 3)) { mt = u_rail > 0.0 ? 0.5 * u_rail : -0.5 * u_width; mb = mt; }
   float r = clamp(u_round, 0.0, hw);
   int kxi = int(kx + 0.5), kyi = int(ky + 0.5);
-  int laneW = uTile ? imod(lane, kyi) : lane;
+  int laneW = wrapCell(lane, kyi);
   float yl = mb + hw, yh = Hl - mt - hw;
   float Rr = max(yh - yl, 0.0);
   geo_reset();
@@ -379,10 +405,11 @@ GenOut gen(vec2 p) {
   if (mode == 0) {
     float run = Hi / s;
     if (through && uTile) {
-      nRun = int(floor(run / P + 0.5));
+      // A stripe crosses all lanes, advancing nRun repeats per lane, so stripes are only told apart modulo kThr
+      // (bandsDerived).
+      nRun = d_thr.x;
       run = float(nRun) * P;
-      // A stripe crosses all lanes, advancing nRun repeats per lane, so stripes are only told apart modulo this.
-      kThr = igcd(kxi, nRun * kyi);
+      kThr = d_thr.y;
     }
     slope = Hi > 0.0 ? run / Hi : 0.0;   // x shift per px of height
   } else if (mode == 1 || mode == 2) {
@@ -481,7 +508,7 @@ GenOut gen(vec2 p) {
     int j = it / 4;
     int dl = mode == 2 ? j / per - nL : 0;
     int lc = lane + dl;
-    int lcW = uTile ? imod(lc, kyi) : lc;
+    int lcW = wrapCell(lc, kyi);
     bool fresh = mode == 0 || (mode == 3 ? it - 6 * (it / 6) == 0 : it - 4 * per * (it / (4 * per)) == 0);
     if (fresh) xc = dl != 0 && jit > 0.0 ? x - (hashI(ivec2(lcW, 7), uSeed + 13.0) - 0.5) * jit : xs;
     int k = mode == 0 ? kd0 + it - 1 : mode == 3 ? kLo + it / 6 : int(floor(xc / P)) + j - (j / per) * per - nPer;
@@ -692,7 +719,7 @@ GenOut gen(vec2 p) {
     } else if (mode == 2) {
       pi = 0;
       int lb = lane + int(floor((ly - yc) / Hl));   // the chevron below
-      py = -2 - (uTile ? imod(lb, kyi) : lb);
+      py = -2 - wrapCell(lb, kyi);
     } else {
       // Between Z pieces: right of one piece's rise, left of the next one's.
       float xr = L + D * (clamp(ly, yl, yh) - yl) / max(Rr, 1e-4);
@@ -710,7 +737,7 @@ GenOut gen(vec2 p) {
       d = dr;
       rail = true;
       int ei = int(edge);
-      geo_bestKey = ivec2(uTile ? imod(ei, kyi) : ei, -1);
+      geo_bestKey = ivec2(wrapCell(ei, kyi), -1);
     }
   }
   if (u_outline > 0.0) d = abs(d + 0.5 * u_outline) - 0.5 * u_outline;

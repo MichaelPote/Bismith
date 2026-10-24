@@ -9,7 +9,7 @@
 
 import { P, gradient, type ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
-import { GEO_FRAME_GLSL, orientParam, rndModeParam } from './geometricCommon';
+import { GEO_DERIVED, GEO_FRAME_GLSL, orientParam, rndModeParam } from './geometricCommon';
 
 // ------------------------------------------------------------------------------------------------ tread plate
 
@@ -140,19 +140,10 @@ export const treadplateLayer: LayerDef = {
 	// In the editor, roughness and specular follow the lug's relief, not its shape (the registry's default for shapes).
 	fresh: () => ({ r_src: 'value', s_src: 'value' }),
 	linkedDefaults: (p) => TREAD_LOOKS[String(p.style)] ?? TREAD_LOOKS.lozenge,
+	derivedUniforms: GEO_DERIVED,
 	glsl:
 		GEO_FRAME_GLSL +
 		/* glsl */ `
-// Pointed lens along x: tips at (±hl, 0), half-width hw (two circular arcs).
-float tp_vesica(vec2 p, float hl, float hw) {
-  hw = max(hw, 1e-3);
-  hl = max(hl, hw + 1e-3);
-  p = abs(p);
-  float r = 0.5 * (hl * hl + hw * hw) / hw;
-  float d = r - hw;
-  return ((p.x - hl) * d > p.y * hl) ? length(p - vec2(hl, 0.0)) : length(p - vec2(0.0, -d)) - r;
-}
-
 float tp_capsule(vec2 p, float hl, float hw) {
   p = abs(p);
   p.x = max(p.x - max(hl - hw, 0.0), 0.0);
@@ -219,7 +210,7 @@ GenOut gen(vec2 p) {
     if (u_pos_jitter > 0.0) ctr += (vec2(hashI(id, uSeed + 37.0), hashI(id, uSeed + 41.0)) - 0.5) * 2.0 * u_pos_jitter * cs;
     vec2 q = unrotCW(f - ctr, ang);
     float d, ins;
-    if (u_style == 0) { d = tp_vesica(q, hl, hw); ins = hw; }
+    if (u_style == 0) { d = sdVesica(q.yx, hl, hw); ins = min(hw, hl); }
     else if (u_style == 1 || u_style == 2) {
       // Capsule, or the nearest of n parallel bars along the axis, spread over the lozenge length across it.
       vec2 cq = q;
@@ -390,6 +381,7 @@ export const weaveLayer: LayerDef = {
 		dif_jitter: 0.35,
 		dif_grad: gradient('#5b4632', '#7d6246', '#9a7d5a')
 	},
+	derivedUniforms: GEO_DERIVED,
 	glsl:
 		GEO_FRAME_GLSL +
 		weaveTable() +
@@ -418,7 +410,7 @@ bool wv_over(int dir, int c, int line) { return dir == 0 ? wv_overH(c, line) : !
 ivec2 wv_nS;   // strands per period span (x: vertical strands, y: horizontal), for seamless per-strand values
 
 // Seamless key of strand idx of direction dir: strands repeat every nS on straight and diagonal frames alike.
-int wv_strand(int dir, int idx) { return uTile ? imod(idx, dir == 0 ? wv_nS.y : wv_nS.x) : idx; }
+int wv_strand(int dir, int idx) { return wrapCell(idx, dir == 0 ? wv_nS.y : wv_nS.x); }
 
 // Half-width of a strand (px), thinned at random by Width variation.
 float wv_hw(int dir, int idx, vec2 sp) {

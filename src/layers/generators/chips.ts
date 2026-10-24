@@ -279,8 +279,7 @@ ChSplit ch_split(ivec2 c, ivec2 cw, vec2 cs, bool vert) {
 // knot offset by up to the Wobble — wood splits run straight with gentle deflections.
 float ch_defl(ivec2 cw, float u, vec2 kn) {
   float i = floor(u / kn.x);
-  int i0 = int(i), i1 = i0 + 1;
-  if (uTile) { i0 = imod(i0, int(kn.y)); i1 = imod(i1, int(kn.y)); }
+  int i0 = wrapCell(int(i), int(kn.y)), i1 = wrapCell(int(i) + 1, int(kn.y));
   int key = cw.x * 4099 + cw.y;
   return u_split_wobble * (2.0 * mix(hashI(ivec2(i0, key), uSeed + 221.0), hashI(ivec2(i1, key), uSeed + 221.0), u / kn.x - i) - 1.0);
 }

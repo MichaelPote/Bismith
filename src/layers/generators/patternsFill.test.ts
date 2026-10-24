@@ -6,7 +6,7 @@ import { ensureBuiltins } from '@/render/builtins';
 import { supersampleFactor, scaleProject } from '@/core/supersample';
 import { createProject } from '@/core/serialize';
 import { createLayer, freshParams, layerGroups, layerParamDefs } from '../registry';
-import { cloudsLayer, cloudsSamples, gradientLayer, scratchesLayer } from './patternsFill';
+import { cloudsLayer, cloudsSamples, gradientDerived, gradientLayer, scratchesLayer } from './patternsFill';
 
 const tex = { width: 512, height: 512 };
 const def = (type: string, key: string) => layerParamDefs(type).find((d) => d.key === key);
@@ -94,5 +94,23 @@ describe('fill patterns', () => {
 
 	it('avoids `continue` in the scratch loop (D3D11 miscompiles it there)', () => {
 		expect(scratchesLayer.glsl).not.toMatch(/\bcontinue\s*;/);
+	});
+
+	it("fits a linear gradient's bands to the tile on the CPU", () => {
+		const c = { width: 96, height: 96, tileable: true, seed: 0 };
+		const g = (p: Record<string, unknown>, cv = c) =>
+			gradientDerived({ angle: 270, length: 30, repeat: 'repeat', fit: true, ...p }, cv);
+		// Bottom → top, 30 px bands: 3.2 per tile, rounded to 3; mirrored, a period is two ramps.
+		expect(g({})).toEqual({ cyc: [0, 3], bands: 3 });
+		expect(g({ repeat: 'mirror' })).toEqual({ cyc: [0, 2], bands: 4 });
+		// 45°: whole cycles on both axes, the bands told apart by their gcd.
+		const d = g({ angle: 45, length: 20 });
+		expect(d.cyc).toEqual([3, -3]);
+		expect(d.bands).toBe(3);
+		// No fit: bands only when the span holds a whole number of them; none when not tiling.
+		expect(g({ fit: false, length: 48 })).toEqual({ cyc: [0, 0], bands: 2 });
+		expect(g({ fit: false, length: 50 }).bands).toBe(0);
+		expect(g({}, { ...c, tileable: false })).toEqual({ cyc: [0, 0], bands: 0 });
+		expect(gradientLayer.glsl).not.toMatch(/igcd/);
 	});
 });

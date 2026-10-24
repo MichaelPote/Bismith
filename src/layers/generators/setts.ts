@@ -10,7 +10,7 @@
 
 import { P, gradient } from '@/core/params';
 import type { LayerDef } from '../types';
-import { GEO_FRAME_GLSL, rndModeParam } from './geometricCommon';
+import { GEO_DERIVED, GEO_FRAME_GLSL, rndModeParam } from './geometricCommon';
 
 export const settsLayer: LayerDef = {
 	type: 'setts',
@@ -80,6 +80,7 @@ export const settsLayer: LayerDef = {
 		dif_src: 'random',
 		dif_grad: gradient('#3c3a36', '#5a5650', '#76716a')
 	},
+	derivedUniforms: GEO_DERIVED,
 	glsl:
 		GEO_FRAME_GLSL +
 		/* glsl */ `

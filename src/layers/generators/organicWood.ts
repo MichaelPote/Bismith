@@ -264,19 +264,10 @@ export const woodLayer: LayerDef = {
 float wd_plankEdge(int k, int n, float pw) {
   float j = 0.0;
   if (u_width_var > 0.0) {
-    int kw = uTile ? imod(k, n) : k;
+    int kw = wrapCell(k, n);
     j = (hashI(ivec2(kw, 5), uSeed + 23.0) - 0.5) * 0.9 * u_width_var;
   }
   return floor((float(k) + j) * pw + 0.5);
-}
-
-// Smooth 1D noise in -1..1 with a period of per cells (for seamless wraps; per 0: the lattice index as is, no wrap),
-// keyed per board.
-float wd_n1(float x, int per, ivec2 key, float seed) {
-  float i = floor(x), f = x - i;
-  int k = key.x * 4099 + key.y;
-  int i0 = per > 0 ? imod(int(i), per) : int(i), i1 = per > 0 ? imod(int(i) + 1, per) : int(i) + 1;
-  return 2.0 * mix(hashI(ivec2(i0, k), seed), hashI(ivec2(i1, k), seed), f * f * (3.0 - 2.0 * f)) - 1.0;
 }
 
 GenOut gen(vec2 p) {
@@ -314,7 +305,7 @@ GenOut gen(vec2 p) {
     int i = e / 3 - 1, j = e % 3 - 1;
     if (j == -1) {
       int c = c0 + i;
-      cw = uTile ? imod(c, n) : c;
+      cw = wrapCell(c, n);
       aL = aR;
       aR = wd_plankEdge(c + 1, n, pw);
       off = float(cw) * u_stagger + hashI(ivec2(cw, 9), uSeed + 29.0) * u_joint_rand;
@@ -324,11 +315,11 @@ GenOut gen(vec2 p) {
       lw = l;
       if (nj > 0 && u_end_wobble > 0.0) {
         int bj = int(floor(l / bl - off + 0.5));
-        int bjw = uTile ? imod(bj, nj) : bj;
+        int bjw = wrapCell(bj, nj);
         float x = (a - aL) / max(u_end_wobble_px, 1.0);
-        float sh = u_end_wobble * wd_n1(x, 0, ivec2(cw, bjw), uSeed + 71.0);
+        float sh = u_end_wobble * (2.0 * valueNoise1(x, NO_PERIOD.x, ivec2(cw, bjw), uSeed + 71.0) - 1.0);
         bool below = l > floor((float(bj) + off) * bl + 0.5) + 0.5 * gL + sh;
-        lw = l - sh - u_end_var * u_end_wobble * wd_n1(x + 0.5, 0, ivec2(cw, 2 * bjw + (below ? 1 : 0)), uSeed + 73.0);
+        lw = l - sh - u_end_var * u_end_wobble * (2.0 * valueNoise1(x + 0.5, NO_PERIOD.x, ivec2(cw, 2 * bjw + (below ? 1 : 0)), uSeed + 73.0) - 1.0);
       }
       b0 = nj > 0 ? int(floor(lw / bl - off)) : 0;
     }
@@ -337,7 +328,7 @@ GenOut gen(vec2 p) {
     int b = b0 + j;
     float l0 = nj > 0 ? floor((float(b) + off) * bl + 0.5) : l - 1e4;
     float l1 = nj > 0 ? floor((float(b + 1) + off) * bl + 0.5) : l + 1e4;
-    ivec2 key = ivec2(cw, nj > 0 ? (uTile ? imod(b, nj) : b) : 0);
+    ivec2 key = ivec2(cw, nj > 0 ? wrapCell(b, nj) : 0);
     // Joint variation: the board carries its own share of its gaps (along its side and at its start).
     float js = u_planks ? 1.0 - u_joint_var * hashI(key, uSeed + 191.0) : 1.0;
     vec2 lo = vec2(aL + gA * js, l0 + (nj > 0 ? gL * js : 0.0));
@@ -441,10 +432,10 @@ GenOut gen(vec2 p) {
   // The fold's noise (fc cells; foldHi fades its finer octaves) and the ring figure's low-frequency wobble (about one
   // warp cell per plank across, a few along the texture: rc).
   vec2 fc = vec2(2.0, 2.0 * (Lr / A) / max(u_ring_stretch * 0.25, 1.0));
-  if (uTile) fc = max(floor(fc + 0.5), vec2(1.0));
+  fc = snapCells(fc);
   float foldHi = clamp(2.0 * u_figure - 1.0, 0.0, 1.0);
   vec2 rc = vec2(float(n), float(n) * (Lr / A) * 0.75);
-  if (uTile) rc = max(floor(rc + 0.5), vec2(1.0));
+  rc = snapCells(rc);
   // Both in one loop (one copy of org_noiseFbm; see UNI_1): pass 0 the fold (one slab with ovals only), pass 1 the
   // wobble (cathedral: sampled at an offset per board, so a board's wobble doesn't carry on into the next one).
   float fn = 0.0, wn = 0.0;
@@ -452,7 +443,7 @@ GenOut gen(vec2 p) {
     bool wb = e == 1;
     if (wb || slab) {
       float nn = org_noiseFbm(1, false, vec2(a / A, l / Lr) * (wb ? rc : fc) + (wb && cath ? hb.yx * vec2(17.0, 23.0) : vec2(0.0)),
-                              org_per(wb ? rc : fc), wb ? 2 : 3, wb ? 0.5 : 0.5 - 0.4 * foldHi, uSeed + (wb ? 13.0 : 17.0)) - 0.5;
+                              periodOf(wb ? rc : fc), wb ? 2 : 3, wb ? 0.5 : 0.5 - 0.4 * foldHi, uSeed + (wb ? 13.0 : 17.0)) - 0.5;
       if (wb) wn = nn;
       else fn = nn;
     }
@@ -541,8 +532,8 @@ GenOut gen(vec2 p) {
   // Fine grain: value noise stretched along the plank, tileable on the texture lattice, offset per board.
   vec2 gc = vec2(A / u_grain_px, 0.0);
   gc.y = A / u_grain_px * (Lr / A) / u_grain_stretch;
-  if (uTile) gc = max(floor(gc + 0.5), vec2(1.0));
-  ivec2 gper = uTile ? ivec2(gc + 0.5) : NO_PERIOD;
+  gc = snapCells(gc);
+  ivec2 gper = periodOf(gc);
   // Cathedral: the streaks run in the rings' own flow (their across coordinate is the ring field, warp and all), as the
   // pores of each year's earlywood do — so they bow round the arches instead of crossing the rings.
   float fineX = cath ? r : aAbs + fineBend + run;
@@ -551,7 +542,7 @@ GenOut gen(vec2 p) {
   if (u_grain_group > 0.0) {
     float ng = max(floor(A / (6.4 * u_grain_px) + 0.5), 1.0);
     float xg = wrapC ? fineX / A * ng : fineX / (6.4 * u_grain_px);
-    fineX += u_grain_group * 3.2 * u_grain_px * wd_n1(xg, wrapC && uTile ? int(ng) : NO_PERIOD.x, bid + ivec2(0, 13), uSeed + 89.0);
+    fineX += u_grain_group * 3.2 * u_grain_px * (2.0 * valueNoise1(xg, wrapC && uTile ? int(ng) : NO_PERIOD.x, bid + ivec2(0, 13), uSeed + 89.0) - 1.0);
   }
   vec2 gx = vec2(fineX / A, l / Lr) * gc + hb.xy * vec2(57.0, 31.0);
   // Billowed (|2n − 1|), so the streaks are thin wavy lines where the noise crosses its mean — pores, not dark blotches —
@@ -563,12 +554,12 @@ GenOut gen(vec2 p) {
   // (Board-local across boards; one slab wraps it round the tile.)
   float nc = max(floor(A / (5.0 * u_grain_px) + 0.5), 1.0);
   float xc = wrapC ? (aAbs + fineBend) / A * nc : (cath ? r : aEff + run) / (5.0 * u_grain_px);
-  float cl = wd_n1(xc, wrapC && uTile ? int(nc) : NO_PERIOD.x, bid + ivec2(0, 11), uSeed + 83.0);
+  float cl = 2.0 * valueNoise1(xc, wrapC && uTile ? int(nc) : NO_PERIOD.x, bid + ivec2(0, 11), uSeed + 83.0) - 1.0;
   // Each streak its own width and darkness (a noise at about the streak spacing), and anti-aliased by the noise's screen
   // derivative — a line thinner than a pixel fades instead of breaking into stair-steps and dots.
   float ns = max(floor(A / (1.7 * u_grain_px) + 0.5), 1.0);
   float xs = wrapC ? (aAbs + fineBend) / A * ns : fineX / (1.7 * u_grain_px);
-  float sv = wd_n1(xs, wrapC && uTile ? int(ns) : NO_PERIOD.x, bid + ivec2(0, 19), uSeed + 109.0);
+  float sv = 2.0 * valueNoise1(xs, wrapC && uTile ? int(ns) : NO_PERIOD.x, bid + ivec2(0, 19), uSeed + 109.0) - 1.0;
   // (At least the noise's typical slope per px: a billowed noise's own derivative vanishes at its crease, right on the
   // streak, and is one per 2×2 pixels — alone it leaves dotted stair-steps.)
   float gfw = max(fwidth(g), 1.5 * (cath ? gradR : 1.0) / u_grain_px);
@@ -591,13 +582,14 @@ GenOut gen(vec2 p) {
     float xr = wrapR ? r / spacing * nv / float(nRings) : r / (2.5 * spacing);
     float nv2 = max(floor(float(nRings) / 9.0 + 0.5), 1.0);
     float xr2 = wrapR ? r / spacing * nv2 / float(nRings) : r / (9.0 * spacing);
-    float n2 = wd_n1(xr2, wrapR ? int(nv2) : NO_PERIOD.x, bid + ivec2(0, 17), uSeed + 97.0);
-    r += u_ring_var * spacing * (0.45 * wd_n1(xr, wrapR ? int(nv) : NO_PERIOD.x, bid + ivec2(0, 7), uSeed + 79.0) + 3.5 * n2);
+    float n2 = 2.0 * valueNoise1(xr2, wrapR ? int(nv2) : NO_PERIOD.x, bid + ivec2(0, 17), uSeed + 97.0) - 1.0;
+    float n1 = 2.0 * valueNoise1(xr, wrapR ? int(nv) : NO_PERIOD.x, bid + ivec2(0, 7), uSeed + 79.0) - 1.0;
+    r += u_ring_var * spacing * (0.45 * n1 + 3.5 * n2);
   }
   float t = fract(r / spacing);
   int ri = int(floor(r / spacing));
   int rp = ri - 1;
-  if (!u_planks && uTile && !cath) { ri = imod(ri, nRings); rp = imod(rp, nRings); }
+  if (!u_planks && !cath) { ri = wrapCell(ri, nRings); rp = wrapCell(rp, nRings); }
   // Rings per pixel.
   float density = length(vec2(dFdx(r), dFdy(r))) / spacing;
   // Each ring darkens through its latewood and stops where the next ring starts. That edge is softened over e (in rings:
@@ -901,7 +893,7 @@ GenOut gen(vec2 p) {
       rowMinS = 1e9;
     }
     int c = c0 - hw + j;
-    ivec2 key = uTile ? imod(ivec2(c, i), ivec2(cols, rows)) : ivec2(c, i);
+    ivec2 key = wrapCell(ivec2(c, i), ivec2(cols, rows));
     vec3 h = hash3I(key, uSeed + 5.0);
     // h2.x: the scale's rank in its row — of two that overlap, the higher lies on top. (Ties — a scale meeting its own
     // repeat when a few wide columns tile — go by column, so it laps over itself instead of splitting along a line.)
@@ -963,7 +955,7 @@ GenOut gen(vec2 p) {
     cen2 = cen1;
     cen1 = cNew;
   }
-  ivec2 id = uTile ? imod(bestId, ivec2(cols, rows)) : bestId;
+  ivec2 id = wrapCell(bestId, ivec2(cols, rows));
   float rnd = hashI(id, uSeed);
   float d = best + u_outline;
   GenOut g = genOut(0.0, 1.0, rnd, d);

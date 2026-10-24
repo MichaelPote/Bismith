@@ -168,14 +168,6 @@ float mot_trapezoid(vec2 p, float r1, float r2, float he) {
   float s = (cb.x < 0.0 && ca.y < 0.0) ? -1.0 : 1.0;
   return s * sqrt(min(dot2(ca), dot2(cb)));
 }
-// Vesica (pointed petal) along y: half length a, half width b.
-float mot_vesica(vec2 p, float a, float b) {
-  b = clamp(b, 1e-3, a);
-  float r = 0.5 * (a * a / b + b);
-  float d = r - b;
-  p = abs(p);
-  return ((p.y - a) * d > p.x * a) ? length(p - vec2(0.0, a)) : length(p + vec2(d, 0.0)) - r;
-}
 // Fold q (at angle qa = atan(q.x, q.y), clockwise from up on screen) into the sector (2π/n wide) around 'up' rotated
 // by off·step; returns the local point (y = radial).
 vec2 mot_polarFold(vec2 q, float qa, int n, float off) {
@@ -700,16 +692,17 @@ float motifSdf(vec2 q, float inst) {
     float dp = 1e9;
     for (int j = -UNI_1; j <= UNI_1; j++) {
       vec2 l = rot2(float(j) * s) * l0 - vec2(0.0, u_petal_pos * R);
-      float e = u_petal_shape == 0 ? mot_vesica(l, a, b) : sdEllipse(l, vec2(b, a));
+      float e = u_petal_shape == 0 ? sdVesica(l, a, b) : sdEllipse(l, vec2(b, a));
       // Outlines: each petal's own band (inside its outline), so overlapping petals cross rather than merge.
       dp = min(dp, sdOnion(e, u_petal_line));
     }
     if (gMotStr) {
       // Each petal in its own frame (x across, y along): a vesica as the two discs it is the overlap of (an outline:
-      // less the overlap of the discs shrunk by its width), each across its radius; an ellipse exactly, or (outlines)
-      // across its gradient.
+      // less the overlap of the discs shrunk by its width), each across its radius — side by side, or (wider than
+      // long: sdVesica turns it) one above the other; an ellipse exactly, or (outlines) across its gradient.
       int k0 = int(floor(qa / s - u_petal_off + 0.5));
-      float w = u_petal_line, bb = clamp(b, 1e-3, a), rv = 0.5 * (a * a / bb + bb), dd = rv - bb;
+      float w = u_petal_line, bb = max(min(a, b), 1e-3), aa = max(max(a, b), bb), rv = 0.5 * (aa * aa / bb + bb);
+      vec2 dd = (b > a ? vec2(0.0, 1.0) : vec2(1.0, 0.0)) * (rv - bb);
       dp = 1e9;
       for (int j = -UNI_1; j <= UNI_1; j++) {
         float th = (float(k0 + j) + u_petal_off) * s;
@@ -717,7 +710,7 @@ float motifSdf(vec2 q, float inst) {
         vec2 l = vec2(dot(q, v), dot(q, u) - u_petal_pos * R);
         float e;
         if (u_petal_shape == 0) {
-          vec2 v1 = l + vec2(dd, 0.0), v2 = l - vec2(dd, 0.0);
+          vec2 v1 = l + dd, v2 = l - dd;
           vec2 n1 = v1.x * v + v1.y * u, n2 = v2.x * v + v2.y * u;
           float e1 = length(v1) - rv, e2 = length(v2) - rv;
           e = max(mot_bl(e1, n1), mot_bl(e2, n2));

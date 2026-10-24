@@ -10,6 +10,12 @@
 export const GLSL_NOISE = /* glsl */ `
 const ivec2 NO_PERIOD = ivec2(1 << 20);
 
+// A cell count made whole (at least 1) when tiling, so a lattice of that many cells repeats over the texture.
+vec2 snapCells(vec2 c) { return uTile ? max(floor(c + 0.5), vec2(1.0)) : c; }
+float snapCells(float c) { return uTile ? max(floor(c + 0.5), 1.0) : c; }
+// The lattice period for a cell count that is whole when tiling (cellsFor, snapCells): effectively infinite otherwise.
+ivec2 periodOf(vec2 cells) { return uTile ? ivec2(cells + 0.5) : NO_PERIOD; }
+
 /** Animation phase: 0 → 1 is one seamless loop. The generator wrapper (and filters that animate) set it from u_phase. */
 float gPhase = 0.0;
 
@@ -143,10 +149,13 @@ vec2 warpOffset(vec2 x, ivec2 period, float seed) {
   return fbmPair(x, x + 17.3, period, 3, seed + 101.0, seed + 211.0, 2) - 0.5;
 }
 
-// 1D value noise (0..1, smoothstep between integer lattice values; not animated).
-float valueNoise1(float x, float seed) {
+// 1D value noise (0..1, smoothstep between integer lattice values; not animated), repeating every period cells; key
+// picks an independent row of values (one per board, crack, …). −1..1: 2 · valueNoise1 − 1.
+float valueNoise1(float x, int period, ivec2 key, float seed) {
   float i = floor(x), f = x - i;
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(hash1(i, seed), hash1(i + 1.0, seed), f);
+  int k = key.x * 4099 + key.y;
+  int i0 = imod(int(i), period), i1 = i0 + 1 == period ? 0 : i0 + 1;
+  return mix(hashI(ivec2(i0, k), seed), hashI(ivec2(i1, k), seed), f * f * (3.0 - 2.0 * f));
 }
+float valueNoise1(float x, float seed) { return valueNoise1(x, NO_PERIOD.x, ivec2(0), seed); }
 `;

@@ -303,7 +303,7 @@ float crk_round(float a, float b, float R) {
 // width across that border's screen normal), over the plain one; continuous through the plates' corners, so their
 // bevels don't step there.
 vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, float wVar, float fillet, float bulge, mat2 J, float seed, out vec2 off, out vec2 nb, out vec3 hw, out float kS) {
-  ivec2 per = org_per(cells);
+  ivec2 per = periodOf(cells);
   vec2 cs = uRes / cells;
   float P = sqrt(cs.x * cs.y);
   ivec2 ip = ivec2(floor(p / cs));
@@ -433,7 +433,7 @@ vec2 crk_segment(ivec2 a, ivec2 b, int key, float seed) {
 // and site = the pixel's cell site, kS = the local stretch for Bevel aspect, as crk_plates', over the present
 // segments' lines.
 vec4 crk_fineCracks(vec2 p, vec2 cells, float jitter, float keep, float halfW, float wVar, float fillet, float taper, float mainD, vec2 mainN, float plate, int key, bool connect, mat2 J, float seed, out vec2 site, out float kS) {
-  ivec2 per = org_per(cells);
+  ivec2 per = periodOf(cells);
   vec2 cs = uRes / cells;
   ivec2 ip = ivec2(floor(p / cs));
   float best = 1e20;
@@ -612,7 +612,7 @@ GenOut gen(vec2 p) {
                  : k == 3 ? uSeed + 29.0 : k == 4 ? uSeed + 97.0 : uSeed + 113.0;
       int oct = k == 0 ? 3 : k == 4 ? 1 : k == 5 ? 3 : 2;
       float gain = k == 0 ? 0.38 : k <= 2 ? 0.4 : 0.5;
-      float n = org_noiseFbm(k <= 2 ? 1 : 0, false, x, org_per(nc), oct, gain, seed);
+      float n = org_noiseFbm(k <= 2 ? 1 : 0, false, x, periodOf(nc), oct, gain, seed);
       // (Components by branch, not by a dynamic index.)
       if (k == 0) {
         if (c == 0) n0 = n;
@@ -641,7 +641,7 @@ GenOut gen(vec2 p) {
       float fo = oct == 0 ? 1.0 : 2.0;
       vec2 x = p / uRes * zc * fo + (comp == 1 ? 17.3 : 0.0);
       vec2 fr = fract(x);
-      ivec2 i = imod(ivec2(floor(x)) + ivec2(corner % 2, corner / 2), org_per(zc) * (oct + 1));
+      ivec2 i = imod(ivec2(floor(x)) + ivec2(corner % 2, corner / 2), periodOf(zc) * (oct + 1));
       float sd = uSeed + 83.0 + float(comp) * 57.0 + float(oct) * 31.0;
       float w = (corner % 2 == 0 ? 1.0 - fr.x : fr.x) * (corner / 2 == 0 ? 1.0 - fr.y : fr.y) * (oct == 0 ? 1.0 : 0.45) / 1.45;
       float v = w * animValue(hashI(i, sd), i, sd);

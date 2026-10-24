@@ -4,15 +4,15 @@
 import { P } from '@/core/params';
 import { PROFILES, bevelCurveParam } from '../commonParams';
 import type { LayerDef } from '../types';
-import { SMOOTH_PARAM, SOURCE_PARAMS, edgeMaskSource, runEdgeFilter } from './shared';
+import { GLSL_SOURCE_DIST, SMOOTH_PARAM, SOURCE_PARAMS, edgeMaskSource, sourceDistance } from './shared';
 
-const BEVEL_APPLY = /* glsl */ `
+const BEVEL_APPLY = /* glsl */ `${GLSL_SOURCE_DIST}
 // Where the slope starts (its outer foot) relative to the edge, × width: inner 0, outer 1, both 1/2.
 const float BEVEL_FOOT[3] = float[3](0.0, 1.0, 0.5);
 // Combine option → heightCombine mode: add, max, min, replace.
 const int BEVEL_COMBINE[4] = int[4](0, 2, 3, 4);
 void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
-  float d = sourceDist(ip);
+  float d = sourceDist(ip, u_invert);
   float w = max(u_width, 0.0);
   float o = BEVEL_FOOT[u_direction] * w;
   float b = w > 1e-3 ? profileCurve(u_profile, (o - d) / w) : (d - o < 0.0 ? 1.0 : 0.0);
@@ -61,15 +61,17 @@ export const bevelLayer: LayerDef = {
 			{ hint: 'How depth × profile meets the existing height inside the bevelled region' }
 		)
 	],
-	run(ctx, layer) {
+	textures: ['dist'],
+	prepare(ctx, layer) {
 		const p = layer.params;
-		runEdgeFilter(ctx, p, BEVEL_APPLY, Math.max(0, Number(p.width ?? 0)) + 2, Boolean(p.invert));
-	}
+		return sourceDistance(ctx, p, Math.max(0, Number(p.width ?? 0)) + 2, Boolean(p.invert));
+	},
+	filterGlsl: BEVEL_APPLY
 };
 
-const ETCH_APPLY = /* glsl */ `
+const ETCH_APPLY = /* glsl */ `${GLSL_SOURCE_DIST}
 void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
-  float d = sourceDist(ip);
+  float d = sourceDist(ip, false);
   float hw = max(u_width, 0.0) * 0.5;
   float ad = abs(d + u_offset);
   // Softness 0: a crisp band (1 px anti-aliased edge); 1: a V-shaped groove reaching hw + .5 from its centre.
@@ -122,8 +124,10 @@ export const etchLayer: LayerDef = {
 		{ id: 'roughness', label: 'Roughness', toggleKey: 'r_on' },
 		{ id: 'emissive', label: 'Emissive', toggleKey: 'e_on' }
 	],
-	run(ctx, layer) {
+	textures: ['dist'],
+	prepare(ctx, layer) {
 		const p = layer.params;
-		runEdgeFilter(ctx, p, ETCH_APPLY, Math.max(0, Number(p.width ?? 0)) * 0.5 + Math.abs(Number(p.offset ?? 0)) + 2);
-	}
+		return sourceDistance(ctx, p, Math.max(0, Number(p.width ?? 0)) * 0.5 + Math.abs(Number(p.offset ?? 0)) + 2);
+	},
+	filterGlsl: ETCH_APPLY
 };

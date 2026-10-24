@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, layerParamDefs } from '../registry';
-import { bandsLayer } from './geometricBands';
+import { bandsDerived, bandsLayer } from './geometricBands';
 
 ensureBuiltins();
 const defs = new Map(layerParamDefs('bands').map((d) => [d.key, d]));
@@ -67,5 +67,38 @@ describe('bands', () => {
 		expect(r_src).toBe('shape');
 		expect(s_src).toBe('shape');
 		expect(p).toMatchObject(sized);
+	});
+
+	it('counts whole periods on the torus, and how many through bars are told apart (on the CPU)', () => {
+		const base = createLayer('bands').params;
+		for (const [width, height] of [
+			[64, 64],
+			[96, 96],
+			[512, 512],
+			[97, 61],
+			[300, 200],
+			[1, 1]
+		])
+			for (const orient of ['0', '45', '90', '135'])
+				for (const mirror of [false, true]) {
+					const at = `${orient} ${width}×${height} ${mirror}`;
+					const c = { width, height, tileable: true, seed: 0 };
+					const [kx, ky] = bandsDerived({ ...base, orient, mirror }, c).k;
+					expect(Number.isInteger(kx) && Number.isInteger(ky) && kx >= 1, at).toBe(true);
+					if (mirror) expect(ky % 2, at).toBe(0);
+				}
+		// Diagonal bars at 45° through every lane (no margins) on a 96 px square: 2 repeats across, 3 lanes, a bar
+		// advancing (96 / 3) / (96 / 2) → 1 repeat per lane: gcd(2, 3) = 1 bar told apart.
+		const bars = { ...base, mode: 'diagonal', count: 2, rows: 3, angle: 45, margin_top: 0, margin_bottom: 0 };
+		expect(bandsDerived(bars, { width: 96, height: 96, tileable: true, seed: 0 }).thr).toEqual([1, 1]);
+		expect(
+			bandsDerived({ ...bars, count: 4, rows: 2 }, { width: 96, height: 96, tileable: true, seed: 0 }).thr
+		).toEqual([2, 4]);
+		// Diagonal frames count per untiled span: a 45° frame on a 96 px square keeps Count across 96 / √2.
+		const diag = bandsDerived(
+			{ ...base, orient: '45', count: 4, rows: 3 },
+			{ width: 96, height: 96, tileable: true, seed: 0 }
+		);
+		expect(diag.k).toEqual([4, 3]);
 	});
 });

@@ -3,9 +3,11 @@
 // (sdf: 'mask'). See patterns.ts for the cell-based SDF patterns.
 
 import { pcg3, u2d } from '@/core/hash';
+import { memoReads } from '@/core/memo';
 import { P, gradient, round1 as r1, type ParamValues } from '@/core/params';
 import { PX_SCALE_PARAM } from '../commonParams';
-import type { LayerDef } from '../types';
+import { f32, gcd } from '../derivedMath';
+import type { LayerCanvas, LayerDef } from '../types';
 import { NZ_SHARED_GLSL, quantileTexture, quantilesOf } from './noise';
 
 // ------------------------------------------------------------------------------------------------ clouds
@@ -340,9 +342,10 @@ export const cloudsLayer: LayerDef = {
 		}),
 		P.seed()
 	],
-	// Coverage and Contrast act on this texture's own measured value spread (see cloudsSamples).
+	// Coverage and Contrast act on this texture's own measured value spread (see cloudsSamples), measured again only
+	// when a param the samples read changes.
 	textures: ['calib'],
-	cpuData: (p, ctx) => quantileTexture(quantilesOf(cloudsSamples(p, ctx))),
+	cpuData: memoReads((p, ctx) => quantileTexture(quantilesOf(cloudsSamples(p, ctx)))),
 	// An Overlay ramp that both darkens and lightens what is beneath.
 	defaults: {
 		dif_on: true,
@@ -359,7 +362,7 @@ float cl_clampInt(float x) { return x < 0.0 ? 0.0 : x < 1.0 ? 0.5 * x * x : x - 
 
 GenOut gen(vec2 p) {
   vec2 cells = cellsFor(u_scale, u_stretch);
-  ivec2 per = uTile ? ivec2(cells) : NO_PERIOD;
+  ivec2 per = periodOf(cells);
   vec2 x = p / uRes * cells;
   // The warp: added to x (every octave takes all of it), or carried separately and scaled down per octave
   // (Warp detail < 1). off stays 0 in the first case, so x + off is x exactly.
@@ -476,6 +479,36 @@ GenOut gen(vec2 p) {
 
 const radialish = (p: Record<string, unknown>) => p.style !== 'linear';
 const repeating = (p: Record<string, unknown>) => p.repeat !== 'clamp';
+
+/**
+ * Gradient's uniform-only work (its derived uniforms), for the linear ramp: with Fit the tile (tiling, repeating) its
+ * frequency snapped to whole cycles across each axis (cyc, which turns the angle a little; else 0, 0), and the bands per
+ * tile when they tile (bands > 0; else 0). In float32 steps, as the shader did.
+ */
+export function gradientDerived(p: ParamValues, c: LayerCanvas): { cyc: number[]; bands: number } {
+	const a = f32(f32(Number(p.angle)) * f32(Math.PI / 180));
+	const cs = f32(Math.cos(a));
+	const sn = f32(Math.sin(a));
+	const span = f32(Math.abs(f32(c.width * cs)) + Math.abs(f32(c.height * sn)));
+	const L = Number(p.length) > 0 ? f32(Number(p.length)) : span;
+	const rep = ['clamp', 'repeat', 'mirror'].indexOf(String(p.repeat));
+	if (p.fit && c.tileable && rep > 0) {
+		const P = rep === 2 ? f32(2 * L) : L;
+		const dir = [cs, -sn]; // rotCW((1, 0), angle)
+		const cyc = [
+			Math.floor(f32(f32(f32(dir[0] * c.width) / P) + 0.5)),
+			Math.floor(f32(f32(f32(dir[1] * c.height) / P) + 0.5))
+		];
+		if (cyc[0] === 0 && cyc[1] === 0) {
+			if (Math.abs(dir[0]) * c.width >= Math.abs(dir[1]) * c.height) cyc[0] = dir[0] < 0 ? -1 : 1;
+			else cyc[1] = dir[1] < 0 ? -1 : 1;
+		}
+		return { cyc, bands: (rep === 2 ? 2 : 1) * gcd(cyc[0], cyc[1]) };
+	}
+	const nb = f32(span / L);
+	const n = Math.floor(f32(nb + 0.5));
+	return { cyc: [0, 0], bands: c.tileable && Math.abs(nb - n) < 1e-3 ? n : 0 };
+}
 
 export const gradientLayer: LayerDef = {
 	type: 'gradient',
@@ -614,6 +647,8 @@ export const gradientLayer: LayerDef = {
 		dif_on: true,
 		dif_grad: gradient('#3a3e43', '#9aa3ab')
 	},
+	// The linear ramp's tile fit on the CPU (gradientDerived).
+	derivedUniforms: { decl: { cyc: 'vec2', bands: 'int' }, compute: gradientDerived },
 	glsl: /* glsl */ `
 // Ring metric of the radial-type styles: radial (1) round, diamond (3) L1, square (4) L∞. Roundness turns diamond and
 // square into superellipses (p 1 → 2, ∞ → 2): rings without creases on the diagonals.
@@ -704,27 +739,16 @@ float gr_jit(float t, int bands, inout float w) {
   return k + (t - lo) / wd;
 }
 
-// Linear: t along the Angle (0.5 at the centre); bands: the bands per tile when they tile (> 0).
+// Linear: t along the Angle (0.5 at the centre); bands: the bands per tile when they tile (> 0). With Fit the tile
+// (tiling, repeating), whole periods across the tile on both axes: d_cyc, the frequency snapped per axis (the angle
+// moves a little), and the bands it makes (gradientDerived).
 float gr_linear(vec2 d, out int bands) {
+  bands = d_bands;
+  if (d_cyc != vec2(0.0)) return 0.5 + dot(d, d_cyc / uRes) * float(u_repeat == 2 ? 2 : 1);   // ramps per period
   vec2 q = unrotCW(d, u_angle);   // x along the gradient direction
   float a = radians(u_angle);
   float span = abs(uRes.x * cos(a)) + abs(uRes.y * sin(a));
   float L = u_length > 0.0 ? u_length : span;
-  bands = 0;
-  if (u_fit && uTile && u_repeat != 0) {
-    // Whole periods across the tile on both axes: the frequency snapped per axis (the angle moves a little).
-    float P = u_repeat == 2 ? 2.0 * L : L;
-    vec2 dir = rotCW(vec2(1.0, 0.0), u_angle);
-    vec2 cyc = floor(dir * uRes / P + 0.5);
-    if (cyc.x == 0.0 && cyc.y == 0.0) {
-      if (abs(dir.x) * uRes.x >= abs(dir.y) * uRes.y) cyc.x = dir.x < 0.0 ? -1.0 : 1.0; else cyc.y = dir.y < 0.0 ? -1.0 : 1.0;
-    }
-    int rpp = u_repeat == 2 ? 2 : 1;   // ramps per period
-    bands = rpp * igcd(int(abs(cyc.x)), int(abs(cyc.y)));
-    return 0.5 + dot(d, cyc / uRes) * float(rpp);
-  }
-  float nb = span / L;
-  if (uTile && abs(nb - floor(nb + 0.5)) < 1e-3) bands = int(floor(nb + 0.5));
   return 0.5 + q.x / L;
 }
 
@@ -1090,7 +1114,7 @@ GenOut gen(vec2 p) {
   float lambda = u_density * cs.x * cs.y / 4096.0 * (1.0 + u_clump);
   int slots = min(int(ceil(lambda)), u_cap);
   vec2 cc = cellsFor(u_clump_scale, 1.0);
-  ivec2 cper = uTile ? ivec2(cc) : NO_PERIOD;
+  ivec2 cper = periodOf(cc);
   ivec2 ip = ivec2(floor(p / cs));
   float cov = 0.0, val = 0.0, score = 0.0, rnd = 0.0;
   float sd = 1e4;          // signed distance to the nearest scratch (px, < 0 inside)
@@ -1100,7 +1124,7 @@ GenOut gen(vec2 p) {
   // One flat loop over the 3x3 cells (one copy of the body), each with its slots.
   for (int e = 0; e < 9 * UNI_1; e++) {
     ivec2 c = ip + ivec2(e % 3 - 1, e / 3 - 1);
-    ivec2 cw = uTile ? imod(c, ivec2(n)) : c;
+    ivec2 cw = wrapCell(c, ivec2(n));
     for (int s = 0; s < slots; s++) {
       float fs = float(s);
       vec3 h = hash3I(cw, uSeed + fs * 7.0);

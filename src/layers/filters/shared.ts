@@ -1,5 +1,5 @@
-// Helpers shared by the filter layers: the distance-source params and pass (bevel / etch), a separable Gaussian
-// blur into scratch targets (cavity, height-from-diffuse), the final MRT pass of run() filters and a state reader.
+// Helpers shared by the filter layers: the distance-source params and pre-pass (bevel / etch), a separable Gaussian
+// blur into scratch targets (cavity, height-from-diffuse) and a state reader.
 
 import * as THREE from 'three';
 import { P, type ParamDef, type ParamValues } from '@/core/params';
@@ -95,73 +95,42 @@ const sourceIndex = (params: ParamValues): number =>
 	DISTANCE_SOURCE[params.source as keyof typeof DISTANCE_SOURCE] ?? DISTANCE_SOURCE.height;
 
 /**
- * Signed distance (px, negative inside) of the layer's source: a jump-flood field in a scratch target — or, for a mask
- * only shape layers wrote, the mask itself (its distance is exact), read with `sign` −1 when inverted.
+ * The prepare() of the edge filters (bevel / etch): the source's signed distance (px, negative inside) out to `reach` px
+ * as `t_dist` — a jump-flood field in a scratch target, or, for a mask only shape layers wrote, the mask itself (its
+ * distance is exact; GLSL_SOURCE_DIST inverts it).
  */
-function sourceDistance(
+export function sourceDistance(
 	ctx: FilterContext,
 	params: ParamValues,
-	maxDistance: number,
+	reach: number,
 	invert = false
-): { texture: THREE.Texture; sign: number } {
+): { dist: THREE.Texture } {
 	const source = sourceIndex(params);
 	const mask = source === DISTANCE_SOURCE.mask ? ctx.maskSource : null;
-	if (mask?.exact) return { texture: mask.texture, sign: invert ? -1 : 1 };
+	if (mask?.exact) return { dist: mask.texture };
 	const field = jumpFlood(ctx, {
 		source,
 		// A mask's coverage is clamp(0.5 − its distance): its edge where that is a half.
 		threshold: mask ? 0.5 : Number(params.threshold ?? 0.5),
 		mask: mask?.texture,
 		invert,
-		maxDistance,
+		maxDistance: reach,
 		relax: Number(params.smooth ?? 0)
 	});
-	return { texture: field.texture, sign: 1 };
+	return { dist: field.texture };
 }
-
-const GLSL_SOURCE_DIST = /* glsl */ `
-uniform sampler2D tDist;
-uniform float uDistSign;
-float sourceDist(ivec2 ip) { return uDistSign * texelFetch(tDist, ip, 0).r; }
-`;
 
 /**
- * The main() of a run() filter's final MRT pass: the state through `applyFilter(A, S, E, ip)`, which `glsl` defines as
- * a filterGlsl does (the limit is applied after the pass, by the pipeline).
+ * GLSL of the edge filters' applyFilter: `sourceDist(ip, invert)`, the distance sourceDistance() found (px, negative
+ * inside). A jump-flood field comes inverted already; an exact mask (Source › A mask, only shapes wrote it) is inverted
+ * here.
  */
-export const mrtApply = (glsl: string) => /* glsl */ `${glsl}
-void main() {
-  ivec2 ip = ivec2(gl_FragCoord.xy);
-  vec4 A = texelFetch(tAlbedo, ip, 0);
-  vec4 S = texelFetch(tSurface, ip, 0);
-  vec4 E = texelFetch(tEmissive, ip, 0);
-  applyFilter(A, S, E, ip);
-  oAlbedo = A;
-  oSurface = S;
-  oEmissive = E;
+export const GLSL_SOURCE_DIST = /* glsl */ `
+float sourceDist(ivec2 ip, bool invert) {
+  float d = texelFetch(t_dist, ip, 0).r;
+  return invert && u_source == ${DISTANCE_SOURCE.mask} && uMaskSrcExact ? -d : d;
 }
 `;
-
-/**
- * Bevel / etch: find the source's signed distance out to `reach` px, then run `glsl` (an applyFilter that reads it as
- * `sourceDist(ip)`, in px, negative inside).
- */
-export function runEdgeFilter(
-	ctx: FilterContext,
-	params: ParamValues,
-	glsl: string,
-	reach: number,
-	invert = false
-): void {
-	const src = sourceDistance(ctx, params, reach, invert);
-	const mat = ctx.mrtMaterial('apply', mrtApply(GLSL_SOURCE_DIST + glsl), {
-		tDist: { value: null },
-		uDistSign: { value: 1 }
-	});
-	mat.uniforms.tDist.value = src.texture;
-	mat.uniforms.uDistSign.value = src.sign;
-	ctx.runMRT(mat);
-}
 
 /** GLSL: the state at a source position q (px), nearest texel or bilinear, wrapping when tileable (warp, symmetry). */
 export const GLSL_READ_STATE = /* glsl */ `

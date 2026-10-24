@@ -148,6 +148,16 @@ export const MASK_WRITE_PARAMS: ParamDef[] = [
 	})
 ];
 
+/**
+ * GLSL (generator shaders, after the param uniforms): what the layer writes into its mask (uMaskKind: 0 nothing, 1 its
+ * shape, 2 its coverage) and how its shape combines there — maskOp() is mk_op's option index + 1, the sdfCombine op
+ * (1 replaces, 2 union …; SDF_OPS keeps that order), or 0 when it writes no shape.
+ */
+export const GLSL_MASK_OP = /* glsl */ `
+uniform int uMaskKind;
+int maskOp() { return uMaskKind == 1 ? u_mk_op + 1 : 0; }
+`;
+
 /** Most masks a Limit to expression combines. */
 export const MAX_LIMIT_TERMS = 4;
 
@@ -677,7 +687,7 @@ export const FILTER_GROUPS: GroupDef[] = [
  * The wrapper's shape d: the generator's distance combined with the mask it writes by the Mode (Mask › Write to; index + 1
  * = sdfCombine op, 0 = writes none, which keeps g.sdf), and that write.
  */
-const SHAPE_COMBINE = /* glsl */ `int op = uMaskKind == 1 ? u_mk_op + 1 : 0;
+const SHAPE_COMBINE = /* glsl */ `int op = maskOp();
   float d = sdfCombine(op, prevDist, g.sdf, u_mk_smooth);`;
 const SHAPE_MASK_WRITE = /* glsl */ `if (op != 0) {
       maskOut = maskTexel(op, d, g.sdf, g.fid, maskPrev);
@@ -724,7 +734,7 @@ void main() {
   if (u_dw_amount > 0.0) {
     // Domain warp of the whole pattern: neighbouring features move together, so gaps keep their width.
     vec2 wc = cellsFor(u_dw_scale, 1.0);
-    pp += warpOffset(gl_FragCoord.xy / uRes * wc, uTile ? ivec2(wc) : NO_PERIOD, uSeed + 409.0) * 2.0 * u_dw_amount;
+    pp += warpOffset(gl_FragCoord.xy / uRes * wc, periodOf(wc), uSeed + 409.0) * 2.0 * u_dw_amount;
   }
   GenOut g = gen(pp);
   float value = g.value;

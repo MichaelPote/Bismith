@@ -43,13 +43,15 @@ vec3 hash3I(ivec2 c, float seed) {
   uint h2 = pcg(h);
   return vec3(u2f(h), u2f(h2), u2f(pcg(h2)));
 }
-float hash1(float x, float seed) { return u2f(pcg2(uvec2(floatBitsToUint(x), uint(seed)))); }
 
 // ---------------------------------------------------------------- wrapping & texel access
 // Euclidean modulo (m > 0). GLSL ES leaves % undefined for a negative operand, so a is first shifted up by a multiple
 // of m to be non-negative — with ((a % m) + m) % m, renders could differ from run to run.
 ivec2 imod(ivec2 a, ivec2 m) { return (a + m * (1 + abs(a) / m)) % m; }
 int imod(int a, int m) { return (a + m * (1 + abs(a) / m)) % m; }
+// A cell index wrapped into n cells when tiling, unchanged otherwise.
+ivec2 wrapCell(ivec2 c, ivec2 n) { return uTile ? imod(c, n) : c; }
+int wrapCell(int c, int n) { return uTile ? imod(c, n) : c; }
 // Greatest common divisor of |a| and |b| (at least 1), in a loop D3D keeps rolled.
 int igcd(int a, int b) {
   a = abs(a); b = abs(b);

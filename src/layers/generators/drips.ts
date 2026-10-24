@@ -178,13 +178,13 @@ float dr_cluster(vec2 pos, vec2 cs) {
   if (u_cluster <= 0.0) return 1.0;
   float lc = max(3.0 * max(cs.x, cs.y), min(uRes.x, uRes.y) / 8.0);
   vec2 per = max(vec2(1.0), floor(uRes / lc + 0.5));
-  float n = valueNoise(pos / uRes * per, uTile ? ivec2(per) : NO_PERIOD, uSeed + 43.0);
+  float n = valueNoise(pos / uRes * per, periodOf(per), uSeed + 43.0);
   return mix(1.0, 2.0 * smoothstep(0.45, 0.7, n), u_cluster);
 }
 // Ledge cell l (unwrapped) of the grid's search cells (b false) or set B's: its strongest ledge pixel and its drop (z;
 // -1 outside an untiled texture).
 vec4 dr_ledgeCell(ivec2 l, vec2 cellsL, bool b) {
-  ivec2 lw = uTile ? imod(l, ivec2(cellsL)) : l;
+  ivec2 lw = wrapCell(l, ivec2(cellsL));
   if (!uTile && (l.x < 0 || l.y < 0 || l.x >= int(cellsL.x) || l.y >= int(cellsL.y))) return vec4(0.0, 0.0, -1.0, 0.0);
   vec4 s = b ? texelFetch(tLedgeB, lw, 0) : texelFetch(tLedgeA, lw, 0);
   return vec4(s.xy + vec2(l - lw) * (uRes / cellsL), s.zw);
@@ -206,7 +206,7 @@ float dr_span(vec2 pos) {
 // the cell wrapped (for its hashes), drop: the ledge it sits on; on a ledge, onLedge and lpos: where to measure its
 // span (dr_span, once in main).
 bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out float drop, out bool onLedge, out vec2 lpos) {
-  cw = uTile ? imod(c, ivec2(cells)) : c;
+  cw = wrapCell(c, ivec2(cells));
   src = (vec2(c) + hash2I(cw, uSeed + 9.0)) * cs;
   drop = 0.0;
   onLedge = false;
@@ -253,7 +253,7 @@ bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out flo
 // lip don't all start on one line; csA: the grid's cells (for the clustering's scale). Its own hashes (seed + 7919),
 // so it is independent of the grid.
 bool dr_ledgeSource(ivec2 c, vec2 cellsB, vec2 csA, out ivec2 cw, out vec2 src, out float drop, out bool onLedge, out vec2 lpos) {
-  cw = uTile ? imod(c, ivec2(cellsB)) : c;
+  cw = wrapCell(c, ivec2(cellsB));
   vec4 b = dr_ledgeCell(c, cellsB, true);
   src = b.xy + vec2(0.0, floor(2.5 * hashI(cw, uSeed + 7929.0)));
   drop = max(b.z, 0.0);
@@ -735,7 +735,7 @@ ${DR_GRID_GLSL}
 // its set's cells across and down, row0: the set's first texel row, cseed: the set's seed. cw: the cell wrapped (for
 // its hashes), rnd: its random, drop: the ledge it sits on.
 bool dr_cell(ivec2 c, vec2 cells, vec2 cs, int row0, float cseed, out ivec2 cw, out vec2 src, out float rnd, out float drop, out float cov) {
-  cw = uTile ? imod(c, ivec2(cells)) : c;
+  cw = wrapCell(c, ivec2(cells));
   ivec2 t = cw + ivec2(DR_MX, DR_MY);
   bool ok = t.x >= 0 && t.y >= 0 && t.x < int(cells.x) + 2 * DR_MX && t.y < int(cells.y) + DR_MY + DR_MX;
   vec4 s = texelFetch(t_cells, clamp(t, ivec2(0), ivec2(int(cells.x) + 2 * DR_MX - 1, int(cells.y) + DR_MY + DR_MX - 1)) + ivec2(0, row0), 0);
@@ -762,10 +762,10 @@ const float DR_NSEED[4] = float[4](307.0, 311.0, 317.0, 313.0);
 // onto a floor eaten deeper towards the middle, broadly uneven and rough.
 GenOut dr_peel(vec2 p, vec2 q, float d, float rnd, float lam0, int nL, float tearAmp, float ks, float sat) {
   float R = u_blister;
-  vec2 tc = uTile ? max(vec2(1.0), floor(uRes / 2.5 + 0.5)) : uRes / 2.5;
+  vec2 tc = snapCells(uRes / 2.5);
   // The flaps along the edge are about as long as the lift is wide (at least 2.5 px).
   float lamU = max(2.5, 1.25 * u_lift_width);
-  vec2 tu = uTile ? max(vec2(1.0), floor(uRes / lamU + 0.5)) : uRes / lamU;
+  vec2 tu = snapCells(uRes / lamU);
   // (Accumulated as they come: an array indexed in the loop costs D3D compile time.)
   float lobes = 0.0, tear = 0.0, nU = 0.5, n0 = 0.5, n1 = 0.5;
   int count = nL + 4;  // uniform-derived, so D3D keeps it a loop
@@ -773,8 +773,8 @@ GenOut dr_peel(vec2 p, vec2 q, float d, float rnd, float lam0, int nL, float tea
     bool lobe = i < nL;
     int k = max(i - nL, 0);
     float lam = lam0 / exp2(float(i));
-    vec2 per = lobe ? (uTile ? max(vec2(1.0), floor(uRes / lam + 0.5)) : uRes / lam) : k == 3 ? tu : tc * DR_NSCALE[min(k, 2)];
-    float n = valueNoise(q / uRes * per, uTile ? ivec2(per) : NO_PERIOD, uSeed + (lobe ? 301.0 + 100.0 * float(i) : DR_NSEED[k]));
+    vec2 per = lobe ? snapCells(uRes / lam) : k == 3 ? tu : tc * DR_NSCALE[min(k, 2)];
+    float n = valueNoise(q / uRes * per, periodOf(per), uSeed + (lobe ? 301.0 + 100.0 * float(i) : DR_NSEED[k]));
     if (i == 0) n0 = n;
     if (i == min(1, nL - 1)) n1 = n;
     if (lobe) lobes += u_ragged * min(R, 0.8 * lam) * (n * 2.0 - 1.0);
@@ -804,20 +804,14 @@ GenOut dr_peel(vec2 p, vec2 q, float d, float rnd, float lam0, int nL, float tea
   return genOutHeight(clamp(0.78 + 0.2 * tear + 0.12 * bowl, 0.0, 1.0), hole, rnd, d, mix(lift, floorH, holeH));
 }
 
-// Smooth 1D value noise, −1..1.
-float dr_n1(float x, float s) {
-  float i = floor(x);
-  float f = x - i;
-  float u = f * f * (3.0 - 2.0 * f);
-  return mix(hashI(ivec2(int(i), 71), s), hashI(ivec2(int(i) + 1, 71), s), u) * 2.0 - 1.0;
-}
-
 // The wavelength (at least lam) over which a sway of amplitude a px stays within ~20° of vertical: water cannot run
 // further sideways, so a wide sway takes a longer stretch.
 float dr_lam(float lam, float a) { return max(lam, 8.0 * a); }
 // The runnel style's centre line (px across, at px down).
 float dr_cx(float y, float lam, float rs) {
-  return u_wobble * (0.65 * dr_n1(y / dr_lam(lam, 0.65 * u_wobble), rs + 1.0) + 0.35 * dr_n1(y / dr_lam(0.37 * lam, 0.35 * u_wobble), rs + 2.0));
+  float n1 = valueNoise1(y / dr_lam(lam, 0.65 * u_wobble), rs + 1.0);
+  float n2 = valueNoise1(y / dr_lam(0.37 * lam, 0.35 * u_wobble), rs + 2.0);
+  return u_wobble * (1.3 * n1 + 0.7 * n2 - 1.0);
 }
 float dr_hw(float w, float t, float taper) { return max(0.5 * w * (1.0 - taper * t), 0.5); }
 // The stain's half width at px down. sh: its seep width, fan-out and taper. The water spreads from its seep: from seep
@@ -834,7 +828,9 @@ float dr_halfw(float y, float w, float len, vec3 sh) {
 float dr_bj(float base, float y, float lam, float hwF, float rs, int j) {
   float s = rs + 10.0 + 2.0 * float(j);
   float a = u_braid * hwF;
-  return clamp(base + u_braid * (0.5 * dr_n1(y / dr_lam(0.5 * lam, 0.5 * a), s) + 0.2 * dr_n1(y / dr_lam(0.17 * lam, 0.2 * a), s + 1.0)), -0.95, 0.95);
+  float n1 = valueNoise1(y / dr_lam(0.5 * lam, 0.5 * a), s);
+  float n2 = valueNoise1(y / dr_lam(0.17 * lam, 0.2 * a), s + 1.0);
+  return clamp(base + u_braid * (n1 + 0.4 * n2 - 0.7), -0.95, 0.95);
 }
 
 // Coverage of a signed distance (px, < 0 inside): stepped when hard, else anti-aliased over 1 + Softness px (eased
@@ -863,7 +859,7 @@ float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float 
   float best = 0.0;
   // The seep's lip, its corners rounded. top: px below it. A free seep's lip is ragged; a drip from a ledge starts on
   // the ledge's own line, darkest against it.
-  float lip1 = dr_n1(x / max(3.0, 0.3 * hs), rs + 4.0);
+  float lip1 = 2.0 * valueNoise1(x / max(3.0, 0.3 * hs), rs + 4.0) - 1.0;
   // (Only a broad seep's lip is ragged: on a narrow one the bumps would read as horns — it seeps from one rounded point.)
   float top = d.y - min(0.3 * hs, 6.0) * (1.0 - led) * smoothstep(4.0, 12.0, hs) * (lip1 + 1.0);
   // Feather: a free stain fades in down from its lip — unevenly along it, eased, from just above it so Softness
@@ -897,7 +893,7 @@ float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float 
       float nDry = 0.5, nStreak = 0.0, nEnd = 0.0;
       int count = u_breakup > 0.0 || u_streaks > 0.0 ? 4 : 0;
       // (The streaks' spacing wanders, so they are no comb.)
-      float xs = x + 1.5 * sw * dr_n1(x / (4.0 * sw), rs + 5.0);
+      float xs = x + 1.5 * sw * (2.0 * valueNoise1(x / (4.0 * sw), rs + 5.0) - 1.0);
       for (int i = 0; i < count; i++) {
         vec2 a = i == 0 ? vec2(x / max(6.0, 0.6 * hw), d.y / max(20.0, 2.0 * hw))
                : i == 3 ? vec2(xs / (1.7 * sw), 0.5)

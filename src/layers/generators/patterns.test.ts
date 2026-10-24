@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, linkedChanges } from '../registry';
-import { bricksLayer, stripesLayer, voronoiLayer } from './patterns';
+import { bricksLayer, stripesDerived, stripesLayer, voronoiLayer } from './patterns';
 
 describe('pattern layers', () => {
 	ensureBuiltins();
@@ -100,5 +100,25 @@ describe('pattern layers', () => {
 		expect(stripesLayer.sdfShowIf!({ mode: 'shape' })).toBe(true);
 		expect(voronoiLayer.sdfShowIf!({ output: 'facets' })).toBe(false);
 		expect(voronoiLayer.sdfShowIf!({ output: 'cells' })).toBe(true);
+	});
+
+	it('snap Stripes to whole cycles across each axis on the CPU when tiling', () => {
+		const c = (width: number, height: number, tileable = true) => ({ width, height, tileable, seed: 0 });
+		const s = (count: number, angle: number, cv = c(96, 96)) => stripesDerived({ count, angle }, cv);
+		// 12 at 45° crosses each edge 8 times; the stripes then repeat every 8.
+		const d = s(12, 45);
+		expect(d.k[0] * 96).toBeCloseTo(-8, 6);
+		expect(d.k[1] * 96).toBeCloseTo(8, 6);
+		expect(d.g).toBe(8);
+		// Horizontal on a 96 × 64 tile: 8 per width is 5.33 down, rounded to 5.
+		expect(s(8, 0, c(96, 64)).k[1] * 64).toBeCloseTo(5, 6);
+		expect(s(8, 0, c(96, 64)).g).toBe(5);
+		// Too few to cross an edge: one cycle down.
+		expect(s(0.25, 10).k[1] * 96).toBeCloseTo(1, 6);
+		// Not tiling: the plain normal, count per width.
+		const f = s(8, 30, c(96, 64, false));
+		expect(f.k[0] * 96).toBeCloseTo(-4, 5);
+		expect(f.k[1] * 96).toBeCloseTo(8 * Math.cos(Math.PI / 6), 5);
+		expect(stripesLayer.glsl).not.toMatch(/igcd|u_count|u_angle/);
 	});
 });

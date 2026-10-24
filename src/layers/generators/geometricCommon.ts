@@ -3,6 +3,8 @@
 // corner rounding. Each layer compiles its own copy; every helper is prefixed `geo_`.
 
 import { P, type ParamDef } from '@/core/params';
+import { gcd } from '../derivedMath';
+import type { DerivedUniforms, LayerCanvas } from '../types';
 
 /** Orientation options in 45° steps (enum index = steps clockwise). */
 const ORIENT8: [string, string][] = [
@@ -17,6 +19,33 @@ const ORIENT8: [string, string][] = [
 ];
 
 export const orientParam = (hint: string): ParamDef => P.enum('orient', 'Rotation', '0', ORIENT8, { hint });
+
+/**
+ * geo_frame's span on the CPU (for derived uniforms): the canvas, turned by ori × 45°; a diagonal frame's is
+ * gcd(width, height) / √2 square when tiling, so its periods close on the torus.
+ */
+export function geoSpan(ori: number, c: LayerCanvas): [number, number] {
+	ori = Math.min(Math.max(ori, 0), 7);
+	if (ori % 2 === 0) return ori & 2 ? [c.height, c.width] : [c.width, c.height];
+	if (!c.tileable) return [c.width * 0.70710678, c.height * 0.70710678];
+	const g = gcd(Math.round(c.width), Math.round(c.height)) * 0.70710678;
+	return [g, g];
+}
+
+/** geo_frame's diagonal torus: W/g and H/g, g = gcd(W, H) (the derived uniform `geo_AB`). */
+export function geoAB(c: LayerCanvas): [number, number] {
+	const w = Math.round(c.width);
+	const h = Math.round(c.height);
+	const g = gcd(w, h);
+	return [w / g, h / g];
+}
+
+/** The derived uniforms GEO_FRAME_GLSL reads; a layer with its own merges `geo_AB` into them. */
+export const GEO_DERIVED: DerivedUniforms = { decl: { geo_AB: 'ivec2' }, compute: (_, c) => ({ geo_AB: geoAB(c) }) };
+
+/** geo_count on the CPU: a period count, a whole multiple of m when tiling. */
+export const geoCount = (k: number, m: number, tile: boolean): number =>
+	tile ? Math.max(1, Math.floor(k / Math.max(m, 1) + 0.5)) * Math.max(m, 1) : Math.max(k, 1e-3);
 
 /** Random value per feature / kind / kind + random (option index = the shader's mode), then any `more` options. */
 export const rndModeParam = (
@@ -37,7 +66,8 @@ export const rndModeParam = (
  * GLSL frame helpers (every geometric layer): `geo_frame(p, ori)` rotates the pixel by ori × 45° (clockwise on
  * screen) into `geo_f` and sets `geo_span`, the frame extent that must hold a whole number of pattern periods for the
  * texture to tile (W×H, H×W, or gcd(W,H)/√2 for diagonal frames). `geo_periods(k)` then fixes the period counts and
- * `geo_cs`. Period-cell indices are made seamless with `geo_wrapCell` (handles the diagonal torus too).
+ * `geo_cs`. Period-cell indices are made seamless with `geo_wrapCell` (handles the diagonal torus too). Reads the
+ * derived uniform `d_geo_AB`: every layer that includes it declares GEO_DERIVED (or merges `geo_AB` into its own).
  */
 export const GEO_FRAME_GLSL = /* glsl */ `
 const float GEO_C[8] = float[8](1.0, 0.70710678, 0.0, -0.70710678, -1.0, -0.70710678, 0.0, 0.70710678);
@@ -48,7 +78,7 @@ vec2 geo_span;     // frame extent holding a whole number of periods (px)
 vec2 geo_k;        // periods across the span
 vec2 geo_cs;       // period size (frame px)
 int geo_ori;
-ivec2 geo_AB;      // W/g, H/g (diagonal frames)
+ivec2 geo_AB;      // W/g, H/g, g = gcd(W, H) (diagonal frames; d_geo_AB from the CPU)
 
 void geo_frame(vec2 p, int ori) {
   ori = clamp(ori, 0, 7);
@@ -59,10 +89,8 @@ void geo_frame(vec2 p, int ori) {
   if ((ori & 1) == 0) {
     geo_span = (ori & 2) == 2 ? uRes.yx : uRes;
   } else if (uTile) {
-    int w = int(uRes.x + 0.5), h = int(uRes.y + 0.5);
-    int g = igcd(w, h);
-    geo_AB = ivec2(w / g, h / g);
-    geo_span = vec2(float(g) * 0.70710678);
+    geo_AB = d_geo_AB;
+    geo_span = vec2(float(int(uRes.x + 0.5) / geo_AB.x) * 0.70710678);
   } else {
     geo_span = uRes * 0.70710678;
   }

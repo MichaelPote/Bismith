@@ -299,30 +299,26 @@ export const stoneBlocksLayer: LayerDef = {
 		/* glsl */ `
 float sb_px(float x, float s) { return floor(x / s + 0.5) * s; }
 float sb_h(uint h, uint k) { return u2f(pcg(h + k * 0x9E3779B9u)); }
-// A count of courses or blocks: whole when tiling.
-float sb_count(float n) { return uTile ? max(1.0, floor(n + 0.5)) : n; }
-// Index i on the torus (n of them), when tiling.
-int sb_wrap(int i, int n) { return uTile ? imod(i, n) : i; }
 // Block i's key in course jw (n blocks across).
-uint sb_bid(int i, int n, int jw) { return pcg3(uvec3(uint(sb_wrap(i, n)), uint(jw), uint(uSeed) + 11u)); }
+uint sb_bid(int i, int n, int jw) { return pcg3(uvec3(uint(wrapCell(i, n)), uint(jw), uint(uSeed) + 11u)); }
 // How much of a pixel d px from a line a band hw px either side of it covers: an exact box filter, nothing as hw goes
 // to 0.
 float sb_lineCov(float d, float hw) { return clamp(min(d + hw, 0.5) - max(d - hw, -0.5), 0.0, 1.0); }
 
 // Course j's lower edge (px, snapped to texture pixels); courses repeat every n when tiling.
 float sb_rowY(int j, int n, float rh, float pxs) {
-  return sb_px((float(j) + 0.8 * u_row_var * (hashI(ivec2(sb_wrap(j, n), 0), uSeed + 3.0) - 0.5)) * rh, pxs);
+  return sb_px((float(j) + 0.8 * u_row_var * (hashI(ivec2(wrapCell(j, n), 0), uSeed + 3.0) - 0.5)) * rh, pxs);
 }
 // Block i's left edge in a course (jw: the course on the torus) of n blocks bw apart, shifted by off blocks.
 float sb_colX(int i, int n, int jw, float bw, float off, float pxs) {
-  return sb_px((float(i) + off + 0.8 * u_len_var * (hashI(ivec2(sb_wrap(i, n), jw), uSeed + 7.0) - 0.5)) * bw, pxs);
+  return sb_px((float(i) + off + 0.8 * u_len_var * (hashI(ivec2(wrapCell(i, n), jw), uSeed + 7.0) - 0.5)) * bw, pxs);
 }
 // Course j's blocks: n across (whole blocks when tiling), bw apart, starting off blocks along; jw its key on the torus.
 void sb_course(int j, int nR, float rh, out int jw, out int n, out float bw, out float off) {
-  jw = sb_wrap(j, nR);
+  jw = wrapCell(j, nR);
   vec3 hr = hash3I(ivec2(jw, 1), uSeed + 5.0);
   float bl = max(u_length, 0.2) * rh * (1.0 + 0.6 * u_len_var * (hr.x - 0.5));
-  float nB = sb_count(uRes.x / bl);
+  float nB = snapCells(uRes.x / bl);
   n = int(nB);
   bw = uRes.x / nB;
   off = mix(hr.y, imod(j, 2) == 1 ? 0.5 : 0.0, u_bond);
@@ -340,7 +336,7 @@ int sb_find(float x, int n, int jw, float bw, float off, float pxs, out float xa
 // odd number of courses on the torus, the last can't, as the course above it is course 0).
 bool sb_tall(int j, int i, int n, int jw, int nR) {
   if (imod(j, 2) != 0 || (uTile && (nR & 1) == 1 && jw == nR - 1)) return false;
-  return hashI(ivec2(sb_wrap(i, n), jw), uSeed + 61.0) < u_tall;
+  return hashI(ivec2(wrapCell(i, n), jw), uSeed + 61.0) < u_tall;
 }
 
 GenOut gen(vec2 p) {
@@ -351,7 +347,7 @@ GenOut gen(vec2 p) {
 
   // Course: rows of nominal height rh, each edge jittered (at most 0.4 rh, so a neighbour test either side suffices).
   float course = max(u_course, 2.0 * pxs);
-  float nR = sb_count(uRes.y / course);
+  float nR = snapCells(uRes.y / course);
   int nRi = int(nR);
   float rh = uRes.y / nR;
   int j = int(floor(p.y / rh));
@@ -425,7 +421,7 @@ GenOut gen(vec2 p) {
                    : 3.0 * u_length * rh;
       float seed = e == 0 ? 13.0 : e == 1 ? 17.0 : e == 2 ? 79.0 : e == 3 ? 83.0 : e == 4 ? 43.0 : 53.0;
       vec2 nc = cellsFor(uRes.x / cellPx, 1.0);
-      float n = org_noiseFbm(1, false, p / uRes * nc, org_per(nc), e < 4 ? 2 : 3, 0.5, uSeed + seed);
+      float n = org_noiseFbm(1, false, p / uRes * nc, periodOf(nc), e < 4 ? 2 : 3, 0.5, uSeed + seed);
       if (e == 0) jn = n - 0.5;
       else if (e == 1) mwN = n;
       else if (e == 2) wn.x = n;
@@ -481,7 +477,7 @@ GenOut gen(vec2 p) {
       vec2 fo = fine ? vec2(0.37, 0.71) * uRes : vec2(0.0);
       vec2 x = (p + wp + so + fo) / uRes * cells;
       ivec2 cc = ivec2(floor(x - 0.5)) - 1 + ivec2(k & 3, k >> 2);
-      ivec2 cw = imod(cc, org_per(cells));
+      ivec2 cw = imod(cc, periodOf(cells));
       vec4 h = vec4(hash2I(cw, uSeed + (fine ? 23.0 : 19.0)), hash2I(cw, uSeed + (fine ? 29.0 : 31.0)));
       vec4 h2 = vec4(hash2I(cw, uSeed + (fine ? 37.0 : 41.0)), hash2I(cw, uSeed + (fine ? 59.0 : 67.0)));
       vec2 site = vec2(cc) + 0.5 + 0.8 * (h.xy - 0.5);

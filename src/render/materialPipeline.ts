@@ -11,11 +11,12 @@ import { createUniforms, declareUniforms, mixSeed, updateUniforms } from '@/gpu/
 import { GLSL_COMMON } from '@/layers/glsl/common';
 import { GLSL_NOISE } from '@/layers/glsl/noise';
 import { GLSL_SDF } from '@/layers/glsl/sdf';
-import { GLSL_BEVEL, GLSL_GENERATOR_MAIN, bevelCurveDefine, bevelCurveImpl } from '@/layers/commonParams';
+import { GLSL_BEVEL, GLSL_GENERATOR_MAIN, GLSL_MASK_OP, bevelCurveDefine, bevelCurveImpl } from '@/layers/commonParams';
 import { planMasks, type LayerMasks, type MaskPlan, type MaskRef } from '@/layers/masks';
 import { getLayerDef, layerParamDefs } from '@/layers/registry';
 import { imagesVersion } from '@/core/images';
-import type { LayerDef } from '@/layers/types';
+import type { CpuTexture, LayerCanvas, LayerDef } from '@/layers/types';
+import { DerivedCache, createDerived, declareDerived, setDerived } from './derivedUniforms';
 
 /** Declarations available to every material-stage shader. */
 const STATE_DECLS = /* glsl */ `
@@ -99,12 +100,7 @@ GenOut genOutOwn(float value, float mask, float rnd, float sdf) { return GenOut(
 GenOut genOutShaded(float value, float mask, float rnd, float sdf) { return GenOut(value, mask, rnd, sdf, 1.0, NO_SDF, 2, -1.0, NO_SDF, rnd); }
 // A colour of the generator's own for Diffuse (sRGB 0..1), in place of the ramp (Stamp's image); x < 0 = the ramp.
 vec3 gGenRgb = vec3(-1.0);
-
-// What the layer writes into its mask (Mask › Write to, FR8.23): 0 nothing, 1 its shape (a distance), 2 its coverage.
-uniform int uMaskKind;
-// How its shape combines with the mask: 0 it writes no shape, else the sdfCombine op (1 replaces, 2 union …).
-int maskOp() { return uMaskKind == 1 ? u_mk_op + 1 : 0; }
-`;
+${GLSL_MASK_OP}`;
 
 /** Everything a GLSL snippet in the material stage can rely on. */
 export const MATERIAL_PRELUDE = STATE_DECLS + GLSL_COMMON + GLSL_MASKS + GLSL_NOISE + GLSL_SDF;
@@ -178,6 +174,20 @@ export function shaderKey(layer: Pick<Layer, 'type' | 'params'>): string {
 	return key;
 }
 const shaderType = (key: string) => key.split('~')[0];
+
+/** The main() of a filterGlsl filter: the state through its applyFilter, limited by the layer's Limit to. */
+const FILTER_MAIN = /* glsl */ `
+void main() {
+  ivec2 ip = ivec2(gl_FragCoord.xy);
+  vec4 A = texelFetch(tAlbedo, ip, 0);
+  vec4 S = texelFetch(tSurface, ip, 0);
+  vec4 E = texelFetch(tEmissive, ip, 0);
+  vec4 A0 = A, S0 = S, E0 = E;
+  applyFilter(A, S, E, ip);
+  float k = limitAt(ip);
+  oAlbedo = mix(A0, A, k); oSurface = mix(S0, S, k); oEmissive = mix(E0, E, k); oMask = vec4(0.0);
+}
+`;
 /** The `#define`s a shader key asks for. */
 function keyDefines(key: string): string {
 	const f = key.split(FEATURES_KEY)[1];
@@ -495,7 +505,12 @@ ${fetches}
 	}
 
 	private blank: THREE.DataTexture | null = null;
-	private cpuCache = new Map<string, { key: string; tex: Record<string, THREE.DataTexture> }>();
+	/** Per layer: the inputs its cpuData last ran for, what it returned and the textures made from that. */
+	private cpuCache = new Map<
+		string,
+		{ key: string; data: Record<string, CpuTexture>; tex: Record<string, THREE.DataTexture> }
+	>();
+	private derived = new DerivedCache();
 
 	private blankTexture(): THREE.DataTexture {
 		if (!this.blank) {
@@ -505,19 +520,30 @@ ${fetches}
 		return this.blank;
 	}
 
-	/** CPU-computed data textures of a generator layer (LayerDef.cpuData), cached until its inputs change. */
+	/** The canvas a layer's CPU work sees (cpuData, derivedUniforms). */
+	private canvas(project: Project, seed: number): LayerCanvas {
+		return { width: this.width, height: this.height, tileable: project.tileable, seed };
+	}
+
+	/** CPU-computed data textures of a layer (LayerDef.cpuData), cached until its inputs change. */
 	private cpuTextures(def: LayerDef, layer: Layer, project: Project, seed: number): Record<string, THREE.DataTexture> {
 		// (imagesVersion: an image a layer uses may have finished decoding since.)
 		const key = JSON.stringify([layer.params, this.width, this.height, project.tileable, seed, imagesVersion()]);
 		const hit = this.cpuCache.get(layer.id);
 		if (hit && hit.key === key) return hit.tex;
+		const data = def.cpuData!(layer.params, this.canvas(project, seed));
+		// cpuData memoises (core/memo.ts): a param it doesn't read changed, and it handed back the same arrays — keep the
+		// uploaded textures.
+		const names = Object.keys(data);
+		if (
+			hit &&
+			names.length === Object.keys(hit.data).length &&
+			names.every((n) => hit.data[n]?.data === data[n].data)
+		) {
+			hit.key = key;
+			return hit.tex;
+		}
 		if (hit) for (const t of Object.values(hit.tex)) t.dispose();
-		const data = def.cpuData!(layer.params, {
-			width: this.width,
-			height: this.height,
-			tileable: project.tileable,
-			seed
-		});
 		const tex: Record<string, THREE.DataTexture> = {};
 		for (const [name, d] of Object.entries(data)) {
 			const t = new THREE.DataTexture(d.data, d.width, d.height, THREE.RGBAFormat, THREE.UnsignedByteType);
@@ -526,13 +552,13 @@ ${fetches}
 			t.needsUpdate = true;
 			tex[name] = t;
 		}
-		this.cpuCache.set(layer.id, { key, tex });
+		this.cpuCache.set(layer.id, { key, data, tex });
 		return tex;
 	}
 
 	/**
-	 * A generator's data textures: from the CPU (LayerDef.cpuData, cached) and from its GPU pre-passes over the current
-	 * state (LayerDef.prepare, run every time — they read what the layers before left).
+	 * A layer's data textures: from the CPU (LayerDef.cpuData, cached) and from its GPU pre-passes over the current state
+	 * (LayerDef.prepare, run every time — they read what the layers before left).
 	 */
 	private bindTextures(
 		def: LayerDef,
@@ -549,6 +575,31 @@ ${fetches}
 			for (const [name, t] of Object.entries(def.prepare(this.filterContext(project, layer, seed), layer)))
 				mat.uniforms[`t_${name}`].value = t;
 		}
+	}
+
+	/** Upload a layer's derived uniforms for `params` (LayerDef.derivedUniforms); `slot` keys their cache. */
+	private bindDerived(
+		def: LayerDef,
+		slot: string,
+		params: Layer['params'],
+		project: Project,
+		seed: number,
+		mat: THREE.RawShaderMaterial
+	): void {
+		const d = def.derivedUniforms;
+		if (d) setDerived(mat.uniforms, d, this.derived.values(slot, d, params, this.canvas(project, seed)));
+	}
+
+	/** GLSL and zeroed uniforms of a layer's inputs beside its params: its data textures and derived uniforms. */
+	private layerInputs(def: LayerDef): { glsl: string; uniforms: Uniforms } {
+		const tex = def.textures ?? [];
+		return {
+			glsl: tex.map((t) => `uniform sampler2D t_${t};\n`).join('') + declareDerived(def.derivedUniforms),
+			uniforms: {
+				...Object.fromEntries(tex.map((t) => [`t_${t}`, { value: this.blankTexture() }])),
+				...createDerived(def.derivedUniforms)
+			}
+		};
 	}
 
 	/** Generator shaders among `keys` (shaderKey) not compiled yet: their first run would compile them, stalling the page. */
@@ -615,18 +666,18 @@ ${fetches}
 		const key = `gen:${shader}${this.salt}`;
 		let mat = this.materials.get(key);
 		if (!mat) {
+			const inputs = this.layerInputs(def);
 			const body =
 				GENOUT +
 				(def.sdf ? GLSL_BEVEL : '') +
-				(def.textures ?? []).map((t) => `uniform sampler2D t_${t};\n`).join('') +
+				inputs.glsl +
 				(def.glsl ?? '') +
 				GLSL_GENERATOR_MAIN(def.sdf === 'mask' ? 'mask' : Boolean(def.sdf));
-			const tex = Object.fromEntries((def.textures ?? []).map((t) => [`t_${t}`, { value: this.blankTexture() }]));
 			mat = this.stageMaterial(
 				def.type,
 				MRT_OUTS,
 				body,
-				{ ...tex, uMaskKind: { value: 0 } },
+				{ ...inputs.uniforms, uMaskKind: { value: 0 } },
 				(this.salt ? `// salt ${this.salt}\n` : '') + keyDefines(shader)
 			);
 			this.materials.set(key, mat);
@@ -714,6 +765,7 @@ ${fetches}
 			for (const t of Object.values(hit.tex)) t.dispose();
 			this.cpuCache.delete(id);
 		}
+		this.derived.prune(ids);
 
 		// Clear to the base material.
 		const base = project.base;
@@ -753,16 +805,18 @@ ${fetches}
 					this.bindTextures(def, layer, project, seed, mat);
 					// Extra mask writes (LayerDef.extraMaskWrites): the same shader with their params, into the scratch side of
 					// the state (the layer's own pass overwrites it next); only their mask output is kept.
-					for (const e of masks?.extra ?? []) {
+					masks?.extra.forEach((e, i) => {
 						updateUniforms(mat.uniforms, layerParamDefs(def.type), e.params);
+						this.bindDerived(def, `${layer.id}#${i}`, e.params, project, seed, mat);
 						this.cur.input = this.refTexture(e.input);
 						this.setCommon(mat, project, seed);
 						mat.uniforms.uMaskKind.value = maskKind(e.write);
 						this.gpu.run(mat, state.write);
 						if (e.write.slot >= 0) this.gpu.copy(state.write.textures[3], this.slots[e.write.slot]);
-					}
+					});
 					if (masks?.extra.length) this.cur.input = masks.input ? this.refTexture(masks.input) : null;
 					updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params);
+					this.bindDerived(def, layer.id, layer.params, project, seed, mat);
 					this.setCommon(mat, project, seed);
 					const w = masks?.write;
 					mat.uniforms.uMaskKind.value = maskKind(w);
@@ -778,22 +832,12 @@ ${fetches}
 					def.run(this.filterContext(project, layer, seed), layer);
 					if (limited) this.blendLimited(project, layer, seed);
 				} else if (def.filterGlsl) {
+					// One pass, limited in itself, after any pre-passes (LayerDef.prepare) it reads.
 					const ctx = this.filterContext(project, layer, seed);
-					const mat = ctx.mrtMaterial(
-						'main',
-						def.filterGlsl +
-							/* glsl */ `
-            void main() {
-              ivec2 ip = ivec2(gl_FragCoord.xy);
-              vec4 A = texelFetch(tAlbedo, ip, 0);
-              vec4 S = texelFetch(tSurface, ip, 0);
-              vec4 E = texelFetch(tEmissive, ip, 0);
-              vec4 A0 = A, S0 = S, E0 = E;
-              applyFilter(A, S, E, ip);
-              float k = limitAt(ip);
-              oAlbedo = mix(A0, A, k); oSurface = mix(S0, S, k); oEmissive = mix(E0, E, k); oMask = vec4(0.0);
-            }`
-					);
+					const inputs = this.layerInputs(def);
+					const mat = ctx.mrtMaterial('main', inputs.glsl + def.filterGlsl + FILTER_MAIN, inputs.uniforms);
+					this.bindTextures(def, layer, project, seed, mat);
+					this.bindDerived(def, layer.id, layer.params, project, seed, mat);
 					ctx.runMRT(mat);
 				}
 			} catch (e) {

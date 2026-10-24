@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, layerParamDefs, sanitizeLayer } from '../registry';
-import { cableLayer } from './cable';
+import { cableDerived, cableLayer } from './cable';
 
 describe('cable', () => {
 	ensureBuiltins();
@@ -65,5 +65,32 @@ describe('cable', () => {
 			expect(layerParamDefs('cable').find((d) => d.key === k)?.unit, k).toBe('px');
 		// esbuild reads `<< out` as a TypeScript variance modifier (AGENTS.md).
 		expect(cableLayer.glsl).not.toMatch(/<<\s*out\b/);
+	});
+
+	it('snaps its direction to one that closes on the torus when tiling (on the CPU)', () => {
+		const base = createLayer('cable').params;
+		for (const [width, height] of [
+			[64, 64],
+			[96, 96],
+			[512, 512],
+			[97, 61],
+			[300, 200],
+			[1, 1]
+		])
+			for (const axis of ['horizontal', 'vertical'])
+				for (const angle of [0, 10, 26.6, 45, -60, 90, 170]) {
+					const at = `${axis} ${angle}° ${width}×${height}`;
+					const { frame, wrapU } = cableDerived({ ...base, axis, angle }, { width, height, tileable: true, seed: 0 });
+					const [dx, dy, len, across] = frame;
+					// One length along d is a whole number of tiles each way; the copies across fill the tile.
+					for (const k of [(dx * len) / width, (dy * len) / height])
+						expect(Math.abs(k - Math.round(k)), at).toBeLessThan(1e-6);
+					expect(across * len, at).toBeCloseTo(width * height, 3);
+					expect(Math.abs(wrapU), at).toBeLessThanOrEqual(len / 2 + 1e-6);
+				}
+		// Horizontal and vertical cables need no shift between copies; untiled, the angle is kept.
+		expect(cableDerived(base, { width: 96, height: 64, tileable: true, seed: 0 }).wrapU).toBe(0);
+		const [dx, dy] = cableDerived({ ...base, angle: 10 }, { width: 96, height: 64, tileable: false, seed: 0 }).frame;
+		expect(Math.atan2(dy, dx) * (180 / Math.PI)).toBeCloseTo(10, 6);
 	});
 });

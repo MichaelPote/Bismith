@@ -154,6 +154,6 @@ describe('greebles', () => {
 		expect(greeblesLayer.maskWrite!({ ...relief, mask: 'none' })).toBe(false);
 		expect(greeblesLayer.maskWrite!({ ...relief, mask: 'none', output: 'rivets' })).toBe('shape');
 		expect(greeblesLayer.glsl).toMatch(/u_mask == 0\) return genOut\([^;]*NO_SDF\)/);
-		expect(greeblesLayer.glsl).toMatch(/max\(dP, -dHole\)/);
+		expect(greeblesLayer.glsl).toMatch(/max\(dP, -D\.dHole\)/);
 	});
 });

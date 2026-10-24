@@ -2,9 +2,6 @@
 // blocks. Every name is prefixed `org_`; each layer compiles its own copy (one shader per layer type).
 
 export const ORG_GLSL = /* glsl */ `
-// Lattice period for a cellsFor() cell count: whole cells when tiling, effectively infinite otherwise.
-ivec2 org_per(vec2 cells) { return uTile ? ivec2(cells + 0.5) : NO_PERIOD; }
-
 // Fractal sum of value (kind 0) or Perlin (kind 1) noise, optionally billowed (|2n - 1|), lacunarity 2.
 // Perlin, gain 0.5, no billow is fbm(); one rolled loop, so the organic shaders stay small and compile fast.
 float org_noiseFbm(int kind, bool billow, vec2 x, ivec2 per, int oct, float gain, float seed) {
