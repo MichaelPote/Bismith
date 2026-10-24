@@ -13,6 +13,8 @@
 import type { Project } from '@/core/project';
 import { patternKeys } from '@/core/links';
 import { Rng, extractParams, applyParams, isEntryActive, entryValue, type ParamEntry } from '@/match/optimizer';
+import type { MatchImage } from '@/match/image';
+import type { TilingAnalysis } from './analyze';
 import type { TilingAttribution } from './attribute';
 
 export interface FixEvaluation {
@@ -20,6 +22,13 @@ export interface FixEvaluation {
 	score: number;
 	/** How far its look is from the project before the fix (≈0 identical … 1 unrelated). */
 	drift: number;
+	/** The candidate's render and analysis, if the evaluation has them: kept for the result (`before`, `after`). */
+	detail?: FixDetail;
+}
+
+export interface FixDetail {
+	image: MatchImage;
+	analysis: TilingAnalysis;
 }
 
 export interface FixOptions {
@@ -47,6 +56,10 @@ export interface FixOptions {
 	minGain?: number;
 	/** RNG seed for the seeds tried (default 1). */
 	rngSeed?: number;
+	/**
+	 * The project's own evaluation, when the caller has it (attribution's analysis, drift 0): saves evaluating it again.
+	 */
+	before?: FixEvaluation;
 	/** Checked before each evaluation: true stops the search, which returns the best so far. */
 	shouldStop?: () => boolean;
 	/** Called after each evaluation with the candidate and the best kept so far. */
@@ -58,6 +71,8 @@ export interface FixCandidate {
 	score: number;
 	drift: number;
 	loss: number;
+	/** Render and analysis, while the candidate can still be the result (dropped from the others to save memory). */
+	detail?: FixDetail;
 }
 
 export interface FixChange {
@@ -129,22 +144,31 @@ export async function fixTiling(
 	const judge = async (p: Project): Promise<FixCandidate> => {
 		const e = await evaluate(p);
 		evaluations++;
-		const c = { project: p, score: e.score, drift: e.drift, loss: lossOf(e) };
+		const c: FixCandidate = { project: p, score: e.score, drift: e.drift, loss: lossOf(e), detail: e.detail };
 		opts.onEvaluate?.(evaluations, c, best ?? c);
 		return c;
 	};
 	let best: FixCandidate | null = null;
-	const before = await judge(project);
+	const before: FixCandidate = opts.before
+		? { project, ...opts.before, loss: lossOf(opts.before) }
+		: await judge(project);
 	best = before;
 	const changes: FixChange[] = [];
 
-	// Culprits in the order of their findings, each once.
-	const units: number[] = [];
-	for (const f of attribution.findings) if (!units.includes(f.layer)) units.push(f.layer);
+	// Culprits in the order of their findings, each once, and only their unlocked layers (a lock holds the seed too).
+	const units: { ids: string[]; name: string }[] = [];
+	const locked = new Set(project.layers.filter((l) => l.locked).map((l) => l.id));
+	const seen = new Set<number>();
+	for (const f of attribution.findings) {
+		if (seen.has(f.layer)) continue;
+		seen.add(f.layer);
+		const { ids, name } = attribution.layers[f.layer];
+		const free = ids.filter((id) => !locked.has(id));
+		if (free.length) units.push({ ids: free, name });
+	}
 
 	const stop = () => opts.shouldStop?.() === true;
-	search: for (const u of units.slice(0, opts.culprits ?? 2)) {
-		const { ids, name } = attribution.layers[u];
+	search: for (const { ids, name } of units.slice(0, opts.culprits ?? 2)) {
 		const layers = ids.map((id) => best!.project.layers.find((l) => l.id === id)).filter((l) => !!l);
 		if (!layers.length) continue;
 
@@ -154,7 +178,11 @@ export async function fixTiling(
 			const tried: { seed: number; c: FixCandidate }[] = [];
 			for (let i = 0; i < (opts.seeds ?? 24) && !stop(); i++) {
 				const seed = rng.int(100000);
-				tried.push({ seed, c: await judge(reseed(best.project, ids, seed)) });
+				const c = await judge(reseed(best.project, ids, seed));
+				// The loss is only known once the round sets the allowance, but it is never below the score, and the bar
+				// (best's loss) only falls: a candidate whose score misses it now can't win.
+				if (!(c.score < best.loss - minGain)) c.detail = undefined;
+				tried.push({ seed, c });
 			}
 			if (opts.driftFree === undefined) {
 				const d = tried.map((t) => t.c.drift).sort((a, b) => a - b);
@@ -172,7 +200,9 @@ export async function fixTiling(
 					to = seed;
 				}
 			}
+			for (const t of tried) if (t.c !== won) t.c.detail = undefined;
 			if (won) {
+				if (best !== before) best.detail = undefined;
 				best = won;
 				changes.push({ ids, name, key: 'seed', from, to });
 			}
@@ -199,6 +229,7 @@ export async function fixTiling(
 			if (!e) continue;
 			const from = entryValue(e, space.initial);
 			let won: FixCandidate | null = null;
+			let wonTo = from;
 			for (const s of steps) {
 				if (stop()) break;
 				const v = space.initial[e.offset] + s;
@@ -206,13 +237,18 @@ export async function fixTiling(
 				const vec = Float64Array.from(space.initial);
 				vec[e.offset] = v;
 				const c = await judge(applyParams(best.project, space, vec));
-				trials.push({ name, key: e.key, value: entryValue(e, vec), score: c.score, drift: c.drift, loss: c.loss });
-				if (c.loss < (won ? won.loss : best.loss - minGain)) won = c;
+				const to = entryValue(e, vec);
+				trials.push({ name, key: e.key, value: to, score: c.score, drift: c.drift, loss: c.loss });
+				if (c.loss < (won ? won.loss : best.loss - minGain)) {
+					if (won) won.detail = undefined;
+					won = c;
+					wonTo = to;
+				} else c.detail = undefined;
 			}
 			if (won) {
+				if (best !== before) best.detail = undefined;
 				best = won;
-				const after = extractParams(won.project, { filter: (x) => pick(x) && `${x.owner}\u0000${x.key}` === ek });
-				changes.push({ ids, name, key: e.key, from, to: entryValue(after.entries[0], after.initial) });
+				changes.push({ ids, name, key: e.key, from, to: wonTo });
 			}
 		}
 	}

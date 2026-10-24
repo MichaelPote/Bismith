@@ -11,7 +11,14 @@
 
 import { hiddenByMaterial, type Project } from '@/core/project';
 import { toOklab, type MatchImage } from '@/match/image';
-import { TILING_TERMS, analyzeTiling, type TilingAnalysis, type TilingOptions, type TilingTerm } from './analyze';
+import {
+	TILING_TERMS,
+	analyzeTiling,
+	type TilingAnalysis,
+	type TilingKernelSource,
+	type TilingOptions,
+	type TilingTerm
+} from './analyze';
 
 export interface LayerBlame {
 	/** The layers switched off together (one, or the copies of one pattern). */
@@ -24,8 +31,8 @@ export interface LayerBlame {
 	contribution: number;
 	/** Per term: mean ΔE inside the term's hotspots minus outside (≤ 0: not concentrated there). */
 	blame: Record<TilingTerm, number>;
-	/** The tiling analysis without these layers (score and terms). */
-	without: { score: number; terms: Record<TilingTerm, number> };
+	/** The tiling analysis without these layers (score and terms), when `without` was asked for. */
+	without?: { score: number; terms: Record<TilingTerm, number> };
 	/** Per-pixel ΔE (for showing what the layers add), when `maps` was asked for. */
 	map?: Float32Array;
 }
@@ -39,6 +46,8 @@ export interface Finding {
 }
 
 export interface TilingAttribution {
+	/** The full render, and its analysis. */
+	image: MatchImage;
 	analysis: TilingAnalysis;
 	layers: LayerBlame[];
 	/** Culprits ranked: per term, the layers with clearly positive blame, most important first. */
@@ -48,6 +57,10 @@ export interface TilingAttribution {
 export interface AttributeOptions extends TilingOptions {
 	/** Keep each layer's contribution map (default false). */
 	maps?: boolean;
+	/** Also analyse each leave-one-out render, for `LayerBlame.without` (default false: a whole analysis per layer). */
+	without?: boolean;
+	/** Computes the analysis' kernels (the GPU, src/tiling/gpu.ts); the CPU without. */
+	gpu?: TilingKernelSource | null;
 	/** Called after each leave-one-out render (done, total). */
 	onProgress?: (done: number, total: number) => void;
 }
@@ -81,19 +94,23 @@ export async function attributeTiling(
 ): Promise<TilingAttribution> {
 	const fullImg = await render(project);
 	const full = toOklab(fullImg);
-	const analysis = analyzeTiling(fullImg, opts);
+	const analysis = analyzeTiling(fullImg, opts, opts.gpu);
 	const n = full.width * full.height;
 
-	// Per term, the hotspot weight of each pixel: the term's map relative to its peak.
-	const weightsOf = (m: Float32Array) => {
+	// Per term, the hotspot weight of each pixel: the term's map relative to its peak; and the weights' sums in and out.
+	const hot = TILING_TERMS.map((t) => {
+		const m = analysis.maps[t];
 		let peak = 0;
 		for (let i = 0; i < n; i++) peak = Math.max(peak, m[i]);
-		return peak > 0 ? m.map((v) => v / peak) : new Float32Array(n);
-	};
-	const hot = Object.fromEntries(TILING_TERMS.map((t) => [t, weightsOf(analysis.maps[t])])) as Record<
-		TilingTerm,
-		Float32Array
-	>;
+		const h = peak > 0 ? m.map((v) => v / peak) : new Float32Array(n);
+		let wi = 0;
+		let wo = 0;
+		for (let i = 0; i < n; i++) {
+			wi += h[i];
+			wo += 1 - h[i];
+		}
+		return { t, h, wi, wo };
+	});
 
 	const units = blameUnits(project);
 	const byId = new Map(project.layers.map((l) => [l.id, l]));
@@ -113,21 +130,16 @@ export async function attributeTiling(
 			total += c[i];
 		}
 		const blame = {} as Record<TilingTerm, number>;
-		for (const t of TILING_TERMS) {
-			const h = hot[t];
+		for (const { t, h, wi, wo } of hot) {
 			let si = 0;
-			let wi = 0;
 			let so = 0;
-			let wo = 0;
 			for (let i = 0; i < n; i++) {
 				si += h[i] * c[i];
-				wi += h[i];
 				so += (1 - h[i]) * c[i];
-				wo += 1 - h[i];
 			}
 			blame[t] = wi > 0 && wo > 0 ? si / wi - so / wo : 0;
 		}
-		const a = analyzeTiling(offImg, opts);
+		const a = opts.without ? analyzeTiling(offImg, opts, opts.gpu) : null;
 		const first = byId.get(ids[0])!;
 		layers.push({
 			ids,
@@ -136,13 +148,13 @@ export async function attributeTiling(
 			material: materialOf.get(ids[0]),
 			contribution: total / n,
 			blame,
-			without: { score: a.score, terms: a.terms },
+			without: a ? { score: a.score, terms: a.terms } : undefined,
 			map: opts.maps ? c : undefined
 		});
 		opts.onProgress?.(u + 1, units.length);
 	}
 
-	return { analysis, layers, findings: rankFindings(analysis, layers) };
+	return { image: fullImg, analysis, layers, findings: rankFindings(analysis, layers) };
 }
 
 /** Blame (ΔE) below which a layer's concentration is render noise: on the example projects, layers that barely

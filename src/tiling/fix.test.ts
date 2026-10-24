@@ -76,6 +76,24 @@ describe('fixTiling', () => {
 		expect(r.project).toBe(project);
 	}, 60_000);
 
+	it('leaves locked layers alone', async () => {
+		const attribution = await attributeTiling(project, render);
+		const evaluate = (p: Project) => ({ score: analyzeTiling(render(p)).score, drift: 0 });
+		const lock = (ids: string[]) => ({
+			...project,
+			layers: project.layers.map((l) => (ids.includes(l.id) ? { ...l, locked: true } : l))
+		});
+		// The whole culprit locked: nothing to fix.
+		const all = await fixTiling(lock(['blob', 'blob2']), attribution, evaluate, { seeds: 2, culprits: 1 });
+		expect(all.evaluations).toBe(1);
+		// One copy locked: only the other is reseeded.
+		const one = await fixTiling(lock(['blob']), attribution, evaluate, { seeds: 2, culprits: 1 });
+		expect(one.trials.length).toBeGreaterThan(0);
+		for (const t of one.trials) expect(t.name).toBe('blob (+1 copies)');
+		const seeds = one.project.layers.map((l) => l.params.seed);
+		expect(seeds[1]).toBe(7);
+	}, 60_000);
+
 	it('reseeds only the given layers', () => {
 		const p = reseed(project, ['blob'], 11);
 		expect(p.layers.map((l) => l.params.seed)).toEqual([4, 11, 7]);

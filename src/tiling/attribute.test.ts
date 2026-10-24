@@ -52,12 +52,12 @@ describe('attributeTiling', () => {
 	});
 
 	it('blames the layer that made the unique patch, not the one that changes everything evenly', async () => {
-		const r = await attributeTiling(project, render);
+		const r = await attributeTiling(project, render, { without: true });
 		const blob = r.layers.find((l) => l.ids[0] === 'blob')!;
 		const tint = r.layers.find((l) => l.ids[0] === 'tint')!;
 		expect(tint.contribution).toBeGreaterThan(blob.contribution);
 		expect(tint.blame.patches).toBeLessThan(blob.blame.patches / 5);
 		expect(r.layers[r.findings[0].layer].ids).toEqual(['blob']);
-		expect(blob.without.terms.patches).toBeLessThan(r.analysis.terms.patches);
+		expect(blob.without!.terms.patches).toBeLessThan(r.analysis.terms.patches);
 	}, 60_000);
 });

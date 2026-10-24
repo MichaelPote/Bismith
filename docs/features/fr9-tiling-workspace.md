@@ -43,10 +43,11 @@ The **Tiling** key on the workspace rail, laid out like Match (outliner and prop
 - **Progress:** candidates, score before → best, the look allowance; a chart of the kept best's loss.
 - **Terms:** a bar per term (of the hotspot pane's image), before → fixed values; below, the culprits and the changes.
 
-Edits made beside it are re-analysed as you make them (debounced), except while a run or its result holds the panes.
+Edits made beside it are re-analysed once they pause (300 ms), except while a run or its result holds the panes.
 Leaving the workspace stops a run; its best so far stays to keep or discard. The run works on a copy of the project
-taken when it began. Each candidate is analysed on the main thread (≈1 s at 128 px working size), so the page answers
-between candidates — the analysis in a worker is the next step if that's too coarse.
+taken when it began. Candidates are rendered and analysed on the GPU (below), one per frame, so the page answers
+between them; a hidden tab keeps the run going (`nextFrame` in `src/ui/schedule.ts` yields through a MessageChannel
+there).
 
 Planned on top: hovering a culprit to show its contribution, the Flatten tone fix as a button, per-finding fixes.
 
@@ -106,7 +107,10 @@ A narrow search over the blamed layers only, culprit by culprit in the order of 
 `__bismith.tilingFix(opts)` runs attribution and the search in the page, loads the fixed project and returns scores,
 drift, the changes, every trial, and before / after renders and hotspot overlays; `npx tsx tools/tiling.ts … --fix`
 prints them and writes `<name>.fix.png` [before 3 × 3 | after 3 × 3 | hotspots before | after] and
-`<name>.fixed.json`. ≈100–140 evaluations per project, 30 s–4 min (the analysis, ≈1 s each, dominates).
+`<name>.fixed.json`. ≈50–140 evaluations per project; an evaluation is the render, the GPU analysis and the drift
+(the Windows match: now the largest part). The original's evaluation is the attribution's (drift 0), and the search
+keeps the render and analysis of the candidate it may return, so nothing is rendered twice. Locked layers are left
+alone: a culprit's locked layers keep their seed and params, and a culprit with nothing unlocked is skipped.
 
 A fix that doesn't reach the target still reports which layer and which param kind (seed, density, size) is the
 problem, so the user — or we, when tuning generators — know where to look.
@@ -151,7 +155,17 @@ filter on albedo and height later (out of scope here).
 ## Implementation notes (analysis and attribution)
 
 - **Working size** (`analyzeTiling`): the render box-downsampled to 128 px on the short side (`WORK_SIZE`); lengths
-  below are px of that, the maps are upsampled back to the render's size. ≈1 s a render in Node.
+  below are px of that, the maps are upsampled back to the render's size when first read (`maps`; `work` has them at
+  the working size).
+- **GPU and CPU** (`src/tiling/gpu.ts`, `tilingKernels` in analyze.ts): the per-pixel kernels — box down to the working
+  size and OKLab, Sobel, the blurs, colour rarity at both radii, the 16 directions' line sums — run as fragment passes
+  into one atlas read back once; medians, quantiles, the low band and the scores stay on the CPU (`finishAnalysis`).
+  The CPU kernels are the reference and the fallback (Node, tests, no float targets): rarity buckets the samples by
+  colour (only the 27 cells within the kernel's cut) and tables the exponential, line sums are one sparse kernel per
+  direction. `tilingGpu(gpu)` checks the GPU against the CPU once on a test card and returns null (CPU) if they
+  differ — a D3D shader that failed to compile renders nothing, without an error. `tools/tiling.ts --check` compares
+  them on real renders; `--cpu` runs the tool on the CPU. On an RTX 5080 (D3D11) an analysis takes 4–16 ms on the
+  GPU, 0.1–0.5 s on the CPU; a rock fix (98 evaluations at 128 px) 7.5 s, bricks 2.3 s.
 - **Patches** (`colourRarity`): OKLab blurred at radii 2 and 5 (two box passes); per pixel −log of a Gaussian kernel
   density (ΔE 0.02) over 2000 fixed sample pixels, leaving out samples within 16 px (wrapped) of it; minus the median,
   the larger of the two radii. The term is the mean of the top 2 %. Without the left-out neighbourhood, rarity by pixel
@@ -233,7 +247,9 @@ set: refit when more are marked (`calib.ts` there scores maps and terms from the
 - [x] Tiling analysis (`src/tiling/analyze.ts`, pure TS): patches, lines, clumping and tone terms, hotspot map; unit
       tests on synthetic tiles (one big blob among dots → patch; one crease, not courses → line; half-filled → clumping;
       a gradient → tone)
-- [x] Leave-one-out attribution and blame (`src/tiling/attribute.ts`), group and pattern-copy aware
+- [x] Leave-one-out attribution and blame (`src/tiling/attribute.ts`), group and pattern-copy aware; the analysis of
+      each leave-one-out render ("without it") only on request (`without`, `tools/tiling.ts --without`)
+- [x] GPU analysis (`src/tiling/gpu.ts`), checked against the CPU reference (`tools/tiling.ts --check`)
 - [x] Fix search over blamed layers (reseed, layout; `fix.ts`), `__bismith.tilingFix()`, `tools/tiling.ts --fix`
 - [x] `tools/tiling.ts`: score and blame project files or the presets headless (`__bismith.tiling()`), writing tiled
       sheets [render | hotspots | top culprits' contributions] — fixing comes with the fix search

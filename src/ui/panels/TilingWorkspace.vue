@@ -5,12 +5,14 @@
 	import type { Project } from '@/core/project';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
-	import { toOklab, toRgba8, heatOverlay, type MatchImage } from '@/match/image';
+	import { heatOverlayOn, tileImage, toRgba8, type MatchImage } from '@/match/image';
 	import { renderToMatchImage } from '@/match/evaluate';
 	import { TILING_TERMS, analyzeTiling, type TilingAnalysis, type TilingTerm } from '@/tiling/analyze';
 	import { attributeTiling, type TilingAttribution } from '@/tiling/attribute';
 	import { fixTiling, type FixCandidate, type FixResult } from '@/tiling/fix';
 	import { tilingEvaluator } from '@/tiling/evaluate';
+	import { tilingGpu } from '@/tiling/gpu';
+	import { nextFrame } from '@/ui/schedule';
 	import ImageCanvas from '@/ui/components/ImageCanvas.vue';
 	import LossChart from '@/ui/components/LossChart.vue';
 	import NumberField from '@/ui/components/NumberField.vue';
@@ -60,23 +62,15 @@
 	/** The project the shown analysis / the run is of. */
 	let seen = '';
 	let runStart = '';
-	const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
 	type Px = { pixels: Uint8ClampedArray; width: number; height: number };
 	/** An image repeated 3 × 3. */
-	function tiled(img: MatchImage): Px {
-		const src = toRgba8(img);
-		const W = img.width * 3;
-		const H = img.height * 3;
-		const out = new Uint8ClampedArray(W * H * 4);
-		for (let y = 0; y < H; y++) {
-			const row = (y % img.height) * img.width * 4;
-			for (let k = 0; k < 3; k++) out.set(src.subarray(row, row + img.width * 4), (y * W + k * img.width) * 4);
-		}
-		return { pixels: out, width: W, height: H };
-	}
-	const overlayOf = (s: Shot) =>
-		heatOverlay(toOklab(s.image).L, s.analysis.maps.hotspot, s.image.width, s.image.height);
+	const tiled = (img: MatchImage): Px => ({
+		pixels: tileImage(toRgba8(img), img.width, img.height, 3),
+		width: img.width * 3,
+		height: img.height * 3
+	});
+	const overlayOf = (s: Shot) => heatOverlayOn(s.image, s.analysis.maps.hotspot);
 
 	const currentPx = computed(() => (current.value ? tiled(current.value.image) : null));
 	const fixedPx = computed(() => (best.value ? tiled(best.value.image) : null));
@@ -97,7 +91,7 @@
 		try {
 			seen = snapshot();
 			const image = renderToMatchImage(engine, toRaw(store.project), samples.value);
-			current.value = { image, analysis: analyzeTiling(image) };
+			current.value = { image, analysis: analyzeTiling(image, {}, tilingGpu(engine.gpu)) };
 			progress.value = '';
 		} catch (e) {
 			progress.value = '';
@@ -130,21 +124,17 @@
 		let ev: Awaited<ReturnType<typeof tilingEvaluator>> | null = null;
 		try {
 			// Which layers give the repeat away: each left out in turn.
-			let original: MatchImage | null = null;
+			const gpu = tilingGpu(engine.gpu);
 			const a = await attributeTiling(
 				project,
 				async (q) => {
 					if (abort) throw new Stopped();
 					await nextFrame();
-					const img = renderToMatchImage(engine, q, samples.value);
-					if (q === project) {
-						original = img;
-						current.value = { image: img, analysis: analyzeTiling(img) };
-					}
-					return img;
+					return renderToMatchImage(engine, q, samples.value);
 				},
-				{ onProgress: (done, total) => (progress.value = `Finding the culprits · layer ${done}/${total}`) }
+				{ gpu, onProgress: (done, total) => (progress.value = `Finding the culprits · layer ${done}/${total}`) }
 			);
+			current.value = { image: a.image, analysis: a.analysis };
 			attribution.value = a;
 			const names = [...new Set(a.findings.map((f) => a.layers[f.layer].name))];
 			log.value = [`culprits: ${names.slice(0, culprits.value).join(', ') || 'none stands out'}`];
@@ -156,10 +146,11 @@
 
 			// The fix: reseed, then nudge the culprits' pattern params.
 			phase.value = 'fixing';
-			ev = await tilingEvaluator(engine, original!, { samples: samples.value, yieldBefore: nextFrame });
+			ev = await tilingEvaluator(engine, a.image, { samples: samples.value, gpu, yieldBefore: nextFrame });
 			const evaluator = ev;
 			const s = stepSize.value;
 			const r = await fixTiling(project, a, (q) => evaluator.evaluate(q), {
+				before: { score: a.analysis.score, drift: 0, detail: { image: a.image, analysis: a.analysis } },
 				seeds: seeds.value,
 				culprits: culprits.value,
 				steps: [-s, -0.4 * s, 0.4 * s, s],
@@ -172,9 +163,7 @@
 					curve.value = [...curve.value, kept.loss];
 					// The pane shows the lowest loss seen so far (the search keeps it once its round ends).
 					const shownLoss = best.value?.candidate.loss ?? kept.loss;
-					const last = evaluator.last;
-					if (last && last.project === c.project && c.loss < Math.min(shownLoss, kept.loss))
-						best.value = { image: last.image, analysis: last.analysis, candidate: c };
+					if (c.detail && c.loss < Math.min(shownLoss, kept.loss)) best.value = { ...c.detail, candidate: c };
 					progress.value = `Fixing · ${n} candidates · best ${(best.value?.candidate.score ?? kept.score).toFixed(3)}`;
 				}
 			});
@@ -183,8 +172,10 @@
 			const shownBest = best.value as (Shot & { candidate: FixCandidate }) | null;
 			if (r.after.project === r.before.project) best.value = null;
 			else if (shownBest?.candidate.project !== r.after.project) {
-				const image = evaluator.render(r.after.project);
-				best.value = { image, analysis: analyzeTiling(image), candidate: r.after };
+				// The search keeps the result's render; render it again only if it didn't.
+				const image = r.after.detail?.image ?? evaluator.render(r.after.project);
+				const analysis = r.after.detail?.analysis ?? analyzeTiling(image, {}, gpu);
+				best.value = { image, analysis, candidate: r.after };
 			}
 			log.value = [
 				...log.value,
@@ -245,15 +236,16 @@
 		hotspotOf.value = 'current';
 	}
 
-	// Edits made beside the workspace (outliner, properties) are analysed as you make them, unless a run or its result
-	// holds the panes.
+	// Edits made beside the workspace (outliner, properties) are analysed once they pause, unless a run or its result
+	// holds the panes: a slider being dragged doesn't render and analyse on every step.
 	let active = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	watch(
 		() => store.project,
 		() => {
 			if (!active || running.value || phase.value === 'done') return;
-			timer ??= setTimeout(() => {
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(() => {
 				timer = null;
 				if (active && snapshot() !== seen) void analyseCurrent();
 			}, 300);

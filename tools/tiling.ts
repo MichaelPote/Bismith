@@ -3,12 +3,16 @@
 //
 //   npx tsx tools/tiling.ts <project.json…> [--presets [id1,id2]] [--out DIR] [--samples 32] [--top 3]
 //                           [--backend windows|swiftshader] [--workers N] [--json]
-//                           [--fix [--seeds 24] [--culprits 2] [--scale]]
+//                           [--fix [--seeds 24] [--culprits 2] [--scale]] [--without] [--cpu] [--check]
 //
 // Per project it prints the tiling score and terms (patches, lines, clumping, tone; 0..1) and the ranked findings — which
 // layer behind which term — and writes <out>/<name>.png: [render 3×3 | hotspots 3×3 | the top culprits'
 // contributions 3×3] and <name>.render.png (one tile). --presets runs the built-in example projects (all, or the listed ids). --json prints one line
-// of JSON per project instead of the table.
+// of JSON per project instead of the table. --without also analyses each leave-one-out render (the "without it" score:
+// a whole analysis per layer). --cpu analyses on the CPU (the reference implementation) instead of the GPU.
+//
+// --check compares the GPU analysis with the CPU reference on each project's render (kernels, score, terms) and times
+// both; it exits with 1 when they disagree.
 //
 // --fix reseeds and nudges the blamed layers instead (tiling score down, look held — src/tiling/fix.ts): it prints the
 // score and drift before and after and the changes, and writes <out>/<name>.fix.png [before 3×3 | after 3×3 | hotspots
@@ -20,6 +24,7 @@ import { basename, join, resolve } from 'node:path';
 import { openSession, type BackendKind } from './backend';
 import { contactSheet, decodePng, writePng, type Rgba8 } from './png';
 import { PRESETS } from '../src/presets';
+import { tileImage } from '../src/match/image';
 import type { HeadlessTilingFixResult, HeadlessTilingResult } from '../src/headless';
 
 const args = process.argv.slice(2);
@@ -46,6 +51,9 @@ const fix = has('fix');
 const seeds = Number(flag('seeds', '24'));
 const culpritCount = Number(flag('culprits', '2'));
 const scale = has('scale');
+const withoutIt = has('without');
+const cpu = has('cpu');
+const check = has('check');
 
 interface Job {
 	name: string;
@@ -69,21 +77,11 @@ if (!jobs.length) {
 const png = (url: string): Rgba8 => decodePng(Buffer.from(url.split(',')[1], 'base64'));
 
 /** The image repeated n × n. */
-function tiled(img: Rgba8, n = 3): Rgba8 {
-	const W = img.width * n;
-	const H = img.height * n;
-	const data = new Uint8Array(W * H * 4);
-	for (let y = 0; y < H; y++)
-		for (let x = 0; x < W; x++)
-			data.set(
-				img.data.subarray(
-					((y % img.height) * img.width + (x % img.width)) * 4,
-					((y % img.height) * img.width + (x % img.width)) * 4 + 4
-				),
-				(y * W + x) * 4
-			);
-	return { width: W, height: H, data };
-}
+const tiled = (img: Rgba8, n = 3): Rgba8 => ({
+	width: img.width * n,
+	height: img.height * n,
+	data: tileImage(img.data, img.width, img.height, n)
+});
 
 const f2 = (v: number) => v.toFixed(2);
 
@@ -104,7 +102,8 @@ function report(name: string, r: HeadlessTilingResult): void {
 		const where = l.material ? ` [${l.material}]` : '';
 		console.log(
 			`  ${f.term.padEnd(8)} ${f2(f.weight)}  ${l.name}${where} (${l.type})  blame ${l.blame[f.term].toFixed(3)} ΔE,` +
-				` adds ${l.contribution.toFixed(3)}; without it ${f2(l.without.score)}`
+				` adds ${l.contribution.toFixed(3)}` +
+				(l.without ? `; without it ${f2(l.without.score)}` : '')
 		);
 	}
 }
@@ -149,21 +148,47 @@ function reportFix(name: string, r: HeadlessTilingFixResult): void {
 
 async function main() {
 	mkdirSync(out, { recursive: true });
-	const s = await openSession({ backend, workers, logPage: false });
+	const s = await openSession({ backend, workers, logPage: check });
 	console.error(`[tiling] ${s.backend}: ${s.renderer}`);
 	try {
 		let next = 0;
+		let failed = 0;
 		await Promise.all(
 			Array.from({ length: s.workers }, async (_, w) => {
 				while (next < jobs.length) {
 					const job = jobs[next++];
 					await s.callOn(w, 'loadProject', job.project);
+					if (check) {
+						const r = await s.callOn<HeadlessTilingResult>(w, 'tiling', {
+							samples,
+							analysisOnly: true,
+							checkGpu: true
+						});
+						const c = r.gpuCheck;
+						const bad =
+							!c ||
+							!(Math.abs(c.score.gpu - c.score.cpu) < 0.002) ||
+							Object.values(c.kernels).some((k) => !(k.max < 0.02));
+						if (bad) failed++;
+						console.log(
+							`${job.name.padEnd(10)} ${bad ? 'DIFFERS' : 'ok     '}` +
+								(c
+									? `  score ${c.score.gpu.toFixed(4)} gpu / ${c.score.cpu.toFixed(4)} cpu  ` +
+										Object.entries(c.kernels)
+											.map(([k, v]) => `${k} ${v.max.toExponential(1)}${v.over ? ` (${v.over} px)` : ''}`)
+											.join('  ') +
+										`  analysis ${c.gpuMs.toFixed(1)} ms gpu, ${c.cpuMs.toFixed(0)} ms cpu`
+									: '  no GPU analysis')
+						);
+						continue;
+					}
 					if (fix) {
 						const r = await s.callOn<HeadlessTilingFixResult>(w, 'tilingFix', {
 							samples,
 							seeds,
 							culprits: culpritCount,
-							scale
+							scale,
+							cpu
 						});
 						reportFix(job.name, r);
 						const sheet = contactSheet(
@@ -174,7 +199,12 @@ async function main() {
 						writeFileSync(join(out, `${job.name}.fixed.json`), JSON.stringify(r.project, null, '\t'));
 						continue;
 					}
-					const r = await s.callOn<HeadlessTilingResult>(w, 'tiling', { samples, maps: true });
+					const r = await s.callOn<HeadlessTilingResult>(w, 'tiling', {
+						samples,
+						maps: top,
+						without: withoutIt,
+						cpu
+					});
 					report(job.name, r);
 					const culprits = [...new Set(r.findings.map((f) => f.layer))].slice(0, top);
 					const sheet = contactSheet(
@@ -206,10 +236,11 @@ async function main() {
 				}
 			})
 		);
+		if (failed) process.exitCode = 1;
 	} finally {
 		await s.close();
 	}
-	console.error(`[tiling] sheets → ${out}`);
+	console.error(check ? '[tiling] GPU check done' : `[tiling] sheets → ${out}`);
 }
 
 main().catch((e) => {

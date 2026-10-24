@@ -400,9 +400,32 @@ export function heatOverlay(L: Float32Array, v: ArrayLike<number>, width: number
 		const t = clamp01(v[i]);
 		const grey = 0.7 * clamp01(L[i]);
 		const a = 0.85 * t ** 1.5;
-		const heat = [0.55 + 0.45 * Math.min(1, t * 2), Math.max(0, t * 1.5 - 0.35), Math.max(0, t * 2 - 1.4)];
-		for (let c = 0; c < 3; c++) data[i * 4 + c] = grey * (1 - a) + heat[c] * a;
+		const g = grey * (1 - a);
+		data[i * 4] = g + (0.55 + 0.45 * Math.min(1, t * 2)) * a;
+		data[i * 4 + 1] = g + Math.max(0, t * 1.5 - 0.35) * a;
+		data[i * 4 + 2] = g + Math.max(0, t * 2 - 1.4) * a;
 		data[i * 4 + 3] = 1;
 	}
 	return { width, height, data };
+}
+
+/** heatOverlay on an image (its OKLab L, dimmed). */
+export function heatOverlayOn(img: MatchImage, v: ArrayLike<number>): MatchImage {
+	return heatOverlay(toOklab(img).L, v, img.width, img.height);
+}
+
+/** RGBA pixels (4 values each, rows top-down) repeated n × n, row by row. */
+export function tileImage<T extends Float32Array | Uint8Array | Uint8ClampedArray>(
+	data: T,
+	width: number,
+	height: number,
+	n = 3
+): T {
+	const W = width * n;
+	const out = new (data.constructor as new (length: number) => T)(W * height * n * 4);
+	for (let y = 0; y < height * n; y++) {
+		const row = data.subarray((y % height) * width * 4, ((y % height) + 1) * width * 4);
+		for (let k = 0; k < n; k++) out.set(row, (y * W + k * width) * 4);
+	}
+	return out;
 }

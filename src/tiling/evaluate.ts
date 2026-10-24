@@ -8,16 +8,14 @@ import type { Project } from '@/core/project';
 import type { Engine } from '@/render/engine';
 import { attachTexture, renderToMatchImage } from '@/match/evaluate';
 import { Matcher, type MatchImage } from '@/match/metrics';
-import { analyzeTiling, type TilingAnalysis, type TilingOptions } from './analyze';
+import { analyzeTiling, type TilingKernelSource, type TilingOptions } from './analyze';
 import type { FixEvaluation } from './fix';
 
 export interface TilingEvaluator {
 	/** Render with the evaluator's sample count. */
 	render(p: Project): MatchImage;
-	/** Render, analyse and measure the drift: the fix search's `evaluate`. */
+	/** Render, analyse and measure the drift: the fix search's `evaluate` (with the render and analysis as detail). */
 	evaluate(p: Project): Promise<FixEvaluation>;
-	/** The last candidate evaluated (to show the best so far without rendering it again). */
-	last: { project: Project; image: MatchImage; analysis: TilingAnalysis } | null;
 	/** Free the matcher's GPU statistics. */
 	dispose(): void;
 }
@@ -25,20 +23,24 @@ export interface TilingEvaluator {
 export async function tilingEvaluator(
 	engine: Engine,
 	original: MatchImage,
-	opts: { samples?: number; analysis?: TilingOptions; yieldBefore?: () => Promise<void> } = {}
+	opts: {
+		samples?: number;
+		analysis?: TilingOptions;
+		/** Computes the analysis' kernels (the GPU, src/tiling/gpu.ts); the CPU without. */
+		gpu?: TilingKernelSource | null;
+		yieldBefore?: () => Promise<void>;
+	} = {}
 ): Promise<TilingEvaluator> {
 	const samples = opts.samples ?? 32;
 	const matcher = new Matcher(original, { preset: 'windows', wrap: true, size: [original.width, original.height] });
 	await attachTexture(engine, matcher, true);
 	const ev: TilingEvaluator = {
-		last: null,
 		render: (p) => renderToMatchImage(engine, p, samples),
 		async evaluate(p) {
 			if (opts.yieldBefore) await opts.yieldBefore();
 			const image = ev.render(p);
-			const analysis = analyzeTiling(image, opts.analysis);
-			ev.last = { project: p, image, analysis };
-			return { score: analysis.score, drift: matcher.score(image).total };
+			const analysis = analyzeTiling(image, opts.analysis, opts.gpu);
+			return { score: analysis.score, drift: matcher.score(image).total, detail: { image, analysis } };
 		},
 		dispose: () => matcher.dispose()
 	};

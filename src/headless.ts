@@ -19,6 +19,8 @@ import {
 import { Optimizer, type OptimizerOptions, type StepInfo } from '@/match/optimizer';
 import { analyzeTiling, type TilingAnalysis, type TilingOptions } from '@/tiling/analyze';
 import { attributeTiling, type Finding, type LayerBlame } from '@/tiling/attribute';
+import { checkTilingGpu, tilingGpu } from '@/tiling/gpu';
+import { heatOverlayOn } from '@/match/image';
 import {
 	fixTiling,
 	type FixCandidate,
@@ -156,10 +158,16 @@ export interface BismithHeadless {
 export interface HeadlessTilingOptions extends TilingOptions {
 	/** Samples per render (default 32; the leave-one-out renders use the same, so noise cancels). */
 	samples?: number;
-	/** Also return each layer's contribution map (ΔE, as a heat overlay PNG). */
-	maps?: boolean;
+	/** Also return each layer's contribution map (ΔE, as a heat overlay PNG): every layer's, or the top N culprits'. */
+	maps?: boolean | number;
 	/** Analyse only, no leave-one-out (default false). */
 	analysisOnly?: boolean;
+	/** Also analyse each leave-one-out render, for the layers' `without` (default false: a whole analysis per layer). */
+	without?: boolean;
+	/** Analyse on the CPU (the reference implementation) instead of the GPU. */
+	cpu?: boolean;
+	/** Also check the GPU analysis of the render against the CPU's (`gpuCheck`). */
+	checkGpu?: boolean;
 }
 
 export interface HeadlessTilingResult {
@@ -173,6 +181,10 @@ export interface HeadlessTilingResult {
 	findings: Finding[];
 	renders: number;
 	ms: number;
+	/** Whether the GPU analysed (else the CPU: asked for, or the GPU failed its check). */
+	gpu: boolean;
+	/** With `checkGpu`: the GPU kernels and analysis against the CPU's on the render, and both timed (null: no GPU). */
+	gpuCheck?: (NonNullable<ReturnType<typeof checkTilingGpu>> & { gpuMs: number; cpuMs: number }) | null;
 }
 
 export interface HeadlessTilingFixOptions extends HeadlessTilingOptions, FixOptions {}
@@ -194,6 +206,8 @@ export interface HeadlessTilingFixResult {
 	project: Project;
 	evaluations: number;
 	ms: number;
+	/** Whether the GPU analysed. */
+	gpu: boolean;
 }
 
 export interface HeadlessEmulateResult extends EmulateResult {
@@ -428,36 +442,58 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			const p = need();
 			const t0 = performance.now();
 			const samples = opts.samples ?? 32;
+			const gpu = opts.cpu ? null : tilingGpu(engine.gpu);
 			let renders = 0;
-			let image: MatchImage | null = null;
 			const render = (q: Project) => {
 				renders++;
-				const img = renderToMatchImage(engine, q, samples);
-				if (q === p) image = img;
-				return img;
+				return renderToMatchImage(engine, q, samples);
 			};
-			const r = opts.analysisOnly
-				? { analysis: analyzeTiling(render(p), opts), layers: [], findings: [] }
-				: await attributeTiling(p, render, opts).finally(() => engine.setProject(p));
-			const full = image as MatchImage | null;
-			if (!full) throw new Error('tiling: no full render');
-			const lab = toOklab(full);
-			const { width, height } = full;
+			let r: { image: MatchImage; analysis: TilingAnalysis; layers: LayerBlame[]; findings: Finding[] };
+			if (opts.analysisOnly) {
+				const image = render(p);
+				r = { image, analysis: analyzeTiling(image, opts, gpu), layers: [], findings: [] };
+			} else
+				r = await attributeTiling(p, render, { ...opts, maps: !!opts.maps, gpu }).finally(() => engine.setProject(p));
+			const { image } = r;
+			const L = toOklab(image).L;
+			const { width, height } = image;
 			const peak = (m: Float32Array) => m.reduce((a, v) => Math.max(a, v), 0) || 1;
+			// Contribution maps of every layer, or of the top N culprits.
+			const mapped =
+				typeof opts.maps === 'number'
+					? new Set([...new Set(r.findings.map((f) => f.layer))].slice(0, opts.maps))
+					: null;
+			let gpuCheck: HeadlessTilingResult['gpuCheck'];
+			if (opts.checkGpu) {
+				const k = tilingGpu(engine.gpu);
+				const time = (f: () => unknown) => {
+					const t = performance.now();
+					f();
+					return performance.now() - t;
+				};
+				const check = k && checkTilingGpu(k, image);
+				gpuCheck = check
+					? {
+							...check,
+							gpuMs: time(() => analyzeTiling(image, opts, k)),
+							cpuMs: time(() => analyzeTiling(image, opts))
+						}
+					: null;
+			}
 			return {
 				score: r.analysis.score,
 				raw: r.analysis.raw,
 				terms: r.analysis.terms,
-				renderPng: imagePng(full),
-				hotspotPng: imagePng(heatOverlay(lab.L, r.analysis.maps.hotspot, width, height)),
-				layers: r.layers.map(({ map, ...l }) => {
-					if (!map) return l;
+				renderPng: imagePng(image),
+				hotspotPng: imagePng(heatOverlay(L, r.analysis.maps.hotspot, width, height)),
+				layers: r.layers.map(({ map, ...l }, i) => {
+					if (!map || (mapped && !mapped.has(i))) return l;
 					const k = peak(map);
 					return {
 						...l,
 						mapPng: imagePng(
 							heatOverlay(
-								lab.L,
+								L,
 								map.map((v) => v / k),
 								width,
 								height
@@ -467,7 +503,9 @@ export function installHeadless(engine: Engine): BismithHeadless {
 				}),
 				findings: r.findings,
 				renders,
-				ms: performance.now() - t0
+				ms: performance.now() - t0,
+				gpu: !!gpu,
+				gpuCheck
 			};
 		},
 
@@ -475,35 +513,36 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			const p = need();
 			const t0 = performance.now();
 			const samples = opts.samples ?? 32;
-			let original: MatchImage | null = null;
-			const attribution = await attributeTiling(
-				p,
-				(q) => {
-					const img = renderToMatchImage(engine, q, samples);
-					if (q === p) original = img;
-					return img;
-				},
-				opts
-			);
-			const ev = await tilingEvaluator(engine, original!, { samples, analysis: opts });
+			const gpu = opts.cpu ? null : tilingGpu(engine.gpu);
+			const attribution = await attributeTiling(p, (q) => renderToMatchImage(engine, q, samples), {
+				...opts,
+				maps: false,
+				gpu
+			});
+			const { image, analysis } = attribution;
+			const ev = await tilingEvaluator(engine, image, { samples, analysis: opts, gpu });
 			let r: FixResult;
 			try {
-				r = await fixTiling(p, attribution, (q) => ev.evaluate(q), opts);
+				r = await fixTiling(p, attribution, (q) => ev.evaluate(q), {
+					...opts,
+					before: { score: analysis.score, drift: 0, detail: { image, analysis } }
+				});
 			} finally {
 				ev.dispose();
 			}
-			api.loadProject(r.project);
+			// Before and after as the search saw them (rendered again only if it didn't keep them).
 			const side = (c: FixCandidate) => {
-				const img = ev.render(c.project);
-				const a = analyzeTiling(img, opts);
+				const img = c.detail?.image ?? ev.render(c.project);
+				const a = c.detail?.analysis ?? analyzeTiling(img, opts, gpu);
 				return {
 					score: { score: c.score, drift: c.drift, terms: a.terms },
 					png: imagePng(img),
-					hotspot: imagePng(heatOverlay(toOklab(img).L, a.maps.hotspot, img.width, img.height))
+					hotspot: imagePng(heatOverlayOn(img, a.maps.hotspot))
 				};
 			};
 			const before = side(r.before);
 			const after = side(r.after);
+			api.loadProject(r.project);
 			return {
 				before: before.score,
 				after: after.score,
@@ -521,7 +560,8 @@ export function installHeadless(engine: Engine): BismithHeadless {
 				hotspotAfterPng: after.hotspot,
 				project: project!,
 				evaluations: r.evaluations,
-				ms: performance.now() - t0
+				ms: performance.now() - t0,
+				gpu: !!gpu
 			};
 		},
 
