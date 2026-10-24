@@ -129,17 +129,16 @@ export class Gpu {
 	): void {
 		this.mesh.material = material;
 		const r = this.renderer;
+		// A target's viewport is copied when it is bound, so it is set first (after, it would only apply to the next run).
+		if (target) {
+			if (viewport) target.viewport.set(viewport.x, viewport.y, viewport.w, viewport.h);
+			else target.viewport.set(0, 0, target.width, target.height);
+		}
 		r.setRenderTarget(target);
-		if (viewport) {
-			if (target) {
-				target.viewport.set(viewport.x, viewport.y, viewport.w, viewport.h);
-			} else {
-				const pr = r.getPixelRatio();
-				r.setViewport(viewport.x / pr, viewport.y / pr, viewport.w / pr, viewport.h / pr);
-			}
-		} else if (target) {
-			target.viewport.set(0, 0, target.width, target.height);
-		} else {
+		if (!target && viewport) {
+			const pr = r.getPixelRatio();
+			r.setViewport(viewport.x / pr, viewport.y / pr, viewport.w / pr, viewport.h / pr);
+		} else if (!target) {
 			const s = r.getSize(this.canvasSize);
 			r.setViewport(0, 0, s.x, s.y);
 		}
