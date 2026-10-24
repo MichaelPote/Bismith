@@ -37,7 +37,7 @@ export function renderToMatchImage(engine: Engine, project: Project, samples: nu
 export interface EvaluatorOptions {
 	/** Samples per evaluation (default 16). */
 	samples?: number;
-	/** Awaited before each render, e.g. `() => new Promise(requestAnimationFrame)` to keep a UI responsive. */
+	/** Awaited before each render, e.g. `nextFrame` (ui/schedule.ts) to keep a UI responsive. */
 	yieldBefore?: () => Promise<void>;
 	/** Called with every evaluated candidate (e.g. to show the latest render). */
 	onEvaluate?: (project: Project, image: MatchImage, result: MetricResult) => void;

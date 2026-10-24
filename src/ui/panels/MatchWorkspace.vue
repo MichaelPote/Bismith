@@ -36,6 +36,7 @@
 	import NumberField from '@/ui/components/NumberField.vue';
 	import SelectField from '@/ui/components/SelectField.vue';
 	import CheckField from '@/ui/components/CheckField.vue';
+	import { nextFrame } from '@/ui/schedule';
 	import {
 		IconGrid4x4,
 		IconPalette,
@@ -311,8 +312,6 @@
 		}
 		void view();
 	}
-
-	const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
 	// ---------------------------------------------------------------- resizable settings panel
 	const LOWER_KEY = 'cf-match-lower';
