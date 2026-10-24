@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import type { ParamDef, ParamValues } from '@/core/params';
-import { allLayerDefs, createLayer, layerParamDefs } from '@/layers/registry';
+import { allLayerDefs, createLayer, layerParamDefs, linkedChanges } from '@/layers/registry';
 
 ensureBuiltins();
 const defs = allLayerDefs();
@@ -123,5 +123,28 @@ describe('layer registry', () => {
 				if (px && d.type !== 'float' && d.type !== 'int') bad.push(`${at}: unit 'px' on a ${d.type}`);
 			}
 		expect(bad).toEqual([]);
+	});
+
+	it('shows a Solid level output as one Level slider, a ramp otherwise', () => {
+		for (const k of ['r', 's', 'mt']) {
+			const defs = layerParamDefs('noise');
+			const a = defs.find((d) => d.key === `${k}_a`)!;
+			const b = defs.find((d) => d.key === `${k}_b`)!;
+			const ramp = { [`${k}_src`]: 'value' };
+			const solid = { [`${k}_src`]: 'flat' };
+			expect([a.showIf!(ramp), b.labelFor!(ramp)]).toEqual([true, 'At 1']);
+			expect([a.showIf!(solid), b.labelFor!(solid)]).toEqual([false, 'Level']);
+		}
+	});
+
+	it('starts metal generators metal and coatings non-metal', () => {
+		for (const t of ['treadplate', 'hammered', 'pipes', 'pipework', 'vents', 'greebles', 'trim'])
+			expect(createLayer(t).params, t).toMatchObject({ mt_on: true, mt_b: 1 });
+		for (const t of ['drips', 'splats']) expect(createLayer(t).params, t).toMatchObject({ mt_on: true, mt_b: 0 });
+		for (const t of ['noise', 'bricks', 'wood', 'rock']) expect(createLayer(t).params.mt_on, t).toBe(false);
+		// Pipework's paint outputs (rust underneath, glass tubes, liquid) start non-metal.
+		const pipes = createLayer('pipework').params;
+		expect(linkedChanges('pipework', pipes, 'output', 'liquid')).toMatchObject({ mt_on: false });
+		expect(linkedChanges('pipework', pipes, 'output', 'fittings')).toEqual({ output: 'fittings' });
 	});
 });

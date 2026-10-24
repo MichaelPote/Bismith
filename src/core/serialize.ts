@@ -206,6 +206,7 @@ export function normalizeProject(input: unknown): Project {
 			color: hex(rb.color, base.color),
 			roughness: num(rb.roughness, base.roughness, 0, 1),
 			specular: specLevel,
+			metalness: num(rb.metalness, base.metalness, 0, 1),
 			height: num(rb.height, base.height, -64, 64),
 			opacity: num(rb.opacity, base.opacity, 0, 1)
 		},
@@ -216,7 +217,9 @@ export function normalizeProject(input: unknown): Project {
 				enabled: rl.sky?.enabled !== false,
 				zenith: hex(rl.sky?.zenith, lighting.sky.zenith),
 				horizon: hex(rl.sky?.horizon, lighting.sky.horizon),
-				intensity: num(rl.sky?.intensity, lighting.sky.intensity, 0, 1000)
+				intensity: num(rl.sky?.intensity, lighting.sky.intensity, 0, 1000),
+				image: typeof rl.sky?.image === 'string' ? rl.sky.image : '',
+				rotation: num(rl.sky?.rotation, 0, -180, 180)
 			},
 			ambient: {
 				color: hex(rl.ambient?.color, lighting.ambient.color),

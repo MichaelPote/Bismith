@@ -164,11 +164,25 @@
 	}
 
 	// ---------------------------------------------------------------- project / world param tables
+	const hasEnv = (p: ParamValues) => Boolean(p.image);
 	const SKY_DEFS: ParamDef[] = [
 		P.bool('enabled', 'Sky light', true),
-		P.color('zenith', 'Zenith', '#9fb4c8'),
-		P.color('horizon', 'Horizon', '#c8c2b8'),
-		P.float('intensity', 'Intensity', 0.35, 0, 1000, { softMax: 4, step: 0.001 })
+		P.image('image', 'Environment', {
+			environment: true,
+			hint: 'A panorama (equirectangular, 2:1: its top row straight up, its left edge facing the top of the texture) in place of the zenith → horizon gradient: what metals reflect, coloured by direction, and the light rough surfaces get from the sky. OpenEXR, Radiance HDR and Ultra HDR JPEG keep their full range (a sun lights the scene); PNG, JPEG and WebP work too. Kept as a 512 px Ultra HDR JPEG; the project saves its file name and a lighting preset the image'
+		}),
+		P.color('zenith', 'Zenith', '#9fb4c8', { showIf: (p) => !hasEnv(p) }),
+		P.color('horizon', 'Horizon', '#c8c2b8', { showIf: (p) => !hasEnv(p) }),
+		P.float('rotation', 'Rotation', 0, -180, 180, {
+			step: 1,
+			showIf: hasEnv,
+			hint: 'Turns the environment about the vertical, in degrees: where its features sit in the reflections'
+		}),
+		P.float('intensity', 'Intensity', 0.35, 0, 1000, {
+			softMax: 4,
+			step: 0.001,
+			hint: 'Brightness of the sky (the gradient, or the environment image)'
+		})
 	];
 	const AMBIENT_DEFS: ParamDef[] = [
 		P.color('color', 'Colour', '#ffffff'),

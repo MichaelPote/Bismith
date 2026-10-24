@@ -13,6 +13,7 @@ import {
 	IconBrush,
 	IconBuildingFactory2,
 	IconBulb,
+	IconCoin,
 	IconCircle,
 	IconCircles,
 	IconCloud,
@@ -222,6 +223,7 @@ const CARD_ICON: Record<string, Component> = {
 	height: IconMountain,
 	roughness: IconGrain,
 	specular: IconSparkles,
+	metalness: IconCoin,
 	emissive: IconBulb,
 	repeat: IconLayoutGrid,
 	// Type-specific groups.

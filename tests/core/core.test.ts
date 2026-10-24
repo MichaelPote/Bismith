@@ -202,6 +202,17 @@ describe('serialize', () => {
 		const cur = normalizeProject({ base: { specular: 0.2 }, render: { specular: 1.5 } });
 		expect([cur.base.specular, cur.render.specular]).toEqual([0.2, 1.5]);
 	});
+	it('loads the sky environment image and rotation, none for projects saved before them', () => {
+		const old = normalizeProject({ lighting: { sky: { zenith: '#8090a0' } } }).lighting.sky;
+		expect([old.image, old.rotation]).toEqual(['', 0]);
+		const env = normalizeProject({ lighting: { sky: { image: 'hall.png', rotation: 400 } } }).lighting.sky;
+		expect([env.image, env.rotation]).toEqual(['hall.png', 180]);
+	});
+	it('loads the base metalness, 0 for projects saved before it', () => {
+		expect(normalizeProject({ base: { color: '#806040' } }).base.metalness).toBe(0);
+		expect(normalizeProject({ base: { metalness: 0.7 } }).base.metalness).toBe(0.7);
+		expect(normalizeProject({ base: { metalness: 3 } }).base.metalness).toBe(1);
+	});
 });
 
 describe('zip', () => {

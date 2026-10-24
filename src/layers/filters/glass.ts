@@ -83,8 +83,9 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   vec2 nd = n.xy / max(length(n.xy), 1e-4);
   float glint = u_glint * smoothstep(0.5, 0.9, dot(nd, -L)) * smoothstep(0.08, 0.3, rim) * (1.0 - smoothstep(0.55, 0.8, rim));
   E.rgb += m * glint * mix(vec3(1.0), u_tint, 0.3);
-  // Glossy.
+  // Glossy, and not metal (glass over a metal reflects like glass).
   S.g = mix(S.g, u_roughness, m);
+  S.b = mix(S.b, 0.0, m);
   E.a = mix(E.a, u_specular, m);
 }
 `

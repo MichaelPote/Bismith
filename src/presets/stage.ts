@@ -6,6 +6,8 @@ import type { Layer, Lighting, PostFilter, PresetInfo, Project, SmartMaterial } 
 import { defaultRender } from '@/core/project';
 import { createLayer, createLight, createPostFilter, createProject, reliefOnly } from '@/core/serialize';
 import { getLayerDef } from '@/layers/registry';
+import { gradient } from '@/core/params';
+import { metalColour } from '@/core/color';
 
 /** Size of the built-in presets' projects (the user's are saved at their project's size). */
 export const BUILTIN_PRESET_SIZE = 128;
@@ -32,7 +34,7 @@ export function presetBase(width = BUILTIN_PRESET_SIZE, height = width, tileable
 		height,
 		tileable,
 		heightDepth: 2,
-		base: { color: '#808080', roughness: 0.7, specular: 0.5, height: 0, opacity: 1 },
+		base: { color: '#808080', roughness: 0.7, specular: 0.5, metalness: 0, height: 0, opacity: 1 },
 		layers: [],
 		lighting: presetLighting(),
 		render: { ...defaultRender(), maxSamples: 64, ao: 0.6, aoRadius: 6 },
@@ -57,6 +59,36 @@ export function presetStage(width: number): Layer[] {
 		reliefOnly(createLayer('noise', noise, 'Stage noise')),
 		reliefOnly(createLayer('bricks', bricks, 'Stage bricks'))
 	];
+}
+
+/**
+ * The stage for lights and lighting: presetStage's matte bricks with a polished steel dome in the middle, which shows
+ * the light's highlight and what metals reflect (the sky, or its environment image) from every direction.
+ */
+export function presetLightStage(width: number): Layer[] {
+	const r = 0.22 * width;
+	const dome = createLayer(
+		'circle',
+		{
+			radius: r,
+			bevel: r,
+			profile: 'round',
+			h_on: true,
+			// Over the bricks, not added to them: no joints across the dome.
+			h_mode: 'max',
+			h_amount: 6,
+			dif_on: true,
+			dif_src: 'flat',
+			dif_grad: gradient(metalColour('#9a9a9a')),
+			r_on: true,
+			r_src: 'flat',
+			r_b: 0.2,
+			mt_on: true,
+			mt_src: 'flat'
+		},
+		'Stage dome'
+	);
+	return [...presetStage(width), dome];
 }
 
 /** What a preset holds: the item and its kind. */
@@ -90,15 +122,16 @@ export function presetProject(
 			p.preset = { ...info, kind: 'material', target: item.material.recipe };
 			break;
 		case 'light':
-			p.layers = presetStage(p.width);
+			p.layers = presetLightStage(p.width);
 			p.lighting = { ...p.lighting, lights: [item.light] };
 			p.preset = { ...info, kind: 'light', target: item.light.type };
 			break;
-		case 'lighting':
-			p.layers = presetStage(p.width);
+		case 'lighting': {
+			p.layers = presetLightStage(p.width);
 			p.lighting = item.lighting;
 			p.preset = { ...info, kind: 'lighting' };
 			break;
+		}
 		case 'post': {
 			const scene = postScene?.();
 			if (scene) Object.assign(p, { ...scene, name: p.name, preset: undefined, description: undefined });

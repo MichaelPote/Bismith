@@ -35,7 +35,8 @@ describe('greebles', () => {
 		});
 		// At 128 px the editor's sizes are the plain ones.
 		const at128 = freshParams('greebles', { width: 128, height: 128 });
-		for (const [k, v] of Object.entries(at128)) if (!['r_src', 's_src'].includes(k)) expect(plain[k], k).toEqual(v);
+		for (const [k, v] of Object.entries(at128))
+			if (!['r_src', 's_src', 'mt_src'].includes(k)) expect(plain[k], k).toEqual(v);
 	});
 
 	it('sizes a new layer to the texture', () => {

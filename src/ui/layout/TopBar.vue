@@ -36,6 +36,7 @@
 			{ label: 'Height (normalised)', action: () => act.exportMap('height') },
 			{ label: 'Roughness', action: () => act.exportMap('roughness') },
 			{ label: 'Specular', action: () => act.exportMap('specular') },
+			{ label: 'Metalness', action: () => act.exportMap('metalness') },
 			{ label: 'Ambient occlusion', action: () => act.exportMap('ao') },
 			{ label: 'Normal — OpenGL (Y+)', action: () => act.exportMap('normal-gl') },
 			{ label: 'Normal — DirectX (Y−)', action: () => act.exportMap('normal-dx') },

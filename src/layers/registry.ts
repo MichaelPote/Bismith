@@ -117,15 +117,17 @@ export function migrateParams(params: ParamValues, type: string): ParamValues {
 }
 
 /**
- * What a layer added in the editor starts with (before the caller's overrides): a shape layer's Roughness and Specular
- * follow its shape — one value inside, another outside (Source › Shape) — not its pattern, which on a shape is the
+ * What a layer added in the editor starts with (before the caller's overrides): a shape layer's Roughness, Specular and
+ * Metalness follow its shape (unless the type's defaults pick their Source) — one value inside, another outside (Source › Shape) — not its pattern, which on a shape is the
  * bevel's ramp and on Wood the grain (every dark line would turn glossy); then the type's own editor defaults
  * (LayerDef.fresh). Layers built in code and stored projects keep the plain defaults.
  */
 export function freshParams(type: string, texture: { width: number; height: number }): ParamValues {
 	const def = defs.get(type);
 	if (!def) return {};
-	const shape: ParamValues = def.kind === 'generator' && def.sdf === true ? { r_src: 'shape', s_src: 'shape' } : {};
+	const shape: ParamValues = {};
+	if (def.kind === 'generator' && def.sdf === true)
+		for (const k of ['r_src', 's_src', 'mt_src']) if (def.defaults?.[k] === undefined) shape[k] = 'shape';
 	return { ...shape, ...(def.fresh?.(texture) ?? {}) };
 }
 

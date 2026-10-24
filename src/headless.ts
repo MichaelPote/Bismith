@@ -2,6 +2,7 @@
 
 import type { Project } from '@/core/project';
 import { normalizeProject } from '@/core/serialize';
+import { getHdrImage, getImage, putImage } from '@/core/images';
 import { Engine } from '@/render/engine';
 import { mapPixels, pixelsToDataURL, type MapKind } from '@/render/export';
 import { capturePreview } from '@/render/preview';
@@ -97,6 +98,8 @@ export interface BismithHeadless {
 	ready: boolean;
 	engine: Engine;
 	loadProject(project: unknown): Project;
+	/** Wait until the images the loaded project uses are decoded and evaluated with (before rendering it). */
+	settle(): Promise<void>;
 	getProject(): Project | null;
 	render(opts?: { samples?: number }): HeadlessRenderResult;
 	renderMaps(kinds?: MapKind[]): Record<string, string>;
@@ -282,10 +285,18 @@ export function installHeadless(engine: Engine): BismithHeadless {
 		engine,
 		loadProject(p) {
 			project = normalizeProject(typeof p === 'string' ? JSON.parse(p) : p);
+			// A preset file's images (its Stamps', its sky's), as the app stores them when it applies or opens one; decoding
+			// starts now, and settle() waits for it.
+			for (const [name, url] of Object.entries(project.preset?.images ?? {})) {
+				putImage(name, url, false);
+				getImage(name);
+				getHdrImage(name);
+			}
 			engine.setProject(project);
 			return project;
 		},
 		getProject: () => project,
+		settle: () => engine.imagesSettled(),
 		render(opts = {}) {
 			const p = need();
 			const t0 = performance.now();
@@ -309,7 +320,9 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			return { width, height, distance: pick(0), random: pick(1), feature: pick(2) };
 		},
 
-		renderMaps(kinds = ['diffuse', 'height', 'roughness', 'specular', 'ao', 'normal-gl', 'emissive', 'opacity']) {
+		renderMaps(
+			kinds = ['diffuse', 'height', 'roughness', 'specular', 'metalness', 'ao', 'normal-gl', 'emissive', 'opacity']
+		) {
 			const out: Record<string, string> = {};
 			for (const k of kinds) {
 				const { width, height, pixels } = mapPixels(engine, k);

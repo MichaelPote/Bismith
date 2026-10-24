@@ -77,7 +77,8 @@ const fitNote = (p: Record<string, unknown>) =>
 const holeElem = (p: Record<string, unknown>) => ['slot', 'vslot', 'hole', 'square'].includes(String(p.elem));
 
 /** Default colour: worn brass, dark in the seams and creases, bright on the beads and heads. */
-const TRIM_RAMP = gradient('#15110c', '#43372a', '#76623f', '#a68a58', '#d6bd86');
+// Brass, bright as a metal reflects in its colour.
+const TRIM_RAMP = gradient('#29221b', '#715e4a', '#c0a26b', '#f9d088', '#f9dc9d');
 
 /**
  * What a Trim layer added in the editor starts with (LayerDef.fresh): the default moulding sized to the texture — one
@@ -465,7 +466,13 @@ export const trimLayer: LayerDef = {
 		dif_on: true,
 		dif_src: 'value',
 		dif_jitter: 0.08,
-		dif_grad: TRIM_RAMP
+		dif_grad: TRIM_RAMP,
+		// Satin brass.
+		r_on: true,
+		r_src: 'flat',
+		r_b: 0.4,
+		mt_on: true,
+		mt_src: 'flat'
 	},
 	fresh: trimFresh,
 	glsl:

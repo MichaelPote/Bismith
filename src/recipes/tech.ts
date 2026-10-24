@@ -2,7 +2,7 @@
 // circuit boards. Crisp edges, minimal relief.
 
 import { P, type Gradient, type ParamValues } from '@/core/params';
-import { L, across, clamp, crisp, gradient, lerp, num, r2, shade } from './parts';
+import { L, across, clamp, crisp, gradient, lerp, metalGradient, num, r2, shade } from './parts';
 import type { RecipeDef, RecipeLayer } from './types';
 import { BRICKS_REGULAR } from '@/layers/generators/patterns';
 
@@ -90,8 +90,11 @@ export const grate: RecipeDef = {
 		P.float('tab_length', 'Tab length', 8, 1, 64, { group: 'frame', softMax: 24, unit: 'px', step: 0.5 }),
 		P.float('tab_depth', 'Tab depth', 4, 0.5, 32, { group: 'frame', softMax: 12, unit: 'px', step: 0.5 }),
 		P.bool('bolts', 'Corner bolts', false, { group: 'frame' }),
-		P.gradient('metal', 'Plate colours', gradient('#3a3836', '#464442', '#52504e'), { group: 'colour' }),
-		P.gradient('frame_colour', 'Frame colours', gradient('#262422', '#2e2c2a', '#363432'), { group: 'colour' }),
+		P.gradient('metal', 'Plate colours', metalGradient('#3a3836', '#464442', '#52504e'), {
+			group: 'colour',
+			hint: 'The plate is metal and reflects in these colours'
+		}),
+		P.gradient('frame_colour', 'Frame colours', metalGradient('#262422', '#2e2c2a', '#363432'), { group: 'colour' }),
 		P.color('hole', 'Openings', '#050505', { group: 'colour' }),
 		P.float('dirt', 'Dirt', 0.4, 0, 1, { group: 'colour', step: 0.01 }),
 		P.seed('seed', 'Seed', 41, { group: 'holes' })
@@ -124,8 +127,8 @@ export const grate: RecipeDef = {
 			tip: 0.5
 		};
 		const hole = String(m.hole ?? '#050505');
-		const metal = m.metal ?? gradient('#2c2a28', '#4a4846');
-		const frameCol = m.frame_colour ?? gradient('#55524e', '#7c7975');
+		const metal = m.metal ?? metalGradient('#2c2a28', '#4a4846');
+		const frameCol = m.frame_colour ?? metalGradient('#55524e', '#7c7975');
 		const bolt = {
 			radius: 1.2,
 			x: r2(Math.min(0.45, (frame / 2 + 0.5) / (ctx.width / 2))),
@@ -267,7 +270,9 @@ export const grate: RecipeDef = {
 					sh_hi: 0.85,
 					h_on: false,
 					dif_on: true,
-					dif_grad: metal
+					dif_grad: metal,
+					mt_on: true,
+					mt_src: 'flat'
 				})
 			},
 			{
@@ -315,7 +320,15 @@ export const grate: RecipeDef = {
 				layer: L(
 					'circle',
 					'Bolt colour',
-					{ ...bolt, h_on: false, dif_on: true, dif_src: 'flat', dif_grad: gradient('#8a8784') },
+					{
+						...bolt,
+						h_on: false,
+						dif_on: true,
+						dif_src: 'flat',
+						dif_grad: metalGradient('#8a8784'),
+						mt_on: true,
+						mt_src: 'flat'
+					},
 					m.bolts === true && frame > 0
 				)
 			},
@@ -359,7 +372,9 @@ export const grate: RecipeDef = {
 					h_on: false,
 					dif_on: true,
 					dif_src: 'flat',
-					dif_grad: gradient(hole)
+					dif_grad: gradient(hole),
+					// Holes, not metal.
+					mt_b: 0
 				})
 			}
 		];
@@ -410,15 +425,18 @@ export const metalPlate: RecipeDef = {
 			{ group: 'pattern' }
 		),
 		P.int('rivet_count', 'Rivets across', 4, 1, 32, { group: 'pattern', showIf: (p) => p.rivets === 'grid' }),
-		P.gradient('metal', 'Metal colours', gradient('#241a12', '#2e2218', '#3a2c20'), { group: 'colour' }),
+		P.gradient('metal', 'Metal colours', metalGradient('#241a12', '#2e2218', '#3a2c20'), {
+			group: 'colour',
+			hint: 'The plate reflects in these colours (metalness 1), so they are brighter than it looks in shade'
+		}),
 		P.color('rust_colour', 'Rust colour', '#5a3418', { group: 'colour' }),
 		P.float('dirt', 'Dirt', 0.3, 0, 1, { group: 'colour', step: 0.01 }),
 		P.seed('seed', 'Seed', 51, { group: 'surface' })
 	],
-	render: { ao: 0.6, aoRadius: 2, specularTint: 0.85 },
+	render: { ao: 0.6, aoRadius: 2 },
 	build(m, ctx) {
 		const seed = num(m.seed, 51);
-		const metal = m.metal ?? gradient('#241a12', '#3a2c20');
+		const metal = m.metal ?? metalGradient('#241a12', '#3a2c20');
 		const mot = num(m.mottle, 0.5);
 		const rust = num(m.rust, 0.3);
 		const tread = String(m.tread ?? 'none');
@@ -485,12 +503,7 @@ export const metalPlate: RecipeDef = {
 						mk_target: '',
 						h_on: true,
 						h_amount: 0.22,
-						dif_on: false,
-						s_on: true,
-						s_mode: 'replace',
-						s_src: 'flat',
-						s_a: 0.25,
-						s_b: 0.25
+						dif_on: false
 					},
 					tread !== 'none'
 				)
@@ -517,11 +530,12 @@ export const metalPlate: RecipeDef = {
 					h_on: true,
 					h_amount: 0.06,
 					dif_on: false,
-					s_on: true,
-					s_mode: 'multiply',
-					s_src: 'value',
-					s_a: 0.3,
-					s_b: 1
+					// The plate's finish, rougher in the dents so the glints come and go.
+					r_on: true,
+					r_mode: 'replace',
+					r_src: 'value',
+					r_a: 0.7,
+					r_b: 0.5
 				})
 			},
 			{
@@ -537,7 +551,9 @@ export const metalPlate: RecipeDef = {
 					sh_hi: r2(0.5 + 0.5 * mot),
 					h_on: false,
 					dif_on: true,
-					dif_grad: metal
+					dif_grad: metal,
+					mt_on: true,
+					mt_src: 'flat'
 				})
 			},
 			{
@@ -557,7 +573,16 @@ export const metalPlate: RecipeDef = {
 						h_on: false,
 						dif_on: true,
 						dif_opacity: 0.85,
-						dif_grad: rustRamp(String(m.rust_colour ?? '#5a3418'))
+						dif_grad: rustRamp(String(m.rust_colour ?? '#5a3418')),
+						// Rust is not metal, and rough.
+						r_on: true,
+						r_src: 'flat',
+						r_b: 0.85,
+						r_opacity: 0.85,
+						mt_on: true,
+						mt_src: 'flat',
+						mt_b: 0,
+						mt_opacity: 0.85
 					},
 					rust > 0
 				)
@@ -644,7 +669,9 @@ export const metalPlate: RecipeDef = {
 						h_on: false,
 						dif_on: true,
 						dif_src: 'value',
-						dif_grad: gradient('#3a3028', '#7a7068')
+						dif_grad: metalGradient('#3a3028', '#7a7068'),
+						mt_on: true,
+						mt_src: 'flat'
 					},
 					rivets !== 'none'
 				)
@@ -698,7 +725,10 @@ export const lightPanel: RecipeDef = {
 			hint: 'Edge → core'
 		}),
 		P.float('intensity', 'Glow', 0.35, 0, 4, { group: 'colour', step: 0.01 }),
-		P.gradient('panel', 'Panel colours', gradient('#141210', '#201c18', '#2c2620'), { group: 'colour' }),
+		P.gradient('panel', 'Panel colours', metalGradient('#141210', '#201c18', '#2c2620'), {
+			group: 'colour',
+			hint: 'The panel is metal and reflects in these colours'
+		}),
 		P.color('housing', 'Housing', '#060504', { group: 'colour' }),
 		P.seed('seed', 'Seed', 61, { group: 'tubes' })
 	],
@@ -747,6 +777,10 @@ export const lightPanel: RecipeDef = {
 			dif_on: true,
 			dif_src: 'value',
 			dif_grad: glowGrad,
+			// Glass tubes, not metal.
+			mt_on: true,
+			mt_src: 'flat',
+			mt_b: 0,
 			e_on: num(m.intensity, 0.35) > 0,
 			e_src: 'value',
 			e_color: glowGrad.stops.at(-1)?.color ?? '#f8e070',
@@ -799,7 +833,9 @@ export const lightPanel: RecipeDef = {
 					seed: seed + 3,
 					h_on: false,
 					dif_on: true,
-					dif_grad: m.panel ?? gradient('#141210', '#2c2620')
+					dif_grad: m.panel ?? metalGradient('#141210', '#2c2620'),
+					mt_on: true,
+					mt_src: 'flat'
 				})
 			},
 			{
@@ -811,7 +847,10 @@ export const lightPanel: RecipeDef = {
 					h_on: false,
 					dif_on: true,
 					dif_src: 'flat',
-					dif_grad: gradient(String(m.housing ?? '#060504'))
+					dif_grad: gradient(String(m.housing ?? '#060504')),
+					mt_on: true,
+					mt_src: 'flat',
+					mt_b: 0
 				})
 			}
 		);

@@ -234,11 +234,12 @@
 					@update:model-value="set(r.def.key, $event)"
 					@commit="emit('commit')" />
 			</div>
-			<div v-else-if="r.def.type === 'text' && r.def.image" class="row">
+			<div v-else-if="r.def.type === 'text' && r.def.image" class="row wide">
 				<label v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
 				<ImageField
 					:model-value="String(value(r.def) ?? '')"
 					:label="labelOf(r.def)"
+					:environment="r.def.environment"
 					@update:model-value="set(r.def.key, $event)"
 					@commit="emit('commit')" />
 			</div>

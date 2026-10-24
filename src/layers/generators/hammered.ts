@@ -127,13 +127,19 @@ export const hammeredLayer: LayerDef = {
 		h_on: true,
 		h_amount: 1.4,
 		dif_on: true,
-		// A copper ramp that darkens the dents only a little.
+		// A copper ramp that darkens the dents only a little: bright, as a metal reflects in its colour.
 		dif_grad: {
 			stops: [
-				{ pos: 0, color: '#985230' },
-				{ pos: 1, color: '#aa673e' }
+				{ pos: 0, color: '#f98b55' },
+				{ pos: 1, color: '#f9995f' }
 			]
-		}
+		},
+		// Satin metal: glints on the dent rims.
+		r_on: true,
+		r_src: 'flat',
+		r_b: 0.4,
+		mt_on: true,
+		mt_src: 'flat'
 	},
 	// Added in the editor: the courses sized to the texture — about 21 across, but on small textures fewer, larger dents
 	// (5 courses across at 64 px, none closer than 14 px below 300 px) with fewer centres and deeper relief, so each dent

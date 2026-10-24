@@ -128,7 +128,7 @@
 		} else if (k === 'r') {
 			editor.engine?.restart();
 		} else {
-			const c = CHANNEL_VIEWS.find((v) => v.key === e.key);
+			const c = CHANNEL_VIEWS.find((v) => v.key === k);
 			if (c) editor.channel = c.id;
 		}
 	}

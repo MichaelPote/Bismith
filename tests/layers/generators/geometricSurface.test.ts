@@ -31,22 +31,23 @@ describe('treadplate', () => {
 		expect(opts('layout').slice(0, 4)).toEqual(['checker', 'rows', 'cols', 'same']);
 	});
 
-	it('starts as domed, ridged, glinting diamond plate', () => {
+	it('starts as domed, ridged, metal diamond plate', () => {
 		const l = createLayer('treadplate');
 		expect(l.params).toMatchObject({
 			layout: 'herringbone',
 			crown: 1,
 			crest: 0.5,
 			r_on: true,
-			s_on: true,
-			r_src: 'value'
+			r_src: 'value',
+			mt_on: true,
+			s_on: false
 		});
 		expect(Number(l.params.h_var)).toBeLessThan(0.1); // rolled plate: lugs nearly level
 		// The plain defaults are the lozenge style's own look.
 		expect(l.params).toMatchObject(treadplateLayer.linkedDefaults!({ style: 'lozenge' }));
-		// In the editor, roughness and specular follow the relief rather than the registry's shape source.
+		// In the editor, roughness follows the relief rather than the registry's shape source.
 		freshKnown('treadplate');
-		expect(freshParams('treadplate', tex)).toMatchObject({ r_src: 'value', s_src: 'value' });
+		expect(freshParams('treadplate', tex)).toMatchObject({ r_src: 'value' });
 	});
 
 	it('switches arrangement and proportions with the style, keeping what the user set', () => {

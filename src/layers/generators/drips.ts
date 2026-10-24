@@ -727,7 +727,11 @@ export const dripsLayer: LayerDef = {
 				{ pos: 0, color: '#5a1e10' },
 				{ pos: 1, color: '#7a2a14' }
 			]
-		}
+		},
+		// Stains and paint are not metal: where they lie on a metal, it stops reflecting like one.
+		mt_on: true,
+		mt_src: 'flat',
+		mt_b: 0
 	},
 	glsl: /* glsl */ `
 ${DR_GRID_GLSL}

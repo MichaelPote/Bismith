@@ -12,6 +12,7 @@ export type ChannelView =
 	| 'height'
 	| 'roughness'
 	| 'specular'
+	| 'metal'
 	| 'normal'
 	| 'ao'
 	| 'emissive'
@@ -24,6 +25,7 @@ export const CHANNEL_VIEWS: { id: ChannelView; label: string; key: string }[] = 
 	{ id: 'height', label: 'Height', key: '3' },
 	{ id: 'roughness', label: 'Roughness', key: '4' },
 	{ id: 'specular', label: 'Specular', key: '5' },
+	{ id: 'metal', label: 'Metalness', key: 'm' },
 	{ id: 'normal', label: 'Normal', key: '6' },
 	{ id: 'ao', label: 'AO', key: '7' },
 	{ id: 'emissive', label: 'Emissive', key: '8' },
@@ -42,7 +44,8 @@ const MODE: Record<ChannelView, number> = {
 	opacity: 6,
 	masks: 7,
 	specular: 8,
-	ao: 9
+	ao: 9,
+	metal: 10
 };
 
 export interface ViewTransform {
@@ -99,6 +102,7 @@ void main() {
   if (uMode == MODE_FINAL || uMode == MODE_DIFFUSE) { col = max(v.rgb, 0.0); alpha = clamp(v.a, 0.0, 1.0); }
   else if (uMode == MODE_HEIGHT) { float span = max(uHRange.y - uHRange.x, 1e-5); col = vec3((v.w - uHRange.x) / span); encode = false; }
   else if (uMode == MODE_ROUGHNESS) { col = vec3(v.g); encode = false; }
+  else if (uMode == MODE_METAL) { col = vec3(v.b); encode = false; }
   else if (uMode == MODE_NORMAL) { col = v.xyz * 0.5 + 0.5; encode = false; }
   else if (uMode == MODE_EMISSIVE) { col = v.rgb / (1.0 + luma(v.rgb)); }
   else if (uMode == MODE_OPACITY || uMode == MODE_SPECULAR) { col = vec3(v.a); encode = false; }

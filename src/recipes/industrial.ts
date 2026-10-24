@@ -1,7 +1,8 @@
 // Industrial lumps (FR8.12): rusty pipe runs on a wall, and peeling paint over any surface beneath it.
 
 import { P, type ParamValues } from '@/core/params';
-import { L, across, clamp, gradient, lerp, num, r2, shade } from './parts';
+import { L, across, clamp, gradient, lerp, metalGradient, num, r2, shade } from './parts';
+import { metalColour } from '@/core/color';
 
 /** A colour scaled towards black. */
 const shadeHex = (hex: string, k: number) => shade(hex, k).stops[0].color;
@@ -12,9 +13,12 @@ import { PIPE_RUNS_EDIT } from '@/layers/generators/pipes';
 const drawn = (p: Record<string, unknown>) => p.layout === 'drawn';
 const random = (p: Record<string, unknown>) => (p.layout ?? 'random') === 'random';
 
-/** Pipe finishes: colours, surface (roughness, specular) and what weathers them. */
+/** Pipe finishes: colours, surface (roughness, specular, metalness) and what weathers them. */
 interface Finish {
+	/** Colours as they should look; a metal finish's are lifted for metalness (metalColour). */
 	metal: string[];
+	/** Bare metal (Metalness 1), or paint, plastic or glass (0). */
+	isMetal: boolean;
 	rough: number;
 	spec: number;
 	/** Weathering colour (rust, verdigris, chips); '' = the Rust colour control. */
@@ -24,13 +28,47 @@ interface Finish {
 }
 
 const FINISHES: Record<string, Finish> = {
-	rusty: { metal: ['#34302c', '#4c433c', '#62554a'], rough: 0.32, spec: 0.55, weather: '', weatherRough: 0.85 },
-	painted: { metal: [], rough: 0.45, spec: 0.45, weather: '', weatherRough: 0.85 },
-	copper: { metal: ['#7a3c20', '#a0582e', '#c27a46'], rough: 0.2, spec: 0.85, weather: '#4f8f78', weatherRough: 0.7 },
-	steel: { metal: ['#5a6066', '#747a80', '#8c9298'], rough: 0.26, spec: 0.75, weather: '', weatherRough: 0.85 },
-	chrome: { metal: ['#8a9096', '#b2b8be', '#d4d8dc'], rough: 0.07, spec: 1, weather: '', weatherRough: 0.6 },
-	plastic: { metal: [], rough: 0.38, spec: 0.35, weather: '#6a6458', weatherRough: 0.6 }
+	rusty: {
+		metal: ['#34302c', '#4c433c', '#62554a'],
+		isMetal: true,
+		rough: 0.32,
+		spec: 0.55,
+		weather: '',
+		weatherRough: 0.85
+	},
+	painted: { metal: [], isMetal: false, rough: 0.45, spec: 0.45, weather: '', weatherRough: 0.85 },
+	copper: {
+		metal: ['#7a3c20', '#a0582e', '#c27a46'],
+		isMetal: true,
+		rough: 0.2,
+		spec: 0.85,
+		weather: '#4f8f78',
+		weatherRough: 0.7
+	},
+	steel: {
+		metal: ['#5a6066', '#747a80', '#8c9298'],
+		isMetal: true,
+		rough: 0.26,
+		spec: 0.75,
+		weather: '',
+		weatherRough: 0.85
+	},
+	chrome: {
+		metal: ['#8a9096', '#b2b8be', '#d4d8dc'],
+		isMetal: true,
+		rough: 0.07,
+		spec: 1,
+		weather: '',
+		weatherRough: 0.6
+	},
+	plastic: { metal: [], isMetal: false, rough: 0.38, spec: 0.35, weather: '#6a6458', weatherRough: 0.6 },
+	glass: { metal: [], isMetal: false, rough: 0.26, spec: 0.75, weather: '', weatherRough: 0.85 }
 };
+
+/** A gradient's colours lifted for a metal (metalColour), stops kept. */
+const liftGradient = (g: { stops: { pos: number; color: string }[] }) => ({
+	stops: g.stops.map((s) => ({ pos: s.pos, color: metalColour(s.color) }))
+});
 
 const isGlass = (p: Record<string, unknown>) => p.finish === 'glass';
 const colourFinish = (p: Record<string, unknown>) => p.finish === 'painted' || p.finish === 'plastic';
@@ -180,6 +218,7 @@ export const pipes: RecipeDef = {
 		const finish = String(m.finish ?? 'rusty');
 		const glass = finish === 'glass';
 		const f = FINISHES[finish] ?? FINISHES.steel;
+		const mt = f.isMetal ? 1 : 0;
 		// Shine 0.5 = the finish as is; towards 0 rougher and duller, towards 1 smoother and brighter.
 		const shine = num(m.shine, 0.5) - 0.5;
 		const rough = r2(clamp(f.rough * (1 - 1.6 * shine), 0.03, 1));
@@ -187,10 +226,10 @@ export const pipes: RecipeDef = {
 		const colour = String(m.colour ?? '#3c5a44');
 		const metal =
 			finish === 'rusty'
-				? (m.metal ?? gradient(...FINISHES.rusty.metal))
+				? liftGradient((m.metal as { stops: { pos: number; color: string }[] }) ?? gradient(...FINISHES.rusty.metal))
 				: colourFinish(m)
 					? gradient(shadeHex(colour, 0.85), colour)
-					: gradient(...f.metal);
+					: metalGradient(...f.metal);
 		const weather = num(m.rust, 0.5);
 		const wc = f.weather || String(m.rust_colour ?? '#8c4a24');
 		const fr = num(m.fitting_rust, 0.6);
@@ -198,8 +237,8 @@ export const pipes: RecipeDef = {
 		const trails = glass ? 0 : num(m.trails, 0.4);
 		// Surface height 1 = 4 radii: true scale is 4·radius px.
 		const hAmount = r2((num(m.relief, 1) * 4 * radius) / Math.max(ctx.depth ?? 2, 0.01));
-		// Glass fittings are steel collars.
-		const fitColour = glass ? gradient(...FINISHES.steel.metal) : shade(wc, 0.7);
+		// Glass fittings are steel collars; on the other finishes the fittings show their weathering.
+		const fitColour = glass ? metalGradient(...FINISHES.steel.metal) : shade(wc, 0.7);
 		const out: RecipeLayer[] = [
 			{
 				role: 'relief',
@@ -220,7 +259,11 @@ export const pipes: RecipeDef = {
 					s_mode: 'replace',
 					s_src: 'flat',
 					s_a: spec,
-					s_b: spec
+					s_b: spec,
+					mt_on: true,
+					mt_mode: 'replace',
+					mt_src: 'flat',
+					mt_b: mt
 				})
 			},
 			// Coverage writes the pipes' outline to the Shape mask: the layers after are limited to it (glass: the tubes only).
@@ -237,12 +280,16 @@ export const pipes: RecipeDef = {
 					h_on: false,
 					dif_on: !glass,
 					dif_src: 'random',
-					dif_grad: metal
+					dif_grad: metal,
+					mt_on: true,
+					mt_src: 'flat',
+					mt_b: mt
 				})
 			},
 			{
 				// Polished metal mirrors its surroundings: bright sky towards the light, a dark band past the middle, the
-				// floor's glow at the far edge — chrome in full, steel and copper as a hint over their colour.
+				// floor's glow at the far edge — chrome in full, steel and copper as a hint over their colour. On a metal
+				// the colour tints its reflections, so chrome's are lifted (metalColour).
 				role: 'reflections',
 				stack: 'paint',
 				layer: L(
@@ -258,7 +305,7 @@ export const pipes: RecipeDef = {
 						dif_opacity: finish === 'chrome' ? 1 : finish === 'steel' ? 0.5 : 0.35,
 						dif_grad:
 							finish === 'chrome'
-								? {
+								? liftGradient({
 										stops: [
 											{ pos: 0, color: '#c4c8cc' },
 											{ pos: 0.22, color: '#8e9398' },
@@ -268,7 +315,7 @@ export const pipes: RecipeDef = {
 											{ pos: 0.88, color: '#f6f8fa' },
 											{ pos: 1, color: '#d0d4d8' }
 										]
-									}
+									})
 								: {
 										stops: [
 											{ pos: 0, color: '#d8d8d8' },
@@ -315,7 +362,12 @@ export const pipes: RecipeDef = {
 						s_mode: 'multiply',
 						s_src: 'flat',
 						s_a: 0.4,
-						s_b: 0.4
+						s_b: 0.4,
+						// Rust, verdigris, chips and grime are not metal.
+						mt_on: true,
+						mt_src: 'flat',
+						mt_b: 0,
+						mt_opacity: 0.9
 					},
 					!glass && weather > 0
 				)
@@ -379,7 +431,11 @@ export const pipes: RecipeDef = {
 						dif_on: true,
 						dif_src: 'random',
 						dif_opacity: glass ? 1 : r2(fr),
-						dif_grad: fitColour
+						dif_grad: fitColour,
+						mt_on: true,
+						mt_src: 'flat',
+						mt_b: glass ? 1 : 0,
+						mt_opacity: glass ? 1 : r2(fr)
 					},
 					glass || fr > 0
 				)
@@ -398,7 +454,14 @@ export const pipes: RecipeDef = {
 						dif_src: 'value',
 						dif_blend: 'multiply',
 						dif_opacity: r2(grime * (glass ? 0.3 : 1)),
-						dif_grad: gradient('#ffffff', '#ffffff', '#4a3c30')
+						dif_grad: gradient('#ffffff', '#ffffff', '#4a3c30'),
+						// Grime is not metal: the metalness fades out towards the underside.
+						mt_on: true,
+						mt_src: 'value',
+						mt_mode: 'multiply',
+						mt_a: 1,
+						mt_b: 0,
+						mt_opacity: r2(grime)
 					},
 					grime > 0
 				)
@@ -564,7 +627,11 @@ export const paint: RecipeDef = {
 					r_mode: 'replace',
 					r_src: 'flat',
 					r_a: 0.9,
-					r_b: 0.9
+					r_b: 0.9,
+					// Rust, primer, plaster and the paint over them are not metal, whatever lies beneath.
+					mt_on: true,
+					mt_src: 'flat',
+					mt_b: 0
 				})
 			},
 			{

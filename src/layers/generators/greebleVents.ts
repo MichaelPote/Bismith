@@ -246,12 +246,18 @@ export const ventsLayer: LayerDef = {
 		// Black through the openings, dark walls, the field and frame as mid metal.
 		dif_grad: {
 			stops: [
-				{ pos: 0, color: '#080807' },
-				{ pos: 0.3, color: '#2b2926' },
-				{ pos: 0.6, color: '#615c54' },
-				{ pos: 1, color: '#7c766b' }
+				{ pos: 0, color: '#11110f' },
+				{ pos: 0.3, color: '#413e3b' },
+				{ pos: 0.6, color: '#8c867a' },
+				{ pos: 1, color: '#b2aa9a' }
 			]
-		}
+		},
+		// Metal: the plate, its louvre blades and hoods (the openings are dark enough to show nothing).
+		r_on: true,
+		r_src: 'flat',
+		r_b: 0.5,
+		mt_on: true,
+		mt_src: 'flat'
 	},
 	// A new layer in the editor: a framed panel sized to the texture (cells about 1/20 of it tall, slots 80 % × 40 % of
 	// the cell) with a stepped-down field, edge clearance, rounded corners, an outer bevel, corner screws and chamfered
@@ -754,7 +760,14 @@ export const pipesLayer: LayerDef = {
 		dif_on: true,
 		dif_src: 'value',
 		// A dark wall (not black) under brighter metal.
-		dif_grad: gradient('#17150f', '#3a342c', '#5c5344', '#85775f')
+		dif_grad: gradient('#29251d', '#5d5448', '#8f826b', '#cbb693'),
+		// Metal on the pipes (Source › Shape), not on the wall between them; satin.
+		r_on: true,
+		r_src: 'shape',
+		r_a: 0.75,
+		r_b: 0.4,
+		mt_on: true,
+		mt_src: 'shape'
 	},
 	// A new layer in the editor: runs about 110 px apart (at least three) with a jitter of 12 % of the spacing, pipes
 	// half the spacing thick, clamps and joints in proportion.

@@ -20,9 +20,9 @@ void main() {
   int R = gaussTaps(sigma, ${MAX_BLUR_TAPS});
   float k = gaussK(sigma);
   bool doA = u_diffuse || u_opacity;
-  bool doS = u_height || u_roughness;
+  bool doS = u_height || u_roughness || u_metalness;
   vec3 rgbW = vec3(0.0), rgbP = vec3(0.0);
-  vec2 hr = vec2(0.0);
+  vec3 hr = vec3(0.0);
   vec4 em = vec4(0.0);
   float ws = 0.0, wa = 0.0;
   for (int i = -R; i <= R; i++) {
@@ -35,7 +35,7 @@ void main() {
       rgbP += w * a.rgb;
       wa += w * a.a;
     }
-    if (doS) hr += w * fetchT(tSurface, q).rg;
+    if (doS) hr += w * fetchT(tSurface, q).rgb;
     if (u_emissive || u_specular) em += w * fetchT(tEmissive, q);
     ws += w;
   }
@@ -43,6 +43,7 @@ void main() {
   if (u_opacity) A.a = wa / ws;
   if (u_height) S.r = hr.x / ws;
   if (u_roughness) S.g = hr.y / ws;
+  if (u_metalness) S.b = hr.z / ws;
   if (u_emissive) E.rgb = em.rgb / ws;
   if (u_specular) E.a = em.a / ws;
   oAlbedo = A;
@@ -75,6 +76,7 @@ export const blurLayer: LayerDef = {
 		P.bool('height', 'Height', true),
 		P.bool('roughness', 'Roughness', false),
 		P.bool('specular', 'Specular', false),
+		P.bool('metalness', 'Metalness', false),
 		P.bool('emissive', 'Emissive', false),
 		P.bool('opacity', 'Opacity', false, { hint: 'Also blurs opacity; colour is then alpha-weighted' })
 	],
@@ -82,7 +84,7 @@ export const blurLayer: LayerDef = {
 		const p = layer.params;
 		const radius = Number(p.radius ?? 0);
 		if (radius <= 0) return;
-		if (!p.diffuse && !p.height && !p.roughness && !p.specular && !p.emissive && !p.opacity) return;
+		if (!p.diffuse && !p.height && !p.roughness && !p.specular && !p.metalness && !p.emissive && !p.opacity) return;
 		const mat = ctx.mrtMaterial('blur', BLUR_MRT, { uDir: { value: new THREE.Vector2(1, 0) }, uSigma: { value: 1 } });
 		mat.uniforms.uSigma.value = radiusToSigma(radius);
 		(mat.uniforms.uDir.value as THREE.Vector2).set(1, 0);

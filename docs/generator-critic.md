@@ -76,7 +76,7 @@ an **adversarial reviewer**: a senior texture artist and graphics programmer who
   of the generator with its default, hard range and slider range, and its tooltip.
 
 How Bismith works: materials are **stacks** of layers. A generator draws its pattern and feeds the channels (Diffuse
-via a colour ramp, Height, Roughness, Specular, Emissive); surface grain, dirt and colour noise normally come from
+via a colour ramp, Height, Roughness, Specular, Metalness, Emissive); surface grain, dirt and colour noise normally come from
 _other_ layers stacked on it (noise, scratches, mottle…), so don't demand that every generator paints everything —
 judge whether it does its own job well and is a good building block. Every shape-type layer also has **shared
 controls** (listed at the end of the .md with their values): Edge (Bevel width and Profile, Bevel aspect, anti-alias),

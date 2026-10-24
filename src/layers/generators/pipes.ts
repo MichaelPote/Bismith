@@ -6,7 +6,7 @@
 // can be limited to them.
 
 import { memoReads } from '@/core/memo';
-import { P } from '@/core/params';
+import { P, gradient } from '@/core/params';
 import type { ParamDef, ParamValues } from '@/core/params';
 import { GLSL_PRIMTEX, PRIM_UNIFORMS, primUniforms } from '../primTexture';
 import type { LayerCanvas, LayerDef } from '../types';
@@ -28,6 +28,8 @@ import {
 
 const isRandom = (p: Record<string, unknown>) => (p.layout ?? 'random') === 'random';
 const isDrawn = (p: Record<string, unknown>) => p.layout === 'drawn';
+/** Outputs for paint over the pipes, not the metal itself (Metalness starts off for them). */
+const NOT_METAL = new Set(['underside', 'tubes', 'liquid']);
 
 /** The runs of a layer (drawn or random) at a texture size. */
 export function pipeRuns(q: ParamValues, o: PipeOptions): PipeRun[] {
@@ -164,7 +166,21 @@ export const pipeworkLayer: LayerDef = {
 		}),
 		P.seed()
 	],
-	defaults: { h_on: true, h_amount: 1, dif_on: true, bevel: 0, profile: 'flat' },
+	// Metal pipes, bright as a metal reflects in its colour.
+	defaults: {
+		h_on: true,
+		h_amount: 1,
+		dif_on: true,
+		dif_grad: gradient('#786f65', '#f9e8cf'),
+		bevel: 0,
+		profile: 'flat',
+		// Satin metal.
+		r_on: true,
+		r_src: 'flat',
+		r_b: 0.35,
+		mt_src: 'flat'
+	},
+	linkedDefaults: (p) => ({ mt_on: !NOT_METAL.has(String(p.output)) }),
 	textures: ['pipes'],
 	cpuData: (q, ctx) => ({ pipes: pipeTexture(q, ctx).texture }),
 	derivedUniforms: {

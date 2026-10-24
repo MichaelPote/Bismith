@@ -32,9 +32,9 @@ in code.
 - **A card preset is a whole project around the item.** The file holds the item and whatever it was rendered with, so
   it can still be opened as a project (File ▸ Open) and judged as one. Only the item is copied when the preset is
   applied; the rest is ignored.
-- **Images travel with the preset.** A Stamp's image is only a name (`core/images.ts`); the pixels stay in the browser
-  that loaded them. A preset embeds the images its item uses as `preset.images: { name: dataURL }`, and applying it
-  `putImage`s them first.
+- **Images travel with the preset.** A Stamp's image and the sky's environment image are only names
+  (`core/images.ts`); the pixels stay in the browser that loaded them. A preset embeds the images its project uses as
+  `preset.images: { name: dataURL }`, and applying it (or opening a starter, `asProject`) `putImage`s them first.
 - **Built-ins live in `presets/` at the repository root**, one file each, in a folder per kind:
   `presets/project/bricks.json`, `presets/layer/<type>/<name>.json`, `presets/material/<recipe>/<name>.json`,
   `presets/light/…`, `presets/lighting/…`, `presets/post/…`. They are bundled (the app works offline and from a
@@ -61,7 +61,9 @@ in code.
   thumbnail shows something. Used for the built-ins (the tool) and the user's presets (the app) alike:
   - **Filters and adjust layers** (Blur, Bevel, Etch, Levels…), anything reading a mask (_Limit to_, a mask input)
     and **paint-stack layers**: a test relief — a few bevel-able shapes over soft noise, writing the `Shape` mask.
-  - **Lights and lighting**: the test relief with a neutral paint; the rig below is replaced by the preset's.
+  - **Lights and lighting** (`presetLightStage`): the test relief with a polished steel dome in the middle, which shows
+    the light's highlight and what metals reflect (the sky or its environment image); the rig below is replaced by the
+    preset's.
   - **Post filters**: the Stone bricks starter (`bricks`), with the filter appended to its post stack.
 - **The standard light rig** (`presetLighting` / `presetBase` in `src/presets/stage.ts`): a sun from the top left,
   sky, AO and shadows, as the Match setups use — flat ambient light hides relief. Base material mid grey, post tonemap

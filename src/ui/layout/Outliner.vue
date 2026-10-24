@@ -485,7 +485,7 @@
 					<span
 						v-tip:right="{
 							title: 'Base',
-							body: 'The material under every layer: colour, roughness, specular, height, opacity. Opens the project settings.'
+							body: 'The material under every layer: colour, roughness, specular, metalness, height, opacity. Opens the project settings.'
 						}"
 						class="name"
 						>Base</span

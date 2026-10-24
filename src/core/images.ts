@@ -1,10 +1,12 @@
-// Images that layers use (Stamp › Image file), by file name — the "path" a project saves (a browser page sees a file's
+// Images that layers and the sky use (Stamp › Image file, Sky light › Environment), by file name — the "path" a project saves (a browser page sees a file's
 // name, not where it lives). The pixels stay in this browser: a data URL per name, kept in memory and in localStorage,
 // decoded to RGBA8 for the layers' CPU textures. A project file saves only the name; opened where that image isn't
 // stored, its layer draws nothing and the inspector asks for the file again. Loading a file under a name already used
 // replaces it everywhere, as a path pointing at a new file would. (Embedding the images in the project file is for
 // later.) Decoding is asynchronous: until an image is ready its layer draws nothing, and onImageReady listeners (the
 // engine) re-render when it is; pendingImages() resolves once every image asked for is decoded (headless renders).
+
+import { canvasJpeg, dataUrlToBytes, decodeUltraHdr, type HdrImage } from './environment';
 
 export interface DecodedImage {
 	width: number;
@@ -20,6 +22,8 @@ const STORE_PREFIX = 'bismith:image:';
 
 const urls = new Map<string, string>();
 const decoded = new Map<string, DecodedImage>();
+/** Environment images decoded to linear HDR (core/environment.ts), by name. */
+const decodedHdr = new Map<string, HdrImage>();
 const pending = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 let version = 0;
@@ -45,6 +49,7 @@ export function putImage(name: string, url: string, persist = true): void {
 	if (!name || !URL_PATTERN.test(url) || urls.get(name) === url) return;
 	urls.set(name, url);
 	decoded.delete(name);
+	decodedHdr.delete(name);
 	version++;
 	if (persist) {
 		try {
@@ -109,6 +114,38 @@ function decode(name: string): void {
 		}
 	})();
 	pending.set(name, job);
+}
+
+/**
+ * An environment image (Sky light › Environment) as linear HDR — an Ultra HDR JPEG's gain map applied, any other image
+ * its sRGB pixels — or null while it decodes (that starts it) or when this browser doesn't have it.
+ */
+export function getHdrImage(name: string): HdrImage | null {
+	const hit = decodedHdr.get(name);
+	if (hit) return hit;
+	if (imageUrl(name)) decodeHdr(name);
+	return null;
+}
+
+function decodeHdr(name: string): void {
+	const key = `hdr:${name}`;
+	if (decodedHdr.has(name) || pending.has(key)) return;
+	const url = urls.get(name);
+	if (!url || typeof createImageBitmap !== 'function') return;
+	const job = (async () => {
+		try {
+			const img = await decodeUltraHdr(dataUrlToBytes(url), canvasJpeg);
+			if (urls.get(name) !== url) return;
+			decodedHdr.set(name, img);
+			version++;
+			for (const fn of listeners) fn();
+		} catch {
+			/* not an image after all: the sky falls back to its gradient */
+		} finally {
+			pending.delete(key);
+		}
+	})();
+	pending.set(key, job);
 }
 
 /**

@@ -63,9 +63,10 @@ describe('bands', () => {
 			dif_src: 'random'
 		});
 		expect(p).toMatchObject({ width_var: 0, jitter: 0, jitter_piece: 0, skip: 0, amp: 1, fill: 'band', orient: '0' });
-		const { r_src, s_src, ...sized } = freshParams('bands', { width: 512, height: 512 });
+		const { r_src, s_src, mt_src, ...sized } = freshParams('bands', { width: 512, height: 512 });
 		expect(r_src).toBe('shape');
 		expect(s_src).toBe('shape');
+		expect(mt_src).toBe('shape');
 		expect(p).toMatchObject(sized);
 	});
 

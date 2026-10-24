@@ -20,7 +20,7 @@ function fitted(preset: Project, project: Project): Project {
 	return resizeProject(preset, project.width, project.height);
 }
 
-/** The images a preset carries, stored in this browser first so its Stamp layers find them. */
+/** The images a preset carries, stored in this browser first so its Stamp layers and its sky find them. */
 function bringImages(preset: Project): void {
 	for (const [name, url] of Object.entries(preset.preset?.images ?? {})) putImage(name, url);
 }
@@ -73,6 +73,7 @@ export function applyLightPreset(project: Project, light: Light, preset: Project
 
 /** Apply a lighting preset: sky, ambient and the light list (render settings are left alone). */
 export function applyLightingPreset(project: Project, preset: Project): void {
+	bringImages(preset);
 	const l = fitted(preset, project).lighting;
 	project.lighting = { sky: l.sky, ambient: l.ambient, lights: l.lights.map((x) => ({ ...x, id: newId('lt') })) };
 }
@@ -87,15 +88,16 @@ export function applyPostPreset(project: Project, filter: PostFilter, preset: Pr
 
 // ---------------------------------------------------------------------------------------------------- saving
 
-/** The images `layers` use (Stamp › Image file), as data URLs, so the preset file carries them. */
-function imagesOf(layers: Layer[]): Record<string, string> | undefined {
+/** The images `p` uses (Stamp › Image file, the sky's environment), as data URLs, so the preset file carries them. */
+function imagesOf(p: Project): Record<string, string> | undefined {
+	const names = [p.lighting.sky.image ?? ''];
+	for (const l of p.layers)
+		for (const d of layerParamDefs(l.type)) if (d.image) names.push(String(l.params[d.key] ?? ''));
 	const out: Record<string, string> = {};
-	for (const l of layers)
-		for (const d of layerParamDefs(l.type)) {
-			const name = d.image ? l.params[d.key] : undefined;
-			const url = typeof name === 'string' && name ? imageUrl(name) : undefined;
-			if (url) out[name as string] = url;
-		}
+	for (const name of names) {
+		const url = name ? imageUrl(name) : undefined;
+		if (url) out[name] = url;
+	}
 	return Object.keys(out).length ? out : undefined;
 }
 
@@ -155,7 +157,7 @@ export function buildPreset(
 	);
 	p.name = meta.name;
 	if (meta.description) p.description = meta.description;
-	const images = imagesOf(p.layers);
+	const images = imagesOf(p);
 	if (images) p.preset!.images = images;
 	delete p.preview;
 	return p;
@@ -171,7 +173,7 @@ export function buildTemplate(
 	if (meta.description) p.description = meta.description;
 	else delete p.description;
 	p.preset = { kind: 'project', id: newId('pr'), ...(meta.category ? { category: meta.category } : {}) };
-	const images = imagesOf(p.layers);
+	const images = imagesOf(p);
 	if (images) p.preset.images = images;
 	return p;
 }

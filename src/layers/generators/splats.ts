@@ -238,7 +238,11 @@ export const splatsLayer: LayerDef = {
 		r_b: 0.06,
 		s_on: true,
 		s_a: 0.5,
-		s_b: 0.6
+		s_b: 0.6,
+		// A liquid is not metal: on a metal floor the splat reflects like the liquid, not the metal.
+		mt_on: true,
+		mt_src: 'flat',
+		mt_b: 0
 	},
 	fresh: ({ width, height }) => {
 		const s = Math.sqrt(width * height) / 128;

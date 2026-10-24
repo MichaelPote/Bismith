@@ -281,6 +281,7 @@
 		height: 'Hgt',
 		roughness: 'Rgh',
 		specular: 'Spc',
+		metal: 'Mtl',
 		normal: 'Nrm',
 		ao: 'AO',
 		emissive: 'Emi',

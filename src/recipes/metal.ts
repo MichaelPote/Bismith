@@ -2,7 +2,7 @@
 // shared sources — scattered, or starting at the ledges of the relief beneath (rivets, lips).
 
 import { P, type ParamValues } from '@/core/params';
-import { HEIGHT_ONLY, L, across, gradient, lerp, num, r2, shade, streaks } from './parts';
+import { HEIGHT_ONLY, L, across, gradient, lerp, metalGradient, num, r2, shade, streaks } from './parts';
 import type { RecipeDef, RecipeLayer } from './types';
 
 export const hammeredMetal: RecipeDef = {
@@ -26,15 +26,22 @@ export const hammeredMetal: RecipeDef = {
 			step: 0.1,
 			hint: 'Low = soft dimples, high = flat-bottomed dents with sharp rims'
 		}),
-		P.float('glints', 'Glints', 0.3, 0, 1, { group: 'dents', step: 0.01 }),
-		P.gradient('metal', 'Metal colours', gradient('#2b170c', '#3a1e10', '#4a2616', '#5a2e1a'), { group: 'colour' }),
+		P.float('glints', 'Polish', 0.5, 0, 1, {
+			group: 'dents',
+			step: 0.01,
+			hint: 'How polished the metal is: low = dull, soft reflections; high = sharp, bright glints on the dent rims'
+		}),
+		P.gradient('metal', 'Metal colours', gradient('#8a4528', '#a85a34', '#c07040', '#d0845a'), {
+			group: 'colour',
+			hint: 'The metal reflects in these colours (metalness 1), so they are brighter than the copper looks in shade'
+		}),
 		P.float('tone', 'Dent tone', 0.6, 0, 1, { group: 'colour', step: 0.01, hint: 'Darkening inside the dents' }),
 		P.float('patina', 'Patina', 0.4, 0, 1, { group: 'colour', step: 0.01 }),
 		P.color('patina_colour', 'Patina colour', '#2f4034', { group: 'colour' }),
 		P.float('speckle', 'Speckle', 0.5, 0, 1, { group: 'colour', step: 0.01 }),
 		P.seed('seed', 'Seed', 3, { group: 'dents' })
 	],
-	render: { ao: 0.5, aoRadius: 3, specularTint: 1 },
+	render: { ao: 0.5, aoRadius: 3 },
 	build(m, ctx) {
 		const seed = num(m.seed, 3);
 		// Irregularity drives the hand-struck variation together: jitter (a share of the spacing), course wobble, size and
@@ -54,7 +61,7 @@ export const hammeredMetal: RecipeDef = {
 			shape: num(m.shape, 4),
 			seed
 		};
-		const glint = r2(num(m.glints, 0.3));
+		const rough = r2(lerp(0.7, 0.25, num(m.glints, 0.5)));
 		const patina = num(m.patina, 0.4);
 		const toneDark = Math.round(255 * (1 - 0.3 * num(m.tone, 0.6)));
 		const toneHex = `#${toneDark.toString(16).padStart(2, '0').repeat(3)}`;
@@ -70,13 +77,8 @@ export const hammeredMetal: RecipeDef = {
 					r_on: true,
 					r_mode: 'replace',
 					r_src: 'flat',
-					r_a: 0.55,
-					r_b: 0.55,
-					s_on: true,
-					s_mode: 'replace',
-					s_src: 'flat',
-					s_a: glint,
-					s_b: glint
+					r_a: rough,
+					r_b: rough
 				})
 			},
 			{ role: 'soften', stack: 'relief', layer: L('blur', 'Soften', { radius: 0.5, ...HEIGHT_ONLY }) },
@@ -91,7 +93,11 @@ export const hammeredMetal: RecipeDef = {
 					seed: seed + 2,
 					h_on: false,
 					dif_on: true,
-					dif_grad: m.metal ?? gradient('#2b170c', '#5a2e1a')
+					dif_grad: m.metal ?? gradient('#8a4528', '#d0845a'),
+					mt_on: true,
+					mt_src: 'flat',
+					mt_a: 1,
+					mt_b: 1
 				})
 			},
 			{
@@ -121,7 +127,18 @@ export const hammeredMetal: RecipeDef = {
 						h_on: false,
 						dif_on: true,
 						dif_opacity: 0.9,
-						dif_grad: shade(String(m.patina_colour ?? '#2f4034'), 0.7)
+						dif_grad: shade(String(m.patina_colour ?? '#2f4034'), 0.7),
+						// Verdigris is an oxide, not metal: matte and without the metal's reflection.
+						mt_on: true,
+						mt_src: 'flat',
+						mt_a: 0,
+						mt_b: 0,
+						mt_opacity: 0.9,
+						r_on: true,
+						r_src: 'flat',
+						r_a: 0.85,
+						r_b: 0.85,
+						r_opacity: 0.9
 					},
 					patina > 0
 				)
@@ -191,15 +208,18 @@ export const brushedMetal: RecipeDef = {
 			step: 0.01,
 			hint: 'Shallow dents that make the glints come and go'
 		}),
-		P.gradient('metal', 'Metal colours', gradient('#4f3c30', '#695243', '#806656'), { group: 'colour' }),
+		P.gradient('metal', 'Metal colours', metalGradient('#4f3c30', '#695243', '#806656'), {
+			group: 'colour',
+			hint: 'The metal reflects in these colours (metalness 1), so they are brighter than it looks in shade'
+		}),
 		P.float('mottle', 'Mottle', 0.5, 0, 1, { group: 'colour', step: 0.01 }),
 		P.seed('seed', 'Seed', 7, { group: 'streaks' })
 	],
-	render: { ao: 0.5, aoRadius: 3, specularTint: 0.85 },
+	render: { ao: 0.5, aoRadius: 3 },
 	build(m, ctx) {
 		const seed = num(m.seed, 7);
 		const c = num(m.contrast, 0.6);
-		const metal = m.metal ?? gradient('#4f3c30', '#806656');
+		const metal = m.metal ?? metalGradient('#4f3c30', '#806656');
 		return [
 			{
 				role: 'dents',
@@ -216,13 +236,14 @@ export const brushedMetal: RecipeDef = {
 						h_on: true,
 						h_amount: r2(0.3 * num(m.dents, 0.3)),
 						dif_on: false,
-						s_on: true,
-						s_mode: 'multiply',
-						s_src: 'value',
-						s_a: 0.4,
-						s_b: 1
+						// The satin finish, rougher in the dents so the glints come and go (Dents 0: even).
+						r_on: true,
+						r_mode: 'replace',
+						r_src: 'value',
+						r_a: r2(0.35 + 0.25 * num(m.dents, 0.3)),
+						r_b: 0.35
 					},
-					num(m.dents, 0.3) > 0
+					true
 				)
 			},
 			{
@@ -237,7 +258,10 @@ export const brushedMetal: RecipeDef = {
 					h_on: false,
 					dif_on: true,
 					dif_opacity: r2(num(m.mottle, 0.5)),
-					dif_grad: metal
+					dif_grad: metal,
+					// The metal itself: reflects in its colour.
+					mt_on: true,
+					mt_src: 'flat'
 				})
 			},
 			{

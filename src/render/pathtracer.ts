@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import type { Project } from '@/core/project';
 import { POINT_LIGHT_REF_DIST } from '@/core/lights';
 import { hexToLinear } from '@/core/color';
+import { getHdrImage, imagesVersion } from '@/core/images';
+import { skySamplingTable } from '@/core/environment';
 import { Gpu, PingPong } from '@/gpu/context';
 import { GLSL_COMMON } from '@/layers/glsl/common';
 import type { MaterialPipeline } from './materialPipeline';
@@ -34,6 +36,18 @@ uniform bool uShadows;
 uniform bool uSkyOn;
 uniform vec3 uSkyZenith;
 uniform vec3 uSkyHorizon;
+uniform bool uEnvOn;         // the sky is an environment image (equirectangular: top row the zenith, left edge north)
+uniform sampler2D tEnv;
+uniform float uEnvTurn;      // its rotation, in turns
+uniform float uSkyScale;     // its intensity
+// Importance sampling of the environment (PathTracer.envMaps): per texel of its upper half, r = the CDF along its row,
+// g = its probability; row uEnvHs (the last) holds the rows' CDF in r.
+uniform sampler2D tEnvDist;
+uniform int uEnvW;           // environment width
+uniform int uEnvHs;          // rows of its upper half (the only ones a ray can reach)
+uniform float uEnvRows;      // all its rows
+uniform int uEnvSteps;       // binary search steps: ceil(log2(max(W, Hs))) + 1
+uniform float uEnvNorm;      // W·H / (2π²): probability → pdf per solid angle (÷ sin θ)
 uniform vec3 uAmbient;
 uniform int uLightCount;
 uniform int uLType[${MAX_LIGHTS}];
@@ -174,8 +188,20 @@ float specPick(Mat m, float NoV) {
   return clamp(ws / max(ws + wd, 1e-4), 0.1, 0.9);
 }
 
-// Sample a direction; returns false if invalid. weight = f * NoL / pdf.
-bool sampleBRDF(Mat m, vec3 n, vec3 v, out vec3 l, out vec3 weight) {
+// The density sampleBRDF draws l with, per solid angle: its specular (visible-normal GGX) and cosine lobes, mixed by
+// specPick.
+float brdfPdf(Mat m, vec3 n, vec3 v, vec3 l) {
+  float NoL = dot(n, l);
+  if (NoL <= 0.0) return 0.0;
+  float NoV = max(dot(n, v), 1e-4);
+  float a = m.rough * m.rough;
+  float ps = specPick(m, NoV);
+  float pdfSpec = smithG1(NoV, a) * ggxD(max(dot(n, normalize(v + l)), 0.0), a) / (4.0 * NoV);
+  return ps * pdfSpec + (1.0 - ps) * NoL / PI;
+}
+
+// Sample a direction; returns false if invalid. weight = f * NoL / pdf, pdf its density (brdfPdf).
+bool sampleBRDF(Mat m, vec3 n, vec3 v, out vec3 l, out vec3 weight, out float pdf) {
   vec3 t, b;
   basis(n, t, b);
   vec3 vt = vec3(dot(v, t), dot(v, b), dot(v, n));
@@ -193,10 +219,7 @@ bool sampleBRDF(Mat m, vec3 n, vec3 v, out vec3 l, out vec3 weight) {
   }
   if (lt.z <= 0.0) return false;
   l = t * lt.x + b * lt.y + n * lt.z;
-  vec3 ht = normalize(vt + lt);
-  float pdfSpec = smithG1(NoV, a) * ggxD(max(ht.z, 0.0), a) / (4.0 * NoV);
-  float pdfDiff = lt.z / PI;
-  float pdf = ps * pdfSpec + (1.0 - ps) * pdfDiff;
+  pdf = brdfPdf(m, n, v, l);
   if (pdf <= 1e-6) return false;
   weight = evalBRDF(m, n, v, l) / pdf;
   return true;
@@ -204,25 +227,80 @@ bool sampleBRDF(Mat m, vec3 n, vec3 v, out vec3 l, out vec3 weight) {
 
 vec3 sky(vec3 d) {
   if (!uSkyOn) return vec3(0.0);
+  if (uEnvOn) {
+    // Latitude-longitude: across by azimuth, clockwise from the top of the image as the lights' (turned clockwise by the
+    // rotation), down from the zenith. atan(0, 0) is undefined: straight up, 0.
+    float az = abs(d.x) + abs(d.y) > 1e-6 ? atan(d.x, d.y) / TAU : 0.0;
+    vec2 uv = vec2(fract(az - uEnvTurn), acos(clamp(d.z, -1.0, 1.0)) / PI);
+    return textureLod(tEnv, uv, 0.0).rgb * uSkyScale;
+  }
   return mix(uSkyHorizon, uSkyZenith, sqrt(clamp(d.z, 0.0, 1.0)));
+}
+
+// ---------------------------------------------------------------- environment importance sampling
+// The environment image is also a light: directions drawn in proportion to its brightness × sin θ (a latitude-longitude
+// texel's solid angle), so a small bright sun or lamp is found by a shadow ray instead of waiting for a BRDF ray to
+// hit it. A texel's probability P gives a pdf per solid angle of P · W·H / (2π² sin θ), uniform across the texel.
+
+// Its pdf for direction d (0 below the horizon, or without an environment image).
+float envPdf(vec3 d) {
+  if (!uEnvOn || !uSkyOn || d.z <= 0.0) return 0.0;
+  float az = abs(d.x) + abs(d.y) > 1e-6 ? atan(d.x, d.y) / TAU : 0.0;
+  vec2 uv = vec2(fract(az - uEnvTurn), acos(clamp(d.z, -1.0, 1.0)) / PI);
+  ivec2 px = min(ivec2(uv * vec2(float(uEnvW), uEnvRows)), ivec2(uEnvW - 1, uEnvHs - 1));
+  return texelFetch(tEnvDist, px, 0).g * uEnvNorm / max(sqrt(1.0 - d.z * d.z), 1e-4);
+}
+
+// A direction drawn from it, and its pdf. One loop, twice: a row from the rows' CDF, then a texel from that row's.
+vec3 envSample(out float pdf) {
+  int x = 0;
+  int y = 0;
+  for (int phase = 0; phase < 2; phase++) {
+    int row = phase == 0 ? uEnvHs : y;
+    int n = phase == 0 ? uEnvHs : uEnvW;
+    float u = rnd();
+    int lo = 0;
+    int hi = n - 1;
+    for (int i = 0; i < uEnvSteps; i++) {
+      int mid = (lo + hi) / 2;
+      if (texelFetch(tEnvDist, ivec2(mid, row), 0).r <= u) lo = mid + 1;
+      else hi = mid;
+    }
+    if (phase == 0) y = min(lo, n - 1);
+    else x = min(lo, n - 1);
+  }
+  vec2 j = rnd2();
+  float az = TAU * ((float(x) + j.x) / float(uEnvW) + uEnvTurn);
+  float th = PI * (float(y) + j.y) / uEnvRows;
+  float s = sin(th);
+  pdf = texelFetch(tEnvDist, ivec2(x, y), 0).g * uEnvNorm / max(s, 1e-4);
+  return vec3(sin(az) * s, cos(az) * s, cos(th));
 }
 
 // Direct light from every light, shadow rays from ro. The branches only choose the direction, distance and scale, so the
 // shadow march and the BRDF are inlined once (D3D inlines every call site).
 vec3 directLight(Mat m, vec3 ro, vec3 p, vec3 n, vec3 v) {
   vec3 sum = vec3(0.0);
-  for (int i = 0; i < uLightCount; i++) {
-    bool point = uLType[i] != 0;
+  // The environment image is one more light, after the others: a direction drawn by its brightness (envSample), weighted
+  // against BRDF sampling by the power heuristic — the ray that escapes in main() takes the other share.
+  bool env = uEnvOn && uSkyOn;
+  float envP = 0.0;
+  vec3 envL = env ? envSample(envP) : vec3(0.0, 0.0, 1.0);
+  int count = uLightCount + (env ? 1 : 0);
+  for (int i = 0; i < count; i++) {
+    bool isEnv = i == uLightCount;
+    int li = min(i, ${MAX_LIGHTS - 1}); // (the arrays are read for the environment too, then ignored)
+    bool point = !isEnv && uLType[li] != 0;
     // Directional: uLVec the direction; point: its position.
-    vec3 axis = uLVec[i];
+    vec3 axis = isEnv ? envL : uLVec[li];
     vec3 toL = vec3(0.0);
     if (point) {
-      toL = uLVec[i] - p;
+      toL = uLVec[li] - p;
       if (uTile) toL.xy = wrapDelta(toL.xy);
       axis = toL / max(length(toL), 1e-4);
     }
     vec3 l = axis;
-    if (uLSize[i] > 0.0) {
+    if (!isEnv && uLSize[li] > 0.0) {
       // Soft lights: a direction in the sun's cone (uLSize its angular radius), or a point on the point light's disc
       // facing the surface (uLSize its radius).
       vec3 t, b;
@@ -230,10 +308,10 @@ vec3 directLight(Mat m, vec3 ro, vec3 p, vec3 n, vec3 v) {
       vec2 u = rnd2();
       float phi = TAU * u.y;
       if (point) {
-        float r = uLSize[i] * sqrt(u.x);
+        float r = uLSize[li] * sqrt(u.x);
         toL += t * (r * cos(phi)) + b * (r * sin(phi));
       } else {
-        float c = mix(1.0, cos(uLSize[i]), u.x);
+        float c = mix(1.0, cos(uLSize[li]), u.x);
         float s = sqrt(max(0.0, 1.0 - c * c));
         l = normalize(t * (cos(phi) * s) + b * (sin(phi) * s) + axis * c);
       }
@@ -242,12 +320,18 @@ vec3 directLight(Mat m, vec3 ro, vec3 p, vec3 n, vec3 v) {
     if (point) {
       dist = length(toL);
       l = toL / max(dist, 1e-4);
-      if (uLRange[i] > 0.0) { float x = dist / uLRange[i]; win = clamp(1.0 - x * x * x * x, 0.0, 1.0); win *= win; }
+      if (uLRange[li] > 0.0) { float x = dist / uLRange[li]; win = clamp(1.0 - x * x * x * x, 0.0, 1.0); win *= win; }
       falloff = 1.0 / max(dist * dist, 1.0);
     }
-    bool skip = dot(n, l) <= 0.0 || (point ? win <= 0.0 : l.z <= 0.0);
-    if (!skip && uShadows) skip = !visible(ro, l, dist);
-    if (!skip) sum += evalBRDF(m, n, v, l) * uLColor[i] * PI * falloff * win;
+    bool skip = dot(n, l) <= 0.0 || (point ? win <= 0.0 : l.z <= 0.0) || (isEnv && envP <= 0.0);
+    // The sky is always shadowed: its BRDF rays are too, and the two estimates must agree.
+    if (!skip && (uShadows || isEnv)) skip = !visible(ro, l, dist);
+    if (!skip) {
+      float pb = isEnv ? brdfPdf(m, n, v, l) : 0.0;
+      // The environment's radiance × its MIS weight ÷ its pdf: L · pe / (pe² + pb²).
+      vec3 radiance = isEnv ? sky(l) * (envP / (envP * envP + pb * pb)) : uLColor[li] * PI * falloff * win;
+      sum += evalBRDF(m, n, v, l) * radiance;
+    }
   }
   return sum;
 }
@@ -305,10 +389,13 @@ void main() {
     L += bounce == 0 ? direct : clampLum(direct);
 
     vec3 l, w;
-    if (!sampleBRDF(m, n, v, l, w)) break;
+    float pb;
+    if (!sampleBRDF(m, n, v, l, w, pb)) break;
     float t = traceHeight(ro, l, 1e6);
     if (t == -1.0 || (t == -2.0 && l.z >= 0.0)) {
-      L += clampLum(thr * w * sky(l));
+      // The sky, by its MIS weight against the environment's own samples (directLight); 1 without an environment image.
+      float pe = envPdf(l);
+      L += clampLum(thr * w * sky(l) * (pb * pb / (pb * pb + pe * pe)));
       break;
     }
     if (t < 0.0 || bounce >= uBounces) break;
@@ -335,6 +422,17 @@ void main() {
 }
 `;
 
+/** The sky's environment image on the GPU (PathTracer.envMaps). */
+interface EnvMaps {
+	texture: THREE.Texture;
+	/** The importance-sampling table. */
+	dist: THREE.Texture;
+	width: number;
+	height: number;
+	/** Rows of the upper half. */
+	upper: number;
+}
+
 export class PathTracer {
 	private gpu: Gpu;
 	private accum: PingPong | null = null;
@@ -346,6 +444,8 @@ export class PathTracer {
 	private height = 0;
 	/** What the AO map was last computed from: it only changes with the height, its radius and the tiling. */
 	private aoKey = '';
+	private env: EnvMaps | null = null;
+	private envKey = '';
 	private aoNormal: THREE.Texture | null = null;
 
 	constructor(gpu: Gpu) {
@@ -373,6 +473,16 @@ export class PathTracer {
 			uSkyOn: { value: true },
 			uSkyZenith: { value: new THREE.Vector3() },
 			uSkyHorizon: { value: new THREE.Vector3() },
+			uEnvOn: { value: false },
+			tEnv: { value: null },
+			uEnvTurn: { value: 0 },
+			uSkyScale: { value: 1 },
+			tEnvDist: { value: null },
+			uEnvW: { value: 1 },
+			uEnvHs: { value: 1 },
+			uEnvRows: { value: 2 },
+			uEnvSteps: { value: 1 },
+			uEnvNorm: { value: 1 },
 			uAmbient: { value: new THREE.Vector3() },
 			uLightCount: { value: 0 },
 			uLType: { value: new Array(MAX_LIGHTS).fill(0) },
@@ -444,6 +554,46 @@ export class PathTracer {
 		this.samples = 0;
 	}
 
+	/**
+	 * The sky's environment image as a texture of linear HDR radiance (half float, which WebGL 2 always filters; wraps
+	 * round the azimuth) and its importance-sampling table, or null while there is none or it is still decoding (the
+	 * engine configures again once it has).
+	 *
+	 * The table (`dist`, skySamplingTable) is read texel by texel.
+	 */
+	private envMaps(name: string): EnvMaps | null {
+		const img = name ? getHdrImage(name) : null;
+		if (!img) return null;
+		const key = `${name}:${imagesVersion()}`;
+		if (this.env && this.envKey === key) return this.env;
+		if (this.env) {
+			this.env.texture.dispose();
+			this.env.dist.dispose();
+		}
+		const { width, height } = img;
+		const half = new Uint16Array(img.data.length);
+		for (let i = 0; i < half.length; i++) half[i] = THREE.DataUtils.toHalfFloat(Math.min(img.data[i], 65000));
+		const t = new THREE.DataTexture(half, width, height, THREE.RGBAFormat, THREE.HalfFloatType);
+		t.colorSpace = THREE.LinearSRGBColorSpace;
+		t.wrapS = THREE.RepeatWrapping;
+		t.wrapT = THREE.ClampToEdgeWrapping;
+		t.magFilter = THREE.LinearFilter;
+		t.minFilter = THREE.LinearFilter;
+		t.generateMipmaps = false;
+		t.needsUpdate = true;
+
+		const { table, tableWidth, upper } = skySamplingTable(img);
+		const dist = new THREE.DataTexture(table, tableWidth, upper + 1, THREE.RGFormat, THREE.FloatType);
+		dist.magFilter = THREE.NearestFilter;
+		dist.minFilter = THREE.NearestFilter;
+		dist.generateMipmaps = false;
+		dist.needsUpdate = true;
+
+		this.env = { texture: t, dist, width, height, upper };
+		this.envKey = key;
+		return this.env;
+	}
+
 	private ensure(w: number, h: number): void {
 		if (this.accum && this.width === w && this.height === h) return;
 		this.accum?.dispose();
@@ -489,6 +639,19 @@ export class PathTracer {
 		const hz = hexToLinear(lt.sky.horizon).map((c) => c * lt.sky.intensity);
 		(u.uSkyZenith.value as THREE.Vector3).set(z[0], z[1], z[2]);
 		(u.uSkyHorizon.value as THREE.Vector3).set(hz[0], hz[1], hz[2]);
+		const env = this.envMaps(lt.sky.image ?? '');
+		u.uEnvOn.value = env !== null;
+		u.tEnv.value = env?.texture ?? null;
+		u.tEnvDist.value = env?.dist ?? null;
+		if (env) {
+			u.uEnvW.value = env.width;
+			u.uEnvHs.value = env.upper;
+			u.uEnvRows.value = env.height;
+			u.uEnvSteps.value = Math.ceil(Math.log2(Math.max(env.width, env.upper))) + 1;
+			u.uEnvNorm.value = (env.width * env.height) / (2 * Math.PI * Math.PI);
+		}
+		u.uEnvTurn.value = (lt.sky.rotation ?? 0) / 360;
+		u.uSkyScale.value = lt.sky.intensity;
 		const amb = hexToLinear(lt.ambient.color).map((c) => c * lt.ambient.intensity);
 		(u.uAmbient.value as THREE.Vector3).set(amb[0], amb[1], amb[2]);
 
@@ -540,6 +703,8 @@ export class PathTracer {
 
 	dispose(): void {
 		this.accum?.dispose();
+		this.env?.texture.dispose();
+		this.env?.dist.dispose();
 		this.ao?.dispose();
 		this.mat.dispose();
 		this.aoMat.dispose();

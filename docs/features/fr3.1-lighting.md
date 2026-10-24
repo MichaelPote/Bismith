@@ -9,7 +9,22 @@ Global lighting as a project setting: sky light, ambient strength, and individua
 ## Plan
 
 - `project.lighting = { sky, ambient, lights[] }` (architecture §6).
-- Sky: zenith and horizon colours + intensity, sampled by escaping BSDF rays.
+- Sky: zenith and horizon colours + intensity, sampled by escaping BSDF rays. Or an environment image in their place
+  (Sky light › Environment): an equirectangular panorama, its top row the zenith, turned by Rotation, × intensity — what
+  metals reflect, coloured by direction. Any file loads (`core/environment.ts`): OpenEXR and Radiance HDR through
+  three's loaders, Ultra HDR JPEGs with their gain map applied in full (scene-referred, not display-adapted as three's
+  `UltraHDRLoader` does), plain PNG / JPEG / WebP as sRGB. Whatever came in is kept as a 512 px **Ultra HDR JPEG** (an
+  SDR picture — the thumbnail — and a gain map, ISO 21496-1 / hdrgm, written with gainmap-js's JPEG assembler): tens of
+  KB, so the browser and lighting presets keep it as an image like a Stamp's (`core/images.ts`: the project saves the
+  file name). The tracer decodes it to half-float radiance. The built-in Studio, Overcast, Sunset and Workshop presets
+  are painted as HDR by `npx tsx tools/env-presets.ts`, each with a light for its sun or key (a crisp shadow).
+- **The environment is importance-sampled** (`skySamplingTable` in `core/environment.ts`, `envSample` / `envPdf` in
+  the tracer): each bounce also draws one sky direction in proportion to its brightness × sin θ (from a CDF table of the
+  upper half; texels weighted by their brightest neighbour, as the sky is read bilinearly) and shadow-tests it as one
+  more light in `directLight`'s loop (no second march to inline). Light and BRDF samples are combined by the power
+  heuristic (MIS), so a small, very bright sun or lamp lights the scene from the first samples without fireflies; the
+  first bounce's sky sample isn't firefly-clamped, so a strong sun keeps its energy. Checked: a uniform sky renders the
+  albedo exactly, and old and new estimators converge to the same mean.
 - Ambient: un-shadowed constant fill (colour × intensity) at the primary hit.
 - Lights (≤ 8): directional (azimuth, elevation, angular radius for soft shadows) and point (x, y in user
   space, z height in px, radius for soft shadows, optional range). Inverse-square falloff (refDist / d)²: intensity 1

@@ -10,13 +10,14 @@
 //   • A pattern used in both stacks is two layers of one type and seed; the optimiser ties their pattern params.
 //   • Weathering: water stains plus rust trails from the same sources; on riveted metal they start at ledges.
 //   • Light: specular as its own tinted term, ambient occlusion where blocks touch, painted light for game palettes.
+//   • Bare metal is metal (Metalness 1, its colours lifted by metalColour); rust, stains, dirt, lenses on it are not.
 
 import type { ParamValues } from '@/core/params';
 import { defaultRender, type Layer, type MaterialBase, type Project, type RenderSettings } from '@/core/project';
 import { createLayer, createLight, createPostFilter, createProject, reliefOnly } from '@/core/serialize';
 import { freshParams, getLayerDef } from '@/layers/registry';
 import { DEFAULT_BEVEL_CURVE } from '@/layers/commonParams';
-import { hexToRgb, linearToOklab, rgbToHex, srgbToLinear1, type RGB } from '@/core/color';
+import { METAL_LIFT, hexToRgb, linearToOklab, metalColour, rgbToHex, srgbToLinear1, type RGB } from '@/core/color';
 import type { Analysis } from './analyze';
 import { BRICKS_PLAIN, VORONOI_PLAIN } from '@/layers/generators/patterns';
 import { SHAPE_MASK, fromMask, limitTo } from '@/layers/masks';
@@ -60,6 +61,14 @@ function mix(c1: string, c2: string, t: number): string {
 
 function ramp(...colors: string[]) {
 	return { stops: colors.map((color, i) => ({ pos: colors.length === 1 ? 0 : i / (colors.length - 1), color })) };
+}
+
+/**
+ * A ramp for a metal's colours (Metalness 1): every stop lifted by metalColour, so the metal renders about as bright as
+ * the palette colours it was picked from (a metal shows its colour only in its reflections).
+ */
+function metal(g: { stops: { pos: number; color: string }[] }) {
+	return { stops: g.stops.map((s) => ({ ...s, color: metalColour(s.color) })) };
 }
 
 /** The palette as a ramp (dark → light) between lightness fractions lo..hi. */
@@ -142,6 +151,9 @@ interface Look {
 function base(a: Analysis, ctx: TemplateContext, name: string, stacks: Stacks, look: Look = {}): Project {
 	const tile = a.tileable || (a.tileX && a.height <= 32);
 	const painted = GAME_PALETTES.has(ctx.palette);
+	const mat = { color: pick(a, 0.5), roughness: 0.9, specular: 0, metalness: 0, height: 0, opacity: 1, ...look.base };
+	// A metal base shows its colour only in its reflections: lifted as far as it is metal (metalColour).
+	if (mat.metalness > 0) mat.color = metalColour(mat.color, lerp(1, METAL_LIFT, mat.metalness));
 	return createProject({
 		name,
 		width: a.width,
@@ -149,7 +161,7 @@ function base(a: Analysis, ctx: TemplateContext, name: string, stacks: Stacks, l
 		tileable: tile,
 		heightDepth: 2.5,
 		seed: 1,
-		base: { color: pick(a, 0.5), roughness: 0.9, specular: 0, height: 0, opacity: 1, ...look.base },
+		base: mat,
 		layers: [...(stacks.relief ?? []).map(reliefOnly), ...stacks.paint],
 		lighting: {
 			// Calibrated so a flat surface renders close to its albedo: sun·sin(45°) + sky ≈ 1.
@@ -387,13 +399,14 @@ function speckle(amount = 0.2, extra: ParamValues = {}): Layer {
 	});
 }
 
-function grime(a: Analysis, radius = 2, wear = 0.35): Layer {
+/** Cavity dirt and edge wear (worn edges in `wearColor`: the palette's lightest, lifted on bare metal). */
+function grime(a: Analysis, radius = 2, wear = 0.35, wearColor = pick(a, 1)): Layer {
 	return L('cavity', 'Grime & wear', {
 		radius,
 		threshold: 0.05,
 		sensitivity: 0.8,
 		wear_amount: wear,
-		wear_color: pick(a, 1),
+		wear_color: wearColor,
 		dirt_amount: 0.6,
 		dirt_color: mix(pick(a, 0), '#000000', 0.4),
 		noise_scale: 8
@@ -570,8 +583,14 @@ function stains(a: Analysis, opts: { ledges?: boolean; seed?: number; blisters?:
 	];
 }
 
-/** Metal looks: glossier, glints in the metal's own hue, a little occlusion in seams. */
-const METAL: Look = { base: { roughness: 0.6, specular: 0.25 }, render: { specularTint: 0.85, ao: 0.5, aoRadius: 3 } };
+/**
+ * Metal looks: a bare metal base (it reflects in its own colour; the base specular is for the non-metal parts on it —
+ * rust, stains), glossier, a little occlusion in seams.
+ */
+const METAL: Look = { base: { roughness: 0.6, specular: 0.25, metalness: 1 }, render: { ao: 0.5, aoRadius: 3 } };
+
+/** A Metalness output of 0 where the layer covers: rust, paint, dirt, recesses and lenses on a metal are not metal. */
+const NOT_METAL: ParamValues = { mt_on: true, mt_src: 'flat', mt_b: 0 };
 
 /** Glossy looks: tiles, marble, liquids. */
 const GLOSSY: Look = { base: { roughness: 0.4, specular: 0.4 }, render: { specularTint: 0.6 } };
@@ -1038,7 +1057,7 @@ export const TEMPLATES: Template[] = [
 							sh_hi: 0.68,
 							h_on: false,
 							dif_on: true,
-							dif_grad: paletteRamp(a, 0.2, 0.8)
+							dif_grad: metal(paletteRamp(a, 0.2, 0.8))
 						}),
 						speckle(0.15),
 						L('rect', 'Plate', {
@@ -1066,15 +1085,10 @@ export const TEMPLATES: Template[] = [
 							h_on: true,
 							h_amount: 0.5,
 							dif_on: true,
-							dif_grad: ramp(pick(a, 0.3), pick(a, 1)),
-							s_on: true,
-							s_mode: 'replace',
-							s_src: 'flat',
-							s_a: 0.6,
-							s_b: 0.6
+							dif_grad: metal(ramp(pick(a, 0.3), pick(a, 1)))
 						}),
 						...stains(a, { ledges: true }),
-						grime(a, 1.5)
+						grime(a, 1.5, 0.35, metalColour(pick(a, 1)))
 					]
 				},
 				METAL
@@ -1104,7 +1118,7 @@ export const TEMPLATES: Template[] = [
 							sh_hi: 0.68,
 							h_on: false,
 							dif_on: true,
-							dif_grad: paletteRamp(a, 0.25, 0.85)
+							dif_grad: metal(paletteRamp(a, 0.25, 0.85))
 						}),
 						L('grid', 'Seams', {
 							count_x,
@@ -1120,7 +1134,8 @@ export const TEMPLATES: Template[] = [
 							dif_on: true,
 							dif_src: 'flat',
 							dif_grad: ramp(pick(a, 0)),
-							dif_opacity: 0.8
+							dif_opacity: 0.8,
+							...NOT_METAL
 						}),
 						L('circle', 'Bolts', {
 							radius: 1.4,
@@ -1135,15 +1150,10 @@ export const TEMPLATES: Template[] = [
 							h_on: true,
 							h_amount: 0.4,
 							dif_on: true,
-							dif_grad: ramp(pick(a, 0.3), pick(a, 1)),
-							s_on: true,
-							s_mode: 'replace',
-							s_src: 'flat',
-							s_a: 0.6,
-							s_b: 0.6
+							dif_grad: metal(ramp(pick(a, 0.3), pick(a, 1)))
 						}),
 						...stains(a, { ledges: true }),
-						grime(a, 1.5)
+						grime(a, 1.5, 0.35, metalColour(pick(a, 1)))
 					]
 				},
 				METAL
@@ -1172,7 +1182,7 @@ export const TEMPLATES: Template[] = [
 							seed: 8,
 							h_on: false,
 							dif_on: true,
-							dif_grad: paletteRamp(a, 0.2, 0.8)
+							dif_grad: metal(paletteRamp(a, 0.2, 0.8))
 						}),
 						L('greebles', 'Plates', {
 							depth: 3,
@@ -1203,12 +1213,12 @@ export const TEMPLATES: Template[] = [
 							h_amount: 0.6,
 							dif_on: true,
 							dif_src: 'value',
-							dif_grad: ramp(pick(a, 0), pick(a, 0.6), pick(a, 1)),
+							dif_grad: metal(ramp(pick(a, 0), pick(a, 0.6), pick(a, 1))),
 							dif_opacity: 0.6
 						}),
 						speckle(0.12),
 						...stains(a, { ledges: true }),
-						grime(a, 1.5)
+						grime(a, 1.5, 0.35, metalColour(pick(a, 1)))
 					]
 				},
 				METAL
@@ -1239,7 +1249,7 @@ export const TEMPLATES: Template[] = [
 							seed: 5,
 							h_on: false,
 							dif_on: true,
-							dif_grad: paletteRamp(a, 0.2, 0.7)
+							dif_grad: metal(paletteRamp(a, 0.2, 0.7))
 						}),
 						L('noise', 'Brushed', {
 							noise: 'value',
@@ -1253,11 +1263,11 @@ export const TEMPLATES: Template[] = [
 							h_on: false,
 							dif_on: true,
 							dif_opacity: 0.8,
-							dif_grad: paletteRamp(a, 0.3, 0.9)
+							dif_grad: metal(paletteRamp(a, 0.3, 0.9))
 						}),
 						speckle(0.2),
 						...stains(a, { blisters: true }),
-						grime(a, 1.5, 0.25)
+						grime(a, 1.5, 0.25, metalColour(pick(a, 1)))
 					]
 				},
 				METAL
@@ -1307,12 +1317,7 @@ export const TEMPLATES: Template[] = [
 							r_mode: 'replace',
 							r_src: 'flat',
 							r_a: 0.55,
-							r_b: 0.55,
-							s_on: true,
-							s_mode: 'replace',
-							s_src: 'flat',
-							s_a: 0.3,
-							s_b: 0.3
+							r_b: 0.55
 						}),
 						L('blur', 'Soften', { radius: 0.5, ...HEIGHT_ONLY })
 					],
@@ -1325,7 +1330,7 @@ export const TEMPLATES: Template[] = [
 							seed: 5,
 							h_on: false,
 							dif_on: true,
-							dif_grad: bareRamp(a, patina)
+							dif_grad: metal(bareRamp(a, patina))
 						}),
 						L('hammered', 'Dent tone', {
 							...hammer,
@@ -1353,7 +1358,8 @@ export const TEMPLATES: Template[] = [
 										h_on: false,
 										dif_on: true,
 										dif_opacity: 0.9,
-										dif_grad: ramp(mix(patina, '#000000', 0.25), patina)
+										dif_grad: ramp(mix(patina, '#000000', 0.25), patina),
+										...NOT_METAL
 									})
 								]
 							: []),
@@ -1363,14 +1369,14 @@ export const TEMPLATES: Template[] = [
 							threshold: 0.03,
 							sensitivity: 0.8,
 							wear_amount: 0.4,
-							wear_color: pick(a, 0.9),
+							wear_color: metalColour(pick(a, 0.9)),
 							dirt_amount: 0.5,
 							dirt_color: mix(pick(a, 0), '#000000', 0.3),
 							noise_scale: 8
 						})
 					]
 				},
-				{ base: { roughness: 0.95, specular: 0 }, render: { specularTint: 1, ao: 0.5, aoRadius: 3 } }
+				withBase(METAL, { roughness: 0.95, specular: 0 })
 			);
 		}
 	},
@@ -1635,7 +1641,7 @@ export const TEMPLATES: Template[] = [
 							sh_hi: 0.68,
 							h_on: false,
 							dif_on: true,
-							dif_grad: paletteRamp(a, 0.2, 0.8)
+							dif_grad: metal(paletteRamp(a, 0.2, 0.8))
 						}),
 						L('rect', 'Band', {
 							size_mode: 'inset',
@@ -1649,7 +1655,7 @@ export const TEMPLATES: Template[] = [
 							h_amount: 0.5,
 							dif_on: true,
 							dif_src: 'value',
-							dif_grad: ramp(pick(a, 0.3), pick(a, 0.9))
+							dif_grad: metal(ramp(pick(a, 0.3), pick(a, 0.9)))
 						}),
 						L('rect', 'Edges', {
 							size_mode: 'size',
@@ -1667,9 +1673,10 @@ export const TEMPLATES: Template[] = [
 							h_amount: 0.3,
 							dif_on: true,
 							dif_src: 'flat',
-							dif_grad: ramp(pick(a, 0))
+							dif_grad: ramp(pick(a, 0)),
+							...NOT_METAL
 						}),
-						grime(a, 1)
+						grime(a, 1, 0.35, metalColour(pick(a, 1)))
 					]
 				},
 				METAL
@@ -1695,7 +1702,7 @@ export const TEMPLATES: Template[] = [
 							seed: 8,
 							h_on: false,
 							dif_on: true,
-							dif_grad: paletteRamp(a, 0, 0.5)
+							dif_grad: metal(paletteRamp(a, 0, 0.5))
 						}),
 						L('rect', 'Frame', {
 							size_mode: 'inset',
@@ -1709,7 +1716,7 @@ export const TEMPLATES: Template[] = [
 							h_amount: 0.4,
 							dif_on: true,
 							dif_src: 'flat',
-							dif_grad: ramp(pick(a, 0.3))
+							dif_grad: metal(ramp(pick(a, 0.3)))
 						}),
 						L('rect', 'Lamp', {
 							size_mode: 'inset',
@@ -1726,7 +1733,8 @@ export const TEMPLATES: Template[] = [
 							e_on: true,
 							e_src: 'flat',
 							e_color: pick(a, 1),
-							e_intensity: 1.2
+							e_intensity: 1.2,
+							...NOT_METAL
 						})
 					]
 				},
@@ -1796,7 +1804,7 @@ TEMPLATES.push(
 							h_amount: 0.6,
 							dif_on: true,
 							dif_src: 'value',
-							dif_grad: paletteRamp(a, 0, 1),
+							dif_grad: metal(paletteRamp(a, 0, 1)),
 							dif_jitter: 0.3
 						}),
 						...(a.glow > 0.005
@@ -1814,7 +1822,8 @@ TEMPLATES.push(
 										e_on: true,
 										e_src: 'flat',
 										e_intensity: 1.2,
-										e_color: pick(a, 1)
+										e_color: pick(a, 1),
+										...NOT_METAL
 									})
 								]
 							: []),
@@ -1848,7 +1857,7 @@ TEMPLATES.push(
 							seed: 8,
 							h_on: false,
 							dif_on: true,
-							dif_grad: paletteRamp(a, 0.3, 0.9)
+							dif_grad: metal(paletteRamp(a, 0.3, 0.9))
 						}),
 						L('vents', 'Slots', {
 							mode: 'slots',
@@ -1868,9 +1877,9 @@ TEMPLATES.push(
 							h_amount: 0.6,
 							dif_on: true,
 							dif_src: 'value',
-							dif_grad: ramp(pick(a, 0), pick(a, 0.7))
+							dif_grad: ramp(pick(a, 0), metalColour(pick(a, 0.7)))
 						}),
-						grime(a, 1.5)
+						grime(a, 1.5, 0.35, metalColour(pick(a, 1)))
 					]
 				},
 				{ ...METAL, render: { ...METAL.render, ao: 1 } }
@@ -1914,7 +1923,7 @@ TEMPLATES.push(
 							h_amount: 0.8,
 							dif_on: true,
 							dif_src: 'value',
-							dif_grad: ramp(pick(a, 0.2), pick(a, 0.7), pick(a, 1)),
+							dif_grad: ramp(pick(a, 0.2), metalColour(pick(a, 0.7)), metalColour(pick(a, 1))),
 							// A reference's pipe bank: even pipes in the flat 0..1 relief, clamp rings at their own place per run.
 							scale: 'unit',
 							dia_var: 0,
@@ -1925,10 +1934,10 @@ TEMPLATES.push(
 							clamp_jitter: 1,
 							clamp_seeded: false
 						}),
-						grime(a, 1.5)
+						grime(a, 1.5, 0.35, metalColour(pick(a, 1)))
 					]
 				},
-				withBase({ ...METAL, render: { ...METAL.render, ao: 0.8 } }, { color: pick(a, 0) })
+				withBase({ ...METAL, render: { ...METAL.render, ao: 0.8 } }, { color: pick(a, 0), metalness: 0 })
 			);
 		}
 	},
@@ -1955,7 +1964,7 @@ TEMPLATES.push(
 							sh_hi: 0.68,
 							h_on: false,
 							dif_on: true,
-							dif_grad: paletteRamp(a, 0.2, 0.8)
+							dif_grad: metal(paletteRamp(a, 0.2, 0.8))
 						}),
 						L('trim', 'Bands', {
 							mirror: true,
@@ -1973,9 +1982,9 @@ TEMPLATES.push(
 							h_amount: 0.6,
 							dif_on: true,
 							dif_src: 'value',
-							dif_grad: paletteRamp(a, 0, 1)
+							dif_grad: metal(paletteRamp(a, 0, 1))
 						}),
-						grime(a, 1)
+						grime(a, 1, 0.35, metalColour(pick(a, 1)))
 					]
 				},
 				METAL

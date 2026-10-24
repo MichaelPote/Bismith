@@ -12,7 +12,7 @@
 	<footer class="status cf-panel cf-mono">
 		<span
 			><span class="k">Drag</span> pan · <span class="k">Wheel</span> zoom · <span class="k">F</span> fit ·
-			<span class="k">T</span> tile · <span class="k">0–9</span> channels</span
+			<span class="k">T</span> tile · <span class="k">0–9</span> <span class="k">M</span> channels</span
 		>
 		<span
 			><span class="k">Field</span> drag scrub · <span class="k">Shift</span> fine · <span class="k">Ctrl</span> whole ·

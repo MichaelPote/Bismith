@@ -107,11 +107,11 @@
           "stops": [
             {
               "pos": 0,
-              "color": "#2c3136"
+              "color": "#4e565d"
             },
             {
               "pos": 1,
-              "color": "#3c4349"
+              "color": "#67727c"
             }
           ]
         },
@@ -136,6 +136,12 @@
         "s_a": 0,
         "s_b": 0.6,
         "s_opacity": 1,
+        "mt_on": true,
+        "mt_src": "flat",
+        "mt_mode": "replace",
+        "mt_a": 0,
+        "mt_b": 1,
+        "mt_opacity": 1,
         "e_on": false,
         "e_src": "value",
         "e_mode": "add",
@@ -236,7 +242,7 @@
           "stops": [
             {
               "pos": 0,
-              "color": "#24282c"
+              "color": "#41474e"
             }
           ]
         },
@@ -485,6 +491,12 @@
         "s_a": 0,
         "s_b": 0.6,
         "s_opacity": 1,
+        "mt_on": true,
+        "mt_src": "flat",
+        "mt_mode": "replace",
+        "mt_a": 0,
+        "mt_b": 0,
+        "mt_opacity": 1,
         "e_on": false,
         "e_src": "value",
         "e_mode": "add",
@@ -585,7 +597,7 @@
           "stops": [
             {
               "pos": 0,
-              "color": "#6b757d"
+              "color": "#b1c1ce"
             }
           ]
         },
@@ -610,6 +622,12 @@
         "s_a": 0,
         "s_b": 0.6,
         "s_opacity": 1,
+        "mt_on": true,
+        "mt_src": "flat",
+        "mt_mode": "replace",
+        "mt_a": 0,
+        "mt_b": 1,
+        "mt_opacity": 1,
         "e_on": false,
         "e_src": "value",
         "e_mode": "add",
@@ -672,7 +690,7 @@
       }
     }
   ],
-  "preview": "data:image/webp;base64,UklGRnYDAABXRUJQVlA4WAoAAAAwAAAAfwAATwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZBTFBIYAAAAAFXYBiA2mwnEECvAhjWIiLkcgw+YBrbdpQXVvvbSBcosBRBATtYJBpcOkha/UskEf2fAPCn42E8OOBLrD0o8gpuTMyrmVtzc2t//2XAzK3puFUUeQWHl5cHaLoY9w78AVZQOCAgAQAA8AkAnQEqgABQAD61UqRNpySnoiTSu8DwFolpbiZelDDB+OL6UQGRQVaynNsHKPhAJYExrNunjdHvlQkmzuBuHfXr+tZyVJRKXFj+3dtKDJFLsDolPXioAAD+wD9TrGI9ysLWVFI36ec65D6ITdGz+Ly9XdHSZyD62wb1XVoszGXP++OXUUoxQZcq2FqJKPk8kYsn7sbOLSZItQIWSHZBM9s2Zex4xClH81TzjzWYbeMOksFIZ96KzmUh0G2f9jHxL8/OmeIm0f6QKWYwix+UbaycKlL0uMZWsrbprWIYsyfkYXSJhIAVe2HBUe57FGTFgNnkblyuIUBNwYXSAdilciWQtq4KHzNUQPMTzRcwhYE28+SV2UPCENnbkWIwssAA",
+  "preview": "data:image/webp;base64,UklGRuIDAABXRUJQVlA4WAoAAAAwAAAAfwAATwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZBTFBIYAAAAAFXYBiA2mwnEECvAhjWIiLkcgw+YBrbdpQXVvvbSBcosBRBATtYJBpcOkha/UskEf2fAPCn42E8OOBLrD0o8gpuTMyrmVtzc2t//2XAzK3puFUUeQWHl5cHaLoY9w78AVZQOCCMAQAAkAsAnQEqgABQAD61UKJLpySjoq2TybjgFolpbeBC20DlwaPgKHj2JkfKahwjPX3kHXeYRmcEvT4lTxulK8H/ZvNrxcyMk6r15C/8oUdZyROnxG1usU6JIoaC+1lH+O3JNU9DooAA/j+/Mh6j88kJhUly5x4+b1xXH2nkyUlYWsSEtMfMhN5U/rM1Sc7bB+u2atfM7kg4qNj9565dGxTNTiKsduweZQcs1D/pjbk/kMSk6b00Dr2SfGtEIYBICB//kK6iW5fRWoyB2CHuepd+bsd3MVYpgecRZPcrYSsbCAySOalxB5fwNvWlVDUwQrVsPv15fVqtpvEdu7yWofuHg98alSXfdTdEFL7b/KlOCDEo5rqqp+XpDQdWrAoBH5u4kSpzXSOL9JzeVEnFhcvdaCSmtF8PNrhuWkoqj1cgikdgXbjbHGTwWnncMnNZeHdMLr+fIBHEMSko+0jRrdLZWNDSCT6Bqy3IILj7nCR9uPFz+89VUPMV1WjaJgn2HIsG1dWUG+kHguUZc4AA",
   "preset": {
     "kind": "project",
     "id": "panel",

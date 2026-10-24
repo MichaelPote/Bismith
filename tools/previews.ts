@@ -43,6 +43,7 @@ async function main() {
 			const file = join(PRESET_DIR, `${k}.json`);
 			const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
 			await s.callOn(0, 'loadProject', { ...raw, preview: undefined });
+			await s.callOn(0, 'settle');
 			await s.callOn(0, 'render', { samples });
 			const url = await s.callOn<string | undefined>(0, 'preview');
 			if (!url) throw new Error(`${k}: no preview`);

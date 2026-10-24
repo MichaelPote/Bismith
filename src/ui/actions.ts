@@ -110,6 +110,7 @@ export function useActions() {
 			'height',
 			'roughness',
 			'specular',
+			'metalness',
 			'ao',
 			'normal-gl',
 			'emissive',

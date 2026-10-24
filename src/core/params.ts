@@ -100,6 +100,11 @@ export interface ParamDef {
 	 */
 	image?: boolean;
 	/**
+	 * Image params: an environment — HDR files (OpenEXR, Radiance HDR, Ultra HDR JPEG) accepted besides PNG / JPEG /
+	 * WebP, and kept as a small Ultra HDR JPEG (core/environment.ts) instead of a PNG fitted to the texture.
+	 */
+	environment?: boolean;
+	/**
 	 * UI only, text params: a mask name (FR8.23), drawn as a dropdown of masks with "New mask…" — 'read' a mask layers
 	 * above write (Limit to, sources), 'write' the mask the layer writes. `maskChoices` lists them; the inspector fills it
 	 * per layer.

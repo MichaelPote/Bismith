@@ -130,6 +130,22 @@ export function hsvToRgb(hsv: RGB): RGB {
 	}
 }
 
+/** How much brighter (in linear light) a metal's colour is than the same look painted on a non-metal; see metalColour. */
+export const METAL_LIFT = 3;
+
+/**
+ * The colour to give a metal (Metalness 1) so it looks about as bright as `hex` does on a non-metal. A metal shows its
+ * colour only in its reflections (F0 = the colour, no diffuse), which under sky and sun come out two to three times as dark in
+ * linear light. Scales the linear colour by `k`, capped so no channel passes 0.95: the hue holds instead of clipping to
+ * white.
+ */
+export function metalColour(hex: string, k = METAL_LIFT): string {
+	const lin = hexToLinear(hex).map((c) => c * k);
+	const top = Math.max(...lin);
+	const capped = (top > 0.95 ? lin.map((c) => (c * 0.95) / top) : lin) as RGB;
+	return rgbToHex(linearToSrgb(capped));
+}
+
 export function luminance(rgb: RGB): number {
 	return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
 }

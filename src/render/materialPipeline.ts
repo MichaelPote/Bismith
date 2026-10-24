@@ -772,7 +772,7 @@ ${fetches}
 		const lin = hexToLinear(base.color);
 		const cu = this.clearMat.uniforms;
 		(cu.uBaseAlbedo.value as THREE.Vector4).set(lin[0], lin[1], lin[2], base.opacity);
-		(cu.uBaseSurface.value as THREE.Vector4).set(base.height, base.roughness, 0, 0);
+		(cu.uBaseSurface.value as THREE.Vector4).set(base.height, base.roughness, base.metalness, 0);
 		cu.uBaseSpecular.value = base.specular;
 		this.gpu.run(this.clearMat, state.write);
 		state.swap();

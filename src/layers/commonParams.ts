@@ -1,7 +1,7 @@
 // Params shared by every generator layer: SDF shape handling, value shaping, masking and the channel
 // outputs (docs/architecture.md §5.2). They live flat in layer.params next to the type's own params.
 
-import { P, gradient, type GroupDef, type ParamDef } from '@/core/params';
+import { P, gradient, type GroupDef, type ParamDef, type ParamValues } from '@/core/params';
 
 /** What drives a channel output (the uniform keeps the option order: 0 value, 1 flat, 2 random, 3 shape). */
 const SRC: [string, string, string][] = [
@@ -556,15 +556,31 @@ export const MASK_PARAMS: ParamDef[] = [
 	})
 ];
 
-/** Roughness / Specular: a level from the source along a ramp (At 0 … At 1), blended in by a LEVEL_MODES mode. */
-const levelOutput = (prefix: string, group: string, label: string, a: number, b: number, hintA: string): ParamDef[] => [
-	P.bool(`${prefix}_on`, label, false, { group }),
-	source(`${prefix}_src`, group, `${prefix}_mode`),
-	P.enum(`${prefix}_mode`, 'Mode', 'replace', LEVEL_MODES, { group }),
-	P.float(`${prefix}_a`, 'At 0', a, 0, 1, { step: 0.001, ...ramp(`${prefix}_b`, group), hint: hintA }),
-	P.float(`${prefix}_b`, 'At 1', b, 0, 1, { step: 0.001, group }),
-	P.float(`${prefix}_opacity`, 'Opacity', 1, 0, 1, { step: 0.001, group })
-];
+/**
+ * Roughness / Specular / Metalness: a level from the source along a ramp (At 0 … At 1), blended in by a LEVEL_MODES
+ * mode. A Solid source is 1 everywhere, so it shows only At 1, as one Level slider.
+ */
+const levelOutput = (prefix: string, group: string, label: string, a: number, b: number, hintA: string): ParamDef[] => {
+	const solid = (p: ParamValues) => p[`${prefix}_src`] === 'flat';
+	return [
+		P.bool(`${prefix}_on`, label, false, { group }),
+		source(`${prefix}_src`, group, `${prefix}_mode`),
+		P.enum(`${prefix}_mode`, 'Mode', 'replace', LEVEL_MODES, { group }),
+		P.float(`${prefix}_a`, 'At 0', a, 0, 1, {
+			step: 0.001,
+			...ramp(`${prefix}_b`, group),
+			hint: hintA,
+			showIf: (p) => !solid(p)
+		}),
+		P.float(`${prefix}_b`, 'At 1', b, 0, 1, {
+			step: 0.001,
+			group,
+			labelFor: (p) => (solid(p) ? 'Level' : 'At 1'),
+			hint: `With Source Solid: the ${label.toLowerCase()} wherever the layer covers`
+		}),
+		P.float(`${prefix}_opacity`, 'Opacity', 1, 0, 1, { step: 0.001, group })
+	];
+};
 
 export const OUTPUT_PARAMS: ParamDef[] = [
 	P.bool('dif_on', 'Diffuse', false, { group: 'diffuse' }),
@@ -641,6 +657,14 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 		0.6,
 		'Specular level where the source is 0 (left) and 1 (right); 0.5 ≈ 4 % reflectance at scale 1'
 	),
+	...levelOutput(
+		'mt',
+		'metalness',
+		'Metalness',
+		0,
+		1,
+		'Metalness where the source is 0 (left) and 1 (right): 0 non-metal … 1 metal, which reflects in its diffuse colour (give metals a bright one: copper ≈ #c87850) and has no diffuse shading'
+	),
 
 	P.bool('e_on', 'Emissive', false, { group: 'emissive' }),
 	source('e_src', 'emissive', 'e_mode'),
@@ -675,6 +699,7 @@ export const GENERATOR_GROUPS: GroupDef[] = [
 	{ id: 'height', label: 'Height', toggleKey: 'h_on' },
 	{ id: 'roughness', label: 'Roughness', toggleKey: 'r_on' },
 	{ id: 'specular', label: 'Specular', toggleKey: 's_on' },
+	{ id: 'metalness', label: 'Metalness', toggleKey: 'mt_on' },
 	{ id: 'emissive', label: 'Emissive', toggleKey: 'e_on' }
 ];
 
@@ -705,7 +730,7 @@ float shapeValue(float v) {
   return u_sh_invert ? 1.0 - v : v;
 }
 
-// Roughness / Specular (LEVEL_MODES order): replace, multiply, add, min, max — x over o.
+// Roughness / Specular / Metalness (LEVEL_MODES order): replace, multiply, add, min, max — x over o.
 float levelBlend(int mode, float o, float x) { return mode == 0 ? x : mode == 1 ? o * x : mode == 2 ? o + x : mode == 3 ? min(o, x) : max(o, x); }
 
 // shapeV: inside the layer's shape (Source › Shape), 1 for layers without one.
@@ -864,6 +889,12 @@ ${
     float sp = mix(u_s_a, u_s_b, v);
     float o = E.a;
     E.a = clamp(mix(o, levelBlend(u_s_mode, o, sp), m * u_s_opacity), 0.0, 1.0);
+  }
+  if (u_mt_on) {
+    float v = srcValue(u_mt_src, value, g.rnd, shapeV);
+    float mt = mix(u_mt_a, u_mt_b, v);
+    float o = S.b;
+    S.b = clamp(mix(o, levelBlend(u_mt_mode, o, mt), m * u_mt_opacity), 0.0, 1.0);
   }
   if (u_e_on) {
     float v = srcValue(u_e_src, value, g.rnd, shapeV);

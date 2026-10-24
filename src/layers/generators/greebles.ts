@@ -1012,7 +1012,13 @@ export const greeblesLayer: LayerDef = {
 		dif_on: true,
 		dif_src: 'value',
 		dif_jitter: 0.12,
-		dif_grad: gradient('#0f1011', '#3a3d41', '#5d6166', '#7e8388', '#b6babe')
+		dif_grad: gradient('#1d1e1f', '#5c6066', '#8f969c', '#bfc7ce', '#eff4f9'),
+		// Satin metal plates.
+		r_on: true,
+		r_src: 'flat',
+		r_b: 0.5,
+		mt_on: true,
+		mt_src: 'flat'
 	},
 	// Added in the editor: the plain defaults (a 128 px texture) scaled to the texture — panel sizes, seams, rivets, frames,
 	// slots, lights and tubes; small textures get crisp pixel edges with a 1 px ramp.

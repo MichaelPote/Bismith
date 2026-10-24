@@ -11,6 +11,9 @@ import { isPreview, normalizeProject } from '@/core/serialize';
 import type { Project } from '@/core/project';
 import { getRecipe } from '@/recipes';
 import { ensureBuiltins } from '@/render/builtins';
+import { applyLightingPreset, buildPreset, presetItemOf } from '@/presets/apply';
+import { imageUrl, putImage } from '@/core/images';
+import { createProject } from '@/core/serialize';
 
 ensureBuiltins();
 
@@ -86,5 +89,39 @@ describe('presets', () => {
 		it(`${path} carries a preview (npx tsx tools/previews.ts --only ${path})`, () => {
 			expect(isPreview(entry.preview)).toBe(true);
 		});
+
+		it(`${path} carries the images it uses (its Stamps', its sky's)`, () => {
+			const p = entry.project();
+			const names = [p.lighting.sky.image ?? ''];
+			for (const l of p.layers)
+				for (const d of layerParamDefs(l.type)) if (d.image) names.push(String(l.params[d.key] ?? ''));
+			for (const n of names.filter(Boolean)) expect(Object.keys(entry.project().preset?.images ?? {})).toContain(n);
+		});
 	}
+});
+
+describe('lighting presets with an environment image', () => {
+	const URL = 'data:image/png;base64,iVBORw0KGgo=';
+	it('save the image with the preset and bring it along when applied', () => {
+		ensureBuiltins();
+		putImage('test-sky.png', URL, false);
+		const from = createProject();
+		from.lighting.sky.image = 'test-sky.png';
+		const preset = buildPreset(from, presetItemOf(from, { kind: 'lighting' })!, { name: 'Test sky' });
+		expect(preset.lighting.sky.image).toBe('test-sky.png');
+		expect(preset.preset?.images).toEqual({ 'test-sky.png': URL });
+
+		// Applied in a browser that doesn't have it yet: stored first, so the sky finds it.
+		const saved = JSON.parse(JSON.stringify(preset).replaceAll('test-sky.png', 'other-sky.png')) as Project;
+		expect(imageUrl('other-sky.png')).toBeUndefined();
+		const into = createProject();
+		applyLightingPreset(into, saved);
+		expect(into.lighting.sky.image).toBe('other-sky.png');
+		expect(imageUrl('other-sky.png')).toBe(URL);
+	});
+
+	it('are among the built-ins', () => {
+		const withEnv = builtinPresets().filter((e) => e.kind === 'lighting' && e.project().lighting.sky.image);
+		expect(withEnv.length).toBeGreaterThanOrEqual(4);
+	});
 });

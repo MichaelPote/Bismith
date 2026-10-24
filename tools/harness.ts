@@ -89,6 +89,7 @@ async function cmdRender(args: ReturnType<typeof parseArgs>) {
 	const s = await session(args);
 	try {
 		await s.callOn(0, 'loadProject', project);
+		await s.callOn(0, 'settle');
 		const result = await s.callOn<HeadlessRenderResult>(0, 'render', { samples });
 		writeFileSync(out, dataUrlToBuffer(result.png));
 		console.log(
@@ -197,6 +198,7 @@ async function cmdCompare(args: Args) {
 	const s = await session(args);
 	try {
 		await s.callOn(0, 'loadProject', project);
+		await s.callOn(0, 'settle');
 		const r = await s.callOn<HeadlessCompareResult>(0, 'compare', target, opts);
 		if (args.flags.json) {
 			console.log(JSON.stringify({ total: r.total, terms: r.terms, raw: r.raw, weights: r.weights }, null, 2));
@@ -260,6 +262,7 @@ async function cmdOptimize(args: Args) {
 	const s = await session(args);
 	try {
 		await s.callOn(0, 'loadProject', project);
+		await s.callOn(0, 'settle');
 		const before = await s.callOn<HeadlessCompareResult>(0, 'compare', target, {
 			...opts.metric,
 			samples: opts.finalSamples

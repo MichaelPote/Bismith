@@ -23,6 +23,11 @@ export const BASE_DEFS: ParamDef[] = [
 		step: 0.001,
 		hint: 'Specular level before layers (0.5 ≈ 4 % reflectance at scale 1); Specular outputs vary it per pixel'
 	}),
+	P.float('metalness', 'Metalness', 0, 0, 1, {
+		step: 0.001,
+		optimize: false,
+		hint: 'Metalness before layers: 0 = non-metal, 1 = metal (reflects in its colour, no diffuse shading); Metalness outputs vary it per pixel'
+	}),
 	P.float('height', 'Height', 0, -64, 64, { softMin: -1, softMax: 1, step: 0.001 }),
 	P.float('opacity', 'Opacity', 1, 0, 1, { step: 0.001 })
 ];

@@ -4,6 +4,7 @@
 
 import type { PresetKind, Project } from '@/core/project';
 import { normalizeProject } from '@/core/serialize';
+import { putImage } from '@/core/images';
 import { BUILTIN_FILES } from './builtin';
 
 /** One preset in a menu: a built-in or one of the user's (stores/presets.ts), loaded on demand. */
@@ -57,8 +58,12 @@ export function builtinPresets(): PresetEntry[] {
 	return builtins;
 }
 
-/** A preset's project to open as a project of its own: without the preset header, which stays with its file. */
+/**
+ * A preset's project to open as a project of its own: the images it carries stored in this browser first, then without
+ * the preset header, which stays with its file.
+ */
 export function asProject(p: Project): Project {
+	for (const [name, url] of Object.entries(p.preset?.images ?? {})) putImage(name, url);
 	delete p.preset;
 	return p;
 }

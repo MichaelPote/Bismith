@@ -306,11 +306,13 @@ output for the mask a layer writes:
 | Attachment | R          | G              | B            | A                  |
 | ---------- | ---------- | -------------- | ------------ | ------------------ |
 | `albedo`   | diffuse r  | diffuse g      | diffuse b    | opacity            |
-| `surface`  | height     | roughness      | metallic*    | (unused)           |
+| `surface`  | height     | roughness      | metalness*   | (unused)           |
 | `emissive` | emissive r | emissive g     | emissive b   | **specular level** |
 | `mask out` | distance   | feature random | feature flag | —                  |
 
-\* Metallic is reserved (always 0 today) so a metal workflow can be added without a storage change.
+\* Metalness starts at the base material's Metalness (0 by default) and layers' Metalness outputs vary it. At 1 the
+path tracer takes the diffuse colour as the reflectance (F0) and drops the diffuse shading, so metals want bright
+colours (copper ≈ `#c87850`); the specular level only applies to non-metals.
 Albedo is stored **linear**; colours entered in the UI are sRGB and converted on upload.
 **Masks** (FR8.23) are named; each texel holds a signed distance (px, < 0 inside; +1e4 = empty), the random of the
 feature there and whether there is one. Every write makes a new version of its mask; `planMasks`
@@ -333,7 +335,7 @@ wrap/clamp (`fetchT`, `sampleT`), so tiling never depends on sampler state.
 
 ```ts
 Lighting {
-  sky:     { enabled, zenith, horizon, intensity },    // gradient dome, sampled by BSDF rays that escape
+  sky:     { enabled, zenith, horizon, intensity, image, rotation }, // gradient dome or an equirectangular image, sampled by escaping BSDF rays
   ambient: { color, intensity },                        // un-shadowed fill at the primary hit
   lights:  Light[]                                      // ≤ 8
 }

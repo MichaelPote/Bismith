@@ -5,6 +5,7 @@ import { createLayer } from '@/core/serialize';
 import type { ParamValues } from '@/core/params';
 import type { Layer } from '@/core/project';
 import { DEFAULT_BEVEL_CURVE } from '@/layers/commonParams';
+import { metalColour } from '@/core/color';
 import type { RecipeContext } from './types';
 
 export const L = (type: string, name: string, params: ParamValues = {}, enabled = true): Layer => ({
@@ -32,6 +33,7 @@ export const HEIGHT_ONLY = {
 	height: true,
 	roughness: false,
 	specular: false,
+	metalness: false,
 	emissive: false,
 	opacity: false
 };
@@ -40,6 +42,9 @@ export const HEIGHT_ONLY = {
 export const ON_FACES = { m_hmode: 'above', m_hlevel: 0.05, m_hsoft: 0.05 };
 
 export const crisp = () => JSON.parse(JSON.stringify(DEFAULT_BEVEL_CURVE));
+
+/** A gradient for a metal (Metalness 1): each colour lifted to look as bright as it does painted (metalColour). */
+export const metalGradient = (...colors: string[]) => gradient(...colors.map((c) => metalColour(c)));
 
 export const gradient = (...colors: string[]) => ({
 	stops: colors.map((color, i) => ({ pos: colors.length === 1 ? 0 : i / (colors.length - 1), color }))

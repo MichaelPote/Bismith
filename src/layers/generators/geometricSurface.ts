@@ -129,16 +129,16 @@ export const treadplateLayer: LayerDef = {
 		dif_src: 'value',
 		dif_opacity: 0.6,
 		dif_jitter: 0.12,
-		dif_grad: gradient('#55595e', '#9aa0a6'),
+		dif_grad: gradient('#60656a', '#adb4bb'),
 		r_on: true,
 		r_a: 0.55,
 		r_b: 0.25,
-		s_on: true,
-		s_a: 0.2,
-		s_b: 0.7
+		// Steel lugs: they reflect in their colour (the plate between them is whatever lies below).
+		mt_on: true,
+		mt_src: 'flat'
 	},
-	// In the editor, roughness and specular follow the lug's relief, not its shape (the registry's default for shapes).
-	fresh: () => ({ r_src: 'value', s_src: 'value' }),
+	// In the editor, roughness follows the lug's relief, not its shape (the registry's default for shapes).
+	fresh: () => ({ r_src: 'value' }),
 	linkedDefaults: (p) => TREAD_LOOKS[String(p.style)] ?? TREAD_LOOKS.lozenge,
 	derivedUniforms: GEO_DERIVED,
 	glsl:

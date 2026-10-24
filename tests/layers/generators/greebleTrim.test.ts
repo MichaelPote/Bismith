@@ -60,7 +60,11 @@ describe('trim strip', () => {
 		expect(trimFresh({ width: 2048, height: 2048 }).strips).toBe(32);
 		// Plates about three strip heights long, a whole number per tile.
 		expect(sheet.div_count).toBe(3);
-		expect(freshParams('trim', { width: 512, height: 512 })).toMatchObject({ r_src: 'shape', strips: 8 });
+		// The editor's shape Source is only for the outputs whose Source the type leaves open (Specular here).
+		const fresh = freshParams('trim', { width: 512, height: 512 });
+		expect(fresh).toMatchObject({ s_src: 'shape', strips: 8 });
+		expect(fresh).not.toHaveProperty('r_src');
+		expect(fresh).not.toHaveProperty('mt_src');
 	});
 
 	it('declares pixel lengths in px (supersampling scales them) and has generous slider ranges', () => {

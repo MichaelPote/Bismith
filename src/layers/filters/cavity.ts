@@ -1,5 +1,5 @@
 // Cavity / edge wear: curvature = height − blur(height). Convex edges get worn (a highlight colour, usually
-// smoother), cavities collect dirt (a dark colour, usually rougher); both broken up by tileable fBm.
+// smoother), cavities collect dirt (a dark colour, usually rougher, not metal); both broken up by tileable fBm.
 
 import { P } from '@/core/params';
 import type { LayerDef } from '../types';
@@ -30,6 +30,8 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   A.rgb = mix(A.rgb, u_dirt_color, dirt);
   A.rgb = mix(A.rgb, u_wear_color, wear);
   S.g = clamp(S.g + wear * u_wear_rough + dirt * u_dirt_rough, 0.0, 1.0);
+  // Dirt is not metal: on a metal it stops reflecting like one as far as the dirt covers.
+  S.b *= 1.0 - dirt;
 }
 `;
 

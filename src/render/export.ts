@@ -10,6 +10,7 @@ export type MapKind =
 	| 'height'
 	| 'roughness'
 	| 'specular'
+	| 'metalness'
 	| 'ao'
 	| 'normal-gl'
 	| 'normal-dx'
@@ -84,6 +85,10 @@ export function mapPixels(engine: Engine, kind: MapKind): { width: number; heigh
 		case 'roughness':
 			img = engine.readMap(1);
 			pixels = toRaw8(img, (d, i) => [d[i + 1], d[i + 1], d[i + 1], 1]);
+			break;
+		case 'metalness':
+			img = engine.readMap(1);
+			pixels = toRaw8(img, (d, i) => [d[i + 2], d[i + 2], d[i + 2], 1]);
 			break;
 		case 'ao':
 			img = engine.readAO();

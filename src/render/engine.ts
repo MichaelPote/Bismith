@@ -393,6 +393,7 @@ export class Engine {
 			case 'normal':
 				return this.material.normalTex;
 			case 'roughness':
+			case 'metal':
 				return this.material.surface;
 			case 'emissive':
 			case 'specular':

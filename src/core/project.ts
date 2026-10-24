@@ -80,7 +80,12 @@ export interface Light {
 }
 
 export interface Lighting {
-	sky: { enabled: boolean; zenith: string; horizon: string; intensity: number };
+	/**
+	 * The sky escaping rays see: a zenith → horizon gradient, or an environment image (core/images.ts file name, '' =
+	 * none) — an equirectangular panorama: its top row the zenith, across it the azimuth clockwise from the top of the
+	 * texture as the lights' (its left edge the top), turned clockwise by `rotation` degrees. Both × intensity.
+	 */
+	sky: { enabled: boolean; zenith: string; horizon: string; intensity: number; image?: string; rotation?: number };
 	ambient: { color: string; intensity: number };
 	lights: Light[];
 }
@@ -136,6 +141,8 @@ export interface MaterialBase {
 	roughness: number;
 	/** Initial per-pixel specular level (0.5 = a 4 % dielectric reflection at scale 1); layers' Specular outputs vary it. */
 	specular: number;
+	/** Initial metalness: 0 = non-metal; 1 = metal, which reflects in its diffuse colour and has no diffuse shading. */
+	metalness: number;
 	height: number;
 	opacity: number;
 }
@@ -198,7 +205,7 @@ export const MAX_LIGHTS = 8;
 
 export function defaultLighting(): Lighting {
 	return {
-		sky: { enabled: true, zenith: '#9fb4c8', horizon: '#c8c2b8', intensity: 0.35 },
+		sky: { enabled: true, zenith: '#9fb4c8', horizon: '#c8c2b8', intensity: 0.35, image: '', rotation: 0 },
 		ambient: { color: '#ffffff', intensity: 0.02 },
 		lights: []
 	};
@@ -223,7 +230,7 @@ export function defaultRender(): RenderSettings {
 }
 
 export function defaultBase(): MaterialBase {
-	return { color: '#7a7570', roughness: 0.75, specular: 0.5, height: 0, opacity: 1 };
+	return { color: '#7a7570', roughness: 0.75, specular: 0.5, metalness: 0, height: 0, opacity: 1 };
 }
 
 /** One top-level entry of the layer list: a free layer, or a smart material's block of member layers. */

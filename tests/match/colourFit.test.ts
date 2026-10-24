@@ -18,7 +18,7 @@ const proj = (): Project =>
 	createProject({
 		width: 16,
 		height: 16,
-		base: { color: '#404040', roughness: 0.9, specular: 0, height: 0, opacity: 1 },
+		base: { color: '#404040', roughness: 0.9, specular: 0, metalness: 0, height: 0, opacity: 1 },
 		layers: [
 			createLayer('noise', { dif_on: true, dif_grad: gradient('#202020', '#606060') }, 'Paint'),
 			createLayer('noise', { dif_on: true, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#808080') }, 'Shade'),
