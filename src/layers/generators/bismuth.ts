@@ -174,7 +174,7 @@ export const bismuthLayer: LayerDef = {
 			showIf: (p) => Number(p.top) < 1,
 			hint: 'Ledges the side faces step down in, from the top face to the base'
 		}),
-		P.int('terraces', 'Terraces', 8, 2, 24, {
+		P.int('terraces', 'Terraces', 6, 2, 24, {
 			section: 'Terraces',
 			hint: 'Terraces from the top face’s rim to its hollow, whatever its size: each face is grown as a path through a grid twice this many cells across'
 		}),
@@ -183,39 +183,36 @@ export const bismuthLayer: LayerDef = {
 			section: 'Terraces',
 			hint: 'How far the terraces step down to the hollow, as a share of the crystal’s height: 0 = flat-topped crystals'
 		}),
-		P.float('rim', 'Rim width', 1, 0, 6, {
+		P.float('rim', 'Rim width', 1, 0, 1.5, {
 			step: 0.5,
 			section: 'Terraces',
 			// Read by the growth on the CPU only.
 			uniform: false,
 			hint: 'The bright bar round each top face, at its full height, in terraces: the thick frame round the hollow (and a cube’s edges). 0 = none'
 		}),
-		P.float('keys', 'Keys', 1, 0, 4, {
-			step: 0.01,
-			section: 'Terraces',
-			uniform: false,
-			hint: 'Keys per face on average: the rim bar turning inward and winding into a square spiral — the G and 9 hooks — a tier below the rim'
-		}),
-		P.float('key_size', 'Key size', 0.6, 0.2, 0.9, {
+		P.float('keys', 'Keys', 0.85, 0, 1, {
 			step: 0.001,
 			section: 'Terraces',
-			uniform: false,
-			showIf: (p) => Number(p.keys) > 0,
-			hint: 'How far a key winds in, as a share of the face’s half-width'
+			hint: 'Share of the faces with a key in the hollow: a square spiral of bars of 1.5–2 turns winding out from the centre, each lap a tier higher, domed — the G and 9 shapes'
 		}),
-		P.float('key_w', 'Key width', 1, 0.2, 1, {
+		P.float('key_size', 'Key size', 0.55, 0.1, 0.9, {
 			step: 0.001,
 			section: 'Terraces',
-			uniform: false,
 			showIf: (p) => Number(p.keys) > 0,
-			hint: 'A key’s width as a share of the rim’s: below 1 the hooks read as a lighter tier than the rim'
+			hint: 'How far a key winds out from the hollow, as a share of the face’s half-width (each face’s own from 0.6× to 1.3× this)'
+		}),
+		P.float('key_w', 'Key width', 0.9, 0.3, 1.5, {
+			step: 0.001,
+			section: 'Terraces',
+			showIf: (p) => Number(p.keys) > 0,
+			hint: 'A key’s bars as a share of a terrace’s width; its arms are a bar apart'
 		}),
 		P.float('tilt', 'Tread tilt', 1, 0, 2, {
 			step: 0.001,
 			section: 'Terraces',
-			hint: 'Each tread slopes down towards the hollow by this many of its steps, so the walls of a hopper face the light differently and the metal shows it; the rim bars are domed. 0 = level treads'
+			hint: 'Each tread slopes down towards the hollow, and each facet tilts its own small way, so a hopper’s walls face the light differently and the metal shows it; the rim bars are domed. 0 = level treads'
 		}),
-		P.float('grade', 'Terrace grading', 0.4, 0, 1, {
+		P.float('grade', 'Terrace grading', 0.6, 0, 1, {
 			step: 0.001,
 			section: 'Terraces',
 			hint: 'Terraces narrow near the rim and widening towards the hollow, as the growth slowed: 0 = all one width'
@@ -235,17 +232,17 @@ export const bismuthLayer: LayerDef = {
 			uniform: false,
 			hint: 'How often growth branches off an earlier terrace rather than going on from the newest: more, shorter facets'
 		}),
-		P.float('hollow', 'Hollow offset', 0.1, 0, 0.6, {
+		P.float('hollow', 'Hollow offset', 0.3, 0, 0.6, {
 			step: 0.001,
 			section: 'Terraces',
 			// Read by the growth on the CPU only.
 			uniform: false,
 			hint: 'How far the rings’ centre sits off the middle along a diagonal (as a share of the half-width), so the terraces run wide on one side and close on the other'
 		}),
-		P.float('groove', 'Groove width', 0.08, 0.02, 0.9, {
+		P.float('groove', 'Riser width', 0.45, 0.02, 0.9, {
 			step: 0.001,
 			section: 'Terraces',
-			hint: 'Each wall between terraces is a dark groove sunk below the lower of them: its share of a terrace (at least 1.5 px)'
+			hint: 'Each wall between terraces is a sloped riser down from the upper tread, lit and keeping its colour: its share of a terrace (at least 3 px)'
 		}),
 		P.float('soft', 'Step softness', 1, 0.05, 16, {
 			softMax: 4,
@@ -260,7 +257,7 @@ export const bismuthLayer: LayerDef = {
 			showIf: isCube,
 			hint: 'How far each face of a cube falls away from its corner: 1 = the full drop of a cube seen on its corner, 0 = a flat hexagon'
 		}),
-		P.float('round', 'Corner rounding', 0.08, 0, 0.5, {
+		P.float('round', 'Corner rounding', 0.15, 0, 0.5, {
 			step: 0.001,
 			section: 'Outline',
 			hint: 'Each crystal’s corners rounded, as a share of its half-width'
@@ -272,7 +269,7 @@ export const bismuthLayer: LayerDef = {
 			section: 'Outline',
 			hint: 'A rounded chamfer this wide along each crystal’s outer edge, down the whole wall: worn edges catching the light'
 		}),
-		P.float('notches', 'Notches', 0.25, 0, 1, {
+		P.float('notches', 'Notches', 0.5, 0, 1, {
 			step: 0.001,
 			section: 'Outline',
 			hint: 'Share of the places along each side where the edge is notched in a step — the keyed outline of a hopper crystal’s rim'
@@ -290,7 +287,7 @@ export const bismuthLayer: LayerDef = {
 			section: 'Outline',
 			hint: 'How far each side steps in and out along its length, in square jogs a terrace long, so no crystal is a perfect polygon'
 		}),
-		P.float('grain', 'Grain', 0.12, 0, 1, {
+		P.float('grain', 'Grain', 0, 0, 1, {
 			step: 0.001,
 			section: 'Outline',
 			hint: 'Fine unevenness over every surface, in height (1 = about a pixel at the default height)'
@@ -305,7 +302,7 @@ export const bismuthLayer: LayerDef = {
 			section: 'Colour',
 			hint: 'Each crystal starts at its own place on the ramp (1 = anywhere along it, going either way, so every colour is as likely whatever the other shifts add): a gold crystal beside a blue one'
 		}),
-		P.float('contrast', 'Band contrast', 0.45, 0, 1, {
+		P.float('contrast', 'Band contrast', 0.8, 0, 1, {
 			step: 0.001,
 			section: 'Colour',
 			hint: 'The bars bright, each facet darker the deeper it lies (as the height map shows it: solid steps of shade down to a dark crater floor), the sides dark. 0 = flat colour'
@@ -386,8 +383,8 @@ export const bismuthLayer: LayerDef = {
 		// Glossy bars, satin terraces (Source › Parts).
 		r_on: true,
 		r_src: 'parts',
-		r_a: 0.12,
-		r_b: 0.15,
+		r_a: 0.22,
+		r_b: 0.25,
 		mt_on: true,
 		mt_src: 'parts'
 	},
@@ -398,7 +395,7 @@ export const bismuthLayer: LayerDef = {
 	fresh: ({ width, height }) => {
 		const side = Math.sqrt(width * height);
 		return {
-			terraces: Math.round(Math.min(8, Math.max(4, side / 64))),
+			terraces: Math.round(Math.min(6, Math.max(2, side / 85))),
 			gens: side >= 384 ? 3 : side >= 128 ? 2 : 1,
 			scale: side >= 384 ? 6 : side >= 192 ? 4 : 3,
 			// Small textures: no keys (they would be blobs).
@@ -420,9 +417,6 @@ export const bismuthLayer: LayerDef = {
 			num(p, 'branch'),
 			num(p, 'hollow'),
 			num(p, 'rim'),
-			num(p, 'keys'),
-			num(p, 'key_w'),
-			num(p, 'key_size'),
 			ctx.seed
 		)
 	}),
@@ -649,6 +643,7 @@ GenOut gen(vec2 p) {
       int tpl = int(hashI(ivec2(hk + int(face), key.y), sg + 53.0) * ${FACE_TEMPLATES}.0);
       // Terrace grading: the rings narrow near the rim (the face's Chebyshev radius raised to a power above 1), and px per
       // cell follows.
+      vec2 uv0 = uv;
       float cR0 = max(2.0 * max(abs(uv.x - 0.5), abs(uv.y - 0.5)), 1e-4);
       float gp = 1.0 + u_grade;
       uv = 0.5 + (uv - 0.5) * pow(min(cR0, 1.0), gp - 1.0);
@@ -672,11 +667,9 @@ GenOut gen(vec2 p) {
       // Bars (the rim, the keys, and outside the face) stand at the rim's height, a step and a half over the top
       // terrace; keys only on crystals big enough for them to read (3 px a cell), else they float as glyphs.
       float barTop = 1.0 + 1.5 / maxL;
-      bool keysOn = cpx >= 4.0;
       for (int t9 = 0; t9 < 9; t9++) {
-        bool isKey = keysOn && (fw[t9] & 8) != 0;
-        fb[t9] = (fw[t9] & 4) != 0 || isKey ? 1.0 : 0.0;
-        fh[t9] = mix(fh[t9], isKey ? 1.0 + 0.25 / maxL : barTop, fb[t9]);
+        fb[t9] = (fw[t9] & 4) != 0 ? 1.0 : 0.0;
+        fh[t9] = mix(fh[t9], barTop, fb[t9]);
       }
       float h0 = fh[4];
       // The floor: the cell's own height, stepping to a joined neighbour's over the softness at the edge between them.
@@ -703,7 +696,7 @@ GenOut gen(vec2 p) {
       if (pSE && dSE < rd) { rd = dSE; low = min(min(h0, fh[5]), min(fh[1], fh[2])); }
       if (pSW && dSW < rd) { rd = dSW; low = min(min(h0, fh[3]), min(fh[1], fh[0])); }
       // (At least 1.5 px wide, so a turned crystal's grooves don't break into dashes; none on a bar.)
-      float gw = max(grW, 0.75 / cpx);
+      float gw = max(grW, 3.0 / cpx);
       float grC = fb[4] > 0.5 ? 0.0
                 : smoothstep(0.0, 1.0, clamp(0.5 - (rd - gw) * cpx / soft, 0.0, 1.0)) * smoothstep(2.0, 4.0, cpx);
       // Small crystals (under 3 px a cell, where the facets would be mush): plain terraces as many as fit at 3 px each,
@@ -716,17 +709,60 @@ GenOut gen(vec2 p) {
         hfl = mix(hfl, hs, smallK);
         grC *= 1.0 - smallK;
       }
-      // Tread tilt: down towards the hollow across each ring (a sawtooth, a step's worth at Tilt 1); the bars domed.
+      // Tread tilt: the steps blended with a smooth cone down to the hollow (a share Tilt × 0.4), so every tread slopes
+      // towards the hollow, continuously across a facet (no seams where it crosses a ring); the bars domed.
       float stepH = 1.0 / max(0.5 * float(tn), 1.0);
-      float ringC = (1.0 - 2.0 * max(abs(uv.x - 0.5), abs(uv.y - 0.5))) * float(tn) * 0.5;
-      hfl -= u_tilt * 0.8 * stepH * fract(ringC) * (1.0 - barC);
+      float cone = 2.0 * max(abs(uv.x - 0.5), abs(uv.y - 0.5));
+      hfl = mix(hfl, mix(hfl, cone, clamp(0.4 * u_tilt, 0.0, 0.8)), 1.0 - barC);
       float dE = 9.0;
       if (fb[5] < 0.5) dE = min(dE, 1.0 - fr.x);
       if (fb[3] < 0.5) dE = min(dE, fr.x);
       if (fb[7] < 0.5) dE = min(dE, 1.0 - fr.y);
       if (fb[1] < 0.5) dE = min(dE, fr.y);
       hfl += u_tilt * 0.6 * stepH * barC * (sqrt(clamp(2.0 * dE, 0.0, 1.0)) - 1.0);
-      float hf = mix(hfl, low - 0.5 / maxL, grC);
+      // Each facet tilted its own small way (a plane across it, by its hash); one in six a mirror facet, glossy and lit
+      // brighter across its whole area — the photo's broad flashes of colour.
+      float fl = (1.0 - h0) * maxL;
+      float bk = hashI(ivec2(hk + 2 + int(face), int(floor(fl + 0.5))), sg + 37.0);
+      vec2 fd = vec2(cos(TAU * fract(bk * 3.71)), sin(TAU * fract(bk * 3.71)));
+      float facetLit = fract(bk * 5.13) < 0.1667 ? 1.0 : 0.0;
+      hfl += u_tilt * 0.35 * stepH * dot(gc / float(tn) - 0.5, fd) * (1.0 - barC);
+      // The riser: from the upper tread down to the lower across the riser width (none on the lower side, where low is
+      // its own height).
+      float riser = grC * step(low + 1e-4, h0);
+      float hf = mix(hfl, mix(low, hfl, clamp(rd / max(gw, 1e-3), 0.0, 1.0)), riser);
+      // The key: a square spiral of bars winding out from the hollow (Keys of the faces, by hash), Key size of the half-width
+      // (0.6–1.3× per face), bars Key width of a terrace, arms 1, 1, 2, 2, … pitches long, each lap a tier higher, domed.
+      // In the face's own (ungraded) frame, so its bars are even.
+      vec4 hkk = vec4(hash2I(ivec2(hk + 11 + int(face), key.y), sg + 79.0), hash2I(ivec2(hk + 13 + int(face), key.y), sg + 83.0));
+      float keyC = 0.0, keyH = 0.0;
+      float bw = 0.5 * clamp(u_key_w, 0.1, 1.0) / float(tn);
+      float pitch = 4.0 * bw;
+      float reachK = clamp(u_key_size, 0.1, 0.9) * 0.5 * mix(0.6, 1.3, hkk.y);
+      vec2 kq = uv0 - 0.5 - (hkk.zw - 0.5) * 0.3;
+      // (Only within the spiral's own reach: elsewhere the loop would find nothing.)
+      if (hkk.x < u_keys && cpx >= 3.0 && max(abs(kq.x), abs(kq.y)) < reachK + 2.0 * pitch + bw) {
+        float turnK = hkk.z < 0.5 ? 1.0 : -1.0;
+        float a0 = floor(fract(hkk.w * 7.3) * 4.0) * 0.5 * PI;
+        vec2 pos = vec2(0.0);
+        float kd = 1e9, kl = 0.0;
+        for (int sk = 0; sk < 10 * UNI_1; sk++) {
+          float len = pitch * float(1 + sk / 2);
+          if (max(abs(pos.x), abs(pos.y)) + len <= reachK + pitch) {
+            float an = a0 + turnK * float(sk) * 0.5 * PI;
+            vec2 dir = vec2(cos(an), sin(an));
+            vec2 l = kq - pos;
+            float sdk = sdBox(vec2(dot(l, dir) - 0.5 * len, dot(l, vec2(-dir.y, dir.x))), vec2(0.5 * len + bw, bw));
+            if (sdk < kd) { kd = sdk; kl = float(sk); }
+            pos += dir * len;
+          }
+        }
+        float kpx = kd * float(tn) * cpx;
+        keyC = smoothstep(0.0, 1.0, clamp(0.5 - kpx / soft, 0.0, 1.0));
+        float dome = sqrt(clamp(-kd / bw, 0.0, 1.0));
+        keyH = min(0.62 + 0.06 * kl + 0.15 * dome, barTop);
+      }
+      hf = mix(hf, max(hf, keyH), keyC);
       // The sides: ledges stepping down from the top face's rim to the base, each rising over the softness.
       // (At least 3 px a ledge.)
       float nl = clamp(floor((1.0 - topF) * apO / 3.0), 1.0, float(u_ledges));
@@ -751,23 +787,22 @@ GenOut gen(vec2 p) {
                + 0.125 * u_lean * dot(d / Rc, lean));
       // Colour: the crystal's own place (over the ramp's whole cycle there and back, so no shift favours one end), its
       // laps (four turns each), each facet's own shift, the sweep across it, its sub-crystals and its face.
-      float fl = (1.0 - h0) * maxL;
       // The sides are one chunk of the crystal's colour, a step cooler (their ledges show in the relief and the shade).
-      float bk = hashI(ivec2(hk + 2 + int(face), int(floor(fl + 0.5))), sg + 37.0);
       Ts[i] = u_col_ofs + 2.0 * u_col_var * fract(13.7 * C[i].x) + u_sweep * dot(d, sdir) / (2.0 * R0)
             + u_sub_col * float(sub) + u_face_col * fo + mot
             + mix(0.25 * u_col_step * fl + u_band * (bk - 0.5), 0.15, sel);
-      // Shade: each facet by its depth, solid as the height map shows it (the floor's, stepping with it at the edges;
-      // the ribs show in the relief only).
-      // Shade: the bars brightest, the hollow darkening steeply down to its floor (each facet a little lighter or darker
-      // than the next: Terrace colours' second draw; its grooves darker still), the sides dark.
-      float deep = mix(0.45, 1.15, pow(clamp(hfl, 0.0, 1.0), 1.3)) * (1.0 + min(u_band * 3.0, 1.0) * 0.3 * (fract(bk * 7.31) - 0.5));
-      Ss[i] = mix(1.0, mix(mix(deep * (1.0 - 0.3 * grC), 1.4, barC), 0.45 * (0.6 + 0.4 * hSide), sel), u_contrast)
+      // Shade: each facet solid, darker the deeper it lies (a little lighter or darker than the next by Terrace colours'
+      // second draw, the mirror facets brighter); the risers lit; the rim and the keys bright; the sides dark.
+      float deep = mix(0.12, 1.0, pow(clamp(hfl, 0.0, 1.0), 1.8)) * (1.0 + min(u_band * 3.0, 1.0) * 0.3 * (fract(bk * 7.31) - 0.5));
+      float tread = mix(deep * (1.0 + 0.8 * facetLit), mix(0.5, 1.2, clamp(hfl, 0.0, 1.0)), riser);
+      Ss[i] = mix(1.0, mix(mix(mix(tread, 1.35, keyC), 1.35, barC), 0.3 * (0.6 + 0.4 * hSide), sel), u_contrast)
             * (1.0 - 0.35 * u_contrast * notchLow);
-      // How grey (toward its own luminance) the colour goes: the deep treads and the sides.
-      // Greying: a metal's moderate chroma on the treads, more in the grooves, on the sides and the bars (paler rims).
-      Gs[i] = mix(0.3, 1.0, u_contrast) * mix(mix(0.3 + 0.4 * grC + 0.4 * (1.0 - clamp(hfl, 0.0, 1.0)), 0.5, barC), 0.6, sel);
-      Bs[i] = barC * (1.0 - sel);
+      // Greying (toward its own luminance): a metal's moderate chroma on the treads, more deep down and on the sides; the
+      // risers, rim and keys keep their colour.
+      Gs[i] = mix(0.3, 1.0, u_contrast)
+            * mix(mix(mix(0.2 * (1.0 - clamp(hfl, 0.0, 1.0)) * (1.0 - riser) * (1.0 - facetLit), 0.1, keyC), 0.15, barC), 0.6, sel);
+      // Glossy: the bars, the keys and the mirror facets.
+      Bs[i] = max(max(barC, keyC), facetLit * (1.0 - riser)) * (1.0 - sel);
       // The skirt (sides and bevel) covers what is behind only where it stands at least as high.
       Ks[i] = max(sel, 1.0 - xb);
     }

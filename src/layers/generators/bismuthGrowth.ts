@@ -10,9 +10,8 @@
 // about a centre Hollow offset along a diagonal, so the terraces run wide on one side. Walls (the ribs) stand between
 // neighbouring cells the path doesn't join, and round the rim; a rib only ends where the path turns round it.
 //
-// Over the terraces stand bars: the rim itself (Rim width cells round the face) and keys — the rim bar turning inward
-// and winding into an open square spiral of 1.5–2 turns (Keys per face, Key size deep), its arms one bar and a gap
-// apart. No ribs stand beside a bar: its own sides are the risers.
+// Over the terraces stands the rim, a bar Rim width cells wide round the face; no ribs stand beside it: its own sides
+// are the risers. (The keys — spirals in the hollow — are drawn by the shader on a finer scale than these cells.)
 
 import { mulberry32 } from '@/core/hash';
 import { memoize } from '@/core/memo';
@@ -30,15 +29,13 @@ export interface Face {
 	n: number;
 	/** Per cell (row-major, y up): the number of turns on the path from the rim. */
 	level: Uint16Array;
-	/** Per cell: bit 0 a wall on its east edge, bit 1 on its north edge (the rim's included), bit 2 the rim's bar over it,
-	 * bit 3 a key's. */
+	/** Per cell: bit 0 a wall on its east edge, bit 1 on its north edge (the rim's included), bit 2 the rim's bar over it. */
 	walls: Uint8Array;
 	maxLevel: number;
 }
 
 /**
- * One face of n × n cells grown by the rules above (turn, branch, hollow 0..1), with a rim rim cells wide and keys keys
- * on average (the fraction the odds of one more), keyW of the rim's width, reaching keySize of the half-width in.
+ * One face of n × n cells grown by the rules above (turn, branch, hollow 0..1), with a rim rim cells wide.
  */
 export function growFace(
 	n: number,
@@ -46,9 +43,6 @@ export function growFace(
 	branch: number,
 	hollow: number,
 	rim: number,
-	keys: number,
-	keyW: number,
-	keySize: number,
 	rand: () => number
 ): Face {
 	const count = n * n;
@@ -114,77 +108,15 @@ export function growFace(
 		key[k] = Math.abs(ring(x + DX[nd], y + DY[nd]) - rc) > 0.5 ? 2 : Math.max(key[c] - 1, 0);
 		active.push(k);
 	}
-	// The bars: the rim, then each key — from the rim near a corner (its own side and corner, set in by the rim plus up
-	// to a quarter of the face) inward, turning the same way after each arm, every second arm a bar and a gap shorter,
-	// all within the outer 35 % of the half-width. Stamped as w × w blocks centred on its path; sides map by turning the
-	// bottom one (u along it, v inward). A key that would come within two cells of another is drawn again elsewhere
-	// (three tries), so hooks never meet head-on.
-	const bar = new Uint8Array(count);
-	const keyCell = new Uint8Array(count);
-	const draft: number[] = [];
+	// The rim: a bar w cells wide round the face.
 	const w = Math.max(1, Math.round(rim));
-	const lo = Math.floor((w - 1) / 2);
-	const stamp = (x: number, y: number) => {
-		for (let j = 0; j < kw * kw; j++) {
-			const bx = x - klo + (j % kw);
-			const by = y - klo + Math.floor(j / kw);
-			if (bx >= 0 && by >= 0 && bx < n && by < n) draft.push(by * n + bx);
-		}
-	};
-	const clear = (c: number) => {
-		const x = c % n;
-		const y = (c - x) / n;
-		for (let j = 0; j < 25; j++) {
-			const bx = x + (j % 5) - 2;
-			const by = y + Math.floor(j / 5) - 2;
-			if (bx >= 0 && by >= 0 && bx < n && by < n && keyCell[by * n + bx]) return false;
-		}
-		return true;
-	};
+	const bar = new Uint8Array(count);
 	if (rim > 0)
 		for (let c = 0; c < count; c++) {
 			const x = c % n;
 			const y = (c - x) / n;
 			if (Math.min(x, y, n - 1 - x, n - 1 - y) < w) bar[c] = 1;
 		}
-	const nk = Math.floor(keys) + (rand() < keys - Math.floor(keys) ? 1 : 0);
-	// Keys (Key width of the rim's width) drawn as a square spiral winding in from the rim: a stem of length a in, then
-	// arms a, a − p, a − p, a − 2p, … (p = a bar and a gap), each turning the same way, so the arm heading back out ends a
-	// gap short of the rim and the spiral stays open — 1.5–2 turns into the hollow, Key size of the half-width deep.
-	const kw = Math.max(1, Math.round(keyW * w));
-	const klo = Math.floor((kw - 1) / 2);
-	const gap = Math.max(1, Math.round(0.5 * w));
-	const pitch = kw + gap;
-	const a0 = Math.max(2 * pitch + kw, Math.round(keySize * (n / 2)));
-	for (let k = 0, tries = 0; k < nk && tries < 4 * nk; tries++) {
-		draft.length = 0;
-		const side = Math.floor(rand() * 4);
-		const left = rand() < 0.5;
-		const a = a0 - Math.floor(rand() * Math.max(1, pitch));
-		// Along the side so the spiral (a across) fits inside the rim, near one corner or the other.
-		const span = Math.max(1, n - 2 * w - a - 2);
-		const u0 = w + 1 + Math.floor(rand() * span);
-		let u = left ? u0 + a : u0;
-		let v = lo;
-		let du = 0;
-		let dv = 1;
-		let len = a;
-		for (let arm = 0; arm < 7 && len > 0; arm++) {
-			for (let st = 0; st < len; st++) {
-				stamp(...toGrid(side, u, v, n));
-				u += du;
-				v += dv;
-			}
-			[du, dv] = left ? [-dv, du] : [dv, -du];
-			if (arm % 2 === 1) len -= pitch;
-		}
-		stamp(...toGrid(side, u, v, n));
-		if (draft.every(clear)) {
-			for (const c of draft) keyCell[c] = 1;
-			k++;
-		}
-	}
-	for (let c = 0; c < count; c++) if (keyCell[c]) bar[c] = 1;
 	const joined = (a: number, b: number) => parent[a] === b || parent[b] === a;
 	const walls = new Uint8Array(count);
 	let maxLevel = 0;
@@ -193,17 +125,10 @@ export function growFace(
 		const y = (c - x) / n;
 		const e = x === n - 1 || bar[c] || bar[c + 1] ? 0 : joined(c, c + 1) ? 0 : 1;
 		const no = y === n - 1 || bar[c] || bar[c + n] ? 0 : joined(c, c + n) ? 0 : 2;
-		const rimCell = rim > 0 && Math.min(x, y, n - 1 - x, n - 1 - y) < w;
-		walls[c] =
-			e | no | (rimCell ? 4 : bar[c] ? 8 : 0) | (x === n - 1 && !bar[c] ? 1 : 0) | (y === n - 1 && !bar[c] ? 2 : 0);
+		walls[c] = e | no | (bar[c] ? 4 : 0) | (x === n - 1 && !bar[c] ? 1 : 0) | (y === n - 1 && !bar[c] ? 2 : 0);
 		maxLevel = Math.max(maxLevel, level[c]);
 	}
 	return { n, level, walls, maxLevel };
-}
-
-/** A key's cell (u along the side from its first corner, v inward) on side 0–3 (bottom, right, top, left). */
-function toGrid(side: number, u: number, v: number, n: number): [number, number] {
-	return side === 0 ? [u, v] : side === 1 ? [n - 1 - v, u] : side === 2 ? [n - 1 - u, n - 1 - v] : [v, n - 1 - u];
 }
 
 /**
@@ -211,21 +136,11 @@ function toGrid(side: number, u: number, v: number, n: number): [number, number]
  * ring, 0.4 by its level as a share of its face's deepest; 16 bits, R high), B its walls and bar, A the face's deepest level (at most 255).
  */
 export const faceTexture = memoize(
-	(
-		n: number,
-		turn: number,
-		branch: number,
-		hollow: number,
-		rim: number,
-		keys: number,
-		keyW: number,
-		keySize: number,
-		seed: number
-	): CpuTexture => {
+	(n: number, turn: number, branch: number, hollow: number, rim: number, seed: number): CpuTexture => {
 		const width = n * FACE_TEMPLATES;
 		const data = new Uint8Array(width * n * 4);
 		for (let t = 0; t < FACE_TEMPLATES; t++) {
-			const f = growFace(n, turn, branch, hollow, rim, keys, keyW, keySize, mulberry32(seed * 977 + t * 7919 + 13));
+			const f = growFace(n, turn, branch, hollow, rim, mulberry32(seed * 977 + t * 7919 + 13));
 			for (let c = 0; c < n * n; c++) {
 				const x = c % n;
 				const y = (c - x) / n;

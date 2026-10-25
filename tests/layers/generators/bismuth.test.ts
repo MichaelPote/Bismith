@@ -17,7 +17,7 @@ describe('bismuth', () => {
 	it('sizes a new layer’s terraces and height to the texture', () => {
 		const small = freshParams('bismuth', { width: 64, height: 64 });
 		const big = freshParams('bismuth', { width: 512, height: 512 });
-		expect(Number(small.terraces)).toBeGreaterThanOrEqual(4);
+		expect(Number(small.terraces)).toBeGreaterThanOrEqual(2);
 		expect(Number(big.terraces)).toBeGreaterThan(Number(small.terraces));
 		expect(Number(small.gens)).toBeLessThan(Number(big.gens));
 		expect(Number(small.h_amount)).toBeLessThan(Number(big.h_amount));
@@ -31,9 +31,7 @@ describe('bismuth', () => {
 
 	describe('grown faces', () => {
 		const n = 20;
-		const faces = [0.12, 0.6].flatMap((turn) =>
-			[1, 2, 3].map((s) => growFace(n, turn, 0.1, 0.2, 0, 0, 0.6, 0.6, mulberry32(s)))
-		);
+		const faces = [0.12, 0.6].flatMap((turn) => [1, 2, 3].map((s) => growFace(n, turn, 0.1, 0.2, 0, mulberry32(s))));
 		const wall = (f: ReturnType<typeof growFace>, x: number, y: number, bit: number) =>
 			(f.walls[y * n + x] & bit) !== 0;
 
@@ -64,22 +62,18 @@ describe('bismuth', () => {
 			}
 		});
 
-		it('stands a rim bar round the face and keys on it, with no ribs beside them', () => {
-			const f = growFace(n, 0.08, 0.02, 0.2, 2, 2, 0.6, 0.6, mulberry32(5));
-			const bar = (x: number, y: number) => (f.walls[y * n + x] & 12) !== 0;
-			let inner = 0;
+		it('stands a rim bar round the face, with no ribs on it', () => {
+			const f = growFace(n, 0.08, 0.02, 0.2, 2, mulberry32(5));
 			for (let y = 0; y < n; y++)
 				for (let x = 0; x < n; x++) {
-					if (Math.min(x, y, n - 1 - x, n - 1 - y) < 2) expect(bar(x, y)).toBe(true);
-					else if (bar(x, y)) inner++;
-					if (bar(x, y)) expect(f.walls[y * n + x] & 3).toBe(0);
+					const bar = (f.walls[y * n + x] & 4) !== 0;
+					expect(bar).toBe(Math.min(x, y, n - 1 - x, n - 1 - y) < 2);
+					if (bar) expect(f.walls[y * n + x] & 3).toBe(0);
 				}
-			// The keys reach into the face.
-			expect(inner).toBeGreaterThan(n);
 		});
 
 		it('packs the templates side by side', () => {
-			const t = faceTexture(n, 0.12, 0.1, 0.2, 2, 1.2, 0.6, 0.6, 7);
+			const t = faceTexture(n, 0.12, 0.1, 0.2, 2, 7);
 			expect([t.width, t.height]).toEqual([n * FACE_TEMPLATES, n]);
 		});
 	});

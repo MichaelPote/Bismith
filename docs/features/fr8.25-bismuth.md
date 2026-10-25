@@ -91,13 +91,26 @@ picks one by its hash.
 - **Tilt and grading.** **Tread tilt** slopes each tread down towards the hollow (a sawtooth per ring) and domes the rim
   bars, so a hopper's four walls face the light differently and the metal shows it; **Terrace grading** narrows the
   rings near the rim. Hopper depth 0.85, Height › Amount 16.
-- **Keys** are one open square spiral per face (Keys 1, **Key size** 0.6 of the half-width, **Key width** 1), winding in
-  from the rim a tier below it: stem a, then arms a, a − p, a − p, … so the arm heading back out stops a gap short of the
-  rim.
+- **Keys** are drawn by the shader on their own fine scale, not the terrace grid: a square spiral of bars winding out
+  from near the hollow on a share of the faces (Keys 0.85, **Key size** 0.55 of the half-width ×0.6–1.3 per face, bars
+  **Key width** 0.9 of a terrace, arms a bar apart, square ends), each lap a tier higher, domed, glossy and bright like
+  the rim.
 - **Scale and colour.** Crystals across 6, Rim width 1, Notches 0.25; hue by depth (Colour per terrace 0.18) and per facet
   (Terrace colours 0.3), little sweep (0.12); a light ramp; treads glossy (Roughness › Parts 0.15), bars 0.12, the ground
   rough and non-metal (Metalness › Parts); faint thin grooves (Groove width 0.08, none under 4 px a cell); Band contrast
   0.45 darkens and greys the deep treads. Crystals under 3 px a cell switch to plain terraces ≥ 3 px each.
+
+## Tone and walls (critic rounds 13–15, calibrated)
+
+- **Risers.** The walls between terraces are sloped risers down from the upper tread (**Riser width** 0.45 of a cell, at
+  least 3 px), lit and keeping their colour; only the tread floors darken with depth (to 0.12 at the floor). The
+  growth's walls carry no rim-like ribs or grooves any more.
+- **Mirror facets.** One facet in six is glossy (Roughness › Parts with the bars and keys) and lit brighter across its
+  whole area — broad flashes of colour; every facet also tilts its own small way. The per-ring nose glints were dropped
+  (they drew pinstripes).
+- **Tread tilt** is a smooth cone blended into the steps (no seams where it crosses a ring); Grain is off by default.
+- **Defaults** after these rounds: Terraces 6, Hollow offset 0.3, Corner rounding 0.15, Notches 0.5, Band contrast 0.8,
+  Rim width 1 (to 1.5); deep treads keep their chroma (greyed at most 0.2), darkened by shade instead.
 
 ## Outputs
 
@@ -136,4 +149,4 @@ crystals below 192 px, a lower height and gentler mottling on small textures.
 - [x] Thin-film colour on a back-and-forth ramp with the ground kept apart; band contrast (`gGenShade`); colour blended
       between crystals (`gGenAlt`)
 - [x] Stepped-pyramid habit (top face, side ledges)
-- [x] Mask of the crystals' union; presets; twelve critic rounds (`private/critic/bismuth/`)
+- [x] Mask of the crystals' union; presets; fifteen critic rounds (`private/critic/bismuth/`)
