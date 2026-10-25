@@ -17,7 +17,8 @@ import {
 	maskWriteKind,
 	masksAbove,
 	planMasks,
-	sanitizeLimit
+	sanitizeLimit,
+	solidSources
 } from '@/layers/masks';
 import { getLayerDef } from '@/layers/registry';
 
@@ -289,5 +290,38 @@ describe('outputs to masks', () => {
 				(w) => w.extra && w.target === 'Shape'
 			)
 		).toBe(false);
+	});
+});
+
+describe('coverage-only masks', () => {
+	it('tells a plain coverage from a shape or an output’s value, and Mask area › Inside on it', () => {
+		const joints = createLayer('stone_blocks', { mk_joints: 'Joints' }, 'Blocks');
+		const pipes = createLayer('pipework', { mk_underside: 'Under' }, 'Pipes');
+		const grime = createLayer('noise', { mk_target: 'Grime' }, 'Grime');
+		const inside = (mask: string, extra: ParamValues = {}) =>
+			createLayer('surfacemask', { select: 'features', src_mask: mask, area: 'inside', mk_target: '', ...extra });
+		const readers = {
+			joints: inside('Joints'),
+			grime: inside('Grime'),
+			under: inside('Under'),
+			shape: inside('Shape'),
+			frayed: inside('Grime', { bk_amount: 0.5 }),
+			gradient: inside('Grime', { area: 'gradient' })
+		};
+		const p = project([joints, pipes, grime, ...Object.values(readers)]);
+		const plan = planMasks(p);
+		const only = Object.fromEntries(Object.entries(readers).map(([k, l]) => [k, plan.layers.get(l.id)!.coverageOnly]));
+		expect(only).toEqual({ joints: true, grime: true, under: false, shape: false, frayed: false, gradient: false });
+		expect(plan.final.get('Joints')!.plain).toBe(true);
+		expect(plan.final.get('Under')!.plain).toBe(false);
+	});
+
+	it('switches only Pattern sources to Solid', () => {
+		expect(solidSources({ dif_src: 'value', h_src: 'random', r_src: 'shape', s_src: 'value' })).toEqual({
+			dif_src: 'flat',
+			s_src: 'flat',
+			mt_src: 'flat',
+			e_src: 'flat'
+		});
 	});
 });

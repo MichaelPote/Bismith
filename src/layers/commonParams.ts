@@ -584,6 +584,9 @@ const levelOutput = (prefix: string, group: string, label: string, a: number, b:
 	];
 };
 
+/** Every channel output's Source. */
+export const SRC_KEYS = ['dif_src', 'h_src', 'r_src', 's_src', 'mt_src', 'e_src'];
+
 /** The sources that take the Parts option on a generator with its own per-part levels (LayerDef.parts; srcLevel). */
 export const PARTS_SRC_KEYS = ['r_src', 's_src', 'mt_src', 'e_src'];
 
@@ -796,6 +799,7 @@ ${
       // chipped Shape mask — bevels round it too); the coverage stays the generator's.
       float e = bev * dc;
       value *= e;
+      gGenAlt.x *= e;
       if (g.hval >= 0.0) g.hval *= e;
     } else {
       cov *= dc;
@@ -805,6 +809,7 @@ ${
       // Flat (or zero-width) bevels output 1 and let coverage do the anti-aliasing, so edges ramp
       // symmetrically across the boundary; profiled bevels rise from 0 at the edge.
       value = bev;
+      gGenAlt.y = 0.0;
     }
     cov *= softEdge(d);
   }
@@ -825,6 +830,7 @@ ${
   if (bd > NO_SDF && u_bevel > 0.0) {
     float bev = bevelAt(bd, gGrad);
     value *= bev;
+    gGenAlt.x *= bev;
     if (g.hval >= 0.0) g.hval *= bev;
     if (g.height > NO_SDF && bd < 0.0) g.height *= bev;
   }
@@ -839,6 +845,7 @@ ${
 		: ''
 }
   value = shapeValue(value);
+  if (gGenAlt.y > 0.0) gGenAlt.x = shapeValue(gGenAlt.x);
   // A separate value for Height (GenOut.hval), shaped the same way.
   float hval = g.hval < 0.0 ? value : shapeValue(g.hval);
   float cutK = 1.0;
@@ -864,6 +871,10 @@ ${
     float v = srcValue(u_dif_src, value, g.rnd, shapeV);
     v = clamp(v + (g.rnd - 0.5) * u_dif_jitter, 0.0, 1.0);
     vec3 top = gGenRgb.x >= 0.0 ? gGenRgb : gradientLookup(u_dif_grad_stops, u_dif_grad_count, v);
+    if (gGenAlt.y > 0.0 && u_dif_src == 0 && gGenRgb.x < 0.0) {
+      float va = clamp(gGenAlt.x + (g.rnd - 0.5) * u_dif_jitter, 0.0, 1.0);
+      top = mix(top, gradientLookup(u_dif_grad_stops, u_dif_grad_count, va), gGenAlt.y);
+    }
     vec3 base = linearToSrgb(A.rgb);
     vec3 blended = blendMode(u_dif_blend, base, top);
     A.rgb = srgbToLinear(mix(base, blended, m * u_dif_opacity));

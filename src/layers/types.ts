@@ -66,6 +66,12 @@ export interface LayerDef {
 	/** The mask a layer reads as its source with these params (`tMaskSrc`; edge filters, Mask area), or null. */
 	maskSource?: (params: ParamValues) => string | null;
 	/**
+	 * Its value is only the coverage of its source mask when that holds a plain coverage (`source.plain`; Mask area ›
+	 * Inside without Breakup): its Pattern sources then default to Solid when it starts reading one, and what it writes
+	 * is a plain coverage too.
+	 */
+	coverageOnly?: (params: ParamValues, source: { plain: boolean } | null) => boolean;
+	/**
 	 * Filters: a single MRT pass, limited by the layer's Limit to. GLSL defining
 	 * `void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip)` (note: `filter` is a reserved word in GLSL ES
 	 * 3.00). With `prepare` and `textures` it can read pre-passes (a blur, a distance field).

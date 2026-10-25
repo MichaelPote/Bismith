@@ -32,6 +32,8 @@ export const surfaceMaskLayer: LayerDef = {
 	// Unlike maskWriteKind's rule for shape layers, a coverage selection may go into the Shape mask too, when asked.
 	maskWrite: (p) => (inside(p) ? 'shape' : 'coverage'),
 	maskSource: (p) => (features(p) ? String(p.src_mask ?? '').trim() || SHAPE_MASK : null),
+	// Inside a plain coverage (no distance to bevel) its value is that coverage: 1 but at the edges.
+	coverageOnly: (p, src) => inside(p) && src?.plain === true,
 	description:
 		'Selects areas, to write to a mask or paint directly: from the surface so far (crevices, high spots, slopes, slopes facing a direction, a height range) or from the features of a mask (inside each one with its own random, or a gradient across each). Breakup frays the selection with noise.',
 	params: [

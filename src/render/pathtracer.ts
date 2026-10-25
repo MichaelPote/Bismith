@@ -287,6 +287,21 @@ vec3 envSample(out float pdf) {
   return fromSky(vec3(sin(az) * s, cos(az) * s, cos(th)));
 }
 
+// A point light's window at distance² d2: 1 inside, falling smoothly to 0 at its range (none for range 0).
+float pointWin(float d2, float range) {
+  if (range <= 0.0) return 1.0;
+  float x = d2 / (range * range);
+  float w = clamp(1.0 - x * x, 0.0, 1.0);
+  return w * w;
+}
+
+// How much a copy of a tiled point light at d (from the surface) lights it, unshadowed: the odds it is picked by. The
+// small floor keeps copies just behind the surface's tangent plane in play, since the light's disc can reach past it.
+float copyWeight(vec3 d, vec3 n, float range) {
+  float d2 = dot(d, d);
+  return pointWin(d2, range) / max(d2, 1.0) * (max(dot(n, d) * inversesqrt(max(d2, 1e-8)), 0.0) + 0.01);
+}
+
 // Direct light from every light, shadow rays from ro. The branches only choose the direction, distance and scale, so the
 // shadow march and the BRDF are inlined once (D3D inlines every call site).
 vec3 directLight(Mat m, vec3 ro, vec3 p, vec3 n, vec3 v) {
@@ -304,9 +319,41 @@ vec3 directLight(Mat m, vec3 ro, vec3 p, vec3 n, vec3 v) {
     // Directional: uLVec the direction; point: its position.
     vec3 axis = isEnv ? envL : uLVec[li];
     vec3 toL = vec3(0.0);
+    float range = isEnv ? 0.0 : uLRange[li];
+    // A tiled point light's copies: its light is the sum over them, estimated by one picked copy ÷ its odds.
+    float copies = 1.0;
     if (point) {
       toL = uLVec[li] - p;
-      if (uTile) toL.xy = wrapDelta(toL.xy);
+      if (uTile) {
+        toL.xy = wrapDelta(toL.xy);
+        // Past half the texture, the copies of the light in the neighbouring tiles reach the pixel too; the nearest
+        // alone would leave a seam where it changes (a square around the light). So the copies up to k tiles out
+        // (k = 0 while the range is within half the texture, at most 2) are weighed by their unshadowed light
+        // (copyWeight) and one is picked by it. The range is held within those tiles so that none outside them adds light: range 0 (pure
+        // inverse square) ends 2.5 textures out, about 1 % dimmer at most within the light's own tile.
+        vec2 kf = clamp(ceil((range > 0.0 ? range : 1e9) / uRes - 0.5), 0.0, 2.0);
+        float reach = min((kf.x + 0.5) * uRes.x, (kf.y + 0.5) * uRes.y);
+        range = range > 0.0 ? min(range, reach) : reach;
+        int nx = 2 * int(kf.x) + 1;
+        int nc = nx * (2 * int(kf.y) + 1);
+        float total = 0.0;
+        for (int c = 0; c < nc; c++)
+          total += copyWeight(vec3(toL.xy + (vec2(c % nx, c / nx) - kf) * uRes, toL.z), n, range);
+        float pick = rnd() * total;
+        vec3 chosen = toL;
+        float w = 0.0;
+        bool found = false;
+        for (int c = 0; c < nc; c++) {
+          if (!found) {
+            vec3 d = vec3(toL.xy + (vec2(c % nx, c / nx) - kf) * uRes, toL.z);
+            w = copyWeight(d, n, range);
+            pick -= w;
+            if (pick < 0.0 || c == nc - 1) { chosen = d; found = true; }
+          }
+        }
+        toL = chosen;
+        copies = w > 0.0 ? total / w : 0.0;
+      }
       axis = toL / max(length(toL), 1e-4);
     }
     vec3 l = axis;
@@ -330,7 +377,7 @@ vec3 directLight(Mat m, vec3 ro, vec3 p, vec3 n, vec3 v) {
     if (point) {
       dist = length(toL);
       l = toL / max(dist, 1e-4);
-      if (uLRange[li] > 0.0) { float x = dist / uLRange[li]; win = clamp(1.0 - x * x * x * x, 0.0, 1.0); win *= win; }
+      win = pointWin(dist * dist, range) * copies;
       falloff = 1.0 / max(dist * dist, 1.0);
     }
     bool skip = dot(n, l) <= 0.0 || (point ? win <= 0.0 : l.z <= 0.0) || (isEnv && envP <= 0.0);

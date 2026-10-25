@@ -15,6 +15,7 @@ import {
 } from '@/core/groups';
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize';
 import { freshParams, linkedChanges } from '@/layers/registry';
+import { coverageOnlyAt, solidSources } from '@/layers/masks';
 import { newId } from '@/core/ids';
 import { MAX_LIGHTS } from '@/core/project';
 import { fitLight, resizeProject } from '@/core/pixelScale';
@@ -246,8 +247,13 @@ export const useProjectStore = defineStore('project', () => {
 
 	function setLayerParam(id: string, key: string, value: ParamValue): void {
 		const l = getLayer(id);
+		if (!l) return;
+		const wasCoverage = coverageOnlyAt(project.value, id);
 		// With any linked defaults that follow it (Drips: Height turns on with the Sources output).
-		if (l) Object.assign(l.params, linkedChanges(l.type, l.params, key, value));
+		Object.assign(l.params, linkedChanges(l.type, l.params, key, value));
+		// Now reading only a coverage (Mask area › Inside a noise's or the joints' mask): Pattern would show little but
+		// its edge, so its sources start Solid; the user may pick Pattern again.
+		if (!wasCoverage && coverageOnlyAt(project.value, id)) Object.assign(l.params, solidSources(l.params));
 	}
 
 	// ---------------------------------------------------------------- groups

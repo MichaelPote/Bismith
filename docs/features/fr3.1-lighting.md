@@ -42,7 +42,10 @@ Global lighting as a project setting: sky light, ambient strength, and individua
   point lights as bright. A light added in the editor starts fitted to the canvas (`fitLight`, core/pixelScale.ts):
   its px defaults (z 48, radius 6, refDist 64) are authored for a 128 px canvas and scale by √(w·h) / 128 — the
   resize factor, so it sits as high and lights as brightly relative to the texture at any size. Saved projects and
-  presets keep their stored values.
+  presets keep their stored values. On a tileable texture a point light repeats with it: once its range passes half
+  the texture, its copies in the tiles around (up to 2 out) light the pixel too, so there is no seam where the nearest
+  copy changes. Each sample picks one copy by its unshadowed light (`directLight`, render/pathtracer.ts); the range is
+  held within those tiles, and range 0 ends 2.5 textures out.
 - Outliner "Lights" section: add / remove / enable / duplicate; properties panel per light.
 - Viewport gizmos: drag point lights in x/y; directional azimuth indicator.
 - Lighting presets: "Top-left key (UI)", "Overhead + sky", "Torch-lit (Quake)".

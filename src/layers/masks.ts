@@ -17,7 +17,7 @@ import {
 	type Project
 } from '@/core/project';
 import type { ParamValues } from '@/core/params';
-import { MAX_LIMIT_TERMS } from './commonParams';
+import { MAX_LIMIT_TERMS, SRC_KEYS } from './commonParams';
 import { getLayerDef } from './registry';
 import type { LayerDef } from './types';
 
@@ -260,6 +260,11 @@ export interface MaskRef {
 	slot: number;
 	/** Its distance is a true distance (only shapes wrote it, without Feather): edges read it directly. */
 	exact: boolean;
+	/**
+	 * It holds a coverage and nothing more: written by layers without a shape (noise with a cutoff, Stone blocks'
+	 * joints), not an output's value (a soft write) — so a layer whose value is that coverage has little pattern to show.
+	 */
+	plain: boolean;
 }
 
 /**
@@ -284,6 +289,8 @@ export interface LayerMasks {
 	limit: LimitTerm[] | null;
 	/** Its source mask (edge filters, Mask area), or null. */
 	source: MaskRef | null;
+	/** Its value is only a plain coverage here (LayerDef.coverageOnly): Pattern sources show little but its edge. */
+	coverageOnly: boolean;
 }
 
 export interface MaskPlan {
@@ -312,11 +319,11 @@ function flatten(e: LimitExpr, group: 0 | 1): { mask: string; op: LimitOp | 'fir
 export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 	const groups = groupsOf(p);
 	const list = running(p).filter((l) => p.layers.indexOf(l) <= upTo);
-	// Current version of each mask, and whether it's exact.
-	const current = new Map<string, { version: number; exact: boolean }>();
+	// Current version of each mask, and whether it's exact or a plain coverage.
+	const current = new Map<string, { version: number; exact: boolean; plain: boolean }>();
 	const refOf = (mask: string): MaskRef => {
 		const c = current.get(mask);
-		return { mask, version: c?.version ?? 0, slot: -1, exact: c ? c.exact : true };
+		return { mask, version: c?.version ?? 0, slot: -1, exact: c ? c.exact : true, plain: c ? c.plain : false };
 	};
 	// Per version (`mask#v`): the index of its last reader.
 	const lastRead = new Map<string, number>();
@@ -342,14 +349,17 @@ export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 		const srcName = def.maskSource?.(params) ?? null;
 		const source = srcName ? refOf(srcName) : null;
 		if (source) read(source, i);
+		const coverageOnly = def.coverageOnly?.(params, source) ?? false;
 
 		const commit = (w: MaskWrite): NonNullable<LayerMasks['write']> => {
 			const prev = current.get(w.target);
 			const feather = Number(w.params.mk_feather ?? 0) > 0;
 			const exact = w.kind === 'shape' && !feather && (w.op === 'replace' || !prev || prev.exact);
+			// A layer whose value is a plain coverage passes it on, whatever kind it writes.
+			const plain = ((w.kind === 'coverage' && !w.soft) || coverageOnly) && (w.op === 'replace' || !prev || prev.plain);
 			const version = (prev?.version ?? 0) + 1;
-			current.set(w.target, { version, exact });
-			return { mask: w.target, version, slot: -1, exact, kind: w.kind };
+			current.set(w.target, { version, exact, plain });
+			return { mask: w.target, version, slot: -1, exact, plain, kind: w.kind };
 		};
 		const extra = writes
 			.filter((w) => w.extra)
@@ -363,13 +373,13 @@ export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 		const input = main ? refOf(main.target) : def.readsMask ? refOf(SHAPE_MASK) : null;
 		if (input) read(input, i);
 		const write = main ? commit(main) : null;
-		plans.push({ layer, plan: { input, write, extra, limit, source } });
+		plans.push({ layer, plan: { input, write, extra, limit, source, coverageOnly } });
 	});
 
 	// Every mask's last version stays to the end (the Masks view shows it).
 	const final = new Map<string, MaskRef>();
 	for (const [mask, c] of current) {
-		final.set(mask, { mask, version: c.version, slot: -1, exact: c.exact });
+		final.set(mask, { mask, version: c.version, slot: -1, exact: c.exact, plain: c.plain });
 		lastRead.set(`${mask}#${c.version}`, Infinity);
 	}
 
@@ -408,6 +418,18 @@ export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 	for (const r of final.values()) fill(r);
 
 	return { layers: new Map(plans.map(({ layer, plan }) => [layer.id, plan])), slots, final };
+}
+
+/** Whether a layer's value is only a plain coverage where it sits (LayerMasks.coverageOnly). */
+export function coverageOnlyAt(p: Project, layerId: string): boolean {
+	const i = p.layers.findIndex((l) => l.id === layerId);
+	if (i < 0 || !getLayerDef(p.layers[i].type)?.coverageOnly) return false;
+	return planMasks(p, i).layers.get(layerId)?.coverageOnly ?? false;
+}
+
+/** Pattern sources (`value`) switched to Solid (`flat`): the changes, for a layer whose value is only a coverage. */
+export function solidSources(params: ParamValues): ParamValues {
+	return Object.fromEntries(SRC_KEYS.filter((k) => (params[k] ?? 'value') === 'value').map((k) => [k, 'flat']));
 }
 
 // ------------------------------------------------------------------------------------------------ material limits

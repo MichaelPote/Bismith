@@ -23,6 +23,7 @@ import { chipsLayer } from './chips';
 import { rockLayer } from './rock';
 import { stoneBlocksLayer } from './stoneBlocks';
 import { grassLayer } from './grass';
+import { bismuthLayer } from './bismuth';
 
 /** Every generator layer type, in add-menu order within each category. */
 export const GENERATORS: LayerDef[] = [
@@ -49,5 +50,6 @@ export const GENERATORS: LayerDef[] = [
 	chipsLayer,
 	rockLayer,
 	stoneBlocksLayer,
-	grassLayer
+	grassLayer,
+	bismuthLayer
 ];

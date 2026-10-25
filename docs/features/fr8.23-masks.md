@@ -345,6 +345,11 @@ Now one layer writes each output it is asked for to a mask of its own:
   layer limited to it fades with it. Soft writes never go into _Shape_ (`layerWrites`), even on an SDF layer.
 - **Use**: paint a duplicate's colour with a paint layer (noise, flat colour, Mask area) limited to the output's mask,
   after the writer. The group presets (FR8.3) are built this way.
+- **Coverage-only masks**: the plan marks a mask version `plain` when it holds a coverage and nothing more (a layer
+  without a shape wrote it, not an output's value). Mask area › Inside without Breakup on one has only that coverage
+  as its value (`LayerDef.coverageOnly`, `LayerMasks.coverageOnly`) — 1 but at the edges and where it thins — so when an
+  edit makes a layer start reading one, its Pattern sources switch to Solid (`setLayerParam`, `solidSources`); the
+  user can pick Pattern again for the faint profile there is. What such a layer writes is plain too.
 
 ## Phases
 

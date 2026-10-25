@@ -209,6 +209,11 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
 - `hval` — optional: a separate 0..1 value for Height › Pattern, shaped like the value (Wood: shallower grain in Height
   than in colour). Negative = use the value.
 
+Beside GenOut, a generator may set two globals for Diffuse: `gGenRgb`, a colour of its own in place of the ramp (Stamp's
+image), and `gGenAlt`, a second value and its weight that the ramp's colour blends toward (shaped like the value) — where
+two features of different ramp positions meet within a pixel, their two colours mix instead of the ramp passing through
+the colours between them (Bismuth's crystal walls).
+
 The common generator wrapper then:
 
 1. **Mask write.** A layer writes one **mask** by name (Mask › _Write to_, `mk_target`; shape layers default to the
@@ -281,7 +286,10 @@ relief and for paint (joints, scars, open gaps). **Mask area** (FR8.23) only sel
 (crevices, high spots, slopes, slopes facing a direction, a height range) or from a mask's features (inside each one
 with its own random, a gradient across each, a band at one side), with noise Breakup — to write a mask or paint. **Liquid
 splats** (FR8.24) throws blood, water or oil — torn cores, jets, droplets and mist, or poured pools — lying flat or
-running down in runs that end in a bead, its value the liquid's thickness (a flat top over a rounded meniscus).
+running down in runs that end in a bead, its value the liquid's thickness (a flat top over a rounded meniscus). **Bismuth**
+(FR8.25) grows hopper crystals — square frames, or isometric cube corners, stepping down in terraces to a hollow centre,
+with jogging corners, spirals, rim ridges and cores — a few generations deep and painted in depth order, coloured by an
+iridescent oxide ramp.
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
@@ -534,4 +542,5 @@ docs/
 | 8.22  | [Stone blocks (rock-faced ashlar)](features/fr8.22-stone-blocks.md)                          |
 | 8.23  | [One mask system and Mask area](features/fr8.23-masks.md)                                    |
 | 8.24  | [Liquid splats](features/fr8.24-liquid-splats.md)                                            |
+| 8.25  | [Bismuth (hopper crystals)](features/fr8.25-bismuth.md)                                      |
 | 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                         |

@@ -1,0 +1,262 @@
+{
+	"version": 1,
+	"name": "Hopper cube",
+	"width": 128,
+	"height": 128,
+	"tileable": true,
+	"heightDepth": 2,
+	"seed": 1,
+	"base": {
+		"color": "#26242b",
+		"roughness": 0.6,
+		"specular": 0.5,
+		"metalness": 0,
+		"height": 0,
+		"opacity": 1
+	},
+	"layers": [
+		{
+			"id": "ly_yizbo07",
+			"type": "bismuth",
+			"name": "Hopper cube",
+			"enabled": true,
+			"params": {
+				"habit": "cube",
+				"scale": 1,
+				"size": 0.95,
+				"size_var": 0,
+				"scatter": 0,
+				"angle": 0,
+				"angle_var": 0,
+				"rise_var": 0,
+				"lean": 0,
+				"core": 0.42,
+				"cores": 2,
+				"gens": 1,
+				"fill": 0.9,
+				"gen_h": 0.6,
+				"ground": false,
+				"terrace": 2.75,
+				"depth": 0.7,
+				"jog": 0.8,
+				"spiral": 0,
+				"irregular": 0.4,
+				"lip": 0.8,
+				"ridge": 1.2,
+				"soft": 0.6,
+				"slope": 0.6,
+				"col_ofs": 0.1,
+				"col_var": 0,
+				"col_step": 0.02,
+				"band": 0.3,
+				"sweep": 0.3,
+				"sweep_angle": 0,
+				"face_col": 0.285,
+				"core_col": 0.6,
+				"mottle": 0.08,
+				"seed": 1,
+				"bevel": 0,
+				"profile": "round",
+				"bevel_curve": {
+					"points": [
+						{
+							"x": 0,
+							"y": 0
+						},
+						{
+							"x": 0.15,
+							"y": 0.55
+						},
+						{
+							"x": 0.45,
+							"y": 0.82
+						},
+						{
+							"x": 1,
+							"y": 1
+						}
+					]
+				},
+				"bevel_aspect": 1,
+				"aa": true,
+				"soft_edge": 0,
+				"dilate": 0,
+				"ofs_x": 0,
+				"ofs_y": 0,
+				"dw_amount": 0,
+				"dw_scale": 4,
+				"sh_invert": false,
+				"sh_lo": 0,
+				"sh_hi": 1,
+				"sh_gamma": 1,
+				"sh_steps": 0,
+				"sh_cut": 0,
+				"sh_cut_soft": 0,
+				"phase": 0,
+				"opacity": 1,
+				"lim_1": "",
+				"lim_op2": "and",
+				"lim_2": "",
+				"lim_op3": "and",
+				"lim_3": "",
+				"lim_op4": "and",
+				"lim_4": "",
+				"lim_out": false,
+				"mk_target": "",
+				"mk_op": "replace",
+				"mk_smooth": 4,
+				"mk_feather": 0,
+				"m_hmode": "none",
+				"m_hlevel": 0.5,
+				"m_hsoft": 0.1,
+				"dif_on": true,
+				"dif_src": "value",
+				"dif_blend": "normal",
+				"dif_opacity": 1,
+				"dif_grad": {
+					"stops": [
+						{
+							"pos": 0,
+							"color": "#8f8898"
+						},
+						{
+							"pos": 0.14285714285714285,
+							"color": "#ffd27a"
+						},
+						{
+							"pos": 0.2857142857142857,
+							"color": "#f59aa8"
+						},
+						{
+							"pos": 0.42857142857142855,
+							"color": "#d77ad6"
+						},
+						{
+							"pos": 0.5714285714285714,
+							"color": "#8f6cf0"
+						},
+						{
+							"pos": 0.7142857142857143,
+							"color": "#4f7fe8"
+						},
+						{
+							"pos": 0.8571428571428571,
+							"color": "#6fd0f0"
+						},
+						{
+							"pos": 1,
+							"color": "#a8f0a0"
+						}
+					]
+				},
+				"dif_jitter": 0,
+				"op_on": false,
+				"op_mode": "replace",
+				"h_on": true,
+				"h_src": "value",
+				"h_mode": "add",
+				"h_amount": 2,
+				"h_offset": 0,
+				"h_var": 0,
+				"r_on": true,
+				"r_src": "flat",
+				"r_mode": "replace",
+				"r_a": 0.35,
+				"r_b": 0.2,
+				"r_opacity": 1,
+				"s_on": false,
+				"s_src": "value",
+				"s_mode": "replace",
+				"s_a": 0,
+				"s_b": 0.6,
+				"s_opacity": 1,
+				"mt_on": true,
+				"mt_src": "flat",
+				"mt_mode": "replace",
+				"mt_a": 0,
+				"mt_b": 1,
+				"mt_opacity": 1,
+				"e_on": false,
+				"e_src": "value",
+				"e_mode": "add",
+				"e_color": "#ff9019",
+				"e_intensity": 2
+			}
+		}
+	],
+	"lighting": {
+		"sky": {
+			"enabled": true,
+			"zenith": "#b8c8dc",
+			"horizon": "#d8d0c8",
+			"intensity": 0.9
+		},
+		"ambient": {
+			"color": "#ffffff",
+			"intensity": 0.01
+		},
+		"lights": [
+			{
+				"id": "lt_bikey01",
+				"type": "directional",
+				"name": "Key",
+				"enabled": true,
+				"params": {
+					"color": "#fff6ea",
+					"intensity": 1,
+					"azimuth": 315,
+					"elevation": 42,
+					"angle": 18
+				}
+			}
+		]
+	},
+	"render": {
+		"samplesPerFrame": 4,
+		"maxSamples": 256,
+		"bounces": 2,
+		"specular": 1,
+		"specularTint": 1,
+		"ao": 0.6,
+		"aoRadius": 6,
+		"jitter": true,
+		"clamp": 8,
+		"shadows": true,
+		"supersample": 1,
+		"exportSamples": 1024,
+		"exportSupersample": 2
+	},
+	"post": [
+		{
+			"id": "pf_sh00n0b",
+			"type": "glow",
+			"enabled": true,
+			"params": {
+				"threshold": 0.6,
+				"knee": 0.5,
+				"intensity": 1.5,
+				"radius": 0.7,
+				"levels": 6,
+				"tint": "#ffffff"
+			}
+		},
+		{
+			"id": "pf_fo5640c",
+			"type": "tonemap",
+			"enabled": true,
+			"params": {
+				"exposure": 0.3,
+				"operator": "aces",
+				"white": 4
+			}
+		}
+	],
+	"description": "One isometric bismuth hopper cube with a stack of cores, on its own (no ground)",
+	"preview": "data:image/webp;base64,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",
+	"preset": {
+		"id": "pr_bihcube",
+		"category": "Metal",
+		"kind": "layer",
+		"target": "bismuth"
+	}
+}
