@@ -527,18 +527,7 @@ export function computeFeatures(
 		alphaQ: opaque ? null : quantiles(alpha, 64),
 		wrap: Boolean(opts.wrap),
 		zPyramid: need('structure')
-			? pyramid.map((lv) => {
-					const Lp = lv.planes[0];
-					let m = 0;
-					for (let i = 0; i < Lp.length; i++) m += Lp[i];
-					m /= Lp.length;
-					let v = 0;
-					for (let i = 0; i < Lp.length; i++) v += (Lp[i] - m) ** 2;
-					const sd = Math.max(Math.sqrt(v / Lp.length), 0.02);
-					const z = new Float32Array(Lp.length);
-					for (let i = 0; i < Lp.length; i++) z[i] = (Lp[i] - m) / sd;
-					return { width: lv.width, height: lv.height, z };
-				})
+			? pyramid.map((lv) => ({ width: lv.width, height: lv.height, z: zScores(lv.planes[0]) }))
 			: []
 	};
 }
@@ -574,20 +563,68 @@ function spectrumDistance(a: Features, b: Features): number {
 const norm = (raw: number, scale: number) => (raw <= 0 ? 0 : raw / (raw + scale));
 
 /** Compare two feature sets computed at the same size. */
+/** Contrast-normalised lightness: z-scores (the spread floored, so a flat image doesn't blow up). */
+function zScores(L: Float32Array): Float32Array {
+	let m = 0;
+	for (let i = 0; i < L.length; i++) m += L[i];
+	m /= L.length;
+	let v = 0;
+	for (let i = 0; i < L.length; i++) v += (L[i] - m) ** 2;
+	const sd = Math.max(Math.sqrt(v / L.length), 0.02);
+	const z = new Float32Array(L.length);
+	for (let i = 0; i < L.length; i++) z[i] = (L[i] - m) / sd;
+	return z;
+}
+
+/** b's structure pyramids per circular shift: b is the reference, so the few shifts renders land on recur. */
+const shiftedZCache = new WeakMap<Features, Map<number, Float32Array[]>>();
+
+/**
+ * b's z pyramid with b circularly shifted by (dx, dy) px at full resolution, then reduced. Shifting a reduced level
+ * by round(d / 2^l) instead compares box averages of different pixels: the reference against itself moved by one
+ * pixel scored like an image with its rivets removed.
+ */
+function shiftedZPyramid(b: Features, dx: number, dy: number): Float32Array[] {
+	const levels = b.zPyramid.length;
+	if ((dx === 0 && dy === 0) || !levels) return b.zPyramid.map((lv) => lv.z);
+	const { width: w, height: h } = b;
+	const sx = ((dx % w) + w) % w;
+	const sy = ((dy % h) + h) % h;
+	const key = sy * w + sx;
+	let cache = shiftedZCache.get(b);
+	if (!cache) shiftedZCache.set(b, (cache = new Map()));
+	const hit = cache.get(key);
+	if (hit) return hit;
+	const L = b.pyramid[0].planes[0];
+	let lv: { data: Float32Array; width: number; height: number } = {
+		data: new Float32Array(w * h),
+		width: w,
+		height: h
+	};
+	for (let y = 0; y < h; y++) {
+		const row = ((y + sy) % h) * w;
+		for (let x = 0; x < w; x++) lv.data[y * w + x] = L[row + ((x + sx) % w)];
+	}
+	const out = [zScores(lv.data)];
+	while (out.length < levels) {
+		lv = boxDown(lv.data, lv.width, lv.height);
+		out.push(zScores(lv.data));
+	}
+	if (cache.size >= 64) cache.clear();
+	cache.set(key, out);
+	return out;
+}
+
 /** Mean |Δz| of contrast-normalised lightness over the pyramid with b circularly shifted by (dx, dy) px. */
 function shiftedZ(a: Features, b: Features, dx: number, dy: number): number {
 	let al = 0;
 	const levels = Math.min(a.zPyramid.length, b.zPyramid.length);
+	const zbs = shiftedZPyramid(b, dx, dy);
 	for (let l = 0; l < levels; l++) {
 		const { width: w, height: h, z: za } = a.zPyramid[l];
-		const zb = b.zPyramid[l].z;
-		const sx = Math.round(dx / 2 ** l);
-		const sy = Math.round(dy / 2 ** l);
+		const zb = zbs[l];
 		let sum = 0;
-		for (let y = 0; y < h; y++) {
-			const yb = (((y + sy) % h) + h) % h;
-			for (let x = 0; x < w; x++) sum += Math.abs(za[y * w + x] - zb[yb * w + ((((x + sx) % w) + w) % w)]);
-		}
+		for (let i = 0; i < w * h; i++) sum += Math.abs(za[i] - zb[i]);
 		al += sum / (w * h);
 	}
 	return levels ? al / levels : 0;

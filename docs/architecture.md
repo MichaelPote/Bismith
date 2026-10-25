@@ -493,60 +493,61 @@ docs/
 
 ## Feature index
 
-| ID    | Feature                                                                                      |
-| ----- | -------------------------------------------------------------------------------------------- |
-| 1.1   | [App shell & Cinderforge theme](features/fr1.1-app-shell.md)                                 |
-| 1.2   | [Project model, persistence & history](features/fr1.2-project-model.md)                      |
-| 1.3   | [GPU pipeline foundation](features/fr1.3-gpu-pipeline.md)                                    |
-| 2.1   | [Layer stack & channel outputs](features/fr2.1-layer-stack.md)                               |
-| 2.2   | [Noise layers](features/fr2.2-noise-layers.md)                                               |
-| 2.3   | [Shape layers (SDF)](features/fr2.3-shape-layers.md)                                         |
-| 2.4   | [Pattern layers: bricks, Voronoi, clouds…](features/fr2.4-pattern-layers.md)                 |
-| 2.5   | [Filter layers: blur, bevel, etch…](features/fr2.5-filter-layers.md)                         |
-| 2.6   | [Normal derivation](features/fr2.6-normal-derivation.md)                                     |
-| 3.1   | [Lighting](features/fr3.1-lighting.md)                                                       |
-| 3.2   | [Path tracer](features/fr3.2-path-tracer.md)                                                 |
-| 4.1   | [Post stack: glow, blur, tonemap…](features/fr4.1-post-stack.md)                             |
-| 4.2   | [8-bit palettisation & dithering](features/fr4.2-palettisation.md)                           |
-| 5.1   | [Viewport](features/fr5.1-viewport.md)                                                       |
-| 5.2   | [Outliner & properties](features/fr5.2-outliner-properties.md)                               |
-| 5.3   | [Export & project files](features/fr5.3-export.md)                                           |
-| 5.4   | [Presets: starters, layer / light / post presets](features/fr5.4-presets.md)                 |
-| 6.1   | [Similarity metrics](features/fr6.1-similarity-metrics.md)                                   |
-| 6.2   | [Headless render harness](features/fr6.2-headless-harness.md)                                |
-| 6.3   | [Reference-matching optimiser](features/fr6.3-optimizer.md)                                  |
-| 7.1   | [GPU harness (Windows headless Chrome)](features/fr7.1-gpu-harness.md)                       |
-| 7.2   | [Bespoke generators](features/fr7.2-bespoke-generators.md)                                   |
-| 7.3   | [Automatic emulation pipeline](features/fr7.3-emulation.md)                                  |
-| 7.4   | [Hand-authored recreations (studio)](features/fr7.4-hand-authoring.md)                       |
-| 7.5   | [Stamps, labels, paths & cables](features/fr7.5-stamps.md)                                   |
-| 7.6   | [Relief stack, specular channel, richer relief](features/fr7.6-relief-and-specular.md)       |
-| 7.7   | [Drips, weathering and relief/paint mixing](features/fr7.7-drips-and-weathering.md)          |
-| 7.8   | [Craft heuristics for the optimiser](features/fr7.8-optimizer-heuristics.md) (rules removed) |
-| 8.1   | [Texture term: VGG-19 Gram statistics](features/fr8.1-texture-metric.md)                     |
-| 8.2   | [Colour fitting](features/fr8.2-colour-fit.md)                                               |
-| 8.3   | [Groups and group presets (were smart materials)](features/fr8.3-groups.md)                  |
-| 8.4   | [Start from a reference: Suggest and Variations](features/fr8.4-from-reference.md)           |
-| 8.5   | [Shape editor](features/fr8.5-shape-editor.md)                                               |
-| 8.6   | [Material lumps (recipes tuned against references)](features/fr8.6-material-lumps.md)        |
-| 8.7   | [Supersampling](features/fr8.7-supersampling.md)                                             |
-| 8.8   | [Tabs & notches, Traces & mazes, slot ends, formwork](features/fr8.8-greebles-traces.md)     |
-| 8.9   | [Caustic light (refraction)](features/fr8.9-caustic-light.md)                                |
-| 8.10  | [Circuit routing (space-filling traces)](features/fr8.10-circuit-router.md)                  |
-| 8.11  | [Setts and pavers (fans, rings, bone, plus)](features/fr8.11-setts-pavers.md)                |
-| 8.12  | [Pipework and peeling paint](features/fr8.12-pipework-paint.md)                              |
-| 8.13  | [Named masks and cut-outs](features/fr8.13-named-masks.md) (superseded by 8.23)              |
-| 8.14  | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md)               |
-| 8.16  | [New project wizard and one add grid](features/fr8.16-new-project-wizard.md)                 |
-| 8.16a | [Instant wizard, project loading, export quality](features/fr8.16a-presets.md)               |
-| 8.17  | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md)              |
-| 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md)                             |
-| 8.19  | [Windows metric (local texture)](features/fr8.19-window-metric.md)                           |
-| 8.20  | [Project previews](features/fr8.20-project-previews.md)                                      |
-| 8.21  | [Grass](features/fr8.21-grass.md)                                                            |
-| 8.22  | [Stone blocks (rock-faced ashlar)](features/fr8.22-stone-blocks.md)                          |
-| 8.23  | [One mask system and Mask area](features/fr8.23-masks.md)                                    |
-| 8.24  | [Liquid splats](features/fr8.24-liquid-splats.md)                                            |
-| 8.25  | [Bismuth (hopper crystals)](features/fr8.25-bismuth.md)                                      |
-| 8.26  | [Crystal (faceted crystals)](features/fr8.26-crystal.md)                                     |
-| 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                         |
+| ID    | Feature                                                                                           |
+| ----- | ------------------------------------------------------------------------------------------------- |
+| 1.1   | [App shell & Cinderforge theme](features/fr1.1-app-shell.md)                                      |
+| 1.2   | [Project model, persistence & history](features/fr1.2-project-model.md)                           |
+| 1.3   | [GPU pipeline foundation](features/fr1.3-gpu-pipeline.md)                                         |
+| 2.1   | [Layer stack & channel outputs](features/fr2.1-layer-stack.md)                                    |
+| 2.2   | [Noise layers](features/fr2.2-noise-layers.md)                                                    |
+| 2.3   | [Shape layers (SDF)](features/fr2.3-shape-layers.md)                                              |
+| 2.4   | [Pattern layers: bricks, Voronoi, clouds…](features/fr2.4-pattern-layers.md)                      |
+| 2.5   | [Filter layers: blur, bevel, etch…](features/fr2.5-filter-layers.md)                              |
+| 2.6   | [Normal derivation](features/fr2.6-normal-derivation.md)                                          |
+| 3.1   | [Lighting](features/fr3.1-lighting.md)                                                            |
+| 3.2   | [Path tracer](features/fr3.2-path-tracer.md)                                                      |
+| 4.1   | [Post stack: glow, blur, tonemap…](features/fr4.1-post-stack.md)                                  |
+| 4.2   | [8-bit palettisation & dithering](features/fr4.2-palettisation.md)                                |
+| 5.1   | [Viewport](features/fr5.1-viewport.md)                                                            |
+| 5.2   | [Outliner & properties](features/fr5.2-outliner-properties.md)                                    |
+| 5.3   | [Export & project files](features/fr5.3-export.md)                                                |
+| 5.4   | [Presets: starters, layer / light / post presets](features/fr5.4-presets.md)                      |
+| 6.1   | [Similarity metrics](features/fr6.1-similarity-metrics.md)                                        |
+| 6.2   | [Headless render harness](features/fr6.2-headless-harness.md)                                     |
+| 6.3   | [Reference-matching optimiser](features/fr6.3-optimizer.md)                                       |
+| 7.1   | [GPU harness (Windows headless Chrome)](features/fr7.1-gpu-harness.md)                            |
+| 7.2   | [Bespoke generators](features/fr7.2-bespoke-generators.md)                                        |
+| 7.3   | [Automatic emulation pipeline](features/fr7.3-emulation.md)                                       |
+| 7.4   | [Hand-authored recreations (studio)](features/fr7.4-hand-authoring.md)                            |
+| 7.5   | [Stamps, labels, paths & cables](features/fr7.5-stamps.md)                                        |
+| 7.6   | [Relief stack, specular channel, richer relief](features/fr7.6-relief-and-specular.md)            |
+| 7.7   | [Drips, weathering and relief/paint mixing](features/fr7.7-drips-and-weathering.md)               |
+| 7.8   | [Craft heuristics for the optimiser](features/fr7.8-optimizer-heuristics.md) (rules removed)      |
+| 8.1   | [Texture term: VGG-19 Gram statistics](features/fr8.1-texture-metric.md)                          |
+| 8.2   | [Colour fitting](features/fr8.2-colour-fit.md)                                                    |
+| 8.3   | [Groups and group presets (were smart materials)](features/fr8.3-groups.md)                       |
+| 8.4   | [Start from a reference: Suggest and Variations](features/fr8.4-from-reference.md)                |
+| 8.5   | [Shape editor](features/fr8.5-shape-editor.md)                                                    |
+| 8.6   | [Material lumps (recipes tuned against references)](features/fr8.6-material-lumps.md)             |
+| 8.7   | [Supersampling](features/fr8.7-supersampling.md)                                                  |
+| 8.8   | [Tabs & notches, Traces & mazes, slot ends, formwork](features/fr8.8-greebles-traces.md)          |
+| 8.9   | [Caustic light (refraction)](features/fr8.9-caustic-light.md)                                     |
+| 8.10  | [Circuit routing (space-filling traces)](features/fr8.10-circuit-router.md)                       |
+| 8.11  | [Setts and pavers (fans, rings, bone, plus)](features/fr8.11-setts-pavers.md)                     |
+| 8.12  | [Pipework and peeling paint](features/fr8.12-pipework-paint.md)                                   |
+| 8.13  | [Named masks and cut-outs](features/fr8.13-named-masks.md) (superseded by 8.23)                   |
+| 8.14  | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md)                    |
+| 8.16  | [New project wizard and one add grid](features/fr8.16-new-project-wizard.md)                      |
+| 8.16a | [Instant wizard, project loading, export quality](features/fr8.16a-presets.md)                    |
+| 8.17  | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md)                   |
+| 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md)                                  |
+| 8.19  | [Windows metric (local texture)](features/fr8.19-window-metric.md)                                |
+| 8.20  | [Project previews](features/fr8.20-project-previews.md)                                           |
+| 8.21  | [Grass](features/fr8.21-grass.md)                                                                 |
+| 8.22  | [Stone blocks (rock-faced ashlar)](features/fr8.22-stone-blocks.md)                               |
+| 8.23  | [One mask system and Mask area](features/fr8.23-masks.md)                                         |
+| 8.24  | [Liquid splats](features/fr8.24-liquid-splats.md)                                                 |
+| 8.25  | [Bismuth (hopper crystals)](features/fr8.25-bismuth.md)                                           |
+| 8.26  | [Crystal (faceted crystals)](features/fr8.26-crystal.md)                                          |
+| 8.27  | [Laid-out references: true-shift structure, Bolts / Rivets](features/fr8.27-laid-out-matching.md) |
+| 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                              |

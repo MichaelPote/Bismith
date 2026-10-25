@@ -38,8 +38,9 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
   centre; the repeat loop visits every cell whose instance can reach the pixel (its extent + position jitter + the
   X / Y offset — at least the 3×3 around the pixel, capped at 25 cells per axis), in one flat loop with
   uniform-derived bounds. Shapes larger than their cells, long lines in a grid and big jitter are no longer cut off at
-  the neighbouring cells. Row offset and _Mirror alternate cells_ count rows / columns on the instance itself, so its
-  copies across a tiling edge match. Drop-out wraps the loop body in a test (no `continue`, which ANGLE can
+  the neighbouring cells. Row offset and _Mirror alternate columns_ / _rows_ (`rep_mirror_x`, `rep_mirror_y` — each
+  axis on its own, so a 2-column repeat can pair rivet lines along a plate's edges while its rows stay evenly spaced)
+  count rows / columns on the instance itself, so its copies across a tiling edge match. Drop-out wraps the loop body in a test (no `continue`, which ANGLE can
   miscompile). Each instance has a random of its own (Diffuse jitter, Per-feature variation), apart from its position
   jitter.
 - **Column / Row spacing** (`col_sp`, `row_sp`, −1 … 1, Repeat): the step between instances grows (or shrinks) by
@@ -98,7 +99,7 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
   - an outlined Sweep (an arc band);
   - every shape in a combined mask mode.
 
-- **Circle › Head** (`head`): the plain circle (the default, with Aspect, Sweep with _Cut from_ / _Bevel the cut_,
+- **Bolts / Rivets › Head** (`head`; type `circle`, labelled Circle / Bolt until 2026-10-25): the plain circle (the default, with Aspect, Sweep with _Cut from_ / _Bevel the cut_,
   Outline and the dome span), or one of the greebles' shared fastener heads (`grb_fastener`, FASTENER_HEADS in
   `greebleCommon.ts`).
   - The heads: dome, Allen bolt, hex head (both also sunk in a counterbore, _Counterbore depth_), slotted and cross

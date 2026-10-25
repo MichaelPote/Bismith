@@ -8,11 +8,29 @@
 	const W = computed(() => props.width ?? 320);
 	const H = computed(() => props.height ?? 96);
 
-	const range = computed(() => {
+	/**
+	 * At most two points per chart unit: a long run's thousands of steps would otherwise make a path that is rebuilt and
+	 * re-rasterised every step (an overnight run stalled the GPU of the whole desktop). The best loss only falls, so
+	 * sampling each bucket's last value keeps the curve's shape.
+	 */
+	const points = computed(() => {
 		const v = props.values;
+		const n = W.value * 2;
+		if (v.length <= n) return v;
+		const out: number[] = [];
+		for (let i = 0; i < n; i++) out.push(v[Math.round((i / (n - 1)) * (v.length - 1))]);
+		return out;
+	});
+
+	const range = computed(() => {
+		const v = points.value;
 		if (!v.length) return null;
-		const max = Math.max(...v);
-		const min = Math.min(...v);
+		let max = -Infinity;
+		let min = Infinity;
+		for (const y of v) {
+			if (y > max) max = y;
+			if (y < min) min = y;
+		}
 		const span = props.minSpan ?? 0.2;
 		if (max - min >= span) return { max, min };
 		// Hang the span from the top (the start of a run); keep it above 0 for losses below the span.
@@ -20,7 +38,7 @@
 	});
 
 	const path = computed(() => {
-		const v = props.values;
+		const v = points.value;
 		const r = range.value;
 		if (v.length < 2 || !r) return '';
 		const span = r.max - r.min || 1;

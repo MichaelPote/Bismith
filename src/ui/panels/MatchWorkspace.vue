@@ -115,7 +115,8 @@
 	const optimizer = shallowRef<Optimizer | null>(null);
 	/** The matcher the current optimiser scores with (its GPU texture statistics are freed on reset). */
 	let runMatcher: Matcher | null = null;
-	const curve = ref<number[]>([]);
+	// Shallow: a long run has tens of thousands of points, which a deep ref would proxy one by one.
+	const curve = shallowRef<number[]>([]);
 	const lastInfo = shallowRef<StepInfo | null>(null);
 	const log = ref<string[]>([]);
 	/** The score of what the middle pane shows. */

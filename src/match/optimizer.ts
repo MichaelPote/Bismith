@@ -933,6 +933,9 @@ export interface OptimizerOptions {
 	space?: SpaceOptions;
 }
 
+/** Steps of StepInfo an optimiser keeps (Optimizer.history). */
+export const HISTORY_STEPS = 2000;
+
 export interface StepInfo {
 	/** 1-based step number. */
 	step: number;
@@ -1116,6 +1119,7 @@ export class Optimizer {
 		maxLayers: number;
 		target: MatchImage | null;
 	};
+	/** The last HISTORY_STEPS steps (a run left overnight takes tens of thousands, and checkpoints carry them). */
 	readonly history: StepInfo[] = [];
 	evaluations = 0;
 	initialLoss: number | null = null;
@@ -1245,7 +1249,7 @@ export class Optimizer {
 		return { project: JSON.parse(JSON.stringify(this.parent.project)), loss: this.parent.loss };
 	}
 
-	/** Best loss per step, for plotting. */
+	/** Best loss per step, for plotting (the last HISTORY_STEPS). */
 	get lossCurve(): number[] {
 		return this.history.map((h) => h.bestLoss);
 	}
@@ -1432,7 +1436,7 @@ export class Optimizer {
 		this.moveStats = new Map(s.moveStats.map(([k, v]) => [k, { ...v }]));
 		this.inserted = new Set(s.inserted);
 		this.history.length = 0;
-		this.history.push(...s.history);
+		this.history.push(...s.history.slice(-HISTORY_STEPS));
 	}
 
 	/** Evaluate the starting project (called automatically by the first step()). */
@@ -1592,6 +1596,7 @@ export class Optimizer {
 			ms: performance.now() - t0
 		};
 		this.history.push(info);
+		if (this.history.length > HISTORY_STEPS) this.history.splice(0, this.history.length - HISTORY_STEPS);
 		return info;
 	}
 

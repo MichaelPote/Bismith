@@ -57,7 +57,8 @@ describe('shape layers', () => {
 				'rep_flip',
 				'rep_scale',
 				'rep_drop',
-				'rep_mirror',
+				'rep_mirror_x',
+				'rep_mirror_y',
 				'seed'
 			]) {
 				expect(keys, def.type).toContain(k);

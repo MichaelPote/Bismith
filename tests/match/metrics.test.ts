@@ -266,6 +266,19 @@ describe('metrics', () => {
 		expect(score(shifted, tex, { preset: 'layout' }).total).toBeGreaterThan(0.2);
 	});
 
+	it('finds the structure at any wrap-around shift, odd ones included', () => {
+		// Coarse levels used to shift by round(d / 2^l): a 1 px move compared box averages of different pixels.
+		for (const [dx, dy] of [
+			[1, 0],
+			[0, 1],
+			[1, 1],
+			[17, 9]
+		]) {
+			const r = score(circularShift(tex, dx, dy), tex, { preset: 'tile', wrap: true });
+			expect(r.raw.structure, `${dx},${dy}`).toBeLessThan(1e-5);
+		}
+	});
+
 	it('ranks a different realisation of the same texture closer than a different texture', () => {
 		const same = score(testTexture(64, 64, 2), tex).total;
 		const other = score(testPanel(), tex).total;

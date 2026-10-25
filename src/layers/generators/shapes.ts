@@ -108,9 +108,13 @@ const REPEAT: ParamDef[] = [
 		group: 'repeat',
 		hint: 'Fraction of instances removed at random'
 	}),
-	P.bool('rep_mirror', 'Mirror alternate cells', false, {
+	P.bool('rep_mirror_x', 'Mirror alternate columns', false, {
 		group: 'repeat',
-		hint: 'Mirror the position in odd columns/rows — e.g. 2×2 puts one instance in each corner'
+		hint: 'Mirror the position left / right in odd columns — e.g. 2 columns put a pair of instances near the outer edges, or a rivet line along both edges of a plate'
+	}),
+	P.bool('rep_mirror_y', 'Mirror alternate rows', false, {
+		group: 'repeat',
+		hint: 'Mirror the position up / down in odd rows — with Mirror alternate columns, 2×2 puts one instance in each corner'
 	}),
 	P.seed()
 ];
@@ -202,10 +206,8 @@ GenOut gen(vec2 p) {
       vec3 h = hash3I(cw, uSeed);
       float rnd = hashI(cw, uSeed + 7.0);   // the instance's own random (Diffuse jitter, Per-feature variation), apart from its jitter
       vec2 off = off0;
-      if (u_rep_mirror) {
-        if (imod(cw.x, 2) == 1) off.x = -off.x;
-        if (imod(rowFromTop, 2) == 1) off.y = -off.y;
-      }
+      if (u_rep_mirror_x && imod(cw.x, 2) == 1) off.x = -off.x;
+      if (u_rep_mirror_y && imod(rowFromTop, 2) == 1) off.y = -off.y;
       centre += off * pitch + (h.xy - 0.5) * 2.0 * u_rep_jitter;
       float s = 1.0 - h.z * u_rep_scale;
       float jr = (hashI(cw, uSeed + 5.0) - 0.5) * 2.0 * u_rep_rot;
@@ -471,12 +473,12 @@ float shapeDome(vec2 q, vec2 cell) {
 `
 });
 
-/** Circle / Bolt: the plain circle (the default) rather than a fastener head. */
+/** Bolts / Rivets: the plain circle (the default) rather than a fastener head. */
 const circleHead = (p: ParamValues) => (p.head ?? 'circle') === 'circle';
 
 export const circleLayer = shape({
 	type: 'circle',
-	label: 'Circle / Bolt',
+	label: 'Bolts / Rivets',
 	description:
 		'Circles, ellipses and (with an outline) rings; Sweep keeps a sector — pie slices, arcs, gauges. Or a fastener head — dome, Allen bolt, hex head, screws, a screw hole. Rivets, bolts, gems, domes, dials.',
 	params: [
