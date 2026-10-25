@@ -1,8 +1,8 @@
 # FR8.27 — Laid-out references: a true-shift structure term, Bolts / Rivets, long runs
 
 **Status:** done (2026-10-26) — the structure term compares every pyramid level at the true shift; Circle / Bolt is
-**Bolts / Rivets** with the repeat's mirror split per axis; the Match workspace no longer grows per step. A _motifs_ term
-was built and benchmarked but not adopted (below).
+**Bolts / Rivets** with the repeat's mirror split per axis; the Match workspace no longer grows per step; an opt-in
+**Tile + motifs** metric (`src/match/motifs.ts`) holds a laid-out reference's rivets, bolts and studs.
 
 ## Problem
 
@@ -66,19 +66,49 @@ worktree; both arms have the mirror split. Judged under the Texture and Windows 
 
 Neutral on the benchmark; it fixes the failure above.
 
-## Motifs term (tried, not adopted)
+## Tile + motifs (opt-in)
 
-A term for the reference's small laid-out blobs (rivets, bolts, studs): extrema of a difference of Gaussians with a
-Hessian edge-ratio test, each reference blob looking for the render's same-sign response within ±3 px at the best
-wrap-around shift (log cost, too-strong answers capped at ½), plus a reverse part for render blobs the reference lacks,
-the render's band-pass normalised to the reference's median level, and a weight scaled by how laid out the reference is
-(the blob pattern's best self-repeat away from no shift: rock, wood, city wall, marble, lava, pipes, water → 0; brick
-wall 0.05; bolted plate 0.66; grate 0.87; tiles 0.98; diamond plate, paving, stripes, riveted plates → 1).
+Preset `tilemotif`, _Metric → Tile + motifs (rivets, bolts)_ in the Match workspace: Tile + windows plus a **motifs**
+term at weight 4. Never picked automatically; every other preset weighs it 0 and doesn't compute it (their scores are
+bit-identical with and without the term). Meant for someone who has set the project up by hand so it already makes
+the reference's motif roughly right, and wants the search to finish the material without trading the motif away.
 
-On the riveted plates it did what it was for: shrinking the oversized rivets to the reference's size became the best
-move (0.416 against 0.444 for keeping them and 0.479–0.499 for deleting or squashing them), and the 3000-step run kept
-cleaner, evenly placed rivets (0.444 → 0.306). On the benchmark, the pairs it weighs got worse under Texture and Windows
-(+0.034 ± 0.018 / +0.026 ± 0.023 over 18 paired runs; with the forward part only, +0.022 ± 0.012 / +0.016 ± 0.015
-over 22): where the start project can't make the motif at all (a plain metal start for a bolted plate, a blank
-start for paving or diamond plate), it pulls the search away from blob-like stand-ins the statistical terms reward. The
-implementation and its calibration are kept with the private benchmark files.
+The term (`src/match/motifs.ts`), at the comparison size, on OKLab L:
+
+- **Blobs:** a difference of Gaussians (σ 0.8 − 2 px), extrema of either sign above 0.4 × the reference's 99th
+  percentile |response|; a ridge (seam, plate edge) is dropped by the Hessian edge-ratio test (ratio 6). Each blob
+  weighs min(1, amp / p99)², so the motif's strong blobs outweigh the speckle's.
+- **Normalised to the texture:** the render's response is scaled by (reference median |response|) / (render median) —
+  its speckle level, which a few rivets don't move — so a render whose grain is twice as contrasty doesn't have every
+  blob charged twice (contrast is the other terms' job).
+- **Shift:** the wrap-around shift where the 64 strongest reference blobs best meet the render's response (the
+  cheapest of the top three); none for non-tileable projects.
+- **Forward:** each reference blob takes the render's strongest same-sign response within ±3 px of its place, falling
+  off with distance (σ 1.5 px). Cost 0 at the right strength, 1 at a quarter of it or less (speckle nearby — the blob
+  is missing), log-linear between; a too-strong answer costs at half the slope, at most ½.
+- **Reverse:** the render's own blobs, phased in by amplitude, charged only for _absence_ in the reference, never for
+  being bolder than it.
+- **raw** = ½ forward + ½ reverse, already 0..1.
+- **Layout gate:** the reference's blob pattern correlated with itself at every shift outside ±3 px; the best repeat
+  relative to no shift, r, gives `layout = clamp((r − 0.45) / 0.3, 0, 1)`, and the term's weight is 4 × layout. On the
+  benchmark references: rock, wood, city wall, marble, lava, pipes, water and photo planks → 0 (the preset is then
+  Tile + windows); brick wall 0.05; bolted plate 0.66; grate 0.87; tiles 0.98; diamond plate, paving, warning stripes
+  and riveted plates → 1. ≈2–3 ms per evaluation at 64².
+
+Calibration on edits of the riveted-plate reference (raw): rebuilt 0.067; speckle re-seeded 0.16; rivets moved 1 px
+0.15; rivets 2× bolder / bigger 0.18 / 0.15; rivets removed / faint 0.37 / 0.35; alternate rows offset 0.31; columns
+evenly spaced instead of paired at the edges 0.34. From the start project, shrinking the oversized rivets to the
+reference's size became the best move (total 0.416, against 0.444 to keep them and 0.479 / 0.499 to delete or squash
+them), and a 3000-step run kept clean, evenly placed rivets (0.444 → 0.306; Tile + windows with the structure fix:
+0.444 → 0.335, smaller rivets, slightly jittered rows).
+
+**Why it isn't a default.** With the term inside Tile + windows (the setup under Benchmark), the laid-out pairs got worse under
+Texture and Windows (+0.034 ± 0.018 / +0.026 ± 0.023 over 18 paired runs; with the forward part only, +0.022 ± 0.012 /
++0.016 ± 0.015 over 22): where the start project can't make the motif at all (a plain metal start for a bolted plate, a
+blank start for paving or diamond plate), it steers the search away from the blob-like stand-ins the statistical terms
+reward. Where the start has the motif (rivets, a grate, tiles) it held it.
+
+Tried and dropped while building it: a hard keypoint chamfer (jumped when a blob crossed the threshold; seams made
+strings of extrema); a symmetric log cost with a ±2 px / σ 1 px reach (oversized rivets 1.5 px off scored as badly as
+none, and the first run squashed them away); normalising by the 99th percentile (the rivets set it, so deleting them
+boosted the speckle and hid their absence).

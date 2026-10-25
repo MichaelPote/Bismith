@@ -18,9 +18,12 @@
 //              shift-invariant texture similarity; GPU only, counts when a TextureScorer is attached
 //   windows    local texture: windows of render and reference (at up to 512 px) matched to their nearest
 //              neighbours both ways (windows.ts) — fine detail counts, where the layout lands doesn't
+//   motifs     the reference's small blobs (rivets, bolts, studs) matched in place at the best wrap-around shift, both
+//              ways (motifs.ts); its weight scales with how laid out the reference is (0 on stone, wood, grass)
 // Total = Σ wᵢ·termᵢ / Σ wᵢ over the applicable terms. Presets: 'texture' (aligned weight 0, stochastic
 // textures), 'layout' (aligned weight high, for UI elements / laid-out targets), 'tile' (structure at the best
-// wrap-around shift), 'windows' (global colour + local texture; the layout is free) and 'tilewin' (tile + windows).
+// wrap-around shift), 'windows' (global colour + local texture; the layout is free), 'tilewin' (tile + windows) and
+// 'tilemotif' (tile + windows + motifs: for a laid-out reference and a start that already has its motif).
 
 import {
 	fitSize,
@@ -37,6 +40,7 @@ import {
 import { powerSpectrum2d } from './fft';
 import { quantiles } from './quantiles';
 import type { TextureScorer } from './vgg';
+import { motifDistance, motifPlane, motifTarget, type MotifPlane, type MotifTarget } from './motifs';
 import {
 	compareWindows,
 	windowBank,
@@ -59,6 +63,7 @@ export type TermName =
 	| 'structure'
 	| 'texture'
 	| 'windows'
+	| 'motifs'
 	| 'alpha';
 export const TERM_NAMES: TermName[] = [
 	'colour',
@@ -69,11 +74,12 @@ export const TERM_NAMES: TermName[] = [
 	'structure',
 	'texture',
 	'windows',
+	'motifs',
 	'alpha'
 ];
 
 export type MetricWeights = Record<TermName, number>;
-export type MetricPreset = 'texture' | 'layout' | 'tile' | 'windows' | 'tilewin';
+export type MetricPreset = 'texture' | 'layout' | 'tile' | 'windows' | 'tilewin' | 'tilemotif';
 
 export const METRIC_PRESETS: Record<MetricPreset, MetricWeights> = {
 	texture: {
@@ -85,6 +91,7 @@ export const METRIC_PRESETS: Record<MetricPreset, MetricWeights> = {
 		structure: 0,
 		texture: 2,
 		windows: 0,
+		motifs: 0,
 		alpha: 0.5
 	},
 	layout: {
@@ -96,6 +103,7 @@ export const METRIC_PRESETS: Record<MetricPreset, MetricWeights> = {
 		structure: 0,
 		texture: 0,
 		windows: 0,
+		motifs: 0,
 		alpha: 0.5
 	},
 	/**
@@ -111,6 +119,7 @@ export const METRIC_PRESETS: Record<MetricPreset, MetricWeights> = {
 		structure: 2,
 		texture: 3,
 		windows: 0,
+		motifs: 0,
 		alpha: 0.5
 	},
 	/**
@@ -128,6 +137,7 @@ export const METRIC_PRESETS: Record<MetricPreset, MetricWeights> = {
 		structure: 0,
 		texture: 1,
 		windows: 4,
+		motifs: 0,
 		alpha: 0.5
 	},
 	/**
@@ -143,6 +153,25 @@ export const METRIC_PRESETS: Record<MetricPreset, MetricWeights> = {
 		structure: 2,
 		texture: 3,
 		windows: 3,
+		motifs: 0,
+		alpha: 0.5
+	},
+	/**
+	 * Tile + windows plus the motifs term (FR8.27): the reference's rivets, bolts and studs held in place and at their
+	 * strength. For a laid-out reference and a start project that can already make its motif — set it up by hand first.
+	 * Not a default: where the start can't make the motif, it steers away from the blob-like stand-ins the other
+	 * terms reward (benchmarked worse there).
+	 */
+	tilemotif: {
+		colour: 1.25,
+		spectrum: 0.5,
+		gradients: 0.35,
+		contrast: 0.5,
+		aligned: 0,
+		structure: 2,
+		texture: 3,
+		windows: 3,
+		motifs: 4,
 		alpha: 0.5
 	}
 };
@@ -156,6 +185,7 @@ export const TERM_LABELS: Record<TermName, string> = {
 	structure: 'Structure (best shift)',
 	texture: 'Texture (VGG statistics)',
 	windows: 'Local texture (windows)',
+	motifs: 'Motifs (laid-out features)',
 	alpha: 'Alpha'
 };
 
@@ -169,6 +199,7 @@ export const TERM_SCALES: Record<TermName, number> = {
 	structure: 0.6, // mean |Δz| of normalised lightness at the best circular shift (≈0 identical, ≈1.1 unrelated)
 	texture: 0.15, // mean relative Gram distance (right family untuned ≈ 0.14, wrong family ≈ 0.27, tuned ≈ 0.1)
 	windows: 1, // unused: the raw value is already 0..1 (mean nearest-neighbour distance) and is reported as it is
+	motifs: 1, // unused: the raw value is already 0..1 (mean blob cost) and is reported as it is
 	alpha: 0.1 // alpha units
 };
 
@@ -242,6 +273,8 @@ export interface Features {
 	wrap: boolean;
 	/** Contrast-normalised lightness (z-scores) at 1, ½, ¼ scale for the structure term. */
 	zPyramid: { width: number; height: number; z: Float32Array }[];
+	/** Band-pass lightness for the motifs term (null unless it weighs). */
+	motif: MotifPlane | null;
 }
 
 const COLOUR_DIRECTIONS = makeDirections(32);
@@ -458,7 +491,10 @@ function localStd(L: Float32Array, w: number, h: number, wrap: boolean): Float32
  */
 export function computeFeatures(
 	img: MatchImage,
-	opts: Pick<MetricOptions, 'wrap' | 'window' | 'background'> = {},
+	opts: Pick<MetricOptions, 'wrap' | 'window' | 'background'> & {
+		/** Compute the motifs term's plane without `weights` (it isn't made unless asked: only one preset uses it). */
+		motifs?: boolean;
+	} = {},
 	weights?: MetricWeights
 ): Features {
 	const lab: LabPlanes = toOklab(img, opts.background);
@@ -528,7 +564,8 @@ export function computeFeatures(
 		wrap: Boolean(opts.wrap),
 		zPyramid: need('structure')
 			? pyramid.map((lv) => ({ width: lv.width, height: lv.height, z: zScores(lv.planes[0]) }))
-			: []
+			: [],
+		motif: (weights ? (weights.motifs ?? 0) > 0 : opts.motifs) ? motifPlane(L, w, h, wrap) : null
 	};
 }
 
@@ -574,6 +611,16 @@ function zScores(L: Float32Array): Float32Array {
 	const z = new Float32Array(L.length);
 	for (let i = 0; i < L.length; i++) z[i] = (L[i] - m) / sd;
 	return z;
+}
+
+/** The reference side of the motifs term (its blobs and layout), made once per reference. */
+const motifTargets = new WeakMap<Features, MotifTarget>();
+
+function motifTargetOf(b: Features): MotifTarget | null {
+	if (!b.motif) return null;
+	let t = motifTargets.get(b);
+	if (!t) motifTargets.set(b, (t = motifTarget(b.motif)));
+	return t;
 }
 
 /** b's structure pyramids per circular shift: b is the reference, so the few shifts renders land on recur. */
@@ -699,6 +746,11 @@ export function compareFeatures(
 
 	raw.structure = weights.structure > 0 && a.zPyramid.length ? structureDistance(a, b) : 0;
 
+	// Motifs count as far as the reference is laid out (b is the reference).
+	const motifs = (weights.motifs ?? 0) > 0 && a.motif ? motifTargetOf(b) : null;
+	const motifWeight = motifs ? (weights.motifs ?? 0) * motifs.layout : 0;
+	raw.motifs = motifs && motifWeight > 0 ? motifDistance(a.motif!, motifs) : 0;
+
 	let al = 0;
 	const plevels = Math.min(a.pyramid.length, b.pyramid.length);
 	for (let l = 0; l < plevels; l++) {
@@ -726,13 +778,14 @@ export function compareFeatures(
 		...weights,
 		alpha: hasAlpha ? weights.alpha : 0,
 		texture: extra.texture !== undefined ? (weights.texture ?? 0) : 0,
-		windows: extra.windows !== undefined ? (weights.windows ?? 0) : 0
+		windows: extra.windows !== undefined ? (weights.windows ?? 0) : 0,
+		motifs: motifWeight
 	};
 	const terms = {} as Record<TermName, number>;
 	let total = 0;
 	let wsum = 0;
 	for (const t of TERM_NAMES) {
-		terms[t] = t === 'windows' ? Math.min(1, raw[t]) : norm(raw[t], TERM_SCALES[t]);
+		terms[t] = t === 'windows' || t === 'motifs' ? Math.min(1, raw[t]) : norm(raw[t], TERM_SCALES[t]);
 		const wt = Math.max(0, used[t] ?? 0);
 		total += wt * terms[t];
 		wsum += wt;
@@ -775,7 +828,11 @@ export class Matcher {
 		[this.width, this.height] = comparisonSize(target, opts);
 		this.target = resample(target, this.width, this.height);
 		this.weights = resolveWeights(opts);
-		this.targetFeatures = computeFeatures(this.target, opts, opts.weightedOnly ? this.weights : undefined);
+		this.targetFeatures = computeFeatures(
+			this.target,
+			{ ...opts, motifs: (this.weights.motifs ?? 0) > 0 },
+			opts.weightedOnly ? this.weights : undefined
+		);
 		if ((this.weights.windows ?? 0) > 0) {
 			const [w, h] = comparisonSize(target, { size: opts.size, maxSize: opts.windowMaxSize ?? 512 });
 			this.windowTarget = windowBank(resample(target, w, h), {
@@ -864,7 +921,11 @@ export class Matcher {
 	private scoreFit(fit: MatchImage, windows: () => number | null | undefined): MetricResult {
 		const texture = this.texture && (this.weights.texture ?? 0) > 0 ? this.texture.submit(fit) : undefined;
 		const w = windows() ?? undefined;
-		const features = computeFeatures(fit, this.opts, this.opts.weightedOnly ? this.weights : undefined);
+		const features = computeFeatures(
+			fit,
+			{ ...this.opts, motifs: (this.weights.motifs ?? 0) > 0 },
+			this.opts.weightedOnly ? this.weights : undefined
+		);
 		return compareFeatures(features, this.targetFeatures, this.weights, { texture: texture?.(), windows: w });
 	}
 }

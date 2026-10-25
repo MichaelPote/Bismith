@@ -202,7 +202,8 @@
 		{ value: 'windows', label: 'Windows (local texture)' },
 		{ value: 'tile', label: 'Tile (structure at best shift)' },
 		{ value: 'texture', label: 'Texture (statistics)' },
-		{ value: 'layout', label: 'Layout (+ pixel aligned)' }
+		{ value: 'layout', label: 'Layout (+ pixel aligned)' },
+		{ value: 'tilemotif', label: 'Tile + motifs (rivets, bolts)' }
 	];
 	/** The settings' tooltips: what each one is, and why you would change it. */
 	const TIPS: Record<string, Tip> = {
@@ -214,7 +215,11 @@
 				['Windows', "compares local patches. Use it when the layout doesn't matter, as with planks, stone or grass."],
 				['Tile', 'compares the structure, allowing a shift. Use it for regular repeating patterns.'],
 				['Texture', 'compares overall statistics: colour, frequency and edges. Use it for noisy, random textures.'],
-				['Layout', 'also compares where things are. Use it for images such as UI elements, where position matters.']
+				['Layout', 'also compares where things are. Use it for images such as UI elements, where position matters.'],
+				[
+					'Tile + motifs',
+					"Tile + windows, and also holds small laid-out features such as rivets, bolts and studs in their places and at their strength. Set the project up by hand first so it already has those features roughly right: where it can't make them at all, this metric does worse than Tile + windows. It counts only as far as the reference's features repeat in a pattern."
+				]
 			]
 		},
 		window: {
@@ -1214,7 +1219,7 @@
 						label="Metric preset"
 						@update:model-value="metricChanged" />
 				</div>
-				<div v-if="preset === 'windows' || preset === 'tilewin'" class="row">
+				<div v-if="preset === 'windows' || preset === 'tilewin' || preset === 'tilemotif'" class="row">
 					<span v-tip:right="TIPS.window" class="lbl">Window</span>
 					<SelectField
 						v-model="windowDiv"

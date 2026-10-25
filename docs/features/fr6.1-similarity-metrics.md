@@ -54,11 +54,12 @@ background (default mid grey) and keeps alpha separately. `absDiff(a, b, gain)` 
 | aligned   | Mean over 1, ½, ¼ scale of per-pixel OKLab ΔE + \|Δα\|. The only position-sensitive term.                                                                                                                                                                                                                                                                                                                                                    | 0.06  |
 | alpha     | W1 between alpha distributions; only counted when either image has transparency (else its weight is 0).                                                                                                                                                                                                                                                                                                                                      | 0.1   |
 | windows   | Local texture at up to 512 px: windows of render and reference matched to their nearest neighbours both ways ([FR8.19](fr8.19-window-metric.md)); already 0..1, reported as it is. Counts only in the Windows preset.                                                                                                                                                                                                                        | —     |
+| motifs    | The reference's small blobs (rivets, bolts, studs) matched in place at the best wrap-around shift, both ways ([FR8.27](fr8.27-laid-out-matching.md)); already 0..1, weighted by how laid out the reference is. Only in the Tile + motifs preset.                                                                                                                                                                                             | —     |
 
 `total = Σ wᵢ·termᵢ / Σ wᵢ`. Presets (`METRIC_PRESETS`): **texture** colour 2, spectrum 1, gradients 1,
 contrast 1, aligned 0, alpha 0.5; **layout** colour 1, spectrum 0.25, gradients 0.5, contrast 0.25, aligned 3,
 alpha 0.5; **windows** colour 1, texture 1, windows 4, alpha 0.5; **tilewin** Tile's weights + windows 3 (FR8.19; _tile_ and the VGG _texture_ term are in FR6.3 / FR8.1; the structure
-term compares every level at the true shift, FR8.27).
+term compares every level at the true shift, FR8.27); **tilemotif** tilewin's weights + motifs 4 (FR8.27, opt-in).
 `MetricOptions.weights` overrides single terms.
 
 **API.**

@@ -54,7 +54,7 @@ tone and coarse texture from drifting (_Results_).
 **Preset `tilewin`:** Tile's weights plus windows 3 — Tile's structure term keeps the layout of a laid-out game texture,
 the windows term gives a big reference's fine detail a say.
 
-**Match workspace.** _Metric → Tile + windows · Windows (local texture) · Tile · Texture · Layout_, with _Window_ Fine
+**Match workspace.** _Metric → Tile + windows · Windows (local texture) · Tile · Texture · Layout · Tile + motifs (FR8.27)_, with _Window_ Fine
 (1/16) · Medium (1/8) · Coarse (1/4) for the two with windows. A loaded reference picks the metric by its size —
 Windows from 256 px on the long side, Tile + windows below (small game textures, where the layout counts too, see
 _Results_) — until a metric is picked by hand. The
