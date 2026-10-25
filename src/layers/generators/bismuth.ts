@@ -16,7 +16,8 @@
 // behind by its coverage.
 //
 // A crystal is a square (Habit › Hopper squares) or a cube standing on its corner (Habit › Cube corners: a hexagon
-// whose three rhombic faces slope away from the corner, as an isometric cube looks). Each face is one of the templates
+// whose three rhombic faces slope away from the corner, as an isometric cube looks), and a stepped pyramid: its top
+// face (Top face of its width) is the hopper, its sides fall to the base in Side ledges. Each top face is one of the templates
 // grown on the CPU by rules (bismuthGrowth.ts: a path through a grid of cells, a terrace wide, whose straight runs — the
 // facets — each step a level lower; walls where the path doesn't join), picked by the face's hash and read in its
 // frame: the cell's height stepping to joined neighbours over the softness, ribs on the walls and posts where walls
@@ -163,21 +164,32 @@ export const bismuthLayer: LayerDef = {
 			section: 'Crystals',
 			hint: 'Cover the ground between the crystals (bare metal at height 0); off, only the crystals cover and the layers below show between them'
 		}),
+		P.float('top', 'Top face', 0.55, 0.05, 1, {
+			step: 0.001,
+			section: 'Terraces',
+			hint: 'The share of a crystal’s width that is its top face — the hopper, sunk in its grown terraces; the rest slopes down to the base as side faces in ledges, a stepped pyramid. 1 = a flat-topped block (deep relief shows the sides best: raise Height › Amount or the project’s height depth)'
+		}),
+		P.int('ledges', 'Side ledges', 5, 1, 24, {
+			section: 'Terraces',
+			showIf: (p) => Number(p.top) < 1,
+			hint: 'Ledges the side faces step down in, from the top face to the base'
+		}),
 		P.int('terraces', 'Terraces', 10, 2, 24, {
 			section: 'Terraces',
-			hint: 'Terraces from a crystal’s rim to its hollow, whatever its size: each face is grown as a path through a grid twice this many cells across'
+			hint: 'Terraces from the top face’s rim to its hollow, whatever its size: each face is grown as a path through a grid twice this many cells across'
 		}),
-		P.float('depth', 'Hopper depth', 0.7, 0, 1, {
+		P.float('depth', 'Hopper depth', 0.35, 0, 1, {
 			step: 0.001,
 			section: 'Terraces',
 			hint: 'How far the terraces step down to the hollow, as a share of the crystal’s height: 0 = flat-topped crystals'
 		}),
-		P.float('turns', 'Turns', 0.03, 0, 1, {
+		P.float('turns', 'Turns', 0.08, 0, 1, {
+			softMax: 0.3,
 			step: 0.001,
 			section: 'Terraces',
 			// Read by the growth on the CPU only.
 			uniform: false,
-			hint: 'How readily a growing terrace leaves its ring (inward mostly, at a third of that outward) instead of running on along it: the hooks, Greek keys and dead ends. 0 = closed frames spiralling in'
+			hint: 'How readily a growing terrace in the inner rings leaves its ring (inward mostly, at a third of that outward) instead of running on along it: the hooks, Greek keys and dead ends round the hollow; the outer frames stay closed. 0 = a plain spiral staircase; above about 0.3 a maze'
 		}),
 		P.float('branch', 'Branching', 0.02, 0, 1, {
 			step: 0.001,
@@ -239,10 +251,11 @@ export const bismuthLayer: LayerDef = {
 			section: 'Colour',
 			hint: 'How far along the ramp each lap of the terraces moves from the next (1 = the whole ramp): the oxide is thicker on the older, outer steps; below 0 the hollows are further along'
 		}),
-		P.float('band', 'Terrace colours', 0.4, 0, 1, {
+		P.float('band', 'Terrace colours', 0.08, 0, 1, {
+			softMax: 0.5,
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Each facet shifted along the ramp by its own random amount (1 = up to half the ramp either way), so the colour changes at the steps'
+			hint: 'Each facet shifted along the ramp by its own random amount (1 = up to half the ramp either way); with Band contrast each is also a little lighter or darker than the next. Keep it low for crystals of one colour family'
 		}),
 		P.float('sweep', 'Colour sweep', 0.5, 0, 4, {
 			softMax: 2,
@@ -283,12 +296,12 @@ export const bismuthLayer: LayerDef = {
 	defaults: {
 		mk_target: '',
 		h_on: true,
-		h_amount: 4,
+		h_amount: 12,
 		dif_on: true,
 		// Dark bare metal (the ground: the crystals use the rest), then the thin-film oxide colours in the order they grow
 		// on bismuth — fiery gold, pink, violet, blue, cyan, mint and the second-order yellow — bright and only moderately
 		// saturated, as polished metal is (Band contrast darkens them into the recesses).
-		dif_grad: gradient('#3a3542', '#ffa848', '#ff70b8', '#a87cff', '#5a86ff', '#48d8ea', '#9ae890', '#ffe066'),
+		dif_grad: gradient('#3a3542', '#f7b766', '#f087b8', '#ad8cf0', '#6f95f0', '#68d2e0', '#a8e0a0', '#f0d878'),
 		r_on: true,
 		r_src: 'flat',
 		r_b: 0.2,
@@ -296,16 +309,18 @@ export const bismuthLayer: LayerDef = {
 		mt_src: 'flat'
 	},
 	// Added in the editor: fewer terraces on small textures (each at least about 4 px wide on a large crystal), fewer
-	// generations on small textures (where the smallest crystals would be a pixel or two), crystals about 8 px tall at
-	// 512 px (lower on small textures, so their walls don't shadow whole crystals) and gentler mottling there (a crystal
-	// of few terraces would carry its patches as smears).
+	// generations and larger crystals on small textures (where the smallest crystals would be a pixel or two), crystals
+	// about 24 px tall at 512 px — deep, so the top face and the stepped sides read apart — lower on small textures, and
+	// gentler mottling there (a crystal of few terraces would carry its patches as smears).
 	fresh: ({ width, height }) => {
 		const side = Math.sqrt(width * height);
 		return {
 			terraces: Math.round(Math.min(10, Math.max(4, side / 52))),
 			gens: side >= 384 ? 3 : side >= 128 ? 2 : 1,
 			scale: side >= 192 ? 3 : 2,
-			h_amount: round1(4 * Math.sqrt(Math.min(1, side / 512))),
+			h_amount: round1(12 * Math.sqrt(Math.min(1, side / 512))),
+			// Small textures: larger crystals, so no ground shows between the few there are.
+			...(side < 192 ? { size: 1.25 } : {}),
 			mottle: side >= 256 ? 0.12 : 0.06
 		};
 	},
@@ -471,7 +486,13 @@ GenOut gen(vec2 p) {
       float face = cube ? floor(am / 120.0) : 0.0;
       am -= 120.0 * face;
       vec2 qf = rot2(-radians(120.0 * face - 120.0)) * q;
-      vec2 uv = cube ? vec2(2.0 * qf.y + 1.1547005 * qf.x, 2.0 * qf.y - 1.1547005 * qf.x) / (2.0 * R) : 0.5 + 0.5 * q / R;
+      // The top face: Top face × the crystal's size; outside it (cOut, 0 at the centre, 1 at the outline) the sides.
+      float topF = clamp(u_top, 0.05, 1.0);
+      float Rt = R * topF;
+      float apO = cube ? 0.8660254 * R : R;
+      float cOut = (cube ? max(max(abs(q.x), abs(dot(q, vec2(0.5, 0.8660254)))), abs(dot(q, vec2(-0.5, 0.8660254))))
+                         : max(abs(q.x), abs(q.y))) / apO;
+      vec2 uv = cube ? vec2(2.0 * qf.y + 1.1547005 * qf.x, 2.0 * qf.y - 1.1547005 * qf.x) / (2.0 * Rt) : 0.5 + 0.5 * q / Rt;
       float tilt = cube ? qf.y / R : 0.0;
       float rq = length(q);
       float wp = cube ? clamp(0.5 - rq * sin(radians(am)), 0.0, 0.5) : 0.0;
@@ -483,7 +504,7 @@ GenOut gen(vec2 p) {
       vec2 gc = clamp(uv, 0.0, 0.99999) * float(tn);
       ivec2 ic = ivec2(floor(gc));
       vec2 fr = gc - vec2(ic);
-      float cpx = (cube ? 0.8660254 : 2.0) * R / float(tn);
+      float cpx = (cube ? 0.8660254 : 2.0) * Rt / float(tn);
       float fh[9];
       int fw[9];
       float maxL = 1.0;
@@ -522,21 +543,31 @@ GenOut gen(vec2 p) {
       float ribTop = top + (1.5 + 1.5 * u_ridge * (1.0 - smoothstep(ribW, ribW + 1.0, rimD))) / maxL;
       float ribC = smoothstep(0.0, 1.0, clamp(0.5 - (rd - ribW) * cpx / soft, 0.0, 1.0));
       float hf = mix(hfl, ribTop, ribC);
+      // The sides: ledges stepping down from the top face's rim to the base, each rising over the softness.
+      float nl = float(u_ledges);
+      float sp = clamp((cOut - topF) / max(1.0 - topF, 1e-3), 0.0, 1.0) * nl;
+      float kl = min(floor(sp), nl - 1.0), flg = sp - kl;
+      float swl = clamp(soft * nl / max((1.0 - topF) * apO, 1e-3), 0.0, 1.0);
+      float hSide = 1.0 - (kl + smoothstep(1.0 - swl, 1.0, flg)) / nl;
+      float sel = topF < 1.0 ? smoothstep(-0.5, 0.5, (cOut - topF) * apO / soft) : 0.0;
       // Height: the crystal's (each core or daughter its step over the one it grew from), its hopper and the lean.
       float base = C[i].z;
       vec2 hl2 = hash2I(key, sg + 41.0);
       vec2 lean = hl2.y * vec2(cos(TAU * hl2.x), sin(TAU * hl2.x));
-      Hs[i] = base * (bsPow(isD ? dauH : coreH, sub) * (1.0 - u_slope * tilt) * (1.0 - u_depth * (1.0 - hf))
+      Hs[i] = base * (bsPow(isD ? dauH : coreH, sub) * (1.0 - u_slope * tilt) * mix(1.0 - u_depth * (1.0 - hf), hSide, sel)
                       + 0.125 * u_lean * dot(d / Rc, lean));
       // Colour: the crystal's own place (over the ramp's whole cycle there and back, so no shift favours one end), its
       // laps (four turns each), each facet's own shift, the sweep across it, its sub-crystals and its face.
       float fl = (1.0 - h0) * maxL;
+      // The sides are one chunk of the crystal's colour (their ledges show in the relief and the depth shade).
       float bk = hashI(ivec2(hk + 2 + int(face), int(floor(fl + 0.5))), sg + 37.0);
-      Ts[i] = u_col_ofs + 2.0 * u_col_var * fract(13.7 * C[i].x) + 0.25 * u_col_step * fl + u_band * (bk - 0.5)
-            + u_sweep * dot(d, sdir) / (2.0 * R0) + u_sub_col * float(sub) + u_face_col * fo + mot;
+      Ts[i] = u_col_ofs + 2.0 * u_col_var * fract(13.7 * C[i].x) + u_sweep * dot(d, sdir) / (2.0 * R0)
+            + u_sub_col * float(sub) + u_face_col * fo + mot + (1.0 - sel) * (0.25 * u_col_step * fl + u_band * (bk - 0.5));
       // Shade: each facet by its depth, solid as the height map shows it (the floor's, stepping with it at the edges;
       // the ribs show in the relief only).
-      Ss[i] = 1.0 - 0.6 * u_contrast * (1.0 - hfl);
+      // Each top facet a little lighter or darker than the next (Terrace colours' second draw).
+      Ss[i] = (1.0 - 0.6 * u_contrast * (1.0 - mix(hfl, hSide, sel)))
+            * (1.0 + (1.0 - sel) * min(u_band * 3.0, 1.0) * 0.3 * u_contrast * (fract(bk * 7.31) - 0.5));
     }
   }
   // The front crystal over what is behind it, by its coverage. The ramp's first stop is the bare ground (value 0); the

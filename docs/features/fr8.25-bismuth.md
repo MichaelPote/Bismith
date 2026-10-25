@@ -1,8 +1,8 @@
 # FR8.25 — Bismuth
 
-A generator for bismuth crystals seen from above: hopper squares whose faces sink inward in stair-stepped terraces —
-grown by rules, so they spiral, hook and dead-end as real hoppers do — shingled over one another with daughter crystals
-on their corners, or cubes standing on a corner as an isometric drawing shows them, three faces each sunk in its own
+A generator for bismuth crystals seen from above: stepped pyramids whose top faces sink inward in hopper terraces —
+grown by rules, so they spiral, hook and dead-end as real hoppers do — and whose sides fall away in ledges, shingled
+over one another with daughter crystals on their corners, or cubes standing on a corner as an isometric drawing shows them, three faces each sunk in its own
 stair steps; all coloured by the iridescent film of oxide on them. Source: `src/layers/generators/bismuth.ts` (shader),
 `bismuthGrowth.ts` (the rules, on the CPU). Presets: _Bismuth_ (project), _Hopper cube_ and _Bismuth cubes_ (layer).
 
@@ -13,12 +13,13 @@ growing tree, as a hopper grows by its edges:
 
 - A turtle starts on the rim heading along it. At each cell it takes one of the **three ways left to it**: on along
   its ring (straight is three times as likely), round the ring's corner, or off the ring (**Turns**: inward, or outward
-  at a third of that). The rings are squares about a centre **Hollow offset** along a diagonal, so the terraces run
+  at a third of that — only in the inner rings, ramping in from halfway to 80 % of the way in, so the outer frames stay
+  closed and the hooks gather round the hollow; a key that leaves its ring runs on straight two cells first). The rings are squares about a centre **Hollow offset** along a diagonal, so the terraces run
   wide on one side.
 - Where it is boxed in, growth resumes from the newest cell with a way open — or, at **Branching**'s odds, from any
   earlier one — so a new facet branches off where two meet. Every cell is reached; the path is a tree.
-- A **facet** is a straight run of the path. The level rises by one at every turn, so each facet stands at its own
-  height and runs on until it turns or ends against a wall; the face sinks inward in stair steps, four to a lap.
+- A **facet** is a straight run of the path. The level rises by one at every turn (not off a one-cell run, which stays
+  with the facet before it: no nubs), so each facet stands at its own height and runs on until it turns or ends against a wall; the face sinks inward in stair steps, four to a lap.
   Neighbouring cells the path joins differ by at most one level.
 - **Walls** stand between neighbouring cells the path doesn't join, and round the rim. A wall only ends where the path
   turns round it, so no step stops in mid-air.
@@ -44,6 +45,11 @@ picks one by its hash.
   front; then crystals further along the Stack direction (**Stacking**: they shingle one way, so most show two or three
   sides as chevrons), or else the taller; a daughter or core in front of its crystal. The second pass draws the facets of
   those two only, the front over the one behind by its coverage (its outer wall falls over 1.5 × Step softness).
+- **Pyramid.** **Top face** is the share of the crystal's width that is its top — the hopper, its grown facets sinking
+  by **Hopper depth** of the crystal's height. Outside it the sides fall to the base in **Side ledges** steps (by the
+  distance to the outline: a square's four trapezoids, a ring round a cube's hexagon), one chunk of the crystal's colour.
+  The relief has to be deep for the top and sides to read apart: the default Height › Amount is 12 (about 24 px at
+  512 px). Top face 1 gives flat-topped blocks — the Hopper cube preset uses it, its three faces being top and sides.
 - **Habit.** _Hopper squares_ are squares, one face each. _Cube corners_ are hexagons of three rhombic faces (right, top,
   left) that fall away from the corner by **Face slope**, each face its own grown template in its rhombus frame, their
   rims meeting along the cube's edges.
@@ -60,13 +66,14 @@ picks one by its hash.
 - **Value** is the oxide's thickness, walked along the ramp and back (so any ramp stays seamless). The ramp's first stop
   is the bare ground; crystals walk the rest of it, from its second stop on. The thickness is **Colour offset**, plus each
   crystal's own place (**Colour per crystal**, over the whole cycle there and back, so the other shifts don't favour one
-  end), its laps of facets (**Colour per terrace**, per four turns, may be negative), each facet's own random shift
-  (**Terrace colours**), a linear **Colour sweep** across the crystal (in proportion to its size; **Sweep direction**),
+  end), its laps of facets (**Colour per terrace**, per four turns, may be negative), each top facet's own small random
+  shift (**Terrace colours**, low by default so a crystal keeps one colour family; with Band contrast each facet is also
+  a little lighter or darker), a linear **Colour sweep** across the crystal (in proportion to its size; **Sweep direction**),
   each daughter's and core's shift (**Sub-crystal colour**), each cube face's (**Colour per face**, right → top → left,
-  blended across the edges between faces) and **Mottling**. The default ramp: dark bare metal, then fiery gold, pink,
-  violet, blue, cyan, mint and the second-order yellow.
-- **Band contrast** shades the colour (`gGenShade`, a brightness the wrapper multiplies the Diffuse colour by): dark
-  floors, bright ribs, darker down the hopper — without moving the hue.
+  blended across the edges between faces) and **Mottling**. The default ramp: dark bare metal, then gold, pink, violet,
+  blue, cyan, mint and the second-order yellow, light and moderately saturated, as polished metal is.
+- **Band contrast** shades the colour (`gGenShade`, a brightness the wrapper multiplies the Diffuse colour by) by each
+  facet's depth, solid as the height map shows it — the ribs show in the relief only — without moving the hue.
 - **Diffuse** blends the front and behind crystals' _colours_ where they meet in a pixel (`gGenAlt`; docs/architecture.md
   §5.2), not their ramp positions, which would flash the colours in between along every wall.
 - **Height** (`hval`) is the crystal's own height. Metalness is on by default (the ramp is the reflectance) with low
@@ -78,8 +85,9 @@ picks one by its hash.
 ## Defaults
 
 At 512 px: 3 crystals across (size 1.05, scatter 0.75), stacking 0.7, daughters 0.8 (half of them pairs) × 2 deep,
-3 generations, 10 terraces, turns 0.03, branching 0.02, height amount 4 (crystals about 8 px tall). New layers are sized
-to the texture: 4–10 terraces, 1–3 generations, a lower height and gentler mottling on small textures.
+3 generations, top face 0.55 with 5 side ledges, 10 terraces, hopper depth 0.35, turns 0.08, branching 0.02, height
+amount 12 (crystals about 24 px tall). New layers are sized to the texture: 4–10 terraces, 1–3 generations, larger
+crystals below 192 px, a lower height and gentler mottling on small textures.
 
 ## Checklist
 
@@ -89,4 +97,5 @@ to the texture: 4–10 terraces, 1–3 generations, a lower height and gentler m
 - [x] Daughters (tip or mirrored pair), cores, generations, stacking, depth order, lean; tileable
 - [x] Thin-film colour on a back-and-forth ramp with the ground kept apart; band contrast (`gGenShade`); colour blended
       between crystals (`gGenAlt`)
-- [x] Mask of the crystals' union; presets; five critic rounds (`private/critic/bismuth/`)
+- [x] Stepped-pyramid habit (top face, side ledges)
+- [x] Mask of the crystals' union; presets; six critic rounds (`private/critic/bismuth/`)

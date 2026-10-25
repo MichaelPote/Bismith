@@ -2,10 +2,11 @@
 //
 // A growing tree, as a hopper grows by its edges: a turtle starts on the rim heading along it; at each cell it takes one
 // of the three ways left to it — on along its ring (straight, three times as likely), round the ring's corner, or off
-// the ring (Turns: inward mostly, outward at a third of that) — and where it is boxed in, growth resumes from the newest
-// cell with a way open (or, at Branching's odds, from any earlier one), so a new facet branches off where two meet.
-// Every cell is reached. A facet is a straight run of the path: the level rises by one at every turn, so each facet
-// stands at its own height and the face sinks inward in stair steps, four to a lap of the ring. The rings are squares
+// the ring (Turns, in the inner rings only: inward mostly, outward at a third of that; a key leaving its ring runs on
+// straight two cells) — and where it is boxed in, growth resumes from the newest cell with a way open (or, at
+// Branching's odds, from any earlier one), so a new facet branches off where two meet. Every cell is reached. A facet is
+// a straight run of the path: the level rises by one at every turn (not off a one-cell run, which stays with the facet
+// before it), so each facet stands at its own height and the face sinks inward in stair steps, four to a lap. The rings are squares
 // about a centre Hollow offset along a diagonal, so the terraces run wide on one side. Walls (the ribs) stand between
 // neighbouring cells the path doesn't join, and round the rim; a rib only ends where the path turns round it.
 
@@ -36,14 +37,19 @@ export function growFace(n: number, turn: number, branch: number, hollow: number
 	const parent = new Int32Array(count).fill(-1);
 	const dir = new Uint8Array(count);
 	const level = new Uint16Array(count);
+	// The straight run so far at each cell, and the cells a key still has to run straight after leaving its ring.
+	const run = new Uint16Array(count);
+	const key = new Uint8Array(count);
 	const seen = new Uint8Array(count);
 	const lim = Math.max(0, (n - 1) / 2 - 1);
 	const cx = (n - 1) / 2 + (rand() < 0.5 ? -1 : 1) * Math.min(hollow * (n / 2), lim);
 	const cy = (n - 1) / 2 + (rand() < 0.5 ? -1 : 1) * Math.min(hollow * (n / 2), lim);
 	const ring = (x: number, y: number) => Math.max(Math.abs(x - cx), Math.abs(y - cy));
+	const rMax = Math.max(ring(0, 0), ring(n - 1, 0), ring(0, n - 1), ring(n - 1, n - 1));
 	// On the west rim, heading north or south along it.
 	const start = Math.floor(rand() * n) * n;
 	seen[start] = 1;
+	run[start] = 2;
 	dir[start] = rand() < 0.5 ? 1 : 3;
 	const active = [start];
 	const opts: number[] = [];
@@ -54,6 +60,10 @@ export function growFace(n: number, turn: number, branch: number, hollow: number
 		const y = (c - x) / n;
 		const d = dir[c];
 		const rc = ring(x, y);
+		// Turns off the ring only in the inner rings (none in the outer half, all of Turns from 80 % of the way in), so
+		// the outer frames stay closed and the hooks gather round the hollow.
+		const t = Math.min(1, Math.max(0, (1 - rc / rMax - 0.5) / 0.3));
+		const tw = turn * t * t * (3 - 2 * t);
 		// Ahead, left and right (and, from the start, behind: it has no parent there).
 		opts.length = 0;
 		let total = 0;
@@ -62,7 +72,9 @@ export function growFace(n: number, turn: number, branch: number, hollow: number
 			const ny = y + DY[nd];
 			if (nx < 0 || ny < 0 || nx >= n || ny >= n || seen[ny * n + nx]) continue;
 			const dr = ring(nx, ny) - rc;
-			const w = Math.max((dr > 0.5 ? 0.3 * turn : dr < -0.5 ? turn : 1) * (nd === d ? 3 : 1), 1e-6);
+			// A key that has just left its ring runs on straight for two cells before it may turn.
+			const ahead = nd === d ? (key[c] > 0 ? 60 : 3) : 1;
+			const w = Math.max((dr > 0.5 ? 0.3 * tw : dr < -0.5 ? tw : 1) * ahead, 1e-6);
 			opts.push(nd, w);
 			total += w;
 		}
@@ -78,7 +90,10 @@ export function growFace(n: number, turn: number, branch: number, hollow: number
 		seen[k] = 1;
 		parent[k] = c;
 		dir[k] = nd;
-		level[k] = level[c] + (nd === d ? 0 : 1);
+		run[k] = nd === d ? run[c] + 1 : 1;
+		// A turn steps a level down — but not off a one-cell run, which stays with the facet before it.
+		level[k] = level[c] + (nd !== d && run[c] >= 2 ? 1 : 0);
+		key[k] = Math.abs(ring(x + DX[nd], y + DY[nd]) - rc) > 0.5 ? 2 : Math.max(key[c] - 1, 0);
 		active.push(k);
 	}
 	const joined = (a: number, b: number) => parent[a] === b || parent[b] === a;
