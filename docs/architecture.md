@@ -288,9 +288,9 @@ relief and for paint (joints, scars, open gaps). **Mask area** (FR8.23) only sel
 with its own random, a gradient across each, a band at one side), with noise Breakup — to write a mask or paint. **Liquid
 splats** (FR8.24) throws blood, water or oil — torn cores, jets, droplets and mist, or poured pools — lying flat or
 running down in runs that end in a bead, its value the liquid's thickness (a flat top over a rounded meniscus). **Bismuth**
-(FR8.25) grows hopper crystals — square frames, or isometric cube corners, stepping down in terraces to a hollow centre,
-whorled and meandering, with ziggurat corner crystals, rim ridges and cores — a few generations deep and painted in
-depth order, coloured by an iridescent oxide ramp with dark recesses and bright lips.
+(FR8.25) grows hopper crystals — square faces, or the three faces of isometric cube corners, each grown on the CPU by
+rules as a path whose facets step down in spirals, hooks and dead ends — shingled in depth order with daughter crystals
+on their corners, coloured by an iridescent oxide ramp with dark floors and bright ribs.
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
