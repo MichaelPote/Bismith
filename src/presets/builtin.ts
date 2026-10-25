@@ -83,10 +83,11 @@ import f79 from '../../presets/project/plates.json';
 import f80 from '../../presets/project/riveted.json';
 import f81 from '../../presets/project/rock.json';
 import f82 from '../../presets/project/rustwall.json';
-import f83 from '../../presets/project/slate.json';
-import f84 from '../../presets/project/tech.json';
-import f85 from '../../presets/project/water.json';
-import f86 from '../../presets/project/well.json';
+import f83 from '../../presets/project/sapphire.json';
+import f84 from '../../presets/project/slate.json';
+import f85 from '../../presets/project/tech.json';
+import f86 from '../../presets/project/water.json';
+import f87 from '../../presets/project/well.json';
 
 export const BUILTIN_FILES: Record<string, unknown> = {
 	'group/brushed-metal': f0,
@@ -172,8 +173,9 @@ export const BUILTIN_FILES: Record<string, unknown> = {
 	'project/riveted': f80,
 	'project/rock': f81,
 	'project/rustwall': f82,
-	'project/slate': f83,
-	'project/tech': f84,
-	'project/water': f85,
-	'project/well': f86
+	'project/sapphire': f83,
+	'project/slate': f84,
+	'project/tech': f85,
+	'project/water': f86,
+	'project/well': f87
 };
