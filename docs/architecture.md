@@ -213,7 +213,8 @@ Beside GenOut, a generator may set three globals for Diffuse: `gGenRgb`, a colou
 (Stamp's image); `gGenAlt`, a second value and its weight that the ramp's colour blends toward (shaped like the value) —
 where two features of different ramp positions meet within a pixel, their two colours mix instead of the ramp passing
 through the colours between them (Bismuth's crystal walls); and `gGenShade`, a brightness the colour is multiplied by,
-its own shading kept out of the value so the ramp still picks the hue (Bismuth's dark terrace feet).
+its own shading kept out of the value so the ramp still picks the hue (Bismuth's deeper treads), with `gGenGrey`, how
+far the colour goes grey toward its own luminance (its quieter recesses).
 
 The common generator wrapper then:
 

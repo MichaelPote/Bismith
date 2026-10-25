@@ -61,6 +61,25 @@ picks one by its hash.
 - **Lean** tilts each crystal its own way. Height › Per-feature variation varies each crystal's height (`feat` is
   zeroed).
 
+## Rims, keys and the crater (after critic rounds 7–9, against top-down photos and CG renders of bismuth)
+
+- **Rim and keys.** The growth stamps bars over the terraces: the rim (**Rim width** cells round each top face) and
+  **Keys** per face — each an open G drawn by construction: a stem in from the rim near a corner, an arm along, an arm
+  back towards the rim stopping a gap short, and a curl inside; 0.6 of the rim's width, within 60 % of the half-width,
+  redrawn if it would come within two cells of another key. Bars stand at the rim's height with risers on both sides,
+  are shaded brightest and glossy (Roughness › Parts: bars at the left of the range), and keys are dropped on crystals
+  under 3 px a cell, where they would float as glyphs.
+- **Treads and grooves.** Between bars the terraces are solid treads separated by dark grooves (**Groove width**, at
+  least 1.5 px), sunk below the lower tread. A cell's depth is 0.6 by its ring and 0.4 by its facet's level, so steps
+  stay even (no single cliff over flat treads). **Turns** act only from 60 % of the way in.
+- **Shade.** Band contrast lights the bars ×1.25, takes the treads down to half brightness at the floor and greys the
+  deep treads and sides toward their luminance (`gGenGrey`), so vivid rims stand over quiet, still-lit hollows.
+- **Overlaps.** A crystal in front covers one behind with its top face, but its side skirt only where it stands at
+  least as high, so rims behind are never cut by the ledges of a lower crystal in front.
+- **Defaults.** Top face 0.85 with 3 side ledges (at least 3 px a ledge), Hopper depth 0.65, 8 terraces, Rim width 2,
+  Keys 1.2, Hollow offset 0.1; a vivid ramp with a long gold stretch, magenta, a short violet and blue, teal-mint. Cube
+  habit links Top face 1 and depth 0.7.
+
 ## Outputs
 
 - **Value** is the oxide's thickness, walked along the ramp and back (so any ramp stays seamless). The ramp's first stop
@@ -98,4 +117,4 @@ crystals below 192 px, a lower height and gentler mottling on small textures.
 - [x] Thin-film colour on a back-and-forth ramp with the ground kept apart; band contrast (`gGenShade`); colour blended
       between crystals (`gGenAlt`)
 - [x] Stepped-pyramid habit (top face, side ledges)
-- [x] Mask of the crystals' union; presets; six critic rounds (`private/critic/bismuth/`)
+- [x] Mask of the crystals' union; presets; nine critic rounds (`private/critic/bismuth/`)
