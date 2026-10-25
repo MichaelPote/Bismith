@@ -103,6 +103,9 @@ vec3 gGenRgb = vec3(-1.0);
 // A second value the Diffuse ramp blends toward, and its weight (y; 0 = none): where two features meet within a pixel
 // their two colours mix, instead of the ramp positions between them (Bismuth's crystal walls). Shaped like the value.
 vec2 gGenAlt = vec2(0.0);
+// A brightness the Diffuse colour is multiplied by (sRGB, 1 = none): the generator's own shading of its colour, kept out
+// of the value so the ramp still picks the hue (Bismuth's dark feet of its terraces).
+float gGenShade = 1.0;
 // The generator's own levels per part (LayerDef.parts), for Roughness, Specular, Metalness and Emissive with Source
 // Parts: x roughness, y specular, z metalness, w emissive (0..1; < 0 = the Pattern value there).
 vec4 gGenLevel = vec4(-1.0);

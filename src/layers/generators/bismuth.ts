@@ -4,25 +4,30 @@
 // Crystals sit one per cell of a grid (Crystals across), scattered, sized, turned and leaning a little each, and a few
 // generations deep: each generation has cells half the size of the last, is sparser (Small crystals) and lower (Small
 // crystal height), so small crystals crowd the gaps. A crystal may hold a stack of smaller ones at its centre (Core,
-// Core stack), aligned with it. One flat loop runs over the generations × the cells round the pixel × crystal and cores.
+// Core stack), and a large one grows smaller ones out of its corners, behind and below it (Corner crystals, Corner
+// depth: each from the corner of the last nearest the pixel), so its outline steps down like a ziggurat. One flat loop
+// runs over the generations × the cells round the pixel × the crystal, its cores and its corner chain.
 //
 // A crystal is a square (Habit › Hopper squares) or a cube standing on its corner (Habit › Cube corners: a hexagon
 // split into three rhombic faces that slope away from the corner, as an isometric cube looks). Crystals are painted in
-// depth order — larger generations in front, then the taller crystal, each core in front of the crystal it grew in —
-// each over what is behind it by its coverage, so one crystal grows whole through another instead of the two cutting
-// each other along their terraces.
+// depth order — larger generations in front, then the taller crystal, cores in front of and corner crystals behind the
+// crystal they grew from — each over what is behind it by its coverage, so one crystal grows whole through another
+// instead of the two cutting each other along their terraces.
 //
 // On each face the hopper coordinate c runs from 0 at the hollow centre to 1 at the rim (Chebyshev distance in the
 // face's frame), cut into terraces Terrace width apart: the outermost terrace is the rim, the others step down inwards
 // by Hopper depth, each with a raised lip at its drop (Lip); the rim carries a crest (Rim ridge: a cube's bright
-// edges). The step boundaries s ∈ ℤ, s = c·N + ripples − arms·a: a monotone ripple spaces the terraces unevenly
+// edges). The ring boundaries s ∈ ℤ, s = c·N + ripples − arms·a: a monotone ripple spaces the terraces unevenly
 // (Terrace variation), a ripple of each side's own (blended across the mitres) makes the frames jog at the corners
-// like a maze (Corner jogs), and Spiral winds them into a square spiral staircase (a, the position round the square,
-// wraps by whole steps, so s stays continuous). The value is the oxide's
-// thickness — by crystal, terrace, face, a sweep across the crystal and mottling — walked along the ramp and back
-// (0 → 1 → 0), so any ramp stays seamless; where two crystals meet in a pixel their colours mix (gGenAlt). Height (hval)
-// is the crystal's own height. The crystals' union goes to the mask it writes (Mask › Write to), with each crystal's
-// random.
+// (Corner jogs), and Spiral winds them into whorls, a square spiral staircase (a, the position round the square, wraps
+// by whole steps, so s stays continuous). Meander cuts each ring into cells along each side and turns a share of them a
+// step in or out: hooks and dead ends, the Greek key.
+//
+// The value is the oxide's thickness — by crystal, terrace, face, sub-crystal, a sweep across the crystal and mottling
+// — walked along the ramp from its second stop and back (the first stop is the bare ground), so any ramp stays seamless;
+// Band contrast shades it (gGenShade: dark terrace feet, bright lips, darker hollows) without moving the hue, and where
+// two crystals meet in a pixel their colours mix (gGenAlt). Height (hval) is the crystal's own height. The crystals'
+// union goes to the mask it writes (Mask › Write to), with each crystal's random.
 
 import { P, gradient, halfPx, round1 } from '@/core/params';
 import type { LayerDef } from '../types';
@@ -57,7 +62,7 @@ export const bismuthLayer: LayerDef = {
 			section: 'Crystals',
 			hint: 'Large crystals across the width (whole counts when tiling); 1 with Scatter 0 puts one in the middle'
 		}),
-		P.float('size', 'Size', 0.9, 0.1, 2, {
+		P.float('size', 'Size', 1.05, 0.1, 2, {
 			step: 0.001,
 			section: 'Crystals',
 			hint: 'Crystal width as a share of its cell: below 1 leaves room between them, above 1 they grow into one another'
@@ -67,7 +72,7 @@ export const bismuthLayer: LayerDef = {
 			section: 'Crystals',
 			hint: 'Each crystal its own size: 1 = from half to twice the Size'
 		}),
-		P.float('scatter', 'Scatter', 0.6, 0, 1, {
+		P.float('scatter', 'Scatter', 0.75, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
 			hint: 'How far a crystal may sit from the middle of its cell, as a share of the cell: 0 = a strict grid'
@@ -103,11 +108,21 @@ export const bismuthLayer: LayerDef = {
 			showIf: (p) => Number(p.core) > 0,
 			hint: 'Cores within cores: each grows at the centre of the last, Core times its size'
 		}),
+		P.float('corner', 'Corner crystals', 0.45, 0, 0.8, {
+			step: 0.001,
+			section: 'Crystals',
+			hint: 'Smaller crystals grown out of each large crystal’s corners, this share of its size, a step lower and behind it: its outline steps down at the corners like a ziggurat, in spikes along the diagonals. 0 = none'
+		}),
+		P.int('corners', 'Corner depth', 2, 1, 3, {
+			section: 'Crystals',
+			showIf: (p) => Number(p.corner) > 0,
+			hint: 'Corner crystals on the corner crystals: each grows from the corner of the last nearest the pixel'
+		}),
 		P.int('gens', 'Generations', 3, 1, 4, {
 			section: 'Crystals',
 			hint: 'Sizes of crystal: each generation half the size of the last, filling the gaps between the bigger ones'
 		}),
-		P.float('fill', 'Small crystals', 0.9, 0, 1, {
+		P.float('fill', 'Small crystals', 0.7, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
 			showIf: (p) => Number(p.gens) > 1,
@@ -136,12 +151,24 @@ export const bismuthLayer: LayerDef = {
 			section: 'Terraces',
 			hint: 'How far the terraces step down to the hollow centre, as a share of the crystal’s height: 0 = flat-topped crystals'
 		}),
-		P.float('jog', 'Corner jogs', 0.5, 0, 1, {
+		P.float('jog', 'Corner jogs', 0.25, 0, 1, {
 			step: 0.001,
 			section: 'Terraces',
 			hint: 'Each side of a frame steps at its own place, so the terraces jog where the sides meet — L-shaped steps and broken corners, like a maze'
 		}),
-		P.int('spiral', 'Spiral', 0, 0, 4, {
+		P.float('meander', 'Meander', 0.35, 0, 1, {
+			step: 0.001,
+			section: 'Terraces',
+			hint: 'Share of each terrace’s stretches that turn a step in or out: hooks, whorls and dead ends where a terrace runs into its neighbour, like a Greek key'
+		}),
+		P.float('seg', 'Meander length', 5, 0.5, 32, {
+			softMax: 12,
+			step: 0.01,
+			section: 'Terraces',
+			showIf: (p) => Number(p.meander) > 0,
+			hint: 'Length of those stretches along a side, in terrace widths'
+		}),
+		P.int('spiral', 'Spiral', 1, 0, 4, {
 			section: 'Terraces',
 			hint: 'Arms of a square spiral staircase the terraces wind down in: 0 = closed frames, 1 = one long winding step, more = interleaved spirals (reads best with Corner jogs low)'
 		}),
@@ -177,21 +204,26 @@ export const bismuthLayer: LayerDef = {
 		P.float('col_ofs', 'Colour offset', 0, 0, 2, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Moves every crystal along the ramp (and back: 1 = its far end, 2 = round to the start)'
+			hint: 'Moves every crystal along the ramp (and back: 1 = its far end, 2 = round to the start). The crystals use the ramp from its second stop on; the first is the bare ground'
 		}),
 		P.float('col_var', 'Colour per crystal', 1, 0, 2, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Each crystal starts at its own place on the ramp (1 = anywhere along it): a gold crystal beside a blue one'
+			hint: 'Each crystal starts at its own place on the ramp (1 = anywhere along it, going either way, so every colour is as likely whatever the other shifts add): a gold crystal beside a blue one'
 		}),
-		P.float('col_step', 'Colour per terrace', 0.04, -1, 1, {
+		P.float('contrast', 'Band contrast', 0.8, 0, 1, {
+			step: 0.001,
+			section: 'Colour',
+			hint: 'Each terrace darkens towards the foot of the step above it and brightens along its lip, and the hollows go darker, as the walls shade them: bright lips over dark recesses. 0 = flat colour'
+		}),
+		P.float('col_step', 'Colour per terrace', 0.03, -1, 1, {
 			softMin: -0.25,
 			softMax: 0.25,
 			step: 0.001,
 			section: 'Colour',
 			hint: 'How far along the ramp each terrace moves from the next (1 = the whole ramp): the oxide is thicker on the older, outer steps; below 0 the hollows are further along'
 		}),
-		P.float('band', 'Terrace colours', 0.3, 0, 1, {
+		P.float('band', 'Terrace colours', 0.25, 0, 1, {
 			step: 0.001,
 			section: 'Colour',
 			hint: 'Each terrace shifted along the ramp by its own random amount (1 = up to half the ramp either way), so the colour changes in bands at the steps'
@@ -215,11 +247,11 @@ export const bismuthLayer: LayerDef = {
 			showIf: isCube,
 			hint: 'How far along the ramp each of a cube’s three faces moves from the next, going round from the right face to the top and the left'
 		}),
-		P.float('core_col', 'Core colour', 0.3, -1, 1, {
+		P.float('sub_col', 'Sub-crystal colour', 0.3, -1, 1, {
 			step: 0.001,
 			section: 'Colour',
-			showIf: (p) => Number(p.core) > 0,
-			hint: 'How far along the ramp each core moves from the crystal it grew in'
+			showIf: (p) => Number(p.core) > 0 || Number(p.corner) > 0,
+			hint: 'How far along the ramp each core and corner crystal moves from the crystal it grew from'
 		}),
 		P.float('mottle', 'Mottling', 0.12, 0, 1, {
 			step: 0.001,
@@ -237,9 +269,10 @@ export const bismuthLayer: LayerDef = {
 		h_on: true,
 		h_amount: 4,
 		dif_on: true,
-		// Bare metal (the ground), then pastel thin-film oxide colours in the order they grow on bismuth: gold, rose,
-		// orchid, a deeper violet and blue, sky and mint. Light, as a metal reflects in its colour and darkens it.
-		dif_grad: gradient('#8f8898', '#ffd27a', '#f59aa8', '#d77ad6', '#8f6cf0', '#4f7fe8', '#6fd0f0', '#a8f0a0'),
+		// Dark bare metal (the ground: the crystals use the rest), then the thin-film oxide colours in the order they grow
+		// on bismuth — fiery gold, pink, violet, blue, cyan, mint and the second-order yellow — bright and only moderately
+		// saturated, as polished metal is (Band contrast darkens them into the recesses).
+		dif_grad: gradient('#3a3542', '#ffa848', '#ff70b8', '#a87cff', '#5a86ff', '#48d8ea', '#9ae890', '#ffe066'),
 		r_on: true,
 		r_src: 'flat',
 		r_b: 0.2,
@@ -291,13 +324,18 @@ GenOut gen(vec2 p) {
   float soft = max(u_soft, 0.05);
   float tw = max(u_terrace, 0.5);
   int G = clamp(u_gens, 1, 4);
-  // The crystal and its cores.
-  int L = u_core > 0.0 ? 1 + clamp(u_cores, 1, 3) : 1;
+  // The crystal, its cores and its chain of corner crystals.
+  int nC = u_core > 0.0 ? clamp(u_cores, 1, 3) : 0;
+  int nK = u_corner > 0.0 ? clamp(u_corners, 1, 3) : 0;
+  int L = 1 + nC + nK;
+  float kc = clamp(u_corner, 0.0, 0.8);
+  // How far the corner crystals reach past the crystal, in its radii.
+  float ext = 1.0 + kc * (1.0 - bsPow(kc, nK)) / (1.0 - kc);
   // The cells a crystal reaches from (in cells of its generation): its half-diagonal at the largest size, its scatter,
   // and room for the mask's distance out to the bevel. The finest generation's cells are the smallest, so its margin
   // counts most.
   vec2 cpxMin = uRes / (cells0 * exp2(float(G - 1)));
-  float reach = 0.5 * u_size * exp2(u_size_var) * (cube ? 1.0 : 1.4143) + 0.5 * u_scatter
+  float reach = 0.5 * u_size * exp2(u_size_var) * (cube ? 1.0 : 1.4143) * ext + 0.5 * u_scatter
               + (u_bevel + soft + 1.0) / min(cpxMin.x, cpxMin.y);
   int KR = clamp(int(floor(reach + 0.5)), 1, 3);
   int side = 2 * KR + 1;
@@ -307,15 +345,20 @@ GenOut gen(vec2 p) {
   vec2 sdir = rotCW(vec2(1.0, 0.0), u_sweep_angle);
   vec2 nc = cells0 * 3.0;
   float mot = u_mottle * (fbm(p / uRes * nc, periodOf(nc), 3, uSeed + 5.0) - 0.5);
-  // Each core's height over the crystal it grew in (in front of a cube's corner, up out of a square's hollow); heights
-  // are scaled so the innermost core's is at most 1.
+  // Each core's height over the crystal it grew in (in front of a cube's corner, up out of a square's hollow; heights
+  // scaled so the innermost is at most 1), and each corner crystal's under the one it grew from.
   float coreH = 1.0 + 0.5 * u_core;
-  float norm = 1.0 / bsPow(max(coreH, 1.0), L - 1);
+  float cornerH = 1.0 - 0.3 * kc;
+  float norm = 1.0 / bsPow(coreH, nC);
+  float meander = clamp(u_meander, 0.0, 1.0);
 
   // The front surface (in depth order) and the one behind it: key, height over the ground, ramp position; the front
   // one's full height, coverage and random. The ground is key −1, height 0.
-  float k1 = -1.0, k2 = -1.0, h2 = 0.0, t1 = 0.0, t2 = 0.0, H1 = 0.0, c1 = 0.0, rnd1 = 0.0;
+  float k1 = -1.0, k2 = -1.0, h2 = 0.0, t1 = 0.0, t2 = 0.0, H1 = 0.0, c1 = 0.0, rnd1 = 0.0, sh1 = 1.0, sh2 = 1.0;
   float sdU = 1e4;
+  // The chain's current crystal: centre in the crystal's frame and radius (carried from one level to the next).
+  vec2 cl = vec2(0.0);
+  float cR = 1.0;
   // (No continue in this loop: ANGLE / D3D11 can miscompile it.)
   for (int e = 0; e < G * per * L; e++) {
     int lvl = e % L;
@@ -329,11 +372,25 @@ GenOut gen(vec2 p) {
     float sg = uSeed + float(g) * 101.0;
     vec4 hA = vec4(hash2I(key, sg), hash2I(key, sg + 7.0));
     vec4 hB = vec4(hash2I(key, sg + 13.0), hash2I(key, sg + 19.0));
-    if (g == 0 || hA.x < u_fill) {
+    // (Corner crystals grow on the largest generation only: on the small ones they turn to grit.)
+    if ((g == 0 || hA.x < u_fill) && (g == 0 || lvl <= nC)) {
       vec2 ctr = (vec2(cell) + 0.5 + (hA.yz - 0.5) * u_scatter) * cpx;
-      float R = 0.5 * u_size * min(cpx.x, cpx.y) * exp2(u_size_var * (2.0 * hA.w - 1.0)) * bsPow(u_core, lvl);
+      float Rc = 0.5 * u_size * min(cpx.x, cpx.y) * exp2(u_size_var * (2.0 * hA.w - 1.0));
       vec2 d = p - ctr;
-      vec2 q = unrotCW(d, u_angle + u_angle_var * (hB.x - 0.5) * (cube ? 120.0 : 90.0));
+      vec2 qc = unrotCW(d, u_angle + u_angle_var * (hB.x - 0.5) * (cube ? 120.0 : 90.0));
+      // Which crystal of the chain: the crystal itself, a core (at its centre), or a corner crystal — grown from the
+      // corner of the last (the crystal, for the first) nearest the pixel: a square's corner, a hexagon's point.
+      int sub = lvl <= nC ? lvl : lvl - nC;
+      if (lvl == 0 || lvl == nC + 1) { cl = vec2(0.0); cR = Rc; }
+      if (lvl > 0 && lvl <= nC) cR = Rc * bsPow(u_core, lvl);
+      if (lvl > nC) {
+        vec2 rel = qc - cl;
+        float va = radians(30.0 + 60.0 * floor((degrees(atan(rel.y, rel.x)) - 30.0) / 60.0 + 0.5));
+        cl += cR * (cube ? vec2(cos(va), sin(va)) : vec2(rel.x < 0.0 ? -1.0 : 1.0, rel.y < 0.0 ? -1.0 : 1.0));
+        cR *= kc;
+      }
+      float R = cR;
+      vec2 q = qc - cl;
       float ang = atan(q.y, q.x);
       // The face's frame: a square crystal is one face; a cube corner's three rhombi (right, top, left, anticlockwise)
       // are each turned to the top one, whose edges run from the corner at 30° and 150°, and measured along those edges
@@ -371,24 +428,50 @@ GenOut gen(vec2 p) {
         float sw = clamp(soft * rate, 0.0, 1.0);
         float k = floor(s), f = s - k;
         float rise = smoothstep(1.0 - sw, 1.0, f);
-        float hl = k + (1.0 + u_lip) * rise + u_lip * (1.0 - smoothstep(0.0, max(0.35, 1.5 * sw), f));
+        // Meander: the terraces are cells — ring by stretches of Meander length along each side, each ring's stretches
+        // set off by their own phase — and a share of the cells turn a step in or out (a hook into the next ring out,
+        // or a dead end where the ring in runs on). The rings below, at and above the pixel's, on its side and on the
+        // other side of the mitre (blended as the jogs are), each cell blended into the nearer neighbour over a softness
+        // either side of their boundary.
+        float pxf = cube ? 2.0 * pxc : pxc;
+        float segPx = max(u_seg, 0.5) * pxc / N;
+        vec3 offH = vec3(0.0), offV = vec3(0.0);
+        for (int j = 0; j < 6 * UNI_1; j++) {
+          bool sv = (j & 1) == 1;
+          int ring = int(k) - 1 + j / 2;
+          int sid = sv ? (fq.y > 0.0 ? 2 : 3) : (fq.x > 0.0 ? 0 : 1);
+          int row = sk * 4 + sid;
+          float al = (sv ? fq.x : fq.y) * pxf / segPx + hashI(ivec2(row, ring), sg + 41.0);
+          float sx = floor(al), fr = al - sx;
+          float hc = hashI(ivec2(row * 512 + int(sx), ring), sg + 43.0);
+          float hn = hashI(ivec2(row * 512 + int(sx) + (fr < 0.5 ? -1 : 1), ring), sg + 43.0);
+          vec2 tooth = vec2(hc < 0.5 * meander ? 1.0 : hc < meander ? -1.0 : 0.0,
+                            hn < 0.5 * meander ? 1.0 : hn < meander ? -1.0 : 0.0);
+          float o = mix(tooth.x, tooth.y, 0.5 - 0.5 * smoothstep(0.0, soft, min(fr, 1.0 - fr) * segPx));
+          vec3 at = vec3(equal(ivec3(j / 2), ivec3(0, 1, 2))) * o;
+          if (sv) offV += at; else offH += at;
+        }
+        vec3 lv = k + vec3(-1.0, 0.0, 1.0) + mix(offV, offH, mb);
+        float hl = lv.y + (lv.z - lv.y) * rise
+                 + u_lip * (max(lv.y - lv.x, 0.0) * (1.0 - smoothstep(0.0, max(0.35, 1.5 * sw), f)) + max(lv.z - lv.y, 0.0) * rise);
         // The outermost terrace is the rim, at the top whatever the ripples and the spiral do, its crest rising to the
         // edge.
         float rr = smoothstep(1.0 - 1.0 / N - soft / pxc, 1.0 - 1.0 / N, c);
         float rim = (N + u_lip) * rr + u_ridge * smoothstep(1.0 - 1.0 / N, 1.0, c);
-        float lev = clamp(max(k + rise, N * rr), 0.0, N);
+        float lev = clamp(max(lv.y + (lv.z - lv.y) * rise, N * rr), 0.0, N);
         float hf = clamp(max(hl, rim), 0.0, N + u_lip + u_ridge) / (N + u_lip + u_ridge);
         float rnd = hB.w;
-        // Its height: per crystal and generation, each core coreH over the crystal it grew in.
+        // Its height: per crystal and generation, each core and corner crystal coreH / cornerH over the one it grew from.
         float base = (1.0 - u_rise_var * hB.z) * bsPow(u_gen_h, g) * (1.0 - u_h_var * featVar(rnd)) * norm;
         vec2 hl2 = hash2I(key, sg + 31.0);
         vec2 lean = hl2.y * vec2(cos(TAU * hl2.x), sin(TAU * hl2.x));
         // Lean tilts the whole crystal: its terraces stay flat but face their own way.
-        float H = base * (bsPow(coreH, lvl) * (1.0 - u_slope * tilt) * (1.0 - u_depth * (1.0 - hf))
-                          + 0.125 * u_lean * dot(d / R, lean));
+        float H = base * (bsPow(lvl > nC ? cornerH : coreH, sub) * (1.0 - u_slope * tilt) * (1.0 - u_depth * (1.0 - hf))
+                          + 0.125 * u_lean * dot(d / Rc, lean));
         // The outer wall falls over half as much again as a step's rise: a cliff of the crystal's whole height.
         float cov = smoothstep(0.0, 1.0, clamp(0.5 - ds / (1.5 * soft), 0.0, 1.0));
-        // Colour: the crystal's own place, its terraces (each with a random shift of its own, blended over the rise),
+        // Colour: the crystal's own place (over the ramp's whole cycle there and back, so no shift below favours one end),
+        // its terraces (each with a random shift of its own, blended over the rise),
         // the sweep across it, its cores and its face — the faces' shifts blended into their neighbours' over a pixel
         // either side of the edges between them (r sin of the angle from each edge).
         float bk = mix(hashI(ivec2(sk + 2, int(k)), sg + 37.0), hashI(ivec2(sk + 2, int(k) + 1), sg + 37.0), rise);
@@ -396,17 +479,30 @@ GenOut gen(vec2 p) {
         float wp = cube ? clamp(0.5 - rq * sin(radians(am)), 0.0, 0.5) : 0.0;
         float wn = cube ? clamp(0.5 - rq * sin(radians(120.0 - am)), 0.0, 0.5) : 0.0;
         float fo = face + wp * (mod(face + 2.0, 3.0) - face) + wn * (mod(face + 1.0, 3.0) - face);
-        float t = u_col_ofs + u_col_var * fract(13.7 * hB.y) + u_col_step * lev + u_band * (bk - 0.5)
-                + u_sweep * dot(d, sdir) / (2.0 * R0) + u_core_col * float(lvl) + u_face_col * fo + mot;
-        float kc = float(G - g) * 4.0 + base + 1e-3 * float(lvl);
-        if (cov > 0.0 && kc > k1) { k2 = k1; h2 = H1 * c1; t2 = t1; k1 = kc; t1 = t; H1 = H; c1 = cov; rnd1 = rnd; }
-        else if (cov > 0.0 && kc > k2) { k2 = kc; h2 = H * cov; t2 = t; }
+        float t = u_col_ofs + 2.0 * u_col_var * fract(13.7 * hB.y) + u_col_step * lev + u_band * (bk - 0.5)
+                + u_sweep * dot(d, sdir) / (2.0 * R0) + u_sub_col * float(sub) + u_face_col * fo + mot;
+        // Shade: darker towards the foot of a step up, brighter along the lip after a drop (neither where the cell runs on
+        // level), and darker down in the hollow.
+        float foot = smoothstep(0.3, 1.0, f) * (1.0 - rise) * clamp(lv.z - lv.y, 0.0, 1.0) * (1.0 - rr);
+        float lipZ = (1.0 - smoothstep(0.0, max(0.35, 1.5 * sw), f)) * clamp(lv.y - lv.x, 0.0, 1.0) * (1.0 - rr);
+        float sh = (1.0 - 0.8 * u_contrast * foot + 0.25 * u_contrast * lipZ) * (1.0 - 0.45 * u_contrast * (1.0 - hf));
+        // Depth order: cores in front of their crystal, corner crystals behind it.
+        float kd = float(G - g) * 4.0 + base + 1e-3 * (lvl > nC ? -float(sub) : float(lvl));
+        if (cov > 0.0 && kd > k1) {
+          k2 = k1; h2 = H1 * c1; t2 = t1; sh2 = sh1;
+          k1 = kd; t1 = t; H1 = H; c1 = cov; rnd1 = rnd; sh1 = sh;
+        } else if (cov > 0.0 && kd > k2) { k2 = kd; h2 = H * cov; t2 = t; sh2 = sh; }
       }
     }
   }
-  // The front crystal over what is behind it, by its coverage.
-  GenOut g = genOut(bsRamp(t1), u_ground ? 1.0 : coverage(sdU, u_aa), rnd1, sdU);
-  gGenAlt = vec2(bsRamp(t2), 1.0 - c1);
+  // The front crystal over what is behind it, by its coverage. The ramp's first stop is the bare ground (value 0); the
+  // crystals walk the rest of it, from its second stop on, and back.
+  float g0 = u_dif_grad_count > 1 ? u_dif_grad_stops[1].a : 0.0;
+  float v1 = k1 < 0.0 ? 0.0 : g0 + (1.0 - g0) * bsRamp(t1);
+  float v2 = k2 < 0.0 ? 0.0 : g0 + (1.0 - g0) * bsRamp(t2);
+  GenOut g = genOut(v1, u_ground ? 1.0 : coverage(sdU, u_aa), rnd1, sdU);
+  gGenAlt = vec2(v2, 1.0 - c1);
+  gGenShade = mix(sh2, sh1, c1);
   // Per-feature variation is each crystal's height (above), not a scale of the whole value.
   g.feat = 0.0;
   g.hval = clamp(mix(h2, H1, c1), 0.0, 1.0);

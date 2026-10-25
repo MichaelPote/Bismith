@@ -209,10 +209,11 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
 - `hval` — optional: a separate 0..1 value for Height › Pattern, shaped like the value (Wood: shallower grain in Height
   than in colour). Negative = use the value.
 
-Beside GenOut, a generator may set two globals for Diffuse: `gGenRgb`, a colour of its own in place of the ramp (Stamp's
-image), and `gGenAlt`, a second value and its weight that the ramp's colour blends toward (shaped like the value) — where
-two features of different ramp positions meet within a pixel, their two colours mix instead of the ramp passing through
-the colours between them (Bismuth's crystal walls).
+Beside GenOut, a generator may set three globals for Diffuse: `gGenRgb`, a colour of its own in place of the ramp
+(Stamp's image); `gGenAlt`, a second value and its weight that the ramp's colour blends toward (shaped like the value) —
+where two features of different ramp positions meet within a pixel, their two colours mix instead of the ramp passing
+through the colours between them (Bismuth's crystal walls); and `gGenShade`, a brightness the colour is multiplied by,
+its own shading kept out of the value so the ramp still picks the hue (Bismuth's dark terrace feet).
 
 The common generator wrapper then:
 
@@ -288,8 +289,8 @@ with its own random, a gradient across each, a band at one side), with noise Bre
 splats** (FR8.24) throws blood, water or oil — torn cores, jets, droplets and mist, or poured pools — lying flat or
 running down in runs that end in a bead, its value the liquid's thickness (a flat top over a rounded meniscus). **Bismuth**
 (FR8.25) grows hopper crystals — square frames, or isometric cube corners, stepping down in terraces to a hollow centre,
-with jogging corners, spirals, rim ridges and cores — a few generations deep and painted in depth order, coloured by an
-iridescent oxide ramp.
+whorled and meandering, with ziggurat corner crystals, rim ridges and cores — a few generations deep and painted in
+depth order, coloured by an iridescent oxide ramp with dark recesses and bright lips.
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
