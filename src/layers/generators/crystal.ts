@@ -6,9 +6,10 @@
 // from the edge into the cell (less half the Gap). The pyramid is min_j g_j — exactly the polygon's pyramid, since an
 // edge that isn't one of the cell's (a redundant bisector) reaches 0 further along every ray from the tip — so every face
 // is planar and the ridges run from the tip to the cell's corners. Tip offset moves the tip off the cell's site (each
-// d_j(a) kept at least 0.3 of the site's, so it never leaves the cell), Face variation gives each face its own slope (a
-// roof whose ridges meet in a short crest instead of one point), Table cuts the top off flat (a gem's table), and Base
-// stands the pyramid on a prism (its walls show only across a Gap).
+// d_j(a) kept at least 0.3 of the site's and a fifth of the cell, so it never leaves the cell and a thin cell stands as a
+// low ridge), Face variation gives each face its own slope (a roof whose ridges meet in a short crest instead of one
+// point), Table cuts the top off flat (a gem's table), and Base stands the pyramid on a prism (its walls show only across
+// a Gap). Valley fill rounds the valleys' bottoms.
 //
 // Layers repeats that up to four times, each finer (Layer scale), lower (Layer height), lifted (Layer lift) and grown in
 // only a share of its cells (Small crystals), and combines them by max: smaller crystals grow out of the valleys between
@@ -50,7 +51,7 @@ export const crystalLayer: LayerDef = {
 			section: 'Crystals',
 			hint: 'Moves each crystal’s tip off its middle, its own way, so its faces differ in size and slope'
 		}),
-		P.float('face_var', 'Face variation', 0.3, 0, 1, {
+		P.float('face_var', 'Face variation', 0.2, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
 			hint: 'Each face its own slope (1 = up to three times as gentle): the faces no longer meet in one point but in a short crest, as a real crystal’s termination does'
@@ -77,6 +78,13 @@ export const crystalLayer: LayerDef = {
 			section: 'Crystals',
 			hint: 'Stands each pyramid on a straight-sided base, this share of its height: walls round each crystal where a Gap or a lower neighbour shows them'
 		}),
+		P.float('vfill', 'Valley fill', 2, 0, 64, {
+			softMax: 6,
+			unit: 'px',
+			step: 0.05,
+			section: 'Crystals',
+			hint: 'Rounds the bottom of each valley over this width, so crystals that touch read as grown together instead of split by a hairline crack. 0 = sharp V'
+		}),
 		P.bool('ground', 'Ground', true, {
 			section: 'Crystals',
 			hint: 'Cover the ground in the gaps (the ramp’s first stop at height 0); off, only the crystals cover and the layers below show between them'
@@ -85,14 +93,14 @@ export const crystalLayer: LayerDef = {
 			section: 'Layers',
 			hint: 'Crystal layers combined by their highest: each finer one grows out of the valleys between the crystals of the ones before'
 		}),
-		P.float('layer_scale', 'Layer scale', 1.8, 1, 6, {
+		P.float('layer_scale', 'Layer scale', 1.5, 1, 6, {
 			softMax: 4,
 			step: 0.01,
 			section: 'Layers',
 			showIf: (p) => Number(p.layers) > 1,
 			hint: 'Crystals across each layer as a multiple of the layer before'
 		}),
-		P.float('fill', 'Small crystals', 0.45, 0, 1, {
+		P.float('fill', 'Small crystals', 0.35, 0, 1, {
 			step: 0.001,
 			section: 'Layers',
 			showIf: (p) => Number(p.layers) > 1,
@@ -111,7 +119,7 @@ export const crystalLayer: LayerDef = {
 			showIf: (p) => Number(p.layers) > 1,
 			hint: 'How far each finer layer’s crystals stand above the ground, as a share of their own height: higher, they push up through more of the big ones’ slopes'
 		}),
-		P.float('facet_con', 'Facet contrast', 0.8, 0, 2, {
+		P.float('facet_con', 'Facet contrast', 0.65, 0, 2, {
 			step: 0.001,
 			section: 'Colour',
 			hint: 'How far along the ramp each face moves by its own random amount (1 = the whole ramp): light and dark facets side by side, as light refracts through cut glass'
@@ -136,7 +144,7 @@ export const crystalLayer: LayerDef = {
 		P.float('edge', 'Edge highlight', 0.5, -1, 1, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Ridges between the faces of a crystal light up towards the ramp’s end (below 0: darken towards its start), as the edges of cut glass catch the light'
+			hint: 'Ridges between the faces of a crystal light up towards the ramp’s end (below 0: darken towards its start), as the edges of cut glass catch the light — each ridge as much as it faces the sheen and by a random of its own, the finer layers’ less'
 		}),
 		P.float('valley', 'Valley shade', -0.25, -1, 1, {
 			step: 0.001,
@@ -144,12 +152,17 @@ export const crystalLayer: LayerDef = {
 			hint: 'The valleys where crystals meet darken (above 0: light up)'
 		}),
 		P.float('edge_w', 'Edge width', 1.5, 0.1, 32, {
-			softMax: 8,
+			softMax: 4,
 			unit: 'px',
 			step: 0.05,
 			section: 'Colour',
 			showIf: (p) => Number(p.edge) !== 0 || Number(p.valley) !== 0,
 			hint: 'Width of the edge highlights and valley shading'
+		}),
+		P.float('glint', 'Glints', 0.35, 0, 1, {
+			step: 0.001,
+			section: 'Colour',
+			hint: 'A bright streak across some of the faces (fewer and fainter on the finer layers), parallel to the face’s foot at its own height up it, as light refracted from a facet behind'
 		}),
 		P.float('col_var', 'Colour per crystal', 0.2, 0, 1, {
 			step: 0.001,
@@ -162,10 +175,10 @@ export const crystalLayer: LayerDef = {
 			showIf: (p) => Number(p.layers) > 1,
 			hint: 'How far along the ramp each layer moves from the one before'
 		}),
-		P.float('inner', 'Inner facets', 0.3, 0, 1, {
+		P.float('inner', 'Inner facets', 0.15, 0, 1, {
 			step: 0.001,
 			section: 'Inner facets',
-			hint: 'A star of facets seen through each crystal, wedges fanning out from its tip, each its own shade with faint edges — turned by each face its own way, so the star jumps at every ridge as light refracted through cut glass does. 0 = none'
+			hint: 'A star of facets seen through each large crystal (the first layer’s), wedges fanning out from its tip, each its own shade with faint edges — turned by each face its own way, so the star jumps at every ridge as light refracted through cut glass does. 0 = none'
 		}),
 		P.int('rays', 'Inner rays', 12, 3, 48, {
 			softMax: 24,
@@ -204,22 +217,28 @@ export const crystalLayer: LayerDef = {
 		return {
 			edge_w: Math.max(0.75, round1((1.5 * side) / 512)),
 			layers: side >= 256 ? 3 : side >= 128 ? 2 : 1,
-			inner: side >= 128 ? 0.3 : 0,
+			inner: side >= 128 ? 0.15 : 0,
 			h_amount: round1(6 * Math.sqrt(Math.min(1, side / 512)))
 		};
 	},
 	glsl: /* glsl */ `
 // A facet's place on the ramp: its own random r, how squarely it faces the sheen (it faces down its slope, against up),
-// how high up it is (g), its crystal's random rc and its layer t.
+// how high up it is (g), its crystal's random rc and its layer t; on 3 faces in 10 (1 in 10 on the finer layers) a glint,
+// a narrow streak across the face at its own height up it. The darkest faces are lifted into a soft floor (max(v,
+// 0.18 + 0.4 v)): a face of the ramp's first stop reads as a hole, not glass.
 float cyFacet(float r, vec2 up, float g, float rc, float t, vec2 ldir) {
-  return 0.5 + u_facet_con * (r - 0.5) - 0.5 * u_sheen * dot(up, ldir) + u_grad * (g - 0.5) + u_col_var * (rc - 0.5)
-       + u_layer_col * t;
+  float gz = (g - 0.15 - 0.7 * fract(r * 71.97)) / 0.035;
+  float glint = fract(r * 37.31) < (t > 0.0 ? 0.1 : 0.3) ? u_glint * exp(-gz * gz * gz * gz) : 0.0;
+  float v = 0.5 + u_facet_con * (r - 0.5) - 0.5 * u_sheen * dot(up, ldir) + u_grad * (g - 0.5) + u_col_var * (rc - 0.5)
+          + u_layer_col * t;
+  return max(v, 0.18 + 0.4 * v) + glint;
 }
 
-// Edge highlight at dr px from a ridge, Valley shade at dv px from a valley: towards the ramp's end (> 0) or start.
-float cyEdges(float v, float dr, float dv) {
+// Edge highlight at dr px from a ridge (m: that ridge's own strength), Valley shade at dv px from a valley (mv: its
+// strength): towards the ramp's end (> 0) or start.
+float cyEdges(float v, float dr, float m, float dv, float mv) {
   float k = -1.0 / max(u_edge_w * u_edge_w, 1e-3);
-  float a = u_edge * exp(k * dr * dr), b = u_valley * exp(k * dv * dv);
+  float a = clamp(u_edge * m, -1.0, 1.0) * exp(k * dr * dr), b = u_valley * mv * exp(k * dv * dv);
   v = a > 0.0 ? mix(v, 1.0, a) : mix(v, 0.0, -a);
   return b > 0.0 ? mix(v, 1.0, b) : mix(v, 0.0, -b);
 }
@@ -228,6 +247,8 @@ float cyEdges(float v, float dr, float dv) {
 // monotone ripple of the crystal's own phase), each with its own shade; rf turns it by the face. Returns the shade
 // (centred on 0, blended into the next wedge over the pixel either side of their edge) and the px distance to that edge.
 vec2 cyFan(vec2 p, vec2 tip, float rc, float rf) {
+  // (rf < 0: a table, which shows no star.)
+  if (rf < 0.0) return vec2(0.0, 1e4);
   vec2 d = p - tip;
   float r = length(d);
   float th = atan(d.y, d.x + 1e-9);
@@ -248,6 +269,8 @@ vec2 cyFan(vec2 p, vec2 tip, float rc, float rf) {
 GenOut gen(vec2 p) {
   int T = clamp(u_layers, 1, 4);
   float gh = 0.5 * max(u_gap, 0.0);
+  // Valley fill's width (not across a gap, where the crystals meet the ground).
+  float vw = gh > 0.0 ? 0.0 : max(u_vfill, 0.0);
   float jit = clamp(u_jitter, 0.0, 1.0);
   float tab = 1.0 - clamp(u_table, 0.0, 0.95);
   float base = clamp(u_base, 0.0, 1.0);
@@ -258,9 +281,10 @@ GenOut gen(vec2 p) {
   for (int t = 0; t < 4; t++) if (t < T) hmax = max(hmax, pow(max(u_layer_h, 0.0), float(t)) * (1.0 + (t > 0 ? u_layer_lift : 0.0)));
 
   // The front surface so far: height and its gradient (per px), value, the colour across the nearest boundary (value,
-  // weight), distances to its nearest ridge and valley, the crystals' coverage, its crystal's random, the distance to its
+  // weight), distance to its nearest ridge and that ridge's strength, distance to its nearest valley and that valley's
+  // strength (half round the finer layers' crystals), distance to its nearest cell edge, the crystals' coverage, its crystal's random, the distance to its
   // visible outline (< 0 inside).
-  float H = -1e3, V = 0.0, VA = 0.0, WA = 0.0, DR = 1e4, DV = 1e4, C = 0.0, RN = 0.0, SD = 1e4;
+  float H = -1e3, V = 0.0, VA = 0.0, WA = 0.0, DR = 1e4, MR = 1.0, DV = 1e4, MV = 1.0, DE = 1e4, C = 0.0, RN = 0.0, SD = 1e4;
   // The front facet's gradient; whether the one across the boundary is the ground.
   vec2 dH = vec2(0.0);
   bool AG = false;
@@ -310,7 +334,9 @@ GenOut gen(vec2 p) {
         vec2 n = dv / L;
         float d = dot(p - 0.5 * (si + sj), n) - gh;
         vec2 hf = hash2I(nk * 1013 + key, sg + 5.0);
-        float den = max(0.5 * L - gh + dot(off, n), 0.15 * L) * (1.0 + 2.0 * u_face_var * hf.y);
+        // (Its run at least 0.3 of the site's, and a fifth of the cell, so a thin cell between two close sites stands as
+        // a low ridge, not a knife edge.)
+        float den = max(max(0.5 * L - gh + dot(off, n), 0.15 * L), 0.2 * min(cpx.x, cpx.y)) * (1.0 + 2.0 * u_face_var * hf.y);
         float g = d / den;
         if (g < g1) { g2 = g1; n2 = n1; den2 = den1; r2 = r1; g1 = g; n1 = n; den1 = den; r1 = hf.x; }
         else if (g < g2) { g2 = g; n2 = n; den2 = den; r2 = hf.x; }
@@ -334,10 +360,17 @@ GenOut gen(vec2 p) {
         // This facet (the table, or the lowest face), and the one across its nearest ridge: the next face, or the table's
         // edge (both in px: g is d / den).
         float vF = cyFacet(r1, n1, gc, rc, tl, ldir);
-        float vT = cyFacet(hashI(nk, sg + 15.0), vec2(0.0), tab, rc, tl, ldir);
+        float rT = hashI(nk, sg + 15.0);
+        float vT = cyFacet(rT, vec2(0.0), tab, rc, tl, ldir);
         float dTab = u_table > 0.0 ? abs(g1 - tab) * den1 : 1e4;
         float dRid = onTab ? 1e4 : (g2 - g1) / max(length(n2 / den2 - n1 / den1), 1e-6);
         float vR = dTab < dRid ? (onTab ? vF : vT) : cyFacet(r2, n2, gc, rc, tl, ldir);
+        // The ridge's strength: a random of the two faces it parts (the same from either side), how far it faces the sheen
+        // (as the faces' normals lean, down their slopes), less on the finer layers.
+        float ra = dTab < dRid ? rT : r2;
+        float rr = fract((r1 + ra) * 91.7 + r1 * ra * 13.1);
+        vec2 nr = dTab < dRid ? n1 : n1 + n2;
+        float mR = (0.3 + 1.4 * rr * rr) * (0.7 - 0.3 * dot(nr, ldir) / max(length(nr), 1e-6)) * (t > 0 ? 0.5 : 1.0);
         dRid = min(dRid, dTab);
         float vS = onTab ? vT : vF;
         // Across the nearest edge: the neighbour's face, or the ground (value 0) across a gap.
@@ -351,23 +384,35 @@ GenOut gen(vec2 p) {
         // Their stars: this crystal's, turned by the face (the table's unturned); across an edge the neighbour's, about its
         // site.
         vec2 tip = si + off;
-        vec2 fS = vec2(rnd, onTab ? 0.5 : r1);
-        vec2 fA = wR > wE ? vec2(rnd, dTab < dRid ? (onTab ? r1 : 0.5) : r2) : vec2(rne, re);
+        // (Only the first layer's crystals show one: on the small ones it is noise.)
+        bool star = t == 0;
+        vec2 fS = vec2(rnd, onTab || !star ? -1.0 : r1);
+        vec2 fA = !star ? vec2(0.0, -1.0) : wR > wE ? vec2(rnd, dTab <= dRid ? (onTab ? r1 : -1.0) : r2) : vec2(rne, re);
         vec2 tA = wR > wE ? tip : sje;
         // Combined by max with the layers before: the crease where the two planes cross is a valley, and its colour the
         // other layer's.
         float dt = abs(ht - H) / max(length(dht - dH), 1e-5);
         float wt = clamp(0.5 - dt, 0.0, 0.5);
+        // Valley fill on the crease: a smooth max of the two planes, Valley fill px wide (k in height: the width × how
+        // fast they part), the same from either side.
+        float kf = vw * length(dht - dH);
+        float fill = kf > 0.0 && H > -1.0 && (ht > H || dt < min(dRid, max(de, 0.0))) ? pow(max(kf - abs(ht - H), 0.0), 2.0) / (4.0 * kf) : 0.0;
         if (ht > H) {
           if (wt > altW) { altV = V; altW = wt; altGr = false; fA = FS; tA = TP; }
           H = ht; dH = dht; V = vS; VA = altV; WA = altW; AG = altGr;
           FS = fS; FA = fA; TP = tip; TA = tA;
-          DR = dRid; DV = min(max(de, 0.0), dt);
+          H += fill;
+          DR = dRid; MR = mR; DE = max(de, 0.0); DV = min(DE, dt); MV = t > 0 ? 0.5 : 1.0;
           C = min(covI + wNb, 1.0); RN = rnd; SD = -min(de, dt);
         } else {
           if (wt > WA) { VA = vS; WA = wt; AG = false; FA = fS; TA = tip; }
-          DV = min(DV, dt);
-          SD = max(SD, -dt);
+          // A crease with a layer hidden below counts only within that layer's facet: its plane, carried on past the
+          // facet's ridge or edge, may come near the front without the facet ever reaching it.
+          if (dt < min(dRid, max(de, 0.0))) {
+            H += fill;
+            if (dt < DV) { DV = dt; MV = 0.5; }
+            SD = max(SD, -dt);
+          }
         }
       }
     }
@@ -380,8 +425,14 @@ GenOut gen(vec2 p) {
     V += u_inner * (sf.x + 0.15 * exp(w2 * sf.y * sf.y));
     if (!AG) VA += u_inner * (sa.x + 0.15 * exp(w2 * sa.y * sa.y));
   }
-  GenOut g = genOut(clamp(cyEdges(V, DR, DV), 0.0, 1.0), u_ground ? 1.0 : C, RN, SD);
-  gGenAlt = vec2(clamp(cyEdges(VA, DR, DV), 0.0, 1.0), WA);
+  // Valley fill at a cell edge: within its width the V's bottom is rounded into a fillet (smooth |x|: (w − d)² / 2w of the
+  // face's slope more; the creases between layers were filled above). The slope capped at a large crystal's steepest, so
+  // a sliver of a face doesn't spike.
+  vec2 c0 = cellsFor(u_scale, 1.0);
+  float smax = 4.0 / (hmax * min(uRes.x / c0.x, uRes.y / c0.y));
+  if (vw > 0.0 && DE < vw) H += min(length(dH), smax) * (vw - DE) * (vw - DE) / (2.0 * vw);
+  GenOut g = genOut(clamp(cyEdges(V, DR, MR, DV, MV), 0.0, 1.0), u_ground ? 1.0 : C, RN, SD);
+  gGenAlt = vec2(clamp(cyEdges(VA, DR, MR, DV, MV), 0.0, 1.0), WA);
   // Per-feature variation is each crystal's height (above), not a scale of the whole value.
   g.feat = 0.0;
   g.hval = clamp(H, 0.0, 1.0);

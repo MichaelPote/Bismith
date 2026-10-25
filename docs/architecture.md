@@ -291,6 +291,9 @@ running down in runs that end in a bead, its value the liquid's thickness (a fla
 (FR8.25) grows hopper crystals — square faces, or the three faces of isometric cube corners, each grown on the CPU by
 rules as a path whose facets step down in spirals, hooks and dead ends — shingled in depth order with daughter crystals
 on their corners, as stepped pyramids, coloured by an iridescent oxide ramp in solid facets shaded by depth.
+**Crystal** (FR8.26) raises Voronoi cells into pyramids of flat faces from each edge to the tip, in up to four layers
+combined by max (finer crystals growing out of the valleys), each facet its own shade, with lit ridges, glints and a
+star of refracted wedges seen through it — cut glass, gem clusters, loose stones.
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
@@ -544,4 +547,5 @@ docs/
 | 8.23  | [One mask system and Mask area](features/fr8.23-masks.md)                                    |
 | 8.24  | [Liquid splats](features/fr8.24-liquid-splats.md)                                            |
 | 8.25  | [Bismuth (hopper crystals)](features/fr8.25-bismuth.md)                                      |
+| 8.26  | [Crystal (faceted crystals)](features/fr8.26-crystal.md)                                     |
 | 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                         |

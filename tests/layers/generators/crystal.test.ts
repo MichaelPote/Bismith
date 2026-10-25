@@ -22,7 +22,7 @@ describe('crystal', () => {
 
 	it('scales its lengths with supersampling, not its counts', () => {
 		const px = crystalLayer.params.filter((d) => d.unit === 'px').map((d) => d.key);
-		expect(px.sort()).toEqual(['edge_w', 'gap']);
+		expect(px.sort()).toEqual(['edge_w', 'gap', 'vfill']);
 		expect(crystalLayer.params.some((d) => d.perArea || d.perPx)).toBe(false);
 	});
 });

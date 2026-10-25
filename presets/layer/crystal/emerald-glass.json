@@ -1,0 +1,141 @@
+{
+	"version": 1,
+	"name": "Emerald glass",
+	"width": 256,
+	"height": 256,
+	"tileable": true,
+	"heightDepth": 2,
+	"seed": 1,
+	"base": {
+		"color": "#06180a",
+		"roughness": 0.6,
+		"specular": 0.5,
+		"metalness": 0,
+		"height": 0,
+		"opacity": 1
+	},
+	"layers": [
+		{
+			"id": "ly_cyemer1",
+			"type": "crystal",
+			"name": "Emerald glass",
+			"enabled": true,
+			"params": {
+				"seed": 1,
+				"scale": 3,
+				"layers": 2,
+				"inner": 0.4,
+				"dif_grad": {
+					"stops": [
+						{
+							"pos": 0,
+							"color": "#021a08"
+						},
+						{
+							"pos": 0.2,
+							"color": "#06401a"
+						},
+						{
+							"pos": 0.4,
+							"color": "#0f7a2c"
+						},
+						{
+							"pos": 0.6,
+							"color": "#3fb84a"
+						},
+						{
+							"pos": 0.8,
+							"color": "#a8f070"
+						},
+						{
+							"pos": 1,
+							"color": "#f2ffe0"
+						}
+					]
+				},
+				"dif_on": true,
+				"h_on": true,
+				"h_amount": 6,
+				"r_on": true,
+				"r_src": "flat",
+				"r_b": 0.08,
+				"mk_target": ""
+			}
+		}
+	],
+	"lighting": {
+		"sky": {
+			"enabled": true,
+			"zenith": "#b8c8dc",
+			"horizon": "#d8d0c8",
+			"intensity": 0.45
+		},
+		"ambient": {
+			"color": "#ffffff",
+			"intensity": 0.01
+		},
+		"lights": [
+			{
+				"id": "lt_bikey01",
+				"type": "directional",
+				"name": "Key",
+				"enabled": true,
+				"params": {
+					"color": "#fff6ea",
+					"intensity": 1,
+					"azimuth": 315,
+					"elevation": 42,
+					"angle": 18
+				}
+			}
+		]
+	},
+	"render": {
+		"samplesPerFrame": 4,
+		"maxSamples": 256,
+		"bounces": 2,
+		"specular": 1,
+		"specularTint": 1,
+		"ao": 0.6,
+		"aoRadius": 6,
+		"jitter": true,
+		"clamp": 8,
+		"shadows": true,
+		"supersample": 1,
+		"exportSamples": 1024,
+		"exportSupersample": 2
+	},
+	"post": [
+		{
+			"id": "pf_9hpb10b",
+			"type": "glow",
+			"enabled": true,
+			"params": {
+				"threshold": 0.6,
+				"knee": 0.5,
+				"intensity": 1.5,
+				"radius": 0.7,
+				"levels": 6,
+				"tint": "#ffffff"
+			}
+		},
+		{
+			"id": "pf_qwhdq0c",
+			"type": "tonemap",
+			"enabled": true,
+			"params": {
+				"exposure": 0.3,
+				"operator": "aces",
+				"white": 4
+			}
+		}
+	],
+	"description": "Large facets of green cut glass, lit ridges and refracted stars",
+	"preview": "data:image/webp;base64,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",
+	"preset": {
+		"id": "pr_cyemer",
+		"category": "Stone",
+		"kind": "layer",
+		"target": "crystal"
+	}
+}
