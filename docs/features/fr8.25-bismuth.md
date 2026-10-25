@@ -80,6 +80,25 @@ picks one by its hash.
   Keys 1.2, Hollow offset 0.1; a vivid ramp with a long gold stretch, magenta, a short violet and blue, teal-mint. Cube
   habit links Top face 1 and depth 0.7.
 
+## Outline, tilt and the photo look (critic rounds 10–12, calibrated to the owner's eye)
+
+- **Outline** (its own section): **Corner rounding**; **Edge bevel**, a rounded chamfer down the whole outer wall; **Notches**,
+  cells along each side notched at their own place and depth by hash (none at the ends or under 3 px) — a broad cut
+  through the outline and a narrower part dropping the surface to the tier below; **Edge noise** (off by default), each
+  side stepping in and out in square jogs a terrace long; **Grain**, fine height noise. The side ledges count in from the
+  real outline, so notches and rounding carry into them; outlines grow a pixel to close hairline gaps. The Edge card's
+  own bevel is hidden (it would scale the colour's ramp position).
+- **Tilt and grading.** **Tread tilt** slopes each tread down towards the hollow (a sawtooth per ring) and domes the rim
+  bars, so a hopper's four walls face the light differently and the metal shows it; **Terrace grading** narrows the
+  rings near the rim. Hopper depth 0.85, Height › Amount 16.
+- **Keys** are one open square spiral per face (Keys 1, **Key size** 0.6 of the half-width, **Key width** 1), winding in
+  from the rim a tier below it: stem a, then arms a, a − p, a − p, … so the arm heading back out stops a gap short of the
+  rim.
+- **Scale and colour.** Crystals across 6, Rim width 1, Notches 0.25; hue by depth (Colour per terrace 0.18) and per facet
+  (Terrace colours 0.3), little sweep (0.12); a light ramp; treads glossy (Roughness › Parts 0.15), bars 0.12, the ground
+  rough and non-metal (Metalness › Parts); faint thin grooves (Groove width 0.08, none under 4 px a cell); Band contrast
+  0.45 darkens and greys the deep treads. Crystals under 3 px a cell switch to plain terraces ≥ 3 px each.
+
 ## Outputs
 
 - **Value** is the oxide's thickness, walked along the ramp and back (so any ramp stays seamless). The ramp's first stop
@@ -117,4 +136,4 @@ crystals below 192 px, a lower height and gentler mottling on small textures.
 - [x] Thin-film colour on a back-and-forth ramp with the ground kept apart; band contrast (`gGenShade`); colour blended
       between crystals (`gGenAlt`)
 - [x] Stepped-pyramid habit (top face, side ledges)
-- [x] Mask of the crystals' union; presets; nine critic rounds (`private/critic/bismuth/`)
+- [x] Mask of the crystals' union; presets; twelve critic rounds (`private/critic/bismuth/`)

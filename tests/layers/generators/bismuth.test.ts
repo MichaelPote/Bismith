@@ -25,13 +25,15 @@ describe('bismuth', () => {
 
 	it('scales its lengths with supersampling, not its counts', () => {
 		const px = bismuthLayer.params.filter((d) => d.unit === 'px').map((d) => d.key);
-		expect(px).toEqual(['soft']);
+		expect(px.sort()).toEqual(['edge', 'edge_noise', 'soft']);
 		expect(bismuthLayer.params.some((d) => d.perArea || d.perPx)).toBe(false);
 	});
 
 	describe('grown faces', () => {
 		const n = 20;
-		const faces = [0.12, 0.6].flatMap((turn) => [1, 2, 3].map((s) => growFace(n, turn, 0.1, 0.2, 0, 0, mulberry32(s))));
+		const faces = [0.12, 0.6].flatMap((turn) =>
+			[1, 2, 3].map((s) => growFace(n, turn, 0.1, 0.2, 0, 0, 0.6, 0.6, mulberry32(s)))
+		);
 		const wall = (f: ReturnType<typeof growFace>, x: number, y: number, bit: number) =>
 			(f.walls[y * n + x] & bit) !== 0;
 
@@ -63,7 +65,7 @@ describe('bismuth', () => {
 		});
 
 		it('stands a rim bar round the face and keys on it, with no ribs beside them', () => {
-			const f = growFace(n, 0.08, 0.02, 0.2, 2, 2, mulberry32(5));
+			const f = growFace(n, 0.08, 0.02, 0.2, 2, 2, 0.6, 0.6, mulberry32(5));
 			const bar = (x: number, y: number) => (f.walls[y * n + x] & 12) !== 0;
 			let inner = 0;
 			for (let y = 0; y < n; y++)
@@ -77,7 +79,7 @@ describe('bismuth', () => {
 		});
 
 		it('packs the templates side by side', () => {
-			const t = faceTexture(n, 0.12, 0.1, 0.2, 2, 1.2, 7);
+			const t = faceTexture(n, 0.12, 0.1, 0.2, 2, 1.2, 0.6, 0.6, 7);
 			expect([t.width, t.height]).toEqual([n * FACE_TEMPLATES, n]);
 		});
 	});
