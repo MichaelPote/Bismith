@@ -59,8 +59,8 @@ export const surfaceMaskLayer: LayerDef = {
 			],
 			{ showIf: surface }
 		),
-		P.float('radius', 'Radius', 8, 0.5, 64, {
-			softMax: 16,
+		P.float('radius', 'Radius', 8, 0.5, 4096, {
+			softMax: 512,
 			unit: 'px',
 			step: 0.1,
 			showIf: find('crevices', 'high', 'both', 'slopes', 'facing'),
