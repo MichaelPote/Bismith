@@ -93,6 +93,8 @@ import {
 } from '@tabler/icons-vue';
 import type { LayerCategory } from '@/layers/types';
 import { getLayerDef } from '@/layers/registry';
+import { maskHue } from '@/layers/masks';
+import type { Project } from '@/core/project';
 
 export const CATEGORY_HUE: Record<LayerCategory, string> = {
 	noise: 'var(--cat-rose)',
@@ -178,6 +180,11 @@ export function layerIcon(type: string): Component {
 export function layerHue(type: string): string {
 	const def = getLayerDef(type);
 	return def ? CATEGORY_HUE[def.category] : 'var(--text-lo)';
+}
+
+/** A mask's colour wherever the UI shows it (FR8.23): its category hue (masks.ts maskHue). */
+export function maskColour(p: Project, mask: string): string {
+	return `var(--cat-${maskHue(p, mask)})`;
 }
 
 export const LIGHT_HUE = 'var(--cat-gold)';

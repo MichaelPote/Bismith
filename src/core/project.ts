@@ -194,6 +194,11 @@ export interface Project {
 	layers: Layer[];
 	/** Groups of the layers (optional: absent = none). */
 	groups?: LayerGroup[];
+	/**
+	 * Each mask's colour in the UI (FR8.23): a category hue (`--cat-<hue>`, masks.ts MASK_HUES), given when the mask is
+	 * first named. Shape's is fixed and not stored.
+	 */
+	maskHues?: Record<string, string>;
 	lighting: Lighting;
 	render: RenderSettings;
 	post: PostFilter[];

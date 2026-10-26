@@ -1,16 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createProject } from '@/core/serialize';
+import { createProject, normalizeProject } from '@/core/serialize';
+import { renameMask } from '@/core/groups';
 import type { Layer } from '@/core/project';
 import type { ParamValues } from '@/core/params';
 import { createLayer, layerParamDefs, maskSourcesOf, sanitizeLayer } from '@/layers/registry';
 import {
+	MASK_HUES,
+	SHAPE_HUE,
+	assignMaskHues,
 	foldLimit,
 	layerLimit,
 	limitLabel,
 	limitParams,
 	limitTo,
 	layerWrites,
+	maskHue,
+	maskNames,
 	maskChain,
 	maskChainLabel,
 	maskLinks,
@@ -407,5 +413,48 @@ describe('coverage-only masks', () => {
 			mt_src: 'flat',
 			e_src: 'flat'
 		});
+	});
+});
+
+describe('mask colours', () => {
+	const layers = () => [
+		createLayer('rect', { mk_target: 'Opening' }, 'Hatch'),
+		createLayer('noise', { mk_target: 'Rust', lim_1: 'Opening' }, 'Rust'),
+		createLayer('noise', { lim_1: 'Wet' }, 'Damp')
+	];
+
+	it('gives each mask named anywhere its own hue, Shape always gold', () => {
+		const p = project([createLayer('rect', {}, 'Panel'), ...layers()]);
+		expect(maskNames(p).sort()).toEqual(['Opening', 'Rust', 'Shape', 'Wet']);
+		expect(assignMaskHues(p)).toBe(true);
+		expect(p.maskHues).toEqual({ Opening: MASK_HUES[0], Rust: MASK_HUES[1], Wet: MASK_HUES[2] });
+		expect(maskHue(p, 'Shape')).toBe(SHAPE_HUE);
+		expect(assignMaskHues(p)).toBe(false);
+	});
+
+	it('keeps a mask its hue, and gives a new one the least used', () => {
+		const p = project(layers());
+		p.maskHues = { Opening: MASK_HUES[1], Gone: MASK_HUES[0] };
+		assignMaskHues(p);
+		// Gone names no mask any more, so its hue counts as free.
+		expect(p.maskHues.Opening).toBe(MASK_HUES[1]);
+		expect([p.maskHues.Rust, p.maskHues.Wet]).toEqual([MASK_HUES[0], MASK_HUES[2]]);
+	});
+
+	it('moves the hue with a rename, and keeps only known hues on load', () => {
+		const p = project(layers());
+		assignMaskHues(p);
+		const hue = p.maskHues!.Rust;
+		renameMask(p, 'Rust', 'Grime');
+		expect(p.maskHues!.Grime).toBe(hue);
+		expect(p.maskHues!.Rust).toBeUndefined();
+		const loaded = normalizeProject({ ...p, maskHues: { Grime: hue, Bad: 'chartreuse', '': MASK_HUES[0] } });
+		expect(loaded.maskHues).toEqual({ Grime: hue });
+	});
+
+	it('picks a stable hue by name for a mask not given one yet', () => {
+		const p = project([]);
+		expect(maskHue(p, 'Moss')).toBe(maskHue(project([]), 'Moss'));
+		expect(MASK_HUES).toContain(maskHue(p, 'Moss'));
 	});
 });

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 	// A mask name (FR8.23): a dropdown of the masks there are — None, then the names — and "New mask…", which turns the
 	// field into a name input (Enter or leaving it keeps the name, Escape goes back). A name nothing writes yet (read
-	// fields: nothing above writes it) stays listed, marked as empty.
+	// fields: nothing above writes it) stays listed, marked as empty. Each mask shows in its colour (a ring before the
+	// name, the names in the list), as everywhere the UI shows a mask.
 	import { computed, nextTick, ref } from 'vue';
 	import { IconChevronDown } from '@tabler/icons-vue';
+	import { useProjectStore } from '@/stores/project';
+	import { maskColour } from '@/ui/meta';
 
 	const props = defineProps<{
 		modelValue: string;
@@ -17,6 +20,9 @@
 		(e: 'update:modelValue', v: string): void;
 		(e: 'commit', v: string): void;
 	}>();
+
+	const store = useProjectStore();
+	const colour = (name: string) => (name ? maskColour(store.project, name) : undefined);
 
 	const NEW = '\u0000new';
 	const editing = ref(false);
@@ -47,6 +53,20 @@
 		input.value?.focus();
 	}
 
+	const select = ref<HTMLSelectElement | null>(null);
+	/** Drops the list open (Write to › Add mask); a browser without showPicker, or no user gesture, just focuses it. */
+	function open(): void {
+		const s = select.value;
+		if (!s) return;
+		s.focus();
+		try {
+			s.showPicker();
+		} catch {
+			// focus is enough
+		}
+	}
+	defineExpose({ open });
+
 	function finish(keep: boolean): void {
 		if (!editing.value) return;
 		editing.value = false;
@@ -69,9 +89,21 @@
 			@keydown.escape.prevent="finish(false)"
 			@blur="finish(true)" />
 		<template v-else>
-			<select :value="modelValue.trim()" :aria-label="label" @change="onChange">
-				<option v-for="o in options" :key="o.value" :value="o.value">{{ o.label }}</option>
+			<select
+				ref="select"
+				:class="{ ringed: modelValue.trim() }"
+				:value="modelValue.trim()"
+				:aria-label="label"
+				@change="onChange">
+				<option
+					v-for="o in options"
+					:key="o.value"
+					:value="o.value"
+					:style="o.value !== NEW ? { color: colour(o.value) } : undefined">
+					{{ o.label }}
+				</option>
 			</select>
+			<span v-if="modelValue.trim()" class="cf-ring" :style="{ color: colour(modelValue.trim()) }" />
 			<IconChevronDown class="caret" :size="12" />
 		</template>
 	</div>
@@ -115,6 +147,9 @@
 	option {
 		background: var(--panel);
 		color: var(--text);
+	}
+	select.ringed {
+		padding-left: 20px;
 	}
 	.caret {
 		position: absolute;

@@ -140,6 +140,19 @@ html.picking [data-pick] * {
 	outline-offset: 3px;
 }
 
+/* A mask's colour (FR8.23): a ring of its category hue (stroke only, `color` sets it), placed before its name inside a
+   field whose text starts 20px in. */
+.cf-ring {
+	position: absolute;
+	left: 7px;
+	top: 7px;
+	width: 8px;
+	height: 8px;
+	border: 1.5px solid currentColor;
+	border-radius: 50%;
+	pointer-events: none;
+}
+
 .cf-field {
 	height: 22px;
 	border: 1px solid var(--hairline);

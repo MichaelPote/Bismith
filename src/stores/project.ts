@@ -15,7 +15,7 @@ import {
 } from '@/core/groups';
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize';
 import { freshParams, linkedChanges } from '@/layers/registry';
-import { coverageOnlyAt, solidSources } from '@/layers/masks';
+import { assignMaskHues, coverageOnlyAt, maskNames, solidSources } from '@/layers/masks';
 import { newId } from '@/core/ids';
 import { MAX_LIGHTS } from '@/core/project';
 import { fitLight, resizeProject } from '@/core/pixelScale';
@@ -50,6 +50,7 @@ function clone<T>(v: T): T {
 export const useProjectStore = defineStore('project', () => {
 	// First run opens a showcase preset rather than a blank project.
 	const project = ref<Project>(loadAutosave() ?? builtinProject('bricks') ?? createProject());
+	assignMaskHues(project.value);
 	const past = shallowRef<string[]>([]);
 	const future = shallowRef<string[]>([]);
 	let current = JSON.stringify(project.value);
@@ -79,6 +80,11 @@ export const useProjectStore = defineStore('project', () => {
 			timer = setTimeout(commitNow, 350);
 		},
 		{ deep: true }
+	);
+	// A newly named mask gets its colour (FR8.23) in the same undo step as the change that named it.
+	watch(
+		() => maskNames(project.value).join('\u0000'),
+		() => assignMaskHues(project.value)
 	);
 
 	function restore(json: string): void {
@@ -115,6 +121,7 @@ export const useProjectStore = defineStore('project', () => {
 	function load(p: Project): void {
 		commitNow();
 		project.value = normalizeProject(clone(p));
+		assignMaskHues(project.value);
 		generation.value++;
 		commitNow();
 	}

@@ -1,13 +1,17 @@
 <script setup lang="ts">
 	// Dropdown. The wheel or the arrow keys over the field step through the options (stopping at the ends), so the
-	// choices can be previewed in turn. A wheel that is scrolling the panel past the field keeps scrolling it.
+	// choices can be previewed in turn. A wheel that is scrolling the panel past the field keeps scrolling it. With
+	// `face`, the closed field shows only that (a mode's glyph) as a small square button; the list stays the full one.
+	// `ring` draws a colour ring before the value, and an option's `colour` its text in the list (masks, FR8.23).
 	import { recentlyScrolled } from '@/ui/scrolling';
 	import { IconChevronDown } from '@tabler/icons-vue';
 
 	const props = defineProps<{
 		modelValue: string;
-		options: { value: string; label: string; hint?: string }[];
+		options: { value: string; label: string; hint?: string; colour?: string }[];
 		label?: string;
+		face?: string;
+		ring?: string;
 	}>();
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: string): void;
@@ -57,11 +61,20 @@
 </script>
 
 <template>
-	<div class="cf-select">
+	<div class="cf-select" :class="{ faced: face !== undefined, ringed: ring }">
 		<select :value="modelValue" :aria-label="label" @change="onChange" @wheel="onWheel" @keydown="onKey">
-			<option v-for="o in options" :key="o.value" :value="o.value" :title="o.hint">{{ o.label }}</option>
+			<option
+				v-for="o in options"
+				:key="o.value"
+				:value="o.value"
+				:title="o.hint"
+				:style="o.colour ? { color: o.colour } : undefined">
+				{{ o.label }}
+			</option>
 		</select>
-		<IconChevronDown class="caret" :size="12" />
+		<span v-if="ring" class="cf-ring" :style="{ color: ring }" />
+		<span v-if="face !== undefined" class="face">{{ face }}</span>
+		<IconChevronDown v-else class="caret" :size="12" />
 	</div>
 </template>
 
@@ -95,6 +108,32 @@
 	option {
 		background: var(--panel);
 		color: var(--text);
+	}
+	/* The face drawn over the closed select, which keeps the clicks, wheel and keys (its own text is hidden). */
+	.faced {
+		width: 26px;
+		flex: none;
+	}
+	.faced select {
+		padding: 0;
+		color: transparent;
+	}
+	.faced option {
+		color: var(--text);
+	}
+	.face {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--text-hi);
+	}
+	.ringed select {
+		padding-left: 20px;
 	}
 	.caret {
 		position: absolute;

@@ -18,7 +18,7 @@ import {
 } from '@/core/project';
 import type { ParamValues } from '@/core/params';
 import { MAX_LIMIT_TERMS, MAX_WRITE_ROWS, SRC_KEYS, rowKey } from './commonParams';
-import { getLayerDef, maskSourcesOf } from './registry';
+import { getLayerDef, layerParamDefs, maskSourcesOf } from './registry';
 import type { LayerDef } from './types';
 
 export { SHAPE_MASK };
@@ -268,6 +268,55 @@ export function masksAbove(p: Project, layerId?: string): string[] {
 		for (const w of layerWrites(getLayerDef(l.type), l.params)) if (!names.includes(w.target)) names.push(w.target);
 	}
 	return names.sort((a, b) => (a === SHAPE_MASK ? -1 : b === SHAPE_MASK ? 1 : 0));
+}
+
+// ------------------------------------------------------------------------------------------------ colours
+
+/**
+ * The category hues (tokens.css `--cat-<hue>`) masks are drawn in wherever the UI shows one: their fields, Write to's
+ * slots, the Outliner's lane, the Masks view. Shape is always gold; every other mask is given one when it is first named
+ * (assignMaskHues) — the one the masks there are use least — and keeps it (Project.maskHues).
+ */
+export const SHAPE_HUE = 'gold';
+export const MASK_HUES = ['teal', 'rose', 'moss', 'violet', 'sky', 'crimson', 'indigo', 'slate', 'stone'];
+
+/** Every mask the project names: written, read (Limit to, edges, Mask area) or in a group's limit. */
+export function maskNames(p: Project): string[] {
+	const names = new Set<string>();
+	for (const l of p.layers)
+		for (const d of layerParamDefs(l.type)) {
+			const n = d.mask ? name(l.params[d.key]) : '';
+			if (n) names.add(n);
+		}
+	for (const g of p.groups ?? []) for (const t of g.limit?.terms ?? []) names.add(t.mask);
+	return [...names];
+}
+
+/** Gives every mask without a hue one, the least used (in MASK_HUES' order on a tie). True if any was given. */
+export function assignMaskHues(p: Project): boolean {
+	const names = maskNames(p).filter((n) => n !== SHAPE_MASK);
+	const has = (n: string) => MASK_HUES.includes(p.maskHues?.[n] ?? '');
+	const used = new Map(MASK_HUES.map((h) => [h, 0]));
+	for (const n of names) if (has(n)) used.set(p.maskHues![n], used.get(p.maskHues![n])! + 1);
+	let given = false;
+	for (const n of names) {
+		if (has(n)) continue;
+		const h = MASK_HUES.reduce((a, b) => (used.get(b)! < used.get(a)! ? b : a));
+		(p.maskHues ??= {})[n] = h;
+		used.set(h, used.get(h)! + 1);
+		given = true;
+	}
+	return given;
+}
+
+/** A mask's hue: Shape's, the one it was given, or — not given one yet — one picked by its name. */
+export function maskHue(p: Project, mask: string): string {
+	if (mask === SHAPE_MASK) return SHAPE_HUE;
+	const h = p.maskHues?.[mask];
+	if (h && MASK_HUES.includes(h)) return h;
+	let s = 0;
+	for (const c of mask) s = (s * 31 + c.charCodeAt(0)) >>> 0;
+	return MASK_HUES[s % MASK_HUES.length];
 }
 
 // ------------------------------------------------------------------------------------------------ the evaluation plan

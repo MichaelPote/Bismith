@@ -2,7 +2,7 @@
 
 import { ensureBuiltins } from '@/render/builtins';
 import { getLayerDef, layerParamDefs, sanitizeLayer, createLayer as registryCreateLayer } from '@/layers/registry';
-import { sanitizeLimit } from '@/layers/masks';
+import { MASK_HUES, sanitizeLimit } from '@/layers/masks';
 import { createPostFilter as registryCreatePost, getPostDef, sanitizePostFilter } from '@/render/post/registry';
 import { LIGHT_DEFS, createLight } from './lights';
 import { sanitizeParams } from './params';
@@ -164,6 +164,12 @@ export function normalizeProject(input: unknown): Project {
 			...(g.enabled === false ? { enabled: false } : {})
 		}))
 		.filter((g: LayerGroup) => g.members.length > 0);
+	// Masks' colours (FR8.23): known hues only; a mask without one is given one in the editor.
+	const maskHues = Object.fromEntries(
+		Object.entries(raw.maskHues && typeof raw.maskHues === 'object' ? raw.maskHues : {}).filter(
+			([k, h]) => k.trim() && typeof h === 'string' && MASK_HUES.includes(h)
+		)
+	) as Record<string, string>;
 
 	const lights: Light[] = (Array.isArray(rl.lights) ? rl.lights : [])
 		.filter((l: any) => l && (l.type === 'directional' || l.type === 'point'))
@@ -215,6 +221,7 @@ export function normalizeProject(input: unknown): Project {
 		},
 		layers: gatherGroups(flat, groups),
 		...(groups.length ? { groups } : {}),
+		...(Object.keys(maskHues).length ? { maskHues } : {}),
 		lighting: {
 			sky: {
 				enabled: rl.sky?.enabled !== false,

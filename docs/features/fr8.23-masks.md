@@ -346,9 +346,21 @@ Where the build differs from the design above, or adds to it:
 ## Write to: rows of Source → Target
 
 One layer writes as many masks as it needs, from one list. _Mask › Write to_ is up to eight rows (`MAX_WRITE_ROWS`,
-commonParams.ts), each **Source → Target · Mode · Smoothness · Feather**; the next row shows once the one before has a
-target, as Limit to's do. Row 1 keeps the plain keys (`mk_src`, `mk_target`, `mk_op`, `mk_smooth`, `mk_feather`), row
-n > 1 adds `_n` (`rowKey`).
+commonParams.ts), each **Source → Target · Mode · Smoothness · Feather**. Row 1 keeps the plain keys (`mk_src`,
+`mk_target`, `mk_op`, `mk_smooth`, `mk_feather`), row n > 1 adds `_n` (`rowKey`).
+
+The card draws them as send slots (`WriteToField.vue`): one line per row, _Source → Target_, then the Mode as its glyph
+(= ∪ − ∩, a star for the smooth ones: ∪\* −\* ∩\*) opening the full list, and a disclosure with the row's Smoothness and
+Feather.
+_Add mask_ opens the next row with its mask list dropped open; picking None for a row's mask removes it, and the rows
+after it move up, so the rows stay packed from row 1.
+
+Every mask has a colour, the same wherever the UI shows it: a ring before its name in mask fields (Write to, Limit to,
+edge and Mask area pickers, the Masks view) and its names in their lists, the line under a Write to row's Smoothness and
+Feather, its name in the viewport readout, and its lines in the Outliner's lane. Shape is always gold; any other mask is
+given a category hue (`--cat-*`, masks.ts `MASK_HUES`) when it is first named, the one the project's masks use least,
+and keeps it in `Project.maskHues` (renaming carries it over). Assigned by the project store (`assignMaskHues`) in the
+same undo step as the change that named the mask; read with `maskColour` (ui/meta.ts).
 
 - **Source** is what of the layer goes to the target. The options come from the type (`LayerDef.maskSources`; registry
   `maskSourcesOf`): without a list of its own, _This layer_ (as drawn); then one per option of its _Output_ enum

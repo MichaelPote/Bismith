@@ -10,7 +10,7 @@
 	import { allLayerDefs, CATEGORY_LABELS, getLayerDef, layerChannels } from '@/layers/registry';
 	import { allPostDefs } from '@/render/post/registry';
 	import type { LayerCategory } from '@/layers/types';
-	import { CATEGORY_HUE, layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta';
+	import { CATEGORY_HUE, layerHue, layerIcon, LIGHT_HUE, maskColour, POST_HUE } from '@/ui/meta';
 	import { layerUnits, MAX_LIGHTS, type Layer, type LayerUnit, type LayerGroup } from '@/core/project';
 	import DropMenu, { type MenuItem, type MenuTab } from '@/ui/components/DropMenu.vue';
 	import { usePresetsStore } from '@/stores/presets';
@@ -28,7 +28,7 @@
 		IconSquareRotated,
 		IconSun
 	} from '@tabler/icons-vue';
-	import { SHAPE_MASK, maskLinks } from '@/layers/masks';
+	import { maskLinks } from '@/layers/masks';
 	import { supersampleFactor } from '@/core/supersample';
 	import { vTip, type Tip } from '@/ui/tooltip';
 	import { vPick } from '@/ui/eyedropper';
@@ -140,6 +140,7 @@
 	// Left of the icons, a line from each layer with a Limit to up to the layers that wrote the masks it reads: horizontal
 	// from the reader's icon, a rounded turn up, straight up, a rounded turn into the writer's icon. Links to one writer's
 	// mask share a lane (a trunk with a branch per reader); overlapping trunks take separate lanes, shorter ones inner.
+	// Each line is in its mask's colour (maskColour), as the mask is everywhere else.
 
 	/** The rows shown, top to bottom: a group's row (`group:<id>`), then its members' when it is open. */
 	const visibleRows = computed(() =>
@@ -156,15 +157,6 @@
 	});
 
 	const LANE_STEP = 7;
-	const MASK_HUES = ['#5fb3c4', '#b48ad8', '#7cc37a', '#d6c25a', '#e07d8c', '#7f9fe0'];
-	/** Line colours: Shape in ember, the other masks drawn from the palette in the order they first appear in the list. */
-	const maskHues = computed(() => {
-		const m = new Map<string, string>([[SHAPE_MASK, '#d98a3a']]);
-		for (const t of [...laneTrunks.value].sort((a, b) => a.lo - b.lo))
-			if (!m.has(t.mask)) m.set(t.mask, MASK_HUES[(m.size - 1) % MASK_HUES.length]);
-		return m;
-	});
-
 	/** Trunks: one per (writer row, mask), with its readers' rows and its lane (0 = innermost). */
 	const laneTrunks = computed(() => {
 		const order = new Map(visibleRows.value.map((id, i) => [id, i]));
@@ -239,7 +231,7 @@
 				const layer = store.project.layers.find((l) => l.id === reader);
 				out.push({
 					key: `${t.writer}:${t.mask}:${reader}`,
-					colour: maskHues.value.get(t.mask) ?? MASK_HUES[0],
+					colour: maskColour(store.project, t.mask),
 					dim: layer ? !layer.enabled : false,
 					d: `M${r.x - 3} ${r.y}H${x + R}Q${x} ${r.y} ${x} ${r.y - R}V${w.y + R}Q${x} ${w.y} ${x + R} ${w.y}H${w.x - 3}`
 				});
@@ -526,7 +518,7 @@
 			<div ref="listEl" class="list" :style="{ '--lane': `${laneWidth}px` }" @dragleave.self="dropAt = null">
 				<!-- Mask lane: who is limited to whose mask (FR8.23) -->
 				<svg v-if="lanePaths.length" class="lane" aria-hidden="true">
-					<path v-for="p in lanePaths" :key="p.key" :d="p.d" :stroke="p.colour" :class="{ dim: p.dim }" />
+					<path v-for="p in lanePaths" :key="p.key" :d="p.d" :style="{ stroke: p.colour }" :class="{ dim: p.dim }" />
 				</svg>
 				<!-- Base material: under every layer; heads the Diffuse / Height columns -->
 				<div class="row base" :class="{ sel: isSel('base') }" @click="editor.select('base')">

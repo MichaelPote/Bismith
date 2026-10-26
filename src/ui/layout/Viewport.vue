@@ -27,6 +27,7 @@
 	import { getLayerDef, layerParamDefs } from '@/layers/registry';
 	import type { Project } from '@/core/project';
 	import { masksAbove } from '@/layers/masks';
+	import { maskColour } from '@/ui/meta';
 	import { linearToSrgb1, rgbToHex } from '@/core/color';
 
 	const store = useProjectStore();
@@ -263,7 +264,7 @@
 	const MASK_OPTIONS = computed(() => {
 		const names = masksAbove(store.project);
 		if (!names.includes(editor.viewMask)) names.push(editor.viewMask);
-		return names.map((n) => ({ value: n, label: n }));
+		return names.map((n) => ({ value: n, label: n, colour: maskColour(store.project, n) }));
 	});
 
 	/** Channel key labels for a narrow viewport (the tooltip keeps the full name). */
@@ -638,6 +639,7 @@
 					class="mask-select"
 					:model-value="editor.viewMask"
 					:options="MASK_OPTIONS"
+					:ring="maskColour(store.project, editor.viewMask)"
 					label="Mask"
 					@update:model-value="editor.viewMask = String($event)" />
 				<button
@@ -686,7 +688,8 @@
 						· e <span class="hi">{{ probe.e.toFixed(2) }}</span></template
 					>
 					<template v-if="probe.sdf < 5000">
-						· {{ editor.viewMask }} <span class="hi">{{ probe.sdf.toFixed(1) }}</span></template
+						· <span :style="{ color: maskColour(store.project, editor.viewMask) }">{{ editor.viewMask }}</span>
+						<span class="hi">{{ probe.sdf.toFixed(1) }}</span></template
 					>
 				</template>
 			</div>

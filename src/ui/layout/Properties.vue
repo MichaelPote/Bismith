@@ -16,6 +16,7 @@
 	import PanelCard from '@/ui/components/PanelCard.vue';
 	import ParamList from '@/ui/components/ParamList.vue';
 	import ShapingGraph from '@/ui/components/ShapingGraph.vue';
+	import WriteToField from '@/ui/components/WriteToField.vue';
 	import {
 		IconArrowDown,
 		IconArrowUp,
@@ -310,9 +311,18 @@
 					:storage-key="`${layer.type}:${c.group.id}`"
 					:toggle="c.group.toggleKey ? Boolean(layer.params[c.group.toggleKey]) : null"
 					@update:toggle="store.setLayerParam(layer.id, c.group.toggleKey!, $event)">
-					<ParamList :defs="c.defs" :values="layer.params" @change="(k, v) => store.setLayerParam(layer!.id, k, v)">
+					<ParamList
+						:defs="c.defs"
+						:values="layer.params"
+						:slotted="['Write to']"
+						@change="(k, v) => store.setLayerParam(layer!.id, k, v)">
 						<template #section="{ section }">
-							<template v-if="c.group.id === 'shaping' && section === 'Value'">
+							<WriteToField
+								v-if="section === 'Write to'"
+								:defs="c.defs"
+								:values="layer.params"
+								@change="(k, v) => store.setLayerParam(layer!.id, k, v)" />
+							<template v-else-if="c.group.id === 'shaping' && section === 'Value'">
 								<ShapingGraph :defs="layerDefs" :values="layer.params" :sdf="layerDef.sdf === true" />
 								<ParamList
 									v-if="layer.params.h_on === true"

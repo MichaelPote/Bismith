@@ -92,5 +92,11 @@ export function renameMask(p: Project, from: string, to: string): number {
 			}
 		}
 	}
+	// Its colour goes with it — unless it was renamed into a mask that already has one.
+	const hue = p.maskHues?.[from];
+	if (hue) {
+		delete p.maskHues![from];
+		p.maskHues![name] ??= hue;
+	}
 	return n;
 }

@@ -2,7 +2,8 @@
 	// Renders a list of ParamDefs bound to a values record (label left / control right, Blender density). Labels carry a
 	// tooltip (the hint, the options, the key and default); params joined by ParamDef.join share a row — Source · Mode
 	// side by side, At 0 / At 1 as one ramp. A value missing from the record shows (and resets to) the default. The
-	// `section` slot draws extras under a section heading (the Shaping › Value graph).
+	// `section` slot draws extras under a section heading (the Shaping › Value graph); the sections named in `slotted` are
+	// drawn by that slot alone (Mask › Write to's send slots), their heading still shown while any of their rows is.
 	import { computed } from 'vue';
 	import type { Curve, Gradient, ParamDef, ParamValue, ParamValues } from '@/core/params';
 	import NumberField from './NumberField.vue';
@@ -18,14 +19,17 @@
 	import { useProjectStore } from '@/stores/project';
 	import { vTip, type Tip } from '@/ui/tooltip';
 
-	const props = defineProps<{ defs: ParamDef[]; values: ParamValues }>();
+	const props = defineProps<{ defs: ParamDef[]; values: ParamValues; slotted?: string[] }>();
 	const emit = defineEmits<{
 		(e: 'change', key: string, value: ParamValue): void;
 		(e: 'commit'): void;
 	}>();
 
-	/** A drawn row; `heading` is the section heading drawn above it (the first row of a section). */
-	type Row = { def: ParamDef; partner?: ParamDef; heading?: string };
+	/**
+	 * A drawn row; `heading` is the section heading drawn above it (the first row of a section). A `slotted` row stands for
+	 * its whole section: only the heading and the slot are drawn.
+	 */
+	type Row = { def: ParamDef; partner?: ParamDef; heading?: string; slotted?: boolean };
 
 	const rows = computed<Row[]>(() => {
 		const visible = props.defs.filter((d) => !d.showIf || d.showIf(props.values));
@@ -42,7 +46,11 @@
 			if (!sections.has(s)) sections.set(s, []);
 			sections.get(s)!.push(r);
 		}
-		return [...sections].flatMap(([s, rs]) => rs.map((r, i) => (i === 0 && s ? { ...r, heading: s } : r)));
+		return [...sections].flatMap(([s, rs]) =>
+			props.slotted?.includes(s)
+				? [{ ...rs[0], heading: s, slotted: true }]
+				: rs.map((r, i) => (i === 0 && s ? { ...r, heading: s } : r))
+		);
 	});
 
 	const value = (d: ParamDef): ParamValue => props.values[d.key] ?? d.default;
@@ -127,7 +135,8 @@
 		<template v-for="r in rows" :key="r.def.key">
 			<div v-if="r.heading" class="sec cf-label">{{ r.heading }}</div>
 			<slot v-if="r.heading" name="section" :section="r.heading" />
-			<div v-if="r.def.type === 'bool'" v-tip="tip(r)" class="row">
+			<template v-if="r.slotted" />
+			<div v-else-if="r.def.type === 'bool'" v-tip="tip(r)" class="row">
 				<span />
 				<CheckField
 					:model-value="Boolean(value(r.def))"
