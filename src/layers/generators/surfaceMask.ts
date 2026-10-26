@@ -64,13 +64,12 @@ export const surfaceMaskLayer: LayerDef = {
 			unit: 'px',
 			step: 0.1,
 			showIf: find('crevices', 'high', 'both', 'slopes', 'facing'),
-			hint: 'How far around each pixel the surface is compared: small = fine cracks and joints, large = broad dips and rises. Slopes are measured across half of it, so surface grain finer than that doesn’t count'
+			hint: 'How far around each pixel the surface is looked at: crevices and high spots look out to 3× this (a gap up to about 6× as wide fills), slopes are measured across half of it (grain finer than that doesn’t count)'
 		}),
-		P.float('depth', 'Depth', 0.5, 0.01, 64, {
-			softMax: 4,
-			unit: 'px',
-			step: 0.01,
-			hint: 'Height difference (px) that gives a full mask',
+		P.float('wall', 'Wall slope', 0.06, 0.005, 4, {
+			softMax: 0.5,
+			step: 0.001,
+			hint: 'How steeply the surface must rise to the walls on both sides of a crevice (or fall away all round a high spot) for a full mask, in height px per px: mortar a pixel deep between bricks a few px across is about 0.1; soft noise wants 0.01–0.02. Lower finds shallower dips',
 			showIf: find('crevices', 'high', 'both')
 		}),
 		P.float('steep', 'Full at slope', 0.2, 0.02, 16, {
@@ -221,23 +220,34 @@ float ma_surface(vec2 p) {
     float c0 = cos(radians(u_spread));
     return slope * smoothstep(c0, mix(c0, 1.0, 0.5), c);
   }
-  float r = max(u_radius, 0.5);
-  // The surface around the pixel: three rings of 6, 12 and 18 samples, weighted towards the centre (about a Gaussian).
-  // One flat loop over all 36 (nested loops of samples compile slowly on D3D).
-  float sum = 0.0, wsum = 0.0;
-  for (int j = 0; j < 36 * UNI_1; j++) {
-    int ring = j < 6 ? 1 : j < 18 ? 2 : 3;
-    int i = j - (ring == 1 ? 0 : ring == 2 ? 6 : 18);
-    int n = 6 * ring;
-    float w = exp(-0.5 * float(ring * ring) / 2.25);
-    float a = 6.2831853 * (float(i) + 0.5 * float(ring & 1)) / float(n);
-    sum += w * sm_h(p + vec2(cos(a), sin(a)) * (r * float(ring) / 3.0));
-    wsum += w;
+  // Crevices: how walled in the pixel is — in each of 8 directions the steepest rise from it to the surface out to 3×
+  // the Radius (at distances doubling from an eighth of it), over Wall slope; each opposite pair counts the lesser of
+  // its two (walls on both sides — a plane, rising one way and falling the other, gives nothing), the mean over the four
+  // pairs. A joint or a wide gap fills; a low spot on a slope doesn't. High spots: the steepest drop instead. One flat
+  // loop over all 48 samples (nested loops of samples compile slowly on D3D).
+  float reach = 3.0 * max(u_radius, 0.5);
+  float st = max(u_wall, 1e-3);
+  float up = 0.0, dn = 0.0;
+  vec4 u4 = vec4(0.0), d4 = vec4(0.0), u4b = vec4(0.0), d4b = vec4(0.0);
+  for (int j = 0; j < 48 * UNI_1; j++) {
+    int dir = j / 6, k = j - dir * 6;
+    float a = 0.7853982 * float(dir);
+    float dist = reach * exp2(float(k) - 5.0);
+    float dh = (sm_h(p + vec2(cos(a), sin(a)) * dist) - h0) / dist;
+    up = k == 0 ? dh : max(up, dh);
+    dn = k == 0 ? -dh : max(dn, -dh);
+    if (k == 5) {
+      vec4 sel = vec4(equal(ivec4(dir & 3), ivec4(0, 1, 2, 3)));
+      float cu = clamp(up / st, 0.0, 1.0), cd = clamp(dn / st, 0.0, 1.0);
+      if (dir < 4) { u4 += sel * cu; d4 += sel * cd; } else { u4b += sel * cu; d4b += sel * cd; }
+    }
   }
-  // > 0 in a crevice (the surroundings stand higher), < 0 on a high spot.
-  float c = sum / wsum - h0;
-  float d = max(u_depth, 1e-3);
-  return u_find == 0 ? c / d : u_find == 1 ? -c / d : abs(c) / d;
+  // (A pair is walled only if both its sides rise; the high-spot pairs, both sides falling. A spot that falls on one side
+  // and rises on the other — the shoulder of a slope — gives neither.)
+  vec4 pu = min(u4, u4b), pd = min(d4, d4b);
+  float crev = dot(pu, vec4(0.25)), high = dot(pd, vec4(0.25));
+  float best = u_find == 0 ? crev : u_find == 1 ? high : max(crev, high);
+  return best;
 }
 
 // Gradient: how far the feature at p reaches ahead along Direction and behind it (px), up to Max feature size. One flat

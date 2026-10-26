@@ -1,342 +1,338 @@
 {
-  "version": 1,
-  "name": "Water",
-  "width": 128,
-  "height": 128,
-  "tileable": true,
-  "heightDepth": 2,
-  "seed": 1,
-  "base": {
-    "color": "#808080",
-    "roughness": 0.7,
-    "specular": 0.5,
-    "metalness": 0,
-    "height": 0,
-    "opacity": 1
-  },
-  "layers": [
-    {
-      "id": "ly_znier4d",
-      "type": "causticlight",
-      "name": "Liquid",
-      "enabled": true,
-      "params": {
-        "output": "light",
-        "model": "gerstner",
-        "scale": 3,
-        "waves": 11,
-        "spread": 0.9,
-        "strength": 8,
-        "softness": 0.5,
-        "exposure": 0.45,
-        "contrast": 2,
-        "octave2": 0.4,
-        "meander": 0.8,
-        "steepness": 0.75,
-        "harmonic": 1,
-        "halo": 0.55,
-        "halo_size": 3,
-        "phase": 0,
-        "seed": 81,
-        "ofs_x": 0,
-        "ofs_y": 0,
-        "dw_amount": 0,
-        "dw_scale": 4,
-        "sh_invert": false,
-        "sh_lo": 0,
-        "sh_hi": 1,
-        "sh_gamma": 1,
-        "sh_steps": 0,
-        "sh_cut": 0,
-        "sh_cut_soft": 0,
-        "opacity": 1,
-        "lim_1": "",
-        "lim_op2": "and",
-        "lim_2": "",
-        "lim_op3": "and",
-        "lim_3": "",
-        "lim_op4": "and",
-        "lim_4": "",
-        "lim_out": false,
-        "mk_target": "",
-        "mk_op": "replace",
-        "mk_smooth": 4,
-        "mk_feather": 0,
-        "m_hmode": "none",
-        "m_hlevel": 0.5,
-        "m_hsoft": 0.1,
-        "mk_light": "Light",
-        "mk_surface": "",
-        "dif_on": true,
-        "dif_src": "value",
-        "dif_blend": "normal",
-        "dif_opacity": 1,
-        "dif_grad": {
-          "stops": [
-            {
-              "pos": 0,
-              "color": "#021a2b"
-            },
-            {
-              "pos": 0.16666666666666666,
-              "color": "#06384d"
-            },
-            {
-              "pos": 0.3333333333333333,
-              "color": "#0b5a6e"
-            },
-            {
-              "pos": 0.5,
-              "color": "#138388"
-            },
-            {
-              "pos": 0.6666666666666666,
-              "color": "#2aa9a3"
-            },
-            {
-              "pos": 0.8333333333333334,
-              "color": "#7fdcd0"
-            },
-            {
-              "pos": 1,
-              "color": "#d4fbf3"
-            }
-          ]
-        },
-        "dif_jitter": 0,
-        "op_on": false,
-        "op_mode": "replace",
-        "h_on": false,
-        "h_src": "value",
-        "h_mode": "add",
-        "h_amount": 0.5,
-        "h_offset": 0,
-        "h_var": 0,
-        "r_on": false,
-        "r_src": "value",
-        "r_mode": "replace",
-        "r_a": 0.35,
-        "r_b": 0.85,
-        "r_opacity": 1,
-        "s_on": false,
-        "s_src": "value",
-        "s_mode": "replace",
-        "s_a": 0,
-        "s_b": 0.6,
-        "s_opacity": 1,
-        "mt_on": false,
-        "mt_src": "value",
-        "mt_mode": "replace",
-        "mt_a": 0,
-        "mt_b": 1,
-        "mt_opacity": 1,
-        "e_on": true,
-        "e_src": "value",
-        "e_mode": "add",
-        "e_color": "#d4fbf3",
-        "e_intensity": 0.06
-      }
-    },
-    {
-      "id": "ly_ckku64e",
-      "type": "surfacemask",
-      "name": "Highlights",
-      "enabled": true,
-      "params": {
-        "select": "features",
-        "find": "crevices",
-        "radius": 8,
-        "depth": 0.5,
-        "steep": 0.2,
-        "hlevel": 0.5,
-        "hside": "above",
-        "src_mask": "Light",
-        "area": "inside",
-        "across": "whole",
-        "width": 4,
-        "band_soft": 0.5,
-        "dir": 180,
-        "spread": 60,
-        "reach": 128,
-        "level": 0.2,
-        "softness": 0.5,
-        "bk_amount": 0,
-        "bk_scale": 16,
-        "bk_seed": 1,
-        "bevel": 0,
-        "profile": "flat",
-        "bevel_curve": {
-          "points": [
-            {
-              "x": 0,
-              "y": 0
-            },
-            {
-              "x": 0.15,
-              "y": 0.55
-            },
-            {
-              "x": 0.45,
-              "y": 0.82
-            },
-            {
-              "x": 1,
-              "y": 1
-            }
-          ]
-        },
-        "bevel_aspect": 1,
-        "aa": true,
-        "soft_edge": 0,
-        "dilate": 0,
-        "ofs_x": 0,
-        "ofs_y": 0,
-        "dw_amount": 0,
-        "dw_scale": 4,
-        "sh_invert": false,
-        "sh_lo": 0.75,
-        "sh_hi": 1,
-        "sh_gamma": 1.3,
-        "sh_steps": 0,
-        "sh_cut": 0,
-        "sh_cut_soft": 0,
-        "phase": 0,
-        "opacity": 1,
-        "lim_1": "",
-        "lim_op2": "and",
-        "lim_2": "",
-        "lim_op3": "and",
-        "lim_3": "",
-        "lim_op4": "and",
-        "lim_4": "",
-        "lim_out": false,
-        "mk_target": "",
-        "mk_op": "replace",
-        "mk_smooth": 4,
-        "mk_feather": 0,
-        "m_hmode": "none",
-        "m_hlevel": 0.5,
-        "m_hsoft": 0.1,
-        "dif_on": true,
-        "dif_src": "value",
-        "dif_blend": "lighten",
-        "dif_opacity": 0.55,
-        "dif_grad": {
-          "stops": [
-            {
-              "pos": 0,
-              "color": "#000000"
-            },
-            {
-              "pos": 1,
-              "color": "#e6fffb"
-            }
-          ]
-        },
-        "dif_jitter": 0,
-        "op_on": false,
-        "op_mode": "replace",
-        "h_on": false,
-        "h_src": "value",
-        "h_mode": "add",
-        "h_amount": 0.5,
-        "h_offset": 0,
-        "h_var": 0,
-        "r_on": false,
-        "r_src": "value",
-        "r_mode": "replace",
-        "r_a": 0.35,
-        "r_b": 0.85,
-        "r_opacity": 1,
-        "s_on": false,
-        "s_src": "value",
-        "s_mode": "replace",
-        "s_a": 0,
-        "s_b": 0.6,
-        "s_opacity": 1,
-        "mt_on": false,
-        "mt_src": "value",
-        "mt_mode": "replace",
-        "mt_a": 0,
-        "mt_b": 1,
-        "mt_opacity": 1,
-        "e_on": true,
-        "e_src": "value",
-        "e_mode": "add",
-        "e_color": "#e6fffb",
-        "e_intensity": 0.03
-      }
-    }
-  ],
-  "lighting": {
-    "sky": {
-      "enabled": true,
-      "zenith": "#a9bccd",
-      "horizon": "#c9c4bb",
-      "intensity": 0.35
-    },
-    "ambient": {
-      "color": "#ffffff",
-      "intensity": 0.02
-    },
-    "lights": [
-      {
-        "id": "lt_3yy5e47",
-        "type": "directional",
-        "name": "Sun",
-        "enabled": true,
-        "params": {
-          "color": "#fff4e6",
-          "intensity": 1.3,
-          "azimuth": 315,
-          "elevation": 40,
-          "angle": 3
-        }
-      }
-    ]
-  },
-  "render": {
-    "samplesPerFrame": 4,
-    "maxSamples": 64,
-    "bounces": 2,
-    "specular": 1,
-    "specularTint": 1,
-    "ao": 0.6,
-    "aoRadius": 6,
-    "jitter": true,
-    "clamp": 8,
-    "shadows": true,
-    "supersample": 1,
-    "exportSamples": 1024,
-    "exportSupersample": 2
-  },
-  "post": [
-    {
-      "id": "pf_b1eud48",
-      "type": "tonemap",
-      "enabled": true,
-      "params": {
-        "exposure": 0,
-        "operator": "aces",
-        "white": 4
-      }
-    }
-  ],
-  "groups": [
-    {
-      "id": "gr_n2jwa4g",
-      "name": "Water",
-      "members": [
-        "ly_znier4d",
-        "ly_ckku64e"
-      ]
-    }
-  ],
-  "description": "Lava, water, slime or nukage: light refracted through the wavy surface gathers into bright filaments around dark cells (or a stylised caustic net / blobs).",
-  "preview": "data:image/webp;base64,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",
-  "preset": {
-    "kind": "group",
-    "id": "group-water",
-    "category": "Liquids"
-  }
+	"version": 1,
+	"name": "Water",
+	"width": 128,
+	"height": 128,
+	"tileable": true,
+	"heightDepth": 2,
+	"seed": 1,
+	"base": {
+		"color": "#808080",
+		"roughness": 0.7,
+		"specular": 0.5,
+		"metalness": 0,
+		"height": 0,
+		"opacity": 1
+	},
+	"layers": [
+		{
+			"id": "ly_znier4d",
+			"type": "causticlight",
+			"name": "Liquid",
+			"enabled": true,
+			"params": {
+				"output": "light",
+				"model": "gerstner",
+				"scale": 3,
+				"waves": 11,
+				"spread": 0.9,
+				"strength": 8,
+				"softness": 0.5,
+				"exposure": 0.45,
+				"contrast": 2,
+				"octave2": 0.4,
+				"meander": 0.8,
+				"steepness": 0.75,
+				"harmonic": 1,
+				"halo": 0.55,
+				"halo_size": 3,
+				"phase": 0,
+				"seed": 81,
+				"ofs_x": 0,
+				"ofs_y": 0,
+				"dw_amount": 0,
+				"dw_scale": 4,
+				"sh_invert": false,
+				"sh_lo": 0,
+				"sh_hi": 1,
+				"sh_gamma": 1,
+				"sh_steps": 0,
+				"sh_cut": 0,
+				"sh_cut_soft": 0,
+				"opacity": 1,
+				"lim_1": "",
+				"lim_op2": "and",
+				"lim_2": "",
+				"lim_op3": "and",
+				"lim_3": "",
+				"lim_op4": "and",
+				"lim_4": "",
+				"lim_out": false,
+				"mk_target": "",
+				"mk_op": "replace",
+				"mk_smooth": 4,
+				"mk_feather": 0,
+				"m_hmode": "none",
+				"m_hlevel": 0.5,
+				"m_hsoft": 0.1,
+				"mk_light": "Light",
+				"mk_surface": "",
+				"dif_on": true,
+				"dif_src": "value",
+				"dif_blend": "normal",
+				"dif_opacity": 1,
+				"dif_grad": {
+					"stops": [
+						{
+							"pos": 0,
+							"color": "#021a2b"
+						},
+						{
+							"pos": 0.16666666666666666,
+							"color": "#06384d"
+						},
+						{
+							"pos": 0.3333333333333333,
+							"color": "#0b5a6e"
+						},
+						{
+							"pos": 0.5,
+							"color": "#138388"
+						},
+						{
+							"pos": 0.6666666666666666,
+							"color": "#2aa9a3"
+						},
+						{
+							"pos": 0.8333333333333334,
+							"color": "#7fdcd0"
+						},
+						{
+							"pos": 1,
+							"color": "#d4fbf3"
+						}
+					]
+				},
+				"dif_jitter": 0,
+				"op_on": false,
+				"op_mode": "replace",
+				"h_on": false,
+				"h_src": "value",
+				"h_mode": "add",
+				"h_amount": 0.5,
+				"h_offset": 0,
+				"h_var": 0,
+				"r_on": false,
+				"r_src": "value",
+				"r_mode": "replace",
+				"r_a": 0.35,
+				"r_b": 0.85,
+				"r_opacity": 1,
+				"s_on": false,
+				"s_src": "value",
+				"s_mode": "replace",
+				"s_a": 0,
+				"s_b": 0.6,
+				"s_opacity": 1,
+				"mt_on": false,
+				"mt_src": "value",
+				"mt_mode": "replace",
+				"mt_a": 0,
+				"mt_b": 1,
+				"mt_opacity": 1,
+				"e_on": true,
+				"e_src": "value",
+				"e_mode": "add",
+				"e_color": "#d4fbf3",
+				"e_intensity": 0.06
+			}
+		},
+		{
+			"id": "ly_ckku64e",
+			"type": "surfacemask",
+			"name": "Highlights",
+			"enabled": true,
+			"params": {
+				"select": "features",
+				"find": "crevices",
+				"radius": 8,
+				"steep": 0.2,
+				"hlevel": 0.5,
+				"hside": "above",
+				"src_mask": "Light",
+				"area": "inside",
+				"across": "whole",
+				"width": 4,
+				"band_soft": 0.5,
+				"dir": 180,
+				"spread": 60,
+				"reach": 128,
+				"level": 0.2,
+				"softness": 0.5,
+				"bk_amount": 0,
+				"bk_scale": 16,
+				"bk_seed": 1,
+				"bevel": 0,
+				"profile": "flat",
+				"bevel_curve": {
+					"points": [
+						{
+							"x": 0,
+							"y": 0
+						},
+						{
+							"x": 0.15,
+							"y": 0.55
+						},
+						{
+							"x": 0.45,
+							"y": 0.82
+						},
+						{
+							"x": 1,
+							"y": 1
+						}
+					]
+				},
+				"bevel_aspect": 1,
+				"aa": true,
+				"soft_edge": 0,
+				"dilate": 0,
+				"ofs_x": 0,
+				"ofs_y": 0,
+				"dw_amount": 0,
+				"dw_scale": 4,
+				"sh_invert": false,
+				"sh_lo": 0.75,
+				"sh_hi": 1,
+				"sh_gamma": 1.3,
+				"sh_steps": 0,
+				"sh_cut": 0,
+				"sh_cut_soft": 0,
+				"phase": 0,
+				"opacity": 1,
+				"lim_1": "",
+				"lim_op2": "and",
+				"lim_2": "",
+				"lim_op3": "and",
+				"lim_3": "",
+				"lim_op4": "and",
+				"lim_4": "",
+				"lim_out": false,
+				"mk_target": "",
+				"mk_op": "replace",
+				"mk_smooth": 4,
+				"mk_feather": 0,
+				"m_hmode": "none",
+				"m_hlevel": 0.5,
+				"m_hsoft": 0.1,
+				"dif_on": true,
+				"dif_src": "value",
+				"dif_blend": "lighten",
+				"dif_opacity": 0.55,
+				"dif_grad": {
+					"stops": [
+						{
+							"pos": 0,
+							"color": "#000000"
+						},
+						{
+							"pos": 1,
+							"color": "#e6fffb"
+						}
+					]
+				},
+				"dif_jitter": 0,
+				"op_on": false,
+				"op_mode": "replace",
+				"h_on": false,
+				"h_src": "value",
+				"h_mode": "add",
+				"h_amount": 0.5,
+				"h_offset": 0,
+				"h_var": 0,
+				"r_on": false,
+				"r_src": "value",
+				"r_mode": "replace",
+				"r_a": 0.35,
+				"r_b": 0.85,
+				"r_opacity": 1,
+				"s_on": false,
+				"s_src": "value",
+				"s_mode": "replace",
+				"s_a": 0,
+				"s_b": 0.6,
+				"s_opacity": 1,
+				"mt_on": false,
+				"mt_src": "value",
+				"mt_mode": "replace",
+				"mt_a": 0,
+				"mt_b": 1,
+				"mt_opacity": 1,
+				"e_on": true,
+				"e_src": "value",
+				"e_mode": "add",
+				"e_color": "#e6fffb",
+				"e_intensity": 0.03
+			}
+		}
+	],
+	"lighting": {
+		"sky": {
+			"enabled": true,
+			"zenith": "#a9bccd",
+			"horizon": "#c9c4bb",
+			"intensity": 0.35
+		},
+		"ambient": {
+			"color": "#ffffff",
+			"intensity": 0.02
+		},
+		"lights": [
+			{
+				"id": "lt_3yy5e47",
+				"type": "directional",
+				"name": "Sun",
+				"enabled": true,
+				"params": {
+					"color": "#fff4e6",
+					"intensity": 1.3,
+					"azimuth": 315,
+					"elevation": 40,
+					"angle": 3
+				}
+			}
+		]
+	},
+	"render": {
+		"samplesPerFrame": 4,
+		"maxSamples": 64,
+		"bounces": 2,
+		"specular": 1,
+		"specularTint": 1,
+		"ao": 0.6,
+		"aoRadius": 6,
+		"jitter": true,
+		"clamp": 8,
+		"shadows": true,
+		"supersample": 1,
+		"exportSamples": 1024,
+		"exportSupersample": 2
+	},
+	"post": [
+		{
+			"id": "pf_b1eud48",
+			"type": "tonemap",
+			"enabled": true,
+			"params": {
+				"exposure": 0,
+				"operator": "aces",
+				"white": 4
+			}
+		}
+	],
+	"groups": [
+		{
+			"id": "gr_n2jwa4g",
+			"name": "Water",
+			"members": ["ly_znier4d", "ly_ckku64e"]
+		}
+	],
+	"description": "Lava, water, slime or nukage: light refracted through the wavy surface gathers into bright filaments around dark cells (or a stylised caustic net / blobs).",
+	"preview": "data:image/webp;base64,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",
+	"preset": {
+		"kind": "group",
+		"id": "group-water",
+		"category": "Liquids"
+	}
 }
