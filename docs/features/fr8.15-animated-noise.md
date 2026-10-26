@@ -37,5 +37,5 @@ number fields go past the range a slider shows without lifting the real limits.
       post types compile
 - [x] Phase params, Warp phase, filters, Liquid macro
 - [x] Soft-range drag, typed / arrow overrun, Liquid soft maxes
-- [x] Caustic light: Gerstner wave model (Steepness) and a wider Meander range — see FR8.9
+- [x] Caustic light: Gerstner wave model (Wave steepness) and a wider Meander range — see FR8.9
 - [ ] Add to the feature index in `docs/architecture.md` (left for after the in-progress traces fix lands there)

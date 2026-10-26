@@ -47,14 +47,17 @@ const bandParams: ParamDef[] = BAND_DEFAULTS.flatMap(([h, prof, lvl, base], i) =
 			unit: 'px',
 			axis: ORIENT_ACROSS,
 			group: 'bands',
-			hint: n === 1 ? 'Band heights from the outer edge (top, or both edges when mirrored); 0 = unused' : undefined
+			hint:
+				n === 1
+					? 'Sets each band’s height, counted from the outer edge (the top, or both edges when mirrored). 0 = band not used'
+					: undefined
 		}),
 		P.enum(`prof${n}`, `Band ${n} profile`, prof, BAND_PROFILES, { group: 'bands', showIf: on }),
 		P.float(`level${n}`, `Band ${n} level`, lvl, 0, 1, {
 			step: 0.001,
 			group: 'bands',
 			showIf: on,
-			hint: n === 1 ? 'The profile’s high point (a flat band’s height)' : undefined
+			hint: n === 1 ? 'Sets how high the band’s profile peaks (for a flat band, just its height)' : undefined
 		}),
 		P.float(`base${n}`, `Band ${n} base`, base, 0, 1, {
 			step: 0.001,
@@ -62,7 +65,7 @@ const bandParams: ParamDef[] = BAND_DEFAULTS.flatMap(([h, prof, lvl, base], i) =
 			showIf: (p) => on(p) && p[`prof${n}`] !== 'flat',
 			hint:
 				n === 1 || n === 2
-					? 'The profile’s low point: it runs from Base up to Level. 0 sinks it to the bottom (a bead between dark creases); raise it to seat the profile on its neighbours'
+					? 'Sets the low point of the band’s profile, which runs from Base up to Level (0 = sinks it to the bottom, for a bead between dark creases). Raise it to seat the profile on its neighbours'
 					: undefined
 		})
 	];
@@ -105,7 +108,7 @@ export function trimFresh({ width, height }: { width: number; height: number }):
 // holes and seams (chip their edges, dirt in the cuts); Rivets / slots, a band or the dividers let one layer's colour or
 // roughness land on just those.
 const TRIM_PARTS = maskParts('mask_shape', 'strip', [
-	['strip', 'Strip material', 'the strips less their holes and seams'],
+	['strip', 'Strip material', 'the strips without their holes and seams'],
 	['blocks', 'Blocks'],
 	['dividers', 'Dividers'],
 	['elements', 'Rivets / slots'],
@@ -123,7 +126,7 @@ export const trimLayer: LayerDef = {
 	// What of the relief goes to a mask (Write to › Source).
 	maskSources: TRIM_PARTS.sources,
 	description:
-		'Moulding / trim strip: stacked profiled bands (bead, cove, ogee, groove, step…), dividers and a row of rivets, bolts, screws, slots or holes; one strip across the texture, several stacked, or a band with a gap round it. Tileable.',
+		'Moulding / trim strip: Made from stacked profiled bands (bead, cove, ogee, groove, step…) with optional dividers and a row of rivets, bolts, screws, slots or holes. Makes trim textures, trim sheets and trim bands across walls.',
 	params: [
 		P.enum(
 			'output',
@@ -138,52 +141,52 @@ export const trimLayer: LayerDef = {
 				['strip', 'Strip material (shape)']
 			],
 			{
-				hint: 'Relief composes bands, dividers and elements into one height value. Shapes give one element class as an SDF. Strip material: the strips less their holes and seams'
+				hint: 'Relief combines the bands, dividers and elements into one height value. The shape outputs give you one kind of element as a shape. Strip material is the strips without their holes and seams'
 			}
 		),
 		TRIM_PARTS.param,
 
 		P.enum('orient', 'Direction', 'horizontal', ORIENT),
-		P.bool('mirror', 'Mirror', true, { hint: 'Bands run from both edges to the centre line' }),
+		P.bool('mirror', 'Mirror', true, { hint: 'Runs the bands from both edges in to the centre line' }),
 		P.int('fill', 'Stretch band', 4, 0, 6, {
-			hint: "This band grows to fill the remaining height (0 = none: the last band's level continues)"
+			hint: "Picks a band that grows to fill the leftover height (0 = none, the last band's level just carries on)"
 		}),
-		P.int('sel_band', 'Band (output)', 1, 1, 6, {
+		P.int('sel_band', 'Output band', 1, 1, 6, {
 			showIf: (p) => p.output === 'band' || (p.output === 'relief' && p.mask_shape === 'band')
 		}),
 		P.seed(),
-		P.int('strips', 'Strips', 1, 1, 256, {
+		P.int('strips', 'Strips across', 1, 1, 256, {
 			softMax: 32,
-			hint: 'Strips stacked across the texture, each a copy of the band stack in an equal share (a trim sheet, ribbed panelling)'
+			hint: 'Stacks this many strips across the texture, each a copy of the band stack in an equal share. Makes trim sheets and ribbed panelling'
 		}),
 		P.int('strip_h', 'Strip height', 0, 0, 4096, {
 			softMax: 256,
 			unit: 'px',
 			axis: ORIENT_ACROSS,
-			hint: 'Height of each strip; 0 fills its share. Smaller leaves a gap round it that the layer leaves alone — a trim band across a wall'
+			hint: 'Sets each strip’s height (0 = fills its share). Smaller heights leave an untouched gap around the strip, for a trim band across a wall'
 		}),
 		P.float('strip_pos', 'Strip position', 0.5, 0, 1, {
 			step: 0.001,
-			hint: 'Centre of the strips across, as a fraction of their share (0.5 = centred, 0 / 1 = on the top or left edge; wraps). Moves a lone trim band up or down the wall'
+			hint: 'Moves the strips across their share (0.5 = centred, 0 / 1 = on the top or left edge; wraps). Slides a single trim band up or down the wall'
 		}),
-		P.float('strip_var', 'Strip variety', 0.6, 0, 1, {
+		P.float('strip_var', 'Strip variation', 0.6, 0, 1, {
 			step: 0.001,
 			showIf: (p) => Number(p.strips) > 1,
-			hint: 'Each strip by its own random halves or doubles its plates, runs plain (no dividers), goes without elements or takes other profiles for its shaped bands — more of them the higher this is, so a stack of strips reads as a trim sheet rather than one strip repeated'
+			hint: 'Makes the strips differ at random: a strip may halve or double its plates, drop its dividers or elements, or swap the profiles of its shaped bands (0 = all strips alike). Stops a stack of strips looking like one strip repeated'
 		}),
-		P.float('strip_alt', 'Alternate heights', 0.3, 0, 0.9, {
+		P.float('strip_alt', 'Strip alternation', 0.3, 0, 0.9, {
 			step: 0.001,
 			showIf: (p) => Number(p.strips) > 1,
-			hint: 'Pairs of strips split their two shares unevenly — a broad strip, then a narrow one (0 = all the same). An even strip count tiles'
+			hint: 'Splits each pair of strips unevenly into a broad one and a narrow one (0 = all the same). Tiles with an even strip count'
 		}),
-		P.float('strip_stagger', 'Stagger', 0.5, 0, 1, {
+		P.float('strip_stagger', 'Strip stagger', 0.5, 0, 1, {
 			step: 0.001,
 			showIf: (p) => Number(p.strips) > 1,
-			hint: 'Alternate strips shift along by this share of a block (of the element spacing without dividers), like brick courses. An even strip count tiles'
+			hint: 'Shifts every other strip along by this share of a block (or of the element spacing without dividers), like brick courses. Tiles with an even strip count'
 		}),
 		P.bool('band_fit', 'Fit bands to strip', true, {
 			group: 'bands',
-			hint: 'Scale the band stack so that it spans the strip (both halves when mirrored): the heights become proportions, and the moulding grows and shrinks with Strip height. Off: the heights are px (× Band scale)'
+			hint: 'Scales the band stack to span the strip (both halves when mirrored), so band heights act as proportions and the moulding grows and shrinks with Strip height. Off = band heights are in px (× Band scale)'
 		}),
 		P.float('band_scale', 'Band scale', 1, 0.05, 64, {
 			softMin: 0.25,
@@ -191,21 +194,21 @@ export const trimLayer: LayerDef = {
 			step: 0.01,
 			group: 'bands',
 			showIf: (p) => !p.band_fit,
-			hint: 'Multiplies every band height (rounded to whole px): a moulding designed small, made bold'
+			hint: 'Multiplies every band height (rounded to whole px), handy for making a moulding designed small bolder'
 		}),
 		P.bool('band_chain', 'Join bands', true, {
 			group: 'bands',
-			hint: 'Each band but a flat one starts where the band before it ends — its Base, or for flutes, grooves and the falling profiles its Level — keeping its own rise (Level − Base), so ridges, steps and grooves run on from their neighbours instead of jumping'
+			hint: 'Starts each band (except flat ones) where the one before it ends — its Base there, or its Level for flutes, grooves and the falling profiles — keeping its rise (Level − Base), so ridges, steps and grooves carry on from their neighbours instead of jumping'
 		}),
 		...bandParams,
 		P.int('div_count', 'Dividers', 3, 0, 256, {
 			softMax: 32,
 			group: 'dividers',
-			hint: 'Dividers along the tile (blocks between them get their own random)'
+			hint: 'Places this many dividers along the tile (each block between them gets a different random value)'
 		}),
 		P.enum(
 			'div_style',
-			'Style',
+			'Divider style',
 			'groove',
 			[
 				['groove', 'Groove (bevelled blocks)'],
@@ -216,7 +219,7 @@ export const trimLayer: LayerDef = {
 		),
 		P.enum(
 			'div_prof',
-			'Profile',
+			'Divider profile',
 			'v',
 			[
 				[
@@ -231,15 +234,15 @@ export const trimLayer: LayerDef = {
 			{
 				group: 'dividers',
 				showIf: (p) => hasDiv(p) && p.div_style !== 'seam',
-				hint: 'Cross-section of a groove or bar. V and Round keep the full Width whatever the Edge bevel'
+				hint: 'Sets the cross-section of a groove or bar. V and Round keep the full Divider width whatever the Edge bevel is'
 			}
 		),
-		P.bool('div_return', 'Frame the blocks', true, {
+		P.bool('div_return', 'Framed blocks', true, {
 			group: 'dividers',
 			showIf: hasDiv,
-			hint: 'The bands turn the corner at the dividers and run across the block ends too, mitred, so every block is a framed plate (the innermost band is its face)'
+			hint: 'Turns the bands round the corner at the dividers so they run, mitred, across the block ends too, making every block a framed plate (the innermost band is its face)'
 		}),
-		P.float('div_width', 'Width', 1, 0, 256, {
+		P.float('div_width', 'Divider width', 1, 0, 256, {
 			softMax: 16,
 			unit: 'px',
 			axis: ORIENT_ALONG,
@@ -247,23 +250,23 @@ export const trimLayer: LayerDef = {
 			group: 'dividers',
 			showIf: hasDiv
 		}),
-		P.float('div_depth', 'Depth', 0.7, 0, 1, {
+		P.float('div_depth', 'Divider depth', 0.7, 0, 1, {
 			step: 0.001,
 			group: 'dividers',
 			showIf: hasDiv,
-			hint: 'How far a groove or seam sinks (1 = to the bottom), or how high a bar rises (1 = to the top)'
+			hint: 'Sets how far a groove or seam sinks (1 = to the bottom), or how high a bar rises (1 = to the top)'
 		}),
-		P.float('div_inset', 'Inset', 0, 0, 2048, {
+		P.float('div_inset', 'Divider inset', 0, 0, 2048, {
 			softMax: 64,
 			unit: 'px',
 			axis: ORIENT_ACROSS,
 			step: 0.5,
 			group: 'dividers',
 			showIf: hasDiv,
-			hint: 'Gap between the divider ends and the strip edges'
+			hint: 'Leaves a gap between the divider ends and the strip edges'
 		}),
-		P.float('div_offset', 'Offset', 0, 0, 1, { step: 0.001, group: 'dividers', showIf: hasDiv }),
-		P.float('div_var', 'Length variation', 0.25, 0, 1, {
+		P.float('div_offset', 'Divider offset', 0, 0, 1, { step: 0.001, group: 'dividers', showIf: hasDiv }),
+		P.float('div_var', 'Block variation', 0.25, 0, 1, {
 			step: 0.001,
 			group: 'dividers',
 			showIf: hasDiv,
@@ -290,17 +293,17 @@ export const trimLayer: LayerDef = {
 			],
 			{
 				group: 'elements',
-				hint: 'Rivet, hex head, cross screw and the Allen bolts are the fastener heads the other greeble generators offer too'
+				hint: 'Picks what sits in the row. Rivet, hex head, cross screw and the Allen bolts match the fastener heads in the other greeble generators'
 			}
 		),
 		P.bool('elem_fit', 'Scale with bands', true, {
 			group: 'elements',
 			showIf: hasElem,
-			hint: 'Element sizes, spacing, insets and fillet are in the bands’ units and scale with them (Fit bands, or Band scale), so the heads grow with the moulding'
+			hint: 'Measures element sizes, spacing, insets and rounding in the bands’ units, so they scale with the bands (Fit bands to strip, or Band scale) and the heads grow with the moulding'
 		}),
 		P.enum(
 			'elem_layout',
-			'Spacing',
+			'Element layout',
 			'block',
 			[
 				['even', 'Even along the tile'],
@@ -309,16 +312,16 @@ export const trimLayer: LayerDef = {
 			{
 				group: 'elements',
 				showIf: hasElem,
-				hint: 'Within each block: Count elements from Inset to Inset between dividers'
+				hint: 'Spreads the elements evenly along the tile, or puts Elements per row in each block, from Element inset to Element inset between the dividers'
 			}
 		),
-		P.int('elem_count', 'Count', 8, 1, 512, {
+		P.int('elem_count', 'Elements per row', 8, 1, 512, {
 			softMax: 64,
 			group: 'elements',
 			showIf: (p) => hasElem(p) && !(Number(p.elem_pitch) > 0),
-			hint: 'Per row along the tile (or per block)'
+			hint: 'How many elements go in each row along the tile (or in each block)'
 		}),
-		P.float('elem_pitch', 'Pitch', 14.5, 0, 2048, {
+		P.float('elem_pitch', 'Element pitch', 14.5, 0, 2048, {
 			softMax: 128,
 			unit: 'px',
 			axis: ORIENT_ALONG,
@@ -326,9 +329,9 @@ export const trimLayer: LayerDef = {
 			note: fitNote,
 			group: 'elements',
 			showIf: hasElem,
-			hint: 'Spacing between elements instead of a Count (0 = use Count): within blocks, longer blocks get more'
+			hint: 'Spaces the elements this far apart instead of using Elements per row (0 = use Elements per row). Within blocks, longer blocks get more of them'
 		}),
-		P.float('elem_inset', 'Inset', 3.5, 0, 2048, {
+		P.float('elem_inset', 'Element inset', 3.5, 0, 2048, {
 			softMax: 64,
 			unit: 'px',
 			axis: ORIENT_ALONG,
@@ -336,16 +339,16 @@ export const trimLayer: LayerDef = {
 			note: fitNote,
 			group: 'elements',
 			showIf: (p) => hasElem(p) && p.elem_layout === 'block',
-			hint: 'Block edge (a framed block’s frame) to the first / last element centre. With a Pitch the row is centred and the inset is the least room left'
+			hint: 'Sets the distance from the block edge (or a framed block’s frame) to the centre of the first and last elements. With an Element pitch, the row is centred and this is the least room left at each end'
 		}),
-		P.float('elem_size', 'Radius', 2.25, 0.5, 256, {
+		P.float('elem_size', 'Element radius', 2.25, 0.5, 256, {
 			softMax: 24,
 			unit: 'px',
 			step: 0.5,
 			note: fitNote,
 			group: 'elements',
 			showIf: hasElem,
-			hint: 'Radius, or half the slot / square / hex width'
+			hint: 'Sets the element radius, or half the width of a slot, square or hex'
 		}),
 		P.float('elem_len', 'Slot length', 6, 1, 1024, {
 			softMax: 64,
@@ -359,7 +362,7 @@ export const trimLayer: LayerDef = {
 		}),
 		P.enum(
 			'elem_ref',
-			'Position on',
+			'Row position on',
 			'face',
 			[
 				['strip', 'The strip'],
@@ -368,14 +371,14 @@ export const trimLayer: LayerDef = {
 			{
 				group: 'elements',
 				showIf: hasElem,
-				hint: 'What Position is a share of: the whole strip, or its face — the stretch band (else the innermost band), so the rows stay on it whatever the strip’s height'
+				hint: 'Picks what Row position measures across: the whole strip, or its face (the stretch band, or else the innermost band), so the rows stay on the face whatever the strip’s height'
 			}
 		),
-		P.float('elem_y', 'Position', 0.5, 0, 1, {
+		P.float('elem_y', 'Row position', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'elements',
 			showIf: hasElem,
-			hint: 'Centre of the rows across the strip (or the face), 0 = top (left) edge'
+			hint: 'Moves the rows across the strip, or across the face (0 = top or left edge)'
 		}),
 		P.int('elem_rows', 'Rows', 1, 1, 64, { softMax: 8, group: 'elements', showIf: hasElem }),
 		P.float('elem_row_gap', 'Row spacing', 8, 0, 2048, {
@@ -390,30 +393,30 @@ export const trimLayer: LayerDef = {
 		P.bool('elem_stagger', 'Stagger rows', false, {
 			group: 'elements',
 			showIf: (p) => hasElem(p) && Number(p.elem_rows) > 1 && p.elem_layout !== 'block',
-			hint: 'Shift alternate rows half a step'
+			hint: 'Shifts every other row along by half a step'
 		}),
-		P.float('elem_offset', 'Offset', 0, 0, 1, {
+		P.float('elem_offset', 'Element offset', 0, 0, 1, {
 			step: 0.001,
 			group: 'elements',
 			showIf: (p) => hasElem(p) && p.elem_layout !== 'block'
 		}),
-		P.float('elem_height', 'Height', 0.46, 0, 1, {
+		P.float('elem_height', 'Head height', 0.46, 0, 1, {
 			step: 0.001,
 			group: 'elements',
 			showIf: raisedElem,
-			hint: 'Head height above the surface round it, in the relief’s 0…1 range, held under the room left above that surface (1 = all of it: up to the top) so a head stays round'
+			hint: 'Sets how high the heads stand above the surface around them, as a share of the room left above it (1 = right up to the top), so a head stays round'
 		}),
-		P.float('elem_depth', 'Depth', 1, 0, 1, {
+		P.float('elem_depth', 'Hole depth', 1, 0, 1, {
 			step: 0.001,
 			group: 'elements',
 			showIf: holeElem,
-			hint: 'How far the holes / slots sink below the surface round them (1 = to the bottom)'
+			hint: 'Sets how far the holes and slots sink below the surface around them (1 = to the bottom)'
 		}),
-		P.float('elem_turn', 'Turn', 1, 0, 1, {
+		P.float('elem_turn', 'Head turn variation', 1, 0, 1, {
 			step: 0.001,
 			group: 'elements',
 			showIf: (p) => ['hex', 'screw', 'allen', 'cross', 'allen_sunk', 'hex_sunk'].includes(String(p.elem)),
-			hint: 'Random turn of each hex head, screw slot or socket (0 = all aligned)'
+			hint: 'Turns each hex head, screw slot or socket by a random amount (0 = all aligned)'
 		}),
 		P.float('elem_clear', 'Divider clearance', 1, 0, 2048, {
 			softMax: 32,
@@ -423,32 +426,32 @@ export const trimLayer: LayerDef = {
 			note: fitNote,
 			group: 'elements',
 			showIf: (p) => hasElem(p) && hasDiv(p),
-			hint: 'Keep the heads this far from the dividers — from the frame when the blocks are framed (0 = off: elements may sit on them). Evenly spaced ones that come closer are left out; within blocks the inset grows'
+			hint: 'Keeps the elements this far from the dividers, or from the frame when the blocks are framed (0 = off, elements may sit on them). Evenly spaced elements that get closer are left out; within blocks the inset grows instead'
 		}),
 		P.float('elem_bevel', 'Fillet', 0.3, 0, 1, {
 			softMax: 0.6,
 			step: 0.01,
 			group: 'elements',
 			showIf: hasElem,
-			hint: 'Rounds the walls of holes and slots, the seats round heads and the washers’ edges, as a share of the head’s radius (at least 1 px): the walls slope, floors dish and seats become countersinks, so they catch the light (0 = hard cuts)'
+			hint: 'Rounds off the walls of holes and slots, the seats around heads and the washers’ edges, as a share of the head’s radius (at least 1 px). Walls slope, floors dish and seats turn into countersinks that catch the light (0 = hard cuts)'
 		}),
-		P.float('elem_seat', 'Seat', 1, 0, 1, {
+		P.float('elem_seat', 'Head seat', 1, 0, 1, {
 			step: 0.001,
 			group: 'elements',
 			showIf: raisedElem,
-			hint: 'A fine sunken ring round each head (round a washer): the shadow line that makes small heads read'
+			hint: 'Adds a fine sunken ring around each head (or its washer), a shadow line that helps small heads stand out'
 		}),
-		P.float('elem_missing', 'Missing', 0, 0, 1, {
+		P.float('elem_missing', 'Missing elements', 0, 0, 1, {
 			step: 0.001,
 			group: 'elements',
 			showIf: hasElem,
-			hint: 'Share of the elements left out at random; rivets, bolts and screws leave their empty hole'
+			hint: 'Leaves out a share of the elements at random (0 = none). Missing rivets, bolts and screws leave an empty hole behind'
 		}),
-		P.float('elem_hole', 'Empty hole', 0.55, 0, 1, {
+		P.float('elem_hole', 'Empty hole size', 0.55, 0, 1, {
 			step: 0.001,
 			group: 'elements',
 			showIf: (p) => raisedElem(p) && Number(p.elem_missing) > 0,
-			hint: 'Radius of the hole a missing head leaves, as a share of the head’s radius (0 = no hole)'
+			hint: 'Sets the size of the hole a missing head leaves, as a share of the head’s radius (0 = no hole)'
 		})
 	],
 	groups: [
@@ -536,7 +539,7 @@ struct TrmDiv { float dDiv; float dBlk; float dd; float span; float rnd; float b
 struct TrmElem { float dE; vec2 loc; float ang; float rnd; float dMiss; vec2 mLoc; };
 
 // The strip under the pixel (aT: across the texture from its top or left edge, AT: the texture across): each in an
-// equal share of the texture (edges on whole px), Strip height px centred on the share's Position — Alternate heights
+// equal share of the texture (edges on whole px), Strip height px centred on the share's Strip position — Strip alternation
 // splitting each pair's shares. a: across the strip, A: its height, si: its index.
 void trm_strip(float aT, float AT, out float a, out float A, out int si) {
   int ns = max(u_strips, 1);
@@ -546,7 +549,7 @@ void trm_strip(float aT, float AT, out float a, out float A, out int si) {
   if (aT < p0) { kS -= 1.0; p1 = p0; p0 = floor((kS + po) * ps + 0.5); }
   else if (aT >= p1) { kS += 1.0; p0 = p1; p1 = floor((kS + 1.0 + po) * ps + 0.5); }
   if (u_strip_alt > 0.0 && ns > 1) {
-    // Alternate heights: each pair of strips splits its two shares (1 + alt) : (1 - alt), edges on whole px.
+    // Strip alternation: each pair of strips splits its two shares (1 + alt) : (1 - alt), edges on whole px.
     float kP = floor(0.5 * (aT / ps - po));
     float P0 = floor((2.0 * kP + po) * ps + 0.5);
     if (aT < P0) { kP -= 1.0; P0 = floor((2.0 * kP + po) * ps + 0.5); }
@@ -598,7 +601,7 @@ TrmBands trm_bands(float A, int si, out float bh[6], out int bp[6], out float bl
   // Join bands: each band but a flat one starts where the one before it ends — its base, or for the profiles that
   // start high (flute, groove, the falling ones) its level — and keeps its own rise, so the moulding runs on without
   // cliffs (TRM_STARTS_HIGH, TRM_ENDS_HIGH).
-  // Strip variety also redraws the moulding of some strips: their shaped bands (not flat ones, nor the stretch band)
+  // Strip variation also redraws the moulding of some strips: their shaped bands (not flat ones, nor the stretch band)
   // take another profile that starts and ends the same way (so the levels still join up): bead / ridge / step;
   // chamfer / quarter round / ogee / cove rising; flute / groove; the falling ones. Row t of pv: start high × 2 + end
   // high (TRM_STARTS_HIGH, TRM_ENDS_HIGH); pn: how many in the row.
@@ -661,7 +664,7 @@ TrmDiv trm_dividers(float s, float a, float A, float LA, int nd, int si, float d
   if (nd > 0) {
     float sp = LA / float(nd);
     float k0 = floor(s / sp - u_div_offset);
-    // Divider leading edges k0 - 1 … k0 + 2, each moved by up to ±45% of a block (Length variation).
+    // Divider leading edges k0 - 1 … k0 + 2, each moved by up to ±45% of a block (Block variation).
     for (int i = 0; i < 4 * UNI_1; i++) {
       float k = k0 - 1.0 + float(i);
       float j = 0.9 * u_div_var * (hashI(ivec2(wrapCell(int(k), nd), si), uSeed + 5.0) - 0.5);
@@ -676,7 +679,7 @@ TrmDiv trm_dividers(float s, float a, float A, float LA, int nd, int si, float d
     D.dBlk = max(max(b0 + D.w - s, s - b1), dStrip);
     D.blo = b0 + D.w; D.bhi = b1;
     D.kbi = wrapCell(int(kb), nd);
-    // Blocks get their own random; the margins the dividers stop short of (Inset) run on as one piece.
+    // Blocks get their own random; the margins the dividers stop short of (Divider inset) run on as one piece.
     if (D.span <= 0.0) D.rnd = hashI(ivec2(D.kbi, 1 + 2 * si), uSeed);
   }
   D.bq = vec4(bq[0], bq[1], bq[2], bq[3]);
@@ -757,20 +760,20 @@ TrmElem trm_nearestElem(int ek, float s, float a, float A, float LA, int si, int
   int ne = neT;
   float lo = 0.0, se = LA / float(ne);
   if (perBlock) {
-    // Inside the frames, from Inset to Inset (at least the clearance from the dividers); heads stay ≥ 1 px apart.
+    // Inside the frames, from Element inset to Element inset (at least the clearance from the dividers); heads stay ≥ 1 px apart.
     float L = D.bhi - D.blo - 2.0 * Fe;
     float insMin = u_elem_clear > 0.0 && nd > 0 ? 0.5 * ext + u_elem_clear * es : 0.0;
     float ins = max(u_elem_inset * es, insMin);
     float minSp = ext + 1.0;
     int n;   // gaps between the first and the last
     if (ePitch > 0.0) {
-      // By Pitch: the spacing within 25% of it (one centred head where even one gap won't fit), the row centred.
+      // By Element pitch: the spacing within 25% of it (one centred head where even one gap won't fit), the row centred.
       float room = L - 2.0 * ins;
       float pt = max(ePitch, minSp);
       n = room > 0.0 ? min(int(floor(room / pt + 0.25)), int(floor(room / minSp))) : 0;
       se = n > 0 ? min(pt, room / float(n)) : 0.0;
     } else {
-      // By Count: in a short block the inset gives way (down to the clearance), then the count.
+      // By Elements per row: in a short block the inset gives way (down to the clearance), then the count.
       n = min(max(u_elem_count, 1), max(int(floor((L - 2.0 * insMin) / minSp)) + 1, 1)) - 1;
       if (n > 0) ins = max(insMin, min(ins, 0.5 * (L - float(n) * minSp)));
       se = n > 0 ? (L - 2.0 * ins) / float(n) : 0.0;
@@ -834,7 +837,7 @@ float trm_elemRelief(int ek, TrmElem E, float r, float fw, float v) {
   float eh = min(u_elem_height, max(1.0 - v, 0.0));
   bool washer = ek == 2;
   float rWash = r + 2.0 * rw;
-  // Seat: a fine sunken ring round each head (round a washer) — the shadow line that makes a small head read.
+  // Head seat: a fine sunken ring round each head (round a washer) — the shadow line that makes a small head read.
   float ringW = 0.6 * rw;
   float ringR = (washer ? rWash : ek >= 11 ? GRB_SINK_R * r : r) + ringW;
   float ringK = 0.5 * u_elem_seat;
@@ -910,7 +913,7 @@ GenOut gen(vec2 p) {
   // Element lengths in the bands' units when they scale with them.
   float es = u_elem_fit ? B.bs : 1.0;
   float ePitch = u_elem_pitch * es;
-  // Elements per row along the tile (Pitch, or Count).
+  // Elements per row along the tile (Element pitch, or Elements per row).
   int neT = ePitch > 0.0 ? max(int(floor(LA / ePitch + 0.5)), 1) : max(u_elem_count, 1);
   // Alternate strips shift along by whole px (dividers and elements together).
   if ((si & 1) == 1 && u_strip_stagger > 0.0) s += floor(u_strip_stagger * LA / float(nd > 0 ? nd : neT) + 0.5);

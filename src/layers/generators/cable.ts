@@ -7,7 +7,7 @@
 // close the neighbouring row too. Consecutive chords covering the pixel make one piece of swept tube; the topmost piece
 // wins, and where its edge lies over another the two blend by its coverage, so front-over-back crossings anti-alias.
 // Sink sets the cable into the surface: a bed plane hides what lies below it, and the outline follows where the tubes
-// rise out of it. Fibres groove each strand with yarns wound round it; Irregularity varies the strands' thickness,
+// rise out of it. Fibres groove each strand with yarns wound round it; Strand variation varies the strands' thickness,
 // radius and lay from one half turn to the next (seeded). The outline is the layer's shape for its mask (`sdf: 'mask'`,
 // by Union). Path: an angle (snapped to a direction that closes on the torus when tiling), a sag and cut ends with
 // rounded strand tips.
@@ -76,11 +76,11 @@ export function cableDerived(p: ParamValues, c: LayerCanvas): { frame: number[];
 
 export const cableLayer: LayerDef = {
 	type: 'cable',
-	label: 'Cable',
+	label: 'Cables',
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Coil springs, twisted rope and cable mouldings: tubes wound on a helix seen from the side; front strands cross over the back of each loop.',
+		'Cables: Tubes wound on a helix and seen from the side, with the front strands crossing over the back of each loop. Makes coil springs, twisted rope, carved cable mouldings.',
 	params: [
 		P.enum('axis', 'Axis', 'horizontal', [
 			['horizontal', 'Horizontal'],
@@ -91,35 +91,35 @@ export const cableLayer: LayerDef = {
 			softMin: -90,
 			softMax: 90,
 			step: 0.1,
-			hint: 'Turns the cable from its axis, degrees clockwise. On tileable textures it snaps to the nearest direction that repeats across the tile (on a square: 45°, 26.6°, 18.4° …)'
+			hint: 'Turns the cable away from its Axis, in degrees clockwise. On tileable textures it snaps to the nearest direction that repeats across the tile (on a square: 45°, 26.6°, 18.4° …)'
 		}),
 		P.float('pos', 'Position', 0.5, -1, 2, {
 			softMin: 0,
 			softMax: 1,
 			step: 0.001,
-			hint: 'Centre line, 0..1 across the cable (down for horizontal cables); with several rows, their middle'
+			hint: 'Moves the cable’s centre line across the texture (0…1, down for horizontal cables); with several rows, it’s their middle'
 		}),
 		P.float('count', 'Turns', 5, 0.25, 1024, {
 			softMax: 64,
 			step: 0.01,
-			hint: 'Turns of each strand along the texture (rounded when tiling): fewer = a long, shallow lay; more = tightly wound'
+			hint: 'How many turns each strand makes along the texture (rounded when tiling): fewer = a long, shallow lay, more = tightly wound'
 		}),
 		P.int('strands', 'Strands', 3, 1, 8, {
-			hint: '1 = a coil spring or a wave; 2–8 = twisted rope (strands evenly spaced round the helix)'
+			hint: 'How many strands to wind (1 = a coil spring or a wave, 2–8 = twisted rope with the strands evenly spaced round the helix)'
 		}),
-		P.float('radius', 'Radius', 10.4, 0, 512, {
+		P.float('radius', 'Helix radius', 10.4, 0, 512, {
 			softMax: 64,
 			unit: 'px',
 			axis: cableAcross,
 			step: 0.1,
-			hint: 'Helix radius: from the cable’s centre to the centre of a strand (≈ 1.15 × the tube radius lays 3 strands tight; 0 = one straight tube)'
+			hint: 'Sets the helix radius, from the cable’s centre to the centre of a strand (about 1.15 × the Strand radius lays 3 strands tight; 0 = one straight tube)'
 		}),
-		P.float('thickness', 'Tube radius', 9, 0.25, 256, {
+		P.float('thickness', 'Strand radius', 9, 0.25, 256, {
 			softMax: 48,
 			unit: 'px',
 			axis: cableAcross,
 			step: 0.05,
-			hint: 'Radius of each strand (the wire of a spring)'
+			hint: 'Sets the radius of each strand (the wire of a spring)'
 		}),
 		P.float('lean', 'Loop opening', 0, -512, 512, {
 			softMin: -32,
@@ -127,47 +127,47 @@ export const cableLayer: LayerDef = {
 			unit: 'px',
 			axis: cableAlong,
 			step: 0.1,
-			hint: 'Oblique view along the axis: 0 = straight side-on (a wave; rope strands as slanted bands), larger values open each turn into a loop (coil springs, cords); the sign tilts the loops the other way'
+			hint: 'Tilts the view along the axis, opening each turn into a loop (0 = straight side-on, a wave, with rope strands as slanted bands; larger = open loops, like coil springs or cords). Negative tilts the loops the other way'
 		}),
 		P.float('back', 'Back depth', 1, 0, 4, {
 			softMax: 2,
 			step: 0.001,
-			hint: 'How far the back of each loop sinks below the front: 1 = the true helix, more = deeper, less = a shallow braid; at 0 the strands lie level and merge where they cross'
+			hint: 'How far the back of each loop sinks below the front (1 = a true helix, more = deeper, less = a shallow braid, 0 = the strands lie level and merge where they cross)'
 		}),
 		P.bool('flip', 'Reverse twist', false, {
-			hint: 'Twist the other way: the strands slant the other way (left- instead of right-hand lay)'
+			hint: 'Twists the strands the other way, so they slant the other way (left- instead of right-hand lay)'
 		}),
 		P.float('sink', 'Sink', 0.35, 0, 0.95, {
 			step: 0.001,
-			hint: 'Sets the cable into the surface: 0 = it stands on it (a drop at its outline, the backs of the loops show); 0.5 = sunk to its axis, a half-round moulding whose strands rise out of the surface; higher = only the crowns show'
+			hint: 'Sinks the cable into the surface (0 = it stands on it, with a drop at its outline and the backs of the loops showing; 0.5 = sunk to its axis, a half-round moulding with strands rising out of the surface; higher = only the crowns show)'
 		}),
 		P.float('core', 'Core', 0.6, 0, 1, {
 			step: 0.001,
-			hint: 'Ropes (2 strands or more): a core behind the strands that fills the gaps between them — 0 = none, the surface shows through; 1 = as high as the strands’ centre line'
+			hint: 'Fills the gaps between a rope’s strands (2 or more) with a core behind them (0 = none, the surface shows through; 1 = as high as the strands’ centre line)'
 		}),
-		P.float('irregular', 'Irregularity', 0.5, 0, 2, {
+		P.float('irregular', 'Strand variation', 0.5, 0, 2, {
 			softMax: 1,
 			step: 0.001,
-			hint: 'Hand-laid unevenness: each strand’s thickness, radius and lay vary from one half turn to the next (by the Seed)'
+			hint: 'Adds hand-laid unevenness: each strand’s thickness, radius and lay vary from one half turn to the next (by the Seed)'
 		}),
 		P.seed(),
 		P.int('yarns', 'Fibres', 9, 0, 64, {
 			softMax: 24,
 			section: 'Fibres',
-			hint: 'Yarns twisted round each strand, grooving it: 0 = smooth strands (a moulding, a wire); 6–12 = laid rope'
+			hint: 'How many yarns twist round each strand, grooving it (0 = smooth strands, like a moulding or a wire; 6–12 = laid rope)'
 		}),
 		P.float('yarn_depth', 'Fibre depth', 1, 0, 6, {
 			softMax: 4,
 			step: 0.001,
 			section: 'Fibres',
 			showIf: (p) => Number(p.yarns) > 0,
-			hint: 'Depth of the grooves between the yarns: 1 = round yarns, 4 = deep cuts. With Irregularity the yarns stand at different heights'
+			hint: 'Sets how deep the grooves between the yarns are (1 = round yarns, 4 = deep cuts). With Strand variation the yarns stand at different heights'
 		}),
 		P.float('yarn_angle', 'Fibre angle', 40, -85, 85, {
 			step: 0.1,
 			section: 'Fibres',
 			showIf: (p) => Number(p.yarns) > 0,
-			hint: 'Angle of the yarns to their strand, degrees: rope yarns run against the twist of the strands (about 30–50); negative leans them the other way, 0 runs them along the strand'
+			hint: 'Sets the yarns’ angle to their strand, in degrees. Rope yarns run against the twist of the strands (about 30–50); negative leans them the other way, 0 runs them along the strand'
 		}),
 		P.float('sag', 'Sag', 0, -4096, 4096, {
 			softMin: -128,
@@ -176,33 +176,33 @@ export const cableLayer: LayerDef = {
 			axis: cableAcross,
 			step: 0.1,
 			section: 'Path',
-			hint: 'The cable hangs: its centre line drops this far in the middle, between its ends (or the texture’s edges) — swags and festoons; negative arches it'
+			hint: 'Makes the cable hang, dropping its centre line this far in the middle between its ends (or the texture’s edges), for swags and festoons; negative arches it'
 		}),
 		P.float('start', 'Start', 0, 0, 1, {
 			step: 0.001,
 			section: 'Path',
-			hint: 'Where the cable begins along its length (0..1); with End, a cut length whose strands end in rounded tips'
+			hint: 'Sets where the cable begins along its length (0…1); with End, it makes a cut length whose strands end in rounded tips'
 		}),
 		P.float('end', 'End', 1, 0, 1, {
 			step: 0.001,
 			section: 'Path',
-			hint: 'Where the cable ends along its length (0..1)'
+			hint: 'Sets where the cable ends along its length (0…1)'
 		}),
 		P.int('rows', 'Rows', 1, 1, 256, {
 			softMax: 16,
 			section: 'Rows',
-			hint: 'Parallel cables evenly spaced across the texture (around Position): a bank of springs, a rope-work field'
+			hint: 'How many parallel cables to space evenly across the texture (around Position), for a bank of springs or a rope-work field'
 		}),
 		P.float('row_shift', 'Row shift', 0, -1, 1, {
 			step: 0.001,
 			section: 'Rows',
 			showIf: (p) => Number(p.rows) > 1,
-			hint: 'Each row starts this fraction of a turn further along (0.5 staggers the crossings between rows)'
+			hint: 'Starts each row this fraction of a turn further along (0.5 staggers the crossings between rows)'
 		}),
-		P.bool('row_flip', 'Alternate twist', false, {
+		P.bool('row_flip', 'Alternate row twist', false, {
 			section: 'Rows',
 			showIf: (p) => Number(p.rows) > 1,
-			hint: 'Every other row twisted the other way: herringbone, knitted cables (an even number of rows repeats seamlessly)'
+			hint: 'Twists every other row the other way, for herringbone or knitted cables (an even number of rows repeats seamlessly)'
 		})
 	],
 	// The outline goes to its mask (Shape by default), by Union (a trim laid over earlier shapes adds to them).
@@ -353,7 +353,7 @@ GenOut gen(vec2 p) {
   float hR = 0.0, cR = 0.0;
   vec4 prev = vec4(0.0);
   vec3 prevF = vec3(0.0);
-  // Irregularity: a smooth random wobble along each strand (a knot per half turn, repeating every jitPeriod knots when
+  // Strand variation: a smooth random wobble along each strand (a knot per half turn, repeating every jitPeriod knots when
   // tiling), -1..1 per component — size, tube radius, lay — and w, the strand's own thickness. Its knots carry across
   // the loop: they change only every few chords, and a strand's next knot is the current one's neighbour.
   int jId = -1;

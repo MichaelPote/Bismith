@@ -81,7 +81,7 @@ export const pipeworkLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Pipe runs on a wall: straight lengths, rounded elbows, tees and crossings, collars and bolted flanges — round, lit, shadow-casting. Drawn runs or a random tileable layout.',
+		'Pipework: Round pipe runs on a wall with elbows, tees, collars and bolted flanges, drawn by hand or laid out randomly. Makes plumbing, boiler rooms, industrial walls.',
 	params: [
 		P.enum(
 			'output',
@@ -97,7 +97,7 @@ export const pipeworkLayer: LayerDef = {
 				['liquid', 'Liquid']
 			],
 			{
-				hint: "Surface height: the round pipes (for relief; 1 = 4 × the pipe radius). Coverage: the pipes' outline (writes its mask, so later layers can be limited to the pipes). Fittings: 1 on collars and flanges. Underside: 0 on top of a pipe → 1 underneath (rust, grime). Tubes only: the outline of the tubes without their fittings (writes its mask — e.g. glass tubes with metal collars). Facing the light: across each pipe, 1 on the side towards the top-left → 0 away (reflection bands on chrome). Liquid: 1 below each run's liquid surface (Liquid level)"
+				hint: "Picks what the layer puts out. Surface height: the round pipes for relief (1 = 4 × the pipe radius). Coverage: the pipes' outline (writes its mask, so later layers can be limited to the pipes). Fittings: 1 on collars and flanges. Underside: 0 on top of a pipe → 1 underneath (rust, grime). Tubes only: the outline of the tubes without their fittings (writes its mask, e.g. for glass tubes with metal collars). Facing the light: 1 on the side of each pipe towards the top-left → 0 away from it (reflection bands on chrome). Liquid: 1 below each run's liquid surface (Liquid level)"
 			}
 		),
 		P.enum('layout', 'Layout', 'random', [
@@ -105,7 +105,7 @@ export const pipeworkLayer: LayerDef = {
 			['drawn', 'Drawn runs']
 		]),
 		P.bitmap('points', 'Runs', '0,24 40,24 40,48 64,48 | 20,0 20,24', 'lines', {
-			hint: 'x,y centre-line points (px from the top-left, or 0..1 with Units = fraction); one run per line or "|". Ends inside the texture get a flange; an end on another run tees into it',
+			hint: 'Lists the centre-line points as x,y pairs (px from the top-left, or 0…1 with Units = fraction). Put each run on its own line or separate them with "|". Ends inside the texture get a flange, and an end on another run tees into it',
 			showIf: isDrawn,
 			uniform: false,
 			shapeEdit: PIPE_RUNS_EDIT
@@ -123,46 +123,52 @@ export const pipeworkLayer: LayerDef = {
 		P.int('runs', 'Horizontal runs', 3, 0, 64, {
 			softMax: 16,
 			showIf: isRandom,
-			hint: 'Runs keep clear of each other while there is room; beyond that they lie over the ones they overlap'
+			hint: 'Sets how many horizontal runs there are. They keep clear of each other while there’s room, then start lying over the ones they overlap'
 		}),
 		P.int('drops', 'Vertical runs', 2, 0, 64, {
 			softMax: 16,
 			showIf: isRandom,
-			hint: 'In front of the horizontal runs; beyond the room for them they lie over the ones they overlap'
+			hint: 'Sets how many vertical runs there are, in front of the horizontal ones. Once they run out of room they lie over the ones they overlap'
 		}),
 		P.float('jogs', 'Jogs', 0.5, 0, 1, {
 			step: 0.01,
 			showIf: isRandom,
-			hint: 'Chance a horizontal run steps up or down and back (two pairs of elbows)'
+			hint: 'Sets the chance that a horizontal run steps up or down and back (two pairs of elbows)'
 		}),
 		P.float('tees', 'Tees', 0.5, 0, 1, {
 			step: 0.01,
 			showIf: isRandom,
-			hint: 'Chance a vertical run tees between two horizontal runs instead of passing in front of them'
+			hint: 'Sets the chance that a vertical run tees between two horizontal runs instead of passing in front of them'
 		}),
 		P.float('density', 'Density', 0, 0, 1, {
 			step: 0.01,
 			showIf: isRandom,
-			hint: 'Stack more pipes in front of these — horizontal, vertical, horizontal … each layer resting on the one behind — until this share of the bare wall is covered (1 = none left). A stack taller than four pipe radii is scaled to fit the height range: raise the height amount for rounder pipes'
+			hint: 'Stacks more pipes in front of these (horizontal, vertical, horizontal …, each layer resting on the one behind) until this share of the bare wall is covered (0 = no extra pipes, 1 = no wall left). A stack taller than four pipe radii is scaled to fit the height range, so raise the height amount for rounder pipes'
 		}),
 		P.float('radius', 'Pipe radius', 6, 0.5, 256, { softMax: 32, unit: 'px', step: 0.1 }),
-		P.float('variety', 'Radius variety', 0.3, 0, 1, { step: 0.01 }),
-		P.float('bend', 'Bend radius', 2, 1, 8, { step: 0.01, hint: 'Elbow centre-line radius in pipe radii' }),
-		P.float('spacing', 'Coupling spacing', 48, 0, 4096, {
+		P.float('variety', 'Radius variation', 0.3, 0, 1, { step: 0.01 }),
+		P.float('bend', 'Bend radius', 2, 1, 8, {
+			step: 0.01,
+			hint: 'Sets how wide the elbows bend, measured along the centre line in pipe radii'
+		}),
+		P.float('spacing', 'Collar spacing', 48, 0, 4096, {
 			softMax: 256,
 			unit: 'px',
 			step: 1,
-			hint: 'Collars along straight lengths (0 = none)'
+			hint: 'Spaces collars this far apart along straight lengths (0 = none)'
 		}),
-		P.float('flanges', 'Flanges', 0.3, 0, 1, { step: 0.01, hint: 'Chance a coupling is a bolted flange' }),
+		P.float('flanges', 'Flanges', 0.3, 0, 1, {
+			step: 0.01,
+			hint: 'Sets the chance that a collar is a bolted flange'
+		}),
 		P.float('collar', 'Collar size', 0.15, 0, 1, {
 			step: 0.01,
-			hint: `How far collars stand proud (flanges ${FLANGE_PROUD} × that), in pipe radii`
+			hint: `Sets how far collars stick out from the pipe, in pipe radii (flanges stick out ${FLANGE_PROUD} × as far)`
 		}),
 		P.bool('elbow_fittings', 'Elbow collars', true),
 		P.float('fill', 'Liquid level', 0.5, 0, 1, {
 			step: 0.01,
-			hint: "For the Liquid output: how full each run's lowest horizontal pipe is; the surface stays level through bends and drops"
+			hint: "Fills each run's lowest horizontal pipe this full, for the Liquid output. The surface stays level through bends and drops"
 		}),
 		P.seed()
 	],

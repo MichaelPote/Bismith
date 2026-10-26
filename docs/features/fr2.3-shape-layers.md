@@ -14,7 +14,7 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
   union, subtract, intersect, smooth variants, onion (outline), round.
 - Shape layer params: position (0..1, y down), size in px or **inset** margins in px (rect), rotation,
   corner radius, outline thickness (onion), anti-alias toggle (off = hard pixel edges), **repeat** grid
-  (count X/Y, per-instance random → `rnd`) for rivets / bolts / tiles.
+  (columns / rows, per-instance random → `rnd`) for rivets / bolts / tiles.
 - Common SDF params on every SDF generator: combine operator + smoothness, bevel width (px), profile.
 - Wrap-around evaluation on tileable projects (minimum over neighbouring periods).
 
@@ -27,7 +27,7 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
 - [x] Polygon / star
 - [x] Line segment
 - [x] Bézier curve
-- [x] Repeat grid with per-instance random — plus row stagger, position/rotation/scale jitter, drop-out
+- [x] Repeat grid with per-instance random — plus row stagger, position jitter, rotation / size variation, drop-out
 - [x] Column / Row spacing on the repeat grid
 - [x] Bevel profiles from combined distance
 - [x] Wrap-around on tileable projects
@@ -38,10 +38,10 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
   centre; the repeat loop visits every cell whose instance can reach the pixel (its extent + position jitter + the
   X / Y offset — at least the 3×3 around the pixel, capped at 25 cells per axis), in one flat loop with
   uniform-derived bounds. Shapes larger than their cells, long lines in a grid and big jitter are no longer cut off at
-  the neighbouring cells. Row offset and _Mirror alternate columns_ / _rows_ (`rep_mirror_x`, `rep_mirror_y` — each
+  the neighbouring cells. Row offset and _Mirror odd columns_ / _rows_ (`rep_mirror_x`, `rep_mirror_y` — each
   axis on its own, so a 2-column repeat can pair rivet lines along a plate's edges while its rows stay evenly spaced)
   count rows / columns on the instance itself, so its copies across a tiling edge match. Drop-out wraps the loop body in a test (no `continue`, which ANGLE can
-  miscompile). Each instance has a random of its own (Diffuse jitter, Per-feature variation), apart from its position
+  miscompile). Each instance has a random of its own (Diffuse › Colour variation, Per-feature variation), apart from its position
   jitter.
 - **Column / Row spacing** (`col_sp`, `row_sp`, −1 … 1, Repeat): the step between instances grows (or shrinks) by
   that share of the texture width / height — 1 = a whole width more —, the grid centred; the cells that size the
@@ -51,7 +51,7 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
   jitter of the pixel, and at least the neighbours within a step either side; at spacing 0 exactly the cells it
   visited before (renders checked pixel-identical: staggered, mirrored, large, dropped and flipped repeats, tiled
   and not). Compile time rect 0.48 → 0.49 s, curve 0.63 → 0.68 s.
-- **Repeat:** _Rotation steps_ snaps the rotation jitter to multiples of an angle (random quarter turns); _Random flip_
+- **Repeat:** _Rotation steps_ snaps the rotation variation to multiples of an angle (random quarter turns); _Flip at random_
   mirrors instances left / right, up / down or both; wider sliders (counts to 32, jitter to 64 px).
 - **Rectangle:** corner styles _Scoop_ (a quarter circle cut in) and _Notch_ (a square cut out) next to Round and
   Chamfer; chamfers use all four 45° planes everywhere, so the distance stays exact where a large chamfer reaches past
@@ -107,10 +107,10 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
   - A head's footprint is the shape and the mask. Its relief goes to Height through `GenOut.height` (Source ›
     Pattern; sunk parts below the surface). Its sockets and slots darken the value, × the bevel at the footprint's edge
     (`SHAPE_RELIEF` / `shapeRelief`, evaluated for the nearest instance).
-  - Rotation and the repeats' rotation jitter turn the heads; the Circle-only settings are hidden.
+  - Rotation and the repeats' rotation variation turn the heads; the Circle-only settings are hidden.
 - **Round 2 additions:** Ellipse _Arc ends_ (round caps on swept rings); Polygon _Flat tips_ / _Flat valleys_ (gear
-  teeth); Line / Curve _Taper curve_ (≥ 1: t^c, leaves; < 1: 1 − (1 − t)^(1/c), needles), _Length jitter_ (keeps the
+  teeth); Line / Curve _Taper curve_ (≥ 1: t^c, leaves; < 1: 1 − (1 − t)^(1/c), needles), _Length variation_ (keeps the
   thickness); Curve _Shape › Circular arc_ (through both ends, Bend = the sagitta: semicircles, horseshoes, elbows),
   _Bend position_ to ±3 (curls back past ±1) and _Centre on › Middle of the curve_; Cross odd counts point an arm down
-  (an upright Y) and _Longer bottom arm_ (Latin cross). Wider sliders: Outline 64, Corner 512, rounding 128, stroke
-  thickness 256, Aspect 0.1 … 10.
+  (an upright Y) and _Longer bottom arm_ (Latin cross). Wider sliders: Outline 64, Corner size 512, rounding 128, Stroke
+  width 256, Aspect 0.1 … 10.

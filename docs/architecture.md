@@ -255,14 +255,14 @@ The common generator wrapper then:
 5. **Channel outputs.** Each enabled output maps the value into a channel and blends it in, weighted by
    `mask × opacity`:
 
-| Output    | Source                        | Mapping                                  | Modes                                                                         |
-| --------- | ----------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
-| Diffuse   | value / flat / random / shape | gradient ramp (≤8 stops) + random jitter | normal, multiply, screen, overlay, add, subtract, darken, lighten, soft light |
-| Opacity   | coverage                      | —                                        | replace, multiply, union (max), subtract                                      |
-| Height    | value / flat / random / shape | `value × amount + offset`                | add, subtract, max, min, replace, multiply                                    |
-| Roughness | value / flat / random / shape | `mix(a, b, value)`                       | replace, multiply, add, min, max                                              |
-| Emissive  | value / flat / random / shape | `colour × intensity × value` (HDR)       | add, replace, max                                                             |
-| Specular  | value / flat / random / shape | `mix(a, b, value)` level 0..1            | replace, multiply, add, min, max                                              |
+| Output    | Source                        | Mapping                                     | Modes                                                                         |
+| --------- | ----------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------- |
+| Diffuse   | value / flat / random / shape | gradient ramp (≤8 stops) + colour variation | normal, multiply, screen, overlay, add, subtract, darken, lighten, soft light |
+| Opacity   | coverage                      | —                                           | replace, multiply, union (max), subtract                                      |
+| Height    | value / flat / random / shape | `value × amount + offset`                   | add, subtract, max, min, replace, multiply                                    |
+| Roughness | value / flat / random / shape | `mix(a, b, value)`                          | replace, multiply, add, min, max                                              |
+| Emissive  | value / flat / random / shape | `colour × intensity × value` (HDR)          | add, replace, max                                                             |
+| Specular  | value / flat / random / shape | `mix(a, b, value)` level 0..1               | replace, multiply, add, min, max                                              |
 
 _Shape_ is inside the layer's own shape (1 in, 0 out, anti-aliased; 1 for layers without a shape) — the shape without
 its pattern, for layers that paint their own value over it (Wood: rougher gaps than boards, the grain ignored).

@@ -19,7 +19,7 @@ export const settsLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Small paving stones laid in concentric arcs: fan (scale) paving in offset rows, or ring rosettes per cell. Even joints, setts cut where fans meet, hand-laid irregularity. Tileable.',
+		'Setts: Small paving stones laid in concentric arcs, either as fans in offset rows or as ring rosettes. Makes fan (scale) paving, cobbled squares, rosette pavements.',
 	params: [
 		P.enum('layout', 'Layout', 'fan', [
 			['fan', 'Fans (scales)'],
@@ -28,32 +28,32 @@ export const settsLayer: LayerDef = {
 		P.float('scale', 'Fans across', 2, 0.5, 32, {
 			softMax: 8,
 			step: 0.01,
-			hint: 'Fans (or rosettes) across the width — whole counts when tiling'
+			hint: 'How many fans (or rosettes) fit across the width (whole counts when tiling)'
 		}),
 		P.float('aspect', 'Row height', 1, 0.5, 2, {
 			step: 0.01,
-			hint: 'Fans: row spacing × half a fan width (1 = the classic fan). Rings: cell height ÷ width'
+			hint: 'Fans: spaces the rows this many half fan widths apart (1 = the classic fan). Rings: makes each cell taller or wider (height ÷ width)'
 		}),
 		P.float('courses', 'Courses', 6, 1, 32, {
 			softMax: 16,
 			step: 0.01,
-			hint: 'Arcs of setts from a fan’s point to its rim (sets the sett size)'
+			hint: 'How many arcs of setts run from a fan’s point to its rim (more = smaller setts)'
 		}),
 		P.float('length', 'Sett length', 1, 0.4, 4, {
 			step: 0.01,
-			hint: 'Along the arc, in course widths (1 = square setts)'
+			hint: 'Sets how long each sett is along its arc, in course widths (1 = square setts)'
 		}),
 		P.float('stagger', 'Joint stagger', 1, 0, 1, {
 			step: 0.001,
-			hint: 'Random turn of each course: 0 = joints line up along the radii'
+			hint: 'Turns each course by a random amount so the joints don’t line up (0 = joints line up along the radii)'
 		}),
-		P.float('irregular', 'Irregularity', 0.2, 0, 1, {
+		P.float('irregular', 'Sett variation', 0.2, 0, 1, {
 			step: 0.001,
-			hint: 'Hand-laid look: setts vary in size and sit slightly off their place'
+			hint: 'Gives a hand-laid look: the setts vary in size and sit a bit out of place'
 		}),
 		P.enum(
 			'dir',
-			'Direction',
+			'Fan direction',
 			'up',
 			[
 				['up', 'Up'],
@@ -61,13 +61,18 @@ export const settsLayer: LayerDef = {
 				['down', 'Down'],
 				['left', 'Left']
 			],
-			{ hint: 'Which way the fans open (their round rims face)' }
+			{ hint: 'Picks which way the fans open (where their round rims face)' }
 		),
-		P.float('gap', 'Gap', 1, 0, 32, { softMax: 4, unit: 'px', step: 0.1, hint: 'Joint width (whole px stay crisp)' }),
+		P.float('gap', 'Joint width', 1, 0, 32, {
+			softMax: 4,
+			unit: 'px',
+			step: 0.1,
+			hint: 'Sets the width of the joints (whole px stay crisp)'
+		}),
 		P.float('round', 'Corner rounding', 0.5, 0, 16, { softMax: 3, unit: 'px', step: 0.1 }),
 		rndModeParam(
 			['Per sett', 'Per course', 'Per fan'],
-			'Random value per sett, per course (rings outward 0 → 1) or per fan. Use with Diffuse source = random'
+			'Gives each sett, course (rings: 0 → 1 outwards) or fan its own random value. Use with Diffuse › Source = Random'
 		),
 		P.seed()
 	],

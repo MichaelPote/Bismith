@@ -26,7 +26,7 @@ FR8.23).
 
 - [x] LayerDef registry + categories
 - [x] Generator wrapper: SDF combine, profiles, shaping, mask, outputs
-- [x] Diffuse blend modes (9) + gradient ramp + random jitter — blending happens in sRGB space like a paint program
+- [x] Diffuse blend modes (9) + gradient ramp + colour variation — blending happens in sRGB space like a paint program
 - [x] Opacity / Height / Roughness / Emissive output modes
 - [x] Mask: limit to masks (was: clip to shape register), height range
 - [x] Filter `run()` contract with ping-pong

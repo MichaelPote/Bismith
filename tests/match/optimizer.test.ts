@@ -467,7 +467,7 @@ describe('Optimizer', () => {
 			space: { filter: (e) => e.id === 'layer:noise1:scale' }
 		});
 		await opt.run(40);
-		expect(opt.history.some((h) => h.sweep === 'Noise › Scale' && h.improved)).toBe(true);
+		expect(opt.history.some((h) => h.sweep === 'Noise › Cells across' && h.improved)).toBe(true);
 		expect(Number(opt.best.project.layers[0].params.scale)).toBeGreaterThan(20);
 		expect(opt.best.loss).toBeLessThan(0.3);
 	});

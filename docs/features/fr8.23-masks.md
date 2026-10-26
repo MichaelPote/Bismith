@@ -70,22 +70,22 @@ its surface modes) and is also how a later layer reads a mask's features, so the
 
 **Select › Surface** (reads the surface built so far, `readsState`; its mask applies to the layers after it):
 
-- **Crevices / High spots / Both / Slopes**: as _Crevices & high spots_ today (Radius, Depth or Full at slope).
+- **Crevices / High spots / Both / Slopes**: as _Crevices & high spots_ today (Search radius, Depth or Full-mask slope).
   _Revised 2026-10-26_: Crevices and High spots no longer compare a pixel with the average round it (that saw the cracks
   of a busy relief but missed wide gaps, the valleys between big crystals and pyramids, and any relief whose crevices
-  are wider than about twice the Radius, and its Depth was a height that didn't scale with the relief). Instead, in each
-  of 8 directions they take the steepest rise (crevices, out to 3× the Radius) or fall (high spots, within about the
-  Radius) from the pixel, and score each pair of opposite directions by twice the lesser plus half the difference, over
+  are wider than about twice the Search radius, and its Depth was a height that didn't scale with the relief). Instead, in each
+  of 8 directions they take the steepest rise (crevices, out to 3× the Search radius) or fall (high spots, within about the
+  Search radius) from the pixel, and score each pair of opposite directions by twice the lesser plus half the difference, over
   twice **Wall slope** (height px per px; 0.06 by default, 0.01–0.02 for soft noise): walls on both sides (a joint, a
   gap, a ridge) count in full; one side (the foot of a block, the exposed edge and corners of a raised face) a quarter
-  as steep; a plain slope nothing. So High spots finds exposed edges and corners for wear in a band about a Radius
+  as steep; a plain slope nothing. So High spots finds exposed edges and corners for wear in a band about a Search radius
   wide. Depth is gone. It works on any relief built by the layers before it — no shape layer or mask is needed.
-  The Radius goes up to 4096 px (slider 512), so a selection can span the whole texture. Write to's **Source › Crevices
+  The Search radius goes up to 4096 px (slider 512), so a selection can span the whole texture. Write to's **Source › Crevices
   (SDF) / High spots (SDF)** write either selection, from the same layer and settings, as a **distance** (an SDF mask:
-  the score's way to the selection's edge over its screen-space slope, kept within 3× the Radius), for Bevel, Etch,
+  the score's way to the selection's edge over its screen-space slope, kept within 3× the Search radius), for Bevel, Etch,
   Chips and limits to work on; **Selection** writes the soft coverage as painted.
 - **Facing**: slopes whose face turns towards _Direction_ (an angle; Bottom, Top, Left, Right as quick picks), with
-  _Spread_ (how far round from it still counts) and _Full at slope_: all the bottom edges of the raised blocks, the
+  _Spread_ (how far round from it still counts) and _Full-mask slope_: all the bottom edges of the raised blocks, the
   lit side of every bump.
 - **Height range**: above or below a level, softened.
 
@@ -96,7 +96,7 @@ its surface modes) and is also how a later layer reads a mask's features, so the
   Bricks layer writing _Shape_, _Mask area_ (Inside _Shape_) with Height and per-feature variation 1 after the chips,
   and _Mask area_ (Inside _Shape_) with Diffuse by Random after the stone noise.
 - **Gradient**: a ramp across each feature along _Direction_, 0 at the far side and 1 at the near one (fading from
-  the bottom of each block to its top). _Across_: the whole feature, or a band _Width_ px in from its edge (only each
+  the bottom of each block to its top). _Gradient across_: the whole feature, or a band _Band width_ px in from its edge (only each
   block's bottom edge). Shaping (levels, gamma, cutoff) shapes the ramp as for any generator.
 - Everything selected here keeps the features' random and feature flag, so a mask written from a gradient still
   knows its blocks.
@@ -311,12 +311,12 @@ Where the build differs from the design above, or adds to it:
 ## As built (phases 4–6)
 
 - **Mask area** keeps the type id `surfacemask`. Beyond the design: Slopes and Facing measure the slope across half the
-  Radius (bilinear samples), so surface grain doesn't speckle them; defaults Radius 6 px, Full at slope 0.2, Level
-  0.2. Gradient's march counts a sample up to 0.75 px past the outline as inside, so a ray along an edge skims past
+  Search radius (bilinear samples), so surface grain doesn't speckle them; defaults Search radius 6 px, Full-mask slope
+  0.2, Threshold 0.2. Gradient's march counts a sample up to 0.75 px past the outline as inside, so a ray along an edge skims past
   one-pixel notches instead of stopping in them. The band (_A band at the edge_) is solid with its inner end fading
-  over _Band softness_ (default half the Width), measured from the mask's outline — a bevel inside it is part of the
+  over _Band softness_ (default half the Band width), measured from the mask's outline — a bevel inside it is part of the
   band. In feature modes Breakup is shifted by each feature's random and pulls between 0.4× and 1.6× as hard per
-  feature, so every brick frays its own way and by its own amount. Crevices' Radius defaults to 8 px. Inside on a
+  feature, so every brick frays its own way and by its own amount. Crevices' Search radius defaults to 8 px. Inside on a
   coverage mask (any writer not a shape, `uMaskSrcExact` false) has no distance to bevel: its coverage is both the value
   and the coverage, as Breakup's path already did — painting it matches the layer that wrote it. Inside starts
   with a flat Edge; surface modes are featureless (`genOutSmooth`). Three critic rounds on a bricks sheet scored

@@ -36,7 +36,7 @@ export const crystalLayer: LayerDef = {
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Faceted crystals: Voronoi cells raised into pyramids of flat faces from each edge to the tip, finer layers growing out between them, each facet its own shade. Cut glass, gem clusters, quartz. Tileable.',
+		'Faceted crystals: Made from Voronoi cells raised into pyramids, optional finer layers growing out between them, each facet can be its own shade. Makes cut glass, gem clusters, quartz.',
 	params: [
 		P.float('scale', 'Crystals across', 4, 0.5, 64, {
 			softMax: 16,
@@ -52,22 +52,22 @@ export const crystalLayer: LayerDef = {
 		P.float('tip', 'Tip offset', 0.4, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Moves each crystal’s tip off its middle, its own way, so its faces differ in size and slope'
+			hint: 'Moves each crystal’s tip off-centre randomly, so its faces differ in size and slope'
 		}),
 		P.float('face_var', 'Face variation', 0.2, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Each face its own slope (1 = up to three times as gentle): the faces no longer meet in one point but in a short crest, as a real crystal’s termination does'
+			hint: 'Modify the slope of each face (0 = All line up perfectly, 1 = up to three times as gentle). Resulting in the faces no longer meeting in one point but in a short crest that is more natural'
 		}),
 		P.float('rise_var', 'Height variation', 0.4, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Each crystal its own height: 1 = from flat to full'
+			hint: 'Make each crystal get its own height (0 = equal heights, 1 = from flat to full)'
 		}),
-		P.float('table', 'Table', 0, 0, 0.95, {
+		P.float('table', 'Flat tops', 0, 0, 0.95, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Cuts the top of each crystal off flat at this share of its height, as a gem’s table: 0 = pointed'
+			hint: 'Cuts the top of each crystal off flat at a specific height, like a gem’s table: (0 = pointed, 1 = completely tabled)'
 		}),
 		P.float('gap', 'Gap', 0, 0, 256, {
 			softMax: 24,
@@ -90,7 +90,7 @@ export const crystalLayer: LayerDef = {
 		}),
 		P.bool('ground', 'Ground', true, {
 			section: 'Crystals',
-			hint: 'Cover the ground in the gaps (the ramp’s first stop at height 0); off, only the crystals cover and the layers below show between them'
+			hint: 'Cover the ground in the gaps (the gradient ramp’s first stop at height 0); off, only the crystals cover and the layers below show between them'
 		}),
 		P.int('layers', 'Layers', 3, 1, 4, {
 			section: 'Layers',
@@ -99,7 +99,7 @@ export const crystalLayer: LayerDef = {
 		P.bool('skip_first', 'Skip first layer', false, {
 			section: 'Layers',
 			showIf: (p) => Number(p.layers) > 1,
-			hint: 'Leave out the first, solid layer: only the finer layers grow, each in a share of its cells (Small crystals), for crystals scattered at random over the ground instead of a packed mass'
+			hint: 'Leave out the first layer, only the other smaller layers grow (Small crystals). Makes crystals scattered at random over the ground instead of a packed mass'
 		}),
 		P.enum(
 			'layer_mode',
@@ -128,13 +128,13 @@ export const crystalLayer: LayerDef = {
 			step: 0.01,
 			section: 'Layers',
 			showIf: (p) => Number(p.layers) > 1,
-			hint: 'Crystals across each layer as a multiple of the layer before: 1 = as large as the first layer’s, below 1 larger still'
+			hint: 'Crystals across each layer as a multiple of the layer before: 1 = as large as the first layer’s, below 1 = even larger'
 		}),
 		P.float('fill', 'Small crystals', 0.35, 0, 1, {
 			step: 0.001,
 			section: 'Layers',
 			showIf: (p) => Number(p.layers) > 1,
-			hint: 'Share of the cells of each finer layer that grow a crystal: few, and the small crystals stand whole among the big ones; all, and they crowd every valley'
+			hint: 'Share of the cells of each finer layer that grow a crystal: few = the small crystals are scattered among the big ones; all = small crystals crowd the valleys fully'
 		}),
 		P.float('layer_h', 'Layer height', 0.7, 0, 2, {
 			step: 0.001,
@@ -152,12 +152,12 @@ export const crystalLayer: LayerDef = {
 		P.float('facet_con', 'Facet contrast', 0.65, 0, 2, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'How far along the ramp each face moves by its own random amount (1 = the whole ramp): light and dark facets side by side, as light refracts through cut glass'
+			hint: 'How far along the gradient ramp each face moves by a random amount (1 = the whole ramp): light and dark facets side by side, as light refracts through cut glass'
 		}),
 		P.float('sheen', 'Sheen', 0.5, 0, 2, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Faces turned towards the Sheen direction move up the ramp, faces turned away down it, so the facets light consistently across the texture'
+			hint: 'Faces turned towards the Sheen direction move up the gradient ramp, faces turned away down it, so the facets light consistently across the texture'
 		}),
 		P.float('sheen_angle', 'Sheen direction', -45, -180, 180, {
 			unit: '°',
@@ -169,17 +169,17 @@ export const crystalLayer: LayerDef = {
 		P.float('grad', 'Facet gradient', 0.15, -1, 1, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Each face moves up the ramp towards the tip (below 0: towards its foot), a gradient across every facet'
+			hint: 'Each face moves up the gradient ramp towards the tip (below 0: towards its base), a gradient across every facet'
 		}),
 		P.float('edge', 'Edge highlight', 0.5, -1, 1, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Ridges between the faces of a crystal light up towards the ramp’s end (below 0: darken towards its start), as the edges of cut glass catch the light — each ridge as much as it faces the sheen and by a random of its own, the finer layers’ less'
+			hint: 'Ridges between the faces of a crystal light up towards the gradient ramp’s end (below 0: darken towards its start), as the edges of cut glass catch the light — each ridge by how much it faces the sheen and by a random amount, the finer layers’ less'
 		}),
 		P.float('valley', 'Valley shade', -0.25, -1, 1, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'The valleys where crystals meet darken (above 0: light up)'
+			hint: 'How dark the valleys where crystals meet should be (0 = normal darkness, above 0: light up)'
 		}),
 		P.float('edge_w', 'Edge width', 1.5, 0.1, 32, {
 			softMax: 4,
@@ -192,35 +192,35 @@ export const crystalLayer: LayerDef = {
 		P.float('glint', 'Glints', 0.35, 0, 1, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'A bright streak across some of the faces (fewer and fainter on the finer layers), parallel to the face’s foot at its own height up it, as light refracted from a facet behind'
+			hint: 'A bright streak across some of the faces (fewer and fainter on the finer layers), parallel to the face’s foot at a random height up it, as light refracted from a facet behind'
 		}),
 		P.float('col_var', 'Colour per crystal', 0.2, 0, 1, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Each crystal moved along the ramp by its own random amount (1 = the whole ramp)'
+			hint: 'Moves each crystal along the gradient ramp by a random amount (1 = the whole ramp)'
 		}),
 		P.float('layer_col', 'Colour per layer', 0, -1, 1, {
 			step: 0.001,
 			section: 'Colour',
 			showIf: (p) => Number(p.layers) > 1,
-			hint: 'How far along the ramp each layer moves from the one before'
+			hint: 'How far along the gradient ramp each layer moves from the one before'
 		}),
 		P.float('inner', 'Inner facets', 0.15, 0, 1, {
 			step: 0.001,
 			section: 'Inner facets',
-			hint: 'A star of facets seen through each large crystal (the first layer’s), wedges fanning out from its tip, each its own shade with faint edges — turned by each face its own way, so the star jumps at every ridge as light refracted through cut glass does. 0 = none'
+			hint: 'Slivers of colour from the tip to root of the crystal making a starburst seen through each large crystal. 0 = off'
 		}),
-		P.int('rays', 'Inner rays', 12, 3, 48, {
+		P.int('rays', 'Inner facet rays', 12, 3, 48, {
 			softMax: 24,
 			section: 'Inner facets',
 			showIf: (p) => Number(p.inner) > 0,
-			hint: 'Wedges round each crystal’s tip (of uneven widths)'
+			hint: 'How many slivers to draw around each crystal’s tip'
 		}),
-		P.float('inner_shift', 'Inner shift', 0.5, 0, 2, {
+		P.float('inner_shift', 'Inner facet shift', 0.5, 0, 2, {
 			step: 0.001,
 			section: 'Inner facets',
 			showIf: (p) => Number(p.inner) > 0,
-			hint: 'How far each face turns the star seen through it, in wedges: the jump at each ridge'
+			hint: 'How far each face turns the starburst'
 		}),
 		// What the mask holds as its features — picked by Write to › Source (Crystals or Facets), not shown.
 		P.enum(
@@ -242,14 +242,14 @@ export const crystalLayer: LayerDef = {
 		{
 			value: 'crystals',
 			label: 'Crystals',
-			hint: 'each crystal one feature: its visible outline, where another crystal or layer cuts it included',
+			hint: 'each crystal is one feature: its visible outline, where another crystal or layer cuts it is included',
 			params: { mask_feat: 'crystals' },
 			main: true
 		},
 		{
 			value: 'facets',
 			label: 'Facets',
-			hint: 'each facet one feature: its ridges and edges, so a Bevel or Etch after it follows every facet',
+			hint: 'each facet is one feature: its ridges and edges, so a Bevel or Etch after it follows every facet',
 			params: { mask_feat: 'facets' },
 			main: true
 		}

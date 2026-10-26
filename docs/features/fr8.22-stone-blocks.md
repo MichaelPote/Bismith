@@ -50,7 +50,7 @@ writes, Shape by default).
   `d⁴ − 1` wherever that is shallower: a steep, crisp wall round the struck end, the sides curving up to the rim. (A
   paraboloid alone read as round dents, hammered metal; planar floors read as facets.) Each stone reads the field at
   its own random offset, so scars never run on across a joint.
-  - _Edge flaking_: this share of scars is struck from the stone's nearest edge — the struck end at the edge, the scar
+  - _Scars from edges_: this share of scars is struck from the stone's nearest edge — the struck end at the edge, the scar
     running inward — as a mason pitches a face. An edge scar whose struck end falls short of its edge fades out, so a big
     stone keeps its original face in the middle. Scars are wider along the edge than inward (_Scar stretch_, up to
     2.4×): scallops. Stretched along the strike instead they read as blades.
@@ -60,7 +60,7 @@ writes, Shape by default).
     (±0.3) turned them into worm tracks.
   - _Scar depth_ is in proportion to _Scar size_ over the course height: resizing the scars keeps their slopes (big
     scars at a fixed depth went flat).
-- **Roughness:** fine Perlin noise.
+- **Surface grain:** fine Perlin noise.
 - **Joints and gaps.** The joint's floor sits _Joint depth_ below the face (or below a set-back stone). _Open gaps_:
   with this chance a stone's joint opens at one corner, along one or both edges, tapering from _Gap width_ to nothing
   over a share of the edge — the dark L-shaped holes of a dry-laid wall; they sink deeper still.
@@ -80,7 +80,7 @@ writes, Shape by default).
 ### Outputs
 
 - **Relief** — the height (and colour by height or per stone); puts the stones in the mask it writes (Shape by default).
-- **Joints** — 1 in the joints and gaps, fading over _Joint reach_; _Patchiness_ breaks it into patches about three
+- **Joints** — 1 in the joints and gaps, fading over _Joint reach_; _Joint patchiness_ breaks it into patches about three
   blocks across (moss along some joints).
 - **Scars** — how deep the scars cut (0 on the original face): paler fresh breaks, or shaded hollows.
 - **Gaps** — the open gaps alone, to paint dark.
@@ -93,7 +93,7 @@ _Write to_ another mask records what they paint as coverage — a joint-moss mas
 (`LayerDef.maskSources`, FR8.23): name a target and the relief writes that output's plain coverage there as well,
 exactly what a copy of the layer set to that output and writing that mask would — so the masks can't drift from the
 stones when the wall is edited. Each is one more pass of the same shader (no compile cost), run before the relief's own
-pass with the row's Mode and the layer's Limit to; Shape is refused (it holds the stones). Joint reach and Patchiness
+pass with the row's Mode and the layer's Limit to; Shape is refused (it holds the stones). Joint reach and Joint patchiness
 show while a Joints row has a target.
 
 ### Random value
@@ -115,7 +115,7 @@ Hand-authored in the studio (kept with the references in the private repo). What
   dark lichen and pale crust with soft cutoffs; hairline Cracks limited to the stones.
 - _Dark wet slate:_ course 125, one split level, dense small scars and roughness under a sheen; a Cracks layer on top
   that also multiplies the specular to 0 (otherwise the sky's reflection washed the dark cracks out); Joints with
-  Joint reach 10 and Patchiness 0.55 written to a mask, bright green white-noise flecks limited to it.
+  Joint reach 10 and Joint patchiness 0.55 written to a mask, bright green white-noise flecks limited to it.
 - _Pale frosted stone:_ course 80 with 12 px scars at depth 2.5 (a fine crumpled relief), a Perlin overlay, hairline
   Cracks, moss as clusters (a mask of their own) filled with fine specks.
 

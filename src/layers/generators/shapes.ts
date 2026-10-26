@@ -31,44 +31,44 @@ const PLACEMENT: ParamDef[] = [
 		softMin: 0,
 		softMax: 1,
 		step: 0.001,
-		hint: 'Centre, 0..1 across (within each repeat cell)'
+		hint: 'Moves the centre across (0…1, within each repeat cell)'
 	}),
 	P.float('y', 'Y', 0.5, -2, 3, {
 		softMin: 0,
 		softMax: 1,
 		step: 0.001,
-		hint: 'Centre, 0..1 down (within each repeat cell)'
+		hint: 'Moves the centre down (0…1, within each repeat cell)'
 	}),
 	P.float('rotation', 'Rotation', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1 }),
 	P.float('outline', 'Outline', 0, 0, 1024, {
 		softMax: 64,
 		unit: 'px',
 		step: 0.1,
-		hint: '0 = solid; otherwise an inner stroke of this width'
+		hint: 'Hollows the shape out into an inner stroke of this width (0 = solid)'
 	})
 ];
 
 const REPEAT: ParamDef[] = [
-	P.int('rep_x', 'Count X', 1, 1, 256, { softMax: 32, group: 'repeat' }),
-	P.int('rep_y', 'Count Y', 1, 1, 256, { softMax: 32, group: 'repeat' }),
+	P.int('rep_x', 'Columns', 1, 1, 256, { softMax: 32, group: 'repeat' }),
+	P.int('rep_y', 'Rows', 1, 1, 256, { softMax: 32, group: 'repeat' }),
 	...spacingParams({ group: 'repeat' }),
 	P.float('rep_stagger', 'Row offset', 0, 0, 1, {
 		step: 0.001,
 		group: 'repeat',
-		hint: 'Shift odd rows (use an even row count to tile)'
+		hint: 'Shifts every other row sideways (use an even row count to tile)'
 	}),
 	P.float('rep_jitter', 'Position jitter', 0, 0, 1024, {
 		softMax: 64,
 		unit: 'px',
 		step: 0.1,
 		group: 'repeat',
-		hint: 'Moves each instance up to this far from its place (each axis), at random'
+		hint: 'Moves each instance randomly, up to this far from its place on each axis'
 	}),
-	P.float('rep_rot', 'Rotation jitter', 0, 0, 180, {
+	P.float('rep_rot', 'Rotation variation', 0, 0, 180, {
 		unit: '°',
 		step: 0.1,
 		group: 'repeat',
-		hint: 'Turns each instance by up to this much either way, at random'
+		hint: 'Turns each instance randomly, up to this much either way'
 	}),
 	P.float('rep_rot_step', 'Rotation steps', 0, 0, 180, {
 		softMax: 90,
@@ -76,11 +76,11 @@ const REPEAT: ParamDef[] = [
 		step: 0.1,
 		group: 'repeat',
 		showIf: (p) => Number(p.rep_rot) > 0,
-		hint: 'Snaps the random turns to multiples of this angle (0 = any angle): 90 with a Rotation jitter of 180 turns each instance by a random quarter turn — notched tiles, hooks facing every way'
+		hint: 'Snaps the random turns to multiples of this angle (0 = any angle). For example, 90 with a Rotation variation of 180 gives each instance a random quarter turn, for notched tiles or hooks facing every way'
 	}),
 	P.enum(
 		'rep_flip',
-		'Random flip',
+		'Flip at random',
 		'none',
 		[
 			['none', 'None'],
@@ -90,31 +90,31 @@ const REPEAT: ParamDef[] = [
 		],
 		{
 			group: 'repeat',
-			hint: 'Mirrors instances at random (each chosen axis for half of them), so asymmetric shapes — a hooked curve, a notched corner — face both ways'
+			hint: 'Mirrors half the instances at random on each chosen axis, so lopsided shapes like a hooked curve or a notched corner face both ways'
 		}
 	),
-	P.float('rep_scale', 'Scale jitter', 0, 0, 0.95, {
+	P.float('rep_scale', 'Size variation', 0, 0, 0.95, {
 		step: 0.001,
 		group: 'repeat',
-		hint: 'Shrinks each instance by up to this fraction, at random'
+		hint: 'Shrinks each instance randomly, by up to this fraction'
 	}),
 	P.bool('rep_scale_bevel', 'Scale the bevel too', true, {
 		group: 'repeat',
 		showIf: (p) => Number(p.rep_scale) > 0,
-		hint: 'Shrunk instances get a proportionally narrower bevel — scaled copies of one shape. Off: every instance keeps the Bevel width in px (small ones domed, large ones flat-topped)'
+		hint: 'Narrows the bevel on shrunk instances to match, so they’re scaled copies of one shape. Off: every instance keeps the Bevel width in px (small ones come out domed, large ones flat-topped)'
 	}),
 	P.float('rep_drop', 'Drop out', 0, 0, 1, {
 		step: 0.001,
 		group: 'repeat',
-		hint: 'Fraction of instances removed at random'
+		hint: 'Removes this fraction of the instances at random'
 	}),
-	P.bool('rep_mirror_x', 'Mirror alternate columns', false, {
+	P.bool('rep_mirror_x', 'Mirror odd columns', false, {
 		group: 'repeat',
-		hint: 'Mirror the position left / right in odd columns — e.g. 2 columns put a pair of instances near the outer edges, or a rivet line along both edges of a plate'
+		hint: 'Mirrors the position left / right in every other column. For example, 2 columns put a pair of instances near the outer edges, or a rivet line along both edges of a plate'
 	}),
-	P.bool('rep_mirror_y', 'Mirror alternate rows', false, {
+	P.bool('rep_mirror_y', 'Mirror odd rows', false, {
 		group: 'repeat',
-		hint: 'Mirror the position up / down in odd rows — with Mirror alternate columns, 2×2 puts one instance in each corner'
+		hint: 'Mirrors the position up / down in every other row. With Mirror odd columns, 2×2 puts one instance in each corner'
 	}),
 	P.seed()
 ];
@@ -130,12 +130,12 @@ const spanParam = (smooth?: [string, string]): ParamDef =>
 			[
 				'middle',
 				'To the middle',
-				'the bevel rises from the edge all the way to the middle, whatever the shape’s size — roofs, pyramids, rods, lenses (Edge › Profile still shapes the rise)'
+				'the bevel rises from the edge all the way to the middle, whatever the shape’s size, for roofs, pyramids, rods, lenses (Edge › Profile still shapes the rise)'
 			],
 			...(smooth ? [['smooth', smooth[0], smooth[1]] as [string, string, string]] : [])
 		],
 		{
-			hint: 'How far in the bevel reaches. The spans to the middle need a Bevel above 0 and apply with no mask written or in Mask › Mode Normal'
+			hint: 'Sets how far in the bevel reaches. The spans to the middle need a Bevel above 0, and only work with no mask written or with Mask › Mode set to Normal'
 		}
 	);
 
@@ -160,7 +160,7 @@ vec2 taperShape(float t) {
 }
 // Half the stroke's width at taper position t (0 = full width … 1 = the thin end).
 float taperR(float t) { return u_thickness * 0.5 * (1.0 - clamp(u_taper, 0.0, 1.0) * taperShape(t).x); }
-// Length jitter: the share of the length an instance keeps.
+// Length variation: the share of the length an instance keeps.
 float strokeLenK(float rnd) { return 1.0 - u_len_jitter * fract(rnd * 53.71 + 0.27); }
 `;
 
@@ -331,7 +331,7 @@ export const rectLayer = shape({
 	type: 'rect',
 	label: 'Rectangle',
 	description:
-		'Rounded, chamfered, scooped or notched rectangle, sized directly or inset from the edges (panels, buttons, wells, pillows).',
+		'Rectangle: A rounded, chamfered, scooped or notched rectangle, sized directly or inset from the edges. Makes panels, buttons, wells, pillows.',
 	params: [
 		P.enum('size_mode', 'Size by', 'inset', [
 			['inset', 'Inset from edges'],
@@ -344,7 +344,7 @@ export const rectLayer = shape({
 			axis: 'x',
 			step: 0.5,
 			showIf: (p) => p.size_mode === 'inset',
-			hint: 'Margin left and right (from the texture, or from each repeat cell)'
+			hint: 'Leaves this margin left and right (from the texture, or from each repeat cell)'
 		}),
 		P.float('inset_y', 'Inset Y', 4, -1024, 2048, {
 			softMin: 0,
@@ -353,27 +353,27 @@ export const rectLayer = shape({
 			axis: 'y',
 			step: 0.5,
 			showIf: (p) => p.size_mode === 'inset',
-			hint: 'Margin top and bottom (from the texture, or from each repeat cell)'
+			hint: 'Leaves this margin top and bottom (from the texture, or from each repeat cell)'
 		}),
-		P.float('width', 'Width', 64, 0, 8192, {
+		P.float('width', 'Rectangle width', 64, 0, 8192, {
 			softMax: 1024,
 			unit: 'px',
 			axis: 'x',
 			step: 0.5,
 			showIf: (p) => p.size_mode === 'size'
 		}),
-		P.float('height', 'Height', 32, 0, 8192, {
+		P.float('height', 'Rectangle height', 32, 0, 8192, {
 			softMax: 1024,
 			unit: 'px',
 			axis: 'y',
 			step: 0.5,
 			showIf: (p) => p.size_mode === 'size'
 		}),
-		P.float('radius', 'Corner', 4, 0, 2048, {
+		P.float('radius', 'Corner size', 4, 0, 2048, {
 			softMax: 512,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Size of the corner, up to half the shorter side (there: a stadium, or a circle)'
+			hint: 'Sets the size of the corners, up to half the shorter side (which gives a stadium, or a circle)'
 		}),
 		P.enum('corner_style', 'Corner style', 'round', [
 			['round', 'Round'],
@@ -382,7 +382,7 @@ export const rectLayer = shape({
 			['notch', 'Notch', 'a square cut out of the corner']
 		]),
 		P.enum('corners', 'Corners', 'all', CORNERS, {
-			hint: 'Which corners get the corner style; the others stay square'
+			hint: 'Picks which corners get the corner style; the others stay square'
 		}),
 		spanParam([
 			'Pillow',
@@ -480,7 +480,7 @@ export const circleLayer = shape({
 	type: 'circle',
 	label: 'Bolts / Rivets',
 	description:
-		'Circles, ellipses and (with an outline) rings; Sweep keeps a sector — pie slices, arcs, gauges. Or a fastener head — dome, Allen bolt, hex head, screws, a screw hole. Rivets, bolts, gems, domes, dials.',
+		'Bolts / Rivets: Circles, ellipses and rings, or a fastener head (dome, Allen bolt, hex head, screws, screw hole), with Sweep to keep just a slice. Makes rivets, bolts, gems, domes, dials, gauges.',
 	params: [
 		P.enum(
 			'head',
@@ -488,41 +488,41 @@ export const circleLayer = shape({
 			'circle',
 			[['circle', 'Circle', 'a disc or ellipse: Aspect, Sweep, Outline and the bevel as set'], ...FASTENER_HEADS],
 			{
-				hint: 'A plain circle, or a fastener head (the greebles’ shared heads): its own relief goes to Height (Source › Pattern; sunk parts below the surface), its sockets and slots darken the Pattern value, its footprint is the shape. Rotation turns it'
+				hint: 'Picks a plain circle or a fastener head. A head’s relief goes to Height (Source › Pattern; sunk parts go below the surface), its sockets and slots darken the Pattern value, and its footprint is the shape. Rotation turns it'
 			}
 		),
 		P.float('radius', 'Radius', 24, 0, 4096, {
 			softMax: 512,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Half the width (a fastener: its head)'
+			hint: 'Sets half the width (of the head, on a fastener)'
 		}),
 		P.float('sink', 'Counterbore depth', 0.5, 0, 2, {
 			step: 0.001,
 			showIf: (p) => p.head === 'allen_sunk' || p.head === 'hex_sunk',
-			hint: 'How deep the round counterbore the head stands in is sunk, in head heights'
+			hint: 'Sinks the round counterbore the head sits in, by this many head heights'
 		}),
 		P.float('squash', 'Aspect', 1, 0.01, 100, {
 			softMin: 0.1,
 			softMax: 10,
 			step: 0.001,
 			showIf: circleHead,
-			hint: 'Height / width'
+			hint: 'Squashes or stretches the circle into an ellipse (height / width)'
 		}),
 		P.float('sweep', 'Sweep', 360, 0, 360, {
 			unit: '°',
 			step: 0.1,
 			showIf: circleHead,
-			hint: 'How much of the ellipse is kept, centred on the top (turn it with Rotation): 360 = all of it, 180 = the top half, 270 = a gauge with a gap at the bottom. With an Outline, an arc'
+			hint: 'Keeps only part of the ellipse, centred on the top (turn it with Rotation): 360 = all of it, 180 = the top half, 270 = a gauge with a gap at the bottom. With an Outline, you get an arc'
 		}),
 		P.float('cut_from', 'Cut from', 0, 0, 1, {
 			step: 0.001,
 			showIf: (p) => circleHead(p) && Number(p.sweep ?? 360) < 360,
-			hint: 'Where the cut starts, as a share of the radius: 0 = from the middle (a pie slice), higher = only a notch in the rim, the middle kept whole'
+			hint: 'Starts the cut this share of the radius out from the middle (0 = a pie slice, higher = just a notch in the rim, with the middle kept whole)'
 		}),
 		P.bool('cut_bevel', 'Bevel the cut', true, {
 			showIf: (p) => circleHead(p) && Number(p.sweep ?? 360) < 360,
-			hint: 'Off: the cut edges stay sharp — the bevel follows only the ellipse’s own outline, so a thin slit doesn’t sink the middle'
+			hint: 'Bevels the cut edges too. Off: they stay sharp and the bevel only follows the ellipse’s outline, so a thin slit doesn’t sink the middle'
 		}),
 		P.enum(
 			'arc_caps',
@@ -534,7 +534,7 @@ export const circleLayer = shape({
 			],
 			{
 				showIf: (p) => circleHead(p) && Number(p.sweep ?? 360) < 360 && Number(p.outline) > 0,
-				hint: 'The ends of an arc (an outlined ellipse cut by Sweep): cut square, or rounded off'
+				hint: 'Cuts the ends of an arc (an outlined ellipse cut by Sweep) square, or rounds them off'
 			}
 		),
 		{
@@ -653,30 +653,30 @@ export const polygonLayer = shape({
 	type: 'polygon',
 	label: 'Polygon / Star',
 	description:
-		'Regular polygons and stars, with rounded tips and (stars) rounded inner corners, flat tips and valleys — badges, gems, cogs, flowers.',
+		'Polygon / Star: Regular polygons and stars, with rounded tips and, on stars, rounded or flat valleys and flat tips. Makes badges, gems, cogs, flowers.',
 	params: [
-		P.int('sides', 'Sides', 6, 3, 64, { softMax: 16, hint: 'Sides of the polygon, points of the star' }),
+		P.int('sides', 'Sides', 6, 3, 64, { softMax: 16, hint: 'How many sides the polygon has, or points the star has' }),
 		P.float('radius', 'Radius', 24, 0, 4096, {
 			softMax: 512,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Centre to a corner (a star’s tips)'
+			hint: 'Sets the distance from the centre to a corner (a star’s tips)'
 		}),
 		P.bool('star', 'Star', false),
 		P.float('inner_r', 'Inner radius', 0.5, 0.02, 1, {
 			step: 0.001,
 			showIf: isStar,
-			hint: 'Where the star’s inner corners sit, as a fraction of the radius: small = thin spikes, up to the polygon’s own edge (no points), past it = a polygon with twice the corners'
+			hint: 'Moves the star’s inner corners in or out, as a fraction of the radius (small = thin spikes; at the polygon’s own edge = no points; past it = a polygon with twice the corners)'
 		}),
 		P.float('tip_flat', 'Flat tips', 0, 0, 1, {
 			step: 0.001,
 			showIf: isStar,
-			hint: 'Cuts the points off flat (on a circle) — this fraction of their length. With Flat valleys: a gear’s teeth'
+			hint: 'Cuts the points off flat along a circle, by this fraction of their length. Together with Flat valleys, makes a gear’s teeth'
 		}),
 		P.float('root_flat', 'Flat valleys', 0, 0, 1, {
 			step: 0.001,
 			showIf: isStar,
-			hint: 'Fills the notches between the points up to a circle — this fraction of the way out — so they have flat bottoms'
+			hint: 'Fills the notches between the points up to a circle, this fraction of the way out, so they get flat bottoms'
 		}),
 		P.float('round', 'Rounding', 0, 0, 1024, {
 			softMax: 128,
@@ -689,7 +689,7 @@ export const polygonLayer = shape({
 			unit: 'px',
 			step: 0.1,
 			showIf: isStar,
-			hint: 'Rounds the star’s inner corners — fills the notches between the points with an arc of this radius'
+			hint: 'Rounds the star’s inner corners, filling the notches between the points with an arc of this radius'
 		}),
 		spanParam()
 	],
@@ -841,16 +841,16 @@ const TAPER_ENDS: [string, string, string][] = [
 ];
 const tapered = (p: ParamValues) => Number(p.taper) > 0;
 
-/** Thickness, caps and taper of the stroke shapes (Line, Curve). */
+/** Stroke width, caps and taper of the stroke shapes (Line, Curve). */
 const strokeParams = (): ParamDef[] => [
-	P.float('thickness', 'Thickness', 2, 0, 2048, { softMax: 256, unit: 'px', step: 0.1 }),
+	P.float('thickness', 'Stroke width', 2, 0, 2048, { softMax: 256, unit: 'px', step: 0.1 }),
 	P.enum('caps', 'Caps', 'round', [
 		['round', 'Round', 'a half disc past each end (reaching half the thickness beyond the length)'],
 		['flat', 'Flat', 'cut square at the ends']
 	]),
 	P.float('taper', 'Taper', 0, 0, 1, {
 		step: 0.001,
-		hint: 'Narrows the stroke towards its ends: 0 = even, 1 = to a point'
+		hint: 'Narrows the stroke towards its ends (0 = even, 1 = to a point)'
 	}),
 	P.enum('taper_ends', 'Taper towards', 'both', TAPER_ENDS, { showIf: tapered }),
 	P.float('taper_curve', 'Taper curve', 1, 0.1, 10, {
@@ -858,24 +858,25 @@ const strokeParams = (): ParamDef[] => [
 		softMax: 4,
 		step: 0.01,
 		showIf: tapered,
-		hint: 'How the width falls off: 1 = straight sides; above 1 = it stays wide, then narrows late (rounded sides — a leaf, a spindle); below 1 = it narrows early into a long fine point (hollow sides — a needle, a thorn)'
+		hint: 'Changes how the width falls off (1 = straight sides; above 1 = stays wide, then narrows late, with rounded sides like a leaf or spindle; below 1 = narrows early into a long fine point, with hollow sides like a needle or thorn)'
 	}),
-	P.float('len_jitter', 'Length jitter', 0, 0, 0.95, {
+	P.float('len_jitter', 'Length variation', 0, 0, 0.95, {
 		step: 0.001,
-		hint: 'Shortens each repeated instance by up to this fraction, at random — keeping the thickness (Scale jitter shrinks both)'
+		hint: 'Shortens each repeated instance randomly, by up to this fraction, keeping the thickness (Size variation shrinks both)'
 	})
 ];
 
 export const lineLayer = shape({
 	type: 'line',
 	label: 'Line',
-	description: 'Straight strokes, even or tapered: seams, grooves, light strips, scratches, spikes, leaves.',
+	description:
+		'Line: Straight strokes, even or tapered. Makes seams, grooves, light strips, scratches, spikes, leaves.',
 	params: [
 		P.float('length', 'Length', 96, 0, 8192, {
 			softMax: 1024,
 			unit: 'px',
 			step: 0.5,
-			hint: 'From end to end (round caps reach half the thickness further)'
+			hint: 'Sets the length from end to end (round caps reach half the thickness further)'
 		}),
 		...strokeParams(),
 		spanParam()
@@ -1004,35 +1005,35 @@ export const curveLayer = shape({
 	type: 'curve',
 	label: 'Curve',
 	description:
-		'A circular arc or a Bézier stroke, even or tapered — pipe elbows, horseshoes, arches, cables, hooks, claws.',
+		'Curve: A circular arc or a Bézier stroke, even or tapered. Makes pipe elbows, horseshoes, arches, cables, hooks, claws.',
 	params: [
 		P.enum('kind', 'Shape', 'arc', [
 			['bezier', 'Bézier', 'a parabola-like bow, which Bend position can push towards an end (hooks)'],
 			[
 				'arc',
 				'Circular arc',
-				'part of a circle through both ends — a semicircle when Bend is half the Length, a horseshoe beyond'
+				'part of a circle through both ends: a semicircle when Bend is half the Length, a horseshoe beyond that'
 			]
 		]),
 		P.float('length', 'Length', 96, 0, 8192, {
 			softMax: 1024,
 			unit: 'px',
 			step: 0.5,
-			hint: 'From one end to the other, in a straight line'
+			hint: 'Sets the straight-line distance from one end to the other'
 		}),
 		P.float('bend', 'Bend', 32, -4096, 4096, {
 			softMin: -512,
 			softMax: 512,
 			unit: 'px',
 			step: 0.5,
-			hint: 'How far the middle of the curve bows out from the straight line between its ends (negative: the other way)'
+			hint: 'Bows the middle of the curve out this far from the straight line between its ends (below 0 = the other way)'
 		}),
 		P.float('bend_at', 'Bend position', 0, -3, 3, {
 			softMin: -2,
 			softMax: 2,
 			step: 0.001,
 			showIf: (p) => p.kind !== 'arc',
-			hint: 'Moves the bend towards the start (−) or the end (+): a hook instead of an arch; past ±1 the end curls back on itself'
+			hint: 'Slides the bend towards the start (−) or the end (+), turning an arch into a hook. Past ±1 the end curls back on itself'
 		}),
 		P.enum('pivot', 'Centre on', 'middle', [
 			[
@@ -1043,7 +1044,7 @@ export const curveLayer = shape({
 			[
 				'middle',
 				'Middle of the curve',
-				'they place the middle of the curve’s bounds, so turned instances stay centred in their cells'
+				'X / Y, rotation and the repeat place the middle of the curve’s bounds, so turned instances stay centred in their cells'
 			]
 		]),
 		...strokeParams(),
@@ -1191,24 +1192,24 @@ export const crossLayer = shape({
 	type: 'cross',
 	label: 'Cross',
 	description:
-		'Plus, cross, Y and asterisk shapes with rounded ends, filleted inner corners and an optional long stem — screws, markers, badges.',
+		'Cross: Plus, cross, Y and asterisk shapes with rounded ends and inner corners, and an optional long bottom arm. Makes screw heads, markers, badges.',
 	params: [
 		P.int('arms', 'Arms', 4, 3, 16, {
 			softMax: 8,
-			hint: '4 = a plus (turn it 45° for an ×), 3 = a Y, 6 or 8 = an asterisk. Odd counts point one arm down'
+			hint: 'How many arms the cross has (4 = a plus, turn it 45° for an ×; 3 = a Y; 6 or 8 = an asterisk). Odd counts point one arm down'
 		}),
 		P.float('size', 'Arm length', 16, 0, 4096, {
 			softMax: 256,
 			unit: 'px',
 			step: 0.1,
-			hint: 'From the centre to the end of an arm'
+			hint: 'Sets the length from the centre to the end of an arm'
 		}),
 		P.float('arm', 'Arm width', 4, 0, 2048, { softMax: 128, unit: 'px', step: 0.1 }),
 		P.float('stem', 'Longer bottom arm', 0, 0, 4096, {
 			softMax: 256,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Extends the arm pointing down by this much — a Latin cross, a sword, a signpost'
+			hint: 'Extends the arm pointing down by this much, for a Latin cross, a sword or a signpost'
 		}),
 		P.float('corner', 'Rounding', 0, 0, 1024, {
 			softMax: 128,

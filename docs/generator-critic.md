@@ -82,7 +82,7 @@ judge whether it does its own job well and is a good building block. Every shape
 controls** (listed at the end of the .md with their values): Edge (Bevel width and Profile, Bevel aspect, anti-alias),
 the **Mask** (_Write to_: the mask the layer writes, Shape by default, which later layers are limited to or bevel
 from — layers that add or remove material should be able to write it; _Limit to_), Domain warp, and per channel e.g. Height › Amount, Mode and _Per-feature
-variation_ (h_var: random height per brick/cell), Diffuse › Random jitter. Count those when you judge what the user
+variation_ (h_var: random height per brick/cell), Diffuse › Colour variation. Count those when you judge what the user
 can do, but do criticise poor _defaults_ of them (e.g. a bevel too thin to read at this size).
 
 The render scene is neutral on purpose (one generator over a plain base, Diffuse and Height on, default light). Judge

@@ -6,17 +6,21 @@ import { P, gradient, type GroupDef, type ParamDef, type ParamValues } from '@/c
 
 /** What drives a channel output (the uniform keeps the option order: 0 value, 1 flat, 2 random, 3 shape). */
 const SRC: [string, string, string][] = [
-	['value', 'Pattern', 'the layer’s own value: noise brightness, the bevel’s rise on a shape — varies across it'],
-	['flat', 'Solid', 'full strength everywhere the layer covers: the ramp’s end colour, the whole amount'],
-	['random', 'Random', 'one random value per feature: each brick, cell or shape instance its own'],
+	[
+		'value',
+		'Pattern',
+		'the layer’s own value, like noise brightness or the bevel’s rise on a shape, so it varies across the layer'
+	],
+	['flat', 'Solid', 'full strength everywhere the layer covers: the gradient ramp’s end colour, the whole amount'],
+	['random', 'Random', 'gives each brick, cell or shape instance a random value of its own'],
 	[
 		'shape',
 		'Shape',
-		'the layer’s shape without its pattern: 1 inside, 0 outside (anti-aliased) — e.g. Wood’s gaps rougher than its boards, grain ignored. 1 everywhere on layers without a shape'
+		'the layer’s shape without its pattern: 1 inside, 0 outside (anti-aliased). Handy for making Wood’s gaps rougher than its boards, ignoring the grain. 1 everywhere on layers without a shape'
 	]
 ];
 
-const SRC_HINT = 'What drives this output';
+const SRC_HINT = 'Picks what drives this output';
 
 // Masks (FR8.23): named, each a signed distance plus the random of the feature there. A layer writes one (Mask › Write
 // to, shape layers default to the Shape mask) and is limited by an expression of them (Limit to). The mode is how the
@@ -57,7 +61,7 @@ export const bevelCurveParam = (group?: string): ParamDef =>
 	P.curve('bevel_curve', 'Bevel curve', DEFAULT_BEVEL_CURVE, {
 		...(group ? { group } : {}),
 		showIf: (p) => p.profile === 'custom',
-		hint: 'Height (up) against distance into the shape (right, 0 = edge … 1 = bevel width). Points may rise and fall — raised rims, dished centres. Drag points; click to add, double-click to remove'
+		hint: 'Draws the bevel’s height (up) against distance into the shape (right, 0 = edge … 1 = bevel width). Points can rise and fall for raised rims or dished centres. Drag points, click to add one, double-click to remove one'
 	});
 
 /**
@@ -99,12 +103,12 @@ const ramp = (key: string, group: string) => ({ join: { with: key, as: 'ramp' as
 
 /** Height › Mode, in heightCombine's order (glsl/common.ts). */
 export const HEIGHT_MODES: [string, string, string][] = [
-	['add', 'Add', 'raise by the amount'],
-	['subtract', 'Subtract', 'sink by the amount'],
-	['max', 'Max', 'raise to the amount where lower (caps, plateaus)'],
-	['min', 'Min', 'lower to the amount where higher (chips, cut-offs)'],
-	['replace', 'Replace', 'set the height to the amount'],
-	['multiply', 'Multiply', 'scale the height below (masks relief in and out)']
+	['add', 'Add', 'raises by the amount'],
+	['subtract', 'Subtract', 'sinks by the amount'],
+	['max', 'Max', 'raises to the amount where it’s lower (caps, plateaus)'],
+	['min', 'Min', 'lowers to the amount where it’s higher (chips, cut-offs)'],
+	['replace', 'Replace', 'sets the height to the amount'],
+	['multiply', 'Multiply', 'scales the height below (masks relief in and out)']
 ];
 const LEVEL_MODES: [string, string][] = [
 	['replace', 'Replace'],
@@ -134,20 +138,20 @@ export const MASK_WRITE_PARAMS: ParamDef[] = Array.from({ length: MAX_WRITE_ROWS
 			uniform: false,
 			optimize: false,
 			showIf: shown,
-			hint: 'What of this layer goes into the mask: the layer as drawn, one of its parts, or one of its outputs (as a copy of the layer set to that output would draw it). A shape writes its distance, a gradient a soft coverage'
+			hint: 'Picks what of this layer goes into the mask: the layer as drawn, one of its parts, or one of its outputs (as a copy of the layer set to that output would draw it). A shape writes its distance, a gradient writes a soft coverage'
 		}),
 		P.text(rowKey('mk_target', n), first ? 'Target' : `Target ${n}`, '', {
 			...base,
 			mask: 'write',
 			showIf: shown,
 			hint: first
-				? 'The mask this row writes, by name: a shape layer its shape (and which feature is where), any other layer where it covers. Later layers can be limited to it (Limit to), bevel or etch along it, or read its features (Mask area). Shape layers write the Shape mask unless told otherwise; empty = none'
-				: 'One more mask this layer writes, by name, from the Source on its left; empty = none'
+				? 'Names the mask this row writes. A shape layer writes its shape (and which feature is where), any other layer writes where it covers. Later layers can be limited to it (Limit to), bevel or etch along it, or read its features (Mask area). Shape layers write the Shape mask unless you change it (empty = none)'
+				: 'Writes one more mask by name, from the Source on its left (empty = none)'
 		}),
 		P.enum(rowKey('mk_op', n), 'Mode', 'replace', SDF_OPS, {
 			...base,
 			showIf: writes,
-			hint: 'Normal: this replaces what the mask held. Union: adds to it. Subtract: cuts this out of it. Intersection: keeps only the overlap. Smooth: blended with a rounded fillet. A shape layer draws the combined shape in every mode (of its first row)'
+			hint: 'Sets how this combines with what the mask already holds. Normal: replaces it. Union: adds to it. Subtract: cuts this out of it. Intersection: keeps only the overlap. Smooth: blends them with a rounded fillet. A shape layer draws the combined shape in every mode (of its first row)'
 		}),
 		P.float(rowKey('mk_smooth', n), 'Smoothness', 4, 0, 256, {
 			...base,
@@ -155,7 +159,7 @@ export const MASK_WRITE_PARAMS: ParamDef[] = Array.from({ length: MAX_WRITE_ROWS
 			unit: 'px',
 			step: 0.1,
 			showIf: (p) => writes(p) && smooth(p),
-			hint: 'How wide the rounded fillet is where this meets what the mask held (the smooth modes)'
+			hint: 'Sets how wide the rounded fillet is where this meets what the mask held (smooth modes)'
 		}),
 		P.float(rowKey('mk_feather', n), 'Feather', 0, 0, 1024, {
 			...base,
@@ -163,7 +167,7 @@ export const MASK_WRITE_PARAMS: ParamDef[] = Array.from({ length: MAX_WRITE_ROWS
 			unit: 'px',
 			step: 0.1,
 			showIf: writes,
-			hint: "Soft edge of the written mask: a ramp this wide across a shape's outline (shapes). Other layers soften with Shaping › Cutoff softness"
+			hint: "Softens the written mask's edge, fading it out over this width across a shape's outline (shapes only). Other layers soften with Shaping › Cutoff softness"
 		})
 	];
 }).flat();
@@ -184,7 +188,7 @@ export function maskParts(
 	const param = P.enum(key, 'Shape for the mask', def, [['none', 'None'], ...options], {
 		showIf: () => false,
 		optimize: false,
-		hint: 'Picked by Mask › Write to › Source'
+		hint: 'Set by Mask › Write to › Source'
 	});
 	const ordered = [...options.filter((o) => o[0] === def), ...options.filter((o) => o[0] !== def)];
 	const sources = ordered.map(([value, label, hint]) => ({
@@ -213,9 +217,9 @@ int maskOp() { return uMaskKind == 1 ? u_mk_op + 1 : 0; }
 export const MAX_LIMIT_TERMS = 4;
 
 export const LIMIT_OPS: [string, string, string][] = [
-	['and', 'And', 'only where both are (intersection)'],
-	['or', 'Or', 'where either is (union)'],
-	['minus', 'Except', 'leave out where the next mask is: cut it out of the ones before']
+	['and', 'And', 'keeps only where both are (intersection)'],
+	['or', 'Or', 'keeps where either is (union)'],
+	['minus', 'Except', 'leaves out where the next mask is, cutting it out of the ones before']
 ];
 
 /**
@@ -234,8 +238,8 @@ export const LIMIT_PARAMS: ParamDef[] = [
 			showIf: shown,
 			hint:
 				i === 0
-					? "Draw this layer only where a mask is (or, with Invert, isn't): a mask written by a layer above, by name — Shape is the one shape layers write. Empty = anywhere"
-					: 'One more mask, joined to the ones before by the operator'
+					? "Draws this layer only where a mask is (or, with Invert, isn't). Pick a mask written by a layer above, by name; Shape is the one shape layers write (empty = anywhere)"
+					: 'Adds one more mask, joined to the ones before by the operator'
 		});
 		if (i === 0) return [name];
 		// Between two masks: And / Or / Except buttons, then the next mask's field.
@@ -247,7 +251,7 @@ export const LIMIT_PARAMS: ParamDef[] = [
 				showIf: shown,
 				segmented: true,
 				bare: true,
-				hint: 'How the next mask joins the ones before'
+				hint: 'Sets how the next mask joins the ones before'
 			}),
 			name
 		];
@@ -257,7 +261,7 @@ export const LIMIT_PARAMS: ParamDef[] = [
 		section: 'Limit to',
 		uniform: false,
 		showIf: (p) => String(p.lim_1 ?? '').trim() !== '',
-		hint: 'Use the masks the other way round: only where they are not — grout between the tiles, a hole cut through'
+		hint: 'Flips the masks round, so the layer draws only where they aren’t, like grout between the tiles or a hole cut through'
 	})
 ];
 
@@ -272,16 +276,20 @@ export const SDF_PARAMS: ParamDef[] = [
 		group: 'shaping',
 		section: 'Edge',
 		showIf: (p) => Number(p.bevel) > 0 && p.profile !== 'flat',
-		hint: 'Top / bottom bevel width against left / right: the two trade around Bevel (their geometric mean) — 2 makes top and bottom bevels 1.41× Bevel and left and right 0.71× (the ends of vertical planks round off twice as far in as their sides), 0.5 the reverse. Slanted edges and corners fall in between'
+		hint: 'Trades the top / bottom bevel width against left / right, keeping Bevel as their geometric mean. 2 makes top and bottom bevels 1.41× Bevel and left and right 0.71× (the ends of vertical planks round off twice as far in as their sides), 0.5 the reverse. Slanted edges and corners fall in between'
 	}),
-	P.bool('aa', 'Anti-alias', true, { group: 'shaping', section: 'Edge', hint: 'Off gives hard pixel edges' }),
+	P.bool('aa', 'Anti-alias', true, {
+		group: 'shaping',
+		section: 'Edge',
+		hint: 'Smooths the edges (off = hard pixel edges)'
+	}),
 	P.float('soft_edge', 'Soft edge', 0, 0, 256, {
 		softMax: 16,
 		unit: 'px',
 		step: 0.1,
 		group: 'shaping',
 		section: 'Edge',
-		hint: 'Fades the layer in over this far inside its outline — colour, height and every other channel blend into what is under it. The shape (and the mask it writes) stays where it is'
+		hint: 'Fades the layer in over this far inside its outline, blending colour, height and every other channel into what’s under it. The shape (and the mask it writes) stays where it is'
 	}),
 	P.float('dilate', 'Dilate', 0, 0, 256, {
 		softMax: 16,
@@ -289,7 +297,7 @@ export const SDF_PARAMS: ParamDef[] = [
 		step: 0.1,
 		group: 'shaping',
 		section: 'Edge',
-		hint: 'Grows the shape outwards by this far — what it draws and the mask it writes'
+		hint: 'Grows the shape outwards by this far, both what it draws and the mask it writes'
 	})
 ];
 
@@ -422,7 +430,7 @@ export const SHAPING_PARAMS: ParamDef[] = [
 		step: 0.1,
 		group: 'shaping',
 		section: 'Position',
-		hint: 'Shift the whole pattern (wraps on tileable projects)'
+		hint: 'Shifts the whole pattern sideways (wraps on tileable projects)'
 	}),
 	P.float('ofs_y', 'Offset Y', 0, -4096, 4096, {
 		softMin: -32,
@@ -432,7 +440,7 @@ export const SHAPING_PARAMS: ParamDef[] = [
 		step: 0.1,
 		group: 'shaping',
 		section: 'Position',
-		hint: 'Shift the whole pattern down'
+		hint: 'Shifts the whole pattern down'
 	}),
 	P.float('dw_amount', 'Domain warp', 0, 0, 256, {
 		softMax: 8,
@@ -440,15 +448,15 @@ export const SHAPING_PARAMS: ParamDef[] = [
 		step: 0.05,
 		group: 'shaping',
 		section: 'Position',
-		hint: 'Displaces the whole generated pattern by smooth noise (after generation): joints wander but keep their width'
+		hint: 'Pushes the whole pattern around with smooth noise after it’s generated, so joints wander but keep their width'
 	}),
-	P.float('dw_scale', 'Warp scale', 4, 0.25, 128, {
+	P.float('dw_scale', 'Domain warp scale', 4, 0.25, 128, {
 		softMax: 32,
 		step: 0.01,
 		group: 'shaping',
 		section: 'Position',
 		showIf: (p) => Number(p.dw_amount) > 0,
-		hint: 'Warp features across the texture (rounded when tiling)'
+		hint: 'Sets how many warp swirls fit across the texture (rounded when tiling)'
 	}),
 	P.bool('sh_invert', 'Invert', false, { group: 'shaping', section: 'Value' }),
 	P.float('sh_lo', 'Low', 0, 0, 1, {
@@ -456,13 +464,13 @@ export const SHAPING_PARAMS: ParamDef[] = [
 		group: 'shaping',
 		section: 'Value',
 		join: { with: 'sh_hi', as: 'pair', label: 'Levels' },
-		hint: 'Low: the value at or below it becomes 0 (raise it to drop the faint parts)'
+		hint: 'Turns values at or below Low into 0 (raise it to drop the faint parts)'
 	}),
 	P.float('sh_hi', 'High', 1, 0, 1, {
 		step: 0.001,
 		group: 'shaping',
 		section: 'Value',
-		hint: 'High: the value at or above it becomes 1 (lower it to push more of the pattern to full)'
+		hint: 'Turns values at or above High into 1 (lower it to push more of the pattern to full)'
 	}),
 	P.float('sh_gamma', 'Gamma', 1, 0.05, 20, {
 		softMin: 0.2,
@@ -471,12 +479,17 @@ export const SHAPING_PARAMS: ParamDef[] = [
 		group: 'shaping',
 		section: 'Value'
 	}),
-	P.int('sh_steps', 'Posterize', 0, 0, 64, { softMax: 16, group: 'shaping', section: 'Value', hint: '0 = off' }),
+	P.int('sh_steps', 'Posterize', 0, 0, 64, {
+		softMax: 16,
+		group: 'shaping',
+		section: 'Value',
+		hint: 'Cuts the value into this many flat steps (0 = off)'
+	}),
 	P.float('sh_cut', 'Cutoff', 0, 0, 1, {
 		step: 0.001,
 		group: 'shaping',
 		section: 'Value',
-		hint: 'Covers only where the shaped value ≥ cutoff (0 = off): sparse flecks from white noise, islands from clouds'
+		hint: 'Covers only where the shaped value is at or above the cutoff (0 = off). Makes sparse flecks from white noise, islands from clouds'
 	}),
 	P.float('sh_cut_soft', 'Cutoff softness', 0, 0, 0.5, {
 		step: 0.001,
@@ -496,16 +509,17 @@ export const spacingParams = (extra: Pick<ParamDef, 'group' | 'showIf'> = {}): P
 	P.float('col_sp', 'Column spacing', 0, -1, 1, {
 		step: 0.001,
 		...extra,
-		hint: 'Pushes the columns apart (or, below 0, draws them together) by this share of the texture width: 1 = a whole width more between neighbours. The grid stays centred; when tiling, columns pushed past an edge come round the other side'
+		hint: 'Pushes the columns apart (or, below 0, pulls them together) by this share of the texture width (1 = a whole width more between neighbours). The grid stays centred, and when tiling, columns pushed past an edge come round the other side'
 	}),
 	P.float('row_sp', 'Row spacing', 0, -1, 1, {
 		step: 0.001,
 		...extra,
-		hint: 'Pushes the rows apart (or, below 0, draws them together) by this share of the texture height: 1 = a whole height more between neighbours. The grid stays centred; when tiling, rows pushed past an edge come round the other side'
+		hint: 'Pushes the rows apart (or, below 0, pulls them together) by this share of the texture height (1 = a whole height more between neighbours). The grid stays centred, and when tiling, rows pushed past an edge come round the other side'
 	})
 ];
 
-const PHASE_HINT = 'Animates the noise: 0 → 1 is one seamless loop (render frames at even steps); it repeats beyond 1';
+const PHASE_HINT =
+	'Animates the noise: 0 → 1 is one seamless loop (render frames at even steps), and it repeats beyond 1';
 
 /** Phase of a noise-driven pattern (LayerDef.noise), in its Pattern card. Every generator has a `phase`. */
 export const PHASE_PARAM: ParamDef = P.float('phase', 'Phase', 0, -10000, 10000, {
@@ -528,7 +542,7 @@ export const WARP_PHASE_PARAM: ParamDef = P.float('phase', 'Warp phase', 0, -100
 	group: 'shaping',
 	section: 'Position',
 	showIf: (p) => Number(p.dw_amount) > 0 || Number(p.warp ?? 0) > 0 || Number(p.wobble ?? 0) > 0,
-	hint: 'Animates the domain warp: 0 → 1 is one seamless loop; it repeats beyond 1'
+	hint: 'Animates the domain warp: 0 → 1 is one seamless loop, and it repeats beyond 1'
 });
 
 /**
@@ -543,14 +557,14 @@ export const PX_SCALE_PARAM: ParamDef = P.float('px_scale', 'Pixel scale', 1, 1,
 	showIf: () => false
 });
 
-/** Relief › Roughness and its size (px): fine grainy unevenness over every face (Rock, Stone blocks). */
+/** Relief › Surface grain and its size (px): fine grainy unevenness over every face (Rock, Stone blocks). */
 export const roughnessParams = (rough: number, scale: number): ParamDef[] => [
-	P.float('rough', 'Roughness', rough, 0, 1, {
+	P.float('rough', 'Surface grain', rough, 0, 1, {
 		step: 0.001,
 		section: 'Relief',
-		hint: 'Fine grainy unevenness over every face'
+		hint: 'Adds fine grainy unevenness over every face'
 	}),
-	P.float('rough_scale', 'Roughness size', scale, 1, 64, {
+	P.float('rough_scale', 'Grain size', scale, 1, 64, {
 		softMax: 16,
 		unit: 'px',
 		step: 0.05,
@@ -569,7 +583,7 @@ export const MASK_PARAMS: ParamDef[] = [
 	P.float('opacity', 'Strength', 1, 0, 1, {
 		step: 0.001,
 		group: 'mask',
-		hint: "How much of this layer shows: it scales everything the layer writes (colour, height, roughness, specular, glow) at once — 1 = full, 0.5 = half way from what was beneath, 0 = no effect. Not the Opacity output, which writes the texture's alpha"
+		hint: "Sets how much of this layer shows by scaling everything it writes (colour, height, roughness, specular, glow) at once (1 = full, 0.5 = half way from what was beneath, 0 = no effect). This isn't the Opacity output, which writes the texture's alpha"
 	}),
 	...LIMIT_PARAMS,
 	...MASK_WRITE_PARAMS,
@@ -579,13 +593,17 @@ export const MASK_PARAMS: ParamDef[] = [
 		'none',
 		[
 			['none', 'Anywhere', "the height doesn't limit this layer"],
-			['above', 'Above the level', 'only where the surface stands higher — wear, highlights, dust on the tops'],
-			['below', 'Below the level', 'only where it lies lower — dirt, water, moss in the hollows and joints']
+			[
+				'above',
+				'Above the level',
+				'draws only where the surface stands higher, for wear, highlights, dust on the tops'
+			],
+			['below', 'Below the level', 'draws only where it lies lower, for dirt, water, moss in the hollows and joints']
 		],
 		{
 			group: 'mask',
 			section: 'Height mask',
-			hint: 'Limit this layer by the height of the surface the layers before it built: only above, or only below, a level'
+			hint: 'Limits this layer by the height of the surface the layers before it built, to only above or only below a level'
 		}
 	),
 	P.float('m_hlevel', 'Level', 0.5, -16, 16, {
@@ -595,7 +613,7 @@ export const MASK_PARAMS: ParamDef[] = [
 		group: 'mask',
 		section: 'Height mask',
 		showIf: (p) => p.m_hmode !== 'none',
-		hint: "The height that divides above from below, in height units (1 = the project's Height depth in px; the base starts at its own Height, 0 by default). The viewport's Hgt view shows the heights"
+		hint: "Sets the height that divides above from below, in height units (1 = the project's Height depth in px; the base starts at its own Height, 0 by default). The viewport's Hgt view shows the heights"
 	}),
 	P.float('m_hsoft', 'Softness', 0.1, 0, 4, {
 		softMax: 1,
@@ -603,7 +621,7 @@ export const MASK_PARAMS: ParamDef[] = [
 		group: 'mask',
 		section: 'Height mask',
 		showIf: (p) => p.m_hmode !== 'none',
-		hint: 'How gradually the layer fades in across the level, in height units either side of it: 0 = a hard cut'
+		hint: 'Fades the layer in gradually across the level, over this many height units either side of it (0 = a hard cut)'
 	})
 ];
 
@@ -627,7 +645,7 @@ const levelOutput = (prefix: string, group: string, label: string, a: number, b:
 			step: 0.001,
 			group,
 			labelFor: (p) => (solid(p) ? 'Level' : 'At 1'),
-			hint: `With Source Solid: the ${label.toLowerCase()} wherever the layer covers`
+			hint: `With Source Solid, sets the ${label.toLowerCase()} wherever the layer covers`
 		}),
 		P.float(`${prefix}_opacity`, 'Opacity', 1, 0, 1, { step: 0.001, group })
 	];
@@ -644,17 +662,17 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 	source('dif_src', 'diffuse', 'dif_blend', 'Blend'),
 	P.enum('dif_blend', 'Blend', 'normal', BLEND_MODES, {
 		group: 'diffuse',
-		hint: 'How the colour mixes with the layers below'
+		hint: 'Sets how the colour mixes with the layers below'
 	}),
 	P.float('dif_opacity', 'Opacity', 1, 0, 1, { step: 0.001, group: 'diffuse' }),
 	P.gradient('dif_grad', 'Colour ramp', gradient('#2a2622', '#b8ab98'), {
 		group: 'diffuse',
-		hint: 'The source picks a colour along the ramp: 0 at the left, 1 at the right'
+		hint: 'Maps the source to a colour along the gradient ramp (0 = left end, 1 = right end)'
 	}),
-	P.float('dif_jitter', 'Random jitter', 0, 0, 1, {
+	P.float('dif_jitter', 'Colour variation', 0, 0, 1, {
 		step: 0.001,
 		group: 'diffuse',
-		hint: 'Shifts the ramp lookup per feature (brick, cell, instance)'
+		hint: 'Shifts each feature (brick, cell, instance) randomly along the gradient ramp'
 	}),
 
 	P.bool('op_on', 'Opacity', false, { group: 'alpha' }),
@@ -675,14 +693,14 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 	source('h_src', 'height', 'h_mode'),
 	P.enum('h_mode', 'Mode', 'add', HEIGHT_MODES, {
 		group: 'height',
-		hint: 'How the height combines with the surface below'
+		hint: 'Sets how the height combines with the surface below'
 	}),
 	P.float('h_amount', 'Amount', 0.5, -64, 64, {
 		softMin: 0,
 		softMax: 2,
 		step: 0.001,
 		group: 'height',
-		hint: 'Height at a source of 1 (1.0 = the project’s height depth in px)'
+		hint: 'Sets the height at a source of 1 (1.0 = the project’s height depth in px)'
 	}),
 	P.float('h_offset', 'Offset', 0, -64, 64, {
 		softMin: -1,
@@ -690,12 +708,12 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 		step: 0.001,
 		optimize: false,
 		group: 'height',
-		hint: 'Raises (or, below 0, sinks) the whole height output by this much, in the units of Amount: the height is Offset at a source of 0 and Offset + Amount at 1. Lifts one layer’s relief above another’s without squashing its range. Applies wherever the layer covers'
+		hint: 'Raises (or, below 0, sinks) the whole height output by this much, in the units of Amount, so the height is Offset at a source of 0 and Offset + Amount at 1. Lifts one layer’s relief above another’s without squashing its range. Applies wherever the layer covers'
 	}),
 	P.float('h_var', 'Per-feature variation', 0, 0, 1, {
 		step: 0.001,
 		group: 'height',
-		hint: 'Each brick / cell / instance gets its own share of the amount (1 = anywhere from 0 to full): some barely raised, others bold. No effect on patterns without features (smooth noise, clouds)'
+		hint: 'Gives each brick / cell / instance a random share of the amount (0 = all the same, 1 = anywhere from 0 to full), so some are barely raised and others bold. No effect on patterns without features (smooth noise, clouds)'
 	}),
 
 	...levelOutput(
@@ -704,7 +722,7 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 		'Roughness',
 		0.35,
 		0.85,
-		'Roughness where the source is 0 (left) and 1 (right): 0 glossy … 1 matte'
+		'Sets the roughness where the source is 0 (left) and 1 (right): 0 = glossy … 1 = matte'
 	),
 	...levelOutput(
 		's',
@@ -712,7 +730,7 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 		'Specular',
 		0,
 		0.6,
-		'Specular level where the source is 0 (left) and 1 (right); 0.5 ≈ 4 % reflectance at scale 1'
+		'Sets the specular level where the source is 0 (left) and 1 (right); 0.5 ≈ 4 % reflectance at scale 1'
 	),
 	...levelOutput(
 		'mt',
@@ -720,7 +738,7 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 		'Metalness',
 		0,
 		1,
-		'Metalness where the source is 0 (left) and 1 (right): 0 non-metal … 1 metal, which reflects in its diffuse colour (give metals a bright one: copper ≈ #c87850) and has no diffuse shading'
+		'Sets the metalness where the source is 0 (left) and 1 (right): 0 = non-metal … 1 = metal. Metal reflects in its diffuse colour (give metals a bright one: copper ≈ #c87850) and has no diffuse shading'
 	),
 
 	P.bool('e_on', 'Emissive', false, { group: 'emissive' }),
@@ -741,7 +759,7 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 		softMax: 20,
 		step: 0.01,
 		group: 'emissive',
-		hint: 'Emitted light at a source of 1 (HDR: above 1 glows past white)'
+		hint: 'Sets the emitted light at a source of 1 (HDR: above 1 glows past white)'
 	})
 ];
 

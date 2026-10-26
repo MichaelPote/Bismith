@@ -16,7 +16,7 @@ _Amethyst shards_ and _Sapphire stones_ (layer).
 - **Shape.** **Tip offset** moves the tip off the site, its own way per crystal. Each face's run is kept at least 0.3
   of the site's and a fifth of the cell, so the tip never leaves the cell and a thin cell stands as a low ridge, not a
   knife edge. **Face variation** gives each face its own slope, so the faces meet in a short crest, not one point.
-  **Height variation** sets each crystal's height. **Table** cuts the top off flat. **Base** stands the pyramid on a
+  **Height variation** sets each crystal's height. **Flat tops** cuts the tops off flat. **Base** stands the pyramid on a
   prism, whose walls show across a Gap. **Ground** paints the gaps (the ramp's first stop, height 0); off, the layers
   below show through them.
 - **Layers.** Up to four layers. Each is finer (**Layer scale**; 1 = as large as the first, down to 0.5 = larger) and
@@ -42,8 +42,8 @@ _Amethyst shards_ and _Sapphire stones_ (layer).
   - **Facet gradient**: a gradient up the face.
   - **Colour per crystal** and **Colour per layer**.
   - **Glints**: a narrow streak across 3 faces in 10 (1 in 10 on the finer layers), parallel to the face's foot.
-  - **Inner facets**: on the first layer's crystals, a star of **Inner rays** wedges of uneven widths round the tip, each with its own shade
-    and faint edges. Each face turns the star its own way (**Inner shift**), so it jumps at every ridge as refracted
+  - **Inner facets**: on the first layer's crystals, a star of **Inner facet rays** wedges of uneven widths round the tip, each with its own shade
+    and faint edges. Each face turns the star its own way (**Inner facet shift**), so it jumps at every ridge as refracted
     light does. Tables show no star.
 - **Edge highlight** lights the ridges. Each ridge's strength comes from a random of the two faces it parts and from how
   it faces the sheen; the finer layers' ridges are dimmer. **Valley shade** darkens (or lights) the valleys: cell edges
@@ -72,7 +72,7 @@ inner facets there).
 
 ## Checklist
 
-- [x] Voronoi pyramids with planar faces, tip offset, face variation, table, base, gap, ground; tileable
+- [x] Voronoi pyramids with planar faces, tip offset, face variation, flat tops, base, gap, ground; tileable
 - [x] Layers combined by max, sparse finer layers, lift; valley fill
 - [x] Facet colours: contrast, sheen, gradient, glints, inner-facet stars; ridge / valley shading; anti-aliased facet
       boundaries through `gGenAlt`

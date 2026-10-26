@@ -30,7 +30,7 @@ needed the means to express that.
   Defaults to 1 (FR8.17): white glints read as a clear coat; 0 brings them back.
 - **Per-feature height variation** (`h_var`, Height group of every generator): each brick / cell / instance gets
   `amount × (1 − h_var × hash(rnd))` — some barely raised, others bold (hash decorrelated from the colour random).
-- **Course height variation** (`row_var`, Bricks): jittered bed joints (≤ 0.45 courses, pixel-snapped, tile-safe).
+- **Row height variation** (`row_var`, Bricks): jittered bed joints (≤ 0.45 courses, pixel-snapped, tile-safe).
 - **Hand-placed stones** (Bricks): `pos_jitter` (random x/y shift per brick, px) and `rot_jitter` (random tilt, °);
   **negative mortar** grows bricks into each other. Overlapping bricks meet in a crease: inside the union the SDF is
   `max(d1, (d1 − d2) / 2)` (d1, d2 = the two nearest bricks) — exactly `d1` when bricks do not overlap, so existing
@@ -63,7 +63,7 @@ needed the means to express that.
   pixel texture in colour; drive the specular level from broad lumps; roughness ≈ 0.55.
 - Domed blocks without hipped-roof ridges: wide _smooth_ bevel, rounded corners, then a height-only **blur** in the
   relief stack (≈ 2 px).
-- Dry-stone walls: thin positive mortar, position jitter ≈ 1.2 px, rotation ≈ 3°, domain warp instead of
+- Dry-stone walls: thin positive mortar, position jitter ≈ 1.2 px, rotation variation ≈ 3°, domain warp instead of
   wobble, per-stone height variation; paint = mortar (outside), multi-hue stone noise _under_ a half-strength
   per-stone colour, moss masked to low areas, in-hue speckle; AO 1.
 - Joints that fade: carve grooves (bricks inverted, subtract) and multiply by noise, so faces stay flat.
@@ -74,7 +74,7 @@ needed the means to express that.
       Properties, solo preview, optimiser, tests
 - [x] Specular level channel + generator output + blur option + view / export + migration test
 - [x] Specular scale + tint
-- [x] Per-feature height variation; Bricks course height variation
+- [x] Per-feature height variation; Bricks row height variation
 - [x] Hand-placed stones: position / rotation jitter, negative mortar, crease SDF
 - [x] Domain warp on every generator
 - [x] Ambient occlusion pass + AO channel / map

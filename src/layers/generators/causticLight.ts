@@ -145,82 +145,84 @@ function waveTable(
 
 export const causticLightLayer: LayerDef = {
 	type: 'causticlight',
-	label: 'Caustic light',
+	label: 'Water caustics',
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Light refracted through a wavy surface and gathered below: bright filaments and cusps around dark cells (lava, water, slime). Tileable.',
+		'Water caustics: Made from light refracted through a wavy surface and gathered below, giving bright filaments and cusps around dark cells. Makes pool-floor projected light patterns, water, lava, slime.',
 	params: [
 		P.enum('output', 'Output', 'light', [
-			['light', 'Gathered light'],
-			['surface', 'Surface height']
+			['light', 'Light shone through the water surface'],
+			['surface', 'The water surface itself']
 		]),
 		P.enum('model', 'Wave model', 'sines', [
-			['sines', 'Sines', 'rolling sines, crests sharpened by a second harmonic (Crest sharpness)'],
+			['sines', 'Sines', 'rolling sines, with the crests sharpened by a second harmonic (Crest sharpness)'],
 			[
 				'gerstner',
 				'Gerstner',
-				'trochoidal waves: the surface gathers towards the crests — sharp crests over broad, flat troughs, rolling as they travel'
+				'trochoidal waves: the surface bunches up towards the crests, giving sharp crests over broad, flat troughs that roll as they travel'
 			]
 		]),
 		P.float('scale', 'Cells across', 4, 0.5, 64, {
 			softMax: 16,
 			step: 0.01,
-			hint: 'Wave count across the texture (rounded per wave to tile)'
+			hint: 'How many cells fit across the texture (rounded per wave so it tiles)'
 		}),
-		P.int('waves', 'Waves', 7, 1, 16, { hint: 'Plane waves summed; more = rounder, more irregular cells' }),
-		P.float('spread', 'Wavelength spread', 0.35, 0, 1, {
+		P.int('waves', 'Waves', 7, 1, 16, {
+			hint: 'How many plane waves are added together; more gives rounder, more irregular cells'
+		}),
+		P.float('spread', 'Wavelength variation', 0.35, 0, 1, {
 			step: 0.001,
-			hint: 'Variation of the wave counts around the scale'
+			hint: 'Varies the wave counts around Cells across'
 		}),
 		P.float('strength', 'Refraction', 5, 0, 256, {
 			softMax: 12,
 			unit: 'px',
 			step: 0.05,
-			hint: 'How far light is bent; higher = sharper filaments, darker cells'
+			hint: 'How far the light is bent; higher gives sharper filaments and darker cells'
 		}),
 		P.float('softness', 'Filament width', 0.8, 0.3, 8, {
 			softMax: 3,
 			unit: 'px',
 			step: 0.05,
-			hint: 'Blur of the gathered light: thin, sharp filaments when low'
+			hint: 'Blurs the gathered light (low = thin, sharp filaments)'
 		}),
 		P.float('exposure', 'Exposure', 1, 0.05, 8, {
 			softMax: 4,
 			step: 0.01,
-			hint: 'Intensity → value: 1 − exp(−exposure · light^contrast)'
+			hint: 'Brightens the gathered light, easing off towards 1 as it goes up'
 		}),
 		P.float('contrast', 'Contrast', 1.6, 0.5, 4, {
 			step: 0.01,
-			hint: 'Power on the gathered light before exposure: higher = darker cells, the filaments keep their brightness'
+			hint: 'Darkens the cells while the filaments keep their brightness (a power on the gathered light before Exposure)'
 		}),
 		P.float('octave2', 'Fine waves', 0.25, 0, 1, {
 			step: 0.001,
-			hint: 'A second band of waves at double frequency (breaks up the filaments)'
+			hint: 'Adds a second band of waves at double frequency, which breaks up the filaments'
 		}),
 		P.float('meander', 'Meander', 0.5, 0, 4, {
 			softMax: 2,
 			step: 0.001,
-			hint: 'Slow, tileable bending of the surface: curved walls, cells of varied size (organic rather than a lattice). Above about 1.4 the bends fold over into creases'
+			hint: 'Slowly bends the surface, giving curved walls and cells of varied size (organic rather than a lattice). Above about 1.4 the bends fold over into creases'
 		}),
-		P.float('steepness', 'Steepness', 0.7, 0, 1, {
+		P.float('steepness', 'Wave steepness', 0.7, 0, 1, {
 			step: 0.001,
 			showIf: (p) => p.model === 'gerstner',
-			hint: 'How far the surface gathers towards the crests: 0 = plain sines, 1 = cusped crests (the most before the surface would fold over)'
+			hint: 'How much the surface bunches up towards the crests (0 = plain sines, 1 = cusped crests, the most before the surface would fold over)'
 		}),
 		P.float('harmonic', 'Crest sharpness', 1, 0, 2, {
 			step: 0.001,
 			showIf: (p) => p.model !== 'gerstner',
-			hint: 'A second, in-phase sine per wave (cos φ + c·cos 2φ, a Stokes profile): sharper crests focus thinner filaments. 1 is the sharpest that keeps the cells whole; above it the troughs flatten and the cells start to split'
+			hint: 'Sharpens the crests with a second, in-phase sine per wave (a Stokes profile), so they focus thinner filaments. 1 is the sharpest that keeps the cells whole; above it the troughs flatten and the cells start to split'
 		}),
 		P.float('halo', 'Halo', 0, 0, 1, {
 			step: 0.001,
-			hint: "The same light spread wide, added where it is brighter: a glow around the filaments that keeps the cells' cores dark"
+			hint: "Adds the same light spread wide wherever it's brighter, giving a glow around the filaments that keeps the cells' cores dark"
 		}),
 		P.float('halo_size', 'Halo radius', 3, 0.5, 16, { softMax: 8, unit: 'px', step: 0.05 }),
 		{
 			...PHASE_PARAM,
-			hint: 'Moves the waves: 0 → 1 is one seamless loop (render frames at even steps); it repeats beyond 1'
+			hint: 'Animates the waves: 0 → 1 is one seamless loop (render frames at even steps), and it repeats beyond 1'
 		},
 		P.seed()
 	],

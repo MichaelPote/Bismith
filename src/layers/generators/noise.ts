@@ -6,7 +6,7 @@ import type { CpuTexture, LayerDef } from '../types';
 export const NOISE_TYPES: ([string, string] | [string, string, string])[] = [
 	['value', 'Value'],
 	['perlin', 'Perlin'],
-	['simplex', 'Simplex (Perlin when tiling)', 'simplex noise can’t tile: tileable projects get Perlin for it'],
+	['simplex', 'Simplex (Perlin when tiling)', 'simplex noise can’t tile, so tileable projects use Perlin instead'],
 	['worley', 'Worley F1'],
 	['worley2', 'Worley F2'],
 	['cells', 'Worley edges (F2−F1)'],
@@ -23,11 +23,11 @@ export const FRACTAL_MODES: [string, string][] = [
 
 /** Worley cell profiles: the curve over the cell value (the option index + 1 is profileCurve's). */
 export const CELL_PROFILES: [string, string, string][] = [
-	['linear', 'Linear', 'the raw distance: cones round the points (F1), pyramids on the cells (edges)'],
+	['linear', 'Linear', 'uses the raw distance: cones round the points (F1), pyramids on the cells (edges)'],
 	[
 		'smooth',
 		'Smooth',
-		'soft round-bottomed dimples packed edge to edge, softly rimmed (F1 with Even cells: a parabolic dish); cushions on the cells'
+		'soft round-bottomed dimples packed edge to edge with soft rims (a parabolic dish with F1 and Even cells), cushions on the cells'
 	],
 	['round', 'Round', 'wide dished dimples with sharp ridges between (hammered metal), pillows on the cells'],
 	['cove', 'Cove', 'narrow pits in broad flats (F1), peaked cells']
@@ -237,56 +237,61 @@ export const noiseLayer: LayerDef = {
 	label: 'Noise',
 	category: 'noise',
 	kind: 'generator',
-	description: 'Tileable lattice, cellular and white noise with fractal sums, domain warp and its own contrast.',
+	description:
+		'Noise: Lattice, cellular and white noise, with optional fractal layering, domain warp and contrast. Makes clouds, grain, stone, marbling, hammered metal.',
 	params: [
 		P.enum('noise', 'Type', 'perlin', NOISE_TYPES),
 		P.enum('fractal', 'Fractal', 'fbm', FRACTAL_MODES, { showIf: notWhite }),
-		P.float('scale', 'Scale', 6, 0.25, 1024, {
+		P.float('scale', 'Cells across', 6, 0.25, 1024, {
 			softMax: 128,
 			step: 0.01,
 			showIf: notWhite,
-			hint: 'Cells across the texture width (rounded when tiling)'
+			hint: 'Sets how many cells fit across the texture width (rounded when tiling)'
 		}),
 		P.float('stretch', 'Stretch', 1, 0.02, 100, {
 			softMin: 0.1,
 			softMax: 16,
 			step: 0.01,
 			showIf: notWhite,
-			hint: '>1 elongates features horizontally (brushed metal, wood fibre: 8–30), <1 vertically'
+			hint: 'Stretches the features horizontally above 1 (brushed metal, wood fibre: 8–30) and vertically below 1'
 		}),
 		P.float('jitter', 'Jitter', 1, 0, 1, {
 			step: 0.001,
 			showIf: isWorley,
-			hint: 'How far each cell’s point strays from a regular grid: 0 = a square lattice of identical cells, 1 = fully random'
+			hint: 'Moves each cell’s point randomly away from a regular grid (0 = a square lattice of identical cells, 1 = fully random)'
 		}),
 		P.enum(
 			'metric',
 			'Distance',
 			'euclidean',
 			[
-				['euclidean', 'Euclidean', 'round cells and dimples'],
+				['euclidean', 'Euclidean', 'makes round cells and dimples'],
 				[
 					'manhattan',
 					'Manhattan',
-					'rounded-diamond falloff, angular cell walls (a 1.3-norm: true cells, no flat ties)'
+					'makes a rounded-diamond falloff and angular cell walls (a 1.3-norm, so no flat patches where two points tie)'
 				],
-				['chebyshev', 'Chebyshev', 'rounded-square falloff, boxy cell walls (a 4-norm: true cells, no flat ties)']
+				[
+					'chebyshev',
+					'Chebyshev',
+					'makes a rounded-square falloff and boxy cell walls (a 4-norm, so no flat patches where two points tie)'
+				]
 			],
 			{ showIf: isWorley }
 		),
 		P.bool('w_even', 'Even cells', true, {
 			showIf: (p) => p.noise === 'worley' || p.noise === 'cells',
-			hint: 'Even cells, measured from the true cell borders: Worley edges rise over the Wall width from every wall, big cells and small alike; Worley F1 dimples each run from their point to their own border, so every one reaches full depth (off: the raw distance — big cells clip to flat white, small ones stay dark)'
+			hint: 'Measures each cell from its true borders, so big and small cells look alike. Worley edges rise over the Wall width from every wall, and each Worley F1 dimple runs from its point to its border, so it reaches full depth (off = the raw distance: big cells clip to flat white, small ones stay dark)'
 		}),
 		P.float('w_wall', 'Wall width', 0.15, 0.01, 2, {
 			softMax: 0.6,
 			step: 0.001,
 			showIf: (p) => p.noise === 'cells' && p.w_even === true,
-			hint: 'Even cells: how far in from each wall the cells rise, in cells — the same for big and small ones, their middles level'
+			hint: 'Sets how far in from each wall the cells rise, in cells (Even cells). Big and small cells get the same width, with level middles'
 		}),
 		P.enum('w_profile', 'Cell profile', 'smooth', CELL_PROFILES, {
 			showIf: isWorley,
-			hint: 'The curve across each cell, from its point to its border (F1 the other way up): Round and Smooth turn the cone at every point into a dimple'
+			hint: 'Shapes the curve across each cell from its point to its border (F1 the other way up). Round and Smooth turn the cone at every point into a dimple'
 		}),
 		P.int('octaves', 'Octaves', 5, 1, 12, { showIf: isFractal }),
 		P.float('lacunarity', 'Lacunarity', 2, 1, 8, {
@@ -294,64 +299,64 @@ export const noiseLayer: LayerDef = {
 			softMax: 6,
 			step: 0.01,
 			showIf: isFractal,
-			hint: 'Frequency step per octave (rounded to a whole number when tiling: 2, 3, 4 …)'
+			hint: 'Sets how much finer each octave is than the one before (rounded to a whole number when tiling: 2, 3, 4 …)'
 		}),
 		P.float('gain', 'Gain', 0.5, 0, 1, {
 			step: 0.001,
 			showIf: isFractal,
-			hint: 'Amplitude kept per octave: low = smooth, high = rough and grainy'
+			hint: 'Sets how much strength each octave keeps from the one before (low = smooth, high = rough and grainy)'
 		}),
 		P.float('ridge', 'Ridge offset', 0.4, 0, 2, {
 			softMax: 1,
 			step: 0.001,
 			showIf: (p) => notWhite(p) && p.fractal === 'ridged',
-			hint: 'Lifts the valleys between the ridges and lets the finer octaves into them (at least this share of each): 0 = classic ridged multifractal (basins fall to flat black, detail only on the crests), 0.5 = shallower basins with half the fine detail, 1 = the detail everywhere'
+			hint: 'Lifts the valleys between the ridges and lets at least this share of the finer octaves into them (0 = classic ridged multifractal, with flat black basins and detail only on the crests; 0.5 = shallower basins with half the fine detail; 1 = detail everywhere)'
 		}),
 		P.float('crease', 'Crease softness', 0.5, 0, 1, {
 			step: 0.001,
 			showIf: (p) => notWhite(p) && (p.fractal === 'ridged' || p.fractal === 'billow'),
-			hint: 'Rounds the knife-sharp crests of Ridged and creases of Billow, the finer octaves more (their thin crests are what reads as wiry hair): 0 = sharp'
+			hint: 'Rounds off the knife-sharp crests of Ridged and creases of Billow, more so on the finer octaves, whose thin crests look like wiry hair (0 = sharp)'
 		}),
 		P.float('hier', 'Ridge hierarchy', 0.7, 0, 1, {
 			step: 0.001,
 			showIf: (p) => notWhite(p) && p.fractal === 'ridged',
-			hint: 'Main ridgelines with smaller ridges branching off them: the finer octaves only near the crests of the coarser ones (and wider), the flanks between left smooth — 0 = every scale at once, a tangle of crests (the classic ridged multifractal)'
+			hint: 'Branches smaller ridges off the main ridgelines by keeping the finer octaves near (and a bit wider than) the crests of the coarser ones, leaving the flanks smooth (0 = every scale at once, a tangle of crests like the classic ridged multifractal)'
 		}),
 		P.float('warp', 'Warp', 0, 0, 16, {
 			softMax: 3,
 			step: 0.001,
 			showIf: notWhite,
-			hint: 'Domain warp strength, in cells: swirls and marbling'
+			hint: 'Swirls the noise around with a domain warp this strong, in cells. Good for swirls and marbling'
 		}),
 		P.float('warp_scale', 'Warp scale', 4, 0.25, 128, {
 			softMax: 32,
 			step: 0.01,
 			showIf: (p) => notWhite(p) && Number(p.warp) > 0,
-			hint: 'Warp features across the texture (rounded when tiling)'
+			hint: 'Sets how many warp swirls fit across the texture (rounded when tiling)'
 		}),
 		P.bool('even', 'Even levels', true, {
 			section: 'Levels',
 			showIf: (p) => notWhite(p) && !isWorley(p),
-			hint: 'Measures the spread of the values for these settings and evens it out: mid-grey is the median and the darks and lights balance, for every fractal mode — Billow and Ridged don’t sit dark, Contrast and Brightness act alike on all (off: the raw values)'
+			hint: 'Measures the spread of values for these settings and evens it out, so mid-grey is the median and the darks and lights balance in every fractal mode. Billow and Ridged don’t come out dark, and Contrast and Brightness work the same on all of them (off = the raw values)'
 		}),
 		P.float('contrast', 'Contrast', 1, 0, 64, {
 			softMax: 8,
 			step: 0.01,
 			section: 'Levels',
 			showIf: notWhite,
-			hint: 'Spreads the values about mid-grey (clipping at black and white): 1 = as the noise comes'
+			hint: 'Spreads the values out from mid-grey, clipping at black and white (1 = the noise as it comes)'
 		}),
 		P.float('bias', 'Brightness', 0, -1, 1, {
 			step: 0.001,
 			section: 'Levels',
 			showIf: notWhite,
-			hint: 'Shifts the values up or down (after Contrast): with Contrast, how much of the area clips to white'
+			hint: 'Shifts the values up or down after Contrast. Together with Contrast, it sets how much of the area clips to white'
 		}),
-		P.float('soft', 'Softness', 0, 0, 1, {
+		P.float('soft', 'Clip softness', 0, 0, 1, {
 			step: 0.001,
 			section: 'Levels',
 			showIf: (p) => notWhite(p) && (Number(p.contrast) !== 1 || Number(p.bias) !== 0),
-			hint: 'Rounds where the values clip to black and white, the mid-tones untouched: 0 = a hard cut (a crease round every flat plateau), 1 = shoulders that meet at mid-grey'
+			hint: 'Rounds off where the values clip to black and white, leaving the mid-tones alone (0 = a hard cut with a crease round every flat plateau, 1 = soft shoulders that meet at mid-grey)'
 		}),
 		P.int('block', 'Pixel size', 1, 1, 256, { softMax: 32, unit: 'px', showIf: (p) => p.noise === 'white' }),
 		P.seed()
@@ -552,7 +557,7 @@ GenOut gen(vec2 p) {
   }
   float v = u_fractal == 0 ? sum : sum / max(norm, 1e-6);
   if (u_even && !worley) v = eq_value(v);
-  // Levels: contrast about mid-grey, then brightness; the clip box-filtered over Softness (≤ 1: mid-tones untouched).
+  // Levels: contrast about mid-grey, then brightness; the clip box-filtered over Clip softness (≤ 1: mid-tones untouched).
   if (u_contrast != 1.0 || u_bias != 0.0 || u_even) {
     float l = (v - 0.5) * u_contrast + 0.5 + u_bias;
     float sw = u_soft;

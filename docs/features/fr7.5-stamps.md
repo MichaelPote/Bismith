@@ -33,21 +33,21 @@ light through the path tracer.
   square corners stay square and one-cell diagonals and X crossings become single strokes (the shader's cells are then
   half a bitmap cell). Repeats in a Repeat group: count, spacing by _Step_ (centre to centre, px) or _Gap_ (between
   neighbours, in cells: the repeat's extent — its bounding box when turned — plus the gap; the default, 1),
-  **row shift** (±256 on the slider) for diagonal rivet lines and brick bond, _Position jitter_, _Drop out_
+  **row shift** (±256 on the slider) for diagonal rivet lines and brick bond, _Position jitter_, _Missing repeats_
   (seeded). One flat loop runs over every repeat that can reach the pixel (≤ 3 per axis from each side of the tile
   seam), so a grid's far end wraps round on tileable projects; overlapping repeats merge, with the depth inside taken
   as √(a² + b²) of the two deepest repeats (coincident ones count once), so outlines hidden inside another repeat leave
   no groove. Repeats snap to the pixel grid. The per-feature random is the cell level (1..3: a _Random_ colour ramp
   paints multi-tone stamps), the repeat, or both (_Random per_); the repeat's random can be kept to a sub-range
   (_Repeat random range_), e.g. clear of a base colour.
-- **Stamp › Image file** (_Source_). The stamp is an image file instead of typed rows: a PNG, JPEG or WebP picked in the
+- **Stamp › Image file** (_Stamp source_). The stamp is an image file instead of typed rows: a PNG, JPEG or WebP picked in the
   inspector (`ImageField.vue`), scaled down on loading so it fits the texture (at most 1024 px; `fitImage`). Each of
-  its pixels is a cell, _Pixel size_ px across; the pixels at least _Alpha cut_ opaque are the stamp. So the outline,
+  its pixels is a cell, _Pixel size_ px across; the pixels at least _Opacity threshold_ opaque are the stamp. So the outline,
   bevel, mask, placement and repeats are the typed stamp's, and Join diagonals, Mirror and Level relief don't apply.
-  - _Into_ picks the output: **Diffuse** paints the image's colours (the generator's own colour, `gGenRgb`, takes the
+  - _Image into_ picks the output: **Diffuse** paints the image's colours (the generator's own colour, `gGenRgb`, takes the
     ramp's place), **Height** its brightness, × the bevel at the outline (`genOutShaded`). The pixel's alpha fades the
     coverage either way.
-  - _Into_ is a linked default: Diffuse turns the layer's Diffuse on and Height off, Height the other way round.
+  - _Image into_ is a linked default: Diffuse turns the layer's Diffuse on and Height off, Height the other way round.
   - _Smooth image_ blends between the image's pixels (bilinear, premultiplied); otherwise each stays square.
   - **Images by file name** (`src/core/images.ts`). The param holds the file name, the "path" the project saves: a
     browser page doesn't see where the file lives. The pixels stay in this browser, in memory and in localStorage under
@@ -59,7 +59,7 @@ light through the path tracer.
 - **Stamp › Wear** (typed pixels and images). Values below a threshold drop out, the threshold varied over the stamp
   by a few octaves of Perlin noise, a different pattern per repeat. Dark values (the low levels of typed pixels) and
   the noise's high spots go first; _Bright parts first_ reverses it. The threshold is 2·Wear − 1 + noise, so 0 leaves
-  everything and 1 removes everything; _Softness_ fades the edge. Wear fades the coverage, so the worn holes have no
+  everything and 1 removes everything; _Wear softness_ fades the edge. Wear fades the coverage, so the worn holes have no
   bevel of their own: worn paint, a scuffed decal.
   - _Level relief_ (0..1): Height › Pattern (GenOut `hval`) becomes a third of the outline's bevel plus a third of a
     bevel up each level edge — "-" ⅓, "+" ⅔, "#" full — from a second texture: on the exact outline the nearest cell
@@ -121,7 +121,7 @@ light through the path tracer.
 - **Polyline** (`polyline`) — open lines with a width (round or flat ends, round joins): _Corner radius_ bends each
   inner vertex on an arc (the radius of the line's inner edge: the centre line bends on it + half the width, so wide
   lines have no cusp), _Taper_ narrows each line toward its end, start or both over _Taper length_ (a share of the
-  line, or px for the same tips on every line), shaped straight, smooth or round (brush tips), _Dash_ / _Gap_ / _Dash offset_ along the rounded line (each dash its own random), _Fit to each line_
+  line; or _Fixed taper length_, px, for the same tips on every line), shaped straight, smooth or round (brush tips), _Dash length_ / _Dash gap_ / _Dash offset_ along the rounded line (each dash its own random), _Fit dashes to lines_
   (default) stretching dash and gap so every line starts and ends on a whole dash (from each line's length along its
   rounds, worked out once per pixel), _Outline_ = twin rails. Each line's distance is kept apart: _Overlap_ = Merge
   (the union; inside a crossing the two deepest lines combined, no crease) or Later on top (the topmost line's own
@@ -155,7 +155,7 @@ light through the path tracer.
   - _Sink_ raises a bed plane through the cable (0 = standing on the surface; 0.5 = to its axis, a
     half-round moulding whose outline meets the surface without a drop); what lies below it is hidden. _Core_ (ropes)
     fills the gaps behind the strands with a flattened tube along the axis.
-  - _Irregularity_ (seeded): each strand swells and thins (tube and helix radius together, so a tight lay stays
+  - _Strand variation_ (seeded): each strand swells and thins (tube and helix radius together, so a tight lay stays
     closed) and drifts along its lay, smoothly per half turn; each strand has its own thickness, each row a random lay
     phase, each yarn its own crown height; periodic when tiling (yarn identities repeat after the yarns passing along
     the whole cable).
@@ -163,7 +163,7 @@ light through the path tracer.
     a plain ripple when narrow, faded under ~2 px). Their phase comes from the nearest point of the smooth strand
     (Newton steps from the chord's), so the polyline doesn't print into them; yarn turns per helix turn are rounded
     when tiling.
-  - _Rows_: parallel cables evenly spaced round Position, each shifted by _Row shift_ of a turn; _Alternate twist_
+  - _Rows_: parallel cables evenly spaced round Position, each shifted by _Row shift_ of a turn; _Alternate row twist_
     mirrors every other one (herringbone). Rows closer than a cable's height are resolved like crossing strands.
   - The outline (union of the tubes' footprints above the bed) is the layer's shape for its mask (Shape by
     default; `sdf: 'mask'`), written by Union.

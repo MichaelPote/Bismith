@@ -6,7 +6,7 @@
 //   Labyrinth: a perfect maze — one spanning tree through every node (traceLinks.ts).
 // Every mode's links are computed per node on the CPU (traceLinks.ts, router.ts) and read here from a per-node texture;
 // the shader only draws them. Pads on ends, vias; the result is an SDF (traces, pads and vias), value 1 inside, and
-// one random per connected trace (Per-feature variation, Random jitter).
+// one random per connected trace (Per-feature variation, Colour variation).
 
 import { hashI } from '@/core/hash';
 import { memoReads } from '@/core/memo';
@@ -35,7 +35,7 @@ const MODES: [string, string, string][] = [
 	[
 		'labyrinth',
 		'Labyrinth (perfect maze)',
-		'One tree of corridors through every node: no loops, every node reachable — a classic maze'
+		'A classic maze: one tree of corridors through every node, with no loops and every node reachable'
 	]
 ];
 const isFill = modeIs('fill');
@@ -119,81 +119,86 @@ export const tracesLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Circuit traces or mazes on a grid of nodes linked straight or diagonally (any angle): routed space-filling traces, paths, link networks or a perfect labyrinth, with pads on dead ends and vias. Tileable.',
+		'Traces & mazes: Circuit traces or mazes on a grid of nodes linked straight or diagonally, with pads on the dead ends and vias. Makes circuit boards, mazes, labyrinths, tech panels.',
 	params: [
-		P.enum('mode', 'Mode', 'fill', MODES),
+		P.enum('mode', 'Layout', 'fill', MODES),
 		P.int('cells', 'Cells across', 47, 1, 1024, {
 			softMax: 128,
-			hint: 'Nodes across the texture: the node pitch is width / cells (2 px pitch = 1 px traces 1 px apart)'
+			hint: 'How many nodes across the texture; the node spacing is width / cells (a 2 px spacing = 1 px traces 1 px apart)'
 		}),
 		P.float('angle', 'Diagonal angle', 45, 10, 80, {
 			unit: '°',
 			step: 0.5,
-			hint: 'Slope of the diagonals; sets the row spacing (45° = square cells; rows are rounded to tile)'
+			hint: 'Sets the slope of the diagonals, which also sets the row spacing (45° = square cells; rows are rounded to tile)'
 		}),
-		P.float('density', 'Density', 0.75, 0, 1, {
+		P.float('density', 'Link density', 0.75, 0, 1, {
 			step: 0.001,
 			showIf: modeIs('route', 'maze'),
-			hint: 'Chance of each link'
+			hint: 'How likely each link is to be drawn'
 		}),
 		P.float('diagonal', 'Diagonals', 0.4, 0, 1, {
 			step: 0.001,
 			showIf: modeIs('route', 'maze', 'labyrinth'),
-			hint: 'Share of diagonal links (0 = right angles only)'
+			hint: 'How many of the links are diagonal (0 = right angles only)'
 		}),
 		P.float('bias', 'Horizontal bias', 0.5, 0, 1, {
 			step: 0.001,
-			hint: 'Straight links and steps: 0 = mostly vertical, 0.5 = even, 1 = mostly horizontal'
+			hint: 'Tips the straight links and steps towards one direction (0 = mostly vertical, 0.5 = even, 1 = mostly horizontal)'
 		}),
 		P.float('straight', 'Straightness', 0.8, 0, 1, {
 			step: 0.001,
 			showIf: modeIs('route', 'fill', 'labyrinth'),
-			hint: 'Chance a trace or corridor carries straight on at each node (else it turns): low = twisty, 1 = long straight runs. Labyrinth: 0.25 = no preference'
+			hint: 'How likely a trace or corridor is to carry straight on at each node rather than turn (low = twisty, 1 = long straight runs; for Labyrinth, 0.25 = no preference)'
 		}),
 		P.float('grouping', 'Grouping', 0.7, 0, 1, {
 			step: 0.001,
 			showIf: modeIs('maze'),
-			hint: 'Links in a block follow its dominant direction — parallel bus runs instead of a tangle'
+			hint: 'Lines up the links in each block with its main direction, for parallel bus runs instead of a tangle'
 		}),
 		P.int('block', 'Block size', 4, 1, 256, {
 			softMax: 16,
 			showIf: modeIs('route', 'maze'),
-			hint: 'Cells per block: a block shares one direction (route) / dominant direction (maze)'
+			hint: 'How many cells per block. A block shares one direction (Route) or one main direction (Maze)'
 		}),
 		P.int('min_links', 'Shortest trace', 4, 1, 256, {
 			softMax: 16,
 			showIf: modeIs('route', 'maze'),
-			hint: 'Traces (connected pieces) with fewer links than this are dropped — no more pad-to-pad stubs; raise Density for more long ones'
+			hint: 'Drops traces (connected pieces) with fewer links than this, so there are no pad-to-pad stubs; raise Link density for more long ones'
 		}),
 		P.float('branching', 'Branching', 0.1, 0, 1, {
 			step: 0.001,
 			showIf: modeIs('labyrinth'),
-			hint: 'How the maze grows: 0 = depth first (long winding corridors, few dead ends), 1 = from random places (short branches, many dead ends)'
+			hint: 'Changes how the maze grows (0 = depth first, long winding corridors with few dead ends; 1 = from random places, short branches with lots of dead ends)'
 		}),
 		P.int('seeds', 'Seed traces', 8, 0, 256, {
 			softMax: 16,
 			group: 'fill',
 			showIf: isFill,
-			hint: 'Long random walks laid first'
+			hint: 'How many long random walks to lay down first'
 		}),
-		P.int('seed_length', 'Seed length', 240, 2, 8192, { softMax: 400, group: 'fill', showIf: isFill, hint: 'Steps' }),
+		P.int('seed_length', 'Seed length', 240, 2, 8192, {
+			softMax: 400,
+			group: 'fill',
+			showIf: isFill,
+			hint: 'How many steps each seed trace takes'
+		}),
 		P.int('max_length', 'Fill length', 120, 2, 8192, {
 			softMax: 200,
 			group: 'fill',
 			showIf: isFill,
-			hint: 'Longest fill trace (steps)'
+			hint: 'Sets the longest fill trace, in steps'
 		}),
-		P.int('min_length', 'Shortest trace', 8, 1, 256, {
+		P.int('min_length', 'Shortest fill trace', 8, 1, 256, {
 			softMax: 16,
 			group: 'fill',
 			showIf: isFill,
-			hint: 'Fill traces shorter than this are dropped'
+			hint: 'Drops fill traces shorter than this'
 		}),
 		P.int('gap', 'Clearance', 0, 0, 16, {
 			softMax: 4,
 			group: 'fill',
 			showIf: isFill,
-			hint: 'Free nodes kept between traces (0 = neighbouring nodes; traces still never touch or cross)'
+			hint: 'How many free nodes to keep between traces (0 = neighbouring nodes; traces still never touch or cross)'
 		}),
 		P.enum(
 			'directions',
@@ -207,7 +212,7 @@ export const tracesLayer: LayerDef = {
 			{
 				group: 'fill',
 				showIf: isFill,
-				hint: 'One fixed set — traces only bend between neighbouring directions of it'
+				hint: 'Picks one fixed set of directions; traces only bend between neighbouring directions in it'
 			}
 		),
 		P.float('hug', 'Run alongside', 0.6, 0, 10, {
@@ -215,61 +220,61 @@ export const tracesLayer: LayerDef = {
 			step: 0.001,
 			group: 'fill',
 			showIf: isFill,
-			hint: 'Preference for following a neighbouring trace, above all one running the same way, and for starting new traces beside fresh ones — 0 = loose, 1 = buses, 3 = tight parallel buses that bend together'
+			hint: 'Pulls traces alongside a neighbouring trace, above all one running the same way, and starts new traces beside fresh ones (0 = loose, 1 = buses, 3 = tight parallel buses that bend together)'
 		}),
 		P.float('fill', 'Fill', 1, 0, 1, {
 			step: 0.001,
 			group: 'fill',
 			showIf: isFill,
-			hint: 'Share of the empty board new traces may start in'
+			hint: 'How much of the empty board new traces can start in'
 		}),
 		P.float('open', 'Open areas', 0, 0, 1, {
 			step: 0.001,
 			group: 'fill',
 			showIf: isFill,
-			hint: 'Leaves rectangles of bare board between the routed clusters — footprints, mounting areas (0 = traces everywhere, 1 = about half the board open)'
+			hint: 'Leaves rectangles of bare board between the routed clusters, like footprints or mounting areas (0 = traces everywhere, 1 = about half the board open)'
 		}),
 		P.float('open_size', 'Open area size', 0.15, 0.02, 1, {
 			softMax: 0.5,
 			step: 0.001,
 			group: 'fill',
 			showIf: (p) => isFill(p) && Number(p.open) > 0,
-			hint: 'Typical side of an open area, as a share of the board (each one 0.4–1.6× it, up to 3:1 long)'
+			hint: 'Sets the typical side of an open area, as a share of the board (each one is 0.4–1.6× it, up to 3:1 long)'
 		}),
 		P.float('pins', 'Pin pads', 0.04, 0, 1, {
 			step: 0.001,
 			group: 'fill',
 			showIf: isFill,
-			hint: 'Chance each link breaks into two traces ending in pads — more pads, shorter traces'
+			hint: 'How likely each link is to break into two traces ending in pads, for more pads and shorter traces'
 		}),
 		P.float('width', 'Trace width', 4, 0.25, 256, { softMax: 16, unit: 'px', step: 0.25 }),
 		P.float('wide', 'Wide traces', 0.12, 0, 1, {
 			step: 0.001,
-			hint: 'Share of the traces drawn wider (power and ground runs); their pads and vias grow with them'
+			hint: 'How many of the traces are drawn wider (power and ground runs); their pads and vias grow with them'
 		}),
-		P.float('wide_width', 'Wide width', 2, 1, 8, {
+		P.float('wide_width', 'Wide trace width', 2, 1, 8, {
 			softMax: 4,
 			step: 0.05,
 			showIf: (p) => Number(p.wide) > 0,
-			hint: '× Trace width, for the wide traces — capped so a wide trace keeps 1 px clear of a normal one beside it (fewer cells across allow wider)'
+			hint: 'Sets the wide traces’ width as × Trace width, capped so a wide trace keeps 1 px clear of a normal one beside it (fewer cells across allow wider)'
 		}),
 		P.float('pads', 'Pads on ends', 1, 0, 1, {
 			step: 0.001,
 			group: 'pads',
-			hint: 'Chance each trace end (dead end) gets a pad'
+			hint: 'How likely each trace end (dead end) is to get a pad'
 		}),
 		P.float('pad_size', 'Pad radius', 5, 0, 256, {
 			softMax: 16,
 			unit: 'px',
 			step: 0.25,
 			group: 'pads',
-			hint: 'Half the pad’s width (square, octagon) or its radius'
+			hint: 'Sets half the pad’s width (square, octagon) or its radius (round)'
 		}),
 		P.float('tight_pads', 'Pads where crowded', 0.75, 0, 1, {
 			step: 0.001,
 			group: 'pads',
 			showIf: isFill,
-			hint: 'Fill: an end with another trace beside it has no room for a full pad. It gets one this size (× Pad radius) instead; 0 = it ends bare'
+			hint: 'An end with another trace beside it has no room for a full pad, so it gets one this size (× Pad radius) instead (0 = it ends bare)'
 		}),
 		P.enum(
 			'pad_shape',
@@ -287,37 +292,37 @@ export const tracesLayer: LayerDef = {
 			unit: 'px',
 			step: 0.25,
 			group: 'pads',
-			hint: 'Radius of a drill hole through each pad (0 = solid pads)'
+			hint: 'Drills a hole of this radius through each pad (0 = solid pads)'
 		}),
 		P.float('pad_lift', 'Pad height', 0.3, 0, 3, {
 			softMax: 1,
 			step: 0.001,
 			group: 'pads',
-			hint: 'Pads and vias stand this much higher than the traces (0.3 = 30 % higher: solder, plating). With it or Pad dome above 0, Height › Pattern takes the relief from this layer’s own shapes; at 0 from the combined mask it writes, like other shape layers'
+			hint: 'Raises pads and vias this much above the traces (0.3 = 30 % higher, like solder or plating). With this or Pad dome above 0, Height › Pattern takes the relief from this layer’s shapes; at 0, from the combined mask it writes, like other shape layers'
 		}),
 		P.float('pad_dome', 'Pad dome', 0.35, 0, 1, {
 			step: 0.001,
 			group: 'pads',
-			hint: 'Rounds pads and vias into domes (solder blobs): 0 = the Edge bevel, 1 = one dome over the whole pad'
+			hint: 'Rounds pads and vias into domes like solder blobs (0 = just the Edge bevel, 1 = one dome over the whole pad)'
 		}),
 		P.float('vias', 'Vias', 0.12, 0, 1, {
 			step: 0.001,
 			group: 'pads',
-			hint: 'Chance of a ring at any linked node (never two linked side by side)'
+			hint: 'How likely a via ring is at any linked node (never two linked side by side)'
 		}),
 		P.float('via_size', 'Via radius', 5, 0, 256, {
 			softMax: 16,
 			unit: 'px',
 			step: 0.25,
 			group: 'pads',
-			hint: 'At least the trace’s half-width + the ring, so the ring always shows round the trace'
+			hint: 'Sets the via radius; it’s always at least the trace’s half-width + the ring, so the ring shows all round the trace'
 		}),
-		P.float('via_ring', 'Via ring', 3, 0.25, 256, {
+		P.float('via_ring', 'Via ring width', 3, 0.25, 256, {
 			softMax: 8,
 			unit: 'px',
 			step: 0.25,
 			group: 'pads',
-			hint: 'Width of the via’s ring round its hole; at or past the radius the via is solid'
+			hint: 'Sets the width of the via’s ring round its hole; at or past the radius the via is solid'
 		}),
 		P.seed()
 	],
@@ -396,7 +401,7 @@ GenOut gen(vec2 p) {
   float fx = 0.0;    // pads and vias: the deepest point into their own bevel (0 edge … 1 full height)
   float bestId = 0.0;
   float hw = 0.5 * u_width;
-  // Wide traces: a share of the traces (by trace id) Wide width × as wide; their pads and vias grow by as much.
+  // Wide traces: a share of the traces (by trace id) Wide trace width × as wide; their pads and vias grow by as much.
   // A wide trace keeps 1 px clear of a normal one beside it: the nearest neighbour runs a node over (gap + 1 in fill),
   // which for parallel diagonals is cw·ch / |cs| away.
   float near = tr_cs.x * tr_cs.y / length(tr_cs) * (u_mode == 2 ? 1.0 + float(u_gap) : 1.0);

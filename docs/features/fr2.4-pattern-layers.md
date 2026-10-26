@@ -3,7 +3,7 @@
 **Status:** done — eight generator types in `src/layers/generators/patterns.ts` (cell / SDF patterns) and
 `src/layers/generators/patternsFill.ts` (clouds, gradient, scratches), registered in `generators/index.ts`. The
 Checker layer has been folded into **Tiles** (FR7.2b, `geometricTiles.ts`): Squares, with the Tones output for a
-two-tone value (softness, tone variation) and the tile kinds for bevelled checker squares.
+two-tone value (tone softness, tone variation) and the tile kinds for bevelled checker squares.
 
 ## Goal
 
@@ -22,14 +22,14 @@ edge distance so they can be bevelled and varied per cell.
 
 ## Checklist
 
-- [x] Bricks (+ length variation, edge jitter, wobble, wobble scale / variation, stone shape, straight creases, smallest piece, chipped corners with broken outline, face relief / crown / tilt, mortar level, joint variation)
-- [x] Voronoi (cells, F1, F2, edges, crackle, facets, gap SDF, corner rounding, warp, cell size variation, size / position / rotation jitter, grout level, face relief / tilt, crack width variation, facets kept in range)
+- [x] Bricks (+ length variation, edge variation, wobble, wobble scale / variation, stone shape, straight creases, smallest piece, chipped corners with broken outline, face relief / crown / tilt, mortar level, joint variation)
+- [x] Voronoi (cells, F1, F2, edges, crackle, facets, gap SDF, corner rounding, warp, cell size variation, joint variation, position jitter, rotation variation, grout level, face relief / tilt, crack width variation, facets kept in range)
 - [x] Clouds
 - [x] Gradient (linear / radial / angular / diamond, clamp / repeat / mirror)
-- [x] Stripes (shape SDF or soft-square / sine / triangle / saw value; width variation, spacing jitter, missing stripes, saw softness)
+- [x] Stripes (shape SDF or soft-square / sine / triangle / saw value; width variation, spacing variation, missing stripes, saw softness)
 - [x] Checker — moved to Tiles (FR7.2b)
-- [x] Grid lines (corner rounding, spacing jitter, width variation)
-- [x] Hex tiles (pointy / flat top; grout level, size / position / rotation jitter, wobble, chips with broken outline, round bevel corners, face relief / crown / tilt)
+- [x] Grid lines (corner rounding, spacing variation, width variation)
+- [x] Hex tiles (pointy / flat top; grout level, size variation, position jitter, rotation variation, wobble, chips with broken outline, round bevel corners, face relief / crown / tilt)
 - [x] Scratches
 
 ## Layer reference
@@ -52,19 +52,19 @@ Edge controls are hidden and they write no shape (`sdfShowIf`: stripes in shape 
 **Defaults.** The plain defaults are the finished looks:
 
 - Bricks: 12 courses, mortar level 0.2, straight creases and Close gaps (for dry stone), wobble varying per brick
-  (0.7), 0.5° rotation jitter, 25 % length variation (smallest piece 0.5), chips 0.4 (broken outline 0.35, dust 0.45),
+  (0.7), 0.5° rotation variation, 25 % length variation (smallest piece 0.5), chips 0.4 (broken outline 0.35, dust 0.45),
   face relief 0.35, face tilt 0.5, Height › Per-feature variation 0.3.
 - Hex tiles: round bevel corners, a strong crown (1.2) so the face domes on from the bevel without a framed plateau,
   grout level 0.2, face relief 0.2, face tilt 0.25, chips 0.3 (size 0.25, broken outline 0.5, dust 0.2), per-feature
   variation 0.25.
-- Voronoi: cell size variation 0.5, 2° rotation jitter, round bevel corners, smallest bevel 0.5, grout level 0.2, face
-  relief 0.35, crown 0.3, face tilt 0.35, per-feature variation 0.3; soft facets with a 3 px edge; crackle variation
-  0.6 at scale 0.6, crack darkness 0.7.
-- Grid: whole-pixel lines, smooth profile. Stripes: Fit the bevel, smooth profile, smooth softness 3 px.
+- Voronoi: cell size variation 0.5, 2° rotation variation, round bevel corners, smallest bevel 0.5, grout level 0.2, face
+  relief 0.35, crown 0.3, face tilt 0.35, per-feature variation 0.3; soft facets with a 3 px edge; crack variation
+  0.6 at crack swell length 0.6, crack darkness 0.7.
+- Grid: whole-pixel lines, smooth profile. Stripes: Fit the bevel, smooth profile, smooth edge softness 3 px.
 
 A layer added in the editor (`fresh`) also gets the values that depend on the texture size: bricks about 3:1 (4
-columns, an even row count from the aspect), a round bevel of 0.2 of a course, edge jitter and wobble in proportion
-to the courses; hex a short bevel (0.06 of a tile); Voronoi cobbles with bevel, gap, corner rounding, warp, size jitter
+columns, an even row count from the aspect), a round bevel of 0.2 of a course, edge variation and wobble in proportion
+to the courses; hex a short bevel (0.06 of a tile); Voronoi cobbles with bevel, gap, corner rounding, warp, joint variation
 and Smallest cell sized to the cells; grid 5 px lines with a 1.8 px bevel at
 512 px; stripes a bevel of a quarter of a stripe.
 
@@ -128,14 +128,14 @@ Value.
 **Bricks: rubble and dry stone.** _Stone shape_ cuts each corner of the nearest brick at a random angle and depth
 (mostly a little, now and then deeply), slants its ends, and lets its top and bottom sag towards one end and bow
 (cuts after the search; where that leaves the pixel nearer the second brick, it takes that one). _Smallest piece_
-scales the length and course variation so no brick or course is thinner than 0.1 + 0.9 × it. Overlapping stones meet
+scales the length and row height variation so no brick or course is thinner than 0.1 + 0.9 × it. Overlapping stones meet
 in a crease: off, the nearer outline wins (a corner can poke into its neighbour); with _Straight creases_, every stone
 near the pixel (all 15 searched) is split from every stone it overlaps (separating-axis test on their four edge
 directions) along one line across the middle of the overlap, square to the axis of least overlap. The line is the same
 from either stone and runs right across both, so each stone is its box cut by half-planes: convex, and every pixel
 agrees which stone it is in (no stubs, steps or hammer-heads); a groove of a fifth of the bevel (1–2 px) stays between
 them, so stones never fuse. With negative mortar, shifted and turned stones grow by their shift and turn so they keep
-filling their places (a shifted stone spans its place and where it moved to; Edge jitter only moves it), and with
+filling their places (a shifted stone spans its place and where it moved to; Edge variation only moves it), and with
 _Close gaps_ (on by default) every gap the creases leave closes: in it the nearest stone grows to the gap's middle
 line, `min(best, groove + ½ (best − second))` — a no-op where stones already meet in a crease — so the stones fit
 into each other in the same thin groove and a dry wall has no open mortar (mortar-grey pixels about half the default
@@ -143,14 +143,14 @@ wall's). It runs before Stone shape, which still cuts the stones' corners and en
 chamfered, not arrowheads. With negative mortar, a turned stone grows to still fill its place (dry stone
 stays dry).
 
-**Hex / Voronoi: hand-set cells.** _Position_ and _Rotation jitter_ move each cell within its place: its four kept
+**Hex / Voronoi: hand-set cells.** _Position jitter_ and _Rotation variation_ move each cell within its place: its four kept
 edge planes are turned about its centre and shifted (`pat_moveCell`), and each side is drawn in by as much as its
 moved edge would reach past its place (shift along it, turn × half the edge, less half the gap) — side by side, so
-only the sides that need it give way and the joints stay tight. Hex _Size jitter_ moves each side in or out by its
+only the sides that need it give way and the joints stay tight. Hex _Size variation_ moves each side in or out by its
 own random amount (the mean joint stays, never below a pixel: irregular hexagons) and hex _Wobble_ fades out towards
 the corners. Voronoi _Smallest cell_ (px) merges away every cell whose nearest edge comes closer to its site than that: the
 decision is made once per cell on the CPU (`cpuData` → `t_cells`, the shader's hashes and cell points replicated in
-TypeScript, from the same 5 × 5 power-diagram edges, less the cell's Size jitter), and the shader's site search skips
+TypeScript, from the same 5 × 5 power-diagram edges, less the cell's Joint variation), and the shader's site search skips
 merged sites, so their
 neighbours fill the place — no pebbles or needle slivers, and every pixel agrees. _Smallest bevel_ gives a cell whose
 inradius is under the bevel a narrower one, 0.8 of the inradius, but at least that share of the Bevel, so small stones
@@ -161,7 +161,7 @@ lighter site), so big cells sit among small ones.
 
 **Voronoi values.** _Soft facets_ caps each plane's slope so it stays in range across its cell (a knee catches the odd
 large one) and blends the four nearest cells' planes with soft weights (from the differences of their squared
-distances, so ranks that swap have equal weights: no steps at triple junctions) over _Facet edge_ px (default 3: crisp
+distances, so ranks that swap have equal weights: no steps at triple junctions) over _Facet edge width_ px (default 3: crisp
 chamfers like cut stone) — Height ›
 Per-feature variation blended with the same weights — (a partition of
 unity: continuous through borders and junctions) — a faceted surface with crisp creases, no cliffs or pixel steps. Each plane's border distance is exact (the difference
@@ -170,7 +170,7 @@ colour random blends over that pixel too; Height › Per-feature variation is ap
 blended the same way, so it doesn't scatter along the boundaries.
 Crackle's crest is rounded over about a pixel (no dashed aliasing along the ridge), and a crackle layer defaults to
 Height › Subtract (`linkedDefaults`) so the cracks cut in rather than stand up. _Crack variation_ makes each of
-the two nearest edges a V crack whose width and depth come from one smooth noise (_Variation scale_ cells per swell:
+the two nearest edges a V crack whose width and depth come from one smooth noise (_Crack swell length_ cells per swell:
 small varies each crack along its length, large gives regions of hairlines and of wide cracks) read on the crack's
 own line, stepped between four levels (a quick change where the noise crosses a level, straight-walled stretches
 between: broken lips, not smooth lenses) — one field over the whole network, so cracks swell and narrow along their length and run on
@@ -198,7 +198,7 @@ two sites tie are no border.
     near the requested scale and takes the most regular fit (the count may differ by 1–2; a few % stretch).
     Non-tiling projects use exactly regular hexes.
   - Stripes: when tiling, the stripe frequency is snapped to whole cycles across each axis, which snaps the
-    angle to the nearest seamless one (e.g. count 10 at 30° → 29.7°).
+    angle to the nearest seamless one (e.g. Stripes across 10 at 30° → 29.7°).
   - Gradient: radial / diamond / angular use the nearest periodic copy of the centre when tiling (continuous
     for radial / diamond). A linear gradient cannot repeat unless `repeat` / `mirror` divides the texture.
   - Voronoi / clouds / scratches / grid: scale and warp frequencies are integer per axis via `cellsFor`.
@@ -206,20 +206,20 @@ two sites tie are no border.
   the four nearest edges are kept and the cell distance is the max over edge pairs of the distance to their
   half-plane intersection. Manhattan / Chebyshev cells use a per-bisector `g / |∇g|` estimate (exact on each
   linear piece), with no rounding. Domain warp (Voronoi) and wobble (bricks, hex) bend the distances slightly;
-  size jitter (hex, Voronoi) insets each cell by a per-cell random.
-- **Jittered lines.** Grid lines and stripes with spacing jitter / width variation search the three lines around the
+  size variation (hex) and joint variation (Voronoi) inset each cell by a per-cell random.
+- **Jittered lines.** Grid lines and stripes with spacing variation / width variation search the three lines around the
   pixel (each line its own shift and width, hashed by its wrapped index), so they still tile; a grid's per-panel
-  random follows the moved lines. With all at 0 the result is the regular, pixel-aligned pattern. Grid jitter 1 is
+  random follows the moved lines. With all at 0 the result is the regular, pixel-aligned pattern. Grid spacing variation 1 is
   the most that still leaves neighbouring lines two widths plus the bevels (and 2 px) apart; varied widths are at
   least 1 px, and a line thinner than its two bevels has its inside distance stretched so it still reaches full
   depth. Grid _Corner rounding_ rounds the panels (a rounded box's corner distance where both lines are within the
-  radius). Stripe widths vary both ways, (1 ± var) × Width, kept between a pixel plus the bevels and the period less
+  radius). Stripe widths vary both ways, (1 ± var) × Stripe width, kept between a pixel plus the bevels and the period less
   that; _Missing stripes_ drops stripes by chance (gaps of several periods).
-- **Sawtooth softness.** The saw rises over the period less _Softness_ px and drops back over Softness px; _Softness
+- **Sawtooth softness.** The saw rises over the period less _Edge softness_ px and drops back over Edge softness px; _Softness
   profile › Smooth_ eases soft-square edges and the saw's drop.
 - **Fit the bevel** (stripes, shape mode): each stripe's bevel at most a third of its width (its inside distance
   stretched to match), on the stripe grown by half of it — Height reads that as a profile of its own (`genOutHeight`),
-  while colour, coverage and the mask it writes stop at the stripe's Width, the bevel's half height. Jittered stripes that
+  while colour, coverage and the mask it writes stop at its Stripe width, the bevel's half height. Jittered stripes that
   run into each other merge into one span (the intervals' union), one flat plank.
 - **Diffuse by shape.** Shape stripes default to Diffuse › Source Shape
   (`linkedDefaults`): painted flat, the bevel in Height only, so the ramp's dark end no longer frames every edge.
@@ -228,9 +228,9 @@ two sites tie are no border.
   thinner than its bevels gets a narrower bevel, at most 0.375 (w − 1) and half a pixel, so every line reaches the
   full depth on at least its middle pixel and the weight still grows with the width — per line, before the two
   directions are combined, so where lines cross the deeper one wins; a moved line's shift averages its random with
-  the previous line's, so a narrow panel no longer sits beside every wide one (no tartan) — at Jitter 1 panels span
+  the previous line's, so a narrow panel no longer sits beside every wide one (no tartan) — at Spacing variation 1 panels span
   mostly 0.45–1.55 cells (±0.75 at most), never closer than two line widths plus the bevels; a varied stripe thinner than
-  its bevels likewise keeps its full rounding. Varied stripe widths are kept between 1.5 px and the period less 1.5 px; spacing jitter
+  its bevels likewise keeps its full rounding. Varied stripe widths are kept between 1.5 px and the period less 1.5 px; spacing variation
   can move a stripe a quarter period into its neighbours' slots (they may merge).
 - **Compile time.** The pattern layers' fBm goes through the library's `fbm` / `warpOffset` (its
   octave loop bounded by a uniform so D3D keeps it rolled); cold D3D11 compiles: bricks ≈ 1.25 s, hex ≈ 0.8 s,
@@ -248,9 +248,9 @@ two sites tie are no border.
     2 px but under 3 % of the length), its distance measured across the arc. Taper narrows the last _Taper length_ of
     each half (1 = a spindle), less at a _Blunt start_. _Breakup_ runs a 1D noise along each scratch (its waves at
     least half a short scratch long) that varies its depth and width and opens gaps. _Length bias_ skews lengths short
-    (`h^(1 + 3·bias)`). Thickness jitter ties width to strength (the weak ones are the hairlines); _Width by length_
+    (`h^(1 + 3·bias)`). Width variation ties width to strength (the weak ones are the hairlines); _Width by length_
     scales width by `(len / max)^0.7`, capped at len / 8 (no rice grains). _Swirl_ (`bend_coh`) lines the scratches
-    up along circles: each circles its own centre (one per Clump scale cell, moved by up to 0.3 × its distance),
+    up along circles: each circles its own centre (one per clump cell of _Clumps across_, moved by up to 0.3 × its distance),
     drifts off the circle by up to ±12°, keeps its own direction within a minimum radius and stops at ¾ of a circle —
     wiping and polishing marks. _Directions_ (1–4) spreads the headings over 180° from Angle; _Direction balance_
     gives the first more of the scratches, _Direction spread_ turns the others off the even spread by a random angle.
@@ -268,9 +268,9 @@ two sites tie are no border.
     ±0.5 px with Hard edges; gaps of the breakup pushed outside) goes to the mask named in _Write to_ — none by
     default, so adding scratches never replaces the Shape mask built above them. Normal / Union: later layers limited
     to it stay inside the scratches (rust, bare metal); Subtract: a panel's mask loses them (paint that skips the
-    scratches). _Mask strength_ leaves the faint ones out.
+    scratches). _Mask threshold_ leaves the faint ones out.
   - The cell loop has no `continue`: D3D11 miscompiled one there (scratches thinned and cut off at cell borders).
-  - The plain defaults suit about 128 px; the editor's new layer (`fresh`) sizes density, lengths, thickness, wobble
+  - The plain defaults suit about 128 px; the editor's new layer (`fresh`) sizes density, lengths, width, wobble
     and burr width to the texture.
 - **Clouds** sum their octaves in one flat value / Perlin loop (one copy of each noise in the D3D shader). Styles:
   _Soft_ (fBm), _Billow_, _Ridged_ and _Cumulus_ (the default: the first octave smooth — the masses — the next two
@@ -280,7 +280,7 @@ two sites tie are no border.
     uploads 17 quantiles; `eq_value` (from Noise) maps them onto fBm's spread and the threshold is the evened-out
     `1 − coverage` quantile — the share above mid-grey for every style, seed and size (measured 0.35 / 0.5 / 0.65 /
     0.8 → 35.0 / 49.2–50.3 / 64.7 / 80.2 %). Not ported: the animation phase and the layer's own domain warp / offset.
-  - _Softness_ box-filters the clip of Contrast over up to 2 × 0.5 (quadratic shoulders), and above 0.5 blends into
+  - _Contrast softness_ box-filters the clip of Contrast over up to 2 × 0.5 (quadratic shoulders), and above 0.5 blends into
     `0.5 + tanh(2(v − 0.5))/2` — domes, not plateaus (at 1, 9 % at black where the hard clip has 26 %).
   - _Crease softness_ replaces the fold `|2n − 1|` by `√((2n − 1)² + e²) − e` (renormalised). Billow rounds every
     octave's fold alike (`e = 0.25 · crease · (1 + o/2)`), domes the lumps (`fold^(1 − crease/2)`) and multiplies in
@@ -295,8 +295,8 @@ two sites tie are no border.
   - The default ramp is a wide Overlay ramp that both darkens and lightens what is beneath.
 - **Gradient** extras: _Square_ rings (L∞; _Roundness_ turns diamonds and squares into superellipses, p 1 → 2 and
   ∞ → 2, without diagonal creases), _Stretch_ (rings elongated along the Angle), angular _Ramps_ (fans and stars;
-  with Mirror two ramps make one wedge) and _Twist_ (spirals), _Band offset_, _Band width jitter_ (each boundary moved
-  by up to ± 0.45 × jitter, wrapped with the band count so fitted bands still tile: strata, planks) and a _Falloff_
+  with Mirror two ramps make one wedge) and _Twist_ (spirals), _Ramp offset_, _Band width variation_ (each boundary moved
+  by up to ± 0.45 × variation, wrapped with the band count so fitted bands still tile: strata, planks) and a _Falloff_
   curve (the bevel profiles: smooth, round, cove — radial + cove + Invert is a hemisphere).
   - Tiling radial-type rings blend the 5 × 5 copies of the centre by their own metric with weights
     `e^(−(m − m_min) / τ)`, τ = Seam rounding / 4: repeating ramps blend their _phase_ (the unit vector of

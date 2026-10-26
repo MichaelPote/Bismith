@@ -69,13 +69,13 @@ layers (Clouds lives in FR2.4).
   (`NZ_SHARED_GLSL`) maps the median to mid-grey and the 7 % / 93 % quantiles to ± 0.21 (where 6-octave fBm has them)
   through one monotone quadratic, straight beyond: the darks and lights balance for every mode without the shapes
   within being stretched as a full histogram match would.
-- **Levels** (lattice types): Contrast about mid-grey, Brightness, and Softness — the clip box-filtered over up to 1
+- **Levels** (lattice types): Contrast about mid-grey, Brightness, and Clip softness — the clip box-filtered over up to 1
   (quadratic shoulders, mid-tones untouched). 1 / 0 skip it entirely.
 - **Defaults:** even levels, even cells with the smooth profile, ridge offset 0.4, crease softness 0.5, ridge
-  hierarchy 0.7; octaves are always decorrelated. Code-built layers keep neutral levels (contrast 1, softness 0):
+  hierarchy 0.7; octaves are always decorrelated. Code-built layers keep neutral levels (contrast 1, clip softness 0):
   they are usually thresholded (Cutoff, height masks), where a roll-off would move the cut; the editor's new layer
-  (`fresh`) takes contrast 1.1 / softness 1 (rolls off without clipping). Recipes that cut raw Worley distances
+  (`fresh`) takes contrast 1.1 / clip softness 1 (rolls off without clipping). Recipes that cut raw Worley distances
   (pits, cracks) set Even cells off and the linear profile; the concrete smear asks for classic ridged.
-- **Ranges** are generous for 16 … 2048 px textures: scale up to 1024 cells (slider 128), stretch 0.02 … 100 (slider
+- **Ranges** are generous for 16 … 2048 px textures: Cells across up to 1024 (slider 128), stretch 0.02 … 100 (slider
   0.1 … 16 — brushed metal and fibres want 8 … 30), warp up to 16 cells, pixel size up to 256 px.
 - Simplex isn't periodic: tileable projects get Perlin for it (the option reads "Simplex (Perlin when tiling)").

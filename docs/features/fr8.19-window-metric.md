@@ -11,12 +11,12 @@ layout — the number of planks, the end joints, the stagger — and the optimis
 matter to whether the render _reads_ as the reference. Measured on a plank project against a re-seeded copy of itself
 (nothing lines up), the old metrics price layout above texture:
 
-| change (same material)                                                               | Tile      | Texture   | VGG term  | windows term |
-| ------------------------------------------------------------------------------------ | --------- | --------- | --------- | ------------ |
-| layout: plank count, joints, stagger, width variation, joint randomness (5 variants) | 0.28–0.46 | 0.16–0.39 | 0.19–0.45 | 0.17–0.21    |
-| fine grain removed (_Fine_ and _Grain depth_ down)                                   | 0.39      | 0.30      | 0.36      | 0.30         |
-| grain noise layers off                                                               | 0.30      | 0.18      | 0.24      | 0.36         |
-| chips & splits off                                                                   | 0.34      | 0.25      | 0.27      | 0.20         |
+| change (same material)                                                                | Tile      | Texture   | VGG term  | windows term |
+| ------------------------------------------------------------------------------------- | --------- | --------- | --------- | ------------ |
+| layout: plank count, joints, stagger, width variation, stagger variation (5 variants) | 0.28–0.46 | 0.16–0.39 | 0.19–0.45 | 0.17–0.21    |
+| fine grain removed (_Fine_ and _Grain depth_ down)                                    | 0.39      | 0.30      | 0.36      | 0.30         |
+| grain noise layers off                                                                | 0.30      | 0.18      | 0.24      | 0.36         |
+| chips & splits off                                                                    | 0.34      | 0.25      | 0.27      | 0.20         |
 
 Tile's _structure_ term is ≈0.58 for every one of them — the floor of a stochastic material, whatever changed — and at
 the 128 px comparison size the VGG term mostly sees the gaps and joints (a different plank count costs more than the

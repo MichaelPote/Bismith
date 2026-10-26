@@ -1058,13 +1058,23 @@ function layerTextures(c0: Cells, q: ParamValues, opts: LayerMaps = {}): Record<
 const repeats = (p: ParamValues) => Number(p.count_x) > 1 || Number(p.count_y) > 1;
 
 const placement: ParamDef[] = [
-	P.float('x', 'X', 0.5, -2, 3, { softMin: 0, softMax: 1, step: 0.001, hint: 'Centre, 0..1 across' }),
-	P.float('y', 'Y', 0.5, -2, 3, { softMin: 0, softMax: 1, step: 0.001, hint: 'Centre, 0..1 down' }),
+	P.float('x', 'Centre X', 0.5, -2, 3, {
+		softMin: 0,
+		softMax: 1,
+		step: 0.001,
+		hint: 'Moves the centre left or right (0…1 across)'
+	}),
+	P.float('y', 'Centre Y', 0.5, -2, 3, {
+		softMin: 0,
+		softMax: 1,
+		step: 0.001,
+		hint: 'Moves the centre up or down (0…1 down)'
+	}),
 	P.float('scale', 'Pixel size', 1, 0.25, 256, {
 		softMax: 32,
 		unit: 'px',
 		step: 0.05,
-		hint: 'Texture px per bitmap cell (whole numbers keep the cells on the pixel grid, crisp)'
+		hint: 'How many texture px each bitmap cell takes up (whole numbers keep the cells crisp on the pixel grid)'
 	}),
 	P.enum(
 		'rotate',
@@ -1076,32 +1086,32 @@ const placement: ParamDef[] = [
 			['180', '180°'],
 			['270', '270°']
 		],
-		{ hint: 'Quarter turns, clockwise: the cells stay on the pixel grid' }
+		{ hint: 'Turns the stamp in quarter turns, clockwise, keeping the cells on the pixel grid' }
 	),
 	P.float('angle', 'Angle', 0, -360, 360, {
 		softMin: -180,
 		softMax: 180,
 		unit: '°',
 		step: 0.1,
-		hint: 'Free rotation on top of the quarter turns, clockwise. Off the quarter turns the cell edges leave the pixel grid: keep Anti-alias on'
+		hint: 'Turns the stamp freely on top of the quarter turns, clockwise. Off the quarter turns the cell edges leave the pixel grid, so keep Anti-alias on'
 	}),
 	P.float('grow', 'Grow', 0, -256, 256, {
 		softMin: -8,
 		softMax: 16,
 		unit: 'px',
 		step: 0.1,
-		hint: 'Offsets the outline: out (rounding the outer corners — bold, blobby lettering) or in (thinner, rounding the inner corners)'
+		hint: 'Pushes the outline out (rounding the outer corners: bold, blobby lettering) or pulls it in (thinner, rounding the inner corners)'
 	}),
 	P.float('outline', 'Outline', 0, 0, 512, {
 		softMax: 16,
 		unit: 'px',
 		step: 0.1,
-		hint: '0 = solid; otherwise only a stroke of this width inside the outline'
+		hint: 'Hollows the stamp out, leaving only a stroke of this width inside the outline (0 = solid)'
 	}),
 	P.float('smooth', 'Smooth outline', 0, 0, 4, {
 		softMax: 2,
 		step: 0.001,
-		hint: '0 = the exact pixel outline: crisp, but a bevel wider than about a cell follows every stair and spikes inward at each step — raise Smooth outline for wide bevels. Lettering with Join diagonals (strokes) from 1: beyond 1 the strokes’ bends round off into curves (fully at 2). Otherwise up to 1 the staircase is rounded into curves (45° steps become straight diagonals) — a stamp drawn small, shown large; from 1 to 2 uneven stair runs straighten into the sides they suggest; beyond 2 corners round further'
+		hint: 'Smooths the pixel staircase of the outline (0 = the exact pixel outline: crisp, but a bevel wider than about a cell follows every stair and spikes inward at each step, so raise this for wide bevels). Up to 1, the staircase rounds into curves (45° steps become straight diagonals), like a stamp drawn small and shown large; from 1 to 2, uneven stair runs straighten into the sides they suggest; beyond 2, corners round further. For lettering with Join diagonals (strokes from 1), beyond 1 the strokes’ bends round off into curves (fully at 2)'
 	}),
 	P.int('count_x', 'Repeat X', 1, 1, 256, { softMax: 32, group: 'repeat' }),
 	P.int('count_y', 'Repeat Y', 1, 1, 256, { softMax: 32, group: 'repeat' }),
@@ -1110,11 +1120,11 @@ const placement: ParamDef[] = [
 		'Spacing',
 		'gap',
 		[
-			['step', 'Step', 'centre to centre, in px'],
+			['step', 'Step', 'sets the distance centre to centre, in px'],
 			[
 				'gap',
 				'Gap',
-				'the space between neighbouring repeats (their size plus it is the step): follows the pixel size and rotation'
+				'sets the space between neighbouring repeats (the step is their size plus the gap), following the pixel size and rotation'
 			]
 		],
 		{ group: 'repeat', showIf: repeats }
@@ -1126,7 +1136,7 @@ const placement: ParamDef[] = [
 		step: 0.5,
 		group: 'repeat',
 		showIf: (p) => Number(p.count_x) > 1 && p.step_by !== 'gap',
-		hint: 'Centre to centre; repeats may overlap (they merge)'
+		hint: 'Spaces the repeats this far apart, centre to centre; they can overlap (and merge)'
 	}),
 	P.float('step_y', 'Step Y', 16, 0, 4096, {
 		softMax: 256,
@@ -1135,7 +1145,7 @@ const placement: ParamDef[] = [
 		step: 0.5,
 		group: 'repeat',
 		showIf: (p) => Number(p.count_y) > 1 && p.step_by !== 'gap',
-		hint: 'Centre to centre; repeats may overlap (they merge)'
+		hint: 'Spaces the rows this far apart, centre to centre; they can overlap (and merge)'
 	}),
 	P.float('gap_x', 'Gap X', 1, -256, 256, {
 		softMin: -4,
@@ -1143,7 +1153,7 @@ const placement: ParamDef[] = [
 		step: 0.05,
 		group: 'repeat',
 		showIf: (p) => Number(p.count_x) > 1 && p.step_by === 'gap',
-		hint: 'Between neighbouring repeats, in cells (follows Pixel size); negative overlaps them (they merge)'
+		hint: 'Adds a gap between neighbouring repeats, in cells (follows Pixel size); negative overlaps them (they merge)'
 	}),
 	P.float('gap_y', 'Gap Y', 1, -256, 256, {
 		softMin: -4,
@@ -1151,7 +1161,7 @@ const placement: ParamDef[] = [
 		step: 0.05,
 		group: 'repeat',
 		showIf: (p) => Number(p.count_y) > 1 && p.step_by === 'gap',
-		hint: 'Between neighbouring rows, in cells (follows Pixel size); negative overlaps them (they merge)'
+		hint: 'Adds a gap between neighbouring rows, in cells (follows Pixel size); negative overlaps them (they merge)'
 	}),
 	P.float('skew', 'Row shift', 0, -4096, 4096, {
 		softMin: -256,
@@ -1161,7 +1171,7 @@ const placement: ParamDef[] = [
 		step: 0.5,
 		group: 'repeat',
 		showIf: (p) => Number(p.count_y) > 1,
-		hint: 'Shifts each row of repeats sideways — diagonal rivet lines, staggered grids (half the step: brick bond)'
+		hint: 'Shifts each row of repeats sideways for diagonal rivet lines or staggered grids (half the step = brick bond)'
 	}),
 	P.float('jitter', 'Position jitter', 0, 0, 1024, {
 		softMax: 32,
@@ -1169,13 +1179,13 @@ const placement: ParamDef[] = [
 		step: 0.1,
 		group: 'repeat',
 		showIf: repeats,
-		hint: 'Moves each repeat by up to this much (snapped to whole pixels), by the seed'
+		hint: 'Moves each repeat randomly by up to this much (snapped to whole pixels, set by the seed)'
 	}),
-	P.float('drop', 'Drop out', 0, 0, 1, {
+	P.float('drop', 'Missing repeats', 0, 0, 1, {
 		step: 0.001,
 		group: 'repeat',
 		showIf: repeats,
-		hint: 'Fraction of the repeats left out at random (missing rivets), by the seed'
+		hint: 'Leaves out some of the repeats at random, like missing rivets (0 = none, 1 = all; set by the seed)'
 	}),
 	P.enum(
 		'rnd_by',
@@ -1185,14 +1195,14 @@ const placement: ParamDef[] = [
 			[
 				'level',
 				'Pixel level',
-				'the cell level: "-" low, "+" mid, "#" full — multi-tone bitmaps through a Random colour ramp'
+				'follows the cell level ("-" low, "+" mid, "#" full), for multi-tone bitmaps through a Random gradient ramp'
 			],
-			['instance', 'Repeat', 'one random value per repeat — each rivet its own shade or height'],
-			['both', 'Level + repeat', 'the level picks a third of the ramp, the repeat a shade within it']
+			['instance', 'Repeat', 'gives each repeat a random value, so each rivet can be its own shade or height'],
+			['both', 'Level + repeat', 'the level picks a third of the gradient ramp, the repeat a shade within it']
 		],
 		{
 			group: 'repeat',
-			hint: 'What the per-feature random (Random sources, Random jitter, Per-feature variation) follows'
+			hint: 'Picks what the per-feature random value follows (for Random sources, Colour variation, Per-feature variation)'
 		}
 	),
 	P.float('rnd_lo', 'From', 0, 0, 1, {
@@ -1200,7 +1210,7 @@ const placement: ParamDef[] = [
 		group: 'repeat',
 		showIf: (p) => p.rnd_by !== 'level',
 		join: { with: 'rnd_hi', as: 'pair', label: 'Repeat random range' },
-		hint: "The part of the ramp each repeat's random falls in — e.g. 0.3 … 1 keeps every repeat clear of a dark base"
+		hint: "Limits each repeat's random value to this part of the gradient ramp (e.g. 0.3 … 1 keeps every repeat clear of a dark base)"
 	}),
 	P.float('rnd_hi', 'To', 1, 0, 1, { step: 0.001, group: 'repeat', showIf: (p) => p.rnd_by !== 'level' }),
 	P.seed('seed', 'Seed', 1, { group: 'repeat' })
@@ -1598,7 +1608,7 @@ const NO_IMAGE: CpuTexture = { width: 1, height: 1, data: new Uint8Array(4) };
 const imageCells = new WeakMap<object, { cut: number; cells: Cells }>();
 
 /**
- * Stamp › Image file: the image's pixels at least Alpha cut opaque are the cells (one level), the image itself goes up
+ * Stamp › Image file: the image's pixels at least Opacity threshold opaque are the cells (one level), the image itself goes up
  * as t_img. Nothing (an empty bitmap) while it decodes or when none is picked.
  */
 function imageTextures(q: ParamValues): Record<string, CpuTexture> {
@@ -1627,39 +1637,39 @@ export const stampLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'A hand-drawn pixel bitmap or an image file (insignia, emblem, decal) as a shape: typed rows of cells (# full, + mid, - low, . empty), or a PNG / JPEG / WebP whose colours go into Diffuse or its brightness into Height.',
+		'Stamp: A hand-drawn pixel bitmap or an image file used as a shape; an image’s colours can go into Diffuse or its brightness into Height. Makes insignia, emblems, decals, rivets.',
 	params: [
-		P.enum('source', 'Source', 'pixels', [
-			['pixels', 'Typed pixels', 'rows of cell characters'],
-			['image', 'Image file', 'a PNG, JPEG or WebP: its opaque pixels are the stamp, one cell each']
+		P.enum('source', 'Stamp source', 'pixels', [
+			['pixels', 'Typed pixels', 'type rows of cell characters'],
+			['image', 'Image file', 'a PNG, JPEG or WebP: its opaque pixels become the stamp, one cell each']
 		]),
 		P.image('image', 'Image', {
 			showIf: fromImage,
-			hint: 'A PNG, JPEG or WebP, scaled down on loading to fit the texture (at most 1024 px): each of its pixels is a cell, Pixel size texture px across. The project saves its file name; the image itself stays in this browser (load it again elsewhere)'
+			hint: 'Loads a PNG, JPEG or WebP, scaled down to fit the texture (at most 1024 px); each of its pixels becomes a cell, Pixel size texture px across. The project only saves the file name, and the image itself stays in this browser (load it again elsewhere)'
 		}),
 		P.enum(
 			'into',
-			'Into',
+			'Image into',
 			'diffuse',
 			[
-				['diffuse', 'Diffuse', 'the image’s colours, in place of the colour ramp'],
-				['height', 'Height', 'the image’s brightness as height (× the bevel at its outline)']
+				['diffuse', 'Diffuse', 'uses the image’s colours instead of the gradient ramp'],
+				['height', 'Height', 'uses the image’s brightness as height (× the bevel at its outline)']
 			],
-			{ showIf: fromImage, hint: 'Where the image goes. Its outline still bevels and writes the mask either way' }
+			{ showIf: fromImage, hint: 'Picks where the image goes. Its outline still bevels and writes the mask either way' }
 		),
-		P.float('alpha_cut', 'Alpha cut', 0.5, 0.004, 1, {
+		P.float('alpha_cut', 'Opacity threshold', 0.5, 0.004, 1, {
 			step: 0.001,
 			showIf: fromImage,
-			hint: 'Pixels at least this opaque are the stamp; their alpha still fades the colour'
+			hint: 'Makes pixels at least this opaque part of the stamp; their alpha still fades the colour'
 		}),
 		P.bool('img_smooth', 'Smooth image', false, {
 			showIf: fromImage,
-			hint: 'Blend between the image’s pixels (when Pixel size enlarges it) instead of keeping each one square'
+			hint: 'Blends between the image’s pixels (when Pixel size enlarges it) instead of keeping each one square'
 		}),
 		P.bitmap('pixels', 'Pixels', DEFAULT_PIXELS, 'pixels', {
 			uniform: false,
 			showIf: (p) => !fromImage(p),
-			hint: 'One row per line (up to 128 × 128): "#" full, "+" mid, "-" low level, "." or space empty. Levels drive Per-feature colour'
+			hint: 'Type one row per line (up to 128 × 128): "#" full, "+" mid, "-" low level, "." or space empty. The levels drive Per-feature colour'
 		}),
 		P.enum(
 			'mirror',
@@ -1672,37 +1682,37 @@ export const stampLayer: LayerDef = {
 			],
 			{
 				showIf: (p) => !fromImage(p),
-				hint: 'Draw only the left half; the right half is reflected'
+				hint: 'Lets you draw only the left half and reflects it into the right half'
 			}
 		),
 		P.float('lvl_h', 'Level relief', 1, 0, 1, {
 			step: 0.001,
 			showIf: (p) => !fromImage(p),
-			hint: 'Height follows the cell levels: "-" a third, "+" two thirds, "#" full, each step bevelled like the outline (Height › Pattern) — multi-tone bitmaps emboss. Cells drawn "+" or "-" only for their colour (a rivet\'s highlight) then sit lower too — set 0 for one height for all'
+			hint: 'Makes the height follow the cell levels ("-" a third, "+" two thirds, "#" full), each step bevelled like the outline (Height › Pattern), so multi-tone bitmaps emboss. Cells drawn "+" or "-" just for their colour (a rivet\'s highlight) sit lower too, so set 0 for one height for all'
 		}),
 		P.bool('join', 'Join diagonals', false, {
 			showIf: (p) => !fromImage(p),
-			hint: 'Bridges cells that touch only at a corner with two half-cell squares, so one-cell diagonal lines (and an X’s crossing) bevel as one stroke instead of a row of squares; nothing else changes — square corners stay square'
+			hint: 'Bridges cells that touch only at a corner with two half-cell squares, so one-cell diagonal lines (and an X’s crossing) bevel as one stroke instead of a row of squares. Nothing else changes: square corners stay square'
 		}),
 		...placement,
 		P.float('wear', 'Wear', 0, 0, 1, {
 			step: 0.001,
 			group: 'wear',
-			hint: 'Drops out values below a threshold that noise varies over the stamp: the dark parts of an image (the low levels of typed pixels) and the noise’s high spots go first — worn paint, a scuffed decal. 0 = none, 1 = all gone'
+			hint: 'Wears the stamp away below a threshold that noise varies over it: the dark parts of an image (the low levels of typed pixels) and the noise’s high spots go first, like worn paint or a scuffed decal (0 = none, 1 = all gone)'
 		}),
-		P.float('wear_scale', 'Noise scale', 4, 0.25, 256, {
+		P.float('wear_scale', 'Wear scale', 4, 0.25, 256, {
 			softMax: 32,
 			step: 0.01,
 			group: 'wear',
 			showIf: worn,
-			hint: 'Noise features across the stamp (each repeat wears its own way)'
+			hint: 'How many noise features fit across the stamp (each repeat wears differently)'
 		}),
-		P.int('wear_oct', 'Octaves', 4, 1, 8, {
+		P.int('wear_oct', 'Wear octaves', 4, 1, 8, {
 			group: 'wear',
 			showIf: worn,
-			hint: 'Noise octaves: more = finer, ragged edges to the worn patches'
+			hint: 'Adds noise octaves: more = finer, more ragged edges on the worn patches'
 		}),
-		P.float('wear_soft', 'Softness', 0.04, 0, 0.5, {
+		P.float('wear_soft', 'Wear softness', 0.04, 0, 0.5, {
 			step: 0.001,
 			group: 'wear',
 			showIf: worn,
@@ -1711,7 +1721,7 @@ export const stampLayer: LayerDef = {
 		P.bool('wear_inv', 'Bright parts first', false, {
 			group: 'wear',
 			showIf: worn,
-			hint: 'Wear the bright values first instead of the dark ones'
+			hint: 'Wears away the bright values first instead of the dark ones'
 		})
 	],
 	groups: [...stampGroups, { id: 'wear', label: 'Wear', collapsed: true }],
@@ -1739,26 +1749,26 @@ export const labelLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Pixel-font lettering (3×5 or 5×7 px letters, digits, punctuation) — crate numbers, panel codes, warning text.',
+		'Label: Pixel-font lettering in 3×5 or 5×7 px letters, digits and punctuation. Makes crate numbers, panel codes, warning text.',
 	params: [
 		P.bitmap('text', 'Text', 'BAY 03', 'font', {
 			uniform: false,
-			hint: 'Letters, digits and punctuation; "|" or a new line starts a new line. The small font has capitals only'
+			hint: 'Type letters, digits and punctuation; "|" or a new line starts a new line. The small font only has capitals'
 		}),
 		P.enum('font', 'Font', 'large', [
 			[
 				'small',
 				'Compact 3 × 5 (capitals)',
-				'letters 3 cells wide, 5 tall — for small textures; lower case is drawn as capitals'
+				'letters 3 cells wide and 5 tall, for small textures; lower case is drawn as capitals'
 			],
 			[
 				'large',
 				'Full 5 × 7',
-				'letters 5 cells wide, 7 tall (descenders one more), lower case — legible at larger sizes'
+				'letters 5 cells wide and 7 tall (descenders one more), with lower case; easier to read at larger sizes'
 			]
 		]),
-		P.int('spacing', 'Letter spacing', 1, 0, 32, { softMax: 4, hint: 'Empty cells between letters' }),
-		P.int('line_gap', 'Line spacing', 2, 0, 64, { softMax: 8, hint: 'Empty rows between lines' }),
+		P.int('spacing', 'Letter spacing', 1, 0, 32, { softMax: 4, hint: 'Adds empty cells between letters' }),
+		P.int('line_gap', 'Line spacing', 2, 0, 64, { softMax: 8, hint: 'Adds empty rows between lines' }),
 		P.enum(
 			'align',
 			'Align',
@@ -1768,14 +1778,14 @@ export const labelLayer: LayerDef = {
 				['left', 'Left'],
 				['right', 'Right']
 			],
-			{ hint: 'Lines within the widest one' }
+			{ hint: 'Aligns each line within the widest one' }
 		),
 		P.bool('bold', 'Bold', false, { hint: 'Doubles the upright strokes (each letter one cell wider)' }),
 		P.bool('join', 'Join diagonals', true, {
-			hint: 'Joins cells that touch only at a corner. With Smooth outline below 1: two half-cell squares bridge each such corner (square corners stay square). From 1: the letters are drawn as strokes through the cell centres — straight diagonals (an X crosses cleanly), straight runs kept, round ends'
+			hint: 'Joins cells that touch only at a corner. With Smooth outline below 1, two half-cell squares bridge each such corner (square corners stay square). From 1, the letters are drawn as strokes through the cell centres: straight diagonals (an X crosses cleanly), straight runs kept, round ends'
 		}),
 		P.bool('bev_lim', 'Even strokes', true, {
-			hint: 'Limits the bevel to just under half a stroke (0.4 cell), so thin strokes rise to full height like their junctions — no bright beads where strokes meet'
+			hint: 'Limits the bevel to just under half a stroke (0.4 cell), so thin strokes rise to full height like their junctions, with no bright beads where strokes meet'
 		}),
 		...placement
 	],

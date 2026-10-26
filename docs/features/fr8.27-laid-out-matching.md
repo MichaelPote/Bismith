@@ -34,7 +34,7 @@ the start project's structure raw value dropped from 0.968 to ≈0.77.
 ## Bolts / Rivets
 
 The Circle / Bolt generator is labelled **Bolts / Rivets** (type `circle` unchanged), and the repeat's _Mirror alternate
-cells_ is two options on every shape with a repeat: **Mirror alternate columns** (`rep_mirror_x`) and **Mirror alternate
+cells_ is two options on every shape with a repeat: **Mirror odd columns** (`rep_mirror_x`) and **Mirror odd
 rows** (`rep_mirror_y`). A 2-column repeat mirrored in X alone puts a rivet line along both edges of a plate while its
 rows stay evenly spaced. Presets that had the mirror on have both; an old project's `rep_mirror` is dropped on load
 (nothing is released, so there's no migration).

@@ -1,6 +1,6 @@
 # FR8.10 — Circuit routing (space-filling traces)
 
-**Status:** done — Traces & mazes › Mode _Fill_; the Circuit board lump's default
+**Status:** done — Traces & mazes › Layout _Fill_; the Circuit board lump's default
 
 Space-filling traces that never touch need a global, sequential process, so they are routed on the CPU and drawn on
 the GPU:

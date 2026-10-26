@@ -16,14 +16,14 @@ Small paving stones laid in concentric arcs.
 - **Rings**: one rosette per rectangular cell, cut by the cell.
 - **Setts**: course k (k = 0 a round centre stone) holds n ≈ 2π r / length setts, each an annular sector — joints of
   even width, setts cut where fans meet (the region's distance joins the sett's). Random course turn (Joint
-  stagger) and hand-laid Irregularity (per-sett size, angle and radius). Per sett / course / fan random.
-- Whole fans across and an even row count when tiling; Direction turns the frame in 90° steps.
+  stagger) and hand-laid Sett variation (per-sett size, angle and radius). Per sett / course / fan random.
+- Whole fans across and an even row count when tiling; Fan direction turns the frame in 90° steps.
 
 ## Tiles lump
 
 - _Fan setts_ / _Ring setts_: Tile size = the sett, Fans across, Irregularity; courses = rim radius / sett size.
 - _Bone pavers_: the Tiles _cross_ tiles (hex topology in half-offset columns) with plateau 0.6 (wide ends, a
-  waist) and step 0.3 (the stepped waist), rows 1.35× tall. Tile size = the paver's width.
+  waist) and shoulders 0.3 (the stepped waist), rows 1.35× tall. Tile size = the paver's width.
 - _Plus pavers_: the Tiles _plus_ pentominoes. Tile size = an arm.
 
 Lesson: the colour fit can wash out joints on fine, busy patterns (it matches the histogram, and a uniform mid grey

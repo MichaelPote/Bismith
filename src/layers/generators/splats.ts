@@ -32,10 +32,10 @@ const PARAMS: ParamDef[] = [
 	P.int('count', 'Splats', 3, 0, 200, {
 		softMax: 24,
 		showIf: (p) => !isPlaced(p),
-		hint: 'Splats in the texture (on a jittered grid, so they spread out)'
+		hint: 'How many splats to throw across the texture (they’re placed on a jittered grid, so they spread out)'
 	}),
-	P.bitmap('points', 'Splats', '20,20 44,40', 'lines', {
-		hint: 'A splat on every point (x,y px from the top-left, or 0..1 with Units = fraction) — place them with the shape editor; the lines between points mean nothing',
+	P.bitmap('points', 'Splat points', '20,20 44,40', 'lines', {
+		hint: 'Puts a splat on every point (x,y px from the top-left, or 0…1 with Units = fraction). Place them with the shape editor; the lines between points don’t matter',
 		showIf: isPlaced,
 		uniform: false,
 		shapeEdit: { adds: 'Splats', hint: 'a splat on each point', min: 1, budget: 512, dots: true }
@@ -54,33 +54,36 @@ const PARAMS: ParamDef[] = [
 		softMax: 64,
 		unit: 'px',
 		step: 0.1,
-		hint: 'Radius of a splat’s core'
+		hint: 'Sets the radius of each splat’s core'
 	}),
-	P.float('size_var', 'Size variation', 0.5, 0, 1, { step: 0.001, hint: 'How much the splats differ in size' }),
+	P.float('size_var', 'Size variation', 0.5, 0, 1, {
+		step: 0.001,
+		hint: 'Makes the splats differ in size (0 = all the same)'
+	}),
 	P.float('ragged', 'Ragged core', 0.5, 0, 1, {
 		step: 0.001,
-		hint: 'The core’s outline: 0 a round pool, 1 many lobes straying out, bites out of its rim and clumps breaking off'
+		hint: 'Roughens the core’s outline (0 = a round pool, 1 = lots of lobes straying out, with bites out of the rim and clumps breaking off)'
 	}),
 	P.float('tear', 'Tear', 0.5, 0, 1, {
 		step: 0.001,
-		hint: 'Warps every outline at the splats’ own scale, so cores tear into fingers and bays instead of round lobes'
+		hint: 'Warps the outlines at the size of the splats, so the cores tear into fingers and bays instead of round lobes'
 	}),
 	P.float('edge', 'Edge roughness', 0.6, 0, 4, {
 		softMax: 2,
 		unit: 'px',
 		step: 0.01,
-		hint: 'Fine irregularity of every edge'
+		hint: 'Adds fine wobbles to every edge'
 	}),
 	P.float('splash', 'Splash', 0.7, 0, 1, {
 		step: 0.001,
 		section: 'Spray',
-		hint: '0 a poured pool, no spray · 1 a hard impact: jets and droplets thrown out of the core'
+		hint: 'Throws jets and droplets out of the core (0 = a poured pool with no spray, 1 = a hard impact)'
 	}),
 	P.int('jets', 'Jets', 8, 0, 48, {
 		softMax: 24,
 		section: 'Spray',
 		showIf: sprayed,
-		hint: 'Long jets thrown out of a splat at full Splash, tapering to a point, often with drops strung out beyond their tip — and twice as many short spikes round the rim'
+		hint: 'How many long jets each splat throws out at full Splash. They taper to a point, often with drops strung out past the tip, and twice as many short spikes show up round the rim'
 	}),
 	P.float('jet_len', 'Jet length', 2.2, 0, 12, {
 		softMax: 6,
@@ -94,51 +97,51 @@ const PARAMS: ParamDef[] = [
 		step: 0.01,
 		section: 'Spray',
 		showIf: sprayed,
-		hint: 'Satellite droplets: mostly tiny, a few big (1 ≈ 60 per splat at full Splash)'
+		hint: 'Scatters droplets round each splat, mostly tiny with a few big ones (1 ≈ 60 per splat at full Splash)'
 	}),
 	P.float('reach', 'Droplet reach', 2.5, 0, 12, {
 		softMax: 6,
 		step: 0.01,
 		section: 'Spray',
 		showIf: sprayed,
-		hint: 'How far the droplets fly, in core radii; the far ones are stretched along their flight'
+		hint: 'How far the droplets fly, in core radii. The far ones get stretched along their flight'
 	}),
 	P.float('mist', 'Fine mist', 1, 0, 3, {
 		softMax: 3,
 		step: 0.01,
 		section: 'Spray',
 		showIf: sprayed,
-		hint: 'A dust of specks a px or two across, flying furthest (1 ≈ 150 per splat at full Splash)'
+		hint: 'Adds a dust of specks a px or two across that fly furthest of all (1 ≈ 150 per splat at full Splash)'
 	}),
 	P.float('aim', 'Spray direction', 0, -180, 180, {
 		step: 0.1,
 		unit: '°',
 		section: 'Spray',
 		showIf: (p) => sprayed(p) && Number(p.one_sided) > 0,
-		hint: 'Where a one-sided spray is thrown: 0 up, 90 right'
+		hint: 'Points a one-sided spray (0 = up, 90 = right)'
 	}),
 	P.float('one_sided', 'One-sided', 0, 0, 1, {
 		step: 0.001,
 		section: 'Spray',
 		showIf: sprayed,
-		hint: '0 sprayed all round · 1 thrown to one side in a narrow fan (an impact at an angle)'
+		hint: 'Throws the spray to one side, like an impact at an angle (0 = sprayed all round, 1 = a narrow fan to one side)'
 	}),
 	P.float('gravity', 'Gravity', 0, 0, 1, {
 		step: 0.001,
 		section: 'Gravity',
-		hint: '0 lying flat (pools) · 1 on a wall: the core sags and runs fall from its lower edge and the bigger drops'
+		hint: 'Makes the liquid run down as if on a wall (0 = lying flat in pools, 1 = the core sags and runs drip from its lower edge and the bigger drops)'
 	}),
-	P.float('grav_angle', 'Direction', 0, -180, 180, {
+	P.float('grav_angle', 'Gravity direction', 0, -180, 180, {
 		step: 0.1,
 		unit: '°',
 		section: 'Gravity',
 		showIf: running,
-		hint: 'Which way the runs fall: 0 straight down, 90 to the left, −90 to the right'
+		hint: 'Points the runs (0 = straight down, 90 = to the left, −90 = to the right)'
 	}),
 	P.int('runs', 'Runs', 3, 0, 12, {
 		section: 'Gravity',
 		showIf: running,
-		hint: 'Runs from a splat’s core at full Gravity (the first the longest)'
+		hint: 'How many runs drip from each splat’s core at full Gravity (the first one’s the longest)'
 	}),
 	P.float('run_len', 'Run length', 4, 0, 40, {
 		softMax: 12,
@@ -147,23 +150,23 @@ const PARAMS: ParamDef[] = [
 		showIf: running,
 		hint: 'How far the runs fall, in core radii'
 	}),
-	P.float('bead', 'Bead', 0.6, 0, 1, {
+	P.float('bead', 'Run beads', 0.6, 0, 1, {
 		step: 0.001,
 		section: 'Gravity',
 		showIf: running,
-		hint: 'The drop collecting at the end of a run'
+		hint: 'Grows a drop at the end of each run'
 	}),
-	P.float('meniscus', 'Meniscus', 2, 0.25, 64, {
+	P.float('meniscus', 'Meniscus width', 2, 0.25, 64, {
 		softMax: 16,
 		unit: 'px',
 		step: 0.05,
 		section: 'Liquid',
-		hint: 'How far in from the edge the liquid rises to its full thickness: drops smaller than this stay domed and low, bigger pools flat on top'
+		hint: 'How far in from the edge the liquid takes to reach full thickness. Drops smaller than this stay low and domed; bigger pools go flat on top'
 	}),
 	P.float('rim', 'Dried rim', 0, 0, 1, {
 		step: 0.001,
 		section: 'Liquid',
-		hint: 'A darker, raised ring along the edge, where the liquid dried first'
+		hint: 'Adds a darker, raised ring along the edge, where the liquid dried first'
 	}),
 	// The few lengths fixed in px (the finest specks, a stream too thin to hold together, the rim's least width) scale
 	// with supersampling.
@@ -226,7 +229,7 @@ export const splatsLayer: LayerDef = {
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Blood, water or oil: splats thrown with jets and droplets, or poured pools, lying flat or running down in runs that end in a bead. Value = how thick the liquid is (pools rise to a flat top over a rounded edge).',
+		'Liquid splats: Splashes thrown with jets and droplets, or poured pools, lying flat or running down a wall. Value is how thick the liquid is. Makes blood, spilt water, oil, paint.',
 	params: PARAMS,
 	defaults: {
 		dif_on: true,

@@ -61,7 +61,7 @@ export interface PipeOptions {
 	seed: number;
 	/** Elbow centre-line radius in pipe radii (≥ 1). */
 	bend: number;
-	/** Coupling spacing along straight lengths (px; 0 = none). */
+	/** Collar spacing along straight lengths (px; 0 = none). */
 	spacing: number;
 	/** Chance a coupling is a bolted flange. */
 	flanges: number;
@@ -111,7 +111,7 @@ export function parseRuns(text: string, fraction: boolean, width: number, height
 }
 
 /**
- * Drawn runs (a points list, see parseRuns): radii varied by Radius variety; an end inside the texture gets a flange,
+ * Drawn runs (a points list, see parseRuns): radii varied by Radius variation; an end inside the texture gets a flange,
  * and an end on another run tees into it, the branch narrowing to meet it in a saddle.
  */
 export function drawnRuns(o: PipeOptions, text: string, fraction: boolean, radius: number, variety: number): PipeRun[] {

@@ -13,7 +13,7 @@ const hasEdges = (p: Record<string, unknown>) => Number(p.edge_chance) > 0;
 const hasRivets = (p: Record<string, unknown>) => p.rivets !== 'none';
 const hasDetails = (p: Record<string, unknown>) => Number(p.detail_chance) > 0;
 const hasPocket = (p: Record<string, unknown>) => Number(p.pocket) > 0;
-/** Detail kinds are drawn: on panels (Chance), in edge strips, or in dark pockets. */
+/** Detail kinds are drawn: on panels (Detail chance), in edge strips, or in dark pockets. */
 const hasKinds = (p: Record<string, unknown>) => hasDetails(p) || hasEdges(p) || hasPocket(p);
 const hasSlots = (p: Record<string, unknown>) => hasKinds(p) && (Boolean(p.det_vents) || Boolean(p.det_holes));
 /** Slot pitch and width size vents, perforation, ribs, mesh grilles and heatsink fins. */
@@ -30,9 +30,9 @@ const PARTS = maskParts('mask', 'plates', [
 	[
 		'plates',
 		'Plate tops',
-		'the panels less everything sunk into them: slots, holes, recesses, light housings, groove lines and recessed centres'
+		'the panels without anything sunk into them: slots, holes, recesses, light housings, groove lines and recessed centres'
 	],
-	['panels', 'Panels', 'the whole panels: only the seams left out'],
+	['panels', 'Panels', 'the whole panels, with only the seams left out'],
 	['seams', 'Seams', 'the gaps between the panels'],
 	['frames', 'Inset frames', 'the frame lines, or the raised / recessed centres'],
 	['rivets', 'Rivets'],
@@ -83,7 +83,7 @@ const HERO_KEYS = [
 /** The bits of those kinds in grb_kinds(). */
 const kindBits = (keys: string[]) => keys.reduce((m, k) => m | (1 << DETAIL_KEYS.indexOf(k)), 0);
 const MIN_HINT =
-	'Panels smaller than this get none, so small panels stay plain — measured as the square root of the area, so a long narrow strip still counts (0 = any that fit)';
+	'Skips panels smaller than this, so small panels stay plain. Size is measured as the square root of the area, so a long narrow strip still counts (0 = any panel that fits)';
 
 /**
  * The pinwheel root (`root: windmill`): the tile as a 5 × 5 grid of cells in 15 pieces — 5 squares and 10 bars two cells
@@ -120,11 +120,12 @@ export const greeblesLayer: LayerDef = {
 	// Its parts go to masks by Write to › Source (as many rows as masks).
 	maskSources: PARTS.sources,
 	// Its own levels per part for Roughness, Specular, Metalness and Emissive (gGenLevel).
-	parts: 'each part its own level: steel plates, pipes and bolts metal, switches and sockets plastic, grommets rubber; Emissive: only the lights glow',
+	parts:
+		'each part gets its own level: steel plates, pipes and bolts are metal, switches and sockets plastic, grommets rubber; for Emissive only the lights glow',
 	// The relief writes its shape to the mask unless Shape for the mask is None; the shape outputs always do.
 	maskWrite: (p) => (!isRelief(p) || (p.mask ?? 'plates') !== 'none' ? 'shape' : false),
 	description:
-		'Machine greebles: a recursive subdivision into panels, each piece at any level maybe bordered or edged with strips (pipe runs, grilles, lamps) before it splits again; cut lines that step at 45° into trapezoids and diamonds; octilinear plate outlines; rivets, vents, lights, recesses, perforations and pipes on the final plates. Tileable.',
+		'Machine greebles: Made from panels split again and again into smaller plates, with seams that can step at 45°, bordered or edge-stripped pieces, and rivets, vents, lights, recesses, pipes and hardware on top. Makes sci-fi panelling, machinery and spaceship hulls.',
 	params: [
 		P.enum(
 			'output',
@@ -142,11 +143,10 @@ export const greeblesLayer: LayerDef = {
 				['hardware', 'Hardware (shape)']
 			],
 			{
-				hint: 'Relief composes every element into one height value (uses the Edge bevel), and can write its parts (lights, pipes, hardware, seams…) to masks of their own (Mask › Write to). The shape outputs give one element class as a shape'
+				hint: 'Relief combines every element into one height value (using the Edge bevel), and can write its parts (lights, pipes, hardware, seams…) to masks of their own (Mask › Write to). The shape outputs give you one kind of element as a shape'
 			}
 		),
 		PARTS.param,
-
 
 		P.enum(
 			'root',
@@ -156,7 +156,7 @@ export const greeblesLayer: LayerDef = {
 				[
 					'tile',
 					'Whole tile',
-					'the tile is the first panel, cut in two (or as a pinwheel, by Pinwheel splits); its border is a seam (Offset moves it)'
+					'the tile starts as one panel, cut in two (or as a pinwheel, by Pinwheel splits); its border is a seam (Offset moves it)'
 				],
 				[
 					'pinwheel',
@@ -166,131 +166,131 @@ export const greeblesLayer: LayerDef = {
 				[
 					'windmill',
 					'Interlocked',
-					'15 interlocking pieces (5 squares, 10 bars, at random widths) round the torus: no border seam either, so tiled copies show no grid at the tile size'
+					'15 interlocking pieces (5 squares, 10 bars, at random widths) that wrap round the tile, with no border seam either, so tiled copies show no grid at the tile size'
 				]
 			],
-			{ hint: 'What the subdivision starts from' }
+			{ hint: 'Picks what the splitting starts from' }
 		),
-		P.int('depth', 'Depth', 16, 0, 24, {
+		P.int('depth', 'Split depth', 16, 0, 24, {
 			softMax: 16,
-			hint: 'Maximum number of recursive splits. It stops the splits first: if panels stay above Max panel, raise it'
+			hint: 'Sets the most times a panel can be split again. It stops the splits before anything else does, so raise it if panels stay bigger than Max panel'
 		}),
 		P.int('min_size', 'Min panel', 7, 1, 2048, {
 			softMax: 128,
 			unit: 'px',
-			hint: 'No panel side is cut below this. Panels only get this small where cuts go on: with Split chance, Clustering, and a Max panel close to it (on a small tile, lower Max panel for busy zones)'
+			hint: 'Stops cutting panel sides shorter than this. Panels only get this small where the cuts keep going: with Split chance, Clustering and a Max panel close to it (on a small tile, lower Max panel for busy zones)'
 		}),
 		P.int('max_size', 'Max panel', 40, 1, 8192, {
 			softMax: 512,
 			unit: 'px',
-			hint: 'Sides longer than this are always cut (while Min panel and Depth allow)'
+			hint: 'Always cuts sides longer than this (as far as Min panel and Split depth allow)'
 		}),
 		P.float('split', 'Split chance', 0.65, 0, 1, {
 			step: 0.001,
-			hint: 'Chance to cut a panel that is between min and max size'
+			hint: 'Sets the chance of cutting a panel that’s between Min and Max panel size'
 		}),
 		P.float('cluster', 'Clustering', 0.45, 0, 1, {
 			step: 0.001,
-			hint: 'Regions decide together: busy zones of small panels next to calm, big plates. 0 = every panel decides alone. It works between Min and Max panel, so a Max panel near Min leaves it little to do'
+			hint: 'Groups the splitting into regions, for busy zones of small panels next to calm, big plates (0 = every panel splits independently). Works between Min and Max panel, so a Max panel near Min leaves it little to do'
 		}),
 		P.float('seamless', 'Seamless splits', 1, 0, 1, {
 			step: 0.001,
-			hint: 'Every piece that splits stands on its parent with its own bevel and outline, its parts on it (the seams between them as deep as it stands): this is the chance a piece skips that and keeps its parent’s height, its parts carrying on. 1 = only the final panels draw, all down to the floor'
+			hint: 'Sets the chance that a piece which splits isn’t drawn as a plate of its own, so its parts carry on at its parent’s height. Otherwise each such piece stands on its parent with its own bevel and outline, and the seams between its parts only go down to it. 1 = only the final panels are drawn, all down to the floor'
 		}),
 		P.float('pinwheel', 'Pinwheel splits', 0.3, 0, 1, {
 			step: 0.001,
-			hint: 'Chance a panel splits into five as a pinwheel (four round a centre) instead of in two, so seams stop at each other instead of running edge to edge'
+			hint: 'Sets the chance a panel splits into five as a pinwheel (four round a centre) instead of in two, so seams stop at each other instead of running edge to edge'
 		}),
 		P.float('aspect', 'Panel aspect', 1, 0.05, 20, {
 			softMin: 0.125,
 			softMax: 8,
 			step: 0.01,
-			hint: 'Height ÷ width of the min and max panel (their geometric mean stays): above 1 tall panels and columns, below 1 wide panels and rows'
+			hint: 'Stretches Min and Max panel to this height ÷ width, keeping their area (above 1 = tall panels and columns, below 1 = wide panels and rows)'
 		}),
 		P.float('bias', 'Cut bias', 0, -1, 1, {
 			step: 0.001,
-			hint: 'Optional cuts: −1 = vertical cuts (columns), +1 = horizontal cuts (rows), 0 = cut across the longer side. Sides above Max panel are cut anyway (Panel aspect stretches the max)'
+			hint: 'Steers the optional cuts (−1 = vertical cuts for columns, +1 = horizontal cuts for rows, 0 = cut across the longer side). Sides above Max panel get cut anyway (Panel aspect stretches the max)'
 		}),
-		P.float('split_var', 'Cut randomness', 0.7, 0, 1, {
+		P.float('split_var', 'Off-centre cuts', 0.7, 0, 1, {
 			step: 0.001,
-			hint: '0 = always cut in the middle, 1 = anywhere'
+			hint: 'Moves the cuts off-centre at random (0 = always cut in the middle, 1 = anywhere)'
 		}),
 		P.int('snap', 'Cut grid', 1, 1, 512, {
 			softMax: 64,
 			unit: 'px',
-			hint: 'Cuts snap to multiples of this (from the tile origin)'
+			hint: 'Snaps the cuts to multiples of this (from the tile origin)'
 		}),
-		P.float('gap', 'Seam', 1, 0, 128, {
+		P.float('gap', 'Seam width', 1, 0, 128, {
 			softMax: 12,
 			unit: 'px',
 			step: 0.5,
-			hint: 'Seam along the left and top of each panel (whole px stays crisp)'
+			hint: 'Sets the width of the seam along the left and top of each panel (whole px stay crisp)'
 		}),
 		P.float('seam_taper', 'Seam taper', 0.5, 0, 1, {
 			step: 0.001,
-			hint: 'Main seams wide, fine ones thin: each level of cuts narrows its seams by this fraction (to 1 px). 0 = every seam is Seam wide'
+			hint: 'Makes the main seams wide and the finer ones thin, narrowing the seams of each level of cuts by this fraction (down to 1 px). 0 = every seam is as wide as Seam width'
 		}),
 		P.float('edge_seam', 'Tile-edge seam', 0.34, 0, 1, {
 			step: 0.001,
 			showIf: (p) => p.root !== 'windmill',
-			hint: 'The seam along the tile border as a share of Seam (whole px): low values keep tiled copies from showing a grid of wide seams at the tile size. 0 = the border panels meet with only their bevels'
+			hint: 'Sets the seam along the tile border as a share of Seam width (whole px). Low values stop tiled copies showing a grid of wide seams at the tile size. 0 = the border panels meet with only their bevels'
 		}),
 		P.float('seam_max', 'Seam limit', 0.12, 0, 0.5, {
 			step: 0.001,
-			hint: 'No seam wider than this share of the shorter side of its panel (at least 1 px): the small panels of busy zones get thin seams instead of a waffle grid. 0 = no limit'
+			hint: 'Keeps each seam no wider than this share of its panel’s shorter side (at least 1 px), so the small panels of busy zones get thin seams instead of a waffle grid. 0 = no limit'
 		}),
 		P.float('round', 'Corner rounding', 0.5, 0, 128, { softMax: 24, unit: 'px', step: 0.1 }),
-		P.int('levels', 'Height levels', 4, 1, 16, { hint: 'Distinct per-panel heights (relief)' }),
+		P.int('levels', 'Height levels', 4, 1, 16, { hint: 'How many different panel heights there are (relief)' }),
 		P.float('height_var', 'Height variation', 0.35, 0, 1, {
 			step: 0.001,
-			hint: 'How far the lowest panel level sits below the highest: 1 = down at the seam floor unless Lowest level holds it up (relief)'
+			hint: 'Sinks the lowest panel level below the highest (relief; 0 = all level, 1 = down at the seam floor unless Lowest level holds it up)'
 		}),
 		P.float('min_level', 'Lowest level', 0.25, 0, 1, {
 			step: 0.001,
-			hint: 'The lowest panels never sink below this fraction of the highest, so their seams stay visible however large the Height variation; the levels spread evenly above it (relief)'
+			hint: 'Keeps the lowest panels from sinking below this fraction of the highest, so their seams stay visible however large the Height variation; the levels spread evenly above it (relief)'
 		}),
 		P.float('bulge_spread', 'Bulge spread', 0.7, 0, 1, {
 			step: 0.001,
 			showIf: (p) => Number(p.bulge) !== 0,
-			hint: 'How far in from the edges the bulge keeps rising: 0 a cushion (rounded edges, flat top) … 1 a full dome'
+			hint: 'Sets how far in from the edges the bulge keeps rising (0 = a cushion with rounded edges and a flat top, 1 = a full dome)'
 		}),
 		P.float('bulge', 'Bulge', 0.12, -0.75, 1, {
 			softMin: -0.75,
 			softMax: 0.75,
 			step: 0.001,
-			hint: 'Panels dome up towards their centre (pillowed plates) by this much on the highest level, lower ones in proportion; negative dishes them in, −0.75 down to the floor (relief)'
+			hint: 'Domes the panels up towards their centre (pillowed plates) by this much on the highest level, and lower ones in proportion. Negative dishes them in, down to the floor at −0.75 (relief)'
 		}),
 		P.float('inset_depth', 'Inset depth', 0.25, 0, 1, {
 			step: 0.001,
-			hint: 'Depth of grooves, recesses and light housings, and the rise of raised frames (relief)'
+			hint: 'Sets the depth of grooves, recesses and light housings, and how far raised frames rise (relief)'
 		}),
-		P.float('offset_x', 'Offset X', 0, 0, 1, {
+		P.float('offset_x', 'Layout shift X', 0, 0, 1, {
 			step: 0.001,
-			hint: 'Shift the layout (fraction of the width) so the tile edge is not a seam'
+			hint: 'Shifts the layout (as a fraction of the width) so the tile edge isn’t a seam'
 		}),
-		P.float('offset_y', 'Offset Y', 0, 0, 1, { step: 0.001 }),
+		P.float('offset_y', 'Layout shift Y', 0, 0, 1, { step: 0.001 }),
 		P.seed(),
 
-		P.float('jog', 'Amount', 0, 0, 1, {
+		P.float('jog', 'Jogs', 0, 0, 1, {
 			step: 0.001,
 			group: 'jogs',
-			hint: 'Cut lines step sideways at 45°: how far, as a share of the room each line has before it would meet its neighbours. Small values jog the seams; large ones turn boxes into trapezoids, rhomboids and diamonds. 0 = straight seams'
+			hint: 'Steps the cut lines sideways at 45°, by a share of the room each line has before it would meet its neighbours. Small values jog the seams; large ones turn boxes into trapezoids, rhomboids and diamonds. 0 = straight seams'
 		}),
-		P.float('jog_chance', 'Chance', 0.7, 0, 1, {
+		P.float('jog_chance', 'Jog chance', 0.7, 0, 1, {
 			step: 0.001,
 			group: 'jogs',
 			showIf: hasJogs,
-			hint: 'Chance each stretch of a line steps (at least half its reach): 1 = every stretch of every line'
+			hint: 'Sets the chance each stretch of a line steps, by at least half its reach (1 = every stretch of every line)'
 		}),
-		P.int('jog_layers', 'Steps', 2, 1, 4, {
+		P.int('jog_layers', 'Jog steps', 2, 1, 4, {
 			group: 'jogs',
 			showIf: hasJogs,
-			hint: 'Stretches along each line, each of which may step: more steps, more intricate borders'
+			hint: 'Splits each line into this many stretches that can each step. More steps make more intricate borders'
 		}),
 
 		P.int('routes', 'Routes', 0, 0, 4, {
 			group: 'chan',
-			hint: 'Channels straight across the whole tile (each wraps onto itself, so tiled copies continue it), cutting through every panel they cross — long pipe runs; the settings below shape them too'
+			hint: 'Adds this many channels straight across the whole tile, cutting through every panel they cross, for long pipe runs. Each one wraps round so tiled copies carry it on; the settings below shape them too'
 		}),
 		P.enum(
 			'route_dir',
@@ -299,91 +299,97 @@ export const greeblesLayer: LayerDef = {
 			[
 				['vertical', 'Down', 'top to bottom'],
 				['horizontal', 'Across', 'left to right'],
-				['mixed', 'Mixed', 'each route one of the two (they may cross)']
+				['mixed', 'Mixed', 'each route is one of the two (they may cross)']
 			],
 			{ group: 'chan', showIf: (p) => Number(p.routes) > 0 }
 		),
-		P.float('route_wander', 'Wander', 0.3, 0, 1, {
+		P.float('route_wander', 'Route wander', 0.3, 0, 1, {
 			step: 0.001,
 			group: 'chan',
 			showIf: (p) => Number(p.routes) > 0,
-			hint: 'How far a route steps sideways at 45° on its way (Jogs › Steps, Chance; Bend radius), as a share of a fifth of the tile'
+			hint: 'Sets how far a route steps sideways at 45° along its way, as a share of a fifth of the tile (shaped by Jog steps, Jog chance and Channel bend radius)'
 		}),
 		P.enum(
 			'junction',
-			'Crossings',
+			'Route crossings',
 			'over',
 			[
 				[
 					'box',
 					'Junction box',
-					'a box over each crossing (Box size), the down route’s tubes passing over the other’s round it'
+					'a box over each crossing (Junction box size), with the down route’s tubes passing over the other’s around it'
 				],
 				['over', 'Over and under', 'no box: the down route’s tubes pass over the across route’s']
 			],
 			{ group: 'chan', showIf: (p) => Number(p.routes) > 1 }
 		),
-		P.float('junction_size', 'Box size', 0.9, 0.2, 1.5, {
+		P.float('junction_size', 'Junction box size', 0.9, 0.2, 1.5, {
 			step: 0.001,
 			group: 'chan',
 			showIf: (p) => Number(p.routes) > 1 && p.junction === 'box',
-			hint: 'The junction box’s side as a share of the channel width (1: as wide as the channels; above, wider)'
+			hint: 'Sets the junction box’s side as a share of the channel width (1 = as wide as the channels, above 1 = wider)'
 		}),
-		P.float('chan_chance', 'Chance', 0, 0, 1, {
+		P.float('chan_chance', 'Channel chance', 0, 0, 1, {
 			step: 0.001,
 			group: 'chan',
-			hint: 'Chance a cut in the top Levels of the splitting sinks into a channel carrying a pipe run: it runs the full length of the cut, across the pieces below, and follows its jogs round long-radius bends'
+			hint: 'Sets the chance a cut in the top Channel levels of the splitting sinks into a channel carrying a pipe run. The channel runs the full length of the cut, across the pieces below, and follows its jogs round long-radius bends'
 		}),
-		P.int('chan_levels', 'Levels', 3, 1, 12, {
+		P.int('chan_levels', 'Channel levels', 3, 1, 12, {
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Only cuts this near the top of the splitting (the long ones) become channels'
+			hint: 'Limits channels to cuts this near the top of the splitting (the long ones)'
 		}),
-		P.float('chan_width', 'Width', 12, 2, 1024, { softMax: 96, unit: 'px', step: 0.5, group: 'chan', showIf: hasChan }),
-		P.float('chan_var', 'Width variation', 0.3, 0, 1, {
+		P.float('chan_width', 'Channel width', 12, 2, 1024, {
+			softMax: 96,
+			unit: 'px',
+			step: 0.5,
+			group: 'chan',
+			showIf: hasChan
+		}),
+		P.float('chan_var', 'Channel variation', 0.3, 0, 1, {
 			step: 0.001,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Each channel its own width, down to (1 − this) × Width'
+			hint: 'Gives each channel a random width, down to (1 − this) × Channel width'
 		}),
-		P.float('chan_bend', 'Bend radius', 6, 0, 512, {
+		P.float('chan_bend', 'Channel bend radius', 6, 0, 512, {
 			softMax: 64,
 			unit: 'px',
 			step: 0.5,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'How far a channel eases into and out of each 45° jog (Jogs › Amount)'
+			hint: 'Sets how gradually a channel eases into and out of each 45° jog (Jogs)'
 		}),
-		P.float('chan_floor', 'Floor', 0.05, 0, 1, {
+		P.float('chan_floor', 'Channel floor', 0.05, 0, 1, {
 			step: 0.001,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Height of the channel floor as a share of the surface it cuts into (0 = the seam floor)'
+			hint: 'Sets the height of the channel floor as a share of the surface it cuts into (0 = the seam floor)'
 		}),
-		P.float('chan_surface', 'Laid on top', 0, 0, 1, {
+		P.float('chan_surface', 'Runs laid on top', 0, 0, 1, {
 			step: 0.001,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Share of the runs laid on top of the pieces instead of sunk in a channel: hoses crossing the panels below, a collar at each end'
+			hint: 'Lays this share of the runs on top of the pieces instead of sinking them in a channel: hoses crossing the panels below, with a collar at each end'
 		}),
-		P.float('tube_lift', 'Pipe lift', 1, 0.2, 2, {
+		P.float('tube_lift', 'Tube lift', 1, 0.2, 2, {
 			step: 0.001,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'How high the tubes stand, in proportion to their size: at 1 a thick pipe in a channel is level with the plates; above, they stand proud'
+			hint: 'Sets how high the tubes stand, in proportion to their size. At 1 a thick pipe in a channel is level with the plates; above 1 they stand proud'
 		}),
-		P.int('tube_count', 'Tubes', 4, 1, 8, {
+		P.int('tube_count', 'Tubes per channel', 4, 1, 8, {
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Up to this many tubes side by side (as many as fit)'
+			hint: 'Puts up to this many tubes side by side (as many as fit)'
 		}),
-		P.float('tube_big', 'Pipe size', 4, 0.5, 256, {
+		P.float('tube_big', 'Thick pipe size', 4, 0.5, 256, {
 			softMax: 32,
 			unit: 'px',
 			step: 0.5,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Diameter of the thick pipes'
+			hint: 'Sets the diameter of the thick pipes'
 		}),
 		P.float('tube_thin', 'Cable size', 1.5, 0.5, 256, {
 			softMax: 16,
@@ -391,64 +397,64 @@ export const greeblesLayer: LayerDef = {
 			step: 0.5,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Diameter of the thin cables'
+			hint: 'Sets the diameter of the thin cables'
 		}),
-		P.float('tube_mix', 'Thick share', 0.4, 0, 1, {
+		P.float('tube_mix', 'Thick pipe share', 0.4, 0, 1, {
 			step: 0.001,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Chance each tube is a thick pipe rather than a cable'
+			hint: 'Sets the chance each tube is a thick pipe rather than a cable'
 		}),
 		P.float('clamp_space', 'Clamp spacing', 24, 0, 2048, {
 			softMax: 256,
 			unit: 'px',
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Clamps along the run (0 = none)'
+			hint: 'Spaces clamps this far apart along the run (0 = none)'
 		}),
 		P.enum(
 			'clamp_style',
-			'Clamps',
+			'Clamp style',
 			'mixed',
 			[
 				['bands', 'Bands', 'a strap over the whole bundle'],
 				['couplings', 'Couplings', 'a ring round each thick pipe'],
-				['mixed', 'Mixed', 'each channel one of the two']
+				['mixed', 'Mixed', 'each channel is one of the two']
 			],
 			{ group: 'chan', showIf: hasChan }
 		),
-		P.float('braid', 'Ribs', 0, 0, 1, {
+		P.float('braid', 'Tube ribs', 0, 0, 1, {
 			step: 0.001,
 			group: 'chan',
 			showIf: hasChan,
-			hint: 'Ribs ringing the tubes square to their run, round the bends too: corrugated hoses'
+			hint: 'Adds ribs around the tubes, square to their run and round the bends too, for corrugated hoses'
 		}),
 
 		P.float('cut_chance', 'Cut corners', 0.2, 0, 1, {
 			step: 0.001,
 			group: 'outline',
-			hint: 'Share of the plates’ outside corners cut off at 45°, each corner on its own: all four make an octagon, two side by side an arrow'
+			hint: 'Cuts off a share of the plates’ outside corners at 45°, each corner picked at random. All four make an octagon, two side by side an arrow'
 		}),
-		P.float('cut_size', 'Cut size', 0.25, 0.05, 0.5, {
+		P.float('cut_size', 'Corner cut size', 0.25, 0.05, 0.5, {
 			step: 0.001,
 			group: 'outline',
 			showIf: (p) => Number(p.cut_chance) > 0,
-			hint: 'Chamfer leg as a share of the shorter of the corner’s two edges: 0.5 meets the next chamfer at mid-edge (a diamond)'
+			hint: 'Sets the chamfer’s length as a share of the shorter of the corner’s two edges (0.5 = meets the next chamfer at mid-edge, a diamond)'
 		}),
-		P.float('cut_var', 'Cut variation', 0.5, 0, 1, {
+		P.float('cut_var', 'Corner cut variation', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'outline',
 			showIf: (p) => Number(p.cut_chance) > 0,
-			hint: 'Each chamfer its own size, down to (1 − this) × Cut size'
+			hint: 'Gives each chamfer a random size, down to (1 − this) × Corner cut size'
 		}),
 		P.float('shape_chance', 'Shaped panels', 0.15, 0, 1, {
 			step: 0.001,
 			group: 'outline',
-			hint: 'Share of the panels (from Min panel) whose plate is an L, T, Z, cross or U instead of the whole panel; the floor or backing shows in the rest'
+			hint: 'Gives a share of the panels (from Shape min panel) an L, T, Z, cross or U-shaped plate instead of the whole panel; the floor or backing shows in the rest'
 		}),
 		P.enum(
 			'shape_kind',
-			'Shapes',
+			'Panel shapes',
 			'mixed',
 			[
 				['l', 'L', 'an arm along two sides'],
@@ -456,11 +462,11 @@ export const greeblesLayer: LayerDef = {
 				['z', 'Step', 'two overlapping blocks in opposite corners'],
 				['cross', 'Cross', 'a bar each way'],
 				['u', 'Notch', 'one side notched in the middle'],
-				['mixed', 'Mixed', 'each panel one of the five']
+				['mixed', 'Mixed', 'each panel is one of the five']
 			],
 			{ group: 'outline', showIf: hasShapes }
 		),
-		P.int('shape_min', 'Min panel', 20, 0, 2048, {
+		P.int('shape_min', 'Shape min panel', 20, 0, 2048, {
 			softMax: 128,
 			unit: 'px',
 			group: 'outline',
@@ -471,16 +477,16 @@ export const greeblesLayer: LayerDef = {
 			step: 0.001,
 			group: 'outline',
 			showIf: hasShapes,
-			hint: 'The inside corners of shaped plates filled at 45°: leg as a share of the shorter of the corner’s two edges (0 = square)'
+			hint: 'Fills the inside corners of shaped plates at 45°, by a share of the shorter of the corner’s two edges (0 = square)'
 		}),
 		P.float('empty', 'Empty panels', 0, 0, 1, {
 			step: 0.001,
 			group: 'outline',
-			hint: 'Share of the panels left out: only their backing (or the floor) shows'
+			hint: 'Leaves out a share of the panels, so only their backing (or the floor) shows'
 		}),
 		P.enum(
 			'fill',
-			'Fill',
+			'Cut-away fill',
 			'backing',
 			[
 				['floor', 'Floor', 'the seam floor shows'],
@@ -488,27 +494,27 @@ export const greeblesLayer: LayerDef = {
 				[
 					'plates',
 					'Plates',
-					'plates of their own, a seam away from the plate and following its outline — the panels interlock'
+					'separate plates a seam away from the plate, following its outline so the panels interlock'
 				]
 			],
 			{
 				group: 'outline',
-				hint: 'What fills a panel where its plate leaves it: cut corners, the cut-away parts of shaped panels, empty panels'
+				hint: 'Picks what fills a panel where its plate doesn’t: cut corners, the cut-away parts of shaped panels and empty panels'
 			}
 		),
 		P.float('backing', 'Backing height', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'outline',
 			showIf: (p) => (p.fill ?? 'backing') === 'backing',
-			hint: 'As a share of the panel’s height'
+			hint: 'Sets the backing plate’s height as a share of the panel’s height'
 		}),
 
-		P.float('frame_chance', 'Chance', 0.3, 0, 1, {
+		P.float('frame_chance', 'Border chance', 0.3, 0, 1, {
 			step: 0.001,
 			group: 'frame',
-			hint: 'Chance a piece — at any level of the splitting, not only the final panels — gets a border round it; the splitting carries on inside it'
+			hint: 'Sets the chance a piece gets a border around it, at any level of the splitting (not only the final panels). The splitting carries on inside the border'
 		}),
-		P.int('frame_min', 'Min panel', 16, 0, 2048, {
+		P.int('frame_min', 'Border min panel', 16, 0, 2048, {
 			softMax: 128,
 			unit: 'px',
 			group: 'frame',
@@ -517,46 +523,46 @@ export const greeblesLayer: LayerDef = {
 		}),
 		P.enum(
 			'frame_style',
-			'Style',
+			'Border style',
 			'mixed',
 			[
 				['groove', 'Groove line', 'a groove down the middle of the border'],
 				['ridge', 'Raised line', 'a ridge down the middle of the border'],
 				['recess', 'Recessed centre', 'the inside steps down from the border'],
 				['raise', 'Raised centre', 'the inside steps up from the border'],
-				['rivets', 'Rivets', 'a row of rivets along the border (Rivets › Radius, Spacing, Height)'],
-				['mixed', 'Mixed', 'each border one of the five']
+				['rivets', 'Rivets', 'a row of rivets along the border (Rivet radius, Rivet spacing, Rivet height)'],
+				['mixed', 'Mixed', 'each border is one of the five']
 			],
 			{ group: 'frame', showIf: hasFrame }
 		),
-		P.float('frame_var', 'Margin variation', 0, 0, 1, {
+		P.float('frame_var', 'Border variation', 0, 0, 1, {
 			step: 0.001,
 			group: 'frame',
 			showIf: hasFrame,
-			hint: 'Each side of a border its own width (from flush to 2.5 × Width): with a raised centre, smaller plates stand anywhere on their pieces, and on theirs in turn'
+			hint: 'Gives each side of a border a random width (from flush to 2.5 × Border width). With a raised centre, smaller plates can then sit anywhere on their pieces, and on theirs in turn'
 		}),
-		P.float('frame_inset', 'Width', 3.5, 1, 512, {
+		P.float('frame_inset', 'Border width', 3.5, 1, 512, {
 			softMax: 32,
 			unit: 'px',
 			step: 0.5,
 			group: 'frame',
 			showIf: hasFrame
 		}),
-		P.float('frame_lift', 'Step height', 1, 0, 3, {
+		P.float('frame_lift', 'Border step height', 1, 0, 3, {
 			step: 0.001,
 			group: 'frame',
 			showIf: hasStep,
-			hint: 'How far a raised centre climbs (or a recessed one sinks), × its usual share of Inset depth: bolder insets'
+			hint: 'Sets how far a raised centre climbs (or a recessed one sinks), × its usual share of Inset depth, for bolder insets'
 		}),
-		P.float('frame_bevel', 'Step bevel', 0, 0, 512, {
+		P.float('frame_bevel', 'Border step bevel', 0, 0, 512, {
 			softMax: 32,
 			unit: 'px',
 			step: 0.5,
 			group: 'frame',
 			showIf: hasStep,
-			hint: 'Bevel of the step in from a border to a raised or recessed centre: wide chamfered insets (0 = the Edge bevel)'
+			hint: 'Bevels the step in from a border to a raised or recessed centre, for wide chamfered insets (0 = the Edge bevel)'
 		}),
-		P.float('frame_width', 'Line width', 1, 0.5, 128, {
+		P.float('frame_width', 'Border line width', 1, 0.5, 128, {
 			softMax: 8,
 			unit: 'px',
 			step: 0.5,
@@ -564,37 +570,37 @@ export const greeblesLayer: LayerDef = {
 			showIf: hasLine
 		}),
 
-		P.float('edge_chance', 'Chance', 0.15, 0, 1, {
+		P.float('edge_chance', 'Strip chance', 0.15, 0, 1, {
 			step: 0.001,
 			group: 'edges',
-			hint: 'Chance a piece (at any level, if it gets no border) gets a strip along one of its long sides holding a pipe run or a detail — a vent grille, lamps, ribs or perforation (the Details kinds that are on); the splitting carries on beside it'
+			hint: 'Sets the chance a piece (at any level, if it has no border) gets a strip along one of its long sides holding a pipe run or a detail: a vent grille, lamps, ribs or perforation (whichever Details kinds are on). The splitting carries on beside it'
 		}),
-		P.int('edge_min', 'Min panel', 24, 0, 2048, {
+		P.int('edge_min', 'Strip min panel', 24, 0, 2048, {
 			softMax: 128,
 			unit: 'px',
 			group: 'edges',
 			showIf: hasEdges,
 			hint: MIN_HINT
 		}),
-		P.float('edge_width', 'Width', 5, 3, 512, {
+		P.float('edge_width', 'Strip width', 5, 3, 512, {
 			softMax: 48,
 			unit: 'px',
 			step: 0.5,
 			group: 'edges',
 			showIf: hasEdges,
-			hint: 'At most 0.35 of the piece across'
+			hint: 'Sets the strip’s width, up to 0.35 of the piece across'
 		}),
 		P.float('edge_two', 'Second strip', 0.4, 0, 1, {
 			step: 0.001,
 			group: 'edges',
 			showIf: hasEdges,
-			hint: 'Chance of a second strip along a short side, meeting the first in a corner: a pipe run then wraps round the inside'
+			hint: 'Sets the chance of a second strip along a short side, meeting the first in a corner, so a pipe run wraps round the inside'
 		}),
-		P.float('edge_pipes', 'Pipe runs', 0.5, 0, 1, {
+		P.float('edge_pipes', 'Strip pipe runs', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'edges',
 			showIf: hasEdges,
-			hint: 'Share of the strips holding a pipe run (Details › Pipes & handles on: its Pipe runs and Min tube), the rest a detail'
+			hint: 'Fills this share of the strips with a pipe run (needs Details › Pipes & handles on; uses its Pipes per run and Min pipe size) and the rest with a detail'
 		}),
 
 		P.enum(
@@ -606,68 +612,68 @@ export const greeblesLayer: LayerDef = {
 				['corners', 'Corners'],
 				['edges', 'Along edges'],
 				['sides', 'Along the long sides'],
-				['mixed', 'Mixed', 'each panel corners, edges or long sides']
+				['mixed', 'Mixed', 'each panel gets corners, edges or long sides']
 			],
 			{
 				group: 'rivets',
-				hint: 'A panel too narrow for two rivets across gets one line of them down its middle (a strap)'
+				hint: 'Picks where the rivets go. A panel too narrow for two rivets across gets one line of them down its middle (a strap)'
 			}
 		),
-		P.float('rivet_chance', 'Chance', 0.6, 0, 1, { step: 0.001, group: 'rivets', showIf: hasRivets }),
-		P.int('rivet_min', 'Min panel', 12, 0, 2048, {
+		P.float('rivet_chance', 'Rivet chance', 0.6, 0, 1, { step: 0.001, group: 'rivets', showIf: hasRivets }),
+		P.int('rivet_min', 'Rivet min panel', 12, 0, 2048, {
 			softMax: 128,
 			unit: 'px',
 			group: 'rivets',
 			showIf: hasRivets,
 			hint: MIN_HINT
 		}),
-		P.float('rivet_radius', 'Radius', 1, 0.5, 64, {
+		P.float('rivet_radius', 'Rivet radius', 1, 0.5, 64, {
 			softMax: 12,
 			unit: 'px',
 			step: 0.5,
 			group: 'rivets',
 			showIf: hasRivets,
-			hint: 'Whole or half px: 1 → 2×2, 1.5 → 3×3'
+			hint: 'Sets the rivet radius in whole or half px (1 = 2×2, 1.5 = 3×3)'
 		}),
-		P.float('rivet_inset', 'Inset', 2, 0, 256, {
+		P.float('rivet_inset', 'Rivet inset', 2, 0, 256, {
 			softMax: 32,
 			unit: 'px',
 			step: 0.5,
 			group: 'rivets',
 			showIf: hasRivets,
-			hint: 'Panel edge to rivet centre'
+			hint: 'Sets the distance from the panel edge to the rivet centre'
 		}),
-		P.float('rivet_spacing', 'Spacing', 8, 1, 512, {
+		P.float('rivet_spacing', 'Rivet spacing', 8, 1, 512, {
 			softMax: 64,
 			unit: 'px',
 			step: 0.5,
 			group: 'rivets',
 			showIf: (p) => hasRivets(p) && p.rivets !== 'corners'
 		}),
-		P.float('rivet_height', 'Height', 0.3, 0, 1, {
+		P.float('rivet_height', 'Rivet height', 0.3, 0, 1, {
 			step: 0.001,
 			group: 'rivets',
 			showIf: hasRivets,
-			hint: 'Dome height above the panel; a hole’s depth (relief)'
+			hint: 'Sets how high a dome stands above the panel, or how deep a hole goes (relief)'
 		}),
 		P.enum(
 			'rivet_style',
-			'Style',
+			'Rivet style',
 			'dome',
 			[...FASTENER_HEADS, ['mixed', 'Mixed', 'mostly sunk Allen bolts, some domes and sunk hex heads']],
 			{
 				group: 'rivets',
 				showIf: hasRivets,
-				hint: 'The sunk kinds stand in a round counterbore (Radius: the head)'
+				hint: 'Picks the kind of head. The sunk kinds sit in a round counterbore (Rivet radius sets the head)'
 			}
 		),
 
-		P.float('detail_chance', 'Chance', 0.55, 0, 1, {
+		P.float('detail_chance', 'Detail chance', 0.55, 0, 1, {
 			step: 0.001,
 			group: 'details',
-			hint: 'Fraction of panels with a detail'
+			hint: 'Sets the share of panels that get a detail'
 		}),
-		P.int('det_min', 'Min panel', 12, 0, 2048, {
+		P.int('det_min', 'Detail min panel', 12, 0, 2048, {
 			softMax: 128,
 			unit: 'px',
 			group: 'details',
@@ -675,12 +681,12 @@ export const greeblesLayer: LayerDef = {
 			hint: MIN_HINT
 		}),
 		P.bool('det_vents', 'Vent slots', true, { group: 'details', showIf: hasKinds }),
-		P.bool('det_light', 'Light', true, { group: 'details', showIf: hasKinds }),
-		P.bool('det_recess', 'Recess', true, { group: 'details', showIf: hasKinds }),
+		P.bool('det_light', 'Lights', true, { group: 'details', showIf: hasKinds }),
+		P.bool('det_recess', 'Recesses', true, { group: 'details', showIf: hasKinds }),
 		P.bool('det_holes', 'Perforation', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'A grid of round holes (Slot pitch apart, Slot width across)'
+			hint: 'Adds a grid of round holes (Slot pitch apart, Slot width across)'
 		}),
 		P.enum(
 			'hole_bond',
@@ -695,129 +701,129 @@ export const greeblesLayer: LayerDef = {
 		P.bool('det_ribs', 'Ribs', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'Rounded bars standing up from the plate, Slot pitch apart and Slot width wide (raised by 0.8 × Inset depth)'
+			hint: 'Adds rounded bars standing up from the plate, Slot pitch apart and Slot width wide (raised by 0.8 × Inset depth)'
 		}),
 		P.bool('det_switch', 'Switches', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'A row of toggle switches (hex nut, lever) or rocker switches'
+			hint: 'Adds a row of toggle switches (hex nut, lever) or rocker switches'
 		}),
 		P.bool('det_socket', 'Plug sockets', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'A D-shell (rounded corners, as a VGA or serial port) or round connector: a raised rim, a sunk face, pins on a raised insert or in a deeper well'
+			hint: 'Adds a D-shell (rounded corners, like a VGA or serial port) or round connector: a raised rim, a sunk face, and pins on a raised insert or in a deeper well'
 		}),
 		P.bool('det_slider', 'Sliders', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'A slot with tick marks and a ridged knob (long areas)'
+			hint: 'Adds a slot with tick marks and a ridged knob (on long areas)'
 		}),
 		P.bool('det_keypad', 'Keypads', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'Rounded keys three across in a sunk bezel'
+			hint: 'Adds rounded keys, three across, in a sunk bezel'
 		}),
 		P.bool('det_fan', 'Fans', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'Curved blades round a domed hub in a sunk round housing (squarish areas; also a hero part)'
+			hint: 'Adds curved blades around a domed hub in a sunk round housing (on squarish areas; also a hero part)'
 		}),
 		P.bool('det_mesh', 'Mesh grilles', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'A sunk panel behind a fine wire grid (half the Slot pitch)'
+			hint: 'Adds a sunk panel behind a fine wire grid (half the Slot pitch)'
 		}),
 		P.bool('det_circuit', 'Circuit pockets', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'A deep dark pocket with chips of a few sizes and their pins'
+			hint: 'Adds a deep dark pocket with chips of a few sizes and their pins'
 		}),
 		P.bool('det_fins', 'Heatsink fins', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'Bars across the area (Slot width thick, Slot pitch apart): a comb, also in edge strips'
+			hint: 'Adds bars across the area (Slot width thick, Slot pitch apart), like a comb; also used in edge strips'
 		}),
 		P.bool('det_pipes', 'Pipes & handles', true, {
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'A pipe run (a bundle of parallel tubes turning through round elbows) or a grab handle, standing on the plate (raised by Inset depth) between two flange plates'
+			hint: 'Adds a pipe run (a bundle of parallel tubes turning through round elbows) or a grab handle, standing on the plate (raised by Inset depth) between two flange plates'
 		}),
 		P.float('pipe_size', 'Pipe size', 0.15, 0.05, 0.4, {
 			step: 0.001,
 			group: 'details',
 			showIf: (p) => hasKinds(p) && Boolean(p.det_pipes),
-			hint: 'Tube diameter as a share of the detail area’s short side'
+			hint: 'Sets the tube diameter as a share of the detail area’s short side'
 		}),
-		P.float('pipe_min', 'Min tube', 2, 1, 64, {
+		P.float('pipe_min', 'Min pipe size', 2, 1, 64, {
 			softMax: 12,
 			unit: 'px',
 			step: 0.5,
 			group: 'details',
 			showIf: (p) => hasKinds(p) && Boolean(p.det_pipes),
-			hint: 'Thinnest tube diameter: areas too small for a tube this thick (with its flanges) get another kind of detail'
+			hint: 'Sets the thinnest tube diameter. Areas too small for a tube this thick (with its flanges) get another kind of detail'
 		}),
-		P.int('pipe_runs', 'Pipe runs', 3, 1, 4, {
+		P.int('pipe_runs', 'Pipes per run', 3, 1, 4, {
 			group: 'details',
 			showIf: (p) => hasKinds(p) && Boolean(p.det_pipes),
-			hint: 'Up to this many tubes side by side in a run (each run picks 1…this, as many as fit)'
+			hint: 'Puts up to this many tubes side by side in a run (each run gets a random 1…this, as many as fit)'
 		}),
 		P.float('pocket', 'Dark pockets', 0, 0, 1, {
 			step: 0.001,
 			group: 'details',
-			hint: 'Chance a piece — at any level below the top, at least twice Min panel across — sinks nearly to the floor as a dark pocket and stops splitting, its floor packed with chips and their pins (mostly), heatsink fins or a mesh'
+			hint: 'Sets the chance a piece sinks nearly to the floor as a dark pocket and stops splitting, its floor packed with chips and their pins (mostly), heatsink fins or a mesh. Works at any level below the top, on pieces at least twice Min panel across'
 		}),
-		P.float('pocket_max', 'Max pocket', 0, 0, 4096, {
+		P.float('pocket_max', 'Max pocket size', 0, 0, 4096, {
 			softMax: 512,
 			unit: 'px',
 			group: 'details',
 			showIf: (p) => Number(p.pocket) > 0,
-			hint: 'Only pieces no longer than this sink as dark pockets, so they stay busy recesses instead of voids (0 = any size)'
+			hint: 'Only lets pieces up to this long sink as dark pockets, so they stay busy recesses instead of voids (0 = any size)'
 		}),
-		P.float('pocket_part', 'Pocket parts', 0.06, 0, 1, {
+		P.float('pocket_part', 'Pocket part height', 0.06, 0, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: (p) => Number(p.pocket) > 0,
-			hint: 'How high the parts in a dark pocket stand from its floor (relief): low keeps them in the dark band of a height-driven colour ramp'
+			hint: 'Sets how high the parts in a dark pocket stand from its floor (relief). Low values keep them in the dark band of a height-driven gradient ramp'
 		}),
 		P.float('hw_share', 'Hardware share', 0.3, 0, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: hasDetails,
-			hint: 'Chance a detail is hardware (switches, sockets, sliders, keypads, fans) when one fits, else one of the others'
+			hint: 'Sets the chance a detail is hardware (switches, sockets, sliders, keypads, fans) when one fits; otherwise it’s one of the others'
 		}),
 		P.float('hero', 'Hero parts', 0.6, 0, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: hasDetails,
-			hint: 'Share of the panels at least 2.5 × the detail Min panel whose detail is a big one filling most of the panel: a recessed grille or perforation, a light panel or a pipe run'
+			hint: 'Gives a share of the panels at least 2.5 × Detail min panel one big detail filling most of the panel: a recessed grille or perforation, a light panel or a pipe run'
 		}),
 		P.float('small_parts', 'Small parts', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: hasDetails,
-			hint: 'Share of the panels below the detail Min panel that get one small part — a bolt (Rivets › Radius and Height) or a short slot — so busy zones are not blank boxes. Off while Chance is 0'
+			hint: 'Gives a share of the panels below Detail min panel one small part, a bolt (Rivet radius and Rivet height) or a short slot, so busy zones aren’t blank boxes. Off while Detail chance is 0'
 		}),
-		P.float('det_size', 'Size', 0.6, 0.05, 1, {
+		P.float('det_size', 'Detail size', 0.6, 0.05, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: hasDetails,
-			hint: 'Detail area as a fraction of the panel'
+			hint: 'Sets the detail area as a fraction of the panel'
 		}),
-		P.float('det_var', 'Size variation', 0.4, 0, 1, {
+		P.float('det_var', 'Detail variation', 0.4, 0, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: hasDetails,
-			hint: 'Each detail area its own size, down to (1 − this) × Size'
+			hint: 'Gives each detail area a random size, down to (1 − this) × Detail size'
 		}),
 		P.enum(
 			'det_anchor',
-			'Placement',
+			'Detail placement',
 			'mixed',
 			[
 				['centre', 'Centred'],
 				['edge', 'Against an edge', 'pushed to a random side of the panel (clear of its frame and rivets)'],
 				['corner', 'In a corner', 'pushed into a random corner'],
-				['mixed', 'Mixed', 'each panel one of the three']
+				['mixed', 'Mixed', 'each panel is one of the three']
 			],
 			{ group: 'details', showIf: hasDetails }
 		),
@@ -825,21 +831,21 @@ export const greeblesLayer: LayerDef = {
 			step: 0.001,
 			group: 'details',
 			showIf: hasDetails,
-			hint: 'Share of the detailed panels that get two details side by side along their length (a lamp beside a grille), each its own kind'
+			hint: 'Puts two details side by side along the length of this share of the detailed panels (a lamp beside a grille), each with a separately chosen kind'
 		}),
 		P.float('det_scatter', 'Scattered details', 0, 0, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: hasDetails,
-			hint: 'Panels at least two Scatter cells long split their free area into cells, this share of which hold a small detail of their own (slot banks, dot rows, recesses spread over a big plate) instead of one large one'
+			hint: 'Splits the free area of panels at least 2 × Scatter cell size long into cells, and puts a small detail in this share of them (slot banks, dot rows, recesses spread over a big plate) instead of one large one'
 		}),
-		P.float('det_cell', 'Scatter cell', 48, 8, 1024, {
+		P.float('det_cell', 'Scatter cell size', 48, 8, 1024, {
 			softMax: 160,
 			unit: 'px',
 			step: 1,
 			group: 'details',
 			showIf: (p) => hasDetails(p) && (p.det_scatter as number) > 0,
-			hint: 'The size of the cells a scattered panel is split into'
+			hint: 'Sets the size of the cells a scattered panel is split into'
 		}),
 		P.float('recess_wall', 'Recess wall', 1.5, 0, 256, {
 			softMax: 16,
@@ -847,13 +853,13 @@ export const greeblesLayer: LayerDef = {
 			step: 0.5,
 			group: 'details',
 			showIf: hasKinds,
-			hint: 'How wide the walls of recesses slope down to their floor (0 = the Edge bevel)'
+			hint: 'Sets how wide the walls of recesses slope down to their floor (0 = the Edge bevel)'
 		}),
 		P.float('det_bay', 'Recessed grilles', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: hasSlots,
-			hint: 'Share of the vent slots and perforations set in a recess of their own'
+			hint: 'Sinks this share of the vent slots and perforations into a recess of their own'
 		}),
 		P.float('vent_pitch', 'Slot pitch', 2, 2, 128, {
 			softMax: 24,
@@ -861,7 +867,7 @@ export const greeblesLayer: LayerDef = {
 			step: 0.5,
 			group: 'details',
 			showIf: hasPitch,
-			hint: 'Vent slots and perforation holes: centre to centre'
+			hint: 'Sets the centre-to-centre spacing of vent slots and perforation holes'
 		}),
 		P.float('vent_slot', 'Slot width', 1, 1, 64, {
 			softMax: 12,
@@ -869,18 +875,18 @@ export const greeblesLayer: LayerDef = {
 			step: 0.5,
 			group: 'details',
 			showIf: hasPitch,
-			hint: 'Vent slot width and hole diameter (a 1 px bar always stays between them)'
+			hint: 'Sets the vent slot width and hole diameter (a 1 px bar always stays between them)'
 		}),
 		P.enum(
 			'light_style',
-			'Light',
+			'Light style',
 			'mixed',
 			[
 				['lens', 'One lens', 'Light size × Light length, centred'],
 				['row', 'Row of lamps', 'round lamps of Light size along one long edge of the detail area'],
 				['strip', 'Strip', 'Light size wide along one long edge of the detail area'],
 				['window', 'Light panel', 'fills the detail area'],
-				['mixed', 'Mixed', 'each panel one of the four']
+				['mixed', 'Mixed', 'each panel is one of the four']
 			],
 			{ group: 'details', showIf: hasLight }
 		),
@@ -890,34 +896,34 @@ export const greeblesLayer: LayerDef = {
 			step: 0.5,
 			group: 'details',
 			showIf: hasLight,
-			hint: 'Short side of a lens or strip, a lamp’s diameter (at least: see Light scale)'
+			hint: 'Sets the short side of a lens or strip, or a lamp’s diameter (a minimum: see Light scale)'
 		}),
 		P.float('light_rel', 'Light scale', 0.3, 0, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: hasLight,
-			hint: 'Lights grow with their detail area: at least this share of its short side (0 = Light size only)'
+			hint: 'Grows lights with their detail area, to at least this share of its short side (0 = Light size only)'
 		}),
 		P.float('light_len', 'Light length', 3, 1, 64, {
 			softMax: 8,
 			step: 0.1,
 			group: 'details',
 			showIf: (p) => hasLight(p) && ['lens', 'mixed'].includes(String(p.light_style ?? 'lens')),
-			hint: 'One lens: long side ÷ short side (it stays inside the detail area)'
+			hint: 'Sets a single lens’s long side ÷ short side (it stays inside the detail area)'
 		}),
-		P.float('light_rim', 'Housing', 1, 0, 64, {
+		P.float('light_rim', 'Light housing', 1, 0, 64, {
 			softMax: 8,
 			unit: 'px',
 			step: 0.5,
 			group: 'details',
 			showIf: hasLight,
-			hint: 'Width of the recessed housing round the lens'
+			hint: 'Sets the width of the recessed housing around the lens'
 		}),
 		P.float('light_dome', 'Lens dome', 0.35, 0, 1, {
 			step: 0.001,
 			group: 'details',
 			showIf: hasLight,
-			hint: 'The lens bulges up out of its housing like a glass cover (relief); 0 = a flat lens sunk in the housing'
+			hint: 'Bulges the lens up out of its housing like a glass cover (relief; 0 = a flat lens sunk in the housing)'
 		}),
 
 		// Not a control: 1 px of the texture in shader px. Supersampling scales every px param by k, so this tells the shader
@@ -1066,8 +1072,8 @@ vec2 grb_segH(vec2 p, vec2 a, vec2 b) {
 }
 
 // A cut line's steps at (t along it, u across it from the cut) over the piece's extent tlo..thi along it (grb_jog). It
-// starts at a random offset f0 within ±a and in each of Steps stretches (L long) of the extent may step at 45° to another
-// (whole px): a large Amount turns boxes into trapezoids, rhomboids and diamonds. b > 0 rounds each bend into a true
+// starts at a random offset f0 within ±a and in each of Jog steps stretches (L long) of the extent may step at 45° to another
+// (whole px): a large Jogs turns boxes into trapezoids, rhomboids and diamonds. b > 0 rounds each bend into a true
 // circular arc of radius b (fitted to the room); b = 0 keeps crisp corners. ex: a stretch along the line kept level (no
 // bend in it — where another route crosses; ex.x > ex.y: none). Step i, from offset off: how far it steps (x), where its
 // 45° stretch starts (y) and its bends' tangent length (z).
@@ -1075,7 +1081,7 @@ vec3 grb_jogStep(int i, float off, float f0, float tlo, float L, bool wrap, uint
   vec4 r = grb_rand4(id, 78u + uint(i));
   bool last = wrap && i == u_jog_layers - 1;
   float tg = last ? f0 : floor(a * (2.0 * r.x - 1.0) + 0.5);
-  // (A step goes at least half the reach — a px at least — so at Chance 1 every stretch of every line steps visibly;
+  // (A step goes at least half the reach — a px at least — so at Jog chance 1 every stretch of every line steps visibly;
   // the other way if that would take it past the reach.)
   if (!last && a >= 1.0) {
     float m = max(floor(0.5 * a + 0.5), 1.0), sg = tg >= off ? 1.0 : -1.0;
@@ -1273,7 +1279,7 @@ float grb_roundMin(vec2 m, float r) { return m.x < r && m.y < r ? r - length(vec
 float grb_bevKD() { return u_bevel / bevelWidth(vec2(1.0)); }
 
 // Pipe routes: Routes channels straight across the tile, down (or across), each a whole path that wraps onto itself
-// and wanders at 45° (Wander, round bends of Bend radius), cutting through every panel it crosses. The nearest one's
+// and wanders at 45° (Route wander, round bends of Channel bend radius), cutting through every panel it crosses. The nearest one's
 // (across from its middle, along, half width, index); half width 0: none near.
 // Route i's line: whether it runs down (x), where it sits across (y, px along its period), its half width (z), its
 // wander's reach (w); rid: its id.
@@ -1286,7 +1292,7 @@ vec4 grb_routeLine(int i, out uint rid) {
               0.5 * u_chan_width * (1.0 - u_chan_var * rr.z), u_route_wander * 0.2 * per);
 }
 
-// A pipe run's tube i (of its id's bundle): a thick pipe (Thick share) or a thin cable, its diameter; the gap after it
+// A pipe run's tube i (of its id's bundle): a thick pipe (Thick pipe share) or a thin cable, its diameter; the gap after it
 // (laid on top: separate hoses, apart).
 float grb_tubeDm(uint id, int i) { return grb_rand4(id, 120u + uint(i)).x < u_tube_mix ? u_tube_big : u_tube_thin; }
 float grb_tubeGap(float dm, bool top) { return top ? max(1.5, 0.35 * dm) : max(0.5, 0.15 * dm); }
@@ -1398,7 +1404,7 @@ GrbPiece grb_piece(vec2 q, GrbCell C, GrbRules R) {
   float hN = grb_lift(C.hb, mix(1.0, R.lowest, R.levels > 1 ? floor(rn.y * float(R.levels)) / float(R.levels - 1) : 0.0));
   float bN = min(u_bevel, max(0.2 * min(sz.x, sz.y), 0.5));
   // Its rise, and a border's step in from the border's inner edge (one profile in the shader).
-  // A border's margins, side by side (left, right, bottom, top): Width, varied by Margin variation — some sides flush —
+  // A border's margins, side by side (left, right, bottom, top): Border width, varied by Border variation — some sides flush —
   // so a smaller plate stands anywhere on its piece, not only centred. The distance in to its inside.
   vec4 mr = grb_rand4(C.id, 72u);
   vec4 insB = max(u_frame_inset * (1.0 + u_frame_var * (2.5 * mr - 1.0)), vec4(0.0)) * step(vec4(0.25 * u_frame_var), mr);
@@ -1412,7 +1418,7 @@ GrbPiece grb_piece(vec2 q, GrbCell C, GrbRules R) {
     float kc = floor(u_cut_size * min(ihi.x - ilo.x, ihi.y - ilo.y) + 0.5);
     if (kc >= 3.0) dIn = min(dIn, -grb_corners(q, ilo, ihi, vec4(kc)));
   }
-  // (A border's step takes Borders › Step bevel if set: wide chamfered insets.)
+  // (A border's step takes Border step bevel if set: wide chamfered insets.)
   float bS = u_frame_bevel > 0.0 ? min(u_frame_bevel, max(0.45 * min(sz.x, sz.y) - u_frame_inset, 0.5)) : bN;
   return GrbPiece(bb, sz, rn, hN, insB, mB, dIn, grb_rise2(vec2(-dNr, -dIn), vec2(bN, bS)), false);
 }
@@ -1523,7 +1529,7 @@ void grb_cutPin(GrbRules R, vec2 c1, vec2 c2, vec4 dr2, float sw, vec4 A, vec4 s
 }
 
 // A cut across or down (c1: the cut positions both ways, -1 where none): which way and where (cutY: a horizontal line,
-// splitting the height into rows; c), whether a cut in the top Levels sinks into a pipe channel or carries a run laid on
+// splitting the height into rows; c), whether a cut in the top Channel levels sinks into a pipe channel or carries a run laid on
 // top (chn, surf; half width hw), and how far its line may step at 45° (Jogs: jA, as far as its parallel sides' own steps
 // leave room for) — set out for grb_split's jog loop; done when no cut fits after all.
 struct GrbLine { bool cutY; float c; float hw; bool chn; bool surf; float jA; };
@@ -1548,11 +1554,11 @@ GrbLine grb_linePrep(int d, GrbRules R, GrbPiece P, GrbCell C, vec2 c1, bvec4 ca
     int a0i = cutY ? 2 : 0;   // the low side across the cut (bottom or left); a0i + 1 the high one
     vec4 bb = P.bb;
     float lo1 = cutY ? bb.y : bb.x, hi1 = cutY ? bb.w : bb.z;
-    // A pipe channel: a cut in the top Levels may sink into a channel carrying a pipe run (Pipe channels), if the parts
+    // A pipe channel: a cut in the top Channel levels may sink into a channel carrying a pipe run (Pipe channels), if the parts
     // keep half the min panel beside it.
     Lc.hw = 0.5 * u_chan_width * (1.0 - u_chan_var * rt.z);
     Lc.chn = d < u_chan_levels && rt.w < u_chan_chance && min(c - lo1, hi1 - c) >= Lc.hw + 0.5 * min(R.mn.x, R.mn.y);
-    // (Or laid on top of the pieces, crossing them: Laid on top. The first such run over the pixel is kept.)
+    // (Or laid on top of the pieces, crossing them: Runs laid on top. The first such run over the pixel is kept.)
     Lc.surf = Lc.chn && grb_rand(C.id, 5u) < u_chan_surface;
     if (Lc.surf) Lc.chn = false;
     Lc.jA = u_jog * max(min(c - lo1 - grb_pick(C.jm4, a0i), hi1 - c - grb_pick(C.jm4, a0i + 1)) - R.jmar - (Lc.chn ? Lc.hw : 0.0), 0.0);
@@ -1894,7 +1900,7 @@ GrbPanel grb_panel(vec2 q, GrbCell cell, uint id, bool deco, bool none, vec4 lr,
           ? (grb_rand(id, 160u + vi) < u_cut_chance ? u_cut_size * S * (1.0 - u_cut_var * grb_rand(id, 180u + vi)) : 0.0)
           : cr < 0.0 ? u_fillet * S : 0.0;
         k = min(floor(k + 0.5), floor(0.5 * S));
-        // (Too short to read as a cut — or, with Fill › Plates, to leave a wedge past the seam.)
+        // (Too short to read as a cut — or, with Cut-away fill › Plates, to leave a wedge past the seam.)
         if (k < (u_fill == 2 && cr > 0.0 ? kWedge : 2.0)) k = 0.0;
         if (cr > 0.0) kmax = max(kmax, k);
         vec2 A2 = w2 - k * ein / max(lin, 1e-3), B2 = w2 + k * eout / max(lout, 1e-3);
@@ -2000,7 +2006,7 @@ GrbBundle grb_channel(GrbCell cell, uint chId, float dRt, float rte2, vec4 rteS,
     B = GrbBundle(true, cu, cell.ch.y, cell.arc.x, hw - ww, chId, fl,
                   max(top, GRB_TOP + (u_frame_chance > 0.0 ? u_inset_depth * min(u_frame_lift, 1.5) * 0.5 : 0.0)));
   } else if (cell.ov.z > 0.0) {
-    // Laid on top: resting on the top plates, crossing whatever is lower.
+    // Runs laid on top: resting on the top plates, crossing whatever is lower.
     B = GrbBundle(true, cell.ov.x, cell.ov.y, cell.arc.y, 0.5 * cell.ov.z, cell.ovid, GRB_TOP, GRB_TOP + 2.0 * u_inset_depth);
   }
   return B;
@@ -2061,7 +2067,7 @@ float grb_rivets(vec2 q, uint id, GrbCell cell, int fs, bool on, inout GrbPanel 
 }
 
 // A detail's area rlo..rhi in the free part of the panel (inside its frame line, rivets and cut corners, and a bevel
-// and 2 px of plate in from its edge): Size (± Size variation) centred, against an edge or in a corner — or a scattered
+// and 2 px of plate in from its edge): Detail size (± Detail variation) centred, against an edge or in a corner — or a scattered
 // cell's small part, or one of a pair — with its id pid; hwMod: a hardware module, filling nearly all of it.
 void grb_detailBox(vec2 q, uint id, GrbCell cell, GrbPanel N, float bev, float keep, bvec4 pf, vec4 db, vec4 dc,
                    out vec2 rlo, out vec2 rhi, out uint pid, out bool hwMod) {
@@ -2078,7 +2084,7 @@ void grb_detailBox(vec2 q, uint id, GrbCell cell, GrbPanel N, float bev, float k
   hwMod = !hero && !strip && !pkt && !smallP && grb_rand(id, 98u) < u_hw_share && (grb_kinds() & GRB_K_HW) != 0;
   float sz = pkt ? 1.0 : hero ? 0.9 : strip ? 0.96 : hwMod ? 0.95 : u_det_size * (1.0 - u_det_var * db.x);
   vec2 asz = min(N.sz - 2.0 * floor(N.sz * (1.0 - sz) * 0.5 + 0.5), fsz);
-  // Placement: 0 centred, 1 against a random edge, 2 in a random corner.
+  // Detail placement: 0 centred, 1 against a random edge, 2 in a random corner.
   int an = hero || strip || pkt || hwMod ? 0 : u_det_anchor == 3 ? int(floor(db.y * 2.999)) : u_det_anchor;
   vec2 slack = fsz - asz;
   vec2 sd = step(0.5, db.zw);   // which side, per axis
@@ -2131,7 +2137,7 @@ void grb_detailBox(vec2 q, uint id, GrbCell cell, GrbPanel N, float bev, float k
 // gets a detail that leaves it blank), in GRB_KORDER's order for a panel, a hero or a small part; hardware takes
 // Hardware share of a panel's picks when any fits. -1: none. The kinds (bit k: kind k): 0 vents (three bars; a small
 // part one slot), 1 a light (a 3 px lens), 2 a recess, 3 perforation (3 × 3 holes), 4 ribs (three bars), 5 a small
-// part's bolt (always fits), 6 a pipe or handle (a tube of Min tube with its flanges, at least 4 diameters long: else it
+// part's bolt (always fits), 6 a pipe or handle (a tube of Min pipe size with its flanges, at least 4 diameters long: else it
 // reads as a letter); hardware: 7 a row of switches (smaller, a lever is a speck), 8 a plug socket, 9 a slider (a long
 // area), 10 a keypad, 11 a fan (a squarish one); 12 a sunk mesh grille, 13 a dark circuit pocket with chips, 14
 // heatsink fins across the area.
@@ -2170,9 +2176,9 @@ int grb_partKind(vec2 sl0, vec4 pa, bool bayRoll, float wall, bool smallP, bool 
   return kind;
 }
 
-// Pipes (kind 6): a bundle of up to Pipe runs parallel tubes along the area lo2..hi2 (along x in ql) that turn through
+// Pipes (kind 6): a bundle of up to Pipes per run parallel tubes along the area lo2..hi2 (along x in ql) that turn through
 // concentric round elbows off one long edge; handles: one straight tube (none under 12 px long, at least 3 px thick).
-// Each tube a true half-round, Pipe size × the area's short side across (at least Min tube), standing on what is under
+// Each tube a true half-round, Pipe size × the area's short side across (at least Min pipe size), standing on what is under
 // it (a raised centre too) and butting a flange plate across the bundle at each end. The runs are measured as an offset
 // from the innermost one (along, round the elbow, up the leg), so one evaluation covers the bundle; they are drawn
 // with a strip's pipe run (grb_tubes: one copy of the tubes in the shader).
@@ -2500,7 +2506,7 @@ void grb_pocketCable(vec2 ql, float cy, float x0, float x1, float xs, float xe, 
 // A circuit pocket (kind 13): sunk deep (dark), packed with parts edge to edge on a grid of cells — chips of mixed size
 // (some two cells long) with pin rows along their long sides, round capacitors, pin headers (a row of square pins) — and
 // fine traces between them on the floor. In a dark pocket (pkt: the panel's box pb; cA in from its walls) the parts
-// stand Pocket parts high, and a cable bundle runs from a header. Returns the detail's distance.
+// stand Pocket part height high, and a cable bundle runs from a header. Returns the detail's distance.
 float grb_circuit(vec2 ql, vec2 lo2, vec2 hi2, bool horiz, uint pid, bool pkt, vec4 pb, float cA, float wall, inout float v) {
   vec2 sl = hi2 - lo2;
   float dg = grb_box(ql, lo2, hi2);
@@ -2698,10 +2704,10 @@ void grb_part(vec2 q, uint pid, vec2 rlo, vec2 rhi, bvec4 pf, bool hwMod, float 
 }
 
 // Details: one per chosen panel, or two side by side (Paired details), each a vent grille, light, recess, perforation,
-// ribs or a pipe / handle in an area of Size (± Size variation) centred, against an edge or in a corner of the free part
+// ribs or a pipe / handle in an area of Detail size (± Detail variation) centred, against an edge or in a corner of the free part
 // of the panel (grb_detailBox). Big panels may get a hero part instead (Hero parts), small ones a small part (Small
 // parts); a dark pocket's floor is packed with chips and their pins (mostly), heatsink fins or a mesh, whatever else it
-// would have had. An edge strip holds a pipe run (sPipe: Edge strips › Pipe runs, drawn by gen) or one detail filling
+// would have had. An edge strip holds a pipe run (sPipe: Strip pipe runs, drawn by gen) or one detail filling
 // it.
 void grb_details(vec2 q, uint id, GrbCell cell, GrbPanel N, bool deco, bool none, float bev, float keep, float cA,
                  inout float v, inout GrbDet D, out bool sPipe) {
@@ -2729,7 +2735,7 @@ void grb_details(vec2 q, uint id, GrbCell cell, GrbPanel N, bool deco, bool none
 
 // A pipe run's tubes (B, a channel's, or one laid on top; vPre: the surface before any pipe run is laid on it — what
 // later tubes stand on, and the only thing contact lines and holes may lower): up to Tubes side by side — thick pipes
-// and thin cables (Thick share), the thick ones standing nearly to the plates (in a channel) or highest (on top) —
+// and thin cables (Thick pipe share), the thick ones standing nearly to the plates (in a channel) or highest (on top) —
 // centred or against a side, clamped by bands or ringed by couplings every Clamp spacing, braided by Braid; a run laid
 // on top ends in a collar at each end. Measured across from its middle, so the tubes follow its bends. Pipes are solid:
 // everything they meet joins them (max), nothing cuts into them. Where two routes' channels cross, both bundles: pass 0
@@ -2781,7 +2787,7 @@ void grb_bundleTubes(GrbBundle B, GrbCell cell, float dRt, float rte2, vec4 rteS
       bool dive = ends && (!top2 || grb_rand(bId, bT - cell.ovt.x < cell.ovt.y - bT ? 131u : 132u) < 0.55);
       float atE = top2 && !dive ? 1.0 - smoothstep(bl - 1.0, bl, ce) : 0.0;
       float rcap = 0.0, grom = 0.0, hole = 0.0;   // a dive's nose centre (along, from the end); the grommet height
-      // (Laid on top: on the top plate level, covering what is under them — the panels' detail doesn't print through.)
+      // (Runs laid on top: on the top plate level, covering what is under them — the panels' detail doesn't print through.)
       // (One level across the hose — it runs along a cut, the plates either side may differ — at the highest a plate can
       // stand, a raised border's step included, so it lies on top of raised modules rather than under them.)
       float base = top2 ? B.base + (u_frame_chance > 0.0 ? u_inset_depth * min(u_frame_lift, 1.5) * 0.45 : 0.0) : B.base;
@@ -2813,7 +2819,7 @@ void grb_bundleTubes(GrbBundle B, GrbCell cell, float dRt, float rte2, vec4 rteS
               grom = max(grom, grb_dome(abs(de - (r + 3.0)), 1.2) * step(ce, rcap + r + 4.0));
             }
           }
-          // Its height in proportion to its radius (round cables, Pipe lift: a thick pipe level with the plates at 1).
+          // Its height in proportion to its radius (round cables, Tube lift: a thick pipe level with the plates at 1).
           float rk = clamp(rr2 / max(0.5 * u_tube_big, 0.5), 0.15, 1.3) * u_tube_lift;
           float ht = top2 ? base + 2.0 * u_inset_depth * rk : B.base + (B.top - B.base) * 0.97 * rk * sink;
           // Ribs: crisp grooves across the tube every 1.4 radii along its line (bS, the length along the bends), so they
@@ -2849,7 +2855,7 @@ void grb_bundleTubes(GrbBundle B, GrbCell cell, float dRt, float rte2, vec4 rteS
         cov2 = max(cov2, step(0.01, grom));
         if (grom > 0.01 && dTube > 0.0) gGromD = -0.5;
       }
-      // Laid on top: the tubes replace the surface under them (and a dark contact groove lies between and beside them);
+      // Runs laid on top: the tubes replace the surface under them (and a dark contact groove lies between and beside them);
       // in a channel they stand on its floor.
       if (top2) {
         // (A soft contact line 1–2 px beside each tube, a little below the surface — not a trench.)
@@ -2869,7 +2875,7 @@ void grb_bundleTubes(GrbBundle B, GrbCell cell, float dRt, float rte2, vec4 rteS
 
 // Where two routes cross (rte, rteS: the nearest and next-nearest; dRt, rte2: their channel edges): a junction box over
 // the crossing, covering both channels and a margin round them (so no stub of either sticks out of it) — a rounded block
-// standing a little above the tubes, drawn over everything. (Its half side: Box size × half the channel width, from the
+// standing a little above the tubes, drawn over everything. (Its half side: Junction box size × half the channel width, from the
 // middle of each channel.)
 void grb_junction(vec4 rte, vec4 rteS, float dRt, float rte2, inout float v, inout float dD, inout float dP) {
   float jm2 = (u_junction_size - 1.0) * 0.5 * u_chan_width;
@@ -2880,7 +2886,7 @@ void grb_junction(vec4 rte, vec4 rteS, float dRt, float rte2, inout float v, ino
     // (A flat lid replacing what is under it, just above the tallest tube the settings allow, so none prints through.)
     v = max(v, mix(v, jtop, smoothstep(0.0, 1.0, -dJ / jb)));
     // A screw in each corner of the lid (the shared heads: an Allen bolt), and a fine lid seam inset from its edge.
-    // The box's half sides, from the crossing's middle: each channel's own half width (Width variation) and the margin.
+    // The box's half sides, from the crossing's middle: each channel's own half width (Channel variation) and the margin.
     vec2 hsJ = vec2(rte.z, rteS.z) + jm2;
     float sr = clamp(0.1 * min(hsJ.x, hsJ.y), 1.5 * u_px_scale, 5.0 * u_px_scale);
     v -= 0.15 * u_inset_depth * grb_cov(abs(dJ + jb + 1.5) - 0.5) * step(dJ, 0.0);
@@ -2890,7 +2896,7 @@ void grb_junction(vec4 rte, vec4 rteS, float dRt, float rte2, inout float v, ino
   }
 }
 
-// A pipe run in an edge strip: up to Pipe runs half-round tubes side by side along the strip, measured in from the
+// A pipe run in an edge strip: up to Pipes per run half-round tubes side by side along the strip, measured in from the
 // piece's side (so they follow its steps); with a second strip they turn its corner in a round elbow, wrapping round the
 // inside. They butt flange plates where the strip meets the piece's other sides. (Drawn by grb_tubes.)
 void grb_stripPipe(uint id, GrbCell cell, vec2 bk, inout GrbDet D) {
@@ -3084,7 +3090,7 @@ GenOut gen(vec2 p) {
     if (fs == 0) D.dSunk = dF;
   }
 
-  // (A final plate inside a border takes Borders › Step bevel for its step, if set.)
+  // (A final plate inside a border takes Border step bevel for its step, if set.)
   float bevStep = cell.ls < 1e8 && u_frame_bevel > 0.0 ? min(u_frame_bevel, max(0.45 * N.side, 0.5)) : bev;
   vec2 r3 = grb_rise2(vec2(dPl, u_fill == 2 ? dFill : dCell), vec2(bevStep, bev));
   v += cell.vb + (P - cell.hb) * (u_fill == 1 ? max(r3.x, u_backing * r3.y) : r3.x);

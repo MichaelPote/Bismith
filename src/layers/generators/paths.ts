@@ -74,7 +74,7 @@ bool shp_sector(vec2 p, vec2 c, vec2 t1, vec2 t2) {
 
 /**
  * Path's data texture (t_poly), 4 floats across: a row per vertex (in u_points' order) holding its round (t, centre,
- * r) — rounded or not by Round, which looks at whether the corner points out of the filled area: out of its polygon,
+ * r) — rounded or not by Rounded corners, which looks at whether the corner points out of the filled area: out of its polygon,
  * or into it for a hole (Even–odd: a polygon inside an odd number of others; First minus the rest: all but the
  * first) — and a last row with the bounds (lo, hi).
  */
@@ -293,7 +293,7 @@ GenOut gen(vec2 p) {
 `;
 
 const pointsHint =
-	'x,y vertex pairs (px from the top-left, or 0..1 with Units = fraction); one polygon per line or "|". Max 64 vertices';
+	'Lists the corners as x,y pairs (px from the top-left, or 0..1 with Units = fraction). Put each polygon on its own line or separate them with "|". Up to 64 vertices';
 
 export const pathLayer: LayerDef = {
 	type: 'path',
@@ -302,7 +302,7 @@ export const pathLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Arbitrary polygons from a vertex list — chamfered cut-outs, Z-shaped channels, trims; overlapping polygons cut holes (even–odd) or merge (union).',
+		'Path: Polygons of any shape, made from a list of corner points, where overlaps can cut holes or merge. Makes chamfered cut-outs, Z-shaped channels, trims.',
 	params: [
 		P.bitmap('points', 'Points', '8,16 24,8 56,8 56,48 40,56 8,56', 'points', { hint: pointsHint }),
 		P.enum('units', 'Units', 'px', [
@@ -310,24 +310,28 @@ export const pathLayer: LayerDef = {
 			['fraction', 'Fraction of the texture']
 		]),
 		P.enum('fill', 'Fill', 'evenodd', [
-			['evenodd', 'Even–odd', 'overlaps cut holes: a polygon inside another is a hole, one inside that solid again'],
-			['union', 'Union', 'every polygon solid, overlaps merge (a plate with a tab)'],
-			['subtract', 'First minus the rest', 'the first polygon solid, every later one cut out of it']
+			[
+				'evenodd',
+				'Even–odd',
+				'overlaps cut holes: a polygon inside another makes a hole, and one inside that is solid again'
+			],
+			['union', 'Union', 'fills every polygon and merges the overlaps (a plate with a tab)'],
+			['subtract', 'First minus the rest', 'fills the first polygon and cuts every later one out of it']
 		]),
 		P.float('radius', 'Corner radius', 0, 0, 4096, {
 			softMax: 64,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Rounds the corners (a round takes at most half of either edge)'
+			hint: 'Rounds the corners (a rounding uses up at most half of either edge)'
 		}),
 		P.enum(
 			'round_at',
-			'Round',
+			'Rounded corners',
 			'all',
 			[
 				['all', 'All corners'],
-				['convex', 'Outer corners', 'corners pointing out of their polygon'],
-				['concave', 'Inner corners', 'corners pointing into their polygon']
+				['convex', 'Outer corners', 'rounds only the corners pointing out of their polygon'],
+				['concave', 'Inner corners', 'rounds only the corners pointing into their polygon']
 			],
 			{ showIf: (p) => Number(p.radius) > 0 }
 		),
@@ -336,31 +340,31 @@ export const pathLayer: LayerDef = {
 			softMax: 64,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Offsets the outline: out (rounding the outer corners) or in'
+			hint: 'Pushes the outline out (rounding the outer corners) or, below 0, pulls it in'
 		}),
 		P.float('outline', 'Outline', 0, 0, 1024, {
 			softMax: 32,
 			unit: 'px',
 			step: 0.1,
-			hint: '0 = solid; otherwise only a stroke of this width inside the outline'
+			hint: 'Draws only a stroke this wide just inside the outline (0 = solid)'
 		}),
 		P.float('scale', 'Scale', 1, 0.01, 100, {
 			softMin: 0.1,
 			softMax: 4,
 			step: 0.001,
-			hint: 'Sizes the polygons about the centre of their bounds (bevels and radii stay in px)'
+			hint: 'Scales the polygons around the centre of their bounds (bevels and radii stay the same in px)'
 		}),
 		P.float('rotation', 'Rotation', 0, -360, 360, {
 			softMin: -180,
 			softMax: 180,
 			unit: '°',
 			step: 0.1,
-			hint: 'Turns them about the same centre, clockwise'
+			hint: 'Turns the polygons clockwise around the same centre'
 		}),
 		P.int('rep_x', 'Repeat X', 1, 1, 64, {
 			softMax: 16,
 			group: 'repeat',
-			hint: 'Copies of the polygons side by side (Offset X / Y under Shaping moves them all)'
+			hint: 'Repeats the polygons side by side this many times (Offset X / Y under Shaping moves them all)'
 		}),
 		P.int('rep_y', 'Repeat Y', 1, 1, 64, { softMax: 16, group: 'repeat' }),
 		P.float('rep_dx', 'Step X', 64, -4096, 4096, {
@@ -371,7 +375,7 @@ export const pathLayer: LayerDef = {
 			step: 0.5,
 			group: 'repeat',
 			showIf: (p) => Number(p.rep_x) > 1,
-			hint: 'Between copies, rightward'
+			hint: 'Sets how far right each copy sits from the one before'
 		}),
 		P.float('rep_dy', 'Step Y', 64, -4096, 4096, {
 			softMin: 0,
@@ -381,9 +385,9 @@ export const pathLayer: LayerDef = {
 			step: 0.5,
 			group: 'repeat',
 			showIf: (p) => Number(p.rep_y) > 1,
-			hint: 'Between copies, downward'
+			hint: 'Sets how far down each copy sits from the one before'
 		}),
-		P.seed('seed', 'Seed', 1, { hint: 'Reshuffles the per-feature random: one value per filled region' })
+		P.seed('seed', 'Seed', 1, { hint: 'Reshuffles the random value each filled region gets' })
 	],
 	groups: [{ id: 'repeat', label: 'Repeat', collapsed: true }],
 	textures: ['poly'],
@@ -736,10 +740,10 @@ export const polylineLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Open polylines with a width — cables, trims, cracks, painted and dashed lines; drawn with the Line tool on the canvas. Round or flat ends, rounded bends, tapers.',
+		'Polyline: Open lines with a width, drawn with the Line tool on the canvas, with optional rounded bends, tapers and dashes. Makes cables, trims, cracks, painted lines.',
 	params: [
 		P.bitmap('points', 'Points', '8,44 22,20 42,44 56,20', 'lines', {
-			hint: 'x,y vertex pairs (px from the top-left, or 0..1 with Units = fraction); one line per row or "|". Max 64 vertices'
+			hint: 'Lists the points as x,y pairs (px from the top-left, or 0…1 with Units = fraction). Put each line on its own row or separate them with "|". Up to 64 vertices'
 		}),
 		P.enum('units', 'Units', 'px', [
 			['px', 'Pixels'],
@@ -754,36 +758,39 @@ export const polylineLayer: LayerDef = {
 				['round', 'Round'],
 				['flat', 'Flat']
 			],
-			{ hint: 'The lines’ ends (and the dashes’)' }
+			{ hint: 'Sets the shape of the line ends (and the dash ends)' }
 		),
 		P.enum('overlap', 'Overlap', 'stack', [
-			['merge', 'Merge', 'crossing lines become one shape (the later line’s colour where they cross)'],
+			['merge', 'Merge', 'merges crossing lines into one shape (the later line’s colour shows where they cross)'],
 			[
 				'stack',
 				'Later on top',
-				'each line lies over the ones before it, with its own edge and bevel where it crosses them, and rises over them in height (Stack lift)'
+				'lays each line over the ones before it, with a separate edge and bevel where it crosses them, and lifts it over them in height (Stack lift)'
 			]
 		]),
 		P.float('lift', 'Stack lift', 1, 0, 4, {
 			softMax: 2,
 			step: 0.001,
 			showIf: (p) => p.overlap === 'stack',
-			hint: 'How far a later line rises where it crosses an earlier one, in line heights (Height › Pattern): 0 = level with it, 1 = a full line height above. Lines that cross nothing keep their height; Height › Amount scales it all'
+			hint: 'Lifts a later line where it crosses an earlier one, in line heights (Height › Pattern; 0 = level with it, 1 = a full line height above). Lines that cross nothing keep their height, and Height › Amount scales it all'
 		}),
 		P.float('lift_fall', 'Lift falloff', 0, 0, 1024, {
 			softMax: 128,
 			unit: 'px',
 			step: 0.5,
 			showIf: (p) => p.overlap === 'stack' && Number(p.lift) > 0,
-			hint: 'Extra distance before the crossing over which the top line starts to rise (it always eases over a line width plus the bevel): a cable arching over another'
+			hint: 'Starts the top line rising this much further before the crossing, like a cable arching over another (it always eases up over at least a line width plus the bevel)'
 		}),
 		P.float('radius', 'Corner radius', 4.5, 0, 4096, {
 			softMax: 128,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Bends the line round each corner: the radius of its inner edge (the centre line bends on this plus half the width; at most half of either segment) — cable and pipe runs. 0 = sharp inner corners'
+			hint: 'Bends the line round each corner, like cable and pipe runs. Sets the radius of the inner edge; the centre line bends on this plus half the width, using at most half of either segment (0 = sharp inner corners)'
 		}),
-		P.float('taper', 'Taper', 0, 0, 1, { step: 0.001, hint: 'Narrows each line toward its end(s): 1 = to a point' }),
+		P.float('taper', 'Taper', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Narrows each line towards its end or ends (0 = off, 1 = down to a point)'
+		}),
 		P.enum(
 			'taper_at',
 			'Taper to',
@@ -798,40 +805,40 @@ export const polylineLayer: LayerDef = {
 		P.float('taper_len', 'Taper length', 1, 0.01, 1, {
 			step: 0.001,
 			showIf: (p) => Number(p.taper) > 0 && !(Number(p.taper_px) > 0),
-			hint: 'Share of each line the taper takes (both ends: half of it at each) — short for brush strokes that end in a point'
+			hint: 'Sets how much of each line the taper covers (with both ends, half of it at each). Keep it short for brush strokes that end in a point'
 		}),
-		P.float('taper_px', 'Taper length (px)', 0, 0, 4096, {
+		P.float('taper_px', 'Fixed taper length', 0, 0, 4096, {
 			softMax: 512,
 			unit: 'px',
 			step: 0.5,
 			showIf: (p) => Number(p.taper) > 0,
-			hint: "The taper's length in px at each tapered end (the same tips on long and short lines); 0 = by the share above"
+			hint: "Sets the taper's length in px at each tapered end, so long and short lines get the same tips (0 = use Taper length instead)"
 		}),
 		P.enum(
 			'taper_curve',
 			'Taper shape',
 			'linear',
 			[
-				['linear', 'Straight', 'the width falls evenly: a spike'],
-				['smooth', 'Smooth', 'eases in and out: no corner where the taper starts'],
-				['round', 'Round', 'stays wide, then rounds off quickly: a brush or bullet tip']
+				['linear', 'Straight', 'narrows evenly into a spike'],
+				['smooth', 'Smooth', 'eases in and out, with no corner where the taper starts'],
+				['round', 'Round', 'stays wide, then rounds off quickly, like a brush or bullet tip']
 			],
 			{ showIf: (p) => Number(p.taper) > 0 }
 		),
-		P.float('dash', 'Dash', 0, 0, 4096, {
+		P.float('dash', 'Dash length', 0, 0, 4096, {
 			softMax: 64,
 			unit: 'px',
 			step: 0.5,
-			hint: '0 = solid; otherwise dashes this long along each line (each its own per-feature random)'
+			hint: 'Breaks each line into dashes this long, each with a random value (0 = solid)'
 		}),
-		P.float('gap', 'Gap', 8, 0, 4096, {
+		P.float('gap', 'Dash gap', 8, 0, 4096, {
 			softMax: 64,
 			unit: 'px',
 			step: 0.5,
 			showIf: (p) => Number(p.dash) > 0,
-			hint: 'Space between dashes'
+			hint: 'Sets the space between dashes'
 		}),
-		P.bool('dash_fit', 'Fit to each line', true, {
+		P.bool('dash_fit', 'Fit dashes to lines', true, {
 			showIf: (p) => Number(p.dash) > 0,
 			hint: 'Stretches dash and gap a little so every line starts and ends on a whole dash'
 		}),
@@ -847,9 +854,9 @@ export const polylineLayer: LayerDef = {
 			softMax: 32,
 			unit: 'px',
 			step: 0.1,
-			hint: '0 = solid; otherwise only a stroke of this width inside the edge — twin rails'
+			hint: 'Draws only a stroke this wide just inside each edge, making twin rails (0 = solid)'
 		}),
-		P.seed('seed', 'Seed', 1, { hint: 'Reshuffles the per-feature random (per line, or per dash)' })
+		P.seed('seed', 'Seed', 1, { hint: 'Reshuffles the random value each line (or dash) gets' })
 	],
 	defaults: { bevel: 1.5, profile: 'round', h_on: true, h_amount: 0.6, dif_on: true },
 	fresh: (t) => {

@@ -27,7 +27,7 @@ const isConduit = (p: ParamValues) => p.shape === 'conduit';
 
 // The parts each relief can hand to a mask (Write to › Source), the default first.
 const VENT_PARTS = maskParts('mask', 'plate', [
-	['plate', 'Plate', 'the metal: plate, frame and fasteners, the openings cut out'],
+	['plate', 'Plate', 'the metal (plate, frame and fasteners) with the openings cut out'],
 	['slots', 'Openings', 'the slots or holes'],
 	['frame', 'Frame', 'the border frame (needs a Frame width)']
 ]);
@@ -44,7 +44,7 @@ export const ventsLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Grille of slots (round, square, pointed or hex ends), louvres (sunken fins, blade grilles or pressed hoods) or perforated holes (round, square, hex), staggered or in a framed panel with fasteners. Tileable.',
+		'Vents & grilles: Made from a grid of slots, louvres or perforated holes in a plate, optionally staggered or set in a framed panel with fasteners. Makes vents, grilles, louvred panels and perforated metal.',
 	params: [
 		P.enum(
 			'output',
@@ -57,15 +57,15 @@ export const ventsLayer: LayerDef = {
 				['frame', 'Border frame (shape)']
 			],
 			{
-				hint: 'Relief: the plate with its openings, louvres, frame and fasteners as one height (the Edge bevel and profile shape the frame step, Slot rim the openings). Shapes give one element as an SDF'
+				hint: 'Relief combines the plate, its openings, louvres, frame and fasteners into one height value (the Edge bevel and profile shape the frame step, Slot rim the openings). The shape outputs give you one part as a shape'
 			}
 		),
-		P.enum('mode', 'Mode', 'slots', [
+		P.enum('mode', 'Opening type', 'slots', [
 			['slots', 'Slots'],
 			[
 				'louvers',
 				'Louvres (sunken fins / blades)',
-				'angled fins inside each opening, below the plate; several Blades make a blade grille'
+				'angled fins inside each opening, below the plate; several Fins per opening make a blade grille'
 			],
 			['holes', 'Holes'],
 			[
@@ -74,8 +74,14 @@ export const ventsLayer: LayerDef = {
 				'a hood pressed up out of the plate over each opening, a dark slit under its lip'
 			]
 		]),
-		P.int('cols', 'Columns', 2, 1, 256, { softMax: 64, hint: 'Cells across the field (one slot or hole each)' }),
-		P.int('rows', 'Rows', 8, 1, 256, { softMax: 128, hint: 'Cells down the field (even with stagger to tile)' }),
+		P.int('cols', 'Columns', 2, 1, 256, {
+			softMax: 64,
+			hint: 'How many cells go across the field (one slot or hole each)'
+		}),
+		P.int('rows', 'Rows', 8, 1, 256, {
+			softMax: 128,
+			hint: 'How many cells go down the field (use an even count with Stagger so it tiles)'
+		}),
 		...spacingParams(),
 		P.enum('orient', 'Slot direction', 'horizontal', ORIENT, { showIf: (p) => p.mode !== 'holes' }),
 		P.float('length', 'Slot length', 24, 1, 4096, {
@@ -84,18 +90,18 @@ export const ventsLayer: LayerDef = {
 			axis: ORIENT_ALONG,
 			step: 0.5,
 			showIf: (p) => p.mode !== 'holes',
-			hint: 'Clamped to the cell: as long as the cell (or more), slots join into continuous bars. Whole px stays crisp'
+			hint: 'Sets the slot length, up to the cell’s length. At the full cell length (or more) the slots join into continuous bars. Whole px stay crisp'
 		}),
 		P.float('width', 'Slot width', 3, 0.5, 1024, {
 			softMax: 64,
 			unit: 'px',
 			axis: slotAcross,
 			step: 0.5,
-			hint: 'Slot thickness, or hole diameter (hex holes: across the flats). Keeps at least a 1 px bar to the next row'
+			hint: 'Sets the slot thickness or hole diameter (for hex holes, across the flats). Always keeps at least a 1 px bar to the next row'
 		}),
 		P.enum(
 			'ends',
-			'Ends',
+			'Slot ends',
 			'round',
 			[
 				['round', 'Round'],
@@ -105,62 +111,62 @@ export const ventsLayer: LayerDef = {
 				['hex', 'Hex (60° points)']
 			],
 			{
-				hint: 'Slot ends. Pointed ends taper to a point (Point length); staggered they leave bow-tie tabs. Angled ends cut both ends on the same diagonal; hex ends make elongated hexagons. Holes: round, square or hex (standing on a point: with Stagger 0.5 and rows ≈ 0.87 × the column spacing they pack into a honeycomb)'
+				hint: 'Shapes the slot ends. Pointed ends taper to a point (Point length) and leave bow-tie tabs when staggered. Angled ends cut both ends on the same diagonal; hex ends make long hexagons. For holes, picks round, square or hex (hex stands on a point: with Stagger 0.5 and rows ≈ 0.87 × the column spacing they pack into a honeycomb)'
 			}
 		),
 		P.float('tip', 'Point length', 1.5, 0.1, 8, {
 			softMax: 4,
 			step: 0.01,
 			showIf: (p) => p.mode !== 'holes' && (p.ends === 'pointed' || p.ends === 'angled'),
-			hint: 'Length of the pointed or angled ends, in slot widths: 0.5 = 45°, 2 = long tapers'
+			hint: 'Sets the length of the pointed or angled ends, in slot widths (0.5 = 45°, 2 = long tapers)'
 		}),
 		P.float('stagger', 'Stagger', 0, 0, 1, {
 			step: 0.001,
-			hint: 'Shift alternate rows along the slots, fraction of a cell (0.5 = brick / hex packing)'
+			hint: 'Shifts every other row along the slots by a fraction of a cell (0.5 = brick / hex packing)'
 		}),
 		P.float('louver', 'Fin slant', 0.8, -1, 1, {
 			step: 0.001,
 			showIf: isFins,
-			hint: 'Sign: which side the fins open to. Size: 0 = rounded bars (fins) or domed hoods, 1 = straight ramps'
+			hint: 'Slants the fins: the sign picks which side they open to, and the size how straight they are (0 = rounded bars or domed hoods, 1 = straight ramps)'
 		}),
-		P.int('blades', 'Blades', 1, 1, 16, {
+		P.int('blades', 'Fins per opening', 1, 1, 16, {
 			showIf: isFins,
-			hint: 'Fins (or hoods) side by side in each opening. Two or more sunken fins make a blade grille: slats with their top edge just under the plate, a rounded lip and a dark gap behind'
+			hint: 'How many fins (or hoods) sit side by side in each opening. Two or more sunken fins make a blade grille: slats with their top edge just under the plate, a rounded lip and a dark gap behind'
 		}),
 		P.float('rise', 'Hood rise', 0.3, 0, 1, {
 			step: 0.001,
 			showIf: (p) => p.mode === 'hoods',
-			hint: 'How far the hoods rise above the plate at their lip (relief; 1 = as far as the frame stands above 0)'
+			hint: 'Raises the hoods above the plate at their lip (1 = as high as the frame stands above 0)'
 		}),
-		P.float('depth', 'Depth', 1, 0, 1, {
+		P.float('depth', 'Opening depth', 1, 0, 1, {
 			step: 0.001,
-			hint: 'How far the openings sink below the plate (relief): 1 = right through (the darkest colour inside), lower = shallow pressed recesses'
+			hint: 'Sinks the openings below the plate (1 = right through, with the darkest colour inside; lower = shallow pressed recesses)'
 		}),
 		P.float('rim', 'Slot rim', 1, 0, 256, {
 			softMax: 16,
 			unit: 'px',
 			step: 0.25,
-			hint: 'A bevel round each opening, on the plate outside it: the plate slopes down into the opening over this width with the Edge profile (the opening keeps its width). 0 = cut sharp'
+			hint: 'Adds a bevel around each opening, sloping the plate down into it over this width with the Edge profile (the opening keeps its width). 0 = cut sharp'
 		}),
 		P.float('bead', 'Rim bead', 0, 0, 1, {
 			step: 0.001,
 			showIf: (p) => Number(p.rim) > 0,
-			hint: 'An embossed bead raised on the rim round each opening (relief; 1 = as high as the frame stands)'
+			hint: 'Raises an embossed bead on the rim around each opening (0 = none, 1 = as high as the frame stands)'
 		}),
 		VENT_PARTS.param,
 
 		P.seed(),
-		P.float('margin', 'Frame', 0, 0, 1024, {
+		P.float('margin', 'Frame width', 0, 0, 1024, {
 			softMax: 128,
 			unit: 'px',
 			step: 0.5,
 			group: 'frame',
-			hint: 'Border with no slots round the tile (0 = an endless grille). The Edge bevel slopes it down to the field'
+			hint: 'Adds a border with no slots around the tile (0 = an endless grille). The Edge bevel slopes it down to the field'
 		}),
 		P.float('field_level', 'Field level', 0.8, 0, 1, {
 			step: 0.001,
 			group: 'frame',
-			hint: 'Height of the plate inside the frame (the frame is 1): how deep the field sits, and the headroom for hoods and beads. Later layers that read the heights (Height mask, cavity) see these levels'
+			hint: 'Sets the height of the plate inside the frame (the frame is 1), so how deep the field sits and how much headroom hoods and beads get. Later layers that read heights (Height mask, cavity) see these levels'
 		}),
 		P.float('clear', 'Edge clearance', 0, 0, 512, {
 			softMax: 64,
@@ -168,7 +174,7 @@ export const ventsLayer: LayerDef = {
 			step: 0.5,
 			group: 'frame',
 			showIf: framed,
-			hint: 'Space kept clear inside the field’s edge: the openings are laid out over the rest, so the outermost bars are as wide as the others (or wider)'
+			hint: 'Keeps a strip inside the field’s edge clear and lays the openings out over the rest, so the outermost bars are as wide as the others (or wider)'
 		}),
 		P.float('outer', 'Outer bevel', 1, 0, 256, {
 			softMax: 32,
@@ -176,7 +182,7 @@ export const ventsLayer: LayerDef = {
 			step: 0.25,
 			group: 'frame',
 			showIf: framed,
-			hint: 'The frame slopes down to the wall at the tile edge over this width (Edge profile), so the panel stands on its own and tiled panels meet in a groove. 0 = the frame runs flat to the edge'
+			hint: 'Slopes the frame down to the wall at the tile edge over this width (Edge profile), so the panel stands on its own and tiled panels meet in a groove. 0 = the frame runs flat to the edge'
 		}),
 		P.float('round', 'Corner radius', 2, 0, 512, {
 			softMax: 64,
@@ -184,7 +190,7 @@ export const ventsLayer: LayerDef = {
 			step: 0.5,
 			group: 'frame',
 			showIf: framed,
-			hint: 'Rounds the field’s corners; the panel’s outer corners follow at the frame’s width further out'
+			hint: 'Rounds the field’s corners, and the panel’s outer corners to match, a frame’s width further out'
 		}),
 		P.enum(
 			'fasteners',
@@ -195,7 +201,7 @@ export const ventsLayer: LayerDef = {
 				['corners', 'Corners'],
 				['sides', 'Corners and sides']
 			],
-			{ group: 'frame', showIf: framed, hint: 'Screw or rivet heads on the frame' }
+			{ group: 'frame', showIf: framed, hint: 'Adds screw or rivet heads to the frame' }
 		),
 		P.float('fast_size', 'Fastener radius', 3, 0.5, 128, {
 			softMax: 24,
@@ -207,27 +213,27 @@ export const ventsLayer: LayerDef = {
 				const cap = fastenerCap(p);
 				return Number(p.fast_size) > cap ? `capped at ${r1(cap)} px: 0.3 × the frame’s flat` : undefined;
 			},
-			hint: 'Head radius, at most 0.3 × the frame’s flat (Frame less the outer bevel and the step to the field)'
+			hint: 'Sets the head radius, up to 0.3 × the frame’s flat part (Frame width minus the outer bevel and the step down to the field)'
 		}),
 		P.enum('fast_style', 'Fastener head', 'slotted', FASTENER_HEADS, {
 			group: 'frame',
 			showIf: (p) => framed(p) && (p.fasteners ?? 'none') !== 'none',
-			hint: 'Heads are turned at random (by the seed); the sunk kinds stand in a round counterbore'
+			hint: 'Picks the kind of head. Heads get a random turn (from the seed); the sunk kinds sit in a round counterbore'
 		}),
 		P.float('depth_var', 'Depth variation', 0, 0, 1, {
 			step: 0.001,
 			group: 'wear',
-			hint: 'Each opening its own random depth (1 = anywhere from full to none): partly filled ones dish like dents'
+			hint: 'Gives each opening a random depth (0 = all the same, 1 = anywhere from full to none). Partly filled ones dish like dents'
 		}),
-		P.float('missing', 'Missing', 0, 0, 1, {
+		P.float('missing', 'Missing openings', 0, 0, 1, {
 			step: 0.001,
 			group: 'wear',
-			hint: 'Share of the openings left out at random: broken bars, gappy perforation'
+			hint: 'Leaves out a share of the openings at random, for broken bars and gappy perforation'
 		}),
-		P.bool('plugs', 'Show plugs', true, {
+		P.bool('plugs', 'Blanking plugs', true, {
 			group: 'wear',
 			showIf: (p) => Number(p.missing) > 0,
-			hint: 'Missing openings show as blanking plugs: a fine seam round a slightly sunk patch. Off: no trace'
+			hint: 'Shows missing openings as blanking plugs, a fine seam around a slightly sunk patch. Off = no trace'
 		})
 	],
 	groups: [
@@ -374,12 +380,12 @@ GenOut gen(vec2 p) {
     // Slots as long as the cell run on as continuous bars (no end caps at the cell / tile edge).
     float d = full ? abs(q.y - ctr.y) - 0.5 * W : vent_slot(q - ctr, L, W, rad);
     if (!wrap) d = max(d, dClip);   // staggered slots (and the spares past the row ends) are clipped by the field
-    // Left out (Missing): a plug, if shown. (No continue: ANGLE / D3D can miscompile it in a loop.)
+    // Left out (Missing openings): a plug, if shown. (No continue: ANGLE / D3D can miscompile it in a loop.)
     if (hv.x < u_missing) plug = min(plug, d);
     else if (d < best) { best2 = best; bestC2 = bestC; best = d; bestRnd = hashI(id, uSeed); bestC = ctr; bestDep = 1.0 - u_depth_var * hv.y; }
     else if (d < best2) { best2 = d; bestC2 = ctr; }
   }
-  // (None in reach — a row or more beyond a frame's field, or all Missing: far, but above NO_SDF, which would read as "no
+  // (None in reach — a row or more beyond a frame's field, or all missing: far, but above NO_SDF, which would read as "no
   // shape".)
   best = min(best, 1e4);
   best2 = min(best2, 1e4);
@@ -537,7 +543,7 @@ GenOut gen(vec2 p) {
   // Height: normalised by the highest the relief can reach; the paint keeps the frame at 1 whatever rises above it.
   float hgt = clamp(v / top, 0.0, 1.0);
   v = clamp(pv, 0.0, 1.0);
-  // One random per slot inside it; the plate is one piece (so Diffuse jitter and Random don't tile it per slot).
+  // One random per slot inside it; the plate is one piece (so Diffuse's Colour variation and Random don't tile it per slot).
   float rnd = best < 0.0 ? bestRnd : 0.5;
   GenOut o;
   if (u_mask == 0) o = genOut(v, 1.0, rnd, NO_SDF);
@@ -560,7 +566,7 @@ export const pipesLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Runs of parallel pipes (round) or conduits (flat trunking), optionally bundled, with couplings, flanges or welds, and clamp straps with bolted feet. Tileable.',
+		'Pipes & conduits: Made from runs of parallel round pipes or flat conduits, optionally bundled, with couplings, flanges or welds and clamp straps. Makes pipework, cable trunking and industrial walls.',
 	params: [
 		P.enum(
 			'output',
@@ -573,57 +579,60 @@ export const pipesLayer: LayerDef = {
 				['both', 'Pipes + clamps (shape)']
 			],
 			{
-				hint: 'Relief: true half-cylinder heights (round) or bevelled conduits, with their joints and clamps. Pipes as a shape (joints included): use the Round profile with bevel ≈ radius'
+				hint: 'Relief gives true half-cylinder heights for round pipes, or bevelled conduits, with their joints and clamps. For pipes as a shape (joints included), use the Round profile with a bevel about the radius'
 			}
 		),
 		P.enum('orient', 'Direction', 'horizontal', ORIENT),
-		P.enum('shape', 'Profile', 'round', [
+		P.enum('shape', 'Pipe shape', 'round', [
 			['round', 'Round pipe'],
 			['conduit', 'Flat conduit (bevel)']
 		]),
 		P.float('crown', 'Crown', 0.4, 0, 1, {
 			step: 0.001,
 			showIf: isConduit,
-			hint: 'Domes the conduit’s top (1 = 30 % higher in the middle than at its edges)'
+			hint: 'Domes the conduit’s top (0 = flat, 1 = 30 % higher in the middle than at its edges)'
 		}),
 		P.bool('lid', 'Lid seams', true, {
 			showIf: isConduit,
-			hint: 'A seam along each side of the conduit’s top, where its lid sits'
+			hint: 'Adds a seam along each side of the conduit’s top, where its lid sits'
 		}),
-		P.int('count', 'Count', 3, 1, 256, { softMax: 64, hint: 'Pipes (or bundles) across the tile' }),
-		P.int('bundle', 'Bundle', 1, 1, 8, { hint: 'Pipes side by side in each run' }),
+		P.int('count', 'Runs across', 3, 1, 256, { softMax: 64, hint: 'How many pipes (or bundles) go across the tile' }),
+		P.int('bundle', 'Pipes per bundle', 1, 1, 8, { hint: 'How many pipes run side by side in each bundle' }),
 		P.float('bundle_gap', 'Bundle gap', 0, 0, 256, {
 			softMax: 32,
 			unit: 'px',
 			axis: ORIENT_ACROSS,
 			step: 0.5,
 			showIf: (p) => Number(p.bundle) > 1,
-			hint: 'Space between the pipes of a bundle (0 = touching)'
+			hint: 'Leaves space between the pipes of a bundle (0 = touching)'
 		}),
 		P.float('diameter', 'Diameter', 8, 1, 1024, {
 			softMax: 256,
 			unit: 'px',
 			axis: ORIENT_ACROSS,
 			step: 0.5,
-			hint: 'Clamped so that the runs fit their spacing (tile ÷ Count) side by side'
+			hint: 'Sets the pipe diameter, capped so the runs fit side by side in their spacing (tile ÷ Runs across)'
 		}),
 		P.float('dia_var', 'Diameter variation', 0.35, 0, 0.9, {
 			step: 0.001,
-			hint: 'Random reduction per run (0.9 = some runs a tenth as thick)'
+			hint: 'Makes some runs thinner at random (0 = all the same, 0.9 = some runs a tenth as thick)'
 		}),
 		P.float('pipe_var', 'Per-pipe variation', 0, 0, 0.9, {
 			step: 0.001,
 			showIf: (p) => Number(p.bundle) > 1,
-			hint: 'Each pipe of a bundle its own random reduction, centred in its place'
+			hint: 'Makes each pipe in a bundle a random amount thinner, kept centred in its place'
 		}),
 		P.float('jitter', 'Position jitter', 2, 0, 256, {
 			softMax: 64,
 			unit: 'px',
 			axis: ORIENT_ACROSS,
 			step: 0.5,
-			hint: 'Random shift of each run across, at most into the free space beside it: runs may touch, never overlap'
+			hint: 'Shifts each run across by a random amount, at most into the free space beside it, so runs may touch but never overlap'
 		}),
-		P.float('offset', 'Offset', 0, 0, 1, { step: 0.001, hint: 'Shift across, fraction of the spacing' }),
+		P.float('offset', 'Run offset', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Shifts all the runs across, as a fraction of their spacing'
+		}),
 		P.enum(
 			'scale',
 			'Relief height',
@@ -632,15 +641,15 @@ export const pipesLayer: LayerDef = {
 				[
 					'unit',
 					'Tallest pipe = Amount',
-					'the relief runs 0..1: the tallest pipe (with its clamps) rises the Height amount, whatever its size'
+					'the relief runs 0..1: the tallest pipe (with its clamps) rises by the Height amount, whatever its size'
 				],
 				[
 					'true',
 					'True to size',
-					'heights in px of the pipes’ own radius: Height amount 1 = round pipes as tall as their radius (the project’s Height depth converts), 0.5 = half as tall, so big pipes stay round at any size. Levels and Gamma don’t apply to it'
+					'heights in px, from each pipe’s radius: Height amount 1 = round pipes as tall as their radius (the project’s Height depth converts it), 0.5 = half as tall, so big pipes stay round at any size. Levels and Gamma don’t apply'
 				]
 			],
-			{ showIf: (p) => (p.output ?? 'relief') === 'relief', hint: 'How the relief’s heights scale' }
+			{ showIf: (p) => (p.output ?? 'relief') === 'relief', hint: 'Picks how the relief’s heights are scaled' }
 		),
 		PIPE_PARTS.param,
 
@@ -648,11 +657,11 @@ export const pipesLayer: LayerDef = {
 		P.int('joints', 'Joints', 1, 0, 64, {
 			softMax: 16,
 			group: 'joints',
-			hint: 'Joints per pipe along the tile (0 = none), at a random place on each run'
+			hint: 'Places this many joints on each pipe along the tile (0 = none), at a random spot on each run'
 		}),
 		P.enum(
 			'joint_style',
-			'Style',
+			'Joint style',
 			'coupling',
 			[
 				['coupling', 'Coupling', 'a sleeve about 0.7 diameters long: chamfered shoulders, a groove near each end'],
@@ -664,75 +673,75 @@ export const pipesLayer: LayerDef = {
 		P.bool('flange_bolts', 'Flange bolts', true, {
 			group: 'joints',
 			showIf: (p) => Number(p.joints) > 0 && p.joint_style === 'flange',
-			hint: 'Hex nuts on the flanges’ outer faces'
+			hint: 'Adds hex nuts on the flanges’ outer faces'
 		}),
-		P.float('joint_size', 'Size', 1, 0.25, 4, {
+		P.float('joint_size', 'Joint size', 1, 0.25, 4, {
 			step: 0.01,
 			group: 'joints',
 			showIf: (p) => Number(p.joints) > 0,
-			hint: 'Scales the joint, which is in proportion to its pipe'
+			hint: 'Scales the joint, which is already sized in proportion to its pipe'
 		}),
-		P.float('joint_jitter', 'Phase jitter', 1, 0, 1, {
+		P.float('joint_jitter', 'Joint shift variation', 1, 0, 1, {
 			step: 0.001,
 			group: 'joints',
 			showIf: (p) => Number(p.joints) > 0,
-			hint: 'Random shift of the joints per run, fraction of their spacing (0 = all in line). In a bundle the joints are staggered, each pipe’s a joint’s length plus a gap along from its neighbour’s. Joints keep clear of the clamps (centred between two when the gap is short)'
+			hint: 'Shifts the joints of each run along by a random amount, as a fraction of their spacing (0 = all in line). In a bundle the joints are staggered: each pipe’s joint sits a joint’s length plus a gap along from its neighbour’s. Joints keep clear of the clamps (centred between two when the gap is short)'
 		}),
-		P.float('joint_spread', 'Spacing jitter', 0.5, 0, 1, {
+		P.float('joint_spread', 'Joint pitch variation', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'joints',
 			showIf: (p) => Number(p.joints) > 1,
-			hint: 'Each joint its own random shift along the pipe, so they aren’t evenly spaced (1 = up to ± 0.3 of their spacing)'
+			hint: 'Moves each joint along the pipe by a random amount, so they aren’t evenly spaced (1 = up to ± 0.3 of their spacing)'
 		}),
 		P.int('clamps', 'Clamps', 2, 0, 256, {
 			softMax: 32,
 			group: 'clamps',
-			hint: 'Clamp straps per pipe along the tile (0 = none)'
+			hint: 'Places this many clamp straps on each pipe along the tile (0 = none)'
 		}),
-		P.float('clamp_width', 'Width', 3, 1, 256, {
+		P.float('clamp_width', 'Clamp width', 3, 1, 256, {
 			softMax: 64,
 			unit: 'px',
 			axis: ORIENT_ALONG,
 			step: 0.5,
 			group: 'clamps'
 		}),
-		P.float('clamp_lip', 'Lip', 1, 0, 64, {
+		P.float('clamp_lip', 'Clamp thickness', 1, 0, 64, {
 			softMax: 24,
 			unit: 'px',
 			step: 0.5,
 			group: 'clamps',
-			hint: 'How far the strap stands proud of the pipe (its thickness)'
+			hint: 'Sets how far the strap stands proud of the pipe (its thickness)'
 		}),
-		P.float('clamp_foot', 'Feet', 2, 0, 256, {
+		P.float('clamp_foot', 'Clamp feet', 2, 0, 256, {
 			softMax: 64,
 			unit: 'px',
 			axis: ORIENT_ACROSS,
 			step: 0.5,
 			group: 'clamps',
-			hint: 'Flat tabs where the strap meets the wall, reaching this far past the run’s sides (0 = a plain ring)'
+			hint: 'Adds flat tabs where the strap meets the wall, reaching this far past the run’s sides (0 = a plain ring)'
 		}),
-		P.bool('bolts', 'Bolts', true, {
+		P.bool('bolts', 'Clamp bolts', true, {
 			group: 'clamps',
 			showIf: (p) => Number(p.clamp_foot) > 0,
-			hint: 'A bolt head on each foot'
+			hint: 'Adds a bolt head on each foot'
 		}),
-		P.float('clamp_offset', 'Offset', 0, 0, 1, {
+		P.float('clamp_offset', 'Clamp offset', 0, 0, 1, {
 			step: 0.001,
 			group: 'clamps',
-			hint: 'Shift of the straps along the pipes, fraction of their spacing'
+			hint: 'Shifts the straps along the pipes, as a fraction of their spacing'
 		}),
-		P.float('clamp_jitter', 'Phase jitter', 0, 0, 1, {
+		P.float('clamp_jitter', 'Clamp shift variation', 0, 0, 1, {
 			step: 0.001,
 			group: 'clamps',
-			hint: 'Random shift of the straps per run, fraction of their spacing (0 = all in line, as on shared supports)'
+			hint: 'Shifts the straps of each run along by a random amount, as a fraction of their spacing (0 = all in line, as on shared supports)'
 		}),
 		P.bool('clamp_seeded', 'Shift with the seed', true, {
 			group: 'clamps',
-			hint: 'The seed also moves all the straps along the pipes, so each seed puts the supports somewhere else'
+			hint: 'Lets the seed move all the straps along the pipes too, so each seed puts the supports somewhere else'
 		}),
-		P.bool('clamp_rel', 'Size with each pipe', true, {
+		P.bool('clamp_rel', 'Scale with each pipe', true, {
 			group: 'clamps',
-			hint: 'Width, Lip and Feet are for a pipe of the full Diameter: thinner runs (Diameter variation) get proportionally smaller clamps'
+			hint: 'Shrinks the clamps on thinner runs (Diameter variation) to match. Clamp width, Clamp thickness and Clamp feet are set for a pipe of the full Diameter'
 		})
 	],
 	groups: [
@@ -807,7 +816,7 @@ vec2 pp_pipe(int kw, float jj, float Ds, float y0, float pitch) {
   return vec2(D, D < Ds ? grb_snapC(c, D) : c);
 }
 
-// A joint's half length along a pipe D px thick (Size js): a coupling's sleeve, the two flange discs, a weld bead.
+// A joint's half length along a pipe D px thick (Joint size js): a coupling's sleeve, the two flange discs, a weld bead.
 float pp_jointLen(float D, float js) {
   return u_joint_style == 0 ? 0.35 * js * D : u_joint_style == 1 ? max(0.12 * js * D, 1.0) + 0.5 : 0.5 * max(0.12 * js * D, 2.0);
 }
@@ -864,7 +873,7 @@ GenOut gen(vec2 p) {
     float y = q.y - c;
     float r = 0.5 * D;
     float d = abs(y) - r;
-    // The run's clamps (Size with each pipe: in proportion to its pipes, but never below 3 px wide, 1.5 px proud and
+    // The run's clamps (Scale with each pipe: in proportion to its pipes, but never below 3 px wide, 1.5 px proud and
     // 3 px feet, and none on runs thinner than 10 px, or than the Diameter if that is less).
     float sc = u_clamp_rel ? Ds / D0 : 1.0;
     float lip = max(lip0 * sc, min(lip0, 1.5)), cw = max(max(u_clamp_width * sc, min(u_clamp_width, 3.0)), 1.0);
@@ -872,7 +881,7 @@ GenOut gen(vec2 p) {
     float R = r + lip;
     float bc = y0 + 0.5 * tot;
     float by = abs(q.y - bc) - 0.5 * tot;   // past the bundle's sides (< 0 within it)
-    // Feet reach at most half way to the next run on their side, and are left off where that is too little.
+    // Clamp feet reach at most half way to the next run on their side, and are left off where that is too little.
     float foot = max(foot0 * sc, min(foot0, 3.0));
     if (foot > 0.0) {
       vec3 nr = q.y < bc ? runP : runN;
@@ -899,8 +908,8 @@ GenOut gen(vec2 p) {
     dPk = min(dPk, d * bk.y);
 
     // Joints: on this pixel's pipe and, in a bundle, its neighbours (a sleeve stands over the pipe beside it, each joint
-    // its own circle, combined by height); per pipe the two nearest joints (spacing jitter can push one across). A
-    // bundle's joints are a staggered group: one place per run (phase, spacing jitter), each pipe a joint's length plus
+    // its own circle, combined by height); per pipe the two nearest joints (Joint pitch variation can push one across). A
+    // bundle's joints are a staggered group: one place per run (Joint shift variation, Joint pitch variation), each pipe a joint's length plus
     // a gap further along, so neighbours never clash; the group keeps clear of the clamps (centred between two where the
     // gap is short). Whole px. One flat loop with a bound from uniforms.
     float hj = 0.0;

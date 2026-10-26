@@ -4,7 +4,7 @@
 
 The earlier caustics generator drew cells with soft rims; light doesn't behave like that. `causticlight` simulates it:
 
-- **Surface**: a sum of plane waves (Waves, Cells across, Wavelength spread, Fine waves) with whole-number wave counts
+- **Surface**: a sum of plane waves (Waves, Cells across, Wavelength variation, Fine waves) with whole-number wave counts
   across the texture — tiles, and its slope is exact and cheap. Coarse and fine waves each take exactly evenly spaced
   directions (one random rotation per seed), and when tiling each whole-number wave vector is the one closest in
   _direction_ (then length): unevenly rounded directions stretched the cells along the dominant ones.
@@ -20,10 +20,10 @@ The earlier caustics generator drew cells with soft rims; light doesn't behave l
   parameter u sits at X(u) = u − Σ qᵢ κ̂ᵢ sin θᵢ, height Z(u) = Σ aᵢ cos θᵢ — so it gathers towards the crests: sharp
   crests over broad, flat troughs, crisp connected filaments. The gather walks the parameter lattice; each sample
   lands at X(u) + Refraction · ∇z with ∇z = J⁻ᵀ ∂Z/∂u (J = ∂X/∂u, symmetric) and carries det J, the horizontal area
-  of its patch — the light it catches. **Steepness** S: qᵢ = S aᵢ / λ, λ the top eigenvalue of Σ aᵢ|kᵢ| k̂ᵢk̂ᵢᵀ, so the
+  of its patch — the light it catches. **Wave steepness** S: qᵢ = S aᵢ / λ, λ the top eigenvalue of Σ aᵢ|kᵢ| k̂ᵢk̂ᵢᵀ, so the
   surface folds nowhere below S = 1 (cusps at 1); where the meander stretches the waves past that, the gathering is
   scaled back locally. Light thrown past the lattice window near a cusp fades out by its own throw, so no window
-  edges show. Steepness 0 is exactly the sines model with Crest sharpness 0. Surface height inverts X by fixed-point
+  edges show. Wave steepness 0 is exactly the sines model with Crest sharpness 0. Surface height inverts X by fixed-point
   iteration. Phase moves the crests with their rolling motion; the loop stays seamless.
 - **Gathering**: under every pixel, samples of a fine lattice are displaced by the surface slope × Refraction (px)
   and splatted with a Gaussian (**Filament width**, px); the pixel's light is the sum of the splats landing on it. Light piles up into

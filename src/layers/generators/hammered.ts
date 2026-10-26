@@ -1,12 +1,12 @@
 // Hammered (FR7.7): hand-hammered metal — dents laid in courses (rings) around a few hammering centres. Each pixel
 // belongs to one centre (a multiplicatively weighted Voronoi partition, so regions meet along interlocking *arcs*);
 // within its region the dents sit on courses `ring` px apart — each wandering round its circle (Ring wobble) and set
-// off on its own (Course variation) — as many per course as fit at `spacing`, with a random rotation per course and
+// off on its own (Ring variation) — as many per course as fit at `spacing`, with a random rotation per course and
 // jitter. Each dent is a dish — 0 at its deepest point rising to 1 at its rim (Dent shape: higher = flatter floor,
-// steeper wall) — with its own size, depth and tilt, lengthened along its course by Stretch, and an optional raised rim
-// of displaced metal; the surface is the smooth maximum of the dents' depths (overlapping dents meet in creases, rounded
-// by Crease softness). A dent belongs to the region its centre lies in, so dents cross region edges whole; Edge overlap
-// lets them run on past it, thinning out. Height's Per-feature variation varies each dent's depth (hval).
+// steeper wall) — with its own size, depth and tilt, lengthened along its course by Dent stretch, and an optional
+// raised rim of displaced metal; the surface is the smooth maximum of the dents' depths (overlapping dents meet in
+// creases, rounded by Crease softness). A dent belongs to the region its centre lies in, so dents cross region edges
+// whole; Region overlap lets them run on past it, thinning out. Height's Per-feature variation varies each dent's depth (hval).
 // Writing a mask (Mask › Write to), the dents are discs (Mask size × their radius).
 
 import { P, round1 as r1, type ParamValues } from '@/core/params';
@@ -22,96 +22,96 @@ export const hammeredLayer: LayerDef = {
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Hand-hammered metal: overlapping dish dents in wandering courses round a few centres whose regions interlock along arcs.',
+		'Hand-hammered metal: Made from overlapping dish-shaped dents laid in wavy rings round a few hammering centres, whose regions interlock along curved edges. Makes beaten copper, planished steel, punched sheet metal.',
 	params: [
-		P.int('centres', 'Centres', 4, 1, 64, {
+		P.int('centres', 'Hammer centres', 4, 1, 64, {
 			softMax: 16,
-			hint: 'Hammering centres; each owns a region of courses (rings) of dents'
+			hint: 'How many hammering centres there are; each one gets a region of courses (rings) of dents'
 		}),
-		P.float('weight_var', 'Arc boundaries', 0.6, 0, 4, {
+		P.float('weight_var', 'Region arcs', 0.6, 0, 4, {
 			softMax: 1.5,
 			step: 0.001,
-			hint: 'Weight variation between centres: 0 = straight region edges, higher = curved, interlocking arcs, and small regions become islands inside big ones'
+			hint: 'Varies how strong each centre is (0 = straight region edges, higher = curved, interlocking arcs, with small regions turning into islands inside big ones)'
 		}),
 		P.float('region_var', 'Region variation', 0.35, 0, 1, {
 			step: 0.001,
-			hint: 'Each region its own dent size, depth and shade (1 = from 0.7× to 1.4× the size), so the regions read as separate passes of the hammer'
+			hint: 'Gives each region a random dent size, depth and shade (1 = from 0.7× to 1.4× the size), so the regions look like separate passes of the hammer'
 		}),
 		P.float('ring', 'Ring spacing', 24.4, 1, 512, {
 			softMax: 64,
 			unit: 'px',
 			step: 0.05,
-			hint: 'Distance between the courses (rings) of dents'
+			hint: 'Sets the distance between the courses (rings) of dents'
 		}),
 		P.float('spacing', 'Dent spacing', 20.2, 1, 512, {
 			softMax: 64,
 			unit: 'px',
 			step: 0.05,
-			hint: 'Distance between dents along a course'
+			hint: 'Sets the distance between dents along a course'
 		}),
 		P.float('wobble', 'Ring wobble', 0.5, 0, 6, {
 			softMax: 3,
 			step: 0.001,
-			hint: 'How far each course wanders from its circle, in ring spacings: 0 = perfect circles, higher = hand-guided, wavy courses that drift apart and together'
+			hint: 'Makes each course wander off its circle, by up to this many ring spacings (0 = perfect circles, higher = wavy, hand-guided courses that drift apart and together)'
 		}),
-		P.float('course_var', 'Course variation', 0.4, 0, 2, {
+		P.float('course_var', 'Ring variation', 0.4, 0, 2, {
 			softMax: 1,
 			step: 0.001,
-			hint: 'Courses set in or out, changing gradually from course to course (1 = up to half a ring spacing): the gaps between them widen and narrow'
+			hint: 'Sets each course in or out a bit, changing gradually from course to course (1 = up to half a ring spacing), so the gaps between them widen and narrow'
 		}),
 		P.float('jitter', 'Jitter', 0.1, 0, 4, {
 			softMax: 0.5,
 			step: 0.001,
-			hint: 'Random offset of each dent, as a share of the spacing: 0 = strict rows, 0.1 keeps the courses readable, 0.4 scatters them'
+			hint: 'Moves each dent by a random offset, as a share of the spacing (0 = strict rows, 0.1 keeps the courses readable, 0.4 scatters them)'
 		}),
 		P.float('size', 'Dent size', 1.9, 0.1, 4, {
 			softMin: 0.3,
 			softMax: 2.5,
 			step: 0.001,
-			hint: 'Dent radius relative to half the spacing: below 1 = separate dimples on flat metal, 1 = touching, above = overlapping facets that cover the sheet'
+			hint: 'Sets the dent radius relative to half the spacing (below 1 = separate dimples on flat metal, 1 = touching, above = overlapping facets that cover the sheet)'
 		}),
 		P.float('size_var', 'Size variation', 0.4, 0, 1, {
 			step: 0.001,
-			hint: 'Each dent its own size: 1 = from half to twice the radius'
+			hint: 'Gives each dent a random size (0 = all the same, 1 = from half to twice the radius)'
 		}),
 		P.float('shape', 'Dent shape', 2.4, 0.5, 16, {
 			softMin: 1,
 			softMax: 10,
 			step: 0.01,
-			hint: '1 = cone, 2 = round dish, 2–3 = planished bowls, higher = flat-bottomed punch marks with steep walls and a raised burr of displaced metal round them (from about 5 they strike to much the same depth: Depth variation counts for a third) — set Dent size below 1 to leave metal between the punches; below 1: pointed pits'
+			hint: 'Changes the profile of the dents (below 1 = pointed pits, 1 = cone, 2 = round dish, 2–3 = planished bowls, higher = flat-bottomed punch marks with steep walls and a raised burr of displaced metal round them). From about 5 they all strike to much the same depth (Depth variation counts for a third); set Dent size below 1 to leave metal between the punches'
 		}),
 		P.float('depth_var', 'Depth variation', 0.5, 0, 1, {
 			step: 0.001,
-			hint: 'Each dent its own depth, in colour and height: 1 = from full depth to barely touched (Height › Per-feature variation varies the height alone)'
+			hint: 'Gives each dent a random depth, in colour and height (1 = from full depth to barely touched). Height › Per-feature variation varies the height alone'
 		}),
-		P.float('tilt', 'Tilt', 1, 0, 1, {
+		P.float('tilt', 'Dent tilt', 1, 0, 1, {
 			step: 0.001,
-			hint: 'Each dent’s deepest point moved towards one side, as from a blow struck at an angle: a long, gentle slope one way and a short, steep one the other, so the facets catch the light differently (floors stay level)'
+			hint: 'Moves each dent’s deepest point towards one side, like a blow struck at an angle: a long, gentle slope one way and a short, steep one the other, so the facets catch the light differently (floors stay level)'
 		}),
-		P.float('stretch', 'Stretch', 1.15, 0.2, 5, {
+		P.float('stretch', 'Dent stretch', 1.15, 0.2, 5, {
 			softMin: 0.5,
 			softMax: 3,
 			step: 0.01,
-			hint: 'Dents lengthened along their course (above 1, as a hammer drawn along it) or across it (below 1); the other way they keep their width'
+			hint: 'Stretches the dents along their course (above 1, like a hammer drawn along it) or across it (below 1); their width the other way stays the same'
 		}),
 		P.float('crease', 'Crease softness', 0.02, 0, 1, {
 			step: 0.001,
-			hint: 'Where overlapping dents meet: 0 = sharp creases, higher = rounded ridges (most of the change is in the first tenth)'
+			hint: 'Softens the creases where overlapping dents meet (0 = sharp creases, higher = rounded ridges; most of the change is in the first tenth)'
 		}),
-		P.float('rim', 'Rim', 0.1, 0, 1, {
+		P.float('rim', 'Dent rims', 0.1, 0, 1, {
 			softMax: 0.5,
 			step: 0.001,
-			hint: 'A raised lip of displaced metal round each dent, as a share of its depth — it shows on untouched metal and on the ridges between dents'
+			hint: 'Adds a raised lip of displaced metal round each dent, as a share of its depth. It shows on untouched metal and on the ridges between dents'
 		}),
-		P.float('overlap', 'Edge overlap', 2, 0, 8, {
+		P.float('overlap', 'Region overlap', 2, 0, 8, {
 			softMax: 4,
 			step: 0.01,
-			hint: 'How far each region’s dents run on past its edge, in dent radii, thinning out over the band (sparse dents skip blows where the neighbour already struck): 0 = every region stops at its edge (seams and wedges of untouched metal where courses meet), higher = the passes mesh and hide the seams'
+			hint: 'How far each region’s dents carry on past its edge, in dent radii, thinning out across the band (0 = every region stops at its edge, leaving seams and wedges of untouched metal where courses meet; higher = the passes mesh and hide the seams)'
 		}),
 		P.float('mask_r', 'Mask size', 1, 0, 2, {
 			step: 0.001,
 			showIf: writesShape,
-			hint: 'Writing a mask (Mask › Write to): the shape is a disc per dent, this times its radius — 1 = the whole dent, lower = round its deepest point (its floor); large, overlapping dents still join up below about 0.5'
+			hint: 'Sets the size of each dent’s disc in the mask (Mask › Write to), as a multiple of its radius (1 = the whole dent, lower = just round its deepest point). Large, overlapping dents still join up until below about 0.5'
 		}),
 		// Not a control: 1 output px in shader px (supersampling), for the safeguards against pixel-wide cliffs.
 		PX_SCALE_PARAM,
@@ -160,7 +160,7 @@ export const hammeredLayer: LayerDef = {
 	},
 	glsl: /* glsl */ `
 // Per centre (filled once per pixel by hmInit, as the searches visit every centre per dent): its position, its weight
-// 1 / (1 + 2v·h) — positive at any Arc boundaries v — and its rank, the order the regions were hammered in (a later
+// 1 / (1 + 2v·h) — positive at any Region arcs v — and its rank, the order the regions were hammered in (a later
 // pass runs on over an earlier one's edge).
 vec2 hmC[64];
 float hmW[64];
@@ -225,7 +225,7 @@ float hmWobble(int own, float a, float kf) {
   return w;
 }
 
-// Course variation: how far course k of a region is set in or out, −0.5 … 0.5 ring spacings — smooth from course to
+// Ring variation: how far course k of a region is set in or out, −0.5 … 0.5 ring spacings — smooth from course to
 // course (value noise over every three), so the gaps between courses widen and narrow gradually — and how fast that
 // changes per course (y, at most 0.5), by which a course standing further from its neighbours grows its dents.
 vec2 hmCourse(int own, int k) {
@@ -304,9 +304,9 @@ GenOut gen(vec2 p) {
   bool wantSdf = uMaskKind != 0 || u_bevel > 0.0;
   // Region variation scales a region's dents by up to 2^±(rv / 2).
   float sMax = exp2(0.5 * u_region_var);
-  // Stretch lengthens the dents: along the course (> 1) or across it (< 1), the other axis keeping its width.
+  // Dent stretch lengthens the dents: along the course (> 1) or across it (< 1), the other axis keeping its width.
   vec2 ax = vec2(max(u_stretch, 1.0), max(1.0 / max(u_stretch, 0.05), 1.0));
-  // The rim: Rim, plus a burr round high-shape punch marks.
+  // The rim: Dent rims, plus a burr round high-shape punch marks.
   float rimA = u_rim + 0.35 * smoothstep(4.0, 10.0, u_shape);
   // How far out a dent matters, in radii: its edge, the rim (out to 1.4 radii), the Shape-mask disc.
   float ext = max(rimA > 0.0 ? 1.4 : 1.0, wantSdf ? u_mask_r : 0.0);
@@ -322,7 +322,7 @@ GenOut gen(vec2 p) {
   int KA = clamp(int(reach / (sp0 / sMax) + 0.5) + 1 + int(ceil(2.0 * max(u_wobble - 1.0, 0.0))), 1, 14);
   int NA = 2 * KA + 1;
   int per = (2 * KR + 1) * NA;
-  // Edge overlap: how far past its region's edge a dent may lie (growing shallower).
+  // Region overlap: how far past its region's edge a dent may lie (growing shallower).
   float over = u_overlap * rad0;
   // Flat punches strike to much the same depth: Depth variation counts for less at high Dent shape.
   float dVar = u_depth_var * mix(1.0, 0.3, smoothstep(2.5, 5.0, u_shape));
@@ -421,7 +421,7 @@ GenOut gen(vec2 p) {
     ivec2 id;
     vec2 cv;
     bool valid;
-    // The dent: its course's own offset (Course variation; none for the centre dent), wobble and jitter.
+    // The dent: its course's own offset (Ring variation; none for the centre dent), wobble and jitter.
     vec2 c = hmDent(own, k, thE[reg], aa, ringW, sp, jit0 * sc, a, id, cv, valid);
     if (valid) {
       vec2 rd = vec2(cos(a), sin(a));
@@ -432,7 +432,7 @@ GenOut gen(vec2 p) {
       vec2 l = vec2(dot(u, vec2(-rd.y, rd.x)) / ax.x, dot(u, rd) / ax.y) / R;
       float q = length(l);
       float rnd = hashI(id, uSeed + 23.0);
-      // The deepest point, moved off centre by Tilt (in radii; never closer than 4 px to the rim, so small dents don't
+      // The deepest point, moved off centre by Dent tilt (in radii; never closer than 4 px to the rim, so small dents don't
       // get one-pixel cliffs on their steep side).
       vec2 o = min(u_tilt * (0.4 + 0.3 * hr.w), clamp(1.0 - 4.0 * u_px_scale / R, 0.0, 0.7)) * vec2(cos(TAU * hr.z), sin(TAU * hr.z));
       // The mask's disc: Mask size × the radius, moving from the dent's centre (1) to its deepest point (0).
@@ -442,7 +442,7 @@ GenOut gen(vec2 p) {
         if (1.0 + q < score) { score = 1.0 + q; dentRnd = rnd; shade = shR[reg]; }
         if (wantSdf) sd = hmSmin(sd, dDisc);
       } else {
-        // Each region's dents cross its edges whole, and run on past them (Edge overlap, both ways), thinning out by
+        // Each region's dents cross its edges whole, and run on past them (Region overlap, both ways), thinning out by
         // count — each dent its own random cut-off over the band, so the regions' last dents don't end along a line of
         // creases — over the other region's own dents, which are all there, so no strip of thinned metal remains.
         // Where dents stand apart (Dent size below about 1.3), near (or past) an earlier region's edge a dent is skipped

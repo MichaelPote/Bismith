@@ -108,7 +108,7 @@ export type EntryKind = 'number' | 'color' | 'stop-color' | 'stop-pos' | 'enum' 
 export interface ParamEntry {
 	/** Stable id, e.g. "layer:ly_abc12:scale", "layer:ly_abc12:dif_grad:1:color", "light:lt_x:azimuth". */
 	id: string;
-	/** Human-readable, e.g. "Noise › Scale". */
+	/** Human-readable, e.g. "Noise › Cells across". */
 	label: string;
 	kind: EntryKind;
 	scope: ParamScope;

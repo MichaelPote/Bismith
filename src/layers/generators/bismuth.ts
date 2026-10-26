@@ -5,8 +5,9 @@
 // Crystals sit one per cell of a grid (Crystals across), scattered, sized, turned and leaning a little each, a few
 // generations deep: each generation has cells half the size of the last, is sparser (Small crystals) and lower (Small
 // crystal height). A large crystal may grow daughters out of its corners (Daughters: one on the tip corner — the one the
-// Stack direction points to — or a mirrored pair on the two beside it, Pairs; Daughter size; Daughter depth: each on the
-// same corner of the last), in front and a step taller; Core stands smaller crystals up out of the middle.
+// Stack direction points to — or a mirrored pair on the two beside it, Daughter pairs; Daughter size; Daughter levels:
+// each on the same corner of the last), in front and a step taller; Core size stands smaller crystals up out of the
+// middle.
 //
 // Two passes. The first, one flat loop over the generations × the cells round the pixel × each crystal's chain (the
 // crystal, its cores, its daughters — the pixel follows the daughter on the corner nearest it), computes only the
@@ -17,7 +18,7 @@
 //
 // A crystal is a square (Habit › Hopper squares) or a cube standing on its corner (Habit › Cube corners: a hexagon
 // whose three rhombic faces slope away from the corner, as an isometric cube looks), and a stepped pyramid: its top
-// face (Top face of its width) is the hopper, its sides fall to the base in Side ledges. Each top face is one of the templates
+// face (Top face width of its width) is the hopper, its sides fall to the base in Side ledges. Each top face is one of the templates
 // grown on the CPU by rules (bismuthGrowth.ts: a path through a grid of cells, a terrace wide, whose straight runs — the
 // facets — each step a level lower; walls where the path doesn't join), picked by the face's hash and read in its
 // frame: the cell's height stepping to joined neighbours over the softness, thin ribs on the walls and posts where walls
@@ -25,7 +26,7 @@
 //
 // The value is the oxide's thickness — by crystal, facet, face, sub-crystal, a sweep across the crystal and mottling —
 // walked along the ramp from its second stop and back (the first stop is the bare ground), so any ramp stays seamless;
-// Band contrast shades each facet by its depth (gGenShade) without moving the hue, and
+// Depth shading shades each facet by its depth (gGenShade) without moving the hue, and
 // where two crystals meet in a pixel their colours mix (gGenAlt). Height (hval) is the crystal's own height. The
 // crystals' union goes to the mask it writes (Mask › Write to), with each crystal's random.
 
@@ -43,7 +44,7 @@ export const bismuthLayer: LayerDef = {
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Bismuth hopper crystals: ribbed terraces stepping down to an off-centre hollow with a square whorl, crystals shingled over one another with daughters on their corners (or isometric cube corners), iridescent oxide colours. Tileable.',
+		'Bismuth hopper crystals: Made from ribbed terraces stepping down to an off-centre hollow, with crystals overlapping like shingles and smaller ones growing from their corners, in iridescent oxide colours. Makes bismuth, stepped metal crystals, isometric cube clusters.',
 	params: [
 		P.enum(
 			'habit',
@@ -54,105 +55,105 @@ export const bismuthLayer: LayerDef = {
 				[
 					'cube',
 					'Cube corners',
-					'cubes standing on a corner, as an isometric drawing shows them: a hexagon of three rhombic faces sloping away from the corner, ringed by hexagonal terraces'
+					'cubes standing on a corner, like an isometric drawing: a hexagon of three rhombic faces sloping away from the corner, ringed by hexagonal terraces'
 				]
 			],
-			{ hint: 'The shape each crystal grows in' }
+			{ hint: 'Picks the shape the crystals grow in' }
 		),
 		P.float('scale', 'Crystals across', 6, 0.5, 32, {
 			softMax: 12,
 			step: 0.01,
 			section: 'Crystals',
-			hint: 'Large crystals across the width (whole counts when tiling); 1 with Scatter 0 puts one in the middle'
+			hint: 'How many large crystals fit across the width (whole counts when tiling); 1 with Jitter 0 puts one in the middle'
 		}),
-		P.float('size', 'Size', 1.15, 0.1, 2, {
+		P.float('size', 'Crystal size', 1.15, 0.1, 2, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Crystal width as a share of its cell: below 1 leaves room between them, above 1 they grow into one another'
+			hint: 'Sets each crystal’s width as a share of its cell (below 1 leaves room between them, above 1 makes them grow into one another)'
 		}),
 		P.float('size_var', 'Size variation', 0.35, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Each crystal its own size: 1 = from half to twice the Size'
+			hint: 'Gives each crystal a random size (0 = all the same, 1 = from half to twice the Crystal size)'
 		}),
-		P.float('scatter', 'Scatter', 0.75, 0, 1, {
+		P.float('scatter', 'Jitter', 0.75, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'How far a crystal may sit from the middle of its cell, as a share of the cell: 0 = a strict grid'
+			hint: 'Moves each crystal off-centre in its cell, by up to this share of the cell (0 = a strict grid)'
 		}),
 		P.float('angle', 'Rotation', 0, -180, 180, {
 			unit: '°',
 			step: 0.1,
 			section: 'Crystals',
-			hint: 'Turn of every crystal, clockwise'
+			hint: 'Turns every crystal, clockwise'
 		}),
 		P.float('angle_var', 'Rotation variation', 0.08, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Each crystal turned its own way (1 = any way at all): bismuth grown in one melt mostly lines up'
+			hint: 'Turns each crystal by a random angle (0 = all lined up, 1 = any way at all). Bismuth grown in one melt mostly lines up'
 		}),
 		P.float('stack', 'Stacking', 0.7, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'How much the crystals shingle one way — each in front of its neighbours behind it along the Stack direction — so most show two or three sides, as chevrons; 0 = the taller in front'
+			hint: 'How much the crystals overlap one way like shingles, each in front of the neighbours behind it along the Stack direction, so most show two or three sides as chevrons (0 = the taller crystal goes in front)'
 		}),
 		P.float('stack_angle', 'Stack direction', 90, -180, 180, {
 			unit: '°',
 			step: 0.1,
 			section: 'Crystals',
-			hint: 'The corner the crystals shingle towards and grow their tip daughter on, measured in the crystal from its right side anticlockwise (snapped to a corner: a square’s nearest diagonal, a cube’s nearest point). It is also the crystal’s mirror axis'
+			hint: 'Picks the corner the crystals overlap towards and where the tip daughter grows, measured anticlockwise from the crystal’s right side (snapped to a corner: a square’s nearest diagonal, a cube’s nearest point). It’s also the crystal’s mirror axis'
 		}),
 		P.float('rise_var', 'Height variation', 0.4, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Each crystal its own height: 1 = from nothing to full'
+			hint: 'Gives each crystal a random height (0 = equal heights, 1 = from nothing to full)'
 		}),
 		P.float('lean', 'Lean', 0.4, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Each crystal tilted its own way (1 = a quarter of its height across it), so its terraces catch the light differently from its neighbours’'
+			hint: 'Tilts each crystal a random way (1 = a quarter of its height across it), so its terraces catch the light differently from its neighbours’'
 		}),
 		P.float('daughters', 'Daughters', 0.8, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'Share of the large crystals that grow daughter crystals out of their corners, in front and a step taller: one on the tip corner, or a mirrored pair (Pairs). 0 = none'
+			hint: 'How many of the large crystals grow daughter crystals out of their corners, in front and a step taller: one on the tip corner, or a mirrored pair (Daughter pairs). 0 = none'
 		}),
-		P.float('pairs', 'Pairs', 0.5, 0, 1, {
+		P.float('pairs', 'Daughter pairs', 0.5, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
 			showIf: hasDaughters,
-			hint: 'Share of those that grow a mirrored pair on the two corners beside the tip, instead of one on the tip'
+			hint: 'How many of those grow a mirrored pair on the two corners beside the tip, instead of one on the tip'
 		}),
 		P.float('daughter', 'Daughter size', 0.55, 0.1, 0.9, {
 			step: 0.001,
 			section: 'Crystals',
 			showIf: hasDaughters,
-			hint: 'A daughter’s size as a share of the crystal it grew from'
+			hint: 'Sets a daughter’s size as a share of the crystal it grew from'
 		}),
-		P.int('daughter_depth', 'Daughter depth', 2, 1, 3, {
+		P.int('daughter_depth', 'Daughter levels', 2, 1, 3, {
 			section: 'Crystals',
 			showIf: hasDaughters,
-			hint: 'Daughters on the daughters, each on the same corner of the last: a spike of crystals along the diagonal'
+			hint: 'How many levels of daughters to grow, each on the same corner as the last, so more makes a spike of crystals along the diagonal'
 		}),
-		P.float('core', 'Core', 0, 0, 0.8, {
+		P.float('core', 'Core size', 0, 0, 0.8, {
 			step: 0.001,
 			section: 'Crystals',
-			hint: 'A smaller crystal standing up out of the middle of each one, this share of its size (in front of a cube’s corner). 0 = none'
+			hint: 'Stands a smaller crystal up out of the middle of each one, at this share of its size (in front of a cube’s corner). 0 = none'
 		}),
-		P.int('cores', 'Core stack', 1, 1, 3, {
+		P.int('cores', 'Core levels', 1, 1, 3, {
 			section: 'Crystals',
 			showIf: (p) => Number(p.core) > 0,
-			hint: 'Cores within cores: each in the last, Core times its size'
+			hint: 'Stacks cores within cores, each inside the last at Core size times its size'
 		}),
 		P.int('gens', 'Generations', 3, 1, 4, {
 			section: 'Crystals',
-			hint: 'Sizes of crystal: each generation half the size of the last, filling the gaps between the bigger ones'
+			hint: 'How many sizes of crystal to grow: each generation is half the size of the last and fills the gaps between the bigger ones'
 		}),
 		P.float('fill', 'Small crystals', 0.85, 0, 1, {
 			step: 0.001,
 			section: 'Crystals',
 			showIf: (p) => Number(p.gens) > 1,
-			hint: 'Share of the cells of the smaller generations that grow a crystal'
+			hint: 'How many of the cells in the smaller generations grow a crystal'
 		}),
 		P.float('gen_h', 'Small crystal height', 0.6, 0, 1, {
 			step: 0.001,
@@ -162,193 +163,193 @@ export const bismuthLayer: LayerDef = {
 		}),
 		P.bool('ground', 'Ground', true, {
 			section: 'Crystals',
-			hint: 'Cover the ground between the crystals (bare metal at height 0); off, only the crystals cover and the layers below show between them'
+			hint: 'Covers the ground between the crystals in bare metal (at height 0); when off, only the crystals cover and the layers below show between them'
 		}),
-		P.float('top', 'Top face', 0.85, 0.05, 1, {
+		P.float('top', 'Top face width', 0.85, 0.05, 1, {
 			step: 0.001,
 			section: 'Terraces',
-			hint: 'The share of a crystal’s width that is its top face — the hopper, sunk in its grown terraces; the rest slopes down to the base as side faces in ledges, a stepped pyramid. 1 = a flat-topped block (deep relief shows the sides best: raise Height › Amount or the project’s height depth)'
+			hint: 'How much of a crystal’s width is its top face (the hopper with its sunken terraces); the rest steps down to the base as ledged side faces, like a stepped pyramid. 1 = a flat-topped block (the sides show best with deep relief: raise Height › Amount or the project’s height depth)'
 		}),
 		P.int('ledges', 'Side ledges', 3, 1, 24, {
 			section: 'Terraces',
 			showIf: (p) => Number(p.top) < 1,
-			hint: 'Ledges the side faces step down in, from the top face to the base'
+			hint: 'How many ledges the side faces step down in, from the top face to the base'
 		}),
 		P.int('terraces', 'Terraces', 6, 2, 24, {
 			section: 'Terraces',
-			hint: 'Terraces from the top face’s rim to its hollow, whatever its size: each face is grown as a path through a grid twice this many cells across'
+			hint: 'How many terraces step down from the top face’s rim to its hollow, whatever its size'
 		}),
 		P.float('depth', 'Hopper depth', 0.85, 0, 1, {
 			step: 0.001,
 			section: 'Terraces',
-			hint: 'How far the terraces step down to the hollow, as a share of the crystal’s height: 0 = flat-topped crystals'
+			hint: 'How far the terraces step down to the hollow, as a share of the crystal’s height (0 = flat-topped crystals)'
 		}),
 		P.float('rim', 'Rim width', 1, 0, 1.5, {
 			step: 0.5,
 			section: 'Terraces',
 			// Read by the growth on the CPU only.
 			uniform: false,
-			hint: 'The bright bar round each top face, at its full height, in terraces: the thick frame round the hollow (and a cube’s edges). 0 = none'
+			hint: 'Sets the width, in terraces, of the bright bar round each top face at its full height: the thick frame round the hollow (and a cube’s edges). 0 = none'
 		}),
 		P.float('keys', 'Keys', 0.85, 0, 1, {
 			step: 0.001,
 			section: 'Terraces',
-			hint: 'Share of the faces with a key in the hollow: a square spiral of bars of 1.5–2 turns winding out from the centre, each lap a tier higher, domed — the G and 9 shapes'
+			hint: 'How many faces get a key in the hollow: a domed square spiral of bars winding 1.5–2 turns out from the centre, each lap a tier higher, like G and 9 shapes'
 		}),
 		P.float('key_size', 'Key size', 0.55, 0.1, 0.9, {
 			step: 0.001,
 			section: 'Terraces',
 			showIf: (p) => Number(p.keys) > 0,
-			hint: 'How far a key winds out from the hollow, as a share of the face’s half-width (each face’s own from 0.6× to 1.3× this)'
+			hint: 'How far a key winds out from the hollow, as a share of the face’s half-width (varied randomly per face from 0.6× to 1.3× this)'
 		}),
 		P.float('key_w', 'Key width', 0.9, 0.3, 1.5, {
 			step: 0.001,
 			section: 'Terraces',
 			showIf: (p) => Number(p.keys) > 0,
-			hint: 'A key’s bars as a share of a terrace’s width; its arms are a bar apart'
+			hint: 'Sets the width of a key’s bars as a share of a terrace’s width; its arms are one bar apart'
 		}),
 		P.float('tilt', 'Tread tilt', 1, 0, 2, {
 			step: 0.001,
 			section: 'Terraces',
-			hint: 'Each tread slopes down towards the hollow, and each facet tilts its own small way, so a hopper’s walls face the light differently and the metal shows it; the rim bars are domed. 0 = level treads'
+			hint: 'Slopes each tread down towards the hollow and tilts each facet a little at random, so a hopper’s walls catch the light differently; the rim bars get domed. 0 = level treads'
 		}),
 		P.float('grade', 'Terrace grading', 0.6, 0, 1, {
 			step: 0.001,
 			section: 'Terraces',
-			hint: 'Terraces narrow near the rim and widening towards the hollow, as the growth slowed: 0 = all one width'
+			hint: 'Makes the terraces narrow near the rim and wider towards the hollow, as if the growth slowed (0 = all one width)'
 		}),
-		P.float('turns', 'Turns', 0.08, 0, 1, {
+		P.float('turns', 'Terrace turns', 0.08, 0, 1, {
 			softMax: 0.15,
 			step: 0.001,
 			section: 'Terraces',
 			// Read by the growth on the CPU only.
 			uniform: false,
-			hint: 'How readily a growing terrace in the innermost rings leaves its ring (inward mostly, at a third of that outward) instead of running on along it: hooks and dead ends round the hollow; the frames outside stay closed. 0 = a plain spiral staircase; above about 0.15 a maze'
+			hint: 'How often a terrace in the innermost rings turns off its ring (mostly inward, a third as often outward) instead of running on round it, making hooks and dead ends round the hollow; the outer frames stay closed. 0 = a plain spiral staircase, above about 0.15 a maze'
 		}),
-		P.float('branch', 'Branching', 0.02, 0, 1, {
+		P.float('branch', 'Terrace branching', 0.02, 0, 1, {
 			step: 0.001,
 			section: 'Terraces',
 			// Read by the growth on the CPU only.
 			uniform: false,
-			hint: 'How often growth branches off an earlier terrace rather than going on from the newest: more, shorter facets'
+			hint: 'How often the growth branches off an earlier terrace instead of carrying on from the newest one; more gives lots of shorter facets'
 		}),
 		P.float('hollow', 'Hollow offset', 0.3, 0, 0.6, {
 			step: 0.001,
 			section: 'Terraces',
 			// Read by the growth on the CPU only.
 			uniform: false,
-			hint: 'How far the rings’ centre sits off the middle along a diagonal (as a share of the half-width), so the terraces run wide on one side and close on the other'
+			hint: 'Moves the rings’ centre off-centre along a diagonal (as a share of the half-width), so the terraces run wide on one side and close on the other'
 		}),
 		P.float('groove', 'Riser width', 0.45, 0.02, 0.9, {
 			step: 0.001,
 			section: 'Terraces',
-			hint: 'Each wall between terraces is a sloped riser down from the upper tread, lit and keeping its colour: its share of a terrace (at least 3 px)'
+			hint: 'How much of each terrace the sloped riser down from the upper tread takes up (at least 3 px). The risers stay lit and keep their colour'
 		}),
 		P.float('soft', 'Step softness', 1, 0.05, 16, {
 			softMax: 4,
 			unit: 'px',
 			step: 0.05,
 			section: 'Terraces',
-			hint: 'Width of each step’s rise and of the crystals’ outer walls: about 1 px is crisp but anti-aliased'
+			hint: 'Sets the width of each step’s rise and of the crystals’ outer walls (about 1 px is crisp but anti-aliased)'
 		}),
 		P.float('slope', 'Face slope', 0.3, 0, 1, {
 			step: 0.001,
 			section: 'Terraces',
 			showIf: isCube,
-			hint: 'How far each face of a cube falls away from its corner: 1 = the full drop of a cube seen on its corner, 0 = a flat hexagon'
+			hint: 'How far each face of a cube falls away from its corner (0 = a flat hexagon, 1 = the full drop of a cube seen on its corner)'
 		}),
 		P.float('round', 'Corner rounding', 0.15, 0, 0.5, {
 			step: 0.001,
 			section: 'Outline',
-			hint: 'Each crystal’s corners rounded, as a share of its half-width'
+			hint: 'Rounds each crystal’s corners, as a share of its half-width'
 		}),
 		P.float('edge', 'Edge bevel', 5, 0, 32, {
 			softMax: 12,
 			unit: 'px',
 			step: 0.05,
 			section: 'Outline',
-			hint: 'A rounded chamfer this wide along each crystal’s outer edge, down the whole wall: worn edges catching the light'
+			hint: 'Adds a rounded chamfer this wide along each crystal’s outer edge, down the whole wall, for worn edges that catch the light'
 		}),
 		P.float('notches', 'Notches', 0.5, 0, 1, {
 			step: 0.001,
 			section: 'Outline',
-			hint: 'Share of the places along each side where the edge is notched in a step — the keyed outline of a hopper crystal’s rim'
+			hint: 'Notches the edge in a step at this share of the places along each side, giving the keyed outline of a hopper crystal’s rim'
 		}),
 		P.float('notch', 'Notch size', 0.12, 0.02, 0.4, {
 			step: 0.001,
 			section: 'Outline',
 			showIf: (p) => Number(p.notches) > 0,
-			hint: 'Depth of a notch as a share of the crystal’s half-width, each its own size: a broad shallow cut through the outline, and a narrower part dropping to the tier below'
+			hint: 'Sets how deep a notch goes as a share of the crystal’s half-width (each one a random size): a broad shallow cut through the outline, and a narrower part dropping to the tier below'
 		}),
 		P.float('edge_noise', 'Edge noise', 0, 0, 8, {
 			softMax: 4,
 			unit: 'px',
 			step: 0.05,
 			section: 'Outline',
-			hint: 'How far each side steps in and out along its length, in square jogs a terrace long, so no crystal is a perfect polygon'
+			hint: 'Makes each side step in and out along its length in square jogs a terrace long, so no crystal is a perfect polygon'
 		}),
-		P.float('grain', 'Grain', 0, 0, 1, {
+		P.float('grain', 'Surface grain', 0, 0, 1, {
 			step: 0.001,
 			section: 'Outline',
-			hint: 'Fine unevenness over every surface, in height (1 = about a pixel at the default height)'
+			hint: 'Adds fine unevenness to the height of every surface (1 = about a pixel at the default height)'
 		}),
 		P.float('col_ofs', 'Colour offset', 0, 0, 2, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Moves every crystal along the ramp (and back: 1 = its far end, 2 = round to the start). The crystals use the ramp from its second stop on; the first is the bare ground'
+			hint: 'Moves every crystal along the gradient ramp (and back: 1 = its far end, 2 = round to the start). The crystals use the ramp from its second stop on; the first is the bare ground'
 		}),
 		P.float('col_var', 'Colour per crystal', 1, 0, 2, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Each crystal starts at its own place on the ramp (1 = anywhere along it, going either way, so every colour is as likely whatever the other shifts add): a gold crystal beside a blue one'
+			hint: 'Starts each crystal at a random place on the gradient ramp (1 = anywhere along it, going either way, so every colour is as likely whatever the other shifts add), so you get a gold crystal beside a blue one'
 		}),
-		P.float('contrast', 'Band contrast', 0.8, 0, 1, {
+		P.float('contrast', 'Depth shading', 0.8, 0, 1, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'The bars bright, each facet darker the deeper it lies (as the height map shows it: solid steps of shade down to a dark crater floor), the sides dark. 0 = flat colour'
+			hint: 'Keeps the bars bright and darkens each facet the deeper it lies (in solid steps of shade down to a dark crater floor, as the height map shows it), and the sides too. 0 = flat colour'
 		}),
 		P.float('col_step', 'Colour per terrace', 0.18, -1, 1, {
 			softMin: -0.25,
 			softMax: 0.25,
 			step: 0.001,
 			section: 'Colour',
-			hint: 'How far along the ramp each lap of the terraces moves from the next (1 = the whole ramp): the oxide is thicker on the older, outer steps; below 0 the hollows are further along'
+			hint: 'How far along the gradient ramp each lap of the terraces moves from the next (1 = the whole ramp), as the oxide is thicker on the older, outer steps; below 0 the hollows are further along'
 		}),
-		P.float('band', 'Terrace colours', 0.3, 0, 1, {
+		P.float('band', 'Colour per facet', 0.3, 0, 1, {
 			softMax: 0.5,
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Each facet shifted along the ramp by its own random amount (1 = up to half the ramp either way); with Band contrast each is also a little lighter or darker than the next. Keep it low for crystals of one colour family'
+			hint: 'Shifts each facet along the gradient ramp by a random amount (1 = up to half the ramp either way); with Depth shading each one’s also a bit lighter or darker than the next. Keep it low for crystals of one colour family'
 		}),
 		P.float('sweep', 'Colour sweep', 0.12, 0, 4, {
 			softMax: 2,
 			step: 0.001,
 			section: 'Colour',
-			hint: 'How far along the ramp the colour runs across a large crystal (smaller ones in proportion), as the oxide thickens from one side'
+			hint: 'How far along the gradient ramp the colour runs across a large crystal (smaller ones in proportion), as if the oxide thickens from one side'
 		}),
 		P.float('sweep_angle', 'Sweep direction', 0, -180, 180, {
 			unit: '°',
 			step: 0.1,
 			section: 'Colour',
 			showIf: (p) => Number(p.sweep) > 0,
-			hint: 'The way the colour sweep runs, clockwise from left to right'
+			hint: 'Sets the direction the colour sweep runs, clockwise from left to right'
 		}),
 		P.float('face_col', 'Colour per face', 0.25, 0, 1, {
 			step: 0.001,
 			section: 'Colour',
 			showIf: isCube,
-			hint: 'How far along the ramp each of a cube’s three faces moves from the next, going round from the right face to the top and the left'
+			hint: 'How far along the gradient ramp each of a cube’s three faces moves from the next, going round from the right face to the top and the left'
 		}),
 		P.float('sub_col', 'Sub-crystal colour', 0.3, -1, 1, {
 			step: 0.001,
 			section: 'Colour',
 			showIf: (p) => Number(p.core) > 0 || Number(p.daughters) > 0,
-			hint: 'How far along the ramp each core and daughter moves from the crystal it grew from'
+			hint: 'How far along the gradient ramp each core and daughter moves from the crystal it grew from'
 		}),
 		P.float('mottle', 'Mottling', 0.12, 0, 1, {
 			step: 0.001,
 			section: 'Colour',
-			hint: 'Colour drifting across the crystals in soft patches, as the oxide grew unevenly'
+			hint: 'Makes the colour drift across the crystals in soft patches, as if the oxide grew unevenly'
 		}),
 		P.seed()
 	],
@@ -367,7 +368,7 @@ export const bismuthLayer: LayerDef = {
 		dif_on: true,
 		// Dark bare metal (the ground: the crystals use the rest), then the thin-film oxide colours in the order they grow
 		// on bismuth, vivid: a long stretch of gold, then magenta, a short violet and blue, teal-mint and the second-order
-		// yellow. Band contrast greys the deep treads, so the hollows stay quiet under bright rims.
+		// yellow. Depth shading greys the deep treads, so the hollows stay quiet under bright rims.
 		dif_grad: {
 			stops: [
 				{ pos: 0, color: '#3a3542' },
@@ -623,7 +624,7 @@ GenOut gen(vec2 p) {
       float face = cube ? floor(am / 120.0) : 0.0;
       am -= 120.0 * face;
       vec2 qf = rot2(-radians(120.0 * face - 120.0)) * q;
-      // The top face: Top face × the crystal's size; outside it (cOut, 0 at the centre, 1 at the outline) the sides.
+      // The top face: Top face width × the crystal's size; outside it (cOut, 0 at the centre, 1 at the outline) the sides.
       float topF = clamp(u_top, 0.05, 1.0);
       vec2 ol = bsOutline(q, R, cube, cube ? 6 : 4, key + ivec2(lvl * 4099, 0), sg,
                           (cube ? 0.8660254 : 1.0) * R * topF / float(u_terraces), dil);
@@ -791,7 +792,7 @@ GenOut gen(vec2 p) {
       Ts[i] = u_col_ofs + 2.0 * u_col_var * fract(13.7 * C[i].x) + u_sweep * dot(d, sdir) / (2.0 * R0)
             + u_sub_col * float(sub) + u_face_col * fo + mot
             + mix(0.25 * u_col_step * fl + u_band * (bk - 0.5), 0.15, sel);
-      // Shade: each facet solid, darker the deeper it lies (a little lighter or darker than the next by Terrace colours'
+      // Shade: each facet solid, darker the deeper it lies (a little lighter or darker than the next by Colour per facet's
       // second draw, the mirror facets brighter); the risers lit; the rim and the keys bright; the sides dark.
       float deep = mix(0.12, 1.0, pow(clamp(hfl, 0.0, 1.0), 1.8)) * (1.0 + min(u_band * 3.0, 1.0) * 0.3 * (fract(bk * 7.31) - 0.5));
       float tread = mix(deep * (1.0 + 0.8 * facetLit), mix(0.5, 1.2, clamp(hfl, 0.0, 1.0)), riser);
@@ -825,7 +826,7 @@ GenOut gen(vec2 p) {
   gGenLevel = vec4(mix(6.0, 1.0 - mix(Bs[1], Bs[0], c1), onCr), -1.0, onCr, -1.0);
   // Per-feature variation is each crystal's height (above), not a scale of the whole value.
   g.feat = 0.0;
-  // Grain: fine unevenness over every surface.
+  // Surface grain: fine unevenness over every surface.
   vec2 ncG = cells0 * 40.0;
   float grain = u_grain > 0.0 ? 0.08 * u_grain * (valueNoise(p / uRes * ncG, periodOf(ncG), uSeed + 73.0) - 0.5) : 0.0;
   g.hval = clamp(mix(hb, Hs[0], c1) + grain, 0.0, 1.0);

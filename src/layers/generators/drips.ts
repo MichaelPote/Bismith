@@ -12,8 +12,8 @@
 // ragged), widening over its first stretch (Fan-out: or all the way down, a straight V) and tapering after, its centre
 // line wandering on smooth noise, tide marks along its sides, dry patches, fine streaks it breaks into further down
 // (each running out at its own length), and inside it a few thin runnels of their own widths, each wandering on its
-// own (Braiding), ending at its own length, some in a bead. Sideways sways never steepen past ~20° from vertical (a
-// wide wobble sways over a longer stretch). Softness blurs every edge; Strength and Shape variation make each stain
+// own (Runnel braiding), ending at its own length, some in a bead. Sideways sways never steepen past ~20° from vertical (a
+// wide wobble sways over a longer stretch). Stain softness blurs every edge; Strength and Shape variation make each stain
 // its own. Surface flow makes the trails react to the relief beneath: they pool against grooves and raised features
 // and run on weaker below them.
 //
@@ -99,7 +99,7 @@ vec2 dr_cellsLA() {
 
 /**
  * How far from a ledge its blisters reach (px): the ledge flood's range. Mirrors gen and dr_peel — the band's growth
- * along the ledge (up to 2.2 × radius × Ledges with Raggedness) and sat, where the peel's lift and ramp are spent
+ * along the ledge (up to 2.2 × radius × Ledge blisters with Raggedness) and sat, where the peel's lift and ramp are spent
  * (the lobes' and tear's depths, the lift's widest flaps, the smooth union) — plus a px for float rounding.
  */
 function blisterReach(p: Record<string, unknown>, w: number, h: number) {
@@ -306,7 +306,7 @@ export const dripsLayer: LayerDef = {
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Water, rust or blood stains running down from scattered sources, staining what is beneath; or the sources themselves: blisters of peeling paint (a mask, with a lifted, torn edge).',
+		'Drips: Made from stains running down from scattered sources or ledges, or the sources themselves as blisters of peeling paint (a mask, with a lifted, torn edge). Makes water, rust and blood stains, peeling paint.',
 	params: [
 		P.enum(
 			'output',
@@ -317,7 +317,7 @@ export const dripsLayer: LayerDef = {
 				['source', 'Sources (blisters)']
 			],
 			{
-				hint: 'Sources: ragged blisters of peeling paint at the drip origins and along ledges — a mask for the rust beneath, with the paint lifting at the torn edge and a hole below the surface as height'
+				hint: 'Stains: the trails running down from each source. Sources: ragged blisters of peeling paint at the drip origins and along ledges, as a mask for the rust beneath, with the paint lifting at the torn edge and a hole below the surface as height'
 			}
 		),
 		P.enum(
@@ -325,36 +325,36 @@ export const dripsLayer: LayerDef = {
 			'Style',
 			'streak',
 			[
-				['streak', 'Streak (pixel)', 'a narrow trail, tapering and fading — crisp at 1 px'],
+				['streak', 'Streak (pixel)', 'a narrow trail that tapers and fades, crisp at 1 px'],
 				[
 					'runnels',
 					'Runnels (detailed)',
-					'a wandering wash of water with tide-marked edges and thin runnels inside that split, merge and end in beads — for higher resolutions and wide stains'
+					'a wandering wash of water with tide-marked edges and thin runnels inside that split, merge and end in beads. Best for higher resolutions and wide stains'
 				]
 			],
 			{ showIf: stains }
 		),
 		P.int('cols', 'Columns', 12, 1, 1024, {
 			softMax: 128,
-			hint: 'Grid cells across the texture, each holding at most one drip (at Drips from 0.5 a fine grid puts a drip under nearly every ledge)'
+			hint: 'How many grid cells fit across the texture, each holding at most one drip (at Drips from 0.5, a fine grid puts a drip under nearly every ledge)'
 		}),
-		P.int('rows', 'Rows', 6, 1, 1024, { softMax: 128, hint: 'Source cells down the texture' }),
+		P.int('rows', 'Rows', 6, 1, 1024, { softMax: 128, hint: 'How many source cells fit down the texture' }),
 		P.float('spawn', 'Drips from', 0, 0, 1, {
 			step: 0.001,
-			hint: 'Where drips start. 0: the grid (Columns × Rows), scattered. Towards 0.5 more and more grid cells drip from the strongest ledge inside them instead (one without a ledge stays scattered, then dry at 0.5), and drips start to appear along the ledges themselves. Towards 1 the grid drips give way to those: at 1 drips start anywhere along every ledge, whatever the grid. How many: up to 0.5 about Density × the grid cells; the ledge drips come Density × one per Ledge spacing px of ledge, so a base full of lips and rivets gets more — widen Ledge spacing for fewer. Ledges are the lower edges of raised features (rivets, lips, seams): see Relief'
+			hint: 'Picks where drips start. 0: scattered over the grid (Columns × Rows). Towards 0.5, more and more grid cells drip from the strongest ledge inside them instead (cells without a ledge stay scattered, then go dry at 0.5), and drips start to appear along the ledges themselves. Towards 1, the grid drips give way to those, and at 1 drips start anywhere along every ledge, whatever the grid. How many: up to 0.5, about Density × the grid cells; ledge drips come at Density × one per Ledge spacing px of ledge, so a base full of lips and rivets gets more (widen Ledge spacing for fewer). Ledges are the lower edges of raised features like rivets, lips and seams (see Relief)'
 		}),
 		P.float('density', 'Density', 0.5, 0, 1, {
 			step: 0.001,
-			hint: 'Chance that a grid cell (or a spot along a ledge) holds a drip'
+			hint: 'Sets the chance that a grid cell (or a spot along a ledge) gets a drip'
 		}),
 		P.float('bare', 'Off-ledge drips', 0.4, 0, 1, {
 			step: 0.001,
 			showIf: (p) => Number(p.spawn) > 0,
-			hint: 'Grid cells with no ledge in them drip where they are by this chance, even at Drips from 0.5 and up (below 0.5 more of them do anyway) — so a flat stretch is not bare. For coarse grids: on a fine one (cells under a tenth of the texture across) fewer of its cells do'
+			hint: 'Lets grid cells with no ledge in them drip where they are, by this chance, even at Drips from 0.5 and up (below 0.5 more of them do anyway), so flat stretches are not left bare. Meant for coarse grids: on a fine one (cells under a tenth of the texture across) fewer cells do'
 		}),
 		P.float('cluster', 'Clustering', 0.35, 0, 1, {
 			step: 0.001,
-			hint: 'Sources gather in groups with bare stretches between (along a ledge: runs of drips and dry gaps); 0 = evenly scattered'
+			hint: 'Gathers the sources into groups with bare stretches between (along a ledge: runs of drips and dry gaps; 0 = evenly scattered)'
 		}),
 		P.float('blister', 'Blister radius', 2, 0, 512, {
 			softMax: 48,
@@ -368,69 +368,81 @@ export const dripsLayer: LayerDef = {
 			step: 0.001,
 			showIf: sources,
 			section: 'Blisters',
-			hint: 'Each blister its own share of the radius (1 = anywhere from none to full)'
+			hint: 'Gives each blister a random share of the radius (1 = anywhere from none to full)'
 		}),
 		P.float('ragged', 'Raggedness', 0.8, 0, 1, {
 			step: 0.001,
 			showIf: sources,
 			section: 'Blisters',
-			hint: "How torn the edge is: lobes from the blister's own size down to bays a few px across, a fine tear along it, and paint lifting unevenly"
+			hint: "Tears the blister edge, with lobes from the blister's own size down to bays a few px across, a fine tear along it and paint lifting unevenly"
 		}),
-		P.float('lift', 'Lift', 0.8, 0, 8, {
+		P.float('lift', 'Edge lift', 0.8, 0, 8, {
 			softMax: 3,
 			step: 0.01,
 			showIf: sources,
 			section: 'Blisters',
-			hint: 'How high the paint curls up at the torn edge (× the Height amount)'
+			hint: 'Curls the paint up at the torn edge by this much (× the Height amount)'
 		}),
-		P.float('lift_width', 'Lift width', 2, 0, 128, {
+		P.float('lift_width', 'Edge lift width', 2, 0, 128, {
 			softMax: 24,
 			unit: 'px',
 			step: 0.05,
 			showIf: sources,
 			section: 'Blisters',
-			hint: 'How far out from the edge the paint is lifted; it rises steeply only near the edge'
+			hint: 'Sets how far out from the edge the paint lifts; it rises steeply only near the edge'
 		}),
-		P.float('depth', 'Depth', 1, 0, 8, {
+		P.float('depth', 'Hole depth', 1, 0, 8, {
 			softMax: 3,
 			step: 0.01,
 			showIf: sources,
 			section: 'Blisters',
-			hint: 'How far the hole falls below the surface (× the Height amount): the rust beneath, rough'
+			hint: 'Sinks the hole below the surface by this much (× the Height amount), showing the rough rust beneath'
 		}),
-		P.float('len_min', 'Min length', 4, 0, 4096, { softMax: 512, unit: 'px', axis: 'y', step: 0.5, showIf: stains }),
-		P.float('len_max', 'Max length', 20, 0, 4096, { softMax: 512, unit: 'px', axis: 'y', step: 0.5, showIf: stains }),
-		P.float('width', 'Width', 1, 0.25, 512, {
+		P.float('len_min', 'Shortest trail', 4, 0, 4096, {
+			softMax: 512,
+			unit: 'px',
+			axis: 'y',
+			step: 0.5,
+			showIf: stains
+		}),
+		P.float('len_max', 'Longest trail', 20, 0, 4096, {
+			softMax: 512,
+			unit: 'px',
+			axis: 'y',
+			step: 0.5,
+			showIf: stains
+		}),
+		P.float('width', 'Trail width', 1, 0.25, 512, {
 			softMax: 96,
 			unit: 'px',
 			axis: 'x',
 			step: 0.05,
 			showIf: stains,
-			hint: 'Trail width at the head (streaks taper to half; runnels: the width of the wash, see Taper)'
+			hint: 'Sets the trail width at the head (streaks taper to half; runnels: the width of the wash, see Wash taper)'
 		}),
 		P.float('width_var', 'Width variation', 0.65, 0, 1, { step: 0.001, showIf: stains }),
-		P.float('head', 'Head', 0, 0, 128, {
+		P.float('head', 'Head size', 0, 0, 128, {
 			softMax: 16,
 			unit: 'px',
 			step: 0.05,
 			showIf: stains,
-			hint: 'A drop blob at the origin (0 = none — water and blood have none)'
+			hint: 'Adds a drop blob at the origin (0 = none; water and blood have none)'
 		}),
 		P.float('start', 'Trail strength', 0.8, 0, 1, {
 			step: 0.001,
 			showIf: stains,
-			hint: 'Strength where the trail starts (it fades to 0)'
+			hint: 'Sets the strength where the trail starts (it fades to 0 along the trail)'
 		}),
 		P.float('str_var', 'Strength variation', 0.45, 0, 1, {
 			step: 0.001,
 			showIf: stains,
-			hint: 'Each trail its own share of the strength (1 = anywhere from none to full): faint old stains among fresh dark ones'
+			hint: 'Gives each trail a random share of the strength (1 = anywhere from none to full), so faint old stains sit among fresh dark ones'
 		}),
-		P.float('fade', 'Fade', 1, 0.1, 8, {
+		P.float('fade', 'Trail fade', 1, 0.1, 8, {
 			softMax: 4,
 			step: 0.01,
 			showIf: stains,
-			hint: 'How quickly the trail fades: 1 linear, < 1 stays strong longer, > 1 fades early'
+			hint: 'Sets how quickly the trail fades (1 = linear, below 1 = stays strong for longer, above 1 = fades early)'
 		}),
 		P.float('wobble', 'Wobble', 0.4, 0, 256, {
 			softMax: 32,
@@ -438,64 +450,64 @@ export const dripsLayer: LayerDef = {
 			axis: 'x',
 			step: 0.05,
 			showIf: stains,
-			hint: 'Sideways meander along the trail (runnels: how far the whole stain wanders)'
+			hint: 'Makes the trail meander sideways (runnels: how far the whole stain wanders)'
 		}),
-		P.float('soft', 'Softness', 0, 0, 64, {
+		P.float('soft', 'Stain softness', 0, 0, 64, {
 			softMax: 16,
 			unit: 'px',
 			step: 0.05,
 			showIf: (p) => stains(p) && p.aa !== false,
-			hint: 'Blurs every edge of the stain over this many px: the trail, the wash, the runnels, their ends (0 = crisp, anti-aliased)'
+			hint: 'Blurs every edge of the stain over this many px: the trail, the wash, the runnels and their ends (0 = crisp, anti-aliased)'
 		}),
-		P.float('wander', 'Meander length', 28, 2, 2048, {
+		P.float('wander', 'Wobble length', 28, 2, 2048, {
 			softMax: 512,
 			unit: 'px',
 			axis: 'y',
 			step: 0.5,
 			showIf: stains,
-			hint: 'Length of one sideways swing of the trail (streaks: with a smaller swing a third as long; runnels: they swing about twice as often)'
+			hint: 'Sets the length of one sideways swing of the trail (streaks add a smaller swing a third as long; runnels swing about twice as often)'
 		}),
 		P.float('seep', 'Seep width', 0.8, 0.05, 1, {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Wash',
-			hint: 'How wide the stain is where it seeps out, as a share of its width: low = a point (a bolt, a hole), 1 = a whole line (a crack, a lip), its edge ragged'
+			hint: 'Sets how wide the stain is where it seeps out, as a share of its width (low = a point, like a bolt or a hole; 1 = a whole line, like a crack or a lip, with a ragged edge)'
 		}),
 		P.float('fan', 'Fan-out', 0.1, 0, 1, {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Wash',
-			hint: 'How far down the stain widens from its seep to its full width: 0 = within about its own width, 1 = all the way down (a straight V)'
+			hint: 'Sets how far down the stain widens from its seep to its full width (0 = within about its own width, 1 = all the way down, a straight V)'
 		}),
-		P.float('taper', 'Taper', 0.45, -1, 1, {
+		P.float('taper', 'Wash taper', 0.45, -1, 1, {
 			step: 0.01,
 			showIf: isRunnels,
 			section: 'Wash',
-			hint: 'Width change past the fan-out, down to the end: 1 narrows to a point, 0 keeps it, below 0 it spreads'
+			hint: 'Changes the width past the fan-out, down to the end (1 = narrows to a point, 0 = keeps its width, below 0 = spreads)'
 		}),
 		P.float('shape_var', 'Shape variation', 0.8, 0, 1, {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Wash',
-			hint: 'Each stain its own seep width, fan-out and taper around the settings: points and lines, Vs and columns side by side'
+			hint: 'Gives each stain a random seep width, fan-out and taper around the settings, so points and lines, Vs and columns sit side by side'
 		}),
-		P.float('feather', 'Feather', 0.4, 0, 1, {
+		P.float('feather', 'Wash feather', 0.4, 0, 1, {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Wash',
-			hint: 'How far in from its sides (and down from its seep) the wash fades in, as a share of its width: 0 = an even sheet with crisp sides, 1 = darkest along its middle, fading out to its edges'
+			hint: 'Fades the wash in from its sides (and down from its seep), as a share of its width (0 = an even sheet with crisp sides, 1 = darkest along its middle, fading out to its edges)'
 		}),
 		P.float('sheet', 'Wash', 1, 0, 1, {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Wash',
-			hint: 'The faint stain of the water sheet between the runnels'
+			hint: 'Adds the faint stain of the water sheet between the runnels'
 		}),
 		P.float('edge', 'Tide marks', 0.25, 0, 2, {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Wash',
-			hint: "The darker deposit along the wash's sides, where it dried (wider on broad stains); above 1 a strong rim"
+			hint: "Adds a darker deposit along the wash's sides, where it dried (wider on broad stains); above 1 it's a strong rim"
 		}),
 		P.float('breakup', 'Dry patches', 0.2, 0, 1, {
 			step: 0.001,
@@ -507,21 +519,21 @@ export const dripsLayer: LayerDef = {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Wash',
-			hint: 'Fine streaks running down through the wash, lighter and darker, each running out at its own length (a ragged lower end)'
+			hint: 'Adds fine, lighter and darker streaks running down through the wash, each ending at a random length for a ragged lower end'
 		}),
-		P.float('streak_w', 'Streak width', 2, 0.5, 64, {
+		P.float('streak_w', 'Streak spacing', 2, 0.5, 64, {
 			softMax: 16,
 			unit: 'px',
 			axis: 'x',
 			step: 0.05,
 			showIf: (p) => isRunnels(p) && Number(p.streaks) > 0,
 			section: 'Wash',
-			hint: 'How far apart the streaks run'
+			hint: 'Sets how far apart the streaks run'
 		}),
 		P.int('runnels', 'Runnels', 3, 0, 16, {
 			showIf: isRunnels,
 			section: 'Runnels',
-			hint: 'Most runnels in one stain (each stain draws 1 to this many; narrow stains hold fewer; 0 = the wash alone)'
+			hint: 'Sets the most runnels in one stain (each stain draws 1 to this many, narrow stains fewer; 0 = just the wash)'
 		}),
 		P.float('runnel_width', 'Runnel width', 1.5, 0.5, 64, {
 			softMax: 16,
@@ -530,25 +542,25 @@ export const dripsLayer: LayerDef = {
 			step: 0.05,
 			showIf: isRunnels,
 			section: 'Runnels',
-			hint: 'Width of each runnel where it starts; it thins to half'
+			hint: 'Sets the width of each runnel where it starts; it thins to half'
 		}),
 		P.float('runnel_str', 'Runnel strength', 0.5, 0, 1, {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Runnels',
-			hint: 'How dark the runnels and their beads are, × the trail strength: low = faint trickles within the wash'
+			hint: 'Darkens the runnels and their beads, × the trail strength (low = faint trickles within the wash)'
 		}),
-		P.float('braid', 'Braiding', 0.35, 0, 2, {
+		P.float('braid', 'Runnel braiding', 0.35, 0, 2, {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Runnels',
-			hint: 'How far the runnels wander across the wash: 0 = straight, side by side; 1 = across most of it, crossing and merging'
+			hint: 'Lets the runnels wander across the wash (0 = straight, side by side; 1 = across most of it, crossing and merging)'
 		}),
-		P.float('beads', 'Beads', 0.15, 0, 1, {
+		P.float('beads', 'Runnel beads', 0.15, 0, 1, {
 			step: 0.001,
 			showIf: isRunnels,
 			section: 'Runnels',
-			hint: 'Chance a runnel ends in a drop'
+			hint: 'Sets the chance that a runnel ends in a drop'
 		}),
 		P.float('ledge_gap', 'Ledge spacing', 4, 1, 512, {
 			softMax: 128,
@@ -556,13 +568,13 @@ export const dripsLayer: LayerDef = {
 			step: 0.5,
 			group: 'relief',
 			showIf: (p) => Number(p.spawn) > 0,
-			hint: 'How far apart drips can start along a ledge — Density picks among those spots (Sources: at least half the blister radius)'
+			hint: 'Sets how far apart drips can start along a ledge; Density picks among those spots (Sources: at least half the blister radius)'
 		}),
 		P.float('ledge', 'Ledge threshold', 0.15, 0, 8, {
 			softMax: 1,
 			step: 0.001,
 			group: 'relief',
-			hint: 'Height drop (height units, over the ledge reach) that counts as a ledge — raise it until shallow bumps stop sprouting drips'
+			hint: 'Sets the height drop (in height units, over the Ledge reach) that counts as a ledge. Raise it until shallow bumps stop sprouting drips'
 		}),
 		P.float('ledge_reach', 'Ledge reach', 2, 1, 64, {
 			softMax: 16,
@@ -570,31 +582,31 @@ export const dripsLayer: LayerDef = {
 			axis: 'y',
 			step: 0.5,
 			group: 'relief',
-			hint: 'How far below a point the drop is measured: short = only hard, sharp steps count; long = soft, gradual edges count too'
+			hint: 'Sets how far below a point the drop is measured (short = only hard, sharp steps count; long = soft, gradual edges count too)'
 		}),
 		P.float('ledge_soft', 'Ledge softness', 0.15, 0, 1, {
 			step: 0.001,
 			group: 'relief',
-			hint: 'Acceptance around the threshold: 0 = hard cut-off, 1 = a gradual ramp (weaker ledges drip less often)'
+			hint: 'Softens the Ledge threshold (0 = a hard cut-off; 1 = gradual, so weaker ledges drip less often)'
 		}),
-		P.float('relief_len', 'Height → length', 0, 0, 32, {
+		P.float('relief_len', 'Length from height', 0, 0, 32, {
 			softMax: 16,
 			step: 0.01,
 			group: 'relief',
 			showIf: stains,
-			hint: 'Trails lengthen with the ledge they fall from: length × (1 + this × drop, in height units) — taller rivets, longer tails'
+			hint: 'Lengthens trails with the height of the ledge they fall from: length × (1 + this × drop, in height units), so taller rivets get longer tails'
 		}),
 		P.float('flow', 'Surface flow', 0.6, 0, 1, {
 			step: 0.001,
 			group: 'relief',
 			showIf: stains,
-			hint: 'Trails react to the relief beneath, wherever they start: grooves and raised features (seams, rivets, lips) catch the water — it pools against them and runs on weaker below (a dry shadow under each rivet)'
+			hint: 'Makes trails react to the relief beneath, wherever they start: grooves and raised features (seams, rivets, lips) catch the water, which pools against them and runs on weaker below, leaving a dry shadow under each rivet'
 		}),
-		P.float('ledge_mix', 'Ledges', 0.5, 0, 1, {
+		P.float('ledge_mix', 'Ledge blisters', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'relief',
 			showIf: sources,
-			hint: 'Blisters along every ledge too (the lower edges of raised features, by the ledge settings above), growing with the radius: 0 = only at the sources, 1 = as fast as the spots'
+			hint: 'Grows blisters along every ledge too (the lower edges of raised features, found by the ledge settings above), growing with the radius (0 = only at the sources, 1 = as fast as the blisters at the sources)'
 		}),
 		P.seed()
 	],
@@ -786,7 +798,7 @@ GenOut dr_peel(vec2 p, vec2 q, float d, float rnd, float lam0, int nL, float tea
     else tear += DR_TEARW[min(k, 2)] * (n - 0.5);
   }
   if (R > 0.0) {
-    // Ledges: the band of ledge pixels (about the reach tall) opens from its middle as the radius grows — by none to
+    // Ledge blisters: the band of ledge pixels (about the reach tall) opens from its middle as the radius grows — by none to
     // 2.2 × of it along the ledge (with raggedness), so stretches of sound paint break the chain.
     float grow = R * u_ledge_mix * mix(1.0, 2.2 * smoothstep(0.35, 0.8, n0), min(1.0, 2.0 * u_ragged));
     // (Saturating at sat, within the flood's range — see gen — so it doesn't step where the flood ends.)
@@ -820,7 +832,7 @@ float dr_cx(float y, float lam, float rs) {
 float dr_hw(float w, float t, float taper) { return max(0.5 * w * (1.0 - taper * t), 0.5); }
 // The stain's half width at px down. sh: its seep width, fan-out and taper. The water spreads from its seep: from seep
 // × its width to all of it over its first stretch — about its own width, or (Fan-out) a share of its length, then as a
-// straight V — and Taper narrows (or spreads) it from there to the end.
+// straight V — and Wash taper narrows (or spreads) it from there to the end.
 float dr_halfw(float y, float w, float len, vec3 sh) {
   float L = max(len, 1e-3);
   float t = clamp(y / L, 0.0, 1.0);
@@ -828,7 +840,7 @@ float dr_halfw(float y, float w, float len, vec3 sh) {
   float u = clamp(y / mix(max(3.0, 1.2 * w), L, sh.y), 0.0, 1.0);
   return dr_hw(w, ta, sh.z) * mix(sh.x, 1.0, mix(u * u * (3.0 - 2.0 * u), u, sh.y));
 }
-// Runnel j's place across the wash (−1..1) at px down: its lane, wandering by Braiding (hwF: the full half width).
+// Runnel j's place across the wash (−1..1) at px down: its lane, wandering by Runnel braiding (hwF: the full half width).
 float dr_bj(float base, float y, float lam, float hwF, float rs, int j) {
   float s = rs + 10.0 + 2.0 * float(j);
   float a = u_braid * hwF;
@@ -866,7 +878,7 @@ float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float 
   float lip1 = 2.0 * valueNoise1(x / max(3.0, 0.3 * hs), rs + 4.0) - 1.0;
   // (Only a broad seep's lip is ragged: on a narrow one the bumps would read as horns — it seeps from one rounded point.)
   float top = d.y - min(0.3 * hs, 6.0) * (1.0 - led) * smoothstep(4.0, 12.0, hs) * (lip1 + 1.0);
-  // Feather: a free stain fades in down from its lip — unevenly along it, eased, from just above it so Softness
+  // Wash feather: a free stain fades in down from its lip — unevenly along it, eased, from just above it so Stain softness
   // still blurs the edge — and, below, in from its sides.
   float soft0 = -0.5 * (1.0 + e);
   // (Its fade is longest at the sides, so the head rounds to one centred seep; only a broad seep's varies along the lip.)
@@ -913,7 +925,7 @@ float dr_runnels(vec2 d, float len, float w, float st, float rs, vec3 sh, float 
       // The wash is whole at its seep and breaks into streaks further down.
       float streak = 1.0 - 0.85 * u_streaks * smoothstep(0.0, 0.4, t) * (1.0 - smoothstep(0.25, 0.75, nStreak));
       float te = clamp(d.y / max(len * (1.0 - 0.6 * u_streaks * nEnd), 1e-3), 0.0, 1.0);
-      // Feather: the sheet fades in from the sides and from the lip (the tide marks stay at the edge).
+      // Wash feather: the sheet fades in from the sides and from the lip (the tide marks stay at the edge).
       float body = u_feather > 0.0 ? smoothstep(soft0, max(u_feather * hw, -soft0), side) * fTop : 1.0;
       // (The tide marks only lightly broken by the streaks, so a strong setting reads as a rim.)
       best = st * pow(1.0 - te, u_fade) * (u_sheet * dry * body * streak + u_edge * tide * mix(1.0, streak, 0.35)) * inside;
@@ -1052,7 +1064,7 @@ GenOut gen(vec2 p) {
   int rowB0 = dr_rowB0();
   float best = 0.0, bestCov = 0.0, bestRnd = 0.0, acc = 0.0;
   float bd = 1e4, nearest = 1e4;
-  // Streaks: they sway once per Meander length (two octaves: a third of it and about all of it), slower still for a
+  // Streaks: they sway once per Wobble length (two octaves: a third of it and about all of it), slower still for a
   // wide wobble, so the trail meanders instead of zig-zagging (0.7 and 0.23 rad per px at 28 px and a small wobble).
   float wf = min(1.0, 0.7 / max(u_wobble, 1e-3)) * 28.0 / max(u_wander, 2.0);
   // One flat loop over the cells of both sets, for both outputs, with a uniform-derived count and the arguments picked

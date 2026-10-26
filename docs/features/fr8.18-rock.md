@@ -41,7 +41,7 @@ by default).
   bed count (±2) and the shear (±1) are nudged to the nearby pair with the most distinct beds (up to 6), preferring to
   change the thickness — the angle moves a few degrees at most. _Size variation_ is the power weight: some blocks grow
   over their neighbours.
-- **Merge.** A 2 × 2 group of blocks fuses with this chance: one face (the group's values, centred on the group), no
+- **Merged blocks.** A 2 × 2 group of blocks fuses with this chance: one face (the group's values, centred on the group), no
   joints, crevices or weathering inside — big blocks among small ones. Blocks only (not ridges and prisms). The group's
   other cells are left out of the ranking of the highest mesas altogether: they share the pixel's own face, and counted,
   they stood second-highest along the group's outer border and hid the crease (and its crack) there. Likewise the
@@ -61,7 +61,7 @@ by default).
   bedding) between two slanted shoulders; rounding and corner rounding make lens-shaped stones of them. The parity
   repeats every gR rows like the row offsets, and with a stagger the bed count is nudged towards an even number of
   distinct beds (an odd one leaves a fault every gR rows).
-- **Folds.** A broad smooth shift across the bedding (value-noise fBm, _Fold count_ across the width), in beds: strata
+- **Folds.** A broad smooth shift across the bedding (value-noise fBm, _Folds across_ the width), in beds: strata
   that bend across the rock. _Fold sharpness_ folds the noise about its mean, `2 (⅛ − |n − ½|)` (about the same
   amplitude): a V-shaped hinge wherever the noise crosses its mean — chevron folds, as in folded shale. Sharp folds get
   fewer noise cells down the texture (a quarter at full sharpness), so the hinges run roughly down it; the finer octaves
@@ -70,11 +70,11 @@ by default).
 ### Relief
 
 - **Mesas.** Each of the 5×5 blocks around the nearest site is a mesa: its face (height, random tilt, _Ledge dip_ across
-  the bedding, _Rounding_) inside its cell; outside, the face at its nearest border point minus the px distance from
+  the bedding, _Face rounding_) inside its cell; outside, the face at its nearest border point minus the px distance from
   that border (the power bisector, measured through the frame's transpose) over the _Scarp width_. The surface is the
   highest mesa, so a high block drapes over lower neighbours: plateaus and shelves, with scarps whose run grows with the
   height they fall. Evaluating a neighbour's face at its border (not extrapolating its tilted plane to the pixel) keeps
-  a tilted block from slicing diagonal wedges across its neighbours. _Rounding_ below 0 scoops the faces out.
+  a tilted block from slicing diagonal wedges across its neighbours. _Face rounding_ below 0 scoops the faces out.
 - **Skirt distances.** A neighbour's skirt needs the px distance from the pixel to that neighbour's cell. Its border
   with the pixel's nearest site is exact only for cells next to the pixel's; for cells further away it underestimates,
   and it jumps wherever the nearest site changes — visible steps in the skirts (46 height jumps in a 256 × 128 test at
@@ -120,7 +120,7 @@ by default).
   sheared ends become lit caps all facing up, as in the reference, where random heights left half of them dark bands.
 - **Scarp steps.** A block's skirt descends as a staircase instead of one slope: the px distance from its border goes
   through `floor(x) + smoothstep(0.65, 1, fract(x))` (flat treads, risers over the last 35 % of each step) before the
-  drop, mixed in by _Scarp steps_. Each block has its own _Step width_ (±30 %) and phase, the edges wobble with the
+  drop, mixed in by _Scarp steps_. Each block has its own _Scarp step width_ (±30 %) and phase, the edges wobble with the
   jaggies' noise, and the staircase is measured from the border before the corner rounding, which is added on top, so
   the face meets its skirt there unchanged, at rounded corners too. A fused group's cells share one staircase (the
   group's hashes; with each cell's own, the steps zipped where the cells meet). Flaky sandstone and shale show ledges as
@@ -142,14 +142,14 @@ by default).
   shadows. The sheer side keeps a quarter of the run — a step in one pixel lights as a dotted line of single bright
   pixels. On screen rather than across the bedding, so it means the same for columns (their ends) and angled strata.
   _Ledge dip_ is the other way to a saw-tooth — every face leans the same way — and reads as rippled shale.
-- **Facets.** _Facet levels_ repeat the blocks at ½ and ¼ the size, added at _Facet strength_ (halved per level):
+- **Facets.** _Facet levels_ repeat the blocks at ½ and ¼ the size, added at _Facet relief_ (halved per level):
   chipped, crumpled faces. Facets are fractures, not beds, and several things keep them from reading as rows of little
   bricks: each level splits a block `m·round(elongation)` × `m` ways (about square), keeps only 40 % of the bedding, and
   is offset from the blocks (a translation, still seamless) — nested exactly, its rows fell on the block rows and
   stacked their scarps along every course joint. Their own heights are halved (they differ mostly by tilt; lower facets
   became pits), their scarps run twice as far and don't lean (sheer facet steps lit as one-pixel cracks), and a level
-  whose cells are under ~8 px fades out (a grid of pixel bumps). _Fracture zones_ scale the facets and roughness by a
-  broad noise, 0 to 2: whole, smooth faces beside shattered, crumbly ones. Roughness is a little Perlin noise on top.
+  whose cells are under ~8 px fades out (a grid of pixel bumps). _Fracture zones_ scale the facets and surface grain by a
+  broad noise, 0 to 2: whole, smooth faces beside shattered, crumbly ones. _Surface grain_ is a little Perlin noise on top.
 - **Relief.** `0.5 + 0.5·tanh(Σ mesas)`: linear over the usual range, rounding off big stacks instead of clipping them
   flat (clipped plateaus read as cardboard).
 
@@ -170,7 +170,7 @@ by default).
 ### Joints
 
 The two highest mesas give the crease distance `(P₁ − P₂) × scarp` px — the foot of a scarp, or the border between equal
-blocks. _Joint width_ opens it into a crack, each joint (block pair, hashed order-free) by its own share (_Width
+blocks. _Joint width_ opens it into a crack, each joint (block pair, hashed order-free) by its own share (_Joint
 variation_), pinching and swelling along its length with the block-sized warp noise. _Open joints_ keeps only a share of
 them, each along its whole length; a closed joint doesn't part its blocks (no crack, no bevel, one piece in the Shape
 Mask — with no cracks at all, every crease outlines its blocks). _Cross-joint width_ scales the joints across the
@@ -195,12 +195,12 @@ its width (box filter), or diagonal hairlines break into dots.
 
 - _Relief_: the height, coloured by height.
 - _Scarps_: 1 on the draped skirts from their top edge to their foot, 0 on the faces (facets' skirts by their strength
-  squared, or every facet step paints a fleck). _Facing_ keeps those below ledges (the shaded undersides) or above them
+  squared, or every facet step paints a fleck). _Scarp facing_ keeps those below ledges (the shaded undersides) or above them
   (shelves where dust, scree and moss settle). Its coverage is its value, as the crevices': a Normal blend paints only
   the scarps (with full coverage it painted the whole layer). The same rock in a second layer paints the scarps their
   own colour, as hand-painted rock does.
 - _Crevices_: 1 in the creases (the joints and the foot of every scarp, closed joints too), fading over _Crevice reach_
-  — further below a tall step — and broken into patches (_Patchiness_): moss, dirt, damp. Its coverage is its value, so
+  — further below a tall step — and broken into patches (_Crevice patchiness_): moss, dirt, damp. Its coverage is its value, so
   a flat colour lands only in the cracks. Main and facet creases are measured separately: a closed main joint keeps its
   crease when a facet crack is open nearby.
 - _Streaks_: rain streaks running down each block from its top edge (tracked in the loop: the nearest border whose
@@ -217,7 +217,7 @@ these counts — ratios of whole numbers, often exact halves — were rounded by
 D3D11 and OpenGL: a slate at −20° got another lattice on Windows (PSNR 21 between the backends). Snapped counts still
 round ties down (`floor(x + 0.499)`), the folds' halves up; the noises' counts go through `cellsFor`'s `floor(x + 0.5)`,
 which settles the default's tie at 96 / 192 / 384 px (the warp's 2.5 cells) at 3 on every backend. Exact ties remain at
-_Irregularity_ 0, where the sites form a perfect lattice: about 0.3 % of the pixels along the borders can differ between
+_Jitter_ 0, where the sites form a perfect lattice: about 0.3 % of the pixels along the borders can differ between
 the backends there.
 
 A hidden _Pixel scale_ param (`unit: 'px'`, 1) tells the shader how big a texture pixel is under supersampling, which
@@ -285,14 +285,14 @@ rubble and Cobbles (Brown cobbles) — generated from the recreations, not retyp
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Layered ledges               | size 24, elongation 1.4, bedding 0.3, merge 0.6, coherence 0.2, bed relief 0.8, lean −0.6 (sheer undersides), scarp 2, weathering 2, 3 facet levels at 0.8; 0.5 px joints, 12 % open, cross-joint width 2; Height 8, key light 22° |
 | Crumpled dark rock           | angle −10°, size 16, bedding 0.45, tilt 1.6, lean −0.4, 3 levels at 0.5, zones 0.7; crevices multiplied dark, blue-black / brown grain                                                                                             |
-| Slate plates                 | angle −20°, size 18, elongation 2, heights 0.5, tilt 0.4, folds 1.5, roughness 0.25, 2 levels; 2.5 px joints all open, cross-joint width 0.3, facet joints 0.2, long fractures 0.5 at −60°; 0.5 px bevel; mottle overlay           |
+| Slate plates                 | angle −20°, size 18, elongation 2, heights 0.5, tilt 0.4, folds 1.5, grain 0.25, 2 levels; 2.5 px joints all open, cross-joint width 0.3, facet joints 0.2, long fractures 0.5 at −60°; 0.5 px bevel; mottle overlay               |
 | Columns                      | angle 90°, cross-joint angle 20°, size 13, elongation 2.5, bedding 0.7, heights 0.8, bed relief 1.5, pitch 1 (lit caps); hexagonal prism 1, scarp 0.8, lean −0.3; Height 6; vertical streak noise (stretch 0.15) multiplied        |
-| Coursed rubble               | size 30, bedding 0.9, dome 0.3, weathering 3, corner rounding 2, roughness 0.1, 1.5 px joints + facet joints 0.3 with breakup 0.6, proud 0.4, facets 0.3, 2 px round bevel; Height 2                                               |
+| Coursed rubble               | size 30, bedding 0.9, dome 0.3, weathering 3, corner rounding 2, grain 0.1, 1.5 px joints + facet joints 0.3 with breakup 0.6, proud 0.4, facets 0.3, 2 px round bevel; Height 2                                                   |
 | Sandstone flakes             | angle −25°, size 10, elongation 2.5, bedding 0.3, folds 1.5, bed relief 0.8, heights 1.2, tilt 0.8, lean −0.3, scarp 5 stepped every 2 px (steps 1), 3 levels, zones 0.6; scarps painted olive, bed colour overlay; Height 4       |
 | Rubble of lens stones (128²) | size 15, elongation 1.6, bedding 0.3, stagger 0.6, dome 0.5, weathering 1.2, corner rounding 2, tilt 0.4, 2 levels at 0.3; 2 px joints near black; Height 7, key light 25°                                                         |
 | White fluted cliff           | angle 90°, cross-joint angle −30°, size 18, elongation 3, rills 0.9 (3 px apart, 24 px long), half the joints open (cross-joint width 0.6), lean −0.3; Height 7                                                                    |
 | Pillow stones                | size 12, bedding 0.8, dome 1, weathering 5, corner rounding 3, no merging, 2 px joints; light Streaks (lime drips, Screen), sparse dark ledge drips (Drips, relief-driven), cavity dirt                                            |
-| Thin beds with lichen        | size 11, elongation 2, bedding 0.5, merge 0.5, bed relief 0.6, lean −0.6, roughness 0.15; per-facet tone overlay, crevices dark, lichen speckle                                                                                    |
+| Thin beds with lichen        | size 11, elongation 2, bedding 0.5, merge 0.5, bed relief 0.6, lean −0.6, grain 0.15; per-facet tone overlay, crevices dark, lichen speckle                                                                                        |
 | Dark fractured rock          | angle −60°, size 30, tilt 1, 3 levels, zones 1; per-facet black / tan multiply, scarps and crevices near black; Height 10                                                                                                          |
 | Grey blocks / rock with moss | size 20–22, bedding 0.15–0.3, tilt 0.8–1; moss: Scarps (Above ledges) ∪ Crevices ∩ a noise breakup → a named mask; Worley noise (scale 70, two octaves, dark → light green) limited to it, as leafy clumps                         |
 | Brown cobbles                | size 17, elongation 1.3, bedding 0.2, dome 0.9, weathering 2, corner rounding 3, 2 px joints filled dark                                                                                                                           |
@@ -300,7 +300,7 @@ rubble and Cobbles (Brown cobbles) — generated from the recreations, not retyp
 | Dark flaky strata            | angle −8°, size 10, elongation 3, bed relief 0.5, lean −0.5, tilt 0.8, 3 levels; scarps painted brown                                                                                                                              |
 | Foliated schist              | angle 35°, size 5, elongation 4.5, warp 0.6, folds 1.5, tilt 0.8, 2 levels; per-facet colour overlay, olive flecks                                                                                                                 |
 | Lava crust                   | size 9, bedding 0, weathering 1, corner rounding 1, all joints open (0.6 px, jaggedness 0.8); a Crevices copy (reach 1 px) dark red → orange with emission, ember specks — tile metric 0.43, the best of the set                   |
-| Scanned cliff                | angle 80°, size 12, bedding 0.1, heights 0.3, tilt 1.2, 3 levels at 0.9, roughness 0.12, rills 0.5; per-facet hue overlay, Streaks multiplied; soft light (sky 0.55)                                                               |
+| Scanned cliff                | angle 80°, size 12, bedding 0.1, heights 0.3, tilt 1.2, 3 levels at 0.9, grain 0.12, rills 0.5; per-facet hue overlay, Streaks multiplied; soft light (sky 0.55)                                                                   |
 
 All render with shadows on, a soft sky (0.4–0.6) and sub-pixel jitter: the references' ledge shadows are cast. Without
 jitter, shadows alias into dotted lines along thin cracks.

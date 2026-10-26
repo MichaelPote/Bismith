@@ -36,7 +36,7 @@ export const treadplateLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Raised lozenges / bars in alternating orientation — diamond plate, 5-bar tread, studs, teardrops and rhombus diamonds. Domed relief; per-lozenge random.',
+		'Tread plate: Raised lozenges, bars or studs in a grid, often turned in alternating directions, with domed tops. Makes diamond plate, 5-bar tread, studded floors, anti-slip metal.',
 	params: [
 		P.enum('style', 'Style', 'lozenge', [
 			['lozenge', 'Lozenge (diamond plate)'],
@@ -46,13 +46,13 @@ export const treadplateLayer: LayerDef = {
 			['teardrop', 'Teardrop'],
 			['diamond', 'Diamond (rhombus)']
 		]),
-		P.int('count_x', 'Count X', 8, 1, 256, {
+		P.int('count_x', 'Columns', 8, 1, 256, {
 			softMax: 48,
-			hint: 'Cells across (made even when tiling with alternating orientation)'
+			hint: 'How many cells across (made even when tiling with alternating orientation)'
 		}),
-		P.int('count_y', 'Count Y', 8, 1, 256, { softMax: 48, hint: 'Cells down' }),
+		P.int('count_y', 'Rows', 8, 1, 256, { softMax: 48, hint: 'How many cells down' }),
 		orientParam(
-			'Turns the whole grid in 45° steps (Angle turns each lozenge within its cell): 45° with Angle 0 lays 5-bar groups or capsules on the diagonal. 45° grids repeat over gcd(width, height)'
+			'Turns the whole grid in 45° steps (Lug angle turns each lozenge within its cell). At 45° with Lug angle 0, 5-bar groups or capsules lie on the diagonal. 45° grids repeat over gcd(width, height)'
 		),
 		P.enum(
 			'layout',
@@ -67,53 +67,53 @@ export const treadplateLayer: LayerDef = {
 			],
 			{
 				showIf: notStud,
-				hint: 'Alternate cells turn 90° from the angle below. Herringbone: rows alternate and every other row is offset half a cell, so each lug points at the flank of the next — classic diamond plate'
+				hint: 'Turns alternate cells 90° from the Lug angle. Herringbone alternates the rows and offsets every other one by half a cell, so each lug points at the side of the next, like classic diamond plate'
 			}
 		),
-		P.float('angle', 'Angle', 45, -180, 180, {
+		P.float('angle', 'Lug angle', 45, -180, 180, {
 			softMin: -90,
 			softMax: 90,
 			unit: '°',
 			step: 0.1,
 			showIf: notStud,
-			hint: 'Lozenge axis, clockwise from the grid’s horizontal'
+			hint: 'Turns each lozenge, clockwise from the grid’s horizontal'
 		}),
-		P.float('length', 'Length', 1.35, 0.05, 1.5, {
+		P.float('length', 'Lug length', 1.35, 0.05, 1.5, {
 			step: 0.001,
 			showIf: notStud,
-			hint: 'Fraction of the cell size (geometric mean of its width and height); bar groups: the group’s length and breadth'
+			hint: 'Sets the length as a fraction of the cell size (the geometric mean of its width and height); for bar groups, the group’s length and breadth'
 		}),
-		P.float('width', 'Width', 0.15, 0.02, 1, {
+		P.float('width', 'Lug width', 0.15, 0.02, 1, {
 			step: 0.001,
-			hint: 'Fraction of the cell (bars: of the bar spacing; studs: diameter)'
+			hint: 'Sets the width as a fraction of the cell (for bars, of the bar spacing; for studs, the diameter)'
 		}),
 		P.float('crown', 'Dome', 1, 0, 1, {
 			step: 0.001,
-			hint: 'How far in the bevel reaches: 0 = flat tops with only the Bevel at the edges, 1 = domed all the way to the spine; the Profile shapes the dome (Round: steep sides, rounded top). Works without a Bevel too. (Bevel aspect applies only in the mask’s combine modes: Union, Subtract …)'
+			hint: 'How far in the bevel reaches (0 = flat tops with just the Bevel at the edges, 1 = domed all the way to the spine). The Profile shapes the dome (Round: steep sides, rounded top). Works without a Bevel too. (Bevel aspect only applies in the mask’s combine modes: Union, Subtract …)'
 		}),
 		P.float('crest', 'Crest', 0.5, 0, 1, {
 			step: 0.001,
-			hint: 'Sharpens the top into a ridge along the spine, which catches the light: 0 = the Profile’s own rounded top, 1 = straight flanks meeting in a ridge (pyramids on diamonds). Works with Dome'
+			hint: 'Sharpens the top into a ridge along the spine that catches the light (0 = the Profile’s rounded top, 1 = straight sides meeting in a ridge, pyramids on diamonds). Works with Dome'
 		}),
 		P.int('bars', 'Bars', 5, 1, 16, { showIf: (p) => p.style === 'bars' }),
 		P.bool('stagger', 'Offset rows', false, {
-			hint: 'Shift alternate rows half a cell (rows made even when tiling; Herringbone already offsets them)'
+			hint: 'Shifts alternate rows by half a cell (rows are made even when tiling; Herringbone already offsets them)'
 		}),
-		P.float('jitter', 'Angle jitter', 1.5, 0, 90, {
+		P.float('jitter', 'Angle variation', 1.5, 0, 90, {
 			softMax: 45,
 			unit: '°',
 			step: 0.1,
 			showIf: notStud,
-			hint: 'Random rotation per lozenge (worn / hand-made plate); 90 = any direction'
+			hint: 'Turns each lozenge by a random angle up to this, for worn or hand-made plate (90 = any direction)'
 		}),
 		P.float('pos_jitter', 'Position jitter', 0.015, 0, 0.3, {
 			step: 0.001,
-			hint: 'Random offset of each lozenge from its cell centre, as a share of the cell'
+			hint: 'Moves each lozenge off its cell centre by a random amount, as a share of the cell'
 		}),
 		P.float('size_var', 'Size variation', 0, 0, 1, {
 			softMax: 0.5,
 			step: 0.001,
-			hint: 'Each lozenge shrinks at random: its length by up to this share, its width by half as much (cast or hand-made plate)'
+			hint: 'Shrinks each lozenge at random, its length by up to this share and its width by half as much (cast or hand-made plate)'
 		}),
 		P.seed()
 	],
@@ -282,7 +282,7 @@ export const weaveLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Over-under woven strands (fabric, basket, wire screen, lattice). Each visible float arches up between the crossings where it dives under, its flanks resting on the strands beneath; per-float or per-strand random.',
+		'Weave: Strands woven over and under each other, arching up between the crossings. Makes fabric, baskets, wire screen, lattices.',
 	params: [
 		P.enum(
 			'pattern',
@@ -300,69 +300,71 @@ export const weaveLayer: LayerDef = {
 				['herringbone', 'Herringbone twill']
 			],
 			{
-				hint: 'Lattice: no weaving — one layer of strips lies over the other (trellis, strap grates). Herringbone: a 2/2 twill whose diagonal mirrors every few strands (zig-zag ribs)'
+				hint: 'Lattice: no weaving, just one layer of strips lying over the other (trellis, strap grates). Herringbone: a 2/2 twill whose diagonal flips every few strands (zig-zag ribs)'
 			}
 		),
 		P.int('period', 'Zig-zag width', 8, 2, 16, {
 			showIf: (p) => p.pattern === 'herringbone',
-			hint: 'Strands per arm of the herringbone (the weave repeats every 2 × this, 4 × when odd)'
+			hint: 'How many strands each arm of the herringbone has (the weave repeats every 2 × this, 4 × when odd)'
 		}),
-		P.int('count_x', 'Strands X', 8, 1, 512, {
+		P.int('count_x', 'Strands across', 8, 1, 512, {
 			softMax: 64,
-			hint: 'Vertical strands across (a multiple of the weave repeat when tiling)'
+			hint: 'How many vertical strands across (a multiple of the weave repeat when tiling)'
 		}),
-		P.int('count_y', 'Strands Y', 8, 1, 512, { softMax: 64, hint: 'Horizontal strands down' }),
-		orientParam('45° gives a diagonal (chain-link style) mesh; diagonal frames repeat over gcd(width, height)'),
+		P.int('count_y', 'Strands down', 8, 1, 512, { softMax: 64, hint: 'How many horizontal strands down' }),
+		orientParam(
+			'Turns the weave in 45° steps; 45° gives a diagonal, chain-link style mesh. Diagonal angles repeat over gcd(width, height)'
+		),
 		P.float('width', 'Strand width', 0.85, 0.05, 1, {
 			step: 0.001,
-			hint: 'Fraction of the strand pitch; lower values open holes (mesh)'
+			hint: 'Sets the strand width as a fraction of the strand spacing; lower values open up holes (mesh)'
 		}),
 		P.float('width_var', 'Width variation', 0.2, 0, 1, {
 			step: 0.001,
-			hint: 'Each strand is thinner by up to this share of its width, at random (hand-split cane, uneven yarn)'
+			hint: 'Makes each strand thinner by a random amount, up to this share of its width (hand-split cane, uneven yarn)'
 		}),
 		P.float('gap', 'Gap', 1, 0, 64, {
 			softMax: 4,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Clearance where a strand dives under another, and between neighbouring strands'
+			hint: 'Adds clearance where a strand dives under another, and between neighbouring strands'
 		}),
 		P.float('arch', 'Over/under arch', 0.6, 0, 1, {
 			step: 0.001,
-			hint: 'How far each float dips towards where it dives under (a sine arch from the middle of the float): 0 = flat strips that just butt into the crossing strands, 0.6 = down to 40 % at the dive, 1 = down to the base'
+			hint: 'How far each float (the visible stretch of a strand) dips towards where it dives under, in a smooth arch from its middle (0 = flat strips that just butt into the crossing strands, 0.6 = down to 40 % at the dive, 1 = down to the base)'
 		}),
-		P.float('crown', 'Roundness', 0.6, 0, 1, {
+		P.float('crown', 'Strand roundness', 0.6, 0, 1, {
 			step: 0.001,
-			hint: 'Cross-section of the strands: 0 = flat tops with the Bevel at their sides (straps, splints), 1 = the Profile all the way across (round wire, cord, yarn). A float’s flanks come down only to the strand passing beneath it'
+			hint: 'Rounds the strands’ cross-section (0 = flat tops with the Bevel at their sides, like straps or splints; 1 = the Profile all the way across, like round wire, cord or yarn). A float’s sides only come down to the strand passing beneath it'
 		}),
 		P.float('under', 'Under depth', 0.5, 0, 1, {
 			step: 0.001,
-			hint: 'How much lower the strands lie where they run between two crossings they pass under (the bottom layer of a lattice, the bits seen between the floats of a basket or twill): 0 = as high as the floats, 1 = just above the holes (15 %)'
+			hint: 'Lowers the strands where they run between two crossings they pass under, like the bottom layer of a lattice or the bits seen between the floats of a basket or twill (0 = as high as the floats, 1 = just above the holes, at 15 %)'
 		}),
 		P.float('run_on', 'Run on under', 0, 0, 1, {
 			step: 0.001,
-			hint: 'Strips run on under the crossing strands instead of ending at them: no gap and no dip at their ends (lattices, strap grates)'
+			hint: 'Runs the strips on under the crossing strands instead of ending them there, with no gap and no dip at their ends (lattices, strap grates)'
 		}),
 		P.float('round', 'Corner rounding', 1, 0, 64, { softMax: 8, unit: 'px', step: 0.1 }),
 		P.float('stud', 'Crossing studs', 0, 0, 256, {
 			softMax: 8,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Radius of a rivet / stud at every crossing (0 = none; at most half the strand pitch)'
+			hint: 'Adds a rivet or stud of this radius at every crossing (0 = none; at most half the strand spacing)'
 		}),
 		P.float('stud_h', 'Stud height', 0.35, 0, 1, {
 			step: 0.001,
 			showIf: (p) => Number(p.stud) > 0,
-			hint: 'How far the stud heads stand above the strands: the strands are lowered by this share of the height to make room'
+			hint: 'How far the stud heads stand above the strands; the strands drop by this share of the height to make room'
 		}),
 		P.float('stud_dome', 'Stud dome', 1, 0, 1, {
 			step: 0.001,
 			showIf: (p) => Number(p.stud) > 0,
-			hint: 'Stud head shape: 0 = flat with the Bevel at its rim, 1 = domed all over (rivet heads)'
+			hint: 'Shapes the stud heads (0 = flat with the Bevel at the rim, 1 = domed all over, like rivet heads)'
 		}),
 		rndModeParam(
 			['Per float', 'Per direction (warp / weft)', 'Direction + random'],
-			'rnd per visible float, 0.25 / 0.75 for horizontal / vertical strands, or one per strand along its whole length (each cane or thread its own tone)',
+			'Picks what gets a separate random value: each visible float, each direction (0.25 / 0.75 for horizontal / vertical strands), both, or each strand along its whole length (a tone per cane or thread)',
 			[['strand', 'Per strand']],
 			'strand'
 		),

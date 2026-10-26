@@ -39,7 +39,7 @@ Files: `src/match/optimizer.ts` (engine-agnostic), `src/match/evaluate.ts` (engi
 `applyParams(project, space, vector) → Project` (a new project; the input is never mutated; gradient stops are
 re-sorted by position, colours travel with their stops). Every entry has a stable `id`
 (`layer:<layerId>:<key>`, `layer:<id>:dif_grad:<i>:color|pos`, `light:<id>:azimuth`, `post:<id>:exposure`,
-`base::color`, `lighting::sky.intensity`), a `label` ("Noise › Scale"), `kind`, `offset`/`dims` into the vector.
+`base::color`, `lighting::sky.intensity`), a `label` ("Noise › Cells across"), `kind`, `offset`/`dims` into the vector.
 
 - Only enabled, unlocked layers; params with `isOptimizable(def)` (float, int, colour, gradient unless the def
   says otherwise).

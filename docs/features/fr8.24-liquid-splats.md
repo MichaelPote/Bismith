@@ -16,7 +16,7 @@ ellipses, tapered capsules, and bites (ellipses cut out) — built from the seed
 (its cell's list, from the shared primitive texture `primTexture.ts`, with the grid and unit as derived uniforms
 — a uniform-bounded loop D3D11 doesn't unroll: 0.28 s cold compile; 13.6 ms per layer at 2048², between
 Noise and Grass). Splats sit on a jittered grid, by the number of splats and the texture's shape only — or, with
-**Layout › Placed by hand**, one on every point of _Splats_ (`points`, the shape editor's open lines, edited with its
+**Layout › Placed by hand**, one on every point of _Splat points_ (`points`, the shape editor's open lines, edited with its
 Line tool and Edit; `parseSplatPoints` takes each "x,y" pair and ignores the lines; px or fractions with _Units_,
 wrapping onto a tileable texture). A placed splat draws its grid position all the same, so splat _i_ looks the same
 placed or on the grid, and moving its point moves it whole. The shader's
@@ -33,9 +33,9 @@ going missing. Each is:
   drops instead (as a thin stream of liquid does — on small textures, pixel specks rather than ruler lines).
   **Droplets**: a power-law of sizes, mostly tiny, the far ones stretched along their flight with a tail; **Fine
   mist**: specks of a px or two flying furthest, thinning out with distance and on small splats.
-- **Gravity** (Gravity, Direction): runs from the core's downhill edge (stratified along it, the first near the
+- **Gravity** (Gravity, Gravity direction): runs from the core's downhill edge (stratified along it, the first near the
   middle the longest) and from the bigger drops, each with a neck into its source, meandering and narrowing, ending in
-  a Bead sized from the run's starting width; big drops near the core slide (stretched downhill, often running on).
+  a bead (_Run beads_) sized from the run's starting width; big drops near the core slide (stretched downhill, often running on).
 
 **Stable layout.** Every splat, and every part of one (each lobe, bite, jet, droplet, speck, run), draws from a random
 stream of its own, keyed by the seed, what it is and its index; a splat draws where it sits, its size and the random
@@ -54,7 +54,7 @@ roughness adds fine noise to it. The distance goes to the mask the layer writes 
 value and coverage; the Edge card still applies — Bevel (0 by default) shapes the thickness further, Anti-alias off
 gives pixel art.
 
-**Value = thickness**: rising over the **Meniscus** from the edge to a flat top, steepest at the edge (the contact
+**Value = thickness**: rising over the **Meniscus width** from the edge to a flat top, steepest at the edge (the contact
 angle) — surface tension: drops smaller than the meniscus stay domed and low, big pools flat on top — times the
 piece's swell (beads fuller, jets thinner, big drops a little lower than the core), and times the coverage, so a speck
 smaller than a pixel raises no glint brighter than its colour. **Dried rim** adds a darker, raised ring along the edge.

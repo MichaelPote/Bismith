@@ -114,20 +114,20 @@ export const tabsLayer: LayerDef = {
 	// Along the mask's edges: it reads the mask before it (the one it writes, or Shape).
 	readsMask: true,
 	description:
-		'Small details with diagonal cuts — trapezoid tabs, notches, chevrons, bow-ties, slits, chamfered plates, scallops — along the edges of a mask (the Shape mask by default) or the texture, on a grid or scattered.',
+		'Tabs & notches: Small cut-out details placed along the edges of a mask (Shape by default) or the texture, on a grid or scattered. Makes tabs, notches, chevrons, bow-ties, slits, chamfered plates, scallops.',
 	params: [
 		P.enum('shape', 'Shape', 'trapezoid', [
 			[
 				'trapezoid',
 				'Trapezoid tab (45° sides)',
-				'full length at the edge, sides cut inward at the Diagonal cut slope (negative: a dovetail)'
+				'full length at the edge, with the sides cut inward at the Diagonal cut slope (negative = a dovetail)'
 			],
 			['notch', 'Notch (triangle)'],
 			['chevron', 'Chevron (V stroke)'],
 			['bowtie', 'Bow-tie'],
 			['slit', 'Diagonal slit'],
 			['plate', 'Chamfered plate'],
-			['round', 'Half-round (scallop)', 'a half ellipse on the edge: Length across, Depth deep']
+			['round', 'Half-round (scallop)', 'a half ellipse on the edge, Length across and Depth deep']
 		]),
 		P.enum('place', 'Placement', 'shape', [
 			['border', 'Along the texture edges'],
@@ -136,7 +136,7 @@ export const tabsLayer: LayerDef = {
 			[
 				'shape',
 				'Along the mask’s edges',
-				'every straight side of the mask below — the one this layer writes, or Shape (panels, planks, plates) — gets its own evenly spread elements; with nothing in it, the texture’s edges'
+				'spreads elements evenly along every straight side of the mask below (the one this layer writes, or Shape: panels, planks, plates); if the mask’s empty, uses the texture’s edges'
 			]
 		]),
 		P.enum(
@@ -149,12 +149,12 @@ export const tabsLayer: LayerDef = {
 			],
 			{
 				showIf: (p) => p.place === 'shape',
-				hint: 'Into the shape: notches and tabs cut in from its edges. Out of the shape: they stick out from its edges into the gaps'
+				hint: 'Into the shape cuts the notches and tabs in from its edges; Out of the shape makes them stick out from its edges into the gaps'
 			}
 		),
 		P.enum('edges', 'Edges', 'all', EDGES, {
 			showIf: onEdges,
-			hint: 'Which edges get elements — along the mask, its sides by the way they face'
+			hint: 'Picks which edges get elements (along the mask, its sides are picked by the way they face)'
 		}),
 		P.enum(
 			'distribute',
@@ -166,27 +166,27 @@ export const tabsLayer: LayerDef = {
 			],
 			{
 				showIf: onEdges,
-				hint: 'Count per edge: the same number on every edge. Spacing: about one every Spacing px, so long sides get more than short ones'
+				hint: 'Count per edge puts the same number on every edge; Spacing puts one about every Spacing px, so long sides get more than short ones'
 			}
 		),
-		P.int('count', 'Count', 3, 1, 256, {
+		P.int('count', 'Elements', 3, 1, 256, {
 			softMax: 24,
 			showIf: (p) => !onEdges(p) || p.distribute !== 'spacing',
-			hint: 'Per edge (along the edges; sides of the mask too short for that many get fewer) or across (grid / scatter)'
+			hint: 'How many elements go on each edge, or across the texture on a grid or scatter (sides of the mask too short for that many get fewer)'
 		}),
 		P.float('spacing', 'Spacing', 64, 1, 8192, {
 			softMax: 256,
 			unit: 'px',
 			step: 0.5,
 			showIf: (p) => onEdges(p) && p.distribute === 'spacing',
-			hint: 'Centre to centre, roughly: each edge gets a whole number of elements, evenly spread (sides too short to hold one get none)'
+			hint: 'Roughly how far apart the elements are, centre to centre. Each edge gets a whole number of them, evenly spread (sides too short to hold one get none)'
 		}),
 		P.float('clearance', 'Corner clearance', 6, 0, 1024, {
 			softMax: 64,
 			unit: 'px',
 			step: 0.5,
 			showIf: (p) => p.place === 'shape',
-			hint: 'Elements keep at least this far from the ends of a side (beyond what their shape needs to clear the corner); sides too short for the count or spacing get fewer, or none'
+			hint: 'Keeps the elements at least this far from the ends of a side, on top of what their shape needs to clear the corner. Sides too short for the count or spacing get fewer, or none'
 		}),
 		P.int('rows', 'Rows', 3, 1, 256, { softMax: 24, showIf: onCells }),
 		...spacingParams({ showIf: (p) => p.place === 'grid' }),
@@ -194,17 +194,22 @@ export const tabsLayer: LayerDef = {
 			softMax: 96,
 			unit: 'px',
 			step: 0.5,
-			hint: 'Along the edge (the wide side of a tab)'
+			hint: 'How long each element is along the edge (the wide side of a tab)'
 		}),
-		P.float('depth', 'Depth', 6, 0.5, 1024, { softMax: 48, unit: 'px', step: 0.5, hint: 'Inward from the edge' }),
+		P.float('depth', 'Depth', 6, 0.5, 1024, {
+			softMax: 48,
+			unit: 'px',
+			step: 0.5,
+			hint: 'How far each element reaches in from the edge'
+		}),
 		P.float('cut', 'Diagonal cut', 1, -4, 8, {
 			softMin: -1,
 			softMax: 3,
 			step: 0.01,
-			hint: 'Trapezoid: slope of the cut sides — 1 = 45°, 0 = square, steeper closes it to a point, negative flares it into a dovetail. Plate: share of the corners cut off, 0 … 1',
+			hint: 'On a trapezoid, sets the slope of the cut sides (0 = square, 1 = 45°, steeper closes it to a point, below 0 flares it into a dovetail). On a plate, cuts off the corners (0 = none, 1 = as much as fits)',
 			showIf: (p) => p.shape === 'trapezoid' || p.shape === 'plate'
 		}),
-		P.float('thickness', 'Stroke', 2, 0.5, 64, {
+		P.float('thickness', 'Stroke width', 2, 0.5, 64, {
 			softMax: 16,
 			unit: 'px',
 			step: 0.5,
@@ -216,33 +221,36 @@ export const tabsLayer: LayerDef = {
 			softMax: 64,
 			unit: 'px',
 			step: 0.5,
-			hint: 'Shift away from the edge (negative straddles it)'
+			hint: 'Moves the elements away from the edge (below 0 they straddle it)'
 		}),
-		P.float('offset', 'Offset', 0, -1, 1, { step: 0.001, hint: 'Shift along, fraction of the spacing' }),
-		P.float('rotation', 'Rotation', 0, -180, 180, { unit: '°', step: 1, showIf: onCells, hint: 'Turn every element' }),
-		P.float('rot_jitter', 'Random rotation', 0, 0, 180, {
+		P.float('offset', 'Offset along', 0, -1, 1, {
+			step: 0.001,
+			hint: 'Slides the elements along, as a fraction of the spacing'
+		}),
+		P.float('rotation', 'Rotation', 0, -180, 180, { unit: '°', step: 1, showIf: onCells, hint: 'Turns every element' }),
+		P.float('rot_jitter', 'Rotation variation', 0, 0, 180, {
 			unit: '°',
 			step: 1,
 			showIf: onCells,
-			hint: 'Each element turned by up to this either way'
+			hint: 'Turns each element by a random amount, up to this either way'
 		}),
-		P.bool('alternate', 'Alternate', false, {
+		P.bool('alternate', 'Flip every other', false, {
 			showIf: (p) => p.place !== 'scatter',
-			hint: 'Mirror every other element end for end (a tab’s wide side inward, a chevron pointing out); on a grid in a checkerboard'
+			hint: 'Flips every other element end for end, so a tab’s wide side faces in or a chevron points out (on a grid, in a checkerboard)'
 		}),
 		P.float('size_var', 'Size variation', 0, 0, 1, {
 			step: 0.001,
-			hint: 'Each element shrinks by a random share of up to this'
+			hint: 'Shrinks each element by a random amount, up to this share of its size (0 = all the same)'
 		}),
 		P.float('drop', 'Drop out', 0, 0, 1, {
 			step: 0.001,
 			showIf: (p) => p.place !== 'scatter',
-			hint: 'Chance of leaving each element out'
+			hint: 'Leaves out elements at random (0 = none, 1 = all)'
 		}),
 		P.float('jitter', 'Jitter', 0.5, 0, 1, {
 			step: 0.001,
 			showIf: (p) => p.place === 'scatter',
-			hint: 'Random offset within the cell'
+			hint: 'Moves each element randomly within its cell'
 		}),
 		P.float('density', 'Density', 0.6, 0, 1, { step: 0.001, showIf: (p) => p.place === 'scatter' }),
 		P.seed()
@@ -521,7 +529,7 @@ GenOut gen(vec2 p) {
   }
 
   // ---- One element per candidate: the four texture edges, the cells that can reach the pixel, or the mask's
-  // side. Cells: a grid centred on the texture, shifted by Offset, its step growing with Column / Row spacing (on the
+  // side. Cells: a grid centred on the texture, shifted by Offset along, its step growing with Column / Row spacing (on the
   // grid; scatter keeps its cells), with copies round the torus when tiling (repGrid) — at least the neighbours
   // either side, more for elements larger than their step.
   float best = 1e4;

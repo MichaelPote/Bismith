@@ -28,7 +28,7 @@ npx tsx tools/gensheet.ts <spec.json> [--out DIR] [--samples N] [--backend windo
 	"variants": [
 		{ "label": "default" },
 		{ "label": "seed 7", "params": { "seed": 7 } },
-		{ "label": "mortar 6 px, rubble", "params": { "mortar": 6, "shape_var": 1 } },
+		{ "label": "mortar width 6 px, rubble", "params": { "mortar": 6, "shape_var": 1 } },
 		{ "label": "64 px default", "project": { "width": 64, "height": 64 } },
 		{ "label": "on a dark base", "below": [{ "type": "noise", "params": { "dif_on": true } }] }
 	]
@@ -42,7 +42,7 @@ npx tsx tools/gensheet.ts <spec.json> [--out DIR] [--samples N] [--backend windo
   may replace them with its own.
 - `project` overrides project fields (size, height depth, lighting, tiling, base colour); a variant's `width` /
   `height` also size its fresh defaults, so a "64 px default" column shows what a new layer gets at 64 px.
-- Labels should say what the column shows ("Run variation 1, Rise variation 0.8"), so a reader can match the image to
+- Labels should say what the column shows ("Flat run variation 1, Rise variation 0.8"), so a reader can match the image to
   the settings without opening the `.md`.
 
 Good variants: the default, two or three other seeds, each important slider near both ends, every mode or style, a

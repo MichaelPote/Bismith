@@ -28,14 +28,14 @@ const DRAW: [string, string, string][] = [
 	[
 		'grooves',
 		'Grooves',
-		'everything but the lines: the lines are cut into a solid surface (Rooms: slabs, each with its own random — per-feature height, random colour)'
+		'everything but the lines: the lines are cut into a solid surface (on Rooms, each slab gets a random value for per-feature height and random colour)'
 	],
 	[
 		'tone',
 		'Two-tone',
-		'Truchet arcs: every other region between the lines is filled (the classic two-colour Truchet), the lines are the gaps. Other styles: as Grooves'
+		'on Truchet arcs, fills every other region between the lines (the classic two-colour Truchet), with the lines as the gaps; other styles draw as Grooves'
 	],
-	['tone2', 'Two-tone, swapped', 'as Two-tone, the other regions filled']
+	['tone2', 'Two-tone, swapped', 'like Two-tone, but fills the other regions']
 ];
 
 /** Density's label per style (it means something different in each). */
@@ -700,22 +700,25 @@ export const truchetLayer: LayerDef = {
 	kind: 'generator',
 	sdf: true,
 	description:
-		'Tile-based line networks: truchet arcs (with crossings, over-under weave, two-tone fills), 10-PRINT diagonals, maze walls, polyomino rooms, Greek-key meanders and circuit-board traces with pads, buses and chips — drawn as raised lines or cut in as grooves.',
+		'Truchet / Lines: Line networks built from grid tiles, drawn as raised lines or cut in as grooves. Makes Truchet arcs and weaves, 10-PRINT diagonals, mazes, polyomino rooms, Greek-key meanders, circuit boards.',
 	params: [
 		P.enum('style', 'Style', 'arcs', STYLES),
 		P.enum('draw', 'Draw', 'lines', DRAW, {
-			hint: 'What the shape is: the lines, the surface between them, or (arcs) alternate regions'
+			hint: 'Picks what makes up the shape: the lines, the surface between them, or (on arcs) every other region'
 		}),
 		P.int('cells', 'Cells across', 8, 1, 1024, {
 			softMax: 128,
-			hint: 'Grid cells across the width. Meanders round to a multiple of the key period when tiling'
+			hint: 'How many grid cells fit across the width. Meanders round this to a multiple of the key period when tiling'
 		}),
-		P.int('cells_y', 'Cells down', 0, 0, 1024, { softMax: 128, hint: '0 = follow the aspect ratio (square cells)' }),
+		P.int('cells_y', 'Cells down', 0, 0, 1024, {
+			softMax: 128,
+			hint: 'How many grid cells fit down the height (0 = follow the aspect ratio, for square cells)'
+		}),
 		P.float('width', 'Line width', 1, 0, 256, {
 			softMax: 32,
 			unit: 'px',
 			step: 0.1,
-			hint: 'Grooves: the groove width. Two-tone: the gap between the filled regions. Whole-pixel widths on whole-pixel cells give crisp lines with anti-aliasing off'
+			hint: 'Sets how wide the lines are (with Grooves, the groove width; with Two-tone, the gap between the filled regions). Whole-pixel widths on whole-pixel cells give crisp lines with anti-aliasing off'
 		}),
 		P.enum(
 			'caps',
@@ -727,143 +730,149 @@ export const truchetLayer: LayerDef = {
 			],
 			{
 				showIf: isStyle('maze', 'rooms', 'meander', 'labyrinth'),
-				hint: 'Line ends and corners of the lattice styles (maze, rooms, meander, labyrinth)'
+				hint: 'Shapes the line ends and corners of the lattice styles (maze, rooms, meander, labyrinth)'
 			}
 		),
-		P.float('offset_x', 'Offset X', 0, 0, 1, { step: 0.001, hint: 'Shift the lattice, fraction of a cell' }),
-		P.float('offset_y', 'Offset Y', 0, 0, 1, { step: 0.001 }),
+		P.float('offset_x', 'Lattice shift X', 0, 0, 1, {
+			step: 0.001,
+			hint: 'Shifts the lattice by a fraction of a cell'
+		}),
+		P.float('offset_y', 'Lattice shift Y', 0, 0, 1, { step: 0.001 }),
 		P.float('density', 'Density', 1, 0, 1, {
 			step: 0.001,
 			showIf: (p) => isStyle('arcs', 'diagonal', 'maze', 'rooms', 'labyrinth')(p) && !isTone(p),
 			labelFor: (p) => DENSITY_LABEL[String(p.style)] ?? 'Density',
-			hint: 'Arcs / diagonal (Tiles drawn): share of the tiles that get their lines. Maze (Walls): share of the grid nodes that grow a wall. Rooms (Room size): how readily cells join into a room (1 = rooms of about three cells; Merge rooms for bigger ones). Labyrinth (Perfection): 1 = a perfect maze; lower opens dead ends into loops (all of them by 0.5), then knocks out walls (half of them at 0)'
+			hint: 'Arcs / diagonal (Tiles drawn): how many of the tiles get their lines. Maze (Walls): how many grid nodes grow a wall. Rooms (Room size): how readily cells join into a room (1 = rooms of about three cells; use Merge rooms for bigger ones). Labyrinth (Perfection): 1 = a perfect maze; lower opens dead ends into loops (all of them by 0.5), then knocks out walls (half of them at 0)'
 		}),
 		P.float('twist', 'Twist', 0.5, 0, 1, {
 			step: 0.001,
 			uniform: false,
 			showIf: isStyle('labyrinth'),
-			hint: 'Chance the labyrinth’s corridors turn at each cell (0 = long straight runs, 1 = winding)'
+			hint: 'Makes the labyrinth’s corridors turn more often (0 = long straight runs, 1 = winding)'
 		}),
 		P.float('cross', 'Crossings', 0, 0, 1, {
 			step: 0.001,
 			showIf: isStyle('arcs', 'diagonal'),
-			hint: 'Share of tiles whose lines cross instead: a + of straight lines (arcs) or an X (diagonal). All crossings: a grid, or a weave with Over-under'
+			hint: 'Swaps some tiles for crossing lines: a + of straight lines (arcs) or an X (diagonal). At 1 you get a grid, or a weave with Over-under gap'
 		}),
-		P.float('weave', 'Over-under', 0, 0, 64, {
+		P.float('weave', 'Over-under gap', 0, 0, 64, {
 			softMax: 16,
 			unit: 'px',
 			step: 0.1,
 			showIf: (p) => isStyle('arcs', 'diagonal')(p) && Number(p.cross) > 0 && !isTone(p),
-			hint: 'At crossings the under strand breaks this far either side of the over strand, alternating like a weave or knotwork (0 = the lines simply cross; a fraction of a pixel = an unbroken weave, the strands only rising and sinking)'
+			hint: 'Breaks the under strand this far either side of the over strand at crossings, alternating like a weave or knotwork (0 = the lines just cross; a fraction of a pixel = an unbroken weave where the strands only rise and sink)'
 		}),
 		P.float('dip', 'Over-under depth', 0.6, 0, 1, {
 			step: 0.001,
 			showIf: (p) => isStyle('arcs', 'diagonal')(p) && Number(p.cross) > 0 && Number(p.weave) > 0 && !isTone(p),
-			hint: 'Height of the weave: the over strand rises to a crown at its crossing, the under strand sinks to its cut ends (0 = flat strands)'
+			hint: 'Raises the over strand to a crown at its crossing and sinks the under strand to its cut ends (0 = flat strands)'
 		}),
 		P.bool('prune', 'Drop fragments', true, {
 			uniform: false,
 			showIf: isStyle('maze'),
-			hint: 'Leave out wall pieces of fewer than five walls (floating dashes, small crosses), so the walls form a network'
+			hint: 'Leaves out wall pieces of fewer than five walls (floating dashes, small crosses), so the walls form a network'
 		}),
 		P.float('merge', 'Merge rooms', 1, 0, 3, {
 			step: 0.001,
 			uniform: false,
 			showIf: isStyle('rooms'),
-			hint: 'Joins neighbouring rooms into bigger, more varied ones: each whole step pairs every room with a neighbour, the fraction a share of them (0 = the plain polyomino net). Merged rooms have no stub walls inside'
+			hint: 'Joins neighbouring rooms into bigger, more varied ones. Each whole step pairs every room with a neighbour, and a fraction pairs some of them (0 = the plain polyomino net). Merged rooms have no stub walls inside'
 		}),
 		P.int('key', 'Key size', 2, 1, 12, {
 			showIf: isStyle('meander'),
-			hint: 'Spirals: cells the key spans (its first arm; it spirals in from there), period key + 1. Running key: turns in (and out), period 2·key + 2 cells along the band, 2·key + 2 across (+ 1 with Border lines)'
+			hint: 'Sets how big each key is. Spirals: how many cells the key’s first arm spans before it spirals in (period key + 1). Running key: how many turns it makes in (and out), with a period of 2·key + 2 cells along the band and 2·key + 2 across (+ 1 with Border lines)'
 		}),
 		P.enum(
 			'key_style',
-			'Key',
+			'Key style',
 			'running',
 			[
 				['spiral', 'Spirals on a rail', 'square spirals hanging from a rail (period key + 1)'],
 				[
 					'running',
 					'Running key',
-					'one continuous line spiralling in and back out of every key — the classic Greek key (period 2·key + 2 cells along the band; across it 2·key + 2, + 1 with Border lines)'
+					'one continuous line spiralling in and back out of every key, the classic Greek key (period 2·key + 2 cells along the band; across it 2·key + 2, + 1 with Border lines)'
 				]
 			],
 			{ showIf: isStyle('meander') }
 		),
 		P.bool('borders', 'Border lines', true, {
 			showIf: isStyle('meander'),
-			hint: 'Spirals: the rail every key hangs from (also the next band’s top). Running key: a rail one cell below each band'
+			hint: 'Draws the rail lines. Spirals: the rail every key hangs from (also the next band’s top). Running key: a rail one cell below each band'
 		}),
-		P.bool('vertical', 'Vertical', false, { showIf: isStyle('meander'), hint: 'Run the bands down instead of across' }),
+		P.bool('vertical', 'Vertical bands', false, {
+			showIf: isStyle('meander'),
+			hint: 'Runs the bands down instead of across'
+		}),
 		P.float('regions', 'Bus regions', 6, 0, 256, {
 			softMax: 32,
 			step: 0.1,
 			uniform: false,
 			showIf: isStyle('circuit'),
-			hint: 'Size (cells) of regions whose traces run parallel — horizontal, vertical or diagonal buses that bend together. 0 = routed traces: wandering, never meeting, from the chips outwards'
+			hint: 'Groups the traces into regions this many cells across, where they run parallel as horizontal, vertical or diagonal buses that bend together (0 = routed traces that wander out from the chips and never meet)'
 		}),
 		P.float('traces', 'Trace density', 0.85, 0, 1, {
 			step: 0.001,
 			uniform: false,
 			showIf: isStyle('circuit'),
-			hint: 'Chance that a trace continues across each cell edge (lower = shorter traces, more pads)'
+			hint: 'How likely a trace is to carry on across each cell edge (lower = shorter traces, more pads)'
 		}),
 		P.float('bend', 'Diagonals', 0.5, 0, 1, {
 			step: 0.001,
 			showIf: isStyle('circuit'),
-			hint: 'With regions: share of diagonal buses. Without: chance a turn cuts the corner at 45° (else a right angle)'
+			hint: 'With Bus regions, makes more of the buses diagonal. Without, makes more turns cut the corner at 45° instead of a right angle'
 		}),
 		P.float('empty', 'Empty board', 0.25, 0, 0.9, {
 			step: 0.001,
 			uniform: false,
 			showIf: isStyle('circuit'),
-			hint: 'Share of the board left without traces, in blobs a few tiles across (chips stay)'
+			hint: 'Clears traces off this much of the board, in blobs a few tiles across (chips stay)'
 		}),
 		P.float('wide', 'Wide traces', 0.12, 0, 1, {
 			step: 0.001,
 			uniform: false,
 			showIf: isStyle('circuit'),
-			hint: 'Share of traces (whole connected traces, not those to chips) drawn at 2.5 × the width — power lines'
+			hint: 'Draws this share of the traces at 2.5 × the width, like power lines (whole connected traces, not those to chips)'
 		}),
 		P.float('junctions', 'Junctions', 0.2, 0, 1, {
 			step: 0.001,
 			showIf: (p) => p.style === 'circuit' && Number(p.regions) > 0,
-			hint: 'Where buses meet: chance a tile with three or four traces joins them (T or + junction); otherwise the odd trace stops in a pad short of the other, or the four turn in pairs — 0 = no merges, like a real board'
+			hint: 'Joins traces where buses meet into T or + junctions. Otherwise the odd trace stops in a pad short of the other, or the four turn in pairs (0 = no merges, like a real board)'
 		}),
 		P.float('pad', 'Pad radius', 1, 0, 64, {
 			softMax: 16,
 			unit: 'px',
 			step: 0.1,
 			showIf: isStyle('circuit'),
-			hint: 'Round pads at trace ends and vias (follows the line width until set)'
+			hint: 'Sets the size of the round pads at trace ends and vias (follows the line width until you set it)'
 		}),
 		P.float('vias', 'Vias', 0.3, 0, 1, {
 			step: 0.001,
 			uniform: false,
 			showIf: isStyle('circuit'),
-			hint: 'Lone vias: on 0.3 × this share of the cells without traces (outside the empty blobs)'
+			hint: 'Scatters lone vias over the cells without traces, on 0.3 × this share of them (outside the empty blobs)'
 		}),
 		P.float('chips', 'Chips', 0, 0, 1, {
 			step: 0.001,
 			uniform: false,
 			showIf: isStyle('circuit'),
-			hint: 'Chance of a chip (with pins) in each block of chip size + 2 + scatter cells'
+			hint: 'Places chips with pins, this likely in each block of chip size + 2 + scatter cells'
 		}),
 		P.int('chip_w', 'Chip width', 2, 1, 16, {
 			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
-			hint: 'Cells across each chip; a one-cell margin of traces runs round it'
+			hint: 'How many cells across each chip is, with a one-cell margin of traces round it'
 		}),
 		P.int('chip_h', 'Chip height', 2, 1, 16, {
 			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
-			hint: 'Cells down each chip'
+			hint: 'How many cells down each chip is'
 		}),
 		P.enum(
 			'chip_style',
 			'Chip style',
 			'ic',
 			[
-				['plain', 'Plain', 'a slab, the traces running in under it'],
-				['ic', 'IC', 'square legs on every side (traces meet them), a notch at one end']
+				['plain', 'Plain', 'a slab with the traces running in under it'],
+				['ic', 'IC', 'square legs on every side for the traces to meet, and a notch at one end']
 			],
 			{
 				showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0
@@ -873,7 +882,7 @@ export const truchetLayer: LayerDef = {
 			softMax: 8,
 			uniform: false,
 			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
-			hint: 'Extra cells in each chip’s block, the chip at a random place in it: sparser, irregular placement (0 = a regular grid)'
+			hint: 'Adds extra cells to each chip’s block and puts the chip at a random place in it, for sparser, irregular placement (0 = a regular grid)'
 		}),
 		P.seed()
 	],

@@ -22,10 +22,10 @@ by default.
   mask, the texture's edges are used (`readsMask`).
 - _Along the texture edges_ (left + right, top + bottom, all, one).
 - _Grid_ (Column / Row spacing round the centre, cells from `repGrid` — those whose element can reach the pixel) and
-  _Scattered_ (density, jitter); both take Rotation and Random rotation.
+  _Scattered_ (density, jitter); both take Rotation and Rotation variation.
 
 Along edges the _Spread_ is a Spacing (about one element every N px, a whole number per side, evenly spread — the
-default) or a Count per edge. Every placement has Size variation; all but scatter have Drop out and Alternate (every
+default) or a Count per edge. Every placement has Size variation; all but scatter have Drop out and Flip every other (every
 other element mirrored end for end; checkerboard on a grid). The Grate lump uses it (texture edges, a count) for the
 clip notches cut into its frame sides.
 
@@ -43,17 +43,17 @@ shader only draws segments, pads and vias. Route and maze used to run per pixel 
 neighbour's links; D3D11's compiler (Windows) took over 4 minutes on that shader and hung the browser. It now compiles
 in about a second, and the move left every layout pixel-identical.
 
-Modes: _Fill_ (routed, FR8.10, the default), _Route_, _Maze_ and **Labyrinth** — a perfect maze, one spanning tree
+_Layout_: _Fill_ (routed, FR8.10, the default), _Route_, _Maze_ and **Labyrinth** — a perfect maze, one spanning tree
 grown as a growing tree (_Branching_ 0 = depth-first long corridors, 1 = many short dead ends; Straightness, Horizontal
 bias and Diagonals weight its steps). Its diagonals keep the walls whole: never crossing in a grid square, never 45°
 off another link at a node, never meeting another diagonal in an X or V (only carrying straight on), never beside a
 parallel one a node over; the few nodes those rules leave unreachable stay out as solid wall. Controls show only for
 the modes they act on; _Shortest trace_ (route, maze) drops pieces with fewer links (no pad-to-pad stubs).
 
-Every connected trace has its own random (the texture's B + A carry a trace id): Per-feature variation, Random jitter
-and _Wide traces_ — a share of the traces _Wide width_ × as wide (capped to keep 1 px clear of a neighbour), their
+Every connected trace has its own random (the texture's B + A carry a trace id): Per-feature variation, Colour variation
+and _Wide traces_ — a share of the traces _Wide trace width_ × as wide (capped to keep 1 px clear of a neighbour), their
 pads and vias grown by as much. Pads & vias card: round, square or octagon pads, a smaller pad on crowded fill ends
-(_Pads where crowded_), a drill hole (_Pad hole_); vias at least the trace's half-width + _Via ring_, so the ring
+(_Pads where crowded_), a drill hole (_Pad hole_); vias at least the trace's half-width + _Via ring width_, so the ring
 always shows, never two linked side by side, absorbed by a pad they sit on. Drill holes cut through everything.
 _Pad height_ and _Pad dome_ lift pads and vias above the traces and round them into solder domes (a drilled one domes
 over its ring, peaking mid-ring); with either above 0 Height › Pattern takes the relief from the layer's own shapes
