@@ -2,14 +2,29 @@
 
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createLayer, freshParams } from '@/layers/registry';
+import { createLayer, freshParams, getLayerDef } from '@/layers/registry';
+import { maskWriteKind } from '@/layers/masks';
+import { SHAPE_MASK } from '@/core/project';
 import { crystalLayer } from '@/layers/generators/crystal';
 
 describe('crystal', () => {
 	ensureBuiltins();
 
-	it('is registered and paints and raises by default', () => {
-		expect(createLayer('crystal').params).toMatchObject({ dif_on: true, h_on: true, mk_target: '' });
+	it('is registered, paints and raises, and writes its crystals to the Shape mask by default', () => {
+		expect(createLayer('crystal').params).toMatchObject({
+			dif_on: true,
+			h_on: true,
+			mk_target: SHAPE_MASK,
+			mask_feat: 'crystals'
+		});
+		expect(maskWriteKind(getLayerDef('crystal')!, createLayer('crystal').params)).toBe('shape');
+	});
+
+	it('can leave out its first layer and stack its layers, as large as the first', () => {
+		const d = (k: string) => crystalLayer.params.find((p) => p.key === k)!;
+		expect(d('skip_first').default).toBe(false);
+		expect(d('layer_mode').options!.map((o) => o.value)).toEqual(['max', 'add']);
+		expect(Number(d('layer_scale').min)).toBeLessThan(1);
 	});
 
 	it('sizes a new layer’s edges, layers and height to the texture', () => {

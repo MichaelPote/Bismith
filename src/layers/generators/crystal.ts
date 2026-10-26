@@ -11,9 +11,11 @@
 // point), Table cuts the top off flat (a gem's table), and Base stands the pyramid on a prism (its walls show only across
 // a Gap). Valley fill rounds the valleys' bottoms.
 //
-// Layers repeats that up to four times, each finer (Layer scale), lower (Layer height), lifted (Layer lift) and grown in
-// only a share of its cells (Small crystals), and combines them by max: smaller crystals grow out of the valleys between
-// the bigger ones, and where two layers meet the planes cross in straight creases. One flat loop runs over the layers × (the 3 × 3 cells for the nearest site, then
+// Layers repeats that up to four times, each finer (Layer scale; below 1 larger), lower (Layer height), lifted (Layer
+// lift) and grown in only a share of its cells (Small crystals), and combines them by max — smaller crystals grow out of
+// the valleys between the bigger ones, and where two layers meet the planes cross in straight creases — or (Layer
+// combine › Stack on top) adds each onto the surface so far, crystals growing on crystals. Skip first layer leaves the
+// solid first layer out, so only the scattered finer layers grow. One flat loop runs over the layers × (the 3 × 3 cells for the nearest site, then
 // the 5 × 5 round it for the faces).
 //
 // The value is the facet's place on the ramp: a random per face (Facet contrast), how squarely it faces the Sheen, how
@@ -21,8 +23,9 @@
 // through it (Inner facets), turned by each face its own way so it jumps at the ridges as refracted light does. Ridges and valleys (cell edges, the creases between
 // layers) are lit or darkened by Edge highlight / Valley shade. Where two facets meet in a pixel — across a ridge, a
 // cell edge, a crease, or a gap's edge to the ground — their colours mix (gGenAlt) instead of the ramp passing through
-// the colours between them. Height (hval) is the surface; the front crystal's random and its distance to its visible
-// outline go to the mask it writes.
+// the colours between them. Height (hval) is the surface. The crystal structure goes to the mask it writes (Shape by
+// default): the front crystal's random and its distance to its visible outline, or (Mask features › Facets) its facet's
+// random and distance to the facet's ridges and edges too.
 
 import { P, gradient, round1 } from '@/core/params';
 import type { LayerDef } from '../types';
@@ -93,12 +96,39 @@ export const crystalLayer: LayerDef = {
 			section: 'Layers',
 			hint: 'Crystal layers combined by their highest: each finer one grows out of the valleys between the crystals of the ones before'
 		}),
-		P.float('layer_scale', 'Layer scale', 1.5, 1, 6, {
+		P.bool('skip_first', 'Skip first layer', false, {
+			section: 'Layers',
+			showIf: (p) => Number(p.layers) > 1,
+			hint: 'Leave out the first, solid layer: only the finer layers grow, each in a share of its cells (Small crystals), for crystals scattered at random over the ground instead of a packed mass'
+		}),
+		P.enum(
+			'layer_mode',
+			'Layer combine',
+			'max',
+			[
+				[
+					'max',
+					'Grow between',
+					'each layer’s crystals grow out of the valleys between the ones before (their highest wins)'
+				],
+				[
+					'add',
+					'Stack on top',
+					'each layer’s crystals stand on the surface of the ones before, their heights added: crystals growing on crystals'
+				]
+			],
+			{
+				section: 'Layers',
+				showIf: (p) => Number(p.layers) > 1,
+				hint: 'How the layers combine'
+			}
+		),
+		P.float('layer_scale', 'Layer scale', 1.5, 0.5, 6, {
 			softMax: 4,
 			step: 0.01,
 			section: 'Layers',
 			showIf: (p) => Number(p.layers) > 1,
-			hint: 'Crystals across each layer as a multiple of the layer before'
+			hint: 'Crystals across each layer as a multiple of the layer before: 1 = as large as the first layer’s, below 1 larger still'
 		}),
 		P.float('fill', 'Small crystals', 0.35, 0, 1, {
 			step: 0.001,
@@ -106,7 +136,7 @@ export const crystalLayer: LayerDef = {
 			showIf: (p) => Number(p.layers) > 1,
 			hint: 'Share of the cells of each finer layer that grow a crystal: few, and the small crystals stand whole among the big ones; all, and they crowd every valley'
 		}),
-		P.float('layer_h', 'Layer height', 0.7, 0, 1.5, {
+		P.float('layer_h', 'Layer height', 0.7, 0, 2, {
 			step: 0.001,
 			section: 'Layers',
 			showIf: (p) => Number(p.layers) > 1,
@@ -192,14 +222,37 @@ export const crystalLayer: LayerDef = {
 			showIf: (p) => Number(p.inner) > 0,
 			hint: 'How far each face turns the star seen through it, in wedges: the jump at each ridge'
 		}),
+		P.enum(
+			'mask_feat',
+			'Mask features',
+			'crystals',
+			[
+				[
+					'crystals',
+					'Crystals',
+					'each crystal one feature: its visible outline, where another crystal or layer cuts it included'
+				],
+				[
+					'facets',
+					'Facets',
+					'each facet one feature: its ridges and edges, so a Bevel or Etch after it follows every facet'
+				]
+			],
+			{
+				group: 'mask',
+				section: 'Write to',
+				showIf: (p) => String(p.mk_target ?? '').trim() !== '',
+				hint: 'What the mask it writes holds as its features (each with its own random), for the layers after it to bevel, etch, chip or paint'
+			}
+		),
 		P.seed()
 	],
-	// The front crystals go to a mask (opt-in); the generator shapes its own value.
+	// The crystal structure goes to the Shape mask (its crystals or facets, Mask features); the generator shapes its own
+	// value.
 	sdf: 'mask',
 	// Anti-alias only matters where the crystals alone cover.
 	sdfShowIf: (p, key) => key !== 'aa' || p.ground === false,
 	defaults: {
-		mk_target: '',
 		h_on: true,
 		h_amount: 6,
 		dif_on: true,
@@ -267,7 +320,11 @@ vec2 cyFan(vec2 p, vec2 tip, float rc, float rf) {
 }
 
 GenOut gen(vec2 p) {
-  int T = clamp(u_layers, 1, 4);
+  // Skip first layer: the first is left out, so at least two are run.
+  bool skip = u_skip_first && u_layers > 1;
+  int T = clamp(u_layers, skip ? 2 : 1, 4);
+  int t0 = skip ? 1 : 0;
+  bool add = u_layer_mode == 1;
   float gh = 0.5 * max(u_gap, 0.0);
   // Valley fill's width (not across a gap, where the crystals meet the ground).
   float vw = gh > 0.0 ? 0.0 : max(u_vfill, 0.0);
@@ -276,15 +333,24 @@ GenOut gen(vec2 p) {
   float base = clamp(u_base, 0.0, 1.0);
   float az = radians(u_sheen_angle);
   vec2 ldir = vec2(sin(az), cos(az));
-  // The tallest a layer can stand (its crystals' tips over its lift), so the height stays in 0..1.
-  float hmax = 1e-3;
-  for (int t = 0; t < 4; t++) if (t < T) hmax = max(hmax, pow(max(u_layer_h, 0.0), float(t)) * (1.0 + (t > 0 ? u_layer_lift : 0.0)));
+  // The tallest a layer can stand (its crystals' tips over its lift) — or, stacked, all the layers' together — so the
+  // height stays in 0..1.
+  float hmax = 1e-3, hsum = 0.0;
+  for (int t = 0; t < 4; t++)
+    if (t < T && t >= t0) {
+      float ht0 = pow(max(u_layer_h, 0.0), float(t)) * (1.0 + (t > 0 ? u_layer_lift : 0.0));
+      hmax = max(hmax, ht0);
+      hsum += ht0;
+    }
+  if (add) hmax = max(hsum, 1e-3);
 
   // The front surface so far: height and its gradient (per px), value, the colour across the nearest boundary (value,
   // weight), distance to its nearest ridge and that ridge's strength, distance to its nearest valley and that valley's
   // strength (half round the finer layers' crystals), distance to its nearest cell edge, the crystals' coverage, its crystal's random, the distance to its
   // visible outline (< 0 inside).
   float H = -1e3, V = 0.0, VA = 0.0, WA = 0.0, DR = 1e4, MR = 1.0, DV = 1e4, MV = 1.0, DE = 1e4, C = 0.0, RN = 0.0, SD = 1e4;
+  // The front facet's own random (the mask's feature with Mask features › Facets).
+  float RF = 0.0;
   // The front facet's gradient; whether the one across the boundary is the ground.
   vec2 dH = vec2(0.0);
   bool AG = false;
@@ -344,7 +410,7 @@ GenOut gen(vec2 p) {
         if (d < de) { de = d; ne = n; re = hash2I(key * 1013 + nk, sg + 5.0).x; rce = hashI(key, sg + 9.0); sje = sj; rne = hashI(key, sg + 11.0); }
       }
       // (A finer layer grows a crystal in a share of its cells, Small crystals.)
-      if (k == 33 && (t == 0 || hashI(nk, sg + 17.0) < u_fill)) {
+      if (k == 33 && t >= t0 && (t == t0 && !skip || hashI(nk, sg + 17.0) < u_fill)) {
         // The layer's surface here: the pyramid (cut at the table, on its base), its share of the pixel, and the colours.
         float tl = float(t);
         float rc = hashI(nk, sg + 9.0);
@@ -357,6 +423,8 @@ GenOut gen(vec2 p) {
         float ht = covI * Hc * (base + (1.0 - base) * min(gc, tab) / tab + (t > 0 ? u_layer_lift : 0.0)) / hmax;
         float sl = covI * Hc * (1.0 - base) / (tab * hmax);
         vec2 dht = onTab ? vec2(0.0) : sl * n1 / den1;
+        // Stack on top: the crystal stands on the surface so far (its height added, so it is in front wherever it rises).
+        if (add && H > -1.0) { ht += H; dht += dH; }
         // This facet (the table, or the lowest face), and the one across its nearest ridge: the next face, or the table's
         // edge (both in px: g is d / den).
         float vF = cyFacet(r1, n1, gc, rc, tl, ldir);
@@ -384,8 +452,8 @@ GenOut gen(vec2 p) {
         // Their stars: this crystal's, turned by the face (the table's unturned); across an edge the neighbour's, about its
         // site.
         vec2 tip = si + off;
-        // (Only the first layer's crystals show one: on the small ones it is noise.)
-        bool star = t == 0;
+        // (Only the first layer's crystals show one — the first one run: on the small ones it is noise.)
+        bool star = t == t0;
         vec2 fS = vec2(rnd, onTab || !star ? -1.0 : r1);
         vec2 fA = !star ? vec2(0.0, -1.0) : wR > wE ? vec2(rnd, dTab <= dRid ? (onTab ? r1 : -1.0) : r2) : vec2(rne, re);
         vec2 tA = wR > wE ? tip : sje;
@@ -403,7 +471,7 @@ GenOut gen(vec2 p) {
           FS = fS; FA = fA; TP = tip; TA = tA;
           H += fill;
           DR = dRid; MR = mR; DE = max(de, 0.0); DV = min(DE, dt); MV = t > 0 ? 0.5 : 1.0;
-          C = min(covI + wNb, 1.0); RN = rnd; SD = -min(de, dt);
+          C = min(covI + wNb, 1.0); RN = rnd; SD = -min(de, dt); RF = onTab ? rT : r1;
         } else {
           if (wt > WA) { VA = vS; WA = wt; AG = false; FA = fS; TA = tip; }
           // A crease with a layer hidden below counts only within that layer's facet: its plane, carried on past the
@@ -431,7 +499,10 @@ GenOut gen(vec2 p) {
   vec2 c0 = cellsFor(u_scale, 1.0);
   float smax = 4.0 / (hmax * min(uRes.x / c0.x, uRes.y / c0.y));
   if (vw > 0.0 && DE < vw) H += min(length(dH), smax) * (vw - DE) * (vw - DE) / (2.0 * vw);
-  GenOut g = genOut(clamp(cyEdges(V, DR, MR, DV, MV), 0.0, 1.0), u_ground ? 1.0 : C, RN, SD);
+  // The mask: the front crystal (its outline) or its facet (its ridges and edges too), with its random.
+  bool facets = u_mask_feat == 1;
+  GenOut g = genOut(clamp(cyEdges(V, DR, MR, DV, MV), 0.0, 1.0), u_ground ? 1.0 : C, RN, facets ? max(SD, -DR) : SD);
+  if (facets) g.fid = fract(RF * 7.13 + RN);
   gGenAlt = vec2(clamp(cyEdges(VA, DR, MR, DV, MV), 0.0, 1.0), WA);
   // Per-feature variation is each crystal's height (above), not a scale of the whole value.
   g.feat = 0.0;

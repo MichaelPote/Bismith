@@ -19,10 +19,14 @@ _Amethyst shards_ and _Sapphire stones_ (layer).
   **Height variation** sets each crystal's height. **Table** cuts the top off flat. **Base** stands the pyramid on a
   prism, whose walls show across a Gap. **Ground** paints the gaps (the ramp's first stop, height 0); off, the layers
   below show through them.
-- **Layers.** Up to four layers combined by max. Each is finer (**Layer scale**) and lower (**Layer height**) than the
-  last, and grows a crystal in only a share of its cells (**Small crystals**), so the small crystals stand whole among
-  the big ones. **Layer lift** raises a finer layer by a share of its own height. Where two layers meet, their planes
-  cross in a straight crease (a valley).
+- **Layers.** Up to four layers. Each is finer (**Layer scale**; 1 = as large as the first, down to 0.5 = larger) and
+  lower (**Layer height**, up to 2) than the last, and grows a crystal in only a share of its cells (**Small crystals**),
+  so the small crystals stand whole among the big ones. **Layer lift** raises a finer layer by a share of its own height.
+  **Layer combine** › _Grow between_ combines them by max: where two layers meet, their planes cross in a straight crease
+  (a valley). _Stack on top_ adds each layer onto the surface so far, so its crystals stand on the ones before — huge
+  crystals on huge crystals at Layer scale 1. **Skip first layer** leaves the solid first layer out: only the finer
+  layers grow, each in its share of cells, for crystals scattered at random over the ground. The height is normalised
+  by the tallest layer run (or, stacked, by all of them together).
 - **Valley fill** rounds valley bottoms over its width, so touching crystals read as fused rather than split by a
   hairline. At a crease between layers it is a smooth max of the two planes, the same from either side. At a cell edge
   it is a fillet, (w − d)² / 2w of the face's slope, capped at a large crystal's steepest. It is off across a gap.
@@ -51,8 +55,11 @@ _Amethyst shards_ and _Sapphire stones_ (layer).
 - **Height** (`hval`) is the surface over the tallest layer's height. Per-feature variation scales each crystal (`feat`
   is zeroed). The default ramp runs from deep navy through royal blue and cyan to white (sapphire), with Roughness 0.08
   (glossy).
-- **Mask**: opt-in (Mask › Write to). It records each front crystal's random and its distance to its visible outline,
-  including where another layer's crystal cuts it.
+- **Mask**: the crystal structure goes to the Shape mask by default (Mask › Write to), so the layers after it — Bevel,
+  Etch, Chips, Mask area, anything limited to it — work on the crystals. **Mask features** picks what it holds: _Crystals_,
+  each front crystal's random and its distance to its visible outline (including where another layer's crystal cuts
+  it); or _Facets_, each facet's own random and its distance to the facet's ridges and edges too, so a Bevel after it
+  follows every facet.
 
 ## Defaults
 

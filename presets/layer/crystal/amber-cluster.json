@@ -60,7 +60,8 @@
 				"r_on": true,
 				"r_src": "flat",
 				"r_b": 0.08,
-				"mk_target": ""
+				"mk_target": "Shape",
+				"mask_feat": "crystals"
 			}
 		}
 	],
