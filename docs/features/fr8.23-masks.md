@@ -74,11 +74,12 @@ its surface modes) and is also how a later layer reads a mask's features, so the
   _Revised 2026-10-26_: Crevices and High spots no longer compare a pixel with the average round it (that saw the cracks
   of a busy relief but missed wide gaps, the valleys between big crystals and pyramids, and any relief whose crevices
   are wider than about twice the Radius, and its Depth was a height that didn't scale with the relief). Instead, in each
-  of 8 directions they take the steepest rise from the pixel to the surface out to 3× the Radius, and count a pair of
-  opposite directions only when both sides rise (walls on both sides; the shoulder of a slope gives nothing) — the mean
-  over the four pairs, over **Wall slope** (height px per px; 0.06 by default, 0.01–0.02 for soft noise). High spots
-  take the steepest fall instead. Depth is gone. It works on any relief built by the layers before it — no shape layer
-  or mask is needed.
+  of 8 directions they take the steepest rise (crevices, out to 3× the Radius) or fall (high spots, within about the
+  Radius) from the pixel, and score each pair of opposite directions by twice the lesser plus half the difference, over
+  twice **Wall slope** (height px per px; 0.06 by default, 0.01–0.02 for soft noise): walls on both sides (a joint, a
+  gap, a ridge) count in full; one side (the foot of a block, the exposed edge and corners of a raised face) a quarter
+  as steep; a plain slope nothing. So High spots finds exposed edges and corners for wear in a band about a Radius
+  wide. Depth is gone. It works on any relief built by the layers before it — no shape layer or mask is needed.
 - **Facing**: slopes whose face turns towards _Direction_ (an angle; Bottom, Top, Left, Right as quick picks), with
   _Spread_ (how far round from it still counts) and _Full at slope_: all the bottom edges of the raised blocks, the
   lit side of every bump.

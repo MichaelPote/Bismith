@@ -64,12 +64,12 @@ export const surfaceMaskLayer: LayerDef = {
 			unit: 'px',
 			step: 0.1,
 			showIf: find('crevices', 'high', 'both', 'slopes', 'facing'),
-			hint: 'How far around each pixel the surface is looked at: crevices and high spots look out to 3× this (a gap up to about 6× as wide fills), slopes are measured across half of it (grain finer than that doesn’t count)'
+			hint: 'How far around each pixel the surface is looked at: crevices look out to 3× this (a gap up to about 6× as wide fills), high spots about this far (the width of the band along an exposed edge), slopes are measured across half of it (grain finer than that doesn’t count)'
 		}),
 		P.float('wall', 'Wall slope', 0.06, 0.005, 4, {
 			softMax: 0.5,
 			step: 0.001,
-			hint: 'How steeply the surface must rise to the walls on both sides of a crevice (or fall away all round a high spot) for a full mask, in height px per px: mortar a pixel deep between bricks a few px across is about 0.1; soft noise wants 0.01–0.02. Lower finds shallower dips',
+			hint: 'How steeply the surface must rise to the walls on both sides of a crevice (or fall away on both sides of a ridge) for a full mask, in height px per px; a wall on one side only (the foot of a block, the edge of a raised face) counts a quarter as much. Mortar a pixel deep between bricks a few px across is about 0.1; soft noise wants 0.01–0.02. Lower finds shallower dips',
 			showIf: find('crevices', 'high', 'both')
 		}),
 		P.float('steep', 'Full at slope', 0.2, 0.02, 16, {
@@ -220,13 +220,16 @@ float ma_surface(vec2 p) {
     float c0 = cos(radians(u_spread));
     return slope * smoothstep(c0, mix(c0, 1.0, 0.5), c);
   }
-  // Crevices: how walled in the pixel is — in each of 8 directions the steepest rise from it to the surface out to 3×
-  // the Radius (at distances doubling from an eighth of it), over Wall slope; each opposite pair counts the lesser of
-  // its two (walls on both sides — a plane, rising one way and falling the other, gives nothing), the mean over the four
-  // pairs. A joint or a wide gap fills; a low spot on a slope doesn't. High spots: the steepest drop instead. One flat
-  // loop over all 48 samples (nested loops of samples compile slowly on D3D).
+  // Crevices: in each of 8 directions the steepest rise from the pixel to the surface out to 3× the Radius (at distances
+  // doubling from an eighth of it; negative where it only falls); each opposite pair counts twice the lesser of its two
+  // plus half the difference, over twice Wall slope — so walls on both sides (a joint, a wide gap) count in full, a wall on
+  // one side (the foot of a block, an inside corner) a quarter as steep, and a plain slope, rising one way as far as it
+  // falls the other, nothing. The mean over the four pairs.
+  // High spots: the same with the steepest fall within about the Radius — a ridge or peak most, the edge of a raised face
+  // or plateau and its corners (where it falls two ways) too, in a band about a Radius wide. One flat loop over all 48 samples (nested loops of samples compile slowly on
+  // D3D).
   float reach = 3.0 * max(u_radius, 0.5);
-  float st = max(u_wall, 1e-3);
+  float st = 2.0 * max(u_wall, 1e-3);
   float up = 0.0, dn = 0.0;
   vec4 u4 = vec4(0.0), d4 = vec4(0.0), u4b = vec4(0.0), d4b = vec4(0.0);
   for (int j = 0; j < 48 * UNI_1; j++) {
@@ -235,16 +238,16 @@ float ma_surface(vec2 p) {
     float dist = reach * exp2(float(k) - 5.0);
     float dh = (sm_h(p + vec2(cos(a), sin(a)) * dist) - h0) / dist;
     up = k == 0 ? dh : max(up, dh);
-    dn = k == 0 ? -dh : max(dn, -dh);
+    // (A fall counts only within about a Radius: an exposed edge is a band that wide, not as far as a crevice reaches.)
+    float fd = -dh * clamp(1.25 - dist / max(u_radius, 0.5), 0.0, 1.0);
+    dn = k == 0 ? fd : max(dn, fd);
     if (k == 5) {
       vec4 sel = vec4(equal(ivec4(dir & 3), ivec4(0, 1, 2, 3)));
-      float cu = clamp(up / st, 0.0, 1.0), cd = clamp(dn / st, 0.0, 1.0);
-      if (dir < 4) { u4 += sel * cu; d4 += sel * cd; } else { u4b += sel * cu; d4b += sel * cd; }
+      if (dir < 4) { u4 += sel * up; d4 += sel * dn; } else { u4b += sel * up; d4b += sel * dn; }
     }
   }
-  // (A pair is walled only if both its sides rise; the high-spot pairs, both sides falling. A spot that falls on one side
-  // and rises on the other — the shoulder of a slope — gives neither.)
-  vec4 pu = min(u4, u4b), pd = min(d4, d4b);
+  vec4 pu = clamp((2.0 * min(u4, u4b) + 0.5 * abs(u4 - u4b)) / st, 0.0, 1.0);
+  vec4 pd = clamp((2.0 * min(d4, d4b) + 0.5 * abs(d4 - d4b)) / st, 0.0, 1.0);
   float crev = dot(pu, vec4(0.25)), high = dot(pd, vec4(0.25));
   float best = u_find == 0 ? crev : u_find == 1 ? high : max(crev, high);
   return best;
