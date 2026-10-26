@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { allLayerDefs, createLayer, getLayerDef } from '@/layers/registry';
+import { allLayerDefs, createLayer } from '@/layers/registry';
 import type { DerivedUniforms, LayerCanvas } from '@/layers/types';
 import { DerivedCache, createDerived, declareDerived, setDerived } from '@/render/derivedUniforms';
 
@@ -68,7 +68,7 @@ describe('derived uniforms', () => {
 
 	it('every layer type that has them declares valid ones its shader reads, and computes them', () => {
 		const users = allLayerDefs().filter((d) => d.derivedUniforms);
-		expect(users.map((d) => d.type)).toContain('greebles');
+		expect(users.map((d) => d.type)).toContain('stripes');
 		for (const def of users) {
 			const d = def.derivedUniforms!;
 			const glsl = def.kind === 'generator' ? def.glsl : def.filterGlsl;
@@ -80,14 +80,5 @@ describe('derived uniforms', () => {
 				expect(() => setDerived(u, d, d.compute(params, c)), `${def.type} ${c.width}×${c.height}`).not.toThrow();
 			}
 		}
-	});
-
-	it("gives Greebles' beams the gcd of the canvas sides", () => {
-		const d = getLayerDef('greebles')!.derivedUniforms!;
-		const params = createLayer('greebles').params;
-		expect(d.compute(params, canvas(96, 64)).beam_period).toBe(32);
-		expect(d.compute(params, canvas(80, 120)).beam_period).toBe(40);
-		expect(d.compute(params, canvas(97, 64)).beam_period).toBe(1);
-		expect(getLayerDef('greebles')!.glsl).not.toMatch(/igcd\(int\(uRes/);
 	});
 });

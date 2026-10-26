@@ -26,12 +26,10 @@ describe('greebles', () => {
 			hero: 0.6,
 			small_parts: 0.5,
 			light_style: 'mixed',
-			// The machine-panel look: straight seams, no 45° cuts, only the final panels drawn, a backing plate in the cut corners.
+			// The machine-panel look: straight seams, only the final panels drawn, a backing plate in the cut corners.
 			jog: 0,
-			diag: 0,
 			seamless: 1,
-			fill: 'backing',
-			beams: 0
+			fill: 'backing'
 		});
 		// At 128 px the editor's sizes are the plain ones.
 		const at128 = freshParams('greebles', { width: 128, height: 128 });
@@ -131,7 +129,6 @@ describe('greebles', () => {
 			'recess_wall',
 			'pipe_min',
 			'shape_min',
-			'beam_width',
 			'edge_min',
 			'edge_width',
 			'chan_width',
