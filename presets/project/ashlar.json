@@ -156,8 +156,10 @@
         "e_mode": "add",
         "e_color": "#ff9019",
         "e_intensity": 2,
-        "mk_joints": "Joints",
-        "mk_gaps": "Gaps"
+        "mk_src_2": "out_joints",
+        "mk_target_2": "Joints",
+        "mk_src_3": "out_gaps",
+        "mk_target_3": "Gaps"
       }
     },
     {

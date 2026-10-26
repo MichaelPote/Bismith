@@ -109,9 +109,6 @@
         "m_hmode": "none",
         "m_hlevel": 0.5,
         "m_hsoft": 0.1,
-        "mk_wood": "",
-        "mk_shape": "Boards",
-        "mk_grain": "Grain",
         "dif_on": true,
         "dif_src": "value",
         "dif_blend": "normal",
@@ -163,7 +160,11 @@
         "e_src": "value",
         "e_mode": "add",
         "e_color": "#ff9019",
-        "e_intensity": 2
+        "e_intensity": 2,
+        "mk_src_2": "out_shape",
+        "mk_target_2": "Boards",
+        "mk_src_3": "out_grain",
+        "mk_target_3": "Grain"
       }
     },
     {
@@ -719,8 +720,6 @@
         "m_hmode": "none",
         "m_hlevel": 0.5,
         "m_hsoft": 0.1,
-        "mk_carve": "",
-        "mk_shape": "",
         "dif_on": true,
         "dif_src": "value",
         "dif_blend": "multiply",

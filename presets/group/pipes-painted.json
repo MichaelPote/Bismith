@@ -93,13 +93,6 @@
         "m_hmode": "none",
         "m_hlevel": 0.5,
         "m_hsoft": 0.1,
-        "mk_height": "",
-        "mk_cover": "Pipes",
-        "mk_fittings": "Fittings",
-        "mk_underside": "Underside",
-        "mk_tubes": "",
-        "mk_facing": "",
-        "mk_liquid": "",
         "dif_on": true,
         "dif_src": "random",
         "dif_blend": "normal",
@@ -147,7 +140,13 @@
         "e_src": "value",
         "e_mode": "add",
         "e_color": "#ff9019",
-        "e_intensity": 2
+        "e_intensity": 2,
+        "mk_src_2": "out_cover",
+        "mk_target_2": "Pipes",
+        "mk_src_3": "out_fittings",
+        "mk_target_3": "Fittings",
+        "mk_src_4": "out_underside",
+        "mk_target_4": "Underside"
       }
     },
     {
@@ -738,8 +737,6 @@
         "m_hmode": "none",
         "m_hlevel": 0.5,
         "m_hsoft": 0.1,
-        "mk_stain": "",
-        "mk_source": "",
         "dif_on": true,
         "dif_src": "value",
         "dif_blend": "multiply",

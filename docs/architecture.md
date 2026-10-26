@@ -157,8 +157,8 @@ LayerDef {
                                  //   Splats, Scratches, Cable, Hammered, Caustics) — the Edge card still applies: Bevel (0 by
                                  //   default) × its own value, Anti-alias read by the generator itself (u_aa)
   maskWrite?: (params) => 'shape' | 'coverage' | false, // what it writes into its mask (masks.ts, FR8.23)
-  extraMaskWrites?: (params) => { target, params }[], // more masks, each a pass with these params (Stone blocks,
-                                 //   Greebles)
+  maskSources?: MaskSourceDef[], // what it can write into a mask (Write to › Source): parts, selections; its Output
+                                 //   enum's options are added by the registry (FR8.23)
   parts?: string,                // its own level per part (gGenLevel: roughness, specular, metalness, emissive) —
                                  //   Roughness / Specular / Metalness / Emissive offer Source › Parts (Greebles)
   readsMask?: boolean,           // reads maskIn() in its shader (Chips, Tabs, Glass)

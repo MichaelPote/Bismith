@@ -17,8 +17,8 @@ import {
 	type Project
 } from '@/core/project';
 import type { ParamValues } from '@/core/params';
-import { MAX_LIMIT_TERMS, SRC_KEYS } from './commonParams';
-import { getLayerDef } from './registry';
+import { MAX_LIMIT_TERMS, MAX_WRITE_ROWS, SRC_KEYS, rowKey } from './commonParams';
+import { getLayerDef, maskSourcesOf } from './registry';
 import type { LayerDef } from './types';
 
 export { SHAPE_MASK };
@@ -50,31 +50,50 @@ export interface MaskWrite {
 	kind: 'shape' | 'coverage';
 	op: string;
 	params: ParamValues;
-	/** One of LayerDef.extraMaskWrites (a pass of its own), not the layer's Write to. */
+	/** A pass of its own (a row after the first, or a source the layer's own pass can't give), not in the layer's. */
 	extra: boolean;
-	/** A coverage that takes the output's value too (LayerDef.extraMaskWrites `soft`). */
+	/** A coverage that takes the output's value too (an output source's gradient). */
 	soft?: boolean;
 }
 
 /**
- * Every mask a layer writes, in the order its passes run: its extra writes (LayerDef.extraMaskWrites, each in Normal
- * mode, by the same rule as maskWriteKind — so never a coverage into the Shape mask), then its own Write to.
+ * Every mask a layer writes, in the order its passes run (FR8.23): Write to's rows, each its Source (masks sources,
+ * registry maskSourcesOf) into its Target by its Mode, Smoothness and Feather — by the same rule as maskWriteKind, so
+ * never a coverage into the Shape mask of a shape layer. Row 1 rides in the layer's own pass when its source is the layer
+ * or changes only what goes to the mask (`main`); the others are passes of their own, run first.
  */
 export function layerWrites(def: LayerDef | undefined, params: ParamValues): MaskWrite[] {
 	if (!def || def.kind !== 'generator') return [];
-	const out: MaskWrite[] = [];
-	for (const x of def.extraMaskWrites?.(params) ?? []) {
-		const target = name(x.target);
-		const ps = { ...params, ...x.params, mk_target: target, mk_op: 'replace', mk_feather: 0, sh_cut: 0 };
-		// A soft write is a coverage × value, which every output has (a shape distance only some do); not into Shape on a
-		// shape layer, whose Shape mask is a distance.
-		const kind = target && (x.soft ? (def.sdf && target === SHAPE_MASK ? false : 'coverage') : maskWriteKind(def, ps));
-		if (kind) out.push({ target, kind, op: 'replace', params: ps, extra: true, soft: x.soft === true });
+	const srcs = maskSourcesOf(def.type);
+	const extra: MaskWrite[] = [];
+	let main: MaskWrite | null = null;
+	for (let n = 1; n <= MAX_WRITE_ROWS; n++) {
+		const target = name(params[rowKey('mk_target', n)]);
+		if (!target) {
+			if (n === 1) continue;
+			break;
+		}
+		const src = srcs.find((s) => s.value === params[rowKey('mk_src', n)]) ?? srcs[0];
+		const inMain = n === 1 && (!src || src.value === 'layer' || src.main === true);
+		const ps: ParamValues = {
+			...params,
+			...(src?.params ?? {}),
+			mk_target: target,
+			mk_op: params[rowKey('mk_op', n)] ?? 'replace',
+			mk_smooth: params[rowKey('mk_smooth', n)] ?? 4,
+			mk_feather: params[rowKey('mk_feather', n)] ?? 0,
+			...(inMain ? {} : { sh_cut: 0 })
+		};
+		// An output source writes its coverage × value (a gradient output — an underside, a falloff — fades along it): not
+		// into Shape on a shape layer, whose Shape mask is a distance. Other sources write by the type's rule.
+		const soft = src?.soft === true;
+		const kind = soft ? (def.sdf && target === SHAPE_MASK ? false : 'coverage') : maskWriteKind(def, ps);
+		if (!kind) continue;
+		const w: MaskWrite = { target, kind, op: String(ps.mk_op), params: ps, extra: !inMain, soft };
+		if (inMain) main = w;
+		else extra.push(w);
 	}
-	const kind = maskWriteKind(def, params);
-	if (kind)
-		out.push({ target: maskTarget(params)!, kind, op: String(params.mk_op ?? 'replace'), params, extra: false });
-	return out;
+	return main ? [...extra, main] : extra;
 }
 
 /** A stored limit operator made valid: 'or', 'minus', else 'and'. */
@@ -283,7 +302,9 @@ export interface LayerMasks {
 	input: MaskRef | null;
 	/** The version it writes; slot −1 when no later layer reads it (no copy). */
 	write: (MaskRef & { kind: 'shape' | 'coverage' }) | null;
-	/** Its extra writes (LayerDef.extraMaskWrites), each a pass of its own before the layer's: input, version, params. */
+	/** The params its own pass runs with: its first row's source over its own (a part for the mask), or its own. */
+	params: ParamValues;
+	/** Its other writes (Write to's rows), each a pass of its own before the layer's: input, version, params. */
 	extra: { input: MaskRef; write: MaskRef & { kind: 'shape' | 'coverage' }; params: ParamValues; soft: boolean }[];
 	/** Its limit, flattened (Invert folded in); null = none. */
 	limit: LimitTerm[] | null;
@@ -373,7 +394,7 @@ export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 		const input = main ? refOf(main.target) : def.readsMask ? refOf(SHAPE_MASK) : null;
 		if (input) read(input, i);
 		const write = main ? commit(main) : null;
-		plans.push({ layer, plan: { input, write, extra, limit, source, coverageOnly } });
+		plans.push({ layer, plan: { input, write, params: main?.params ?? params, extra, limit, source, coverageOnly } });
 	});
 
 	// Every mask's last version stays to the end (the Masks view shows it).

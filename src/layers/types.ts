@@ -49,14 +49,13 @@ export interface LayerDef {
 	 */
 	maskWrite?: (params: ParamValues) => 'shape' | 'coverage' | false;
 	/**
-	 * More masks the layer writes beside its own (Stone blocks' relief: its joints, gaps and scars): each is the same
-	 * shader run again with `params` over the layer's, what it covers written to `target` in Normal mode. They run
-	 * before the layer's own pass, and see the masks as they were before it (masks.ts layerWrites). `soft`: a coverage
-	 * write takes the output's value too (coverage × value), so a gradient output (an underside, a falloff) becomes a mask
-	 * that fades along it. Generators with an Output enum get one per output from the registry (Mask › Outputs to masks)
-	 * unless they declare their own.
+	 * What the layer can write into a mask (Mask › Write to › Source), the first the default. Without its own list a type
+	 * offers This layer (as drawn); either way the registry adds one per option of its Output enum (`output: …`, written as
+	 * its coverage × value, so a gradient output fades along it). A source's `params` run over the layer's for that write —
+	 * a pass of its own before the layer's, unless it is `main` (it changes only what goes to the mask: Greebles' parts,
+	 * Crystal's facets), in which case the first row's write rides in the layer's own pass.
 	 */
-	extraMaskWrites?: (params: ParamValues) => { target: string; params: ParamValues; soft?: boolean }[];
+	maskSources?: MaskSourceDef[];
 	/**
 	 * Reads the mask before it in its own shader (`maskIn()`: its write target's, or the Shape mask when it writes none)
 	 * — Chips damages the shape there, Tabs sit on its outline, Glass refracts inside it. Other layers read masks only
@@ -149,6 +148,19 @@ export interface LayerDef {
 	 * it on and off, `true` when it always does. Generators use their Diffuse / Height outputs (dif_on / h_on).
 	 */
 	channels?: LayerChannels;
+}
+
+/** One of a layer type's mask sources (LayerDef.maskSources). */
+export interface MaskSourceDef {
+	value: string;
+	label: string;
+	hint?: string;
+	/** Params over the layer's for this write. */
+	params: ParamValues;
+	/** Changes only what goes to the mask, not what the layer draws: the first row's write may ride in its own pass. */
+	main?: boolean;
+	/** An output's value: a coverage write takes the value too (coverage × value). */
+	soft?: boolean;
 }
 
 export interface LayerChannels {

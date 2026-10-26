@@ -15,7 +15,7 @@ describe('crystal', () => {
 			dif_on: true,
 			h_on: true,
 			mk_target: SHAPE_MASK,
-			mask_feat: 'crystals'
+			mk_src: 'crystals'
 		});
 		expect(maskWriteKind(getLayerDef('crystal')!, createLayer('crystal').params)).toBe('shape');
 	});

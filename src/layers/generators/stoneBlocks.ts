@@ -7,23 +7,20 @@
 // and can write the joints, gaps and scars to masks of their own (extra passes of the same shader).
 
 import { P, gradient, round1, type ParamValues } from '@/core/params';
-import { PX_SCALE_PARAM, roughnessParams } from '../commonParams';
+import { MAX_WRITE_ROWS, PX_SCALE_PARAM, roughnessParams, rowKey } from '../commonParams';
 import type { LayerDef } from '../types';
 import { ORG_GLSL } from './organicShared';
-
-// The relief's extra masks (LayerDef.extraMaskWrites): param, the output it writes, label, what it holds.
-const EXTRA_MASKS = [
-	['mk_joints', 'joints', 'Joints to', 'the joints and open gaps (with Joint reach and Patchiness)'],
-	['mk_gaps', 'gaps', 'Gaps to', 'the open gaps alone'],
-	['mk_scars', 'scars', 'Scars to', 'how deep the scars cut']
-] as const;
 
 // The relief's colour ramp (its default, and what switching back to it restores).
 const reliefGrad = () => gradient('#a48a68', '#b8a07c', '#c6ae8a');
 
-// Joint reach and Patchiness shape the Joints output, and the relief's Joints mask.
+// Joint reach and Patchiness shape the Joints output, and a Joints row of the relief's Write to.
 const jointsShown = (p: ParamValues) =>
-	p.output === 'joints' || (p.output === 'relief' && String(p.mk_joints ?? '').trim() !== '');
+	p.output === 'joints' ||
+	(p.output === 'relief' &&
+		Array.from({ length: MAX_WRITE_ROWS }, (_, i) => i + 1).some(
+			(n) => p[rowKey('mk_src', n)] === 'out_joints' && String(p[rowKey('mk_target', n)] ?? '').trim() !== ''
+		));
 
 export const stoneBlocksLayer: LayerDef = {
 	type: 'stone_blocks',
@@ -33,13 +30,19 @@ export const stoneBlocksLayer: LayerDef = {
 	sdf: true,
 	// Only the relief has a shape (the masks return no distance).
 	sdfShowIf: (p) => p.output === 'relief',
-	// The relief can write its joints, gaps and scars too, so one layer gives the wall and the masks to paint it by.
-	extraMaskWrites: (p) =>
-		p.output !== 'relief'
-			? []
-			: EXTRA_MASKS.map(([key, output]) => ({ target: String(p[key] ?? ''), params: { output } })).filter((x) =>
-					x.target.trim()
-				),
+	// Its joints, gaps and scars can go to masks of their own (Write to › Source), each as its plain coverage (the joints
+	// a coverage Mask area › Inside paints solid), not the soft value of an output.
+	maskSources: [
+		{ value: 'layer', label: 'This layer', hint: 'the layer as drawn: the blocks, from the relief', params: {} },
+		{
+			value: 'out_joints',
+			label: 'Joints',
+			hint: 'the joints and open gaps (with Joint reach and Patchiness)',
+			params: { output: 'joints' }
+		},
+		{ value: 'out_gaps', label: 'Gaps', hint: 'the open gaps alone', params: { output: 'gaps' } },
+		{ value: 'out_scars', label: 'Scars', hint: 'how deep the scars cut', params: { output: 'scars' } }
+	],
 	description:
 		'A wall of rock-faced stone blocks: courses of varying height, blocks of varying length split into slabs and smaller pieces, faces chipped into flake scars, thin joints that open into gaps here and there — plus masks of the joints and the scars to paint.',
 	params: [
@@ -239,14 +242,7 @@ export const stoneBlocksLayer: LayerDef = {
 			showIf: jointsShown,
 			hint: 'Breaks the joint mask into patches a few stones across: 0 = every joint, 1 = only here and there'
 		}),
-		...EXTRA_MASKS.map(([key, , label, what]) =>
-			P.text(key, label, '', {
-				section: 'Masks',
-				mask: 'write',
-				showIf: (p) => p.output === 'relief',
-				hint: `Also write ${what} to this mask, from the same wall, for later layers to be limited to (as a Stone blocks layer set to that output would): empty = none. Not Shape, which holds the stones`
-			})
-		),
+
 		// Not a control: 1 px of the texture in shader px (supersampling scales the px params; joints snap to texture pixels).
 		PX_SCALE_PARAM,
 		P.enum(

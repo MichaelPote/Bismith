@@ -814,7 +814,7 @@ ${fetches}
 					}
 					const mat = this.generatorMaterial(def, key);
 					this.bindTextures(def, layer, project, seed, mat);
-					// Extra mask writes (LayerDef.extraMaskWrites): the same shader with their params, into the scratch side of
+					// Its other mask writes (Write to's rows): the same shader with their params, into the scratch side of
 					// the state (the layer's own pass overwrites it next); only their mask output is kept.
 					masks?.extra.forEach((e, i) => {
 						updateUniforms(mat.uniforms, layerParamDefs(def.type), e.params);
@@ -827,8 +827,10 @@ ${fetches}
 						if (e.write.slot >= 0) this.gpu.copy(state.write.textures[3], this.slots[e.write.slot]);
 					});
 					if (masks?.extra.length) this.cur.input = masks.input ? this.refTexture(masks.input) : null;
-					updateUniforms(mat.uniforms, layerParamDefs(def.type), layer.params);
-					this.bindDerived(def, layer.id, layer.params, project, seed, mat);
+					// Its own pass, with its first row's source (a part for the mask) over its params.
+					const own = masks?.params ?? layer.params;
+					updateUniforms(mat.uniforms, layerParamDefs(def.type), own);
+					this.bindDerived(def, layer.id, own, project, seed, mat);
 					this.setCommon(mat, project, seed);
 					const w = masks?.write;
 					mat.uniforms.uMaskKind.value = maskKind(w);

@@ -80,11 +80,10 @@ its surface modes) and is also how a later layer reads a mask's features, so the
   gap, a ridge) count in full; one side (the foot of a block, the exposed edge and corners of a raised face) a quarter
   as steep; a plain slope nothing. So High spots finds exposed edges and corners for wear in a band about a Radius
   wide. Depth is gone. It works on any relief built by the layers before it — no shape layer or mask is needed.
-  The Radius goes up to 4096 px (slider 512), so a selection can span the whole texture. **Masks › Crevices to / High
-  spots to** write either selection, from the same layer and settings, to a mask of its own as a **distance** (an SDF
-  mask: the score's way to the selection's edge over its screen-space slope, kept within 3× the Radius), for Bevel,
-  Etch, Chips and limits to work on (extra passes, as Stone blocks' Masks). The layer's own Write to holds the soft
-  coverage as before, or a distance with **Mask holds › Distance**.
+  The Radius goes up to 4096 px (slider 512), so a selection can span the whole texture. Write to's **Source › Crevices
+  (SDF) / High spots (SDF)** write either selection, from the same layer and settings, as a **distance** (an SDF mask:
+  the score's way to the selection's edge over its screen-space slope, kept within 3× the Radius), for Bevel, Etch,
+  Chips and limits to work on; **Selection** writes the soft coverage as painted.
 - **Facing**: slopes whose face turns towards _Direction_ (an angle; Bottom, Top, Left, Right as quick picks), with
   _Spread_ (how far round from it still counts) and _Full at slope_: all the bottom edges of the raised blocks, the
   lit side of every bump.
@@ -344,21 +343,34 @@ Where the build differs from the design above, or adds to it:
   mask's field is _Height_ (it said _Limit to_ too). The cursor readout shows the viewed mask's distance (it read the
   old register slot).
 
-## Outputs to masks
+## Write to: rows of Source → Target
 
-Looks used to stack one generator several times, identical but for its _Output_ (Pipework's height, cover, fittings,
-underside; Vents' frame and slots; Wood's boards and grain), because a mask carried a shape and not an output's value.
-Now one layer writes each output it is asked for to a mask of its own:
+One layer writes as many masks as it needs, from one list. _Mask › Write to_ is up to eight rows (`MAX_WRITE_ROWS`,
+commonParams.ts), each **Source → Target · Mode · Smoothness · Feather**; the next row shows once the one before has a
+target, as Limit to's do. Row 1 keeps the plain keys (`mk_src`, `mk_target`, `mk_op`, `mk_smooth`, `mk_feather`), row
+n > 1 adds `_n` (`rowKey`).
 
-- **Params**: every generator with an `output` enum and no extra writes of its own gets a text param per option,
-  `mk_<value>` (_<Option> to_, Mask › _Outputs to masks_, `mask: 'write'`), added by `outputMasks` in
-  `layers/registry.ts`. Empty = not written.
-- **Soft coverage**: an output write is `extraMaskWrites` with `soft: true` — coverage kind, storing
-  `0.5 − coverage × clamp(value)` (`uMaskSoft` in GLSL_GENERATOR_MAIN), the output's value after Shaping. A shape
-  output (Pipework's cover) gives a crisp mask; a gradient (underside, facing, grain) a mask that fades along it, and a
-  layer limited to it fades with it. Soft writes never go into _Shape_ (`layerWrites`), even on an SDF layer.
-- **Use**: paint a duplicate's colour with a paint layer (noise, flat colour, Mask area) limited to the output's mask,
-  after the writer. The group presets (FR8.3) are built this way.
+- **Source** is what of the layer goes to the target. The options come from the type (`LayerDef.maskSources`; registry
+  `maskSourcesOf`): without a list of its own, _This layer_ (as drawn); then one per option of its _Output_ enum
+  (`out_<value>`, labels without their parenthesis, which goes to the hint), except one named like a source it already
+  has. Greebles, Vents, Pipes and Trim list their parts (`maskParts`: the hidden enum their shader reads, `mask` /
+  `mask_shape`), Crystal its Crystals and Facets (`mask_feat`), Mask area its Selection, Crevices (SDF) and High spots
+  (SDF), Stone blocks its Joints, Gaps and Scars as plain coverages. A type with one source hides the field.
+- **Passes**: row 1 rides in the layer's own pass when its source is the layer or changes only what goes to the mask
+  (`main`: parts, facets) — the pass then runs with that source's params (`LayerMasks.params`). Every other row is a pass
+  of its own (`layerWrites` in masks.ts; `LayerMasks.extra`), the same shader with its source's params, its target, Mode,
+  Smoothness and Feather, into the state's scratch side, only its mask output kept. They run before the layer's own pass
+  and read the masks as they were before it; their slots never reuse one freed by that layer, which its own pass still
+  reads. A layer writes no row past the first empty one.
+- **Soft coverage**: an output source writes coverage × value (`soft`; `0.5 − coverage × clamp(value)`, `uMaskSoft` in
+  GLSL_GENERATOR_MAIN), the output's value after Shaping: a shape output gives a crisp mask, a gradient (underside,
+  facing, grain) one that fades along it. Soft writes never go into _Shape_ on a shape layer. Other sources write by the
+  type's rule (`maskWriteKind`): a shape its distance, the rest their coverage.
+- **Old projects**: the fields before the rows — an output's `mk_<output>`, Stone blocks' `mk_joints`…, Greebles'
+  `mk_lights`…, Mask area's `mk_crev` / `mk_high` / `mk_sdf`, the parts choices and Crystal's `mask_feat` — fold into rows
+  on load (`migrateMaskRows` in registry.ts); the presets were rewritten the same way.
+- **Use**: paint with a layer limited to a row's target, after the writer; bevel, etch or chip from it. The group
+  presets (FR8.3) are built this way.
 - **Coverage-only masks**: the plan marks a mask version `plain` when it holds a coverage and nothing more (a layer
   without a shape wrote it, not an output's value). Mask area › Inside without Breakup on one has only that coverage
   as its value (`LayerDef.coverageOnly`, `LayerMasks.coverageOnly`) — 1 but at the edges and where it thins — so when an
@@ -391,13 +403,7 @@ Each phase ends with `npm test`, `vue-tsc` and `npx tsx tools/smoke.ts` green.
 - **Copy or rebind** for mask output → slot: copy first; rebind only if `render-cost.ts` shows the copies matter.
 - **Smooth ops in _Limit to_**: free (same `sdfCombine`), left out to keep the rows small; add if a rounded clip is
   wanted.
-- **Two write targets** (a shape that writes _Shape_ and _Opening_): not supported in general; use a second layer.
-  A generator can declare extra writes of its own outputs (`LayerDef.extraMaskWrites`, Stone blocks' _Joints to_ /
-  _Gaps to_ / _Scars to_): `layerWrites` lists every write a layer makes, `planMasks` gives each extra a version
-  (`LayerMasks.extra`), and the pipeline runs the shader once more per extra with its params into the state's scratch
-  side, copying only the mask output. Extras run before the layer's own pass and read the masks as they were before
-  it; their slots never reuse one freed by that layer, which its own pass still reads. Every generator with an
-  _Output_ enum gets such extras for free — see _Outputs to masks_.
+- **Two write targets**: done — see _Write to: rows of Source → Target_.
 - **Height-range limit on every layer** (`m_hmode`): _Mask area › Height range_ covers it as a mask; the per-layer
   limit could then go.
 - **Marching on huge features**: Gradient's march is bounded; features longer than the bound ramp only over the

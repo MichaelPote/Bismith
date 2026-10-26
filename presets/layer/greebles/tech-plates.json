@@ -256,7 +256,8 @@
         "e_src": "parts",
         "e_mode": "add",
         "e_color": "#ff9019",
-        "e_intensity": 2
+        "e_intensity": 2,
+        "mk_src": "plates"
       }
     }
   ],

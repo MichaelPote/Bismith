@@ -1,5 +1,4 @@
 import {
-	P,
 	defaultParams,
 	sanitizeParams,
 	type GroupDef,
@@ -9,13 +8,15 @@ import {
 } from '@/core/params';
 import type { Layer } from '@/core/project';
 import { newId } from '@/core/ids';
-import type { LayerCategory, LayerChannels, LayerDef } from './types';
+import type { LayerCategory, LayerChannels, LayerDef, MaskSourceDef } from './types';
 import {
 	FILTER_GROUPS,
 	GENERATOR_GROUPS,
 	LIMIT_PARAMS,
 	MASK_PARAMS,
 	MASK_WRITE_PARAMS,
+	MAX_WRITE_ROWS,
+	rowKey,
 	OUTPUT_PARAMS,
 	PARTS_SRC_KEYS,
 	PHASE_PARAM,
@@ -39,38 +40,46 @@ export const CATEGORY_LABELS: Record<LayerCategory, string> = {
 	adjust: 'Adjust'
 };
 
+/** The source every layer offers unless its type lists its own: itself, as drawn. */
+const LAYER_SOURCE: MaskSourceDef = { value: 'layer', label: 'This layer', hint: 'the layer as drawn', params: {} };
+/** An output's label without its parenthesis ("Edges (F2 − F1)" → "Edges"); the parenthesis goes to the hint. */
+const shortLabel = (l: string) => l.replace(/\s*\(.*\)\s*$/, '');
+const sources = new Map<string, MaskSourceDef[]>();
+
 /**
- * Each of a generator's outputs to a mask of its own (Mask › Outputs to masks): one layer gives the masks that copies of
- * it set to each output used to, for later layers to be limited to. A shape output writes its shape; a gradient one
- * (an underside, a falloff) a soft mask, its coverage × its value. For generators with an Output enum that write no extra
- * masks of their own (Stone blocks and Greebles name theirs).
+ * What a generator can write into a mask (Write to › Source): its own list (LayerDef.maskSources) or This layer, then one
+ * per option of its Output enum (`out_<value>`, the layer run as that output) — except an output named like a source it
+ * already has (Greebles' rivets, a part and an output both).
  */
-function outputMasks(
-	def: LayerDef,
-	own: ParamDef[]
-): { params: ParamDef[]; writes: LayerDef['extraMaskWrites'] } | null {
+function buildSources(def: LayerDef, own: ParamDef[]): MaskSourceDef[] {
+	if (def.kind !== 'generator') return [];
+	const list = [...(def.maskSources ?? [LAYER_SOURCE])];
 	const output = own.find((p) => p.key === 'output' && p.type === 'enum');
-	if (def.kind !== 'generator' || !output?.options?.length || def.extraMaskWrites) return null;
-	const outs = output.options;
-	const params = outs.map((o) =>
-		P.text(`mk_${o.value}`, `${o.label} to`, '', {
-			group: 'mask',
-			section: 'Outputs to masks',
-			mask: 'write',
-			hint: `Also write the ${o.label} output${o.hint ? ` (${o.hint})` : ''} to this mask, from this same layer, for later layers to be limited to — as a copy of the layer set to that output would. A shape is exact; a gradient becomes a soft mask that layers limited to it fade along. Empty = none`
-		})
-	);
-	const writes: LayerDef['extraMaskWrites'] = (p) =>
-		outs
-			.map((o) => ({ target: String(p[`mk_${o.value}`] ?? ''), params: { output: o.value }, soft: true }))
-			.filter((x) => x.target.trim() !== '');
-	return { params, writes };
+	for (const o of output?.options ?? []) {
+		const label = shortLabel(o.label);
+		if (list.some((s) => s.label.toLowerCase() === label.toLowerCase())) continue;
+		const paren = /\((.*)\)\s*$/.exec(o.label)?.[1];
+		list.push({
+			value: `out_${o.value}`,
+			label,
+			hint: [paren, o.hint].filter(Boolean).join(': ') || undefined,
+			params: { output: o.value },
+			soft: true
+		});
+	}
+	return list;
+}
+
+/** A generator's mask sources (Write to › Source), the first the default. */
+export function maskSourcesOf(type: string): MaskSourceDef[] {
+	return sources.get(type) ?? [];
 }
 
 export function registerLayer(def: LayerDef): void {
 	const own = def.params.map((p) => ({ ...p, group: p.group ?? 'params' }));
-	const outMasks = outputMasks(def, own);
-	defs.set(def.type, outMasks ? { ...def, extraMaskWrites: outMasks.writes } : def);
+	const srcs = buildSources(def, own);
+	sources.set(def.type, srcs);
+	defs.set(def.type, def);
 	let all: ParamDef[];
 	if (def.kind === 'generator') {
 		// Every generator has a `phase` (the wrapper sets the noise library's gPhase from it): its own, the noise one in
@@ -93,12 +102,25 @@ export function registerLayer(def: LayerDef): void {
 		// Write to (FR8.23): shape layers write the Shape mask unless told otherwise; other generators (and shape layers in a
 		// mode without a shape) write their coverage when given a mask (masks.ts maskWriteKind).
 		const writable = (v: ParamValues) => !def.maskWrite || def.maskWrite({ ...v, mk_target: SHAPE_MASK }) !== false;
+		// Write to's rows: row 1 targets Shape on a shape layer; every Source lists the type's sources (hidden when there is
+		// only one).
+		const options = srcs.map((s) => ({ value: s.value, label: s.label, ...(s.hint ? { hint: s.hint } : {}) }));
 		const mask = MASK_PARAMS.map((p) => {
 			if (!WRITE_KEYS.has(p.key)) return p;
-			const q = p.key === 'mk_target' && def.sdf ? { ...p, default: SHAPE_MASK } : p;
-			return { ...q, showIf: (v: ParamValues) => writable(v) && (!q.showIf || q.showIf(v)) };
+			let q = p.key === 'mk_target' && def.sdf ? { ...p, default: SHAPE_MASK } : p;
+			if (p.key.startsWith('mk_src')) {
+				const shown = q.showIf;
+				q = {
+					...q,
+					options,
+					default: srcs[0]?.value ?? 'layer',
+					showIf: (v) => srcs.length > 1 && (!shown || shown(v))
+				};
+			}
+			const r = q;
+			return { ...r, showIf: (v: ParamValues) => writable(v) && (!r.showIf || r.showIf(v)) };
 		});
-		all = [...pattern, ...shape, ...shaping, ...mask, ...(outMasks?.params ?? []), ...OUTPUT_PARAMS];
+		all = [...pattern, ...shape, ...shaping, ...mask, ...OUTPUT_PARAMS];
 	} else {
 		// Filters: their own params, then Limit to (FR8.23).
 		all = [...own, ...LIMIT_PARAMS];
@@ -145,10 +167,51 @@ export function layerChannels(type: string): LayerChannels {
 	return def.kind === 'generator' ? GENERATOR_CHANNELS : (def.channels ?? {});
 }
 
-/** Params stored before a change to a type's params, rewritten by the type (LayerDef.migrate). */
+/** Params stored before a change to a type's params, rewritten by the type (LayerDef.migrate), then the old mask fields. */
 export function migrateParams(params: ParamValues, type: string): ParamValues {
 	const def = defs.get(type);
-	return def?.migrate ? def.migrate(params) : params;
+	const p = def?.migrate ? def.migrate(params) : params;
+	return def?.kind === 'generator' ? migrateMaskRows(p, type) : p;
+}
+
+/**
+ * The mask fields before Write to's rows (FR8.23) folded into rows: "… to" fields (an output's `mk_<output>`, Mask
+ * area's `mk_crev` / `mk_high`) into rows after the first with that source; a "what goes to the mask" choice (Greebles,
+ * Vents and Pipes' `mask`, Trim's `mask_shape`, Crystal's `mask_feat`, Mask area's `mk_sdf`) into row 1's source.
+ */
+function migrateMaskRows(params: ParamValues, type: string): ParamValues {
+	const srcs = sources.get(type) ?? [];
+	const has = (v: string) => srcs.some((s) => s.value === v);
+	const out: ParamValues = { ...params };
+	const extra: [string, string][] = [];
+	for (const [k, v] of Object.entries(params)) {
+		const m = /^mk_(.+)$/.exec(k);
+		if (!m || WRITE_KEYS.has(k)) continue;
+		// (An output's, else a part of the same name: Greebles' lights, Trim's dividers.)
+		const src =
+			m[1] === 'crev' ? 'crevices_sdf' : m[1] === 'high' ? 'high_sdf' : has(`out_${m[1]}`) ? `out_${m[1]}` : m[1];
+		delete out[k];
+		if (has(src) && String(v ?? '').trim()) extra.push([src, String(v).trim()]);
+	}
+	// Row 1's source from the old choice of what goes to the mask ('none': it wrote nothing).
+	const pick = (key: string, map: (v: string) => string) => {
+		if (!(key in params) || 'mk_src' in params) return;
+		const v = String(params[key]);
+		if (v === 'none') out.mk_target = '';
+		else if (has(map(v))) out.mk_src = map(v);
+	};
+	pick('mask', (v) => v);
+	pick('mask_shape', (v) => v);
+	pick('mask_feat', (v) => v);
+	if (params.mk_sdf === 'distance') pick('find', (v) => (v === 'high' ? 'high_sdf' : 'crevices_sdf'));
+	for (const [src, target] of extra) {
+		let n = 2;
+		while (n <= MAX_WRITE_ROWS && String(out[rowKey('mk_target', n)] ?? '').trim()) n++;
+		if (n > MAX_WRITE_ROWS) break;
+		out[rowKey('mk_src', n)] = src;
+		out[rowKey('mk_target', n)] = target;
+	}
+	return out;
 }
 
 /**

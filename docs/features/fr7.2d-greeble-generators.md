@@ -26,9 +26,10 @@ Every greeble layer is an SDF generator (`sdf: true`) with an **`output`** enum.
 - **Relief (value).** The default output. It composes the whole motif into one 0..1 height value:
   - panel plateaus at per-panel levels, seams, frames, rivet domes, sunken slots, louvre fins, half-cylinder pipes, band profiles
   - main edges use the layer's own **Shape** params (bevel width, profile, anti-alias)
-  - the relief also writes the mask in _Write to_ (Shape by default) — Panels' plates, Trim's strips, Vents' plate;
-    each layer's _Shape for the mask_ choice, `none` to leave the mask alone — through `genOutOwn`, which keeps the
-    relief as the value; `LayerDef.maskWrite` tells the mask analysis (and the _Limit to_ labels) when that happens
+  - the relief also writes the mask in _Write to_ (Shape by default) — Panels' plates, Trim's strips, Vents' plate:
+    each row's _Source_ picks the part (`maskParts`: a hidden enum the shader reads; an empty target leaves the mask
+    alone) — through `genOutOwn`, which keeps the relief as the value; `LayerDef.maskWrite` tells the mask analysis
+    (and the _Limit to_ labels) when that happens
   - out of the box it gives a complete height map, and a value-mapped diffuse ramp (dark seams → metal → bright rivets)
 - **Shape outputs (SDF).** Each returns the signed distance of one element class, such as panels, seams, rivets, lights, slots, clamps or bands:
   - the common bevel, profile, mask (_Write to_, _Limit to_) params apply to it
@@ -188,9 +189,10 @@ raised top).
 
 The _Tech plates_ preset shows the octilinear look (jogs, cut corners, fill plates, borders, strips).
 
-**Masks and parts.** The relief's Masks section writes its lights (lenses and the toggles' pilot lamps), pipes (tubes,
-hoses, collars, bosses), hardware, rivets, details and seams to named masks of their own — extra passes of the same
-shader, as Stone blocks does — so later layers can be limited to them; the shape outputs gained Pipes and Hardware too.
+**Masks and parts.** Write to's rows (FR8.23) write its lights (lenses and the toggles' pilot lamps), pipes (tubes,
+hoses, collars, bosses), hardware, rivets, details and seams — each a row's Source — to named masks of their own, so
+later layers can be limited to them: row 1 in the relief's own pass, the others as passes of their own; the shape
+outputs gained Pipes and Hardware too.
 Roughness, Specular, Metalness and Emissive take **Source › Parts** (`LayerDef.parts`, `gGenLevel`): each part on top of
 the pixel brings its own level — steel plates (metal 0.8), pipes and bolts (1), switches, sockets and lights (0, plastic
 / glass), grommets (rubber, rough), pocket boards (0.15) — through the output's At 0 … At 1 ramp; with Emissive on, only
@@ -204,8 +206,8 @@ variant compiled; one compile up front (~9.5–11 s cold, D3D11) is the better t
 The descent's bevels (a piece's rise, a border's step) share one profile evaluation, as do the final plate's
 (`grb_rise3`); recess walls, ribs and beams use a plain smooth ramp.
 
-Like vents and trim, the relief **writes a shape to its mask** (`mask`, _Shape for the mask_, default plate tops;
-`none` leaves the mask alone; `maskWrite` tells the mask analysis): plates, panels, seams, frames, rivets, details or
+Like vents and trim, the relief **writes a shape to its mask** (Write to › Source, the hidden `mask` enum; default plate
+tops; `maskWrite` tells the mask analysis): plates, panels, seams, frames, rivets, details or
 lights, through `genOutOwn` — later layers are limited to it (grime in the seams: Shape with _Invert_), chip or bevel from
 it, while the relief value stays the layer's own. _Plate tops_ leaves out everything sunk into the plates (slots, holes,
 recesses, housing rings, groove lines, recessed centres) and keeps what stands on them (lenses, hinge knuckles, pipes,
@@ -270,9 +272,9 @@ row on the piece's straight box.
 
 ### `vents` — Vents & grilles
 
-The relief writes its mask by **Shape for the mask** (`mask`): the plate (metal, frame and fasteners, openings
-cut out; the default), the openings or the frame (`genOutOwn`, by the Mask card's mode), or none (`maskWrite` then
-doesn't count the layer as a writer). Later layers are limited to it — paint only the plate, or grime only inside the slots — or bevel from it. Its
+The relief writes its mask by Write to's **Source** (the hidden `mask` enum): the plate (metal, frame and fasteners,
+openings cut out; the default), the openings or the frame (`genOutOwn`, by the row's Mode); an empty target writes
+none. Later layers are limited to it — paint only the plate, or grime only inside the slots — or bevel from it. Its
 random is per slot inside the slots and one value on the plate, and Per-feature variation is off on the relief (it would
 step the plate per slot; Depth variation varies the slots instead). Relief heights: frame 1, field `field_level`,
 openings down to `field × (1 − depth)`; hoods, beads and fasteners rise above that, and Height (`hval`) is then divided

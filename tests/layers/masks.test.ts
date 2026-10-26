@@ -3,7 +3,7 @@ import { ensureBuiltins } from '@/render/builtins';
 import { createProject } from '@/core/serialize';
 import type { Layer } from '@/core/project';
 import type { ParamValues } from '@/core/params';
-import { createLayer, layerParamDefs } from '@/layers/registry';
+import { createLayer, layerParamDefs, maskSourcesOf, sanitizeLayer } from '@/layers/registry';
 import {
 	foldLimit,
 	layerLimit,
@@ -190,18 +190,28 @@ describe('mask plan', () => {
 		]);
 	});
 
-	it('plans extra writes (Stone blocks relief: Joints to, Gaps to) as passes of their own before the layer’s', () => {
-		// The wall reads Joints and Shape (its limit) as they were before it: its extra write can't take that slot.
+	it('plans Write to’s further rows (Stone blocks: its joints, its gaps) as passes of their own before the layer’s', () => {
+		// The wall reads Joints and Shape (its limit) as they were before it: its other writes can't take that slot.
 		const old = createLayer('noise', { mk_target: 'Joints' }, 'old');
-		const wall = createLayer('stone_blocks', { mk_joints: 'Joints', mk_gaps: 'Gaps', ...limitTo('Joints') }, 'wall');
+		const wall = createLayer(
+			'stone_blocks',
+			{
+				mk_src_2: 'out_joints',
+				mk_target_2: 'Joints',
+				mk_src_3: 'out_gaps',
+				mk_target_3: 'Gaps',
+				...limitTo('Joints')
+			},
+			'wall'
+		);
 		const moss = createLayer('noise', limitTo('Joints'), 'moss');
 		const dark = createLayer('noise', limitTo(['Gaps', '∪', 'Shape']), 'dark');
 		const p = project([old, wall, moss, dark]);
 		const plan = planMasks(p);
 		const w = plan.layers.get(wall.id)!;
-		expect(w.extra.map((e) => [e.write.mask, e.write.version, e.write.kind, e.params.output])).toEqual([
-			['Joints', 2, 'coverage', 'joints'],
-			['Gaps', 1, 'coverage', 'gaps']
+		expect(w.extra.map((e) => [e.write.mask, e.write.version, e.write.kind, e.params.output, e.soft])).toEqual([
+			['Joints', 2, 'coverage', 'joints', false],
+			['Gaps', 1, 'coverage', 'gaps', false]
 		]);
 		expect(w.limit![0].ref).toMatchObject({ mask: 'Joints', version: 1 });
 		expect(w.extra[0].input).toMatchObject({ mask: 'Joints', version: 1 });
@@ -211,11 +221,56 @@ describe('mask plan', () => {
 		expect(plan.layers.get(moss.id)!.limit![0].ref).toMatchObject({ version: 2, slot: w.extra[0].write.slot });
 		expect(masksAbove(p, moss.id)).toEqual(['Shape', 'Joints', 'Gaps']);
 		expect(maskChain(p, moss.id, 'Gaps')).toEqual([{ name: 'wall', op: 'replace' }]);
-		// Other outputs write only their own target; Shape never takes a coverage.
-		const joints = { ...wall.params, output: 'joints', mk_target: 'J' };
-		expect(planMasks(project([{ ...wall, params: joints }])).layers.get(wall.id)!.extra).toEqual([]);
-		const bad = createLayer('stone_blocks', { mk_joints: 'Shape' });
+		// Shape never takes a coverage.
+		const bad = createLayer('stone_blocks', { mk_src_2: 'out_joints', mk_target_2: 'Shape' });
 		expect(planMasks(project([bad])).layers.get(bad.id)!.extra).toEqual([]);
+	});
+
+	it('gives each row its own Mode, Smoothness and Feather, and stops at the first empty row', () => {
+		const def = getLayerDef('rock');
+		const l = createLayer('rock', {
+			mk_target: 'Rock',
+			mk_src_2: 'out_crevices',
+			mk_target_2: 'Rock',
+			mk_op_2: 'smooth-union',
+			mk_smooth_2: 9,
+			mk_feather_2: 2,
+			mk_src_4: 'out_scarps',
+			mk_target_4: 'Lost'
+		});
+		const ws = layerWrites(def, l.params);
+		expect(ws.map((w) => [w.target, w.op, w.params.mk_smooth, w.params.mk_feather, w.extra])).toEqual([
+			['Rock', 'smooth-union', 9, 2, true],
+			['Rock', 'replace', 4, 0, false]
+		]);
+	});
+
+	it('runs a part source of the first row in the layer’s own pass, other rows as passes of their own', () => {
+		const def = getLayerDef('greebles');
+		const l = createLayer('greebles', { mk_src: 'seams', mk_target: 'Seams', mk_src_2: 'lights', mk_target_2: 'Glow' });
+		const ws = layerWrites(def, l.params);
+		expect(ws.map((w) => [w.target, w.params.mask, w.extra, w.kind])).toEqual([
+			['Glow', 'lights', true, 'shape'],
+			['Seams', 'seams', false, 'shape']
+		]);
+		expect(planMasks(project([l])).layers.get(l.id)!.params.mask).toBe('seams');
+	});
+
+	it('folds the old mask fields into rows', () => {
+		const stone = sanitizeLayer({ ...createLayer('stone_blocks'), params: { mk_joints: 'J', mk_scars: '' } });
+		expect(stone.params).toMatchObject({ mk_src_2: 'out_joints', mk_target_2: 'J' });
+		expect('mk_joints' in stone.params).toBe(false);
+		const grb = sanitizeLayer({ ...createLayer('greebles'), params: { mask: 'seams', mk_lights: 'Glow' } });
+		expect(grb.params).toMatchObject({ mk_src: 'seams', mk_src_2: 'lights', mk_target_2: 'Glow' });
+		const none = sanitizeLayer({ ...createLayer('vents'), params: { mask: 'none' } });
+		expect(none.params.mk_target).toBe('');
+		const area = sanitizeLayer({
+			...createLayer('surfacemask'),
+			params: { find: 'high', mk_sdf: 'distance', mk_crev: 'Crev' }
+		});
+		expect(area.params).toMatchObject({ mk_src: 'high_sdf', mk_src_2: 'crevices_sdf', mk_target_2: 'Crev' });
+		const cry = sanitizeLayer({ ...createLayer('crystal'), params: { mask_feat: 'facets' } });
+		expect(cry.params.mk_src).toBe('facets');
 	});
 
 	it('skips disabled layers and reads Shape for layers that read a mask without writing one', () => {
@@ -237,7 +292,7 @@ describe('Mask area', () => {
 		expect(at({ select: 'features' })).toBe('shape');
 		expect(at({ select: 'features', bk_amount: 0.5 })).toBe('coverage');
 		expect(at({ select: 'features', area: 'gradient' })).toBe('coverage');
-		// Crevices and high spots: a coverage, or a distance when asked.
+		// Crevices and high spots: a coverage, or a distance from their SDF sources.
 		expect(at({ find: 'crevices', mk_sdf: 'distance' })).toBe('shape');
 		expect(at({ find: 'slopes', mk_sdf: 'distance' })).toBe('coverage');
 		expect(def!.maskSource!({ select: 'features', src_mask: 'Opening' })).toBe('Opening');
@@ -249,17 +304,22 @@ describe('Mask area', () => {
 	});
 });
 
-describe('Mask area › Masks', () => {
-	it('writes crevices and high spots to masks of their own, as distances', () => {
+describe('Mask area sources', () => {
+	it('writes crevices and high spots, as distances, from any row', () => {
 		const def = getLayerDef('surfacemask');
-		const l = createLayer('surfacemask', { mk_crev: 'Crev', mk_high: 'High' });
+		const l = createLayer('surfacemask', {
+			mk_src_2: 'crevices_sdf',
+			mk_target_2: 'Crev',
+			mk_src_3: 'high_sdf',
+			mk_target_3: 'High'
+		});
 		const extra = layerWrites(def, l.params).filter((w) => w.extra);
 		expect(extra.map((w) => [w.target, w.kind, w.params.find])).toEqual([
 			['Crev', 'shape', 'crevices'],
 			['High', 'shape', 'high']
 		]);
-		// Not from a selection of a mask's features.
-		expect(layerWrites(def, { ...l.params, select: 'features' }).filter((w) => w.extra)).toEqual([]);
+		// The selection as painted stays a coverage.
+		expect(layerWrites(def, l.params).find((w) => !w.extra)).toMatchObject({ target: 'Crevices', kind: 'coverage' });
 	});
 });
 
@@ -287,15 +347,22 @@ describe('mask links (the outliner lane)', () => {
 	});
 });
 
-describe('outputs to masks', () => {
-	it('gives every generator with an Output enum a mask field per output, written as a soft coverage', () => {
+describe('outputs as sources', () => {
+	it('offers each output of an Output enum as a Write to source, written as a soft coverage', () => {
 		ensureBuiltins();
-		const keys = layerParamDefs('pipework').map((d) => d.key);
+		const opts = layerParamDefs('pipework')
+			.find((d) => d.key === 'mk_src_2')!
+			.options!.map((o) => o.value);
 		for (const o of ['height', 'cover', 'fittings', 'underside', 'tubes', 'facing', 'liquid'])
-			expect(keys).toContain(`mk_${o}`);
-		// Stone blocks names its own extra masks: no generated ones.
-		expect(layerParamDefs('stone_blocks').map((d) => d.key)).not.toContain('mk_relief');
-		const pipes = createLayer('pipework', { mk_fittings: 'Fittings', mk_underside: 'Under' });
+			expect(opts).toContain(`out_${o}`);
+		// Short labels: the parenthesis goes to the hint.
+		expect(maskSourcesOf('voronoi').find((s) => s.value === 'out_edges')!.label).toBe('Edges');
+		const pipes = createLayer('pipework', {
+			mk_src_2: 'out_fittings',
+			mk_target_2: 'Fittings',
+			mk_src_3: 'out_underside',
+			mk_target_3: 'Under'
+		});
 		const writes = layerWrites(getLayerDef('pipework'), pipes.params).filter((w) => w.extra);
 		expect(writes.map((w) => [w.target, w.kind, w.soft, w.params.output])).toEqual([
 			['Fittings', 'coverage', true, 'fittings'],
@@ -303,7 +370,7 @@ describe('outputs to masks', () => {
 		]);
 		// Never a coverage into the Shape mask of a shape layer.
 		expect(
-			layerWrites(getLayerDef('pipework'), { ...pipes.params, mk_cover: 'Shape' }).some(
+			layerWrites(getLayerDef('pipework'), { ...pipes.params, mk_target_3: 'Shape' }).some(
 				(w) => w.extra && w.target === 'Shape'
 			)
 		).toBe(false);
@@ -312,8 +379,8 @@ describe('outputs to masks', () => {
 
 describe('coverage-only masks', () => {
 	it('tells a plain coverage from a shape or an output’s value, and Mask area › Inside on it', () => {
-		const joints = createLayer('stone_blocks', { mk_joints: 'Joints' }, 'Blocks');
-		const pipes = createLayer('pipework', { mk_underside: 'Under' }, 'Pipes');
+		const joints = createLayer('stone_blocks', { mk_src_2: 'out_joints', mk_target_2: 'Joints' }, 'Blocks');
+		const pipes = createLayer('pipework', { mk_src_2: 'out_underside', mk_target_2: 'Under' }, 'Pipes');
 		const grime = createLayer('noise', { mk_target: 'Grime' }, 'Grime');
 		const inside = (mask: string, extra: ParamValues = {}) =>
 			createLayer('surfacemask', { select: 'features', src_mask: mask, area: 'inside', mk_target: '', ...extra });

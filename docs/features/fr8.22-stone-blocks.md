@@ -89,12 +89,12 @@ The masks return no distance (`NO_SDF`), so they hide the Shape card (`sdfShowIf
 _Write to_ another mask records what they paint as coverage — a joint-moss mask that a speckle layer is _Limited to_
 (green flecks along the joints). With a distance (Relief), the mask it writes holds the stones.
 
-**One layer for the wall and its masks.** The Relief output has _Joints to_, _Gaps to_ and _Scars to_ (section
-_Masks_): name a mask and the relief writes that output's coverage there as well, exactly what a copy of the layer set
-to that output and writing that mask would (checked texel for texel, renders identical) — so the masks can't drift from
-the stones when the wall is edited. Each is one more pass of the same shader (`LayerDef.extraMaskWrites`, no compile
-cost), run before the relief's own pass in Normal mode with the layer's Limit to; Shape is refused (it holds the
-stones). Joint reach and Patchiness show while _Joints to_ is set.
+**One layer for the wall and its masks.** Mask › Write to's rows take _Joints_, _Gaps_ and _Scars_ as their Source
+(`LayerDef.maskSources`, FR8.23): name a target and the relief writes that output's plain coverage there as well,
+exactly what a copy of the layer set to that output and writing that mask would — so the masks can't drift from the
+stones when the wall is edited. Each is one more pass of the same shader (no compile cost), run before the relief's own
+pass with the row's Mode and the layer's Limit to; Shape is refused (it holds the stones). Joint reach and Patchiness
+show while a Joints row has a target.
 
 ### Random value
 

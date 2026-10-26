@@ -115,8 +115,6 @@
         "m_hmode": "none",
         "m_hlevel": 0.5,
         "m_hsoft": 0.1,
-        "mk_tiles": "",
-        "mk_value": "",
         "dif_on": false,
         "dif_src": "random",
         "dif_blend": "normal",

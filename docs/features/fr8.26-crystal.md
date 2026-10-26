@@ -56,7 +56,7 @@ _Amethyst shards_ and _Sapphire stones_ (layer).
   is zeroed). The default ramp runs from deep navy through royal blue and cyan to white (sapphire), with Roughness 0.08
   (glossy).
 - **Mask**: the crystal structure goes to the Shape mask by default (Mask › Write to), so the layers after it — Bevel,
-  Etch, Chips, Mask area, anything limited to it — work on the crystals. **Mask features** picks what it holds: _Crystals_,
+  Etch, Chips, Mask area, anything limited to it — work on the crystals. Write to's **Source** picks what it holds: _Crystals_,
   each front crystal's random and its distance to its visible outline (including where another layer's crystal cuts
   it); or _Facets_, each facet's own random and its distance to the facet's ridges and edges too, so a Bevel after it
   follows every facet.

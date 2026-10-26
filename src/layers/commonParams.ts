@@ -1,6 +1,7 @@
 // Params shared by every generator layer: SDF shape handling, value shaping, masking and the channel
 // outputs (docs/architecture.md §5.2). They live flat in layer.params next to the type's own params.
 
+import type { MaskSourceDef } from './types';
 import { P, gradient, type GroupDef, type ParamDef, type ParamValues } from '@/core/params';
 
 /** What drives a channel output (the uniform keeps the option order: 0 value, 1 flat, 2 random, 3 shape). */
@@ -80,8 +81,10 @@ export const BLEND_MODES: [string, string][] = [
 	['softlight', 'Soft light']
 ];
 
-const isSmooth = (p: Record<string, unknown>) => String(p.mk_op).startsWith('smooth');
-const writes = (p: Record<string, unknown>) => String(p.mk_target ?? '').trim() !== '';
+/** Write to's rows (FR8.23): row 1 keeps the plain keys (mk_target …), row n > 1 adds `_n`. */
+export const MAX_WRITE_ROWS = 8;
+export const rowKey = (base: string, n: number) => (n === 1 ? base : `${base}_${n}`);
+const rowTarget = (p: Record<string, unknown>, n: number) => String(p[rowKey('mk_target', n)] ?? '').trim();
 
 /** The Source dropdown of a channel output, drawn in one row with its blend mode. */
 const source = (key: string, group: string, mode: string, modeLabel = 'Mode'): ParamDef =>
@@ -112,41 +115,87 @@ const LEVEL_MODES: [string, string][] = [
 ];
 
 /**
- * Mask card › Write to (FR8.23): the mask this layer writes and how. Shape layers write their shape (a distance, and the
- * random of each feature) and default to the Shape mask; other generators write their coverage when given a mask.
+ * Mask card › Write to (FR8.23): up to MAX_WRITE_ROWS rows, each a Source (what of the layer: itself, a part, an output —
+ * the options come from the type, LayerDef.maskSources) into a Target mask, by a Mode, with its own Smoothness and
+ * Feather; the next row shows once this one has a target. Shape layers write their shape (a distance, and the random of
+ * each feature) and default row 1 to the Shape mask; other generators write their coverage. Row 1's Mode, Smoothness and
+ * Feather drive the layer's own pass (uniforms); the other rows run as passes of their own with theirs (masks.ts).
  */
-export const MASK_WRITE_PARAMS: ParamDef[] = [
-	P.text('mk_target', 'Write to', '', {
-		group: 'mask',
-		section: 'Write to',
-		mask: 'write',
-		hint: 'The mask this layer writes, by name: a shape layer its shape (and which feature is where), any other layer where it covers. Later layers can be limited to it (Limit to), bevel or etch along it, or read its features (Mask area). Shape layers write the Shape mask unless told otherwise; empty = none'
-	}),
-	P.enum('mk_op', 'Mode', 'replace', SDF_OPS, {
-		group: 'mask',
-		section: 'Write to',
-		showIf: writes,
-		hint: 'Normal: this layer replaces what the mask held. Union: adds to it. Subtract: cuts this layer out of it. Intersection: keeps only the overlap. Smooth: blended with a rounded fillet. A shape layer draws the combined shape in every mode'
-	}),
-	P.float('mk_smooth', 'Smoothness', 4, 0, 256, {
-		softMax: 32,
-		unit: 'px',
-		step: 0.1,
-		group: 'mask',
-		section: 'Write to',
-		showIf: (p) => writes(p) && isSmooth(p),
-		hint: 'How wide the rounded fillet is where this layer meets what the mask held (the smooth modes)'
-	}),
-	P.float('mk_feather', 'Feather', 0, 0, 1024, {
-		softMax: 32,
-		unit: 'px',
-		step: 0.1,
-		group: 'mask',
-		section: 'Write to',
-		showIf: writes,
-		hint: "Soft edge of the written mask: a ramp this wide across a shape's outline (shape layers). Other layers soften with Shaping › Cutoff softness"
-	})
-];
+export const MASK_WRITE_PARAMS: ParamDef[] = Array.from({ length: MAX_WRITE_ROWS }, (_, i): ParamDef[] => {
+	const n = i + 1;
+	const first = n === 1;
+	const shown = (p: Record<string, unknown>) => first || rowTarget(p, n - 1) !== '';
+	const writes = (p: Record<string, unknown>) => rowTarget(p, n) !== '';
+	const smooth = (p: Record<string, unknown>) => String(p[rowKey('mk_op', n)]).startsWith('smooth');
+	const base = { group: 'mask', section: 'Write to', ...(first ? {} : { uniform: false, optimize: false }) };
+	return [
+		P.enum(rowKey('mk_src', n), first ? 'Source' : `Source ${n}`, 'layer', [['layer', 'This layer']], {
+			...base,
+			uniform: false,
+			optimize: false,
+			showIf: shown,
+			hint: 'What of this layer goes into the mask: the layer as drawn, one of its parts, or one of its outputs (as a copy of the layer set to that output would draw it). A shape writes its distance, a gradient a soft coverage'
+		}),
+		P.text(rowKey('mk_target', n), first ? 'Target' : `Target ${n}`, '', {
+			...base,
+			mask: 'write',
+			showIf: shown,
+			hint: first
+				? 'The mask this row writes, by name: a shape layer its shape (and which feature is where), any other layer where it covers. Later layers can be limited to it (Limit to), bevel or etch along it, or read its features (Mask area). Shape layers write the Shape mask unless told otherwise; empty = none'
+				: 'One more mask this layer writes, by name, from the Source on its left; empty = none'
+		}),
+		P.enum(rowKey('mk_op', n), 'Mode', 'replace', SDF_OPS, {
+			...base,
+			showIf: writes,
+			hint: 'Normal: this replaces what the mask held. Union: adds to it. Subtract: cuts this out of it. Intersection: keeps only the overlap. Smooth: blended with a rounded fillet. A shape layer draws the combined shape in every mode (of its first row)'
+		}),
+		P.float(rowKey('mk_smooth', n), 'Smoothness', 4, 0, 256, {
+			...base,
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			showIf: (p) => writes(p) && smooth(p),
+			hint: 'How wide the rounded fillet is where this meets what the mask held (the smooth modes)'
+		}),
+		P.float(rowKey('mk_feather', n), 'Feather', 0, 0, 1024, {
+			...base,
+			softMax: 32,
+			unit: 'px',
+			step: 0.1,
+			showIf: writes,
+			hint: "Soft edge of the written mask: a ramp this wide across a shape's outline (shapes). Other layers soften with Shaping › Cutoff softness"
+		})
+	];
+}).flat();
+
+/** Every key of Write to's rows. */
+export const WRITE_ROW_KEYS = new Set(MASK_WRITE_PARAMS.map((p) => p.key));
+
+/**
+ * A generator's parts for its masks (Greebles, Vents, Pipes, Trim): the enum `key` its shader reads to pick the shape that
+ * goes to the mask (hidden — Write to › Source picks it; its 'none' kept for stored values), and one Source per part,
+ * `main` (it rides in the layer's own pass), the default first.
+ */
+export function maskParts(
+	key: string,
+	def: string,
+	options: ([string, string] | [string, string, string])[]
+): { param: ParamDef; sources: MaskSourceDef[] } {
+	const param = P.enum(key, 'Shape for the mask', def, [['none', 'None'], ...options], {
+		showIf: () => false,
+		optimize: false,
+		hint: 'Picked by Mask › Write to › Source'
+	});
+	const ordered = [...options.filter((o) => o[0] === def), ...options.filter((o) => o[0] !== def)];
+	const sources = ordered.map(([value, label, hint]) => ({
+		value,
+		label,
+		...(hint ? { hint } : {}),
+		params: { [key]: value },
+		main: true
+	}));
+	return { param, sources };
+}
 
 /**
  * GLSL (generator shaders, after the param uniforms): what the layer writes into its mask (uMaskKind: 0 nothing, 1 its
@@ -155,7 +204,7 @@ export const MASK_WRITE_PARAMS: ParamDef[] = [
  */
 export const GLSL_MASK_OP = /* glsl */ `
 uniform int uMaskKind;
-// A coverage write takes the output's value too (an extra, soft write: LayerDef.extraMaskWrites).
+// A coverage write takes the output's value too (a soft write: an output's gradient, Write to › Source).
 uniform bool uMaskSoft;
 int maskOp() { return uMaskKind == 1 ? u_mk_op + 1 : 0; }
 `;

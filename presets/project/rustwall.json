@@ -160,7 +160,8 @@
         "e_mode": "add",
         "e_color": "#ff9019",
         "e_intensity": 2,
-        "mk_joints": "Joints"
+        "mk_src_2": "out_joints",
+        "mk_target_2": "Joints"
       }
     },
     {

@@ -65,8 +65,6 @@
         "m_hmode": "none",
         "m_hlevel": 0.5,
         "m_hsoft": 0.1,
-        "mk_light": "Light",
-        "mk_surface": "",
         "dif_on": true,
         "dif_src": "value",
         "dif_blend": "normal",
@@ -134,7 +132,9 @@
         "e_src": "value",
         "e_mode": "add",
         "e_color": "#d4fbf3",
-        "e_intensity": 0.06
+        "e_intensity": 0.06,
+        "mk_src_2": "out_light",
+        "mk_target_2": "Light"
       }
     },
     {

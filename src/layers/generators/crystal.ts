@@ -25,7 +25,7 @@
 // cell edge, a crease, or a gap's edge to the ground — their colours mix (gGenAlt) instead of the ramp passing through
 // the colours between them. Height (hval) is the surface. The crystal structure goes to the mask it writes (Shape by
 // default): the front crystal's random and its distance to its visible outline, or (Mask features › Facets) its facet's
-// random and distance to the facet's ridges and edges too.
+// random and distance to the facet's ridges and edges too — picked by Write to › Source.
 
 import { P, gradient, round1 } from '@/core/params';
 import type { LayerDef } from '../types';
@@ -222,33 +222,38 @@ export const crystalLayer: LayerDef = {
 			showIf: (p) => Number(p.inner) > 0,
 			hint: 'How far each face turns the star seen through it, in wedges: the jump at each ridge'
 		}),
+		// What the mask holds as its features — picked by Write to › Source (Crystals or Facets), not shown.
 		P.enum(
 			'mask_feat',
 			'Mask features',
 			'crystals',
 			[
-				[
-					'crystals',
-					'Crystals',
-					'each crystal one feature: its visible outline, where another crystal or layer cuts it included'
-				],
-				[
-					'facets',
-					'Facets',
-					'each facet one feature: its ridges and edges, so a Bevel or Etch after it follows every facet'
-				]
+				['crystals', 'Crystals'],
+				['facets', 'Facets']
 			],
-			{
-				group: 'mask',
-				section: 'Write to',
-				showIf: (p) => String(p.mk_target ?? '').trim() !== '',
-				hint: 'What the mask it writes holds as its features (each with its own random), for the layers after it to bevel, etch, chip or paint'
-			}
+			{ showIf: () => false, optimize: false }
 		),
+
 		P.seed()
 	],
-	// The crystal structure goes to the Shape mask (its crystals or facets, Mask features); the generator shapes its own
-	// value.
+	// The crystal structure goes to the Shape mask: its crystals, or its facets (Write to › Source, by the hidden
+	// mask_feat; either way in its own pass); the generator shapes its own value.
+	maskSources: [
+		{
+			value: 'crystals',
+			label: 'Crystals',
+			hint: 'each crystal one feature: its visible outline, where another crystal or layer cuts it included',
+			params: { mask_feat: 'crystals' },
+			main: true
+		},
+		{
+			value: 'facets',
+			label: 'Facets',
+			hint: 'each facet one feature: its ridges and edges, so a Bevel or Etch after it follows every facet',
+			params: { mask_feat: 'facets' },
+			main: true
+		}
+	],
 	sdf: 'mask',
 	// Anti-alias only matters where the crystals alone cover.
 	sdfShowIf: (p, key) => key !== 'aa' || p.ground === false,

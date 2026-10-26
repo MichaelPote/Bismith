@@ -3,7 +3,7 @@
 // relief / SDF output convention.
 
 import { P, gradient, round1 as r1, type ParamValues } from '@/core/params';
-import { spacingParams } from '../commonParams';
+import { maskParts, spacingParams } from '../commonParams';
 import type { LayerDef } from '../types';
 import { FASTENER_HEADS, GRB_GLSL, ORIENT, ORIENT_ACROSS, ORIENT_ALONG } from './greebleCommon';
 
@@ -24,6 +24,18 @@ const fastenerCap = (p: ParamValues) => {
 const isConduit = (p: ParamValues) => p.shape === 'conduit';
 
 // ------------------------------------------------------------------------------------------------ vents
+
+// The parts each relief can hand to a mask (Write to › Source), the default first.
+const VENT_PARTS = maskParts('mask', 'plate', [
+	['plate', 'Plate', 'the metal: plate, frame and fasteners, the openings cut out'],
+	['slots', 'Openings', 'the slots or holes'],
+	['frame', 'Frame', 'the border frame (needs a Frame width)']
+]);
+const PIPE_PARTS = maskParts('mask', 'all', [
+	['all', 'Pipes + clamps', 'the pipes with their joints, and the clamps'],
+	['pipes', 'Pipes', 'the pipes with their joints'],
+	['clamps', 'Clamps']
+]);
 
 export const ventsLayer: LayerDef = {
 	type: 'vents',
@@ -135,21 +147,8 @@ export const ventsLayer: LayerDef = {
 			showIf: (p) => Number(p.rim) > 0,
 			hint: 'An embossed bead raised on the rim round each opening (relief; 1 = as high as the frame stands)'
 		}),
-		P.enum(
-			'mask',
-			'Shape for the mask',
-			'plate',
-			[
-				['none', 'None', 'the relief leaves its mask as it was'],
-				['plate', 'Plate', 'the metal: plate, frame and fasteners, the openings cut out'],
-				['slots', 'Openings', 'the slots or holes'],
-				['frame', 'Frame', 'the border frame (needs a Frame width)']
-			],
-			{
-				showIf: (p) => (p.output ?? 'relief') === 'relief',
-				hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (paint only the plate, or only inside the slots) or bevel from'
-			}
-		),
+		VENT_PARTS.param,
+
 		P.seed(),
 		P.float('margin', 'Frame', 0, 0, 1024, {
 			softMax: 128,
@@ -236,6 +235,8 @@ export const ventsLayer: LayerDef = {
 		{ id: 'wear', label: 'Wear' }
 	],
 	maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'plate') !== 'none' ? 'shape' : false),
+	// What of the relief goes to a mask (Write to › Source).
+	maskSources: VENT_PARTS.sources,
 	defaults: {
 		h_on: true,
 		h_amount: 1,
@@ -641,21 +642,8 @@ export const pipesLayer: LayerDef = {
 			],
 			{ showIf: (p) => (p.output ?? 'relief') === 'relief', hint: 'How the relief’s heights scale' }
 		),
-		P.enum(
-			'mask',
-			'Shape for the mask',
-			'all',
-			[
-				['none', 'None', 'the relief leaves its mask as it was'],
-				['all', 'Pipes + clamps'],
-				['pipes', 'Pipes'],
-				['clamps', 'Clamps']
-			],
-			{
-				showIf: (p) => (p.output ?? 'relief') === 'relief',
-				hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (rust on the pipes only, grime on the wall between) or bevel from. Pipes include their joints'
-			}
-		),
+		PIPE_PARTS.param,
+
 		P.seed(),
 		P.int('joints', 'Joints', 1, 0, 64, {
 			softMax: 16,
@@ -752,6 +740,8 @@ export const pipesLayer: LayerDef = {
 		{ id: 'clamps', label: 'Clamps' }
 	],
 	maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'all') !== 'none' ? 'shape' : false),
+	// What of the relief goes to a mask (Write to › Source).
+	maskSources: PIPE_PARTS.sources,
 	defaults: {
 		h_on: true,
 		h_amount: 0.5,

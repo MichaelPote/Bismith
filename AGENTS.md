@@ -31,9 +31,10 @@ doesn't.)
   and is limited by _Limit to_ (`lim_1`…`lim_4`, `lim_op2`…, `lim_out`). Masks reach only the layers after their
   writer. Each mask texel is (distance, the feature's random `GenOut.fid`, feature flag); in shaders `maskIn()` is the
   mask before the layer (its target's, or Shape), `maskOp()` how its shape combines, `limitAt()` its limit. Which
-  versions get a slot texture is planned per evaluation (`planMasks` in `src/layers/masks.ts`). A generator with an
-  _Output_ enum can also write each output to a mask of its own (`mk_<output>`, a soft coverage: coverage × value) —
-  use that, not a second copy of the layer, to paint one of its outputs.
+  versions get a slot texture is planned per evaluation (`planMasks` in `src/layers/masks.ts`). _Write to_ is up to
+  eight rows of **Source → Target · Mode · Smoothness · Feather** (row 1 `mk_src`/`mk_target`/…, row n `…_n`): the
+  sources are the layer, its parts (`LayerDef.maskSources`) and its outputs (a soft coverage: coverage × value) — use a
+  row, not a second copy of the layer, to paint one of its outputs or parts.
 - **Pixel units follow the canvas.** Supersampling (k× the stack) and resizing the canvas both rescale params by
   their declared unit (`src/core/pixelScale.ts`): lengths need `unit: 'px'`, a count per pixel area (features per
   N×N px) `perArea: true`, a quantity per px (gain per px of curvature) `perPx: true` — otherwise the texture changes

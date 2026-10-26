@@ -7,8 +7,8 @@
 //     random, so Source › Random and Per-feature variation work per brick), or a Gradient across each feature along a
 //     direction (bottom to top of every block), or a band in from its edge on that side.
 // Breakup pulls any selection down by fBm noise before Shaping, so its edge ends raggedly (edge wear, uneven grime).
-// Crevices and high spots can go to masks of their own as a distance (Masks › Crevices to, High spots to), and the
-// layer's own Write to can hold a distance for them too (Mask holds), so Bevel, Etch and Chips can work on them.
+// Crevices and high spots can go to masks as a distance (Write to › Source › Crevices / High spots (SDF)), so Bevel,
+// Etch and Chips can work on them.
 
 import { P, type ParamValues } from '@/core/params';
 import { SHAPE_MASK } from '@/core/project';
@@ -21,13 +21,8 @@ const find =
 	(p: ParamValues) =>
 		surface(p) && modes.includes(String(p.find ?? 'crevices'));
 const gradient = (p: ParamValues) => features(p) && p.area === 'gradient';
-/** The surface modes that compare a pixel with the walls round it: they can write a distance (Mask holds, Masks). */
+/** The surface modes that compare a pixel with the walls round it: they can write a distance (Write to › Source). */
 const dips = find('crevices', 'high', 'both');
-/** The Masks section: each selection written to a mask of its own, as a distance. */
-const EXTRA_MASKS = [
-	['mk_crev', 'crevices', 'Crevices to'],
-	['mk_high', 'high', 'High spots to']
-] as const;
 /** The mask's own shape, as a distance (Inside without Breakup): the Edge controls apply and a write is a shape. */
 const inside = (p: ParamValues) => features(p) && (p.area ?? 'inside') === 'inside' && !(Number(p.bk_amount ?? 0) > 0);
 
@@ -39,15 +34,24 @@ export const surfaceMaskLayer: LayerDef = {
 	sdf: true,
 	sdfShowIf: (p) => inside(p),
 	// Unlike maskWriteKind's rule for shape layers, a coverage selection may go into the Shape mask too, when asked.
-	// Crevices and high spots write a distance when asked (Mask holds), and always into the Masks section's masks.
+	// Crevices and high spots, as a distance, are sources of their own (Write to › Source): an SDF mask for Bevel, Etch and
+	// Chips; This selection writes the coverage as painted. (mk_sdf is no param: only those sources set it.)
 	maskWrite: (p) => (inside(p) || (dips(p) && p.mk_sdf === 'distance') ? 'shape' : 'coverage'),
-	extraMaskWrites: (p) =>
-		surface(p)
-			? EXTRA_MASKS.map(([key, mode]) => ({
-					target: String(p[key] ?? ''),
-					params: { find: mode, mk_sdf: 'distance' }
-				})).filter((x) => x.target.trim())
-			: [],
+	maskSources: [
+		{ value: 'layer', label: 'Selection', hint: 'the selection as painted, its soft falloff included', params: {} },
+		{
+			value: 'crevices_sdf',
+			label: 'Crevices (SDF)',
+			hint: 'the crevices this layer finds (its Radius, Wall slope, Level, Softness, Breakup), as a distance',
+			params: { select: 'surface', find: 'crevices', mk_sdf: 'distance' }
+		},
+		{
+			value: 'high_sdf',
+			label: 'High spots (SDF)',
+			hint: 'the high spots and exposed edges this layer finds, as a distance',
+			params: { select: 'surface', find: 'high', mk_sdf: 'distance' }
+		}
+	],
 	maskSource: (p) => (features(p) ? String(p.src_mask ?? '').trim() || SHAPE_MASK : null),
 	// Inside a plain coverage (no distance to bevel) its value is that coverage: 1 but at the edges.
 	coverageOnly: (p, src) => inside(p) && src?.plain === true,
@@ -199,39 +203,7 @@ export const surfaceMaskLayer: LayerDef = {
 			showIf: (p) => Number(p.bk_amount ?? 0) > 0,
 			hint: 'Size of the noise’s blotches'
 		}),
-		P.seed('bk_seed', 'Breakup seed', 1, { section: 'Breakup', showIf: (p) => Number(p.bk_amount ?? 0) > 0 }),
-		...EXTRA_MASKS.map(([key, , label]) =>
-			P.text(key, label, '', {
-				section: 'Masks',
-				mask: 'write',
-				showIf: surface,
-				hint: `Also write the ${label.slice(0, -3).toLowerCase()} this layer finds (with its Radius, Wall slope, Level, Softness and Breakup) to this mask, as a distance: an SDF mask that Bevel, Etch, Chips and anything reading a mask's distance can work on, or later layers be limited to. Empty = none`
-			})
-		),
-		P.enum(
-			'mk_sdf',
-			'Mask holds',
-			'coverage',
-			[
-				[
-					'coverage',
-					'Coverage',
-					'the selection as painted, its soft falloff included: layers limited to it fade as it does'
-				],
-				[
-					'distance',
-					'Distance (SDF)',
-					'the distance to the selection’s edge: Bevel, Etch and Chips can work on it; layers limited to it get its edge, anti-aliased'
-				]
-			],
-			{
-				group: 'mask',
-				section: 'Write to',
-				uniform: false,
-				showIf: dips,
-				hint: 'What the mask it writes (Write to) holds for Crevices, High spots and Both'
-			}
-		)
+		P.seed('bk_seed', 'Breakup seed', 1, { section: 'Breakup', showIf: (p) => Number(p.bk_amount ?? 0) > 0 })
 	],
 	defaults: { mk_target: 'Crevices', dif_on: false, h_on: false, bevel: 0, profile: 'flat' },
 	glsl: /* glsl */ `

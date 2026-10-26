@@ -5,7 +5,7 @@
 // relief / SDF output convention.
 
 import { P, gradient, halfPx } from '@/core/params';
-import { PX_SCALE_PARAM } from '../commonParams';
+import { PX_SCALE_PARAM, maskParts } from '../commonParams';
 import { gcd } from '../derivedMath';
 import type { LayerDef } from '../types';
 import { FASTENER_HEADS, GRB_GLSL } from './greebleCommon';
@@ -28,16 +28,23 @@ const hasChan = (p: Record<string, unknown>) => Number(p.chan_chance) > 0 || Num
 const hasBeams = (p: Record<string, unknown>) => Number(p.beams) > 0;
 const isRelief = (p: Record<string, unknown>) => (p.output ?? 'relief') === 'relief';
 
-// The relief's extra masks (LayerDef.extraMaskWrites: extra passes of the same shader, one shape output each): param,
-// the output it writes, label, what it holds.
-const EXTRA_MASKS = [
-	['mk_lights', 'lights', 'Lights to', 'the lenses and pilot lamps (glow them with an Emissive layer limited to it)'],
-	['mk_pipes', 'pipes', 'Pipes to', 'the tubes and hoses with their collars and bosses'],
-	['mk_hardware', 'hardware', 'Hardware to', 'the switches, sockets, sliders, keypads and fans'],
-	['mk_rivets', 'rivets', 'Rivets to', 'the rivets and bolts'],
-	['mk_details', 'details', 'Details to', 'the vent slots, holes, recesses, light housings and hardware'],
-	['mk_seams', 'seams', 'Seams to', 'the gaps between the panels']
-] as const;
+// What of the relief goes to a mask (Write to › Source): the parts its shader can hand over, Plate tops by default.
+const PARTS = maskParts('mask', 'plates', [
+	[
+		'plates',
+		'Plate tops',
+		'the panels less everything sunk into them: slots, holes, recesses, light housings, groove lines and recessed centres'
+	],
+	['panels', 'Panels', 'the whole panels: only the seams left out'],
+	['seams', 'Seams', 'the gaps between the panels'],
+	['frames', 'Inset frames', 'the frame lines, or the raised / recessed centres'],
+	['rivets', 'Rivets'],
+	['details', 'Details', 'vent slots, holes, recesses and light housings'],
+	['lights', 'Lights', 'the lenses and pilot lamps'],
+	['beams', 'Beams'],
+	['pipes', 'Pipes', 'the tubes and hoses, their collars and bosses'],
+	['hardware', 'Hardware', 'switches, sockets, sliders, keypads and fans']
+]);
 const hasStep = (p: Record<string, unknown>) =>
 	hasFrame(p) && ['recess', 'raise', 'mixed'].includes(String(p.frame_style));
 const hasLine = (p: Record<string, unknown>) =>
@@ -114,13 +121,8 @@ export const greeblesLayer: LayerDef = {
 	category: 'pattern',
 	kind: 'generator',
 	sdf: true,
-	// The relief can write its lights, pipes, hardware, rivets, details and seams to masks of their own too (Masks).
-	extraMaskWrites: (p) =>
-		!isRelief(p)
-			? []
-			: EXTRA_MASKS.map(([key, output]) => ({ target: String(p[key] ?? ''), params: { output } })).filter((x) =>
-					x.target.trim()
-				),
+	// Its parts go to masks by Write to › Source (as many rows as masks).
+	maskSources: PARTS.sources,
 	// Its own levels per part for Roughness, Specular, Metalness and Emissive (gGenLevel).
 	parts: 'each part its own level: steel plates, pipes and bolts metal, switches and sockets plastic, grommets rubber; Emissive: only the lights glow',
 	// The relief writes its shape to the mask unless Shape for the mask is None; the shape outputs always do.
@@ -150,43 +152,12 @@ export const greeblesLayer: LayerDef = {
 				['hardware', 'Hardware (shape)']
 			],
 			{
-				hint: 'Relief composes every element into one height value (uses the Edge bevel), and can write its lights, pipes, hardware and more to masks of their own (Masks). The shape outputs give one element class as a shape'
+				hint: 'Relief composes every element into one height value (uses the Edge bevel), and can write its parts (lights, pipes, hardware, seams…) to masks of their own (Mask › Write to). The shape outputs give one element class as a shape'
 			}
 		),
-		P.enum(
-			'mask',
-			'Shape for the mask',
-			'plates',
-			[
-				['none', 'None', 'the relief leaves its mask as it was'],
-				[
-					'plates',
-					'Plate tops',
-					'the panels less everything sunk into them: slots, holes, recesses, light housings, groove lines and recessed centres'
-				],
-				['panels', 'Panels', 'the whole panels: only the seams left out'],
-				['seams', 'Seams', 'the gaps between the panels'],
-				['frames', 'Inset frames', 'the frame lines, or the raised / recessed centres'],
-				['rivets', 'Rivets'],
-				['details', 'Details', 'vent slots, holes, recesses and light housings'],
-				['lights', 'Lights', 'the lenses and pilot lamps'],
-				['beams', 'Beams'],
-				['pipes', 'Pipes', 'the tubes and hoses, their collars and bosses'],
-				['hardware', 'Hardware', 'switches, sockets, sliders, keypads and fans']
-			],
-			{
-				showIf: isRelief,
-				hint: 'What the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to (grime in the seams, paint on the plates only, glow in the lenses) or chip and bevel from — no second Greebles layer needed'
-			}
-		),
-		...EXTRA_MASKS.map(([key, , label, what]) =>
-			P.text(key, label, '', {
-				section: 'Masks',
-				mask: 'write',
-				showIf: isRelief,
-				hint: `Also write ${what} to this mask, from the same layout, for later layers to be limited to (as a Greebles layer with that shape output would): empty = none. Not Shape`
-			})
-		),
+		PARTS.param,
+
+
 		P.enum(
 			'root',
 			'Layout',

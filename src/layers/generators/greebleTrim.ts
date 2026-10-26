@@ -6,6 +6,7 @@
 
 import { P, gradient, halfPx, type ParamDef, type ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
+import { maskParts } from '../commonParams';
 import { GRB_GLSL, ORIENT, ORIENT_ACROSS, ORIENT_ALONG } from './greebleCommon';
 
 // Option order is the uniform's index (the GLSL tests it): only append.
@@ -100,6 +101,17 @@ export function trimFresh({ width, height }: { width: number; height: number }):
 	};
 }
 
+// The parts the relief can hand to a mask (Write to › Source), the default first: Strip material is the strips less their
+// holes and seams (chip their edges, dirt in the cuts); Rivets / slots, a band or the dividers let one layer's colour or
+// roughness land on just those.
+const TRIM_PARTS = maskParts('mask_shape', 'strip', [
+	['strip', 'Strip material', 'the strips less their holes and seams'],
+	['blocks', 'Blocks'],
+	['dividers', 'Dividers'],
+	['elements', 'Rivets / slots'],
+	['band', 'One band']
+]);
+
 export const trimLayer: LayerDef = {
 	type: 'trim',
 	label: 'Trim strip',
@@ -108,6 +120,8 @@ export const trimLayer: LayerDef = {
 	sdf: true,
 	// The relief writes its shape to the mask only when it is given one (mask_shape); the shape outputs always do.
 	maskWrite: (p) => (p.output !== 'relief' || p.mask_shape !== 'none' ? 'shape' : false),
+	// What of the relief goes to a mask (Write to › Source).
+	maskSources: TRIM_PARTS.sources,
 	description:
 		'Moulding / trim strip: stacked profiled bands (bead, cove, ogee, groove, step…), dividers and a row of rivets, bolts, screws, slots or holes; one strip across the texture, several stacked, or a band with a gap round it. Tileable.',
 	params: [
@@ -127,23 +141,8 @@ export const trimLayer: LayerDef = {
 				hint: 'Relief composes bands, dividers and elements into one height value. Shapes give one element class as an SDF. Strip material: the strips less their holes and seams'
 			}
 		),
-		P.enum(
-			'mask_shape',
-			'Shape for the mask',
-			'strip',
-			[
-				['none', 'None (left as it was)'],
-				['strip', 'Strip material'],
-				['blocks', 'Blocks'],
-				['dividers', 'Dividers'],
-				['elements', 'Rivets / slots'],
-				['band', 'One band']
-			],
-			{
-				showIf: (p) => p.output === 'relief',
-				hint: 'The shape the relief hands to the mask it writes (Mask › Write to), for later layers to be limited to or bevel from: Strip material is the strips less their holes and seams (chip their edges, dirt in the cuts); Rivets / slots, a band or the dividers let one layer’s colour or roughness land on just those — no second Trim layer needed'
-			}
-		),
+		TRIM_PARTS.param,
+
 		P.enum('orient', 'Direction', 'horizontal', ORIENT),
 		P.bool('mirror', 'Mirror', true, { hint: 'Bands run from both edges to the centre line' }),
 		P.int('fill', 'Stretch band', 4, 0, 6, {

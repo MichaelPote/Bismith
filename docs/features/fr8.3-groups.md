@@ -18,8 +18,9 @@ user's back, and a look could only be made by writing a recipe. They are replace
 - **Group presets** — ordinary preset files (FR5.4) holding a group and its layers. Each old recipe (and the pipe
   finishes, lava and water) became one, `presets/group/*.json`, in the categories Stone, Floors & walls, Nature,
   Liquids, Metal, Industrial and Tech.
-- **Outputs to masks** (FR8.23) — recipes stacked the same generator several times to reach another of its Output
-  modes; the group presets use one layer writing each output to its own mask, and paint layers limited to it.
+- **Write to rows** (FR8.23) — recipes stacked the same generator several times to reach another of its Output
+  modes; the group presets use one layer writing each output to its own mask (a row of Mask › Write to with that
+  output as its Source), and paint layers limited to it.
 
 ## Design
 
