@@ -237,12 +237,29 @@ describe('Mask area', () => {
 		expect(at({ select: 'features' })).toBe('shape');
 		expect(at({ select: 'features', bk_amount: 0.5 })).toBe('coverage');
 		expect(at({ select: 'features', area: 'gradient' })).toBe('coverage');
+		// Crevices and high spots: a coverage, or a distance when asked.
+		expect(at({ find: 'crevices', mk_sdf: 'distance' })).toBe('shape');
+		expect(at({ find: 'slopes', mk_sdf: 'distance' })).toBe('coverage');
 		expect(def!.maskSource!({ select: 'features', src_mask: 'Opening' })).toBe('Opening');
 		expect(def!.maskSource!({ select: 'surface' })).toBeNull();
 		// Reading features plans a source for the layer.
 		const shape = createLayer('rect');
 		const area = createLayer('surfacemask', { select: 'features' });
 		expect(planMasks(project([shape, area])).layers.get(area.id)!.source).toMatchObject({ mask: 'Shape', version: 1 });
+	});
+});
+
+describe('Mask area › Masks', () => {
+	it('writes crevices and high spots to masks of their own, as distances', () => {
+		const def = getLayerDef('surfacemask');
+		const l = createLayer('surfacemask', { mk_crev: 'Crev', mk_high: 'High' });
+		const extra = layerWrites(def, l.params).filter((w) => w.extra);
+		expect(extra.map((w) => [w.target, w.kind, w.params.find])).toEqual([
+			['Crev', 'shape', 'crevices'],
+			['High', 'shape', 'high']
+		]);
+		// Not from a selection of a mask's features.
+		expect(layerWrites(def, { ...l.params, select: 'features' }).filter((w) => w.extra)).toEqual([]);
 	});
 });
 

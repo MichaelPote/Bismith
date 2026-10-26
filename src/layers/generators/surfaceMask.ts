@@ -7,6 +7,8 @@
 //     random, so Source › Random and Per-feature variation work per brick), or a Gradient across each feature along a
 //     direction (bottom to top of every block), or a band in from its edge on that side.
 // Breakup pulls any selection down by fBm noise before Shaping, so its edge ends raggedly (edge wear, uneven grime).
+// Crevices and high spots can go to masks of their own as a distance (Masks › Crevices to, High spots to), and the
+// layer's own Write to can hold a distance for them too (Mask holds), so Bevel, Etch and Chips can work on them.
 
 import { P, type ParamValues } from '@/core/params';
 import { SHAPE_MASK } from '@/core/project';
@@ -19,6 +21,13 @@ const find =
 	(p: ParamValues) =>
 		surface(p) && modes.includes(String(p.find ?? 'crevices'));
 const gradient = (p: ParamValues) => features(p) && p.area === 'gradient';
+/** The surface modes that compare a pixel with the walls round it: they can write a distance (Mask holds, Masks). */
+const dips = find('crevices', 'high', 'both');
+/** The Masks section: each selection written to a mask of its own, as a distance. */
+const EXTRA_MASKS = [
+	['mk_crev', 'crevices', 'Crevices to'],
+	['mk_high', 'high', 'High spots to']
+] as const;
 /** The mask's own shape, as a distance (Inside without Breakup): the Edge controls apply and a write is a shape. */
 const inside = (p: ParamValues) => features(p) && (p.area ?? 'inside') === 'inside' && !(Number(p.bk_amount ?? 0) > 0);
 
@@ -30,7 +39,15 @@ export const surfaceMaskLayer: LayerDef = {
 	sdf: true,
 	sdfShowIf: (p) => inside(p),
 	// Unlike maskWriteKind's rule for shape layers, a coverage selection may go into the Shape mask too, when asked.
-	maskWrite: (p) => (inside(p) ? 'shape' : 'coverage'),
+	// Crevices and high spots write a distance when asked (Mask holds), and always into the Masks section's masks.
+	maskWrite: (p) => (inside(p) || (dips(p) && p.mk_sdf === 'distance') ? 'shape' : 'coverage'),
+	extraMaskWrites: (p) =>
+		surface(p)
+			? EXTRA_MASKS.map(([key, mode]) => ({
+					target: String(p[key] ?? ''),
+					params: { find: mode, mk_sdf: 'distance' }
+				})).filter((x) => x.target.trim())
+			: [],
 	maskSource: (p) => (features(p) ? String(p.src_mask ?? '').trim() || SHAPE_MASK : null),
 	// Inside a plain coverage (no distance to bevel) its value is that coverage: 1 but at the edges.
 	coverageOnly: (p, src) => inside(p) && src?.plain === true,
@@ -182,7 +199,39 @@ export const surfaceMaskLayer: LayerDef = {
 			showIf: (p) => Number(p.bk_amount ?? 0) > 0,
 			hint: 'Size of the noise’s blotches'
 		}),
-		P.seed('bk_seed', 'Breakup seed', 1, { section: 'Breakup', showIf: (p) => Number(p.bk_amount ?? 0) > 0 })
+		P.seed('bk_seed', 'Breakup seed', 1, { section: 'Breakup', showIf: (p) => Number(p.bk_amount ?? 0) > 0 }),
+		...EXTRA_MASKS.map(([key, , label]) =>
+			P.text(key, label, '', {
+				section: 'Masks',
+				mask: 'write',
+				showIf: surface,
+				hint: `Also write the ${label.slice(0, -3).toLowerCase()} this layer finds (with its Radius, Wall slope, Level, Softness and Breakup) to this mask, as a distance: an SDF mask that Bevel, Etch, Chips and anything reading a mask's distance can work on, or later layers be limited to. Empty = none`
+			})
+		),
+		P.enum(
+			'mk_sdf',
+			'Mask holds',
+			'coverage',
+			[
+				[
+					'coverage',
+					'Coverage',
+					'the selection as painted, its soft falloff included: layers limited to it fade as it does'
+				],
+				[
+					'distance',
+					'Distance (SDF)',
+					'the distance to the selection’s edge: Bevel, Etch and Chips can work on it; layers limited to it get its edge, anti-aliased'
+				]
+			],
+			{
+				group: 'mask',
+				section: 'Write to',
+				uniform: false,
+				showIf: dips,
+				hint: 'What the mask it writes (Write to) holds for Crevices, High spots and Both'
+			}
+		)
 	],
 	defaults: { mk_target: 'Crevices', dif_on: false, h_on: false, bevel: 0, profile: 'flat' },
 	glsl: /* glsl */ `
@@ -303,7 +352,17 @@ GenOut gen(vec2 p) {
     float raw = clamp(ma_surface(p) * bk, 0.0, 1.0);
     float v = u_find == 5 ? raw
             : u_softness > 0.0 ? smoothstep(u_level, min(u_level + u_softness, 1.0 + 1e-3), raw) : step(u_level, raw) * step(1e-6, raw);
-    return genOutSmooth(v, v, 0.0, NO_SDF);
+    // Crevices, high spots, both: the distance to the selection's edge (where its value crosses a half), for a mask that
+    // holds a distance (Mask holds, Masks) — the score's way to that level over its slope across the screen, the slope
+    // kept at least 1 / (3 Radius) so the distance stays bounded (within the reach) and continuous. (Derivatives taken
+    // here: the branch is on uniforms.)
+    float thr = u_softness > 0.0 ? mix(u_level, min(u_level + u_softness, 1.0), 0.5) : u_level;
+    float gl = max(length(vec2(dFdx(raw), dFdy(raw))), 1.0 / max(3.0 * u_radius, 1.0));
+    if (u_find > 2) return genOutSmooth(v, v, 0.0, NO_SDF);
+    GenOut o = genOutOwn(v, v, 0.0, (thr - raw) / gl);
+    o.feat = 0.0;
+    o.fid = -1.0;
+    return o;
   }
   if (u_area == 0) {
     // A shape's mask: its distance, through the Edge card. A coverage (noise with a cutoff, Stone blocks' joints) has

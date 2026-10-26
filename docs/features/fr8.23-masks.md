@@ -80,6 +80,11 @@ its surface modes) and is also how a later layer reads a mask's features, so the
   gap, a ridge) count in full; one side (the foot of a block, the exposed edge and corners of a raised face) a quarter
   as steep; a plain slope nothing. So High spots finds exposed edges and corners for wear in a band about a Radius
   wide. Depth is gone. It works on any relief built by the layers before it — no shape layer or mask is needed.
+  The Radius goes up to 4096 px (slider 512), so a selection can span the whole texture. **Masks › Crevices to / High
+  spots to** write either selection, from the same layer and settings, to a mask of its own as a **distance** (an SDF
+  mask: the score's way to the selection's edge over its screen-space slope, kept within 3× the Radius), for Bevel,
+  Etch, Chips and limits to work on (extra passes, as Stone blocks' Masks). The layer's own Write to holds the soft
+  coverage as before, or a distance with **Mask holds › Distance**.
 - **Facing**: slopes whose face turns towards _Direction_ (an angle; Bottom, Top, Left, Right as quick picks), with
   _Spread_ (how far round from it still counts) and _Full at slope_: all the bottom edges of the raised blocks, the
   lit side of every bump.
