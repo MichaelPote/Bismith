@@ -16,6 +16,7 @@
 	import EyedropperChip from '@/ui/components/EyedropperChip.vue';
 	import NewProjectWizard from '@/ui/panels/NewProjectWizard.vue';
 	import PresetDialog from '@/ui/panels/PresetDialog.vue';
+	import AboutDialog from '@/ui/panels/AboutDialog.vue';
 	import { offerResume } from '@/ui/resumeRuns';
 
 	const store = useProjectStore();
@@ -160,12 +161,21 @@
 		}
 	);
 
+	// Leaving with changes no file holds asks first. The autosave would bring them back, but only in this browser.
+	function onBeforeUnload(e: BeforeUnloadEvent): void {
+		if (store.isDirty()) e.preventDefault();
+	}
+
 	onMounted(() => {
 		window.addEventListener('keydown', onKey);
+		window.addEventListener('beforeunload', onBeforeUnload);
 		// A long run (Match's optimiser) lost with the page — a discarded background tab, a crash — can carry on.
 		void offerResume();
 	});
-	onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+	onBeforeUnmount(() => {
+		window.removeEventListener('keydown', onKey);
+		window.removeEventListener('beforeunload', onBeforeUnload);
+	});
 </script>
 
 <template>
@@ -198,6 +208,7 @@
 		</div>
 		<NewProjectWizard v-if="editor.wizard" />
 		<PresetDialog v-if="editor.presetDialog" />
+		<AboutDialog v-if="editor.about" />
 		<BusyModal />
 		<AskModal />
 		<EyedropperChip />

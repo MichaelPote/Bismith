@@ -18,6 +18,7 @@
 	const store = useProjectStore();
 	const editor = useEditorStore();
 	const act = useActions();
+	const logoSrc = `${import.meta.env.BASE_URL}logo-64.png`;
 
 	const fileItems = computed<MenuItem[]>(() => {
 		const items: MenuItem[] = [
@@ -102,17 +103,16 @@
 		{ label: 'Drag — scrub · Shift fine · Ctrl snap to divisions', disabled: true },
 		{ label: 'Click — type a value or expression', disabled: true },
 		{ label: 'Double-click — back to the previous value', disabled: true },
-		{ label: 'Wheel / arrows over a dropdown — step through it', disabled: true }
+		{ label: 'Wheel / arrows over a dropdown — step through it', disabled: true },
+		{ separator: true },
+		{ label: 'About Bismith', action: () => (editor.about = true) }
 	];
 </script>
 
 <template>
 	<header class="top cf-panel">
 		<div class="brand">
-			<svg width="16" height="16" viewBox="0 0 26 26" aria-hidden="true">
-				<path d="M13 2 L24 13 L13 24 L2 13 Z" fill="none" stroke="var(--accent)" stroke-width="2" />
-				<path d="M13 8 L18 13 L13 18 L8 13 Z" fill="var(--accent)" />
-			</svg>
+			<img :src="logoSrc" width="20" height="20" alt="" />
 			<span>Bismith</span>
 		</div>
 		<DropMenu label="File" :items="fileItems" />

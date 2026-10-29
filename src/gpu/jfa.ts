@@ -19,6 +19,7 @@
 
 import * as THREE from 'three';
 import type { Uniforms } from '@/gpu/context';
+import { hashText } from '@/core/hash';
 import type { FilterContext } from '@/render/materialPipeline';
 
 /** Mask sources, in the order of the filters' `source` enum. */
@@ -209,13 +210,6 @@ void main() {
   oColor = s;
 }
 `;
-
-/** A short hash of a custom source's GLSL, to cache its materials by. */
-function hashText(s: string): string {
-	let h = 5381;
-	for (let i = 0; i < s.length; i++) h = (Math.imul(h, 33) ^ s.charCodeAt(i)) | 0;
-	return (h >>> 0).toString(36);
-}
 
 function nextPow2(n: number): number {
 	let p = 1;

@@ -1,12 +1,19 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
 // https://vite.dev/config/
 export default defineConfig({
 	// Relative asset URLs: the built app works from any folder or vhost (e.g. dist/ served directly).
 	base: './',
 	plugins: [vue()],
+	define: {
+		// Help → About shows it.
+		__APP_VERSION__: JSON.stringify(pkg.version)
+	},
 	resolve: {
 		alias: {
 			'@': fileURLToPath(new URL('./src', import.meta.url))

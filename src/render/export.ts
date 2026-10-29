@@ -175,13 +175,13 @@ type SaveFilePicker = (options: {
 /**
  * Save `blob` through the browser's Save As dialog where it has one (Chrome, Edge). Firefox and Safari offer no way
  * for a page to open it, so there the file is downloaded, which asks where only if the browser is set to ask.
- * Resolves to the saved file's name, or null if the dialog was cancelled or the file went to the downloads.
+ * Resolves to the saved file's name (null if it went to the downloads instead), or false if the dialog was cancelled.
  */
 export async function saveBlobAs(
 	blob: Blob,
 	filename: string,
 	type: { description: string; extension: string }
-): Promise<string | null> {
+): Promise<string | null | false> {
 	const picker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
 	if (!picker) {
 		downloadBlob(blob, filename);
@@ -196,7 +196,7 @@ export async function saveBlobAs(
 			types: [{ description: type.description, accept: { [blob.type]: [type.extension] } }]
 		});
 	} catch (e) {
-		if (e instanceof DOMException && e.name === 'AbortError') return null;
+		if (e instanceof DOMException && e.name === 'AbortError') return false;
 		downloadBlob(blob, filename);
 		return null;
 	}

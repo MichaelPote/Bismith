@@ -312,12 +312,36 @@
 	const rowMenu = ref<InstanceType<typeof DropMenu> | null>(null);
 	const rowMenuItems = ref<MenuItem[]>([]);
 
-	async function onRowMenu(e: MouseEvent, kind: 'layer' | 'group', id: string): Promise<void> {
+	/** A post filter's menu items: move it one step through the chain. */
+	function postMoveItems(id: string): MenuItem[] {
+		const list = store.project.post;
+		const i = list.findIndex((f) => f.id === id);
+		return [
+			{ label: 'Move up', disabled: i <= 0, action: () => store.movePost(id, i - 1) },
+			{ label: 'Move down', disabled: i >= list.length - 1, action: () => store.movePost(id, i + 1) }
+		];
+	}
+
+	async function onRowMenu(e: MouseEvent, kind: 'layer' | 'group' | 'light' | 'post', id: string): Promise<void> {
 		const { clientX: x, clientY: y } = e;
 		editor.select(kind, id);
+		const light = kind === 'light' ? store.getLight(id) : undefined;
+		const lightsFull = !!light && store.project.lighting.lights.length >= MAX_LIGHTS;
 		rowMenuItems.value = [
-			// Duplicating copies a layer; a group can be ungrouped instead.
-			...(kind === 'layer' ? [{ label: 'Duplicate', shortcut: 'Ctrl+D', action: act.duplicateSelection }] : []),
+			// Duplicating copies a layer, light or post filter; a group can be ungrouped instead.
+			...(kind !== 'group'
+				? [
+						{
+							label: 'Duplicate',
+							shortcut: 'Ctrl+D',
+							disabled: lightsFull,
+							hint: lightsFull ? `At most ${MAX_LIGHTS} lights` : undefined,
+							action: act.duplicateSelection
+						}
+					]
+				: []),
+			...(light ? [{ label: 'Rename', action: () => startRename(light.id, light.name) }] : []),
+			...(kind === 'post' ? postMoveItems(id) : []),
 			...(kind === 'group'
 				? [
 						{
@@ -722,7 +746,8 @@
 					:key="light.id"
 					class="row"
 					:class="{ sel: isSel('light', light.id), off: !light.enabled }"
-					@click="editor.select('light', light.id)">
+					@click="editor.select('light', light.id)"
+					@contextmenu.prevent="onRowMenu($event, 'light', light.id)">
 					<component
 						:is="light.type === 'point' ? IconBulb : IconSun"
 						:size="15"
@@ -734,6 +759,7 @@
 						class="rename"
 						aria-label="Light name"
 						@click.stop
+						@contextmenu.stop
 						@keydown.enter.prevent="finishRename('light', true)"
 						@keydown.esc.prevent="finishRename('light', false)"
 						@blur="finishRename('light', true)" />
@@ -786,7 +812,8 @@
 					@dragover="onPostOver($event, i)"
 					@drop.prevent="onDrop"
 					@dragend="onDragEnd"
-					@click="editor.select('post', f.id)">
+					@click="editor.select('post', f.id)"
+					@contextmenu.prevent="onRowMenu($event, 'post', f.id)">
 					<IconSparkles :size="15" :color="isSel('post', f.id) ? 'var(--accent-hi)' : POST_HUE" />
 					<span class="name">{{ allPostDefs().find((d) => d.type === f.type)?.label ?? f.type }}</span>
 					<span v-if="errors[f.id]" v-tip:right="errors[f.id]" class="err">!</span>

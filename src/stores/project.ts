@@ -17,6 +17,7 @@ import { createLayer, createLight, createPostFilter, createProject, normalizePro
 import { freshParams, linkedChanges } from '@/layers/registry';
 import { assignMaskHues, coverageOnlyAt, maskNames, solidSources } from '@/layers/masks';
 import { newId } from '@/core/ids';
+import { hashText } from '@/core/hash';
 import { MAX_LIGHTS } from '@/core/project';
 import { fitLight, resizeProject } from '@/core/pixelScale';
 import { builtinProject } from '@/presets';
@@ -24,12 +25,22 @@ import { builtinProject } from '@/presets';
 const AUTOSAVE_KEY = 'bismith:project';
 /** Autosave key from before the rename to Bismith; read once if the new key is empty. */
 const LEGACY_AUTOSAVE_KEY = 'artificer:project';
+/** Hash of the project as last saved or opened (see markSaved). */
+const SAVED_KEY = 'bismith:saved';
 const HISTORY_LIMIT = 200;
 
 function loadAutosave(): Project | null {
 	try {
 		const txt = localStorage.getItem(AUTOSAVE_KEY) ?? localStorage.getItem(LEGACY_AUTOSAVE_KEY);
 		return txt ? normalizeProject(JSON.parse(txt)) : null;
+	} catch {
+		return null;
+	}
+}
+
+function loadSavedHash(): string | null {
+	try {
+		return localStorage.getItem(SAVED_KEY);
 	} catch {
 		return null;
 	}
@@ -54,9 +65,12 @@ export const useProjectStore = defineStore('project', () => {
 	const past = shallowRef<string[]>([]);
 	const future = shallowRef<string[]>([]);
 	let current = JSON.stringify(project.value);
+	// The project as last saved to or opened from a file (or started new), by hash. Kept beside the autosave so a
+	// reload still knows what is unsaved; without one (first run) the project counts as saved.
+	let savedHash = loadSavedHash() ?? hashText(current);
 	let suppress = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
-	/** Bumped whenever the project is replaced wholesale (load / new / undo), so views can refit. */
+	/** Bumped when another project is opened or started (load / new), so views can refit. Undo / redo keep the view. */
 	const generation = ref(0);
 
 	function commitNow(): void {
@@ -92,7 +106,6 @@ export const useProjectStore = defineStore('project', () => {
 		project.value = JSON.parse(json) as Project;
 		current = json;
 		saveAutosave(json);
-		generation.value++;
 		// Let the deep watcher see the change while suppressed.
 		queueMicrotask(() => (suppress = false));
 	}
@@ -128,6 +141,23 @@ export const useProjectStore = defineStore('project', () => {
 
 	function newProject(p?: Project): void {
 		load(p ?? createProject());
+		markSaved();
+	}
+
+	/** The project as it is now matches a file (saved, opened) or has nothing worth keeping yet (new). */
+	function markSaved(): void {
+		commitNow();
+		savedHash = hashText(current);
+		try {
+			localStorage.setItem(SAVED_KEY, savedHash);
+		} catch {
+			/* storage unavailable */
+		}
+	}
+
+	/** Whether the project has changes no file holds. Stringifies the project, so call it on demand, not reactively. */
+	function isDirty(): boolean {
+		return hashText(JSON.stringify(project.value)) !== savedHash;
 	}
 
 	// A run of resizes (dragging the Width field, 256 → 512 → 256) scales from the project as it was before the first
@@ -375,6 +405,13 @@ export const useProjectStore = defineStore('project', () => {
 		if (i >= 0) post().splice(i, 1);
 	}
 
+	function duplicatePost(id: string): PostFilter | undefined {
+		const i = post().findIndex((f) => f.id === id);
+		if (i < 0) return undefined;
+		post().splice(i + 1, 0, { ...clone(post()[i]), id: newId('pf') });
+		return post()[i + 1];
+	}
+
 	function movePost(id: string, toIndex: number): void {
 		const list = post();
 		const i = list.findIndex((f) => f.id === id);
@@ -404,6 +441,8 @@ export const useProjectStore = defineStore('project', () => {
 		commitNow,
 		load,
 		newProject,
+		markSaved,
+		isDirty,
 		resize,
 		getLayer,
 		layerIndex,
@@ -433,6 +472,7 @@ export const useProjectStore = defineStore('project', () => {
 		getPost,
 		addPost,
 		removePost,
+		duplicatePost,
 		movePost,
 		setPostParam,
 		updatePost

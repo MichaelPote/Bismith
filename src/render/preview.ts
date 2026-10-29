@@ -5,10 +5,19 @@
 import type { Engine } from './engine';
 import { mapPixels } from './export';
 
-/** Longest side of a preview (px); smaller textures keep their size. */
-export const PREVIEW_MAX = 128;
-/** Lossy quality: medium-low keeps a 128 px preview at a few KB of base64. */
-export const PREVIEW_QUALITY = 0.6;
+/** A preview's longest side (px; smaller textures keep their size) and lossy quality. */
+export interface PreviewSize {
+	max: number;
+	quality: number;
+}
+
+/** A preset tile's (the preset menus, ~76 px): a few KB of base64. */
+export const TILE_PREVIEW: PreviewSize = { max: 128, quality: 0.6 };
+/**
+ * A project's (its file, a template's card in the new-project wizard: 150 px and up, on 2× screens too): sharp at that
+ * size, 10–35 KB of base64.
+ */
+export const PROJECT_PREVIEW: PreviewSize = { max: 256, quality: 0.8 };
 
 /**
  * Encode RGBA8 pixels as a preview: scaled down (smoothly) so the longest side is at most `max` px, as WebP — JPEG where
@@ -18,8 +27,7 @@ export function encodePreview(
 	pixels: Uint8Array | Uint8ClampedArray,
 	width: number,
 	height: number,
-	max = PREVIEW_MAX,
-	quality = PREVIEW_QUALITY
+	{ max, quality }: PreviewSize = TILE_PREVIEW
 ): string {
 	const src = document.createElement('canvas');
 	src.width = width;
@@ -40,11 +48,14 @@ export function encodePreview(
 }
 
 /** A preview of what the engine shows now (its final, post-processed image); undefined before anything has rendered. */
-export function capturePreview(engine: Engine | null | undefined): string | undefined {
+export function capturePreview(
+	engine: Engine | null | undefined,
+	size: PreviewSize = TILE_PREVIEW
+): string | undefined {
 	if (!engine) return undefined;
 	try {
 		const { width, height, pixels } = mapPixels(engine, 'final');
-		return width > 0 && height > 0 ? encodePreview(pixels, width, height) : undefined;
+		return width > 0 && height > 0 ? encodePreview(pixels, width, height, size) : undefined;
 	} catch (e) {
 		console.warn('[bismith] preview capture failed', e);
 		return undefined;

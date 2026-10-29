@@ -41,7 +41,8 @@ The **Tiling** key on the workspace rail, laid out like Match (outliner and prop
 - **Settings** — the search's inputs: _Seeds_ per layer (24), _Layers_ to fix (2), _Nudge_ (0.12 of a param's slider
   range, also tried at 40 %), _Hold look_ (drift weight, 2), _Min gain_ (0.01), _Samples_ per candidate (32; a canvas
   over 512 × 512 traced px gets proportionally fewer, at least 8 — it is evaluated at 512 px, where its pixels average
-  to as many: `frameSamples`), _Allow scale changes_ (off).
+  to as many: `frameSamples`), _Allow scale changes_ (off). Each run draws the seeds it tries from a new random seed
+  (`rngSeed`), so running the fix again can find a different layout.
 - **Progress:** candidates, score before → best, the look allowance; a chart of the kept best's loss.
 - **Terms:** a bar per term (of the hotspot pane's image), before → fixed values; below, the culprits and the changes.
 
@@ -56,7 +57,7 @@ frame each), and a hidden tab keeps it going (it yields through a MessageChannel
 
 **Checkpoints** (as Match's, docs/features/fr6.3-optimizer.md): once the search runs, the run is checkpointed every
 ~10 s and whenever the page is hidden — its settings, the project it began from, the culprits (findings and blame, no
-images) and every evaluation's score and drift. After a discarded tab, a crash or a closed tab, start-up offers to
+images), the run's random seed and every evaluation's score and drift. After a discarded tab, a crash or a closed tab, start-up offers to
 resume it: the project is rendered and analysed again (the panes, the drift's reference) and the search replays the
 recorded evaluations (`replay` in `fixTiling`: the same path, without rendering them), shows the best they reached and
 carries on — to the same result as a run never interrupted. A run that ends with a fix not kept (stopped, finished,

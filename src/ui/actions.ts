@@ -6,7 +6,7 @@ import { useEditorStore } from '@/stores/editor';
 import { projectFromJSON, projectToJSON } from '@/core/serialize';
 import { zipStore } from '@/core/zip';
 import { downloadBlob, mapPixels, pixelsToBlob, saveBlobAs, upscale, type MapKind } from '@/render/export';
-import { capturePreview } from '@/render/preview';
+import { capturePreview, PROJECT_PREVIEW } from '@/render/preview';
 import type { Project } from '@/core/project';
 import type { Engine } from '@/render/engine';
 import type { PresetSource } from '@/stores/editor';
@@ -147,7 +147,7 @@ export function useActions() {
 	 * rendered). Only the file gets it: the open project is left alone, so saving adds no undo step.
 	 */
 	function projectFile(): string {
-		const preview = capturePreview(editor.engine) ?? store.project.preview;
+		const preview = capturePreview(editor.engine, PROJECT_PREVIEW) ?? store.project.preview;
 		return projectToJSON(preview ? { ...store.project, preview } : store.project);
 	}
 
@@ -159,6 +159,8 @@ export function useActions() {
 				description: 'Bismith project',
 				extension: '.json'
 			});
+			if (name === false) return;
+			store.markSaved();
 			if (name) editor.notify(`Saved “${name}”`);
 		} catch (e) {
 			editor.notify(`Could not save the project: ${e instanceof Error ? e.message : e}`, 'error');
@@ -169,6 +171,7 @@ export function useActions() {
 		try {
 			const p = projectFromJSON(text);
 			store.load(p);
+			store.markSaved();
 			editor.select('project');
 			editor.requestFit();
 			editor.notify(`Opened “${p.name}”`);
@@ -224,6 +227,9 @@ export function useActions() {
 		} else if (s.kind === 'light') {
 			const l = store.duplicateLight(s.id);
 			if (l) editor.select('light', l.id);
+		} else if (s.kind === 'post') {
+			const f = store.duplicatePost(s.id);
+			if (f) editor.select('post', f.id);
 		}
 	}
 

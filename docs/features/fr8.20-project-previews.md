@@ -11,8 +11,10 @@ project has one shows it at once.
 ## Design
 
 - **Format**: `Project.preview` — optional, last in the file. A data URL of the final (post-processed) image: WebP
-  (JPEG where the browser can't encode WebP), the longest side scaled (smoothly) to at most 128 px — smaller textures
-  keep their size — at quality 0.6. A 64 px texture is ~1–2 KB, a 128 px one 2–6 KB of base64. On load it is kept only
+  (JPEG where the browser can't encode WebP), the longest side scaled (smoothly) to at most 256 px — smaller textures
+  keep their size — at quality 0.8 (`PROJECT_PREVIEW`): sharp on a wizard card (150 px and up, 2× screens too). A
+  64 px texture is a few KB, a 256 px one 10–35 KB of base64. Preset tiles in the menus (~76 px) keep 128 px at
+  quality 0.6 (`TILE_PREVIEW`), a few KB each. On load it is kept only
   when it is a base64 WebP / JPEG / PNG data URL of at most 256 KB (`isPreview` in `core/serialize.ts`); rendering
   ignores it.
 - **Writing**: Save project (Ctrl+S) and Export all maps capture it from what the viewport shows at that moment

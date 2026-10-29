@@ -2,6 +2,13 @@
 // CPU layouts (cpuData) and the shader agree where they need to; mulberry32 is a small seeded PRNG for layouts that
 // only need to be deterministic.
 
+/** A short hash of a string (djb2), to tell texts apart: cache keys, the project as last saved. */
+export function hashText(s: string): string {
+	let h = 5381;
+	for (let i = 0; i < s.length; i++) h = (Math.imul(h, 33) ^ s.charCodeAt(i)) | 0;
+	return (h >>> 0).toString(36);
+}
+
 /** The shaders' pcg(uint): a 32-bit integer hash. Takes any integer (wrapped to 32 bits), returns an unsigned one. */
 export function pcg(v: number): number {
 	const s = (Math.imul(v, 747796405) + 2891336453) >>> 0;

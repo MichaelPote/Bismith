@@ -544,9 +544,15 @@
 		pushView
 	);
 	watch(() => editor.fitRequest, fit);
+	// Another project (open, new) or tiling refits. A new canvas size alone (a resize, its undo) keeps the zoom (3× stays
+	// 3×), with the texture's centre where it was on screen.
 	watch(
-		() => [store.project.width, store.project.height, editor.tile, store.generation],
-		() => fit()
+		() => [store.project.width, store.project.height, editor.tile, store.generation] as const,
+		([w, h, tile, gen], [w0, h0, tile0, gen0]) => {
+			if (tile !== tile0 || gen !== gen0) return fit();
+			editor.offsetX = Math.round(editor.offsetX + ((w0 - w) * editor.zoom) / 2);
+			editor.offsetY = Math.round(editor.offsetY + ((h0 - h) * editor.zoom) / 2);
+		}
 	);
 </script>
 

@@ -91,6 +91,8 @@
 		/** The culprits: the attribution without its render and maps. */
 		layers: Omit<LayerBlame, 'map'>[];
 		findings: Finding[];
+		/** Where the layer seeds the fix tries come from: new each run, so runs find other layouts; a resume reuses it. */
+		rngSeed?: number;
 		/** Every evaluation so far, in order: replayed on resume. */
 		evals: { score: number; drift: number }[];
 		/** The run was stopped (not finished) before its result. */
@@ -375,6 +377,8 @@
 				beforeScore,
 				layers: a.layers.map(({ map: _, ...l }) => l),
 				findings: a.findings,
+				// Checkpoints saved before runs had their own seed used 1.
+				rngSeed: saved ? (saved.rngSeed ?? 1) : Math.floor(Math.random() * 2 ** 32),
 				evals: [...replay]
 			};
 			state = rec;
@@ -399,6 +403,7 @@
 				{
 					before: { score: beforeScore, drift: 0, detail: { frame: a.frame, analysis: a.analysis } },
 					seeds: seeds.value,
+					rngSeed: rec.rngSeed,
 					culprits: culprits.value,
 					steps: [-s, -0.4 * s, 0.4 * s, s],
 					driftWeight: holdLook.value,

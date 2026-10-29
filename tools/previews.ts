@@ -45,7 +45,7 @@ async function main() {
 			await s.callOn(0, 'loadProject', { ...raw, preview: undefined });
 			await s.callOn(0, 'settle');
 			await s.callOn(0, 'render', { samples });
-			const url = await s.callOn<string | undefined>(0, 'preview');
+			const url = await s.callOn<string | undefined>(0, 'preview', { project: k.startsWith('project/') });
 			if (!url) throw new Error(`${k}: no preview`);
 			writeFileSync(file, JSON.stringify(withPreview(raw, url), null, 2) + '\n');
 			console.log(`${k.padEnd(28)} ${(url.length / 1024).toFixed(1)} KB  ${url.slice(5, url.indexOf(';'))}`);

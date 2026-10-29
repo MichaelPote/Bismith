@@ -68,6 +68,8 @@ export const useEditorStore = defineStore('editor', () => {
 	const question = shallowRef<(Question & { answer: (id: string | null) => void }) | null>(null);
 	/** The new-project wizard is open. */
 	const wizard = ref(false);
+	/** Help → About is open. */
+	const about = ref(false);
 	/**
 	 * The preset dialog (FR5.4): save a card as a preset (`source` names it), edit the preset `key` (right-click on its
 	 * tile; `source` is the card it may take new settings from), save the project as a template, or manage the user's
@@ -114,6 +116,7 @@ export const useEditorStore = defineStore('editor', () => {
 
 	return {
 		wizard,
+		about,
 		presetDialog,
 		shapeTool,
 		selection,

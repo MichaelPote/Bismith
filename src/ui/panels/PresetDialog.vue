@@ -16,7 +16,7 @@
 	import { usePresetsStore } from '@/stores/presets';
 	import { buildPreset, buildTemplate, presetItemOf } from '@/presets/apply';
 	import { renderThumbnail } from '@/presets/thumbnail';
-	import { capturePreview } from '@/render/preview';
+	import { capturePreview, PROJECT_PREVIEW } from '@/render/preview';
 	import { downloadBlob } from '@/render/export';
 	import { IconDownload, IconTrash, IconUpload, IconX } from '@tabler/icons-vue';
 	import CheckField from '@/ui/components/CheckField.vue';
@@ -95,7 +95,7 @@
 		name.value = defaultName();
 		if (d?.mode === 'template') {
 			description.value = project.description ?? '';
-			thumb.value = capturePreview(editor.engine);
+			thumb.value = capturePreview(editor.engine, PROJECT_PREVIEW);
 			return;
 		}
 		if (d?.mode === 'edit') {
