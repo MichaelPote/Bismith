@@ -59,8 +59,9 @@ export interface MaskWrite {
 /**
  * Every mask a layer writes, in the order its passes run (FR8.23): Write to's rows, each its Source (masks sources,
  * registry maskSourcesOf) into its Target by its Mode, Smoothness and Feather — by the same rule as maskWriteKind, so
- * never a coverage into the Shape mask of a shape layer. Row 1 rides in the layer's own pass when its source is the layer
- * or changes only what goes to the mask (`main`); the others are passes of their own, run first.
+ * never a coverage into the Shape mask of a shape layer; empty rows write nothing. Row 1 rides in the layer's own pass
+ * when its source is the layer or changes only what goes to the mask (`main`); the others are passes of their own, run
+ * first.
  */
 export function layerWrites(def: LayerDef | undefined, params: ParamValues): MaskWrite[] {
 	if (!def || def.kind !== 'generator') return [];
@@ -68,11 +69,10 @@ export function layerWrites(def: LayerDef | undefined, params: ParamValues): Mas
 	const extra: MaskWrite[] = [];
 	let main: MaskWrite | null = null;
 	for (let n = 1; n <= MAX_WRITE_ROWS; n++) {
+		// Each source's own row may be empty; the rows past them stop at the first empty one (as Write to shows them).
 		const target = name(params[rowKey('mk_target', n)]);
-		if (!target) {
-			if (n === 1) continue;
-			break;
-		}
+		if (!target && n > srcs.length) break;
+		if (!target) continue;
 		const src = srcs.find((s) => s.value === params[rowKey('mk_src', n)]) ?? srcs[0];
 		const inMain = n === 1 && (!src || src.value === 'layer' || src.main === true);
 		const ps: ParamValues = {

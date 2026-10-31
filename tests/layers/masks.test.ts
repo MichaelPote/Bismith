@@ -232,8 +232,9 @@ describe('mask plan', () => {
 		expect(planMasks(project([bad])).layers.get(bad.id)!.extra).toEqual([]);
 	});
 
-	it('gives each row its own Mode, Smoothness and Feather, and stops at the first empty row', () => {
+	it('gives each row its own Mode, Smoothness and Feather; skips empty source rows, stops at an empty added one', () => {
 		const def = getLayerDef('rock');
+		// Rock has five sources, so rows 1–5 are its own; 6 on are added rows.
 		const l = createLayer('rock', {
 			mk_target: 'Rock',
 			mk_src_2: 'out_crevices',
@@ -242,13 +243,53 @@ describe('mask plan', () => {
 			mk_smooth_2: 9,
 			mk_feather_2: 2,
 			mk_src_4: 'out_scarps',
-			mk_target_4: 'Lost'
+			mk_target_4: 'Scarps',
+			mk_src_7: 'out_streaks',
+			mk_target_7: 'Lost'
 		});
 		const ws = layerWrites(def, l.params);
 		expect(ws.map((w) => [w.target, w.op, w.params.mk_smooth, w.params.mk_feather, w.extra])).toEqual([
 			['Rock', 'smooth-union', 9, 2, true],
+			['Scarps', 'replace', 4, 0, true],
 			['Rock', 'replace', 4, 0, false]
 		]);
+	});
+
+	it('gives each source a row of its own from the start, its mask None', () => {
+		const srcs = maskSourcesOf('stone_blocks').map((s) => s.value);
+		const l = createLayer('stone_blocks');
+		const defs = layerParamDefs('stone_blocks');
+		const shown = (k: string, p = l.params) => {
+			const d = defs.find((x) => x.key === k)!;
+			return !d.showIf || d.showIf(p);
+		};
+		srcs.forEach((s, i) => {
+			expect(l.params[i ? `mk_src_${i + 1}` : 'mk_src']).toBe(s);
+			expect(shown(i ? `mk_target_${i + 1}` : 'mk_target')).toBe(true);
+		});
+		expect(l.params.mk_target).toBe('Shape');
+		expect(l.params.mk_target_2).toBe('');
+		// One more row (Add mask) shows once every row writes a mask; an added row that writes one stays when another empties.
+		const after = `mk_target_${srcs.length + 1}`;
+		const full = Object.fromEntries(srcs.map((_, i) => [i ? `mk_target_${i + 1}` : 'mk_target', `M${i}`]));
+		expect(shown(after)).toBe(false);
+		expect(shown(after, { ...l.params, [`mk_target_${srcs.length}`]: 'X' })).toBe(false);
+		expect(shown(after, { ...l.params, ...full })).toBe(true);
+		expect(shown(after, { ...l.params, ...full, mk_target_2: '', [after]: 'Extra' })).toBe(true);
+		// On load (saves held the first source in every row, their masks packed from row 2), a row writing from another
+		// source moves to that source's row while it's empty, and an empty row offers its own source again.
+		const old = sanitizeLayer({
+			...l,
+			params: { ...l.params, mk_src_2: srcs[3], mk_target_2: 'J', mk_feather_2: 3, mk_src_3: srcs[0] }
+		});
+		expect(old.params).toMatchObject({
+			mk_src_2: srcs[1],
+			mk_target_2: '',
+			mk_src_3: srcs[2],
+			mk_src_4: srcs[3],
+			mk_target_4: 'J',
+			mk_feather_4: 3
+		});
 	});
 
 	it('runs a part source of the first row in the layer’s own pass, other rows as passes of their own', () => {
@@ -267,7 +308,13 @@ describe('mask plan', () => {
 		expect(stone.params).toMatchObject({ mk_src_2: 'out_joints', mk_target_2: 'J' });
 		expect('mk_joints' in stone.params).toBe(false);
 		const grb = sanitizeLayer({ ...createLayer('greebles'), params: { mask: 'seams', mk_lights: 'Glow' } });
-		expect(grb.params).toMatchObject({ mk_src: 'seams', mk_src_2: 'lights', mk_target_2: 'Glow' });
+		// Into the source's own row.
+		const lightsRow = maskSourcesOf('greebles').findIndex((s) => s.value === 'lights') + 1;
+		expect(grb.params).toMatchObject({
+			mk_src: 'seams',
+			[`mk_src_${lightsRow}`]: 'lights',
+			[`mk_target_${lightsRow}`]: 'Glow'
+		});
 		const none = sanitizeLayer({ ...createLayer('vents'), params: { mask: 'none' } });
 		expect(none.params.mk_target).toBe('');
 		const area = sanitizeLayer({

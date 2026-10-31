@@ -17,6 +17,8 @@ import {
 	MASK_WRITE_PARAMS,
 	MAX_WRITE_ROWS,
 	rowKey,
+	rowOf,
+	rowTarget,
 	OUTPUT_PARAMS,
 	PARTS_SRC_KEYS,
 	PHASE_PARAM,
@@ -30,6 +32,8 @@ import { SHAPE_MASK } from '@/core/project';
 const defs = new Map<string, LayerDef>();
 /** Mask › Write to's params, which show only while the layer can write a mask. */
 const WRITE_KEYS = new Set(MASK_WRITE_PARAMS.map((p) => p.key));
+/** The params of one Write to row (`rowKey` gives row n's). */
+const ROW_BASES = ['mk_src', 'mk_target', 'mk_op', 'mk_smooth', 'mk_feather'];
 const fullParams = new Map<string, ParamDef[]>();
 
 export const CATEGORY_LABELS: Record<LayerCategory, string> = {
@@ -102,18 +106,32 @@ export function registerLayer(def: LayerDef): void {
 		// Write to (FR8.23): shape layers write the Shape mask unless told otherwise; other generators (and shape layers in a
 		// mode without a shape) write their coverage when given a mask (masks.ts maskWriteKind).
 		const writable = (v: ParamValues) => !def.maskWrite || def.maskWrite({ ...v, mk_target: SHAPE_MASK }) !== false;
-		// Write to's rows: row 1 targets Shape on a shape layer; every Source lists the type's sources (hidden when there is
-		// only one).
+		// Write to's rows: row 1 targets Shape on a shape layer; each of the type's sources has a row of its own from the
+		// start (row n's Source defaults to the nth); rows past them are added ones (Write to › Add mask). Every
+		// Source lists the type's sources (hidden when there is only one).
 		const options = srcs.map((s) => ({ value: s.value, label: s.label, ...(s.hint ? { hint: s.hint } : {}) }));
+		const srcRows = Math.max(1, Math.min(srcs.length, MAX_WRITE_ROWS));
 		const mask = MASK_PARAMS.map((p) => {
 			if (!WRITE_KEYS.has(p.key)) return p;
 			let q = p.key === 'mk_target' && def.sdf ? { ...p, default: SHAPE_MASK } : p;
+			const n = rowOf(p.key);
+			if (p.key.startsWith('mk_src') || p.key.startsWith('mk_target')) {
+				// An added row stays while it and those before it write a mask; an empty one is the next to add, shown once
+				// every row before it writes one.
+				const filled = (v: ParamValues, from: number, to: number) => {
+					for (let k = from; k <= to; k++) if (!rowTarget(v, k)) return false;
+					return true;
+				};
+				const rowShown = (v: ParamValues) =>
+					n <= srcRows || (filled(v, srcRows + 1, n - 1) && (rowTarget(v, n) !== '' || filled(v, 1, n - 1)));
+				q = { ...q, showIf: rowShown };
+			}
 			if (p.key.startsWith('mk_src')) {
 				const shown = q.showIf;
 				q = {
 					...q,
 					options,
-					default: srcs[0]?.value ?? 'layer',
+					default: (srcs[n - 1] ?? srcs[0])?.value ?? 'layer',
 					showIf: (v) => srcs.length > 1 && (!shown || shown(v))
 				};
 			}
@@ -204,9 +222,12 @@ function migrateMaskRows(params: ParamValues, type: string): ParamValues {
 	pick('mask_shape', (v) => v);
 	pick('mask_feat', (v) => v);
 	if (params.mk_sdf === 'distance') pick('find', (v) => (v === 'high' ? 'high_sdf' : 'crevices_sdf'));
+	// Each into its source's own row when that is free, else the first free row after row 1.
+	const free = (n: number) => !String(out[rowKey('mk_target', n)] ?? '').trim();
 	for (const [src, target] of extra) {
-		let n = 2;
-		while (n <= MAX_WRITE_ROWS && String(out[rowKey('mk_target', n)] ?? '').trim()) n++;
+		const at = srcs.findIndex((s) => s.value === src) + 1;
+		let n = at > 1 && free(at) ? at : 2;
+		while (n <= MAX_WRITE_ROWS && !free(n)) n++;
 		if (n > MAX_WRITE_ROWS) break;
 		out[rowKey('mk_src', n)] = src;
 		out[rowKey('mk_target', n)] = target;
@@ -258,5 +279,19 @@ export function linkedChanges(type: string, params: ParamValues, key: string, va
 /** Fill missing params with defaults, drop unknown ones, clamp values. */
 export function sanitizeLayer(layer: Layer): Layer {
 	const defsForType = layerParamDefs(layer.type);
-	return { ...layer, params: sanitizeParams(defsForType, migrateParams(layer.params, layer.type)) };
+	const params = sanitizeParams(defsForType, migrateParams(layer.params, layer.type));
+	// Write to's rows (FR8.23): a further row that writes from another source's own row, while that one is empty, moves
+	// there; a further row that writes nothing offers its own source again. (Saves from before each source had a row of
+	// its own hold the first source in every row, and their masks packed from row 2.)
+	const srcs = sources.get(layer.type) ?? [];
+	const srcRows = Math.min(srcs.length, MAX_WRITE_ROWS);
+	for (let n = 2; n <= srcRows; n++) {
+		const k = srcs.findIndex((s) => s.value === params[rowKey('mk_src', n)]) + 1;
+		if (k < 2 || k > srcRows || k === n || !rowTarget(params, n) || rowTarget(params, k)) continue;
+		for (const b of ROW_BASES)
+			[params[rowKey(b, k)], params[rowKey(b, n)]] = [params[rowKey(b, n)], params[rowKey(b, k)]];
+	}
+	for (const d of defsForType)
+		if (d.key.startsWith('mk_src_') && !rowTarget(params, rowOf(d.key))) params[d.key] = d.default;
+	return { ...layer, params };
 }

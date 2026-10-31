@@ -345,15 +345,23 @@ Where the build differs from the design above, or adds to it:
 
 ## Write to: rows of Source → Target
 
-One layer writes as many masks as it needs, from one list. _Mask › Write to_ is up to eight rows (`MAX_WRITE_ROWS`,
+One layer writes as many masks as it needs, from one list. _Mask › Write to_ is up to twelve rows (`MAX_WRITE_ROWS`,
 commonParams.ts), each **Source → Target · Mode · Smoothness · Feather**. Row 1 keeps the plain keys (`mk_src`,
 `mk_target`, `mk_op`, `mk_smooth`, `mk_feather`), row n > 1 adds `_n` (`rowKey`).
+
+Each of the type's sources has a row of its own from the start: row n's Source defaults to the nth source (registry),
+its Target to None (row 1 to Shape on a shape layer), so a layer with three sources shows three rows. Rows past them are
+added ones: one shows while it and the added rows before it write a mask, and an empty one (the next to add) once
+every row before it writes one. On load (`sanitizeLayer`), a row from 2 on that writes from another source moves to
+that source's own row while it is empty, and a source's own row that writes nothing offers its source again (saves from
+before held the first source in every row, their masks packed from row 2).
 
 The card draws them as send slots (`WriteToField.vue`): one line per row, _Source → Target_, then the Mode as its glyph
 (= ∪ − ∩, a star for the smooth ones: ∪\* −\* ∩\*) opening the full list, and a disclosure with the row's Smoothness and
 Feather.
-_Add mask_ opens the next row with its mask list dropped open; picking None for a row's mask removes it, and the rows
-after it move up, so the rows stay packed from row 1.
+Picking None for a source's own row empties it (and gives it back its own source). Once every row writes a mask,
+_Add mask_ opens one more — another mask from any source — with its mask list dropped open; picking None for an added
+row removes it, and the added rows after it move up.
 
 Every mask has a colour, the same wherever the UI shows it: a ring before its name in mask fields (Write to, Limit to,
 edge and Mask area pickers, the Masks view) and its names in their lists, the line under a Write to row's Smoothness and
@@ -373,7 +381,7 @@ same undo step as the change that named the mask; read with `maskColour` (ui/met
   of its own (`layerWrites` in masks.ts; `LayerMasks.extra`), the same shader with its source's params, its target, Mode,
   Smoothness and Feather, into the state's scratch side, only its mask output kept. They run before the layer's own pass
   and read the masks as they were before it; their slots never reuse one freed by that layer, which its own pass still
-  reads. A layer writes no row past the first empty one.
+  reads. A source's own row may be empty; the added rows stop at the first empty one.
 - **Soft coverage**: an output source writes coverage × value (`soft`; `0.5 − coverage × clamp(value)`, `uMaskSoft` in
   GLSL_GENERATOR_MAIN), the output's value after Shaping: a shape output gives a crisp mask, a gradient (underside,
   facing, grain) one that fades along it. Soft writes never go into _Shape_ on a shape layer. Other sources write by the

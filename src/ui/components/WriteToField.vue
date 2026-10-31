@@ -1,8 +1,9 @@
 <script setup lang="ts">
 	// Mask › Write to (FR8.23) as send slots: one line per row — Source → Target, then the Mode as a glyph that opens the
-	// full list, and a disclosure for the row's Smoothness and Feather (the regular params). Rows are kept packed from
-	// row 1: "Add mask" opens the next one with its mask list dropped open, and picking None for a row's mask removes it,
-	// moving the rows after it up.
+	// full list, and a disclosure for the row's Smoothness and Feather (the regular params). Each of the layer's sources
+	// has a row from the start, its mask None until one is picked. Once every row writes a mask, "Add mask" opens one more
+	// (another mask from a source) with its mask list dropped open; picking None for such a row removes it, moving the
+	// added rows after it up.
 	import { computed, nextTick, ref } from 'vue';
 	import type { ParamDef, ParamValue, ParamValues } from '@/core/params';
 	import { MAX_WRITE_ROWS, rowKey } from '@/layers/commonParams';
@@ -39,16 +40,23 @@
 	};
 	const target = (n: number) => String(value('mk_target', n) ?? '').trim();
 
-	/** The rows that write a mask, from row 1 on. */
+	/** The rows each source has from the start (the registry shows them all, mask or not). */
+	const own = computed(() => {
+		if (!shown(def('mk_target', 1))) return 0;
+		return Math.max(1, Math.min(def('mk_src', 1)?.options?.length ?? 1, MAX_WRITE_ROWS));
+	});
+	/** The last row shown: the sources' rows, then the added ones that write a mask. */
 	const count = computed(() => {
-		let n = 0;
+		let n = own.value;
 		while (n < MAX_WRITE_ROWS && shown(def('mk_target', n + 1)) && target(n + 1)) n++;
 		return n;
 	});
-	/** The next row, when there's room for one. */
-	const next = computed(() =>
-		count.value < MAX_WRITE_ROWS && shown(def('mk_target', count.value + 1)) ? count.value + 1 : 0
-	);
+	/** The row "Add mask" opens: once every row writes a mask, and while there's room. */
+	const next = computed(() => {
+		const n = count.value + 1;
+		const full = Array.from({ length: count.value }, (_, i) => target(i + 1)).every(Boolean);
+		return full && n <= MAX_WRITE_ROWS && shown(def('mk_target', n)) ? n : 0;
+	});
 	const adding = ref(false);
 	const slots = computed(() =>
 		Array.from({ length: count.value + (adding.value && next.value ? 1 : 0) }, (_, i) => i + 1)
@@ -74,10 +82,21 @@
 	function setTarget(n: number, v: string): void {
 		adding.value = false;
 		if (v.trim()) emit('change', rowKey('mk_target', n), v);
+		else if (n <= own.value) clear(n);
 		else if (n <= count.value) remove(n);
 	}
 
-	/** Takes row n out: the rows after it move up one, and the last one empties (back to its defaults). */
+	/** A source's own row back to writing nothing, offering its own source again (as a reload would). */
+	function clear(n: number): void {
+		emit('change', rowKey('mk_target', n), '');
+		const src = def('mk_src', n);
+		if (src && n > 1) emit('change', src.key, src.default);
+		const s = new Set(open.value);
+		s.delete(n);
+		open.value = s;
+	}
+
+	/** Takes added row n out: the added rows after it move up one, and the last one empties (back to its defaults). */
 	function remove(n: number): void {
 		const last = count.value;
 		for (let k = n; k < last; k++)
@@ -152,7 +171,7 @@
 					</button>
 				</template>
 				<button
-					v-else
+					v-else-if="n > own"
 					v-tip:top="'Cancel'"
 					type="button"
 					class="cf-ico-btn"
@@ -160,6 +179,7 @@
 					@click="adding = false">
 					<IconX :size="13" />
 				</button>
+				<span v-else class="idle" />
 			</div>
 			<ParamList
 				v-if="open.has(n) && target(n)"
@@ -193,6 +213,11 @@
 	.arrow {
 		flex: none;
 		color: var(--text-lo);
+	}
+	/* Where a row without a mask would have its Mode and disclosure, so the fields line up. */
+	.idle {
+		flex: none;
+		width: 52px;
 	}
 	/* A row's Smoothness and Feather, hung under it on a line in its mask's colour. */
 	.more {

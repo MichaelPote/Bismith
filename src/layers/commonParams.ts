@@ -86,9 +86,11 @@ export const BLEND_MODES: [string, string][] = [
 ];
 
 /** Write to's rows (FR8.23): row 1 keeps the plain keys (mk_target …), row n > 1 adds `_n`. */
-export const MAX_WRITE_ROWS = 8;
+export const MAX_WRITE_ROWS = 12;
 export const rowKey = (base: string, n: number) => (n === 1 ? base : `${base}_${n}`);
-const rowTarget = (p: Record<string, unknown>, n: number) => String(p[rowKey('mk_target', n)] ?? '').trim();
+/** The row a Write to key belongs to (`mk_target_3` → 3). */
+export const rowOf = (key: string) => Number(/_(\d+)$/.exec(key)?.[1] ?? 1);
+export const rowTarget = (p: Record<string, unknown>, n: number) => String(p[rowKey('mk_target', n)] ?? '').trim();
 
 /** The Source dropdown of a channel output, drawn in one row with its blend mode. */
 const source = (key: string, group: string, mode: string, modeLabel = 'Mode'): ParamDef =>
@@ -121,8 +123,9 @@ const LEVEL_MODES: [string, string][] = [
 /**
  * Mask card › Write to (FR8.23): up to MAX_WRITE_ROWS rows, each a Source (what of the layer: itself, a part, an output —
  * the options come from the type, LayerDef.maskSources) into a Target mask, by a Mode, with its own Smoothness and
- * Feather; the next row shows once this one has a target. Shape layers write their shape (a distance, and the random of
- * each feature) and default row 1 to the Shape mask; other generators write their coverage. Row 1's Mode, Smoothness and
+ * Feather. The registry gives each of the type's sources a row of its own, shown from the start (row n's Source defaults
+ * to the nth source); rows past them are added ones (Write to › Add mask). An empty row writes nothing. Shape layers
+ * write their shape (a distance, and the random of each feature) and default row 1 to the Shape mask; other generators write their coverage. Row 1's Mode, Smoothness and
  * Feather drive the layer's own pass (uniforms); the other rows run as passes of their own with theirs (masks.ts).
  */
 export const MASK_WRITE_PARAMS: ParamDef[] = Array.from({ length: MAX_WRITE_ROWS }, (_, i): ParamDef[] => {
