@@ -1,4 +1,4 @@
-# FR8.17 — Chips & splits, plank-end wobble, soft rings
+# FR8.17 — Cracks (was Chips & splits), plank-end wobble, soft rings
 
 **Status:** done
 
@@ -9,12 +9,14 @@ from the ends inward; slabs crazed with long cracks, short breaks across the gra
 strips. The damage had to be reusable — the same chips knock the corners off stone setts or panels — so it is a
 generator of its own that works on a **mask** (the Shape mask by default), not a feature of the wood.
 
-## Chips & splits (`chips`, `generators/chips.ts`)
+## Cracks (`chips`, `generators/chips.ts`)
 
-A shape-category SDF generator that reads the mask before it (`readsMask`: its _Write to_ mask, or Shape when it writes
-none) and takes damage out of it. With nothing in the mask the whole texture counts as one piece (only the splits in
-the open and the nicks apply). **Material** picks the damage: **Wood** (below — chips, splits, nicks) or **Stone**
-(_Stone_, further down — breaks, flakes, cracks, faults); each shows only its own controls.
+Named _Chips & splits_ until the follow-up below; the type id stays `chips`, so saved projects load. An SDF generator,
+listed with the filters in the add menu (category `filter`: it damages what the layers before it drew), that reads the
+mask before it (`readsMask`: its _Write to_ mask, or Shape when it writes none) and takes damage out of it. With
+nothing in the mask the whole texture counts as one piece (only the splits in the open and the nicks apply).
+**Material** picks the damage: **Stone** (default; _Stone_, further down — breaks, flake scars, cracks, faults) or
+**Wood** (below — chips, splits, nicks); each shows only its own controls.
 
 - **Chips** — one spot per cell of 2.5 chip sizes; a spot within a chip size of the edge moves onto it along the
   field's normal (central differences on the mask), and an angular flake is cut around it: five half-planes at
@@ -43,9 +45,9 @@ Every feature is a cut `c` (px, > 0 inside it) and a depth `f`. **Operate on** (
 "Carve what is below" / "Chipped shape (SDF)" read as two kinds of result rather than two things to act on) — both
 write the chipped shape to the mask in _Write to_ (Shape by default):
 
-- **Height below (carve it)** (`carve`, default) — value = how much of the surface is left (1 untouched … 0 cut away), covering only
-  the damage, inside the original shape. Height › Multiply carves it out of whatever relief is below; Diffuse ›
-  Multiply darkens it. Chip walls follow the layer's Bevel / Profile; splits and nicks use thin-line coverage (a pixel
+- **Height below (carve it)** (`carve`, default) — value = how deep to carve (0 untouched … 1 cut down to the shape's
+  edge level), covering only the damage, inside the original shape. Height › Subtract carves it out of whatever relief
+  is below; Diffuse › Multiply darkens it. Chip walls follow the layer's Bevel / Profile; splits and nicks use thin-line coverage (a pixel
   box filter, ≤ the width when under a pixel) so hairlines fade instead of flickering. Uses `genOutOwn`.
 - **Shape mask (redraw it chipped)** (`shape`) — the mask minus the cuts; a part-depth cut sinks `(1 − f) × bevel` instead of reaching
   the edge, so the bevel gives it a floor. Drawn with the layer's bevel, the bevel wraps round each split: board ends
@@ -54,8 +56,8 @@ write the chipped shape to the mask in _Write to_ (Shape by default):
 A layer can have only one bevel, so a wide pillow bevel for the boards turns hairline cracks into dimples. Use a
 _Chipped shape_ layer for the chips and end splits and a second _Carve_ layer (narrow bevel) for fine cracks and nicks.
 
-Defaults follow the output (`linkedDefaults`): Carve — Height multiply × 1, Diffuse multiply (dark → white);
-Chipped shape — Height add 0.4, Diffuse off.
+Defaults follow the output (`linkedDefaults`): Carve — Height subtract × 0.5 (a shape layer's usual height), Diffuse
+multiply (white → dark); Chipped shape — Height add 0.4, Diffuse off.
 
 Cost: three flat loops with uniform-derived bounds (9 chip cells, 15 split cells, 9 nick cells); the neighbour
 split for a merge is evaluated only when the pixel lies on a merging split. Cold compile on D3D11 (RTX 5080):
@@ -67,9 +69,10 @@ split for a merge is evaluated only when the pixel lies on a merging split. Cold
   wobbly end the normal tilts, the division overshoots, and splits started tens of px off the edge — inside the next
   board. They now step along the grain by the distance (sphere tracing on the mask, ≤ 8 fetches) until on the edge,
   so they open exactly where the (wobbly, chipped) end is.
-- **Carve eats the bevel**: the carve value is the bevel on the chipped shape over the bevel on the original
-  (`bevelAt(d') · coverage(d') / bevelAt(reg) · coverage(reg)`) with this layer's Bevel / Profile / aspect — give it
-  those of the layer that drew the relief and Height › Multiply leaves that relief exactly, its bevel following every
+- **Carve eats the bevel**: the carve value is the bevel on the original less the bevel on the chipped shape
+  (`bevelAt(reg) · coverage(reg) − bevelAt(d') · coverage(d')`; until the follow-up below, their ratio for Height ›
+  Multiply) with this layer's Bevel / Profile / aspect — give it those of the layer that drew the relief, and Height ›
+  Amount its height, and Height › Subtract leaves that relief exactly, its bevel following every
   chip and split (before, chip walls had their own profile and the plank bevel ran straight past them). Splits' and
   nicks' distances are scaled so the bevel spans the Split bevel (narrowing with the crack); hairlines keep their
   thin-line coverage. The chipped shape also goes to the mask it writes, as before, for later limits.
@@ -106,13 +109,19 @@ anti-aliased and nothing jumps where the nearest border changes near a three-cel
   0.3–0.8 × half as deep, along every edge, so the edges between the big breaks wear too. _Break roughness_ bends the rims
   with smooth noise. Breaks are cuts: in Carve their surface goes in as a distance the bevel reads back (`−Bevel ×
   height`), so give this layer the Bevel of the layer that drew the relief, as for Wood.
-- **Flakes** (Flakes, Flakes near edges, Flake size, Flake drop, Flake layers, Flake tilt, Flake rim softness, Flake
-  jaggedness). Layers of plates, layer
-  n 0.6ⁿ the _Flake size_. A plate spalls by the _Flakes_ chance anywhere (default 0), plus _Flakes near edges_ within a band
-  of the edge that narrows each layer, gated by a broad noise so some stretches of edge flake and others stay whole. A
-  spall is a scoop: deepest at its inner scarp, feathering out towards the edge, leaning a little (_Flake tilt_), dropping by
-  the _Flake drop_. Layers nest: layer n spalls only inside layer n − 1's spalls, so the terraces step down within one
-  another.
+- **Flake scars** (Flake scars, Scars from edges, Scar size, Scar depth, Scar stretch, Small scars, Scar raggedness) — as
+  Stone blocks pitches its faces (docs/features/fr8.22-stone-blocks.md): each scar a hollow below the surface, 0 at
+  its rim, the lowest winning, so rims meet in crisp ridges and the face between them stays whole. A scar is a tilted
+  plane, deepest at its struck end and running out at a grazing angle at the other, walled in by the bowl `d⁸ − 1`
+  (Stone blocks' `d⁴` read soft at the shallower depth a share of a shape's height gives). _Scars from edges_ of them are
+  struck from the mask's nearest edge (its outward normal at the scar's site: the struck end at the edge, the scar
+  running inward, wider along the edge than inward up to 2.4×); one whose struck end falls short of the edge fades out,
+  so a big piece keeps its face in the middle. Two sizes in one flat loop of 2 × 16 cells (_Small scars_ at 0.42×), the
+  field warped by noise half a scar across (_Scar raggedness_). Each piece of the mask (its feature random, `fid`) reads
+  the field at an offset of its own and keeps only scars whose site lies on it, so scars never run across a joint. They
+  sink the surface by up to _Scar depth_ × the height in Height's value only (`GenOut.hval`): Diffuse › Multiply
+  darkens the breaks and cracks and leaves the scars to the light. (They replaced nested Worley spalls in terraces,
+  whose polygonal plates read as camouflage on bricks.)
 - **Cracks** (Cracks, Crack length, Crack width, Crack depth, Crack wander, Crack jaggedness, Crack branching, Crack
   side drop, Crack bevel). One spot per cell of about the
   _Crack length_; a spot near the mask's edge moves onto it and a crack meanders in: a path of 12 segments, each heading
@@ -129,10 +138,10 @@ anti-aliased and nothing jumps where the nearest border changes near a three-cel
   the edge: a triangle bounded by the fault, a jagged line converging on its tip from _Fault slab width_ along the edge, and the
   edge, with crisp risers and no groove.
 
-Breaks and cracks are cuts, so they work in both _Operate on_ modes; flakes and faults step the surface down, which only
+Breaks and cracks are cuts, so they work in both _Operate on_ modes; flake scars and faults sink the surface, which only
 _Height below_ can carry (a shape mask holds a shape, not heights). In _Shape mask_ mode the chipped shape builds the
 relief itself, so turn the height of the layer that drew the shape off. Sizes follow the texture for new layers
-(`fresh`, k = side / 256, at least ¼): Break size, Flake size, Crack length, Fault length and Fault slab width ×k, Crack
+(`fresh`, k = side / 256, at least ¼): Break size, Scar size, Crack length, Fault length and Fault slab width ×k, Crack
 width and Crack bevel ×√k. Each helper sits at one call site (D3D inlines every call): all partitions run in one loop, the cells round
 a border are judged by one function (`ch_cell`), and cracks and faults share one loop and one `ch_crack`.
 
@@ -141,6 +150,18 @@ critiques and the hand-over in the private critic folder). The first try — fBm
 Worley mosaic, cracks along every plate border — read as rotten edges, camouflage and dried mud (4/10); what replaced
 it: chunks as planar faces under a crisp scarp that stay lit below the top, nested feathered spalls at the edges,
 cracks as lines running in from the edges, faults as dropped slabs.
+
+### Follow-up: Cracks
+
+- Renamed _Chips & splits_ → **Cracks**, and the old Cracks generator (`cracks`, the crack network) → **Cracked crust**.
+  Type ids are unchanged.
+- **Stone** is the default Material (a layer without the key is Stone too); the Wood smart material's layer sets Wood.
+- Moved to the **filters** in the add menu (`category: 'filter'`; still an SDF generator, so _Write to_ defaults to
+  Shape as before).
+- **Carve subtracts**: the value is the depth to carve (see Operate on), for Height › Subtract × 0.5, so the damage cuts
+  into the shape layer before it by that layer's height instead of scaling whatever relief is below. A shape below with a
+  wider bevel than this layer's is cut below its floor near the edge; match the Bevel.
+- **Flake scars** from Stone blocks replaced the terraced spalls (Flakes, above). Cold compile on D3D11 (Stone): 1.3 s.
 
 ## `genOutOwn`
 
@@ -243,7 +264,7 @@ output now uses it, so a single Wood layer puts its plank outline in the Shape m
 ## Wood smart material
 
 New _Wear_ group: **Chips** and **Splits** macros (0.3 / 0.4). They build a _Chips & splits_ relief layer (Carve, Height
-multiply, after the board and grain relief) and a _Chip shading_ paint layer (Carve, Diffuse multiply), both writing no
+multiply, after the board and grain relief; now _Cracks_, Wood, Height subtract × 0.2 — the boards' height) and a _Chip shading_ paint layer (Carve, Diffuse multiply), both writing no
 mask so each reads the boards' outlines from the Shape mask; sizes follow the boards (chips 6 % of a board's width,
 splits a third of its length). Materials added before keep their layers.
 

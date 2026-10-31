@@ -266,7 +266,7 @@ Checked on a contact sheet (ref | render, palette Quake, ACES).
   steps of the flat loop — three draw it and its neighbours from one hash chain each, three are its segments).
 - **Carved cracks and worn tiles by stacking** (used for a set of hand-painted floor recreations; no extra generator
   code). The Tiles generator's own SDF combines with the mask it writes, so a crack network can be _carved_ into the tiles:
-  the Cracks generator writes its shards to the mask; a Tiles copy with _Missing tiles_ = the cracked share is unioned
+  the Cracked crust generator writes its shards to the mask; a Tiles copy with _Missing tiles_ = the cracked share is unioned
   in (the whole tiles); optionally a second copy pushed off-centre by a large _Hand-laid shift_ (which also shrinks it
   inside its footprint) is smooth-unioned in as each partly cracked tile's crack-free core, leaving cracks in a band
   along one edge that taper out; then the main Tiles layer _smooth-intersects_ the mask (small k: a V-notch where a

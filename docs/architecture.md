@@ -195,7 +195,7 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
   other outputs paint and sink below the surface (Drips' blisters: a lifted lip outside the hole, the hole below).
 - `own` — how an SDF generator's value relates to its shape: 0 the wrapper draws the shape (value = bevel profile,
   coverage = inside); 1 (`genOutOwn`) the generator painted its own value and coverage and `sdf` only goes to the mask
-  it writes (Chips & splits' carve); 2 (`genOutShaded`) the generator's pattern × the bevel of the combined shape, its
+  it writes (Cracks' carve); 2 (`genOutShaded`) the generator's pattern × the bevel of the combined shape, its
   own coverage (Wood's grain on its planks).
 - `fid` — the feature's own random, which the mask it writes records (FR8.23): `rnd` may be tinted for colour and
   `feat` zeroed where a generator varies heights itself. `genOut*` set it from `rnd`; `genOutSmooth` −1 (no features).
@@ -286,8 +286,9 @@ as rows of characters — insignia, emblems), **Label** (pixel-font lettering) a
 list — chamfered cut-outs, channels, inlays), all as SDFs so bevels and masks apply; and **Cable**
 draws tubes wound on a helix (coils, twisted rope mouldings). **Drips** (FR7.7) runs stains down from scattered
 sources (or outputs the sources as blisters); **Hammered** lays dish dents on concentric rings around a few centres
-whose regions interlock along arcs. **Chips & splits** (FR8.17) damages whatever is in its mask (the Shape mask): chips off its
-edges and corners, splits along the grain from the edges that cross it (merging where they meet), nicks across it. **Rock**
+whose regions interlock along arcs. **Cracks** (FR8.17; was Chips & splits, listed with the filters) damages whatever is in its mask (the Shape mask):
+in stone, breaks, flake scars struck in from the edges, cracks and faults; in wood, chips off its edges and corners,
+splits along the grain from the edges that cross it (merging where they meet), nicks across it. **Rock**
 (FR8.18) builds natural rock faces from blocks in strata on a sheared lattice — each block a mesa with its own height,
 tilt and draped scarps, finer facets, joints, folds — with outputs for the relief and for paint (scarps, crevices, rain
 streaks). **Grass** (FR8.21) strews tapered blades that bend, curl and waver, in depth over one another, shaded light at
@@ -555,7 +556,7 @@ docs/
 | 8.14  | [One layer list, inspector fields and Forged keys](features/fr8.14-ui-pass.md)                                   |
 | 8.16  | [New project wizard and one add grid](features/fr8.16-new-project-wizard.md)                                     |
 | 8.16a | [Instant wizard, project loading, export quality](features/fr8.16a-presets.md)                                   |
-| 8.17  | [Chips & splits, plank-end wobble, soft rings](features/fr8.17-chips-splits.md)                                  |
+| 8.17  | [Cracks (was Chips & splits), plank-end wobble, soft rings](features/fr8.17-chips-splits.md)                     |
 | 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md)                                                 |
 | 8.19  | [Windows metric (local texture)](features/fr8.19-window-metric.md)                                               |
 | 8.20  | [Project previews](features/fr8.20-project-previews.md)                                                          |

@@ -1,4 +1,4 @@
-// Chips & splits: the shader's loops, and the lengths' axes for resizing the canvas.
+// Cracks (type chips): the shader's loops, and the lengths' axes for resizing the canvas.
 
 import { describe, expect, it } from 'vitest';
 import { chipsLayer } from '@/layers/generators/chips';
@@ -22,7 +22,8 @@ describe('chips', () => {
 	it('compiles Stone as a variant of its own, so Wood layers leave its code out', () => {
 		expect(chipsLayer.shaderFeatures!({ material: 'stone' })).toEqual(['CH_STONE']);
 		expect(chipsLayer.shaderFeatures!({ material: 'wood' })).toEqual([]);
-		expect(chipsLayer.shaderFeatures!({})).toEqual([]);
+		// Stone is the default, so a layer without the key is Stone.
+		expect(chipsLayer.shaderFeatures!({})).toEqual(['CH_STONE']);
 	});
 
 	it('shows each material its own controls', () => {
@@ -39,6 +40,7 @@ describe('chips', () => {
 			'stone_depth',
 			'flakes',
 			'flake_size',
+			'flake_edge',
 			'cracks',
 			'crack_len',
 			'faults'

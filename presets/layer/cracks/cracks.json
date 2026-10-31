@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "name": "Cracks",
+  "name": "Cracked crust",
   "width": 128,
   "height": 128,
   "tileable": true,
@@ -258,7 +258,7 @@
     {
       "id": "ly_40qlp4j",
       "type": "cracks",
-      "name": "Cracks",
+      "name": "Cracked crust",
       "enabled": true,
       "params": {
         "output": "plates",

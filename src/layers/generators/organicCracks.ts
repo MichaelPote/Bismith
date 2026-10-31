@@ -16,7 +16,7 @@ const fineOn = (p: ParamValues) => Number(p.sub) > 0;
 export const cracksLayer: LayerDef = {
 	type: 'cracks',
 	noise: true,
-	label: 'Cracks',
+	label: 'Cracked crust',
 	category: 'pattern',
 	kind: 'generator',
 	sdf: true,

@@ -642,9 +642,10 @@
     {
       "id": "ly_9tz5r3r",
       "type": "chips",
-      "name": "Chips & splits",
+      "name": "Cracks",
       "enabled": true,
       "params": {
+        "material": "wood",
         "output": "carve",
         "chips": 0.3,
         "corners": 0.45,
@@ -728,11 +729,11 @@
           "stops": [
             {
               "pos": 0,
-              "color": "#3a2a1e"
+              "color": "#ffffff"
             },
             {
               "pos": 1,
-              "color": "#ffffff"
+              "color": "#3a2a1e"
             }
           ]
         },
@@ -741,8 +742,8 @@
         "op_mode": "replace",
         "h_on": true,
         "h_src": "value",
-        "h_mode": "multiply",
-        "h_amount": 1,
+        "h_mode": "subtract",
+        "h_amount": 0.2,
         "h_offset": 0,
         "h_var": 0,
         "r_on": false,

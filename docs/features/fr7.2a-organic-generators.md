@@ -38,7 +38,7 @@ crust.
   from its row neighbours at the midline) minus every disc of the rows in front; rows are walked front to
   back with a running union, giving an exact-enough SDF of the visible part. Dome / tilt shading. (Later: pointed
   arches, irregularity, size variation, random lapping of overlapping row neighbours, keel — see the reference.)
-- **Cracks** — main power-Voronoi crack network (warp, zig-zag, pixel roughness, a width per border segment, bowed
+- **Cracked crust** (was Cracks) — main power-Voronoi crack network (warp, zig-zag, pixel roughness, a width per border segment, bowed
   pillowy sides, rounded plate corners so cracks flare into wedges at the junctions, depth by width) plus a finer
   Voronoi network where each border segment (cell pair) is kept with a probability, so partial cracks end cleanly at
   junctions; fine segments taper away from the main cracks (or form a faint hairline web) and each plate draws its

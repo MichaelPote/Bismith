@@ -1,14 +1,16 @@
-// Chips & splits: damage taken out of its mask as it stands — angular chips knocked off its edges (more at corners),
-// splits that run along the grain from the edges that cross it, tapering as they go, the odd split in the open and short
-// nicks across the grain. Works on whatever wrote the mask (planks, bricks, panels, setts); with nothing there the
-// whole texture is one piece, which only gets the splits in the open and the nicks.
+// Cracks (type `chips`): damage taken out of its mask as it stands. Stone (default): big breaks and worn chips off
+// its edges, flake scars struck in from them, cracks and faults running in. Wood: angular chips knocked off its edges
+// (more at corners), splits that run along the grain from the edges that cross it, tapering as they go, the odd split
+// in the open and short nicks across the grain. Works on whatever wrote the mask (planks, bricks, panels, setts); with
+// nothing there the whole texture is one piece, which only gets the splits in the open and the nicks.
 //
 // Every feature is a cut c (px, > 0 inside it) and a depth f (0..1). Two outputs:
-//   - Carve (default): value = how much of the surface is left (1 untouched … 0 cut away to the shape's edge level),
-//     covering only the damage, so Height › Multiply carves it out of the relief below and Diffuse › Multiply darkens
-//     it. It is the bevel re-evaluated on the chipped shape over the bevel on the original (this layer's Bevel / Profile /
-//     aspect): with those matched to the layer that drew the relief, the multiply leaves exactly that relief, its bevel
-//     following every chip and split. Hairline cracks add their thin-line coverage.
+//   - Carve (default): value = how deep to carve (0 untouched … 1 the whole bevel, down to the shape's edge level),
+//     covering only the damage, so Height › Subtract carves it out of the relief below and Diffuse › Multiply darkens
+//     it. It is the bevel on the original less the bevel re-evaluated on the chipped shape (this layer's Bevel / Profile /
+//     aspect): with those and Height › Amount matched to the layer that drew the relief, the subtract leaves exactly
+//     that relief, its bevel following every chip and split. Flake scars, faults and a crack's lower side carve a share
+//     of the height on top; hairline cracks add their thin-line coverage.
 //   - Chipped shape: the mask minus the cuts as an SDF; a part-depth cut sinks (1 − f) × bevel below the surface
 //     instead of reaching the edge, so the wrapper's bevel gives it a floor.
 // Both write the chipped shape to the mask when it writes one (genOutOwn for Carve), for later limits.
@@ -22,41 +24,39 @@ const grainAlong = orientAxis('grain', { vertical: 'y', horizontal: 'x' });
 const grainAcross = orientAxis('grain', { vertical: 'y', horizontal: 'x' }, true);
 
 type P_ = Record<string, unknown>;
-const stone = (p: P_) => p.material === 'stone';
+// Stone unless set to Wood (the default; old files without the key are Stone too).
+const stone = (p: P_) => p.material !== 'wood';
 const wood = (p: P_) => !stone(p);
 const chipsOn = (p: P_) => wood(p) && (Number(p.chips) > 0 || Number(p.corners) > 0);
 const splitsOn = (p: P_) => wood(p) && (Number(p.splits) > 0 || Number(p.interior) > 0);
 const nicksOn = (p: P_) => wood(p) && Number(p.nicks) > 0;
 const breaksOn = (p: P_) =>
 	stone(p) && (Number(p.stone_chips) > 0 || Number(p.stone_corners) > 0 || Number(p.stone_wear) > 0);
-const platesOn = (p: P_) => stone(p) && (Number(p.flakes) > 0 || Number(p.flake_edge) > 0);
+const scarsOn = (p: P_) => stone(p) && Number(p.flakes) > 0;
 const cracksOn = (p: P_) => stone(p) && Number(p.cracks) > 0;
 const faultsOn = (p: P_) => stone(p) && Number(p.faults) > 0;
 
 export const chipsLayer: LayerDef = {
 	type: 'chips',
-	label: 'Chips & splits',
-	category: 'shape',
+	label: 'Cracks',
+	// In the menu with the filters: it damages the shape the layers before it drew.
+	category: 'filter',
 	kind: 'generator',
 	sdf: true,
 	readsMask: true,
 	description:
-		'Damaged edges: Chips, splits and cracks knocked out of a mask’s edges (the Shape mask by default), in wood or stone. Makes worn planks, chipped beams, broken masonry.',
+		'Damaged edges: Breaks, flake scars and cracks carved into the shape the layers before it drew (the Shape mask by default), in stone or wood. Makes broken masonry, weathered blocks, worn planks.',
 	params: [
 		P.enum(
 			'material',
 			'Material',
-			'wood',
+			'stone',
 			[
-				[
-					'wood',
-					'Wood',
-					'small angular chips, splits running along the grain from the board ends, and nicks across it'
-				],
-				['stone', 'Stone', 'big breaks out of the edges, plates flaking off the face in steps, deep cracks and faults']
+				['stone', 'Stone', 'big breaks out of the edges, flake scars struck in from them, deep cracks and faults'],
+				['wood', 'Wood', 'small angular chips, splits running along the grain from the board ends, and nicks across it']
 			],
 			// It picks the shader variant (shaderFeatures), not a branch in it.
-			{ uniform: false, hint: 'Picks the kind of damage: wood or stone' }
+			{ uniform: false, hint: 'Picks the kind of damage: stone or wood' }
 		),
 		P.enum(
 			'output',
@@ -66,12 +66,12 @@ export const chipsLayer: LayerDef = {
 				[
 					'carve',
 					'Height below (carve it)',
-					'carves the damage out of the relief of the layers below: Height › Multiply scales it by how much surface is left (1 = untouched … 0 = cut away) and Diffuse › Multiply darkens it. Give this layer the same Bevel, Profile and Bevel aspect as the layer that drew the relief, and its bevel follows every chip and crack. Stone’s flakes and faults step the surface down, so they need this'
+					'carves the damage out of the relief of the layers below: Height › Subtract sinks it by how deep the damage goes (0 = untouched … 1 = cut down to the shape’s edge) and Diffuse › Multiply darkens it. Give this layer the same Bevel, Profile and Bevel aspect as the layer that drew the shape, and Height › Amount the same as its height, and the carve follows its bevel into every chip and crack. Stone’s flake scars and faults sink the surface, so they need this'
 				],
 				[
 					'shape',
 					'Shape mask (redraw it chipped)',
-					'redraws the mask’s shape with the damage taken out, as a shape with this layer’s bevel, so you build the relief from it instead of carving the layers below (flakes and faults don’t apply)'
+					'redraws the mask’s shape with the damage taken out, as a shape with this layer’s bevel, so you build the relief from it instead of carving the layers below (flake scars and faults don’t apply)'
 				]
 			],
 			{
@@ -263,56 +263,50 @@ export const chipsLayer: LayerDef = {
 			group: 'splits',
 			showIf: nicksOn
 		}),
-		P.float('flakes', 'Flakes', 0, 0, 1, {
+		P.float('flakes', 'Flake scars', 0.85, 0, 1, {
 			step: 0.001,
 			group: 'flakes',
 			showIf: stone,
-			hint: 'How likely a plate is to flake off anywhere on the face'
+			hint: 'How much of the surface near the edges is knocked off in flake scars: shallow bowls whose rims meet in crisp ridges, between patches of the untouched face'
 		}),
-		P.float('flake_edge', 'Flakes near edges', 0.8, 0, 1, {
+		P.float('flake_edge', 'Scars from edges', 0.9, 0, 1, {
 			step: 0.001,
 			group: 'flakes',
-			showIf: stone,
-			hint: 'How likely a plate is to flake off near the edges, as a scoop that’s deepest at its step and fades out towards the edge. Each further layer of flakes keeps to a narrower band along the edge'
+			showIf: scarsOn,
+			hint: 'How many of the scars are struck from the nearest edge — deep at the edge and running inward, the way a mason pitches a rock face — rather than lying any which way across the face'
 		}),
-		P.float('flake_size', 'Flake size', 28, 2, 1024, {
-			softMax: 128,
+		P.float('flake_size', 'Scar size', 40, 2, 1024, {
+			softMax: 160,
 			unit: 'px',
 			step: 0.1,
 			group: 'flakes',
-			showIf: platesOn,
-			hint: 'Sets the size of the first layer’s plates (each further layer’s are 0.6 × as big)'
+			showIf: scarsOn,
+			hint: 'Sets the spacing of the big scars (each one 0.55–0.95 of this across, stretched up to 2.4×)'
 		}),
-		P.float('flake_depth', 'Flake drop', 0.3, 0, 1, {
+		P.float('flake_depth', 'Scar depth', 1, 0, 2, {
+			softMax: 1,
 			step: 0.001,
 			group: 'flakes',
-			showIf: platesOn,
-			hint: 'How far each layer of flaked plates drops, as a share of the height below'
+			showIf: scarsOn,
+			hint: 'How deep the deepest scars cut, as a share of the height below. They only sink the surface; the light shows them, not the Diffuse colour'
 		}),
-		P.int('flake_layers', 'Flake layers', 2, 1, 4, {
-			group: 'flakes',
-			showIf: platesOn,
-			hint: 'How many layers of flakes, each finer one flaking off inside the last, so they step down like terraces'
-		}),
-		P.float('flake_tilt', 'Flake tilt', 0.25, 0, 2, {
+		P.float('flake_stretch', 'Scar stretch', 1, 0, 1, {
 			step: 0.001,
 			group: 'flakes',
-			showIf: platesOn,
-			hint: 'Tilts each flaked plate at a random angle, as a flat facet (0 = no tilt)'
+			showIf: scarsOn,
+			hint: 'Stretches the scars along the edge they were struck from, into scallops (up to 2.4×)'
 		}),
-		P.float('flake_rim', 'Flake rim softness', 0.6, 0, 16, {
-			softMax: 4,
-			unit: 'px',
-			step: 0.05,
-			group: 'flakes',
-			showIf: platesOn,
-			hint: 'Sets the width of the step between plates (small = a crisp ledge)'
-		}),
-		P.float('flake_jag', 'Flake jaggedness', 0.3, 0, 1, {
+		P.float('flake_detail', 'Small scars', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'flakes',
-			showIf: platesOn,
-			hint: 'Makes the plate borders jagged (0 = straight polygon sides)'
+			showIf: scarsOn,
+			hint: 'Adds a second, finer set of scars (under half the size) chipped into the edges and the big scars'
+		}),
+		P.float('flake_jag', 'Scar raggedness', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'flakes',
+			showIf: scarsOn,
+			hint: 'Makes the scars’ rims ragged instead of clean curves (0 = smooth ellipses)'
 		}),
 		P.float('cracks', 'Cracks', 0.35, 0, 1, {
 			step: 0.001,
@@ -406,7 +400,7 @@ export const chipsLayer: LayerDef = {
 	],
 	groups: [
 		{ id: 'splits', label: 'Splits' },
-		{ id: 'flakes', label: 'Flakes' },
+		{ id: 'flakes', label: 'Flake scars' },
 		{ id: 'cracks', label: 'Cracks' },
 		{ id: 'faults', label: 'Faults' }
 	],
@@ -414,11 +408,11 @@ export const chipsLayer: LayerDef = {
 		bevel: 1.5,
 		profile: 'linear',
 		h_on: true,
-		h_mode: 'multiply',
-		h_amount: 1,
+		h_mode: 'subtract',
+		h_amount: 0.5,
 		dif_on: true,
 		dif_blend: 'multiply',
-		dif_grad: gradient('#3a3029', '#ffffff')
+		dif_grad: gradient('#ffffff', '#3a3029')
 	},
 	// Stone's sizes follow the texture (a new layer; the plain defaults at 256 px), so a 1024 px wall breaks into chunks,
 	// not crumbs, and a 64 px tile's blocks aren't one chunk each.
@@ -427,7 +421,7 @@ export const chipsLayer: LayerDef = {
 		const r1 = (v: number) => Math.round(v * 10) / 10;
 		return {
 			stone_size: r1(32 * k),
-			flake_size: r1(28 * k),
+			flake_size: r1(40 * k),
 			fault_len: r1(64 * k),
 			fault_fall: r1(24 * k),
 			crack_len: r1(64 * k),
@@ -437,15 +431,17 @@ export const chipsLayer: LayerDef = {
 	},
 	// Stone and Wood never meet in one layer: each compiles only its own code (D3D's cold compile).
 	shaderFeatures: (p) => (stone(p) ? ['CH_STONE'] : []),
-	// Carve multiplies what is beneath; a chipped shape is drawn like any other shape.
+	// Carve sinks what is beneath (by the shape layers' usual height); a chipped shape is drawn like any other shape.
 	linkedDefaults: (p) =>
 		p.output === 'shape'
 			? { h_mode: 'add', h_amount: 0.4, dif_on: false, dif_blend: 'normal' }
-			: { h_mode: 'multiply', h_amount: 1, dif_on: true, dif_blend: 'multiply' },
+			: { h_mode: 'subtract', h_amount: 0.5, dif_on: true, dif_blend: 'multiply' },
 	glsl: /* glsl */ `
 // The wrapper's offset and domain warp (gl_FragCoord − p): the mask is read where the pattern's point lies on screen,
 // so the damage moves with them and stays on the mask's edges.
 vec2 chDl;
+// How much of the surface Stone's flake scars leave (1 = none there): Height only.
+float chScar = 1.0;
 
 // The distance of the mask it damages (the one it writes, or Shape) at a pixel; with nothing written yet the whole
 // texture is inside.
@@ -571,45 +567,90 @@ vec2 ch_plates(vec2 x, ivec2 period, float seed, out ivec2 c0, out vec2 r0, out 
   return vec2(md, md2);
 }
 
-// A cell of a partition (r: from the pixel to its point, cells of cpx px; rnd: its random; dn: the mask's distance and
-// outward normal at its point), judged at its point. Break cells (set 0): 1 when it breaks away — its point within half
+// A cell of a partition (r: from the pixel to its point, cells of cpx px; dn: the mask's distance and outward normal at
+// its point), judged at its point. Break cells (set 0): 1 when it breaks away — its point within half
 // a cell of the mask's edge, by the Breaks chance, more where the edge turns a corner — else 0; wear cells (set 1) the
-// same by the Edge wear chance. Flake layer set (2…):
-// how far it has spalled, in Flake drops — 0 intact, else about 1 — by the Flakes chance, plus Flakes near edges within a band of
-// the mask's edge that narrows layer by layer, gated by a broad noise so some stretches of edge flake and others stay
-// whole. One function for every partition, called from one loop, so D3D compiles its mask reads once.
-float ch_cell(int set, ivec2 cw, vec2 r, vec2 cpx, vec2 p, out float rnd, out vec3 dn) {
+// same by the Edge wear chance. One function for both partitions, called from one loop, so D3D compiles its mask reads
+// once.
+float ch_cell(int set, ivec2 cw, vec2 r, vec2 cpx, vec2 p, out vec3 dn) {
   vec2 s = p + r * cpx;
   dn = ch_regN(s);
   float cell = 0.5 * length(cpx);
-  vec4 h = vec4(hash3I(cw, uSeed + 407.0 + 26.0 * float(set)), hashI(cw, uSeed + 437.0 + 7.0 * float(set)));
-  rnd = h.w;
-  if (set <= 1) {
-    if (abs(dn.x) > 0.55 * cell || dn.yz == vec2(0.0)) return 0.0;
-    if (set == 1) return h.x < u_stone_wear ? 1.0 : 0.0;
-    float corner = 0.0;
-    if (u_stone_corners > 0.0) {
-      vec2 tg = vec2(-dn.z, dn.y) * cell;
-      corner = smoothstep(0.08, 0.3, (0.5 * (ch_reg(s + tg) + ch_reg(s - tg)) - dn.x) / length(tg));
-    }
-    // Broken: 1 + how much of a corner it is (its face falls further there).
-    return h.x < u_stone_chips + u_stone_corners * corner ? 1.0 + corner : 0.0;
+  float h = hashI(cw, uSeed + 407.0 + 26.0 * float(set));
+  if (abs(dn.x) > 0.55 * cell || dn.yz == vec2(0.0)) return 0.0;
+  if (set == 1) return h < u_stone_wear ? 1.0 : 0.0;
+  float corner = 0.0;
+  if (u_stone_corners > 0.0) {
+    vec2 tg = vec2(-dn.z, dn.y) * cell;
+    corner = smoothstep(0.08, 0.3, (0.5 * (ch_reg(s + tg) + ch_reg(s - tg)) - dn.x) / length(tg));
   }
-  float band = u_flake_size * (1.0 - 0.25 * float(set - 2));
-  vec2 np = snapCells(uRes / (3.0 * u_flake_size));
-  float stretch = smoothstep(0.3, 0.5, valueNoise(s / uRes * np, periodOf(np), uSeed + 439.0));
-  float edge = stretch * (1.0 - smoothstep(0.5 * band, band, max(-dn.x, 0.0)));
-  if (dn.x > 0.0 || h.x >= u_flakes + u_flake_edge * edge) return 0.0;
-  return 0.8 + 0.4 * h.y;
+  // Broken: 1 + how much of a corner it is (its face falls further there).
+  return h < u_stone_chips + u_stone_corners * corner ? 1.0 + corner : 0.0;
 }
 
-// Breaks, flakes, cracks and faults. Breaks are cuts (into cut / cutB: their surface as a distance the bevel reads);
-// flakes and faults step the surface down (keep, for Carve); cracks cut their line and drop one side a little.
-void ch_stone(vec2 p, float reg0, float K, inout float cut, inout float cutB, inout float keep, inout float rnd) {
+// Flake scars, struck the way Stone blocks pitches its faces: each a hollow below the surface, 0 at its rim and about
+// −1 at its deepest; the lowest wins, so rims meet in crisp ridges and the face between them stays whole. One scar is a
+// tilted plane — deepest at its struck end, running out at a grazing angle at the other — walled in by the bowl d⁸ − 1
+// wherever that is shallower: a steep, crisp wall round the struck end, the sides curving up to the rim. (Stone blocks'
+// d⁴ read soft here: a share of a shape's height is shallower than its scars, so the walls are steeper.) Most are struck
+// from the mask's nearest edge (Scars from edges: the struck end at the edge, the scar running inward, wider along the
+// edge than inward); one whose struck end falls short of the edge fades out, so a big piece keeps its face in the middle.
+// Two sizes in one flat loop (the 4 × 4 cells round p, which hold every scar reaching it: a scar reaches at most 1.45
+// cells, its site 0.1 cells inside its own). Each piece of the mask (fid ≥ 0: its feature random) reads the field at an
+// offset of its own and keeps only the scars whose site lies on it, so scars never run on across a joint.
+float ch_scars(vec2 p, float fid) {
+  float scs = max(u_flake_size, 2.0);
+  bool pieces = fid >= 0.0;
+  vec2 so = pieces ? fract(vec2(fid * 13.71, fid * 71.37 + 0.5)) * uRes : vec2(0.0);
+  // Ragged rims: the field warped by noise half a big scar across (±0.1 scar at the default raggedness).
+  vec2 nw = cellsFor(uRes.x / (0.5 * scs), 1.0);
+  vec2 xw = p / uRes * nw;
+  vec2 wp = 0.4 * u_flake_jag * scs * (fbmPair(xw, xw + 17.3, periodOf(nw), 2, uSeed + 481.0, uSeed + 483.0, 2) - 0.5);
+  vec2 cellsB = cellsFor(uRes.x / scs, 1.0), cellsF = cellsFor(uRes.x / (0.42 * scs), 1.0);
+  float s1 = 0.0, s2 = 0.0;
+  for (int e = 0; e < 32 * UNI_1; e++) {
+    bool fine = e >= 16;
+    int k = e & 15;
+    vec2 cells = fine ? cellsF : cellsB;
+    vec2 fo = fine ? vec2(0.37, 0.71) * uRes : vec2(0.0);
+    vec2 x = (p + wp + so + fo) / uRes * cells;
+    ivec2 cc = ivec2(floor(x - 0.5)) - 1 + ivec2(k & 3, k >> 2);
+    ivec2 cw = imod(cc, periodOf(cells));
+    vec4 h = vec4(hash2I(cw, uSeed + (fine ? 491.0 : 493.0)), hash2I(cw, uSeed + (fine ? 497.0 : 499.0)));
+    vec4 h2 = vec4(hash2I(cw, uSeed + (fine ? 503.0 : 509.0)), hash2I(cw, uSeed + (fine ? 521.0 : 523.0)));
+    vec2 site = vec2(cc) + 0.5 + 0.8 * (h.xy - 0.5);
+    // The site on screen (unwarped): one edge and direction for the whole scar, and the piece it lies on.
+    vec2 sp = site / cells * uRes - so - fo;
+    vec3 dn = ch_regN(sp);
+    vec2 mf = maskInFeat(ivec2(floor(sp + chDl)));
+    bool on = dn.x < 0.0 && (!pieces || (mf.y > 0.5 && abs(mf.x - fid) < 1e-6));
+    // Struck from the nearest edge — the scar's −x towards it, along the outward normal — or any which way.
+    bool struck = h2.w < u_flake_edge;
+    float a = struck ? atan(-dn.z, -dn.y) + 0.9 * (h.z - 0.5) : h.z * TAU;
+    vec2 ax = vec2(cos(a), sin(a));
+    vec2 lq = x - site;
+    lq = vec2(dot(lq, ax), dot(lq, vec2(-ax.y, ax.x)));
+    // Wider along the edge than inward (a scallop), up to 2.4×, shrunk to stay within the 4 × 4 window (1.45 cells).
+    float st = 1.0 + 1.4 * u_flake_stretch * h.w;
+    float R = min(0.55 + 0.4 * h2.x, 1.45 / st);
+    vec2 e2 = vec2(lq.x * st, lq.y / st) / R;
+    float d2 = dot(e2, e2);
+    float depth = on && h2.z < u_flakes ? 0.4 + 0.6 * h2.y : 0.0;
+    // (With no edge in reach, dn.x is −1e4: no struck scar.)
+    if (struck) depth *= 1.0 - smoothstep(0.9, 1.4, -dn.x / (R / st * uRes.x / cells.x));
+    float plane = -0.5 * (1.0 - e2.x) * (0.7 + h2.x) + 0.4 * (hashI(cw, uSeed + (fine ? 541.0 : 547.0)) - 0.5) * e2.y;
+    float d4 = d2 * d2;
+    float s = d2 < 1.0 ? depth * max(d4 * d4 - 1.0, plane) : 0.0;
+    if (fine) s2 = min(s2, s); else s1 = min(s1, s);
+  }
+  return s1 + u_flake_detail * 0.42 * s2;
+}
+
+// Breaks, flake scars, cracks and faults. Breaks are cuts (into cut / cutB: their surface as a distance the bevel
+// reads); flake scars and faults sink the surface (keep, for Carve); cracks cut their line and drop one side a little.
+void ch_stone(vec2 p, float reg0, float K, float fid, inout float cut, inout float cutB, inout float keep,
+              inout float rnd) {
   bool brk = u_stone_chips > 0.0 || u_stone_corners > 0.0;
-  bool flk = u_flakes > 0.0 || u_flake_edge > 0.0;
-  float drop = 0.0;
-  float inside = 1.0;   // how far the pixel lies in the last flake layer's spalls: the next layer spalls only there
   // The pixel's own corner (0 on a straight edge, 1 at a right angle): a break falls further only right at a corner.
   // (The edge's direction by central differences on the mask, not dFdx / dFdy: those are per 2 × 2 pixels, and the
   // corner fall came out in 2 × 2 steps — dotted ridges across the faces.)
@@ -617,32 +658,32 @@ void ch_stone(vec2 p, float reg0, float K, inout float cut, inout float cutB, in
   vec2 tgp = vec2(-dnp.z, dnp.y) * 0.4 * u_stone_size;
   float cornerPx = dnp.yz == vec2(0.0) ? 0.0 : smoothstep(0.08, 0.3, (0.5 * (ch_reg(p + tgp) + ch_reg(p - tgp)) - reg0) / length(tgp));
   // ---- Partitions, each a jagged Worley (one call site — D3D inlines every call): set 0 the break cells, set 1 the
-  // edge wear (a quarter of the Break size), sets 2 to Flake layers + 1 the flake layers, each 0.6 × the last.
-  for (int s = 0; s < 6 * UNI_1; s++) {
-    if (s == 0 ? brk : s == 1 ? u_stone_wear > 0.0 : flk && s - 1 <= u_flake_layers) {
-      float size = s == 0 ? u_stone_size : s == 1 ? 0.25 * u_stone_size : u_flake_size * pow(0.6, float(s - 2));
+  // edge wear (a quarter of the Break size).
+  for (int s = 0; s < 2 * UNI_1; s++) {
+    if (s == 0 ? brk : u_stone_wear > 0.0) {
+      float size = s == 0 ? u_stone_size : 0.25 * u_stone_size;
       vec2 nc = snapCells(uRes / max(size, 1.0));
       ivec2 per = periodOf(nc);
       vec2 cpx = uRes / nc;
       float cell = 0.5 * length(cpx);
       vec2 x = p / uRes * nc;
       // A smooth, low warp (one octave at the cell scale): the borders bend, but don't crenellate or fold into islands.
-      vec2 wv = (s <= 1 ? 0.3 : 0.5 * u_flake_jag) * (fbmPair(x, x + 17.3, per, 1, uSeed + 403.0 + 18.0 * float(s), uSeed + 404.0 + 18.0 * float(s), 2) - 0.5);
+      vec2 wv = 0.3 * (fbmPair(x, x + 17.3, per, 1, uSeed + 403.0 + 18.0 * float(s), uSeed + 404.0 + 18.0 * float(s), 2) - 0.5);
       x += wv;
       ivec2 c0, c1, c2;
       vec2 r0, r1, r2;
       vec2 mds = ch_plates(x, per, uSeed + 405.0 + 26.0 * float(s), c0, r0, c1, r1, c2, r2) * 0.5 * (cpx.x + cpx.y);
       float md = mds.x;
-      float st[3], rn[3], hk[3];
+      float st[3], hk[3];
       vec3 dn[3];
-      // The pixel's cell and the two across its nearest borders: broken / spalled, then each one's surface.
+      // The pixel's cell and the two across its nearest borders: broken or not, then each one's surface.
       // (r is from the warped pixel to a point: with the warp added, from the pixel itself — the same screen point for
       // every pixel of the cell, so all of them judge it alike. Without it a cell broke for some of its pixels and not
       // others: walls no blend reached, combs, specks.)
       for (int k = 0; k < 3 * UNI_1; k++) {
         ivec2 ck = k == 0 ? c0 : k == 1 ? c1 : c2;
         vec2 r = (k == 0 ? r0 : k == 1 ? r1 : r2) + wv;
-        st[k] = ch_cell(s, imod(ck, per), r, cpx, p, rn[k], dn[k]);
+        st[k] = ch_cell(s, imod(ck, per), r, cpx, p, dn[k]);
       }
       for (int k = 0; k < 3 * UNI_1; k++) {
         ivec2 ck = k == 0 ? c0 : k == 1 ? c1 : c2;
@@ -652,57 +693,37 @@ void ch_stone(vec2 p, float reg0, float K, inout float cut, inout float cutB, in
         vec2 nOut = dn[k].yz == vec2(0.0) ? vec2(cos(hf.x * 6.2832), sin(hf.x * 6.2832)) : dn[k].yz;
         vec2 tg = vec2(-nOut.y, nOut.x);
         vec2 q = (p - (p + r * cpx)) / cell;          // from the cell's point, in cells
-        float u = dot(q, nOut);                       // −1 inward … +1 out towards the edge
-        if (s <= 1) {
-          // A broken chunk: a scarp of the Break rim drop at its rim, then a flat face sloping on to Break face drop ×
-          // Break depth below the
-          // top at the mask's edge (the plane's distance to the edge along the normal at its point), leaning a little — a
-          // lit chip below the top, not a hole; right at a corner it falls ×1.8 as far, biting the outline. Wear chips:
-          // half as deep, each its own depth. Where it meets an intact cell (across either near border) the face rises to
-          // its rim within half a cell, so that border steps by the Break rim drop only.
-          float dep = u_stone_depth * (s == 1 ? 0.3 + 0.5 * hf.z : 1.0);
-          float ze = -(dn[k].x + dot(p - (p + r * cpx), nOut));
-          float zr = max(-dn[k].x, 0.0) + cell;
-          float lo = 1.0 - u_stone_face * dep * (1.0 + 0.8 * cornerPx);
-          float rim = 1.0 - u_stone_scarp * dep;
-          float face = mix(lo, rim, clamp(ze / zr, 0.0, 1.0)) + 0.12 * dep * (hf.y - 0.5) * dot(q, tg);
-          float mdI = min(st[1] < 0.5 ? mds.x : 1e9, st[2] < 0.5 ? mds.y : 1e9);
-          if (k == 0 && mdI < 1e8) face = max(face, rim - (rim - lo) * mdI / max(0.5 * cell, 2.0));
-          hk[k] = st[k] > 0.5 ? face : 1.0;
-        } else {
-          // A spall: deepest at its inner scarp, feathering out towards the edge, the scoop leaning a little.
-          float feather = clamp(0.6 - 0.6 * u, 0.0, 1.0);
-          hk[k] = st[k] * feather * (1.0 + u_flake_tilt * (hf.y - 0.5) * dot(q, tg));
-        }
+        // A broken chunk: a scarp of the Break rim drop at its rim, then a flat face sloping on to Break face drop ×
+        // Break depth below the top at the mask's edge (the plane's distance to the edge along the normal at its
+        // point), leaning a little — a lit chip below the top, not a hole; right at a corner it falls ×1.8 as far,
+        // biting the outline. Wear chips: half as deep, each its own depth. Where it meets an intact cell (across either
+        // near border) the face rises to its rim within half a cell, so that border steps by the Break rim drop only.
+        float dep = u_stone_depth * (s == 1 ? 0.3 + 0.5 * hf.z : 1.0);
+        float ze = -(dn[k].x + dot(p - (p + r * cpx), nOut));
+        float zr = max(-dn[k].x, 0.0) + cell;
+        float lo = 1.0 - u_stone_face * dep * (1.0 + 0.8 * cornerPx);
+        float rim = 1.0 - u_stone_scarp * dep;
+        float face = mix(lo, rim, clamp(ze / zr, 0.0, 1.0)) + 0.12 * dep * (hf.y - 0.5) * dot(q, tg);
+        float mdI = min(st[1] < 0.5 ? mds.x : 1e9, st[2] < 0.5 ? mds.y : 1e9);
+        if (k == 0 && mdI < 1e8) face = max(face, rim - (rim - lo) * mdI / max(0.5 * cell, 2.0));
+        hk[k] = st[k] > 0.5 ? face : 1.0;
       }
       // Across each near border the surfaces meet in a crisp, anti-aliased step (Break roughness: smooth noise on it): each
       // neighbour weighs 1 on its border (the two sides' mean there) to 0 a blend width in.
-      float jit = 0.0;
-      if (s <= 1) {
-        vec2 nr = nc * 3.0;
-        jit = u_stone_rough * 2.0 * (valueNoise(p / uRes * nr, periodOf(nr), uSeed + 411.0) - 0.5);
-      }
-      float blw = s <= 1 ? 1.5 : max(u_flake_rim, 0.3);
-      float w1 = 1.0 - smoothstep(0.0, blw, mds.x + jit), w2 = 1.0 - smoothstep(0.0, blw, mds.y + jit);
+      vec2 nr = nc * 3.0;
+      float jit = u_stone_rough * 2.0 * (valueNoise(p / uRes * nr, periodOf(nr), uSeed + 411.0) - 0.5);
+      float w1 = 1.0 - smoothstep(0.0, 1.5, mds.x + jit), w2 = 1.0 - smoothstep(0.0, 1.5, mds.y + jit);
       float hv = (hk[0] + w1 * hk[1] + w2 * hk[2]) / (1.0 + w1 + w2);
-      float bl = 1.0 / (1.0 + w1 + w2);
-      if (s <= 1) {
-        if (st[0] > 0.5 || st[1] > 0.5 || st[2] > 0.5) {
-          // As a distance: −Bevel at the top, 0 at the edge level, beyond it outside — what the bevel reads back.
-          float cc = -K * hv;
-          cut = max(cut, cc);
-          cutB = max(cutB, cc);
-        }
-      } else {
-        // ---- Flakes: layers nest — each spalls only within the last one's spalls, the terraces stepping down
-        // inside one another.
-        drop += u_flake_depth * hv * inside;
-        inside *= ((st[0] > 0.0 ? 1.0 : 0.0) + w1 * (st[1] > 0.0 ? 1.0 : 0.0) + w2 * (st[2] > 0.0 ? 1.0 : 0.0)) * bl;
-        if (st[0] > 0.0) rnd = rn[0];
+      if (st[0] > 0.5 || st[1] > 0.5 || st[2] > 0.5) {
+        // As a distance: −Bevel at the top, 0 at the edge level, beyond it outside — what the bevel reads back.
+        float cc = -K * hv;
+        cut = max(cut, cc);
+        cutB = max(cutB, cc);
       }
     }
   }
-  keep *= clamp(1.0 - drop, 0.0, 1.0);
+  // ---- Flake scars: they sink the surface (Carve only; a chipped shape has no surface to sink).
+  if (u_flakes > 0.0 && u_output == 0) chScar = clamp(1.0 + u_flake_depth * ch_scars(p, fid), 0.0, 1.0);
   // Where a break lowered the surface (0 … 1): cracks fade there, ending at its rim instead of dashing across its face.
   float broken = smoothstep(-0.97 * K, -0.8 * K, cut);
 
@@ -814,6 +835,10 @@ void ch_stone(vec2 p, float reg0, float K, inout float cut, inout float cutB, in
 GenOut gen(vec2 p) {
   chDl = gl_FragCoord.xy - p;
   float reg0 = ch_reg(p);
+  // The piece of the mask it damages (its feature random; −1: none there). The pieces keep their randoms in the mask it
+  // writes, and Stone's flake scars keep to the piece they lie on.
+  vec2 mf = maskInFeat(ivec2(gl_FragCoord.xy));
+  float fid = mf.y > 0.5 ? mf.x : -1.0;
   float K = max(u_bevel, 1.0);
   float cut = -1e9;    // the furthest-reaching cut, depth applied (Chipped shape)
   float keep = 1.0;    // how much of the surface is left (Carve)
@@ -833,7 +858,7 @@ GenOut gen(vec2 p) {
   float kAlg = asp ? u_bevel / bevelWidth(vert ? vec2(0.0, 1.0) : vec2(1.0, 0.0)) : 1.0;
   // (No continue in the loops: ANGLE / D3D11 can miscompile it.)
 #ifdef CH_STONE
-  ch_stone(p, reg0, K, cut, cutB, keep, rnd);
+  ch_stone(p, reg0, K, fid, cut, cutB, keep, rnd);
 #else
   // ---- Chips: one spot per cell near the edge, moved onto it along the field's normal, a flake cut around it.
   if (u_chips > 0.0 || u_corners > 0.0) {
@@ -956,9 +981,6 @@ GenOut gen(vec2 p) {
   // Bevel aspect: the mask's own part by its direction (no geometry here to measure it by) — as the original's bevel b0
   // below, so untouched parts carve nothing — the cuts measured in the stretched space.
   float dB = asp ? max(bevelLine(reg0, g0), cutB) : d;
-  // The pieces of the mask it damages keep their feature randoms in the mask it writes (fid −1: none there).
-  vec2 mf = maskInFeat(ivec2(gl_FragCoord.xy));
-  float fid = mf.y > 0.5 ? mf.x : -1.0;
   if (u_output == 1) {
     // The chipped shape: each piece varies by its own random.
     GenOut g = genOut(0.0, 1.0, fid, d);
@@ -966,13 +988,16 @@ GenOut gen(vec2 p) {
     if (asp) g.bdist = dB;
     return g;
   }
-  // Carve: the bevel on the chipped shape over the bevel on the original. Only the shape is carved: beyond its edge
-  // there is nothing to take away.
+  // Carve: the bevel on the original less what is left of it — the bevel on the chipped shape, sunk by the faults and
+  // cracks (keep) — as a share of the shape's height, for Height › Subtract. Only the shape is carved: beyond its edge
+  // there is nothing to take away. The flake scars sink it further in Height's value (hval) alone, so Diffuse › Multiply
+  // darkens the breaks and cracks but leaves the scars to the light.
   float b0 = bevelAt(reg0, g0) * coverage(reg0, u_aa);
   float b1 = (asp ? bevelPlain(dB) : bevelAt(d, g1)) * coverage(d, u_aa);
-  keep = min(keep, b0 > 1e-3 ? clamp(b1 / b0, 0.0, 1.0) : 1.0);
-  keep = 1.0 - (1.0 - keep) * coverage(reg0, true);
-  GenOut g = genOutOwn(keep, clamp((1.0 - keep) * 64.0, 0.0, 1.0), rnd, d);
+  float depth = clamp(b0 - min(b0 * keep, b1), 0.0, 1.0);
+  float hDepth = clamp(b0 - min(b0 * keep * chScar, b1), 0.0, 1.0);
+  GenOut g = genOutOwn(depth, clamp(hDepth * 64.0, 0.0, 1.0), rnd, d);
+  g.hval = hDepth;
   g.fid = fid;
   return g;
 }
