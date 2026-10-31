@@ -62,27 +62,19 @@ const vec2 GLASS_LIGHT[5] = vec2[5](vec2(-0.7071, 0.7071), vec2(0.0, 1.0), vec2(
 void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   float m = coverage(maskIn(ip), true);
   if (m <= 0.0) return;
-  // Surface normal from the height (px per px).
+  // Surface normal from the height (px per px); the background refracted through it (GLSL_TRANSPARENCY).
   float hl = fetchT(tSurface, ip - ivec2(1, 0)).r, hr = fetchT(tSurface, ip + ivec2(1, 0)).r;
   float hd = fetchT(tSurface, ip - ivec2(0, 1)).r, hu = fetchT(tSurface, ip + ivec2(0, 1)).r;
-  vec2 g = 0.5 * vec2(hr - hl, hu - hd) * uDepth;
-  vec3 n = normalize(vec3(-g, 1.0));
-  vec2 p = vec2(ip) + 0.5;
-  // Refraction: sample further out along the slope (a magnifying, rim-squeezing lens).
-  vec3 behind = sampleT(tAlbedo, p + n.xy * u_refraction).rgb;
-  float rim = clamp(1.0 - n.z, 0.0, 1.0);
-  vec3 through = behind * mix(vec3(1.0), u_tint, clamp(u_tint_amount * (0.5 + 2.0 * rim), 0.0, 1.0));
-  float F = clamp(u_fresnel * pow(rim, 1.5) * 1.6, 0.0, 1.0);
-  vec3 col = mix(through, u_rim, F);
-  // Transmitted light is not shaded by the glass surface: carry it as emission, keep the rest as albedo.
-  float tr = u_transmit * (1.0 - F);
-  A.rgb = mix(A.rgb, col * (1.0 - tr), m);
-  E.rgb += m * col * tr;
+  vec3 n = slopeNormal(0.5 * vec2(hr - hl, hu - hd) * uDepth);
+  float rim = grazing(n);
+  vec3 behind = seenThrough(vec2(ip) + 0.5, lensShift(n, u_refraction));
+  vec3 through = absorbTint(behind, u_tint, u_tint_amount * (0.5 + 2.0 * rim));
+  float F = rimFresnel(rim, u_fresnel);
+  vec3 a = A.rgb, e = E.rgb;
+  layTransparent(a, e, mix(through, u_rim, F), u_transmit * (1.0 - F), m);
+  A.rgb = a;
   // Inner glint: on the far side from the light, just inside the rim.
-  vec2 L = GLASS_LIGHT[u_light];
-  vec2 nd = n.xy / max(length(n.xy), 1e-4);
-  float glint = u_glint * smoothstep(0.5, 0.9, dot(nd, -L)) * smoothstep(0.08, 0.3, rim) * (1.0 - smoothstep(0.55, 0.8, rim));
-  E.rgb += m * glint * mix(vec3(1.0), u_tint, 0.3);
+  E.rgb = e + m * u_glint * innerGlint(n, GLASS_LIGHT[u_light], rim) * mix(vec3(1.0), u_tint, 0.3);
   // Glossy, and not metal (glass over a metal reflects like glass).
   S.g = mix(S.g, u_roughness, m);
   S.b = mix(S.b, 0.0, m);

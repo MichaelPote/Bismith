@@ -11,6 +11,7 @@ import { createUniforms, declareUniforms, mixSeed, updateUniforms } from '@/gpu/
 import { GLSL_COMMON } from '@/layers/glsl/common';
 import { GLSL_NOISE } from '@/layers/glsl/noise';
 import { GLSL_SDF } from '@/layers/glsl/sdf';
+import { GLSL_TRANSPARENCY } from '@/layers/glsl/transparency';
 import { GLSL_BEVEL, GLSL_GENERATOR_MAIN, GLSL_MASK_OP, bevelCurveDefine, bevelCurveImpl } from '@/layers/commonParams';
 import { planMasks, type LayerMasks, type MaskPlan, type MaskRef } from '@/layers/masks';
 import { getLayerDef, layerParamDefs } from '@/layers/registry';
@@ -111,10 +112,13 @@ float gGenGrey = 0.0;
 // The generator's own levels per part (LayerDef.parts), for Roughness, Specular, Metalness and Emissive with Source
 // Parts: x roughness, y specular, z metalness, w emissive (0..1; < 0 = the Pattern value there).
 vec4 gGenLevel = vec4(-1.0);
+// The share of the Diffuse colour it lays that is transmitted light (0..1): seen through a clear medium, not shaded by
+// the surface, so carried as emission (layTransparent; Ice).
+float gGenTransmit = 0.0;
 ${GLSL_MASK_OP}`;
 
 /** Everything a GLSL snippet in the material stage can rely on. */
-export const MATERIAL_PRELUDE = STATE_DECLS + GLSL_COMMON + GLSL_MASKS + GLSL_NOISE + GLSL_SDF;
+export const MATERIAL_PRELUDE = STATE_DECLS + GLSL_COMMON + GLSL_MASKS + GLSL_NOISE + GLSL_SDF + GLSL_TRANSPARENCY;
 
 /** Masks a combined limit reads at most: a layer's own four terms and its group's four. */
 const MAX_LIMIT_INPUTS = 8;

@@ -25,6 +25,7 @@ import { stoneBlocksLayer } from './stoneBlocks';
 import { grassLayer } from './grass';
 import { bismuthLayer } from './bismuth';
 import { crystalLayer } from './crystal';
+import { iceLayer } from './ice';
 
 /** Every generator layer type, in add-menu order within each category. */
 export const GENERATORS: LayerDef[] = [
@@ -53,5 +54,6 @@ export const GENERATORS: LayerDef[] = [
 	stoneBlocksLayer,
 	grassLayer,
 	bismuthLayer,
-	crystalLayer
+	crystalLayer,
+	iceLayer
 ];

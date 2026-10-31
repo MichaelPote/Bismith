@@ -948,7 +948,14 @@ ${
     top = mix(top, vec3(luma(top)), gGenGrey) * gGenShade;
     vec3 base = linearToSrgb(A.rgb);
     vec3 blended = blendMode(u_dif_blend, base, top);
-    A.rgb = srgbToLinear(mix(base, blended, m * u_dif_opacity));
+    float w = m * u_dif_opacity;
+    if (gGenTransmit > 0.0) {
+      // Its transmitted share goes to emission (layTransparent: seen through, not shaded by the surface).
+      vec3 a = A.rgb, e = E.rgb;
+      layTransparent(a, e, srgbToLinear(blended), gGenTransmit, w);
+      A.rgb = a;
+      E.rgb = e;
+    } else A.rgb = srgbToLinear(mix(base, blended, w));
   }
   if (u_op_on) {
     // Replace and Multiply set the alpha outside the coverage too (to 0 there), as far as Strength, Limit to and the

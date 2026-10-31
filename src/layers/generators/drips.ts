@@ -27,6 +27,7 @@ import type { Texture } from 'three';
 import { P, round1 as r1, type Gradient } from '@/core/params';
 import { DISTANCE_SOURCE, jumpFlood } from '@/gpu/jfa';
 import type { LayerDef } from '../types';
+import { LEDGE_GLSL, ledgeCells, ledgeParams } from '../ledges';
 
 const stains = (p: Record<string, unknown>) => p.output !== 'source';
 const sources = (p: Record<string, unknown>) => p.output === 'source';
@@ -57,16 +58,6 @@ const stopsKey = (g: unknown) =>
 		? (g as Gradient).stops.map((s) => `${s.pos}${s.color}`).join()
 		: '';
 
-/** The ledge test, shared by the prepare passes: the ledge flood, the ledge cells and the source cells. */
-const DR_LEDGE_GLSL = /* glsl */ `
-// The height drop from a pixel to the one the ledge reach below it (GL pixel c).
-float dr_drop(ivec2 c) { return fetchT(tSurface, c).r - fetchT(tSurface, c - ivec2(0, int(u_ledge_reach + 0.5))).r; }
-// How much a drop counts as a ledge, 0..1.
-float dr_ledgeOk(float drop) {
-  return u_ledge > 0.0 ? smoothstep(u_ledge * (1.0 - max(u_ledge_soft, 0.01)), u_ledge, drop) : step(1e-4, drop);
-}
-`;
-
 /** The two sets of source cells and their layout in the source texture, shared by the source pass and `gen`. */
 const DR_GRID_GLSL = /* glsl */ `
 const int DR_MX = ${DR_MX};
@@ -87,7 +78,7 @@ int dr_rowB0() { return u_rows + DR_MY + DR_MX; }
 /** The prepare passes' grid and ledge test, and the ledge cells the grid's search reads. */
 const DR_PREP_GLSL =
 	DR_GRID_GLSL +
-	DR_LEDGE_GLSL +
+	LEDGE_GLSL +
 	/* glsl */ `
 // The ledge cells the grid's search (set A) reads: no bigger than half a grid cell (nor than set B's), so every grid
 // cell with a ledge finds it, however fine the grid. (dripGrids mirrors it.)
@@ -131,36 +122,9 @@ function dripGrids(p: Record<string, unknown>, w: number, h: number) {
 
 /** The ledge flood's source (gpu/jfa.ts, custom): inside where the drop counts as a ledge. */
 const LEDGE_FLOOD =
-	DR_LEDGE_GLSL +
+	LEDGE_GLSL +
 	/* glsl */ `
-float jfaCustom(ivec2 c) { return dr_ledgeOk(dr_drop(c)) - 0.5; }
-`;
-
-/**
- * The ledge pass: one texel per ledge cell (Ledge spacing px; blisters at least half a radius) — the strongest ledge
- * pixel in it, every pixel tried: (its position, user px; its drop). The source pass picks drips from it: set B
- * directly, set A the best of those in each grid cell.
- */
-const LEDGE_CELLS_GLSL =
-	DR_PREP_GLSL +
-	/* glsl */ `
-uniform int uWhich;  // 0: the grid's search cells (dr_cellsLA), 1: set B's (dr_cellsB)
-void main() {
-  ivec2 l = ivec2(floor(gl_FragCoord.xy));
-  vec2 csL = uRes / (uWhich == 0 ? dr_cellsLA() : dr_cellsB());
-  ivec2 lo = ivec2(ceil(vec2(l) * csL - 0.5));
-  ivec2 hi = ivec2(ceil(vec2(l + 1) * csL - 0.5));
-  int n = max(hi.x - lo.x, 1);
-  int count = n * max(hi.y - lo.y, 0);
-  float best = -1.0;
-  vec2 pos = (vec2(l) + 0.5) * csL;
-  for (int i = 0; i < count; i++) {
-    ivec2 pu = lo + ivec2(i - (i / n) * n, i / n);  // user px
-    float dd = dr_drop(ivec2(pu.x, int(uRes.y) - 1 - pu.y));
-    if (dd > best) { best = dd; pos = vec2(pu) + 0.5; }
-  }
-  oColor = vec4(pos, max(best, 0.0), 1.0);
-}
+float jfaCustom(ivec2 c) { return ledgeOk(ledgeDrop(c)) - 0.5; }
 `;
 
 /**
@@ -197,7 +161,7 @@ float dr_span(vec2 pos) {
   int gy = int(uRes.y) - 1 - int(floor(pos.y));
   for (int i = 0; i < 8; i++) {
     ivec2 g = ivec2(int(floor(pos.x + DR_SPAN[i] * max(4.0, u_width))), gy);
-    n += max(dr_ledgeOk(dr_drop(g)), max(dr_ledgeOk(dr_drop(g + ivec2(0, 1))), dr_ledgeOk(dr_drop(g - ivec2(0, 1)))));
+    n += max(ledgeOk(ledgeDrop(g)), max(ledgeOk(ledgeDrop(g + ivec2(0, 1))), ledgeOk(ledgeDrop(g - ivec2(0, 1)))));
   }
   return n / 8.0;
 }
@@ -230,7 +194,7 @@ bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out flo
       bool inCell = b.x >= lo.x && b.y >= lo.y && b.x < lo.x + cs.x && b.y < lo.y + cs.y;
       if (inCell && b.z > bestDrop) { bestDrop = b.z; bestPos = b.xy; }
     }
-    float ok = dr_ledgeOk(max(bestDrop, 0.0));
+    float ok = ledgeOk(max(bestDrop, 0.0));
     if (hashI(cw, uSeed + 33.0) < ok) {
       drop = max(bestDrop, 0.0);
       src = bestPos;
@@ -259,7 +223,7 @@ bool dr_ledgeSource(ivec2 c, vec2 cellsB, vec2 csA, out ivec2 cw, out vec2 src, 
   drop = max(b.z, 0.0);
   onLedge = b.z >= 0.0;
   lpos = b.xy;
-  float dens = u_density * dr_wB() * dr_ledgeOk(drop) * dr_cluster((vec2(cw) + 0.5) * (uRes / cellsB), csA);
+  float dens = u_density * dr_wB() * ledgeOk(drop) * dr_cluster((vec2(cw) + 0.5) * (uRes / cellsB), csA);
   if (!u_aa) src = floor(src) + 0.5;
   return b.z >= 0.0 && hashI(cw, uSeed + 7924.0) < dens;
 }
@@ -570,25 +534,7 @@ export const dripsLayer: LayerDef = {
 			showIf: (p) => Number(p.spawn) > 0,
 			hint: 'Sets how far apart drips can start along a ledge; Density picks among those spots (Sources: at least half the blister radius)'
 		}),
-		P.float('ledge', 'Ledge threshold', 0.15, 0, 8, {
-			softMax: 1,
-			step: 0.001,
-			group: 'relief',
-			hint: 'Sets the height drop (in height units, over the Ledge reach) that counts as a ledge. Raise it until shallow bumps stop sprouting drips'
-		}),
-		P.float('ledge_reach', 'Ledge reach', 2, 1, 64, {
-			softMax: 16,
-			unit: 'px',
-			axis: 'y',
-			step: 0.5,
-			group: 'relief',
-			hint: 'Sets how far below a point the drop is measured (short = only hard, sharp steps count; long = soft, gradual edges count too)'
-		}),
-		P.float('ledge_soft', 'Ledge softness', 0.15, 0, 1, {
-			step: 0.001,
-			group: 'relief',
-			hint: 'Softens the Ledge threshold (0 = a hard cut-off; 1 = gradual, so weaker ledges drip less often)'
-		}),
+		...ledgeParams({ group: 'relief' }),
 		P.float('relief_len', 'Length from height', 0, 0, 32, {
 			softMax: 16,
 			step: 0.01,
@@ -632,21 +578,16 @@ export const dripsLayer: LayerDef = {
 			Math.max(Number(p.cols), bx) + 2 * DR_MX,
 			Number(p.rows) + DR_ROWS + DR_MX + (ledges ? by + DR_ROWS + DR_MX : 0)
 		);
-		// The ledge cells first (each one's strongest ledge pixel): set B's, and the grid's search cells.
-		const ledgeMat = ctx.material('drips:lcells', LEDGE_CELLS_GLSL, { uWhich: { value: 0 } });
-		const lb = ctx.scratch('drips-lcells:b', Math.max(bx, 1), Math.max(by, 1));
+		// The ledge cells first (each one's strongest ledge pixel, layers/ledges.ts): set B's, and the grid's search cells.
+		const lb = ledges
+			? ledgeCells(ctx, 'drips-lcells:b', [cellsB[0], cellsB[1]])
+			: ctx.scratch('drips-lcells:b', 1, 1).texture;
 		const la = ledges
-			? ctx.scratch('drips-lcells:a', cellsLA[0] + 1, cellsLA[1] + 1)
-			: ctx.scratch('drips-lcells:a', 1, 1);
-		if (ledges) {
-			ledgeMat.uniforms.uWhich.value = 1;
-			ctx.run(ledgeMat, lb);
-			ledgeMat.uniforms.uWhich.value = 0;
-			ctx.run(ledgeMat, la);
-		}
+			? ledgeCells(ctx, 'drips-lcells:a', [cellsLA[0], cellsLA[1]])
+			: ctx.scratch('drips-lcells:a', 1, 1).texture;
 		const cellMat = ctx.material('drips:cells', CELLS_GLSL, { tLedgeA: { value: null }, tLedgeB: { value: null } });
-		cellMat.uniforms.tLedgeA.value = la.texture;
-		cellMat.uniforms.tLedgeB.value = lb.texture;
+		cellMat.uniforms.tLedgeA.value = la;
+		cellMat.uniforms.tLedgeB.value = lb;
 		ctx.run(cellMat, cells);
 		out.cells = cells.texture;
 		// Surface flow: the rises crossed going down each column, summed from the top.

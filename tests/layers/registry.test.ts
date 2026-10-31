@@ -39,7 +39,9 @@ describe('layer registry', () => {
 			for (const d of def.params) {
 				// (A curve is read through curve_<key>, which the profile helpers may call: Bevel's custom profile.)
 				if (noUniform(d) || d.type === 'curve' || READ_IN_PREPARE.has(`${def.type}.${d.key}`)) continue;
-				if (!new RegExp(`\\bu_${d.key}\\b`).test(glsl)) unused.push(`${def.type}.${d.key}`);
+				// (A gradient is read as u_<key>_stops and u_<key>_count.)
+				const name = d.type === 'gradient' ? `u_${d.key}_stops` : `u_${d.key}`;
+				if (!new RegExp(`\\b${name}\\b`).test(glsl)) unused.push(`${def.type}.${d.key}`);
 			}
 		}
 		expect(unused).toEqual([]);
