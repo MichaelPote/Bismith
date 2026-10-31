@@ -280,7 +280,7 @@ describe('canvas resize', () => {
 				createLayer('bricks', { columns: 4, mortar: 1.5, bevel: 2, ofs_x: 4, ofs_y: 2 }),
 				createLayer('path', { points: '8,16 24,8 56,8' }),
 				createLayer('scratches', { density: 16 }),
-				createLayer('cavity', { radius: 3, sensitivity: 0.5 }),
+				createLayer('cavity', { wear_radius: 3, wear_sensitivity: 0.5, dirt_radius: 4 }),
 				createLayer('rock', { px_scale: 1 })
 			],
 			post: [createPostFilter('pixelate', { size: 3 })]
@@ -293,7 +293,8 @@ describe('canvas resize', () => {
 		expect(q.layers[2].params.density).toBe(4);
 		expect(q.post[0].params.size).toBe(6);
 		// Per-px gains shrink; one output pixel stays one pixel (it grows only under supersampling).
-		expect([q.layers[3].params.radius, q.layers[3].params.sensitivity]).toEqual([6, 0.25]);
+		expect([q.layers[3].params.wear_radius, q.layers[3].params.wear_sensitivity]).toEqual([6, 0.25]);
+		expect(q.layers[3].params.dirt_radius).toBe(8);
 		expect(q.layers[4].params.px_scale).toBe(1);
 		const { scaleProject } = await import('@/core/supersample');
 		expect(scaleProject(p, 2).layers[4].params.px_scale).toBe(2);

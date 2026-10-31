@@ -399,12 +399,20 @@ function speckle(amount = 0.2, extra: ParamValues = {}): Layer {
 	});
 }
 
+/** Cavity / edge wear's Radius, Threshold and Sensitivity, the same for its Edge wear and its Cavity dirt. */
+const curvature = (radius: number, threshold: number, sensitivity: number) => ({
+	wear_radius: radius,
+	wear_threshold: threshold,
+	wear_sensitivity: sensitivity,
+	dirt_radius: radius,
+	dirt_threshold: threshold,
+	dirt_sensitivity: sensitivity
+});
+
 /** Cavity dirt and edge wear (worn edges in `wearColor`: the palette's lightest, lifted on bare metal). */
 function grime(a: Analysis, radius = 2, wear = 0.35, wearColor = pick(a, 1)): Layer {
 	return L('cavity', 'Grime & wear', {
-		radius,
-		threshold: 0.05,
-		sensitivity: 0.8,
+		...curvature(radius, 0.05, 0.8),
 		wear_amount: wear,
 		wear_color: wearColor,
 		dirt_amount: 0.6,
@@ -1019,9 +1027,7 @@ export const TEMPLATES: Template[] = [
 							dif_grad: ramp('#ffffff', mix(pick(a, 0), '#000000', 0.5))
 						}),
 						L('cavity', 'Edge wear', {
-							radius: 1,
-							threshold: 0.04,
-							sensitivity: 1.2,
+							...curvature(1, 0.04, 1.2),
 							dirt_amount: 0,
 							wear_amount: 0.8,
 							wear_color: pick(a, 0.85),
@@ -1367,9 +1373,7 @@ export const TEMPLATES: Template[] = [
 							: []),
 						speckle(0.45),
 						L('cavity', 'Dents', {
-							radius: 2,
-							threshold: 0.03,
-							sensitivity: 0.8,
+							...curvature(2, 0.03, 0.8),
 							wear_amount: 0.4,
 							wear_color: metalColour(pick(a, 0.9)),
 							dirt_amount: 0.5,

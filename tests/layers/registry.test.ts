@@ -17,8 +17,17 @@ const noUniform = (d: ParamDef) => d.key === 'seed' || d.uniform === false;
  * tests cover their CPU side). A new layer of this kind must be added deliberately.
  */
 const READ_ELSEWHERE = new Set(['stamp', 'label', 'polyline', 'drips', 'splats', 'traces', 'causticlight', 'pipework']);
-/** Filter params read only by their prepare passes (the edge filters' jump flood, Cavity's blur). */
-const READ_IN_PREPARE = new Set(['bevel.threshold', 'bevel.smooth', 'etch.threshold', 'etch.smooth', 'cavity.radius']);
+/** Filter params read only by their prepare passes (the edge filters' jump flood, Cavity's mask pass). */
+const READ_IN_PREPARE = new Set([
+	'bevel.threshold',
+	'bevel.smooth',
+	'etch.threshold',
+	'etch.smooth',
+	'cavity.wear_threshold',
+	'cavity.wear_sensitivity',
+	'cavity.dirt_threshold',
+	'cavity.dirt_sensitivity'
+]);
 
 /** The enum variants of a layer's own params (defaults, then each other option), to probe param-dependent hooks. */
 function variants(type: string, own: ParamDef[]): ParamValues[] {

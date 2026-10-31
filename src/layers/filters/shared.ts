@@ -49,6 +49,8 @@ export const radiusToSigma = (radius: number) => Math.max(radius, 0) * 0.5;
 /** Hard cap on the taps either side of a separable blur pass. */
 export const MAX_BLUR_TAPS = 192;
 
+// Past MAX_BLUR_TAPS a side, every stride-th texel (stride ≤ 4 up to σ 256, a kernel far wider than its gaps), so a
+// wide blur costs no more taps than a radius of 128.
 const BLUR4 = /* glsl */ `
 uniform sampler2D tSrc;
 uniform vec2 uDir;
@@ -56,13 +58,16 @@ uniform float uSigma;
 void main() {
   ivec2 c = ivec2(gl_FragCoord.xy);
   ivec2 dir = ivec2(uDir);
-  int R = gaussTaps(uSigma, ${MAX_BLUR_TAPS});
+  int R = int(ceil(uSigma * 3.0));
+  int stride = max(1, (R + ${MAX_BLUR_TAPS - 1}) / ${MAX_BLUR_TAPS});
+  int n = R / stride;
   float k = gaussK(uSigma);
   vec4 sum = vec4(0.0);
   float ws = 0.0;
-  for (int i = -R; i <= R; i++) {
-    float w = exp(float(i * i) * k);
-    sum += w * fetchT(tSrc, c + dir * i);
+  for (int i = -n; i <= n; i++) {
+    int o = i * stride;
+    float w = exp(float(o * o) * k);
+    sum += w * fetchT(tSrc, c + dir * o);
     ws += w;
   }
   oColor = sum / ws;

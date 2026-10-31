@@ -35,16 +35,16 @@ accumulated channels rather than generating new content.
 
 ## Files
 
-| File                           | Contents                                                                                                                                                               |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/gpu/jfa.ts`               | `jumpFlood(ctx, { source, threshold, invert?, maxDistance?, relax?, name? })` → scratch target (r = signed distance px, negative inside; gb = nearest seed; a = found) |
-| `src/layers/filters/shared.ts` | distance-source params (`source`, `threshold`, `smooth`), `sourceDistance()`, `blurTexture()` (separable Gaussian into scratch), GLSL helpers                          |
-| `src/layers/filters/blur.ts`   | `blur`                                                                                                                                                                 |
-| `src/layers/filters/edges.ts`  | `bevel`, `etch`                                                                                                                                                        |
-| `src/layers/filters/cavity.ts` | `cavity`                                                                                                                                                               |
-| `src/layers/filters/warp.ts`   | `warp` (single-pass `filterGlsl`)                                                                                                                                      |
-| `src/layers/filters/adjust.ts` | `levels`, `hsv` (single-pass), `heightFromDiffuse`                                                                                                                     |
-| `src/layers/filters/index.ts`  | `FILTERS` in add-menu order                                                                                                                                            |
+| File                           | Contents                                                                                                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/gpu/jfa.ts`               | `jumpFlood(ctx, { source, threshold, invert?, maxDistance?, relax?, name? })` → scratch target (r = signed distance px, negative inside; gb = nearest seed; a = found)         |
+| `src/layers/filters/shared.ts` | distance-source params (`source`, `threshold`, `smooth`), `sourceDistance()`, `blurTexture()` (separable Gaussian into scratch; past 192 taps a side it strides), GLSL helpers |
+| `src/layers/filters/blur.ts`   | `blur`                                                                                                                                                                         |
+| `src/layers/filters/edges.ts`  | `bevel`, `etch`                                                                                                                                                                |
+| `src/layers/filters/cavity.ts` | `cavity`                                                                                                                                                                       |
+| `src/layers/filters/warp.ts`   | `warp` (single-pass `filterGlsl`)                                                                                                                                              |
+| `src/layers/filters/adjust.ts` | `levels`, `hsv` (single-pass), `heightFromDiffuse`                                                                                                                             |
+| `src/layers/filters/index.ts`  | `FILTERS` in add-menu order                                                                                                                                                    |
 
 ## Layer types and params
 
@@ -56,20 +56,36 @@ Lengths are px; heights are unitless (1.0 = `heightDepth` px).
   `feather` (px, with a Limit to): the radius grows per pixel from 0 on the limit's outline to full that far inside
   (read from the limit's distance), so a limited blur smooths a shape's inside without smearing its edge.
 - **`bevel`** (filter) — `source` (`height` | `opacity` | `luminance` | `mask`), `source_mask` (a mask by name,
-  Shape by default), `threshold`, `smooth` (edge smoothing, JFA sources only), `invert`, `width`, `profile` (shared `PROFILES`), `depth`,
+  Shape by default), `threshold`, `smooth` (edge smoothing, JFA sources only), `invert`, `width`, `feather` (fades the
+  bevelled region in across this many px inwards from its foot; ≤ 1 = the 1 px anti-aliased outline), `profile` (shared
+  `PROFILES`), `depth`,
   `direction` (`inner` | `outer` | `both`), `combine` (`add` | `max` | `min` | `replace`).
   The bevel value b goes 0 (outside / slope foot) → 1 (plateau); `depth × b` is combined with the height
   inside the bevelled region only (inside the edge for inner, within the skirt for outer/both), so `max`,
   `min` and `replace` never touch the far background. `min` with depth = plateau height rounds off an
   existing hard step.
 - **`etch`** (filter) — `source`, `threshold`, `smooth`, `width`, `depth` (negative = ridge), `softness`
-  (0 crisp flat-bottomed cut … 1 V groove), `offset` (+ inside / − outside; ±0.5 centres odd widths on a
+  (0 crisp flat-bottomed cut … 1 V groove), `feather` (widens the groove edge's fade to this many px, centred on the
+  edge; colour, roughness and glow follow), `offset` (+ inside / − outside; ±0.5 centres odd widths on a
   pixel row); groups Diffuse (`dif_on`, `dif_color`, `dif_amount`), Roughness (`r_on`, `r_value`,
   `r_amount`), Emissive (`e_on`, `e_color`, `e_intensity` — glowing seams).
-- **`cavity`** (filter) — `radius` (curvature scale), `threshold` (px of relief ignored), `sensitivity`
-  (mask gain per px of curvature); Edge wear `wear_amount`, `wear_color`, `wear_rough` (roughness Δ),
-  `wear_noise` (breakup); Cavity dirt `dirt_amount`, `dirt_color`, `dirt_rough`, `dirt_noise`;
-  Breakup `noise_scale`, `noise_octaves`, `seed`. Curvature = (h − blur(h)) × heightDepth.
+- **`cavity`** (filter) — `shape_mask` (the mask a Shape source follows, default Shape); Edge wear `wear_amount`,
+  `wear_radius` (its curvature's scale, to 512 px: the wear reaches about 1.5× it), `wear_threshold` (px of relief
+  ignored), `wear_sensitivity` (mask gain per px of curvature), Source · Blend `wear_src` (`solid` / `shape`) ·
+  `wear_blend`, `wear_color` (Solid), `wear_grad` and `wear_width` (Shape), `wear_rough` (roughness Δ), `wear_noise`
+  (breakup), `wear_feather` (px); Cavity dirt the same with `dirt_`; Breakup `noise_scale`, `noise_octaves`,
+  `noise_feather` (px added to the breakup edge's fade, from the noise's slope per pixel; Breakup 0 and 1 stay whole),
+  `seed`. Curvature = (h − blur(h)) × heightDepth, convex for wear and concave for dirt, each at its own Radius.
+  Prepare blurs the height at both radii (once when they match), then one pass writes both masks (r, g) and where each
+  is on (b, a) into a scratch target; a Feather blurs that coverage, and the shader multiplies its mask by
+  2 × the blurred coverage − 1 (0 on the outline, 1 about a Feather inside), so it eats in from the mask's edge and never
+  spreads past it (parts narrower than the Feather fade out). The shader then applies Breakup. Each colour goes on by its
+  Blend (`BLEND_MODES`, blended in sRGB like a layer's Diffuse, then mixed in by its mask; Normal is a plain mix), dirt
+  first, then wear over it. Source › Shape takes the colour from the Colour ramp by the distance from the Shape mask's
+  edge (`maskSource` → `tMaskSrc`; either side, so wear runs into a stone and dirt into a joint): the left end at the
+  edge, the right end a Ramp width away — a share of that section's reach (`width` × 1.5 × its Radius: 1 spreads the
+  ramp across it), so it follows the Radius rather than a pixel size. With that mask empty, the ramp follows the
+  curvature's strength instead (strongest at the left end).
 - **`warp`** (filter) — `strength` (≈ largest displacement), `scale` (cells), `octaves`, `nearest`
   (no interpolation: crisp pixel art), `seed`. All channels move together (masks don't: they stay as written).
 - **`levels`** (adjust) — `in_lo`, `in_hi`, `gamma` (pow(x, gamma), same convention as generator shaping),
