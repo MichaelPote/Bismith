@@ -7,7 +7,7 @@ import { glassLayer } from './glass';
 import { heightFromDiffuseLayer, hsvLayer, levelsLayer } from './adjust';
 import { symmetryLayer } from './symmetry';
 
-/** Every filter / adjustment layer type, in add-menu order. */
+/** Every filter / adjustment layer type (the New Layer menu orders them by MENU_ORDER in ui/meta.ts). */
 export const FILTERS: LayerDef[] = [
 	blurLayer,
 	bevelLayer,

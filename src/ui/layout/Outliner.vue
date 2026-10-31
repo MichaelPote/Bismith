@@ -10,7 +10,7 @@
 	import { allLayerDefs, CATEGORY_LABELS, getLayerDef, layerChannels } from '@/layers/registry';
 	import { allPostDefs } from '@/render/post/registry';
 	import type { LayerCategory } from '@/layers/types';
-	import { CATEGORY_HUE, layerHue, layerIcon, LIGHT_HUE, maskColour, POST_HUE } from '@/ui/meta';
+	import { CATEGORY_HUE, inMenuOrder, layerHue, layerIcon, LIGHT_HUE, maskColour, POST_HUE } from '@/ui/meta';
 	import { layerUnits, MAX_LIGHTS, type Layer, type LayerUnit, type LayerGroup } from '@/core/project';
 	import DropMenu, { type MenuItem, type MenuTab } from '@/ui/components/DropMenu.vue';
 	import { usePresetsStore } from '@/stores/presets';
@@ -45,7 +45,7 @@
 	const addLayerItems = computed<MenuItem[]>(() => {
 		const items: MenuItem[] = [];
 		const section = (cat: LayerCategory) => {
-			const defs = allLayerDefs().filter((d) => d.category === cat);
+			const defs = inMenuOrder(allLayerDefs().filter((d) => d.category === cat));
 			if (!defs.length) return;
 			items.push({ section: CATEGORY_LABELS[cat] });
 			for (const d of defs)

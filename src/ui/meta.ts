@@ -184,6 +184,98 @@ export function layerHue(type: string): string {
 	return def ? CATEGORY_HUE[def.category] : 'var(--text-lo)';
 }
 
+/**
+ * The New Layer menu's order within each category: like layers side by side, in families. A type left out goes after
+ * these, in registration order — add a new one to its family.
+ */
+export const MENU_ORDER = [
+	// Noise
+	'noise',
+	'clouds',
+	// Shapes: solid primitives, lines, outlines from points, edge features, lettering and bitmaps.
+	'rect',
+	'polygon',
+	'cross',
+	'circle',
+	'line',
+	'curve',
+	'polyline',
+	'path',
+	'tabs',
+	'pipework',
+	'stamp',
+	'label',
+	// Patterns — masonry and tiling,
+	'bricks',
+	'stone_blocks',
+	'setts',
+	'tiles',
+	'hex',
+	'rock',
+	// cells and crystals,
+	'voronoi',
+	'scales',
+	'crystal',
+	'bismuth',
+	// natural surfaces,
+	'wood',
+	'marble',
+	'cracks',
+	'grass',
+	// water and ice,
+	'caustics',
+	'causticlight',
+	'ice',
+	// stains and wear,
+	'splats',
+	'drips',
+	'scratches',
+	'hammered',
+	// machinery and metal,
+	'treadplate',
+	'greebles',
+	'vents',
+	'pipes',
+	'trim',
+	'cable',
+	'traces',
+	// lines, bands and weaves,
+	'grid',
+	'stripes',
+	'bands',
+	'weave',
+	'truchet',
+	'gradient',
+	// ornament,
+	'rosette',
+	'glyph',
+	// and selecting from the surface.
+	'surfacemask',
+	// Filters: edges and damage, then distortions, then materials.
+	'bevel',
+	'etch',
+	'cavity',
+	'chips',
+	'blur',
+	'warp',
+	'symmetry',
+	'glass',
+	// Adjustments
+	'levels',
+	'hsv',
+	'heightFromDiffuse'
+];
+const MENU_RANK = new Map(MENU_ORDER.map((t, i) => [t, i]));
+
+/** Layer types in the New Layer menu's order (MENU_ORDER; unlisted ones after, as given). */
+export function inMenuOrder<T extends { type: string }>(defs: T[]): T[] {
+	const rank = (d: T, i: number) => MENU_RANK.get(d.type) ?? MENU_ORDER.length + i;
+	return defs
+		.map((d, i) => ({ d, r: rank(d, i) }))
+		.sort((a, b) => a.r - b.r)
+		.map((x) => x.d);
+}
+
 /** A mask's colour wherever the UI shows it (FR8.23): its category hue (masks.ts maskHue). */
 export function maskColour(p: Project, mask: string): string {
 	return `var(--cat-${maskHue(p, mask)})`;

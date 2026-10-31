@@ -27,7 +27,7 @@ import { bismuthLayer } from './bismuth';
 import { crystalLayer } from './crystal';
 import { iceLayer } from './ice';
 
-/** Every generator layer type, in add-menu order within each category. */
+/** Every generator layer type (the New Layer menu orders them by MENU_ORDER in ui/meta.ts). */
 export const GENERATORS: LayerDef[] = [
 	noiseLayer,
 	cloudsLayer,
