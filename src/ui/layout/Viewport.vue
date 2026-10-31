@@ -28,7 +28,7 @@
 	import type { Project } from '@/core/project';
 	import { masksAbove } from '@/layers/masks';
 	import { maskColour } from '@/ui/meta';
-	import { linearToSrgb1, rgbToHex } from '@/core/color';
+	import { rgbToHex } from '@/core/color';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
@@ -140,12 +140,13 @@
 		probeAt = now;
 		const k = engine.supersample;
 		const v = engine.material.probe(c.x * k + (k >> 1), c.y * k + (k >> 1));
-		if (!v) return;
-		const srgb = Array.from(v.albedo.slice(0, 3)).map((x) => linearToSrgb1(Math.min(1, Math.max(0, x))));
+		// The colour shown, as the eyedropper takes it: the final image, or the albedo in Diffuse.
+		const rgb = engine.pickColour(c.x, c.y);
+		if (!v || !rgb) return;
 		probe.value = {
 			h: v.surface[0],
 			r: v.surface[1],
-			hex: rgbToHex(srgb as [number, number, number]),
+			hex: rgbToHex(rgb),
 			e: Math.max(v.emissive[0], v.emissive[1], v.emissive[2]),
 			// The viewed mask's distance here (FR8.23; Shape unless the Masks view picks another).
 			sdf: engine.material.probeMask(editor.viewMask, c.x * k + (k >> 1), c.y * k + (k >> 1))?.[0] ?? 1e4
@@ -694,8 +695,8 @@
 						· e <span class="hi">{{ probe.e.toFixed(2) }}</span></template
 					>
 					<template v-if="probe.sdf < 5000">
-						· <span :style="{ color: maskColour(store.project, editor.viewMask) }">{{ editor.viewMask }}</span>
-						<span class="hi">{{ probe.sdf.toFixed(1) }}</span></template
+						· <span :style="{ color: maskColour(store.project, editor.viewMask) }">{{ editor.viewMask }}</span
+						>{{ ' ' }}<span class="hi">{{ probe.sdf.toFixed(1) }}</span></template
 					>
 				</template>
 			</div>
