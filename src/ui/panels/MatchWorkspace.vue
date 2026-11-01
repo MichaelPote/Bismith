@@ -21,7 +21,6 @@
 	import { availableTemplates } from '@/match/templates';
 	import { fitColours } from '@/match/colourFit';
 	import { attachTexture } from '@/match/evaluate';
-	import { variations } from '@/match/variations';
 	import {
 		Optimizer,
 		RunLimits,
@@ -48,16 +47,7 @@
 	import CheckField from '@/ui/components/CheckField.vue';
 	import { nextFrame } from '@/ui/schedule';
 	import { vTip, type Tip } from '@/ui/tooltip';
-	import {
-		IconGrid4x4,
-		IconPalette,
-		IconPhoto,
-		IconPlayerPause,
-		IconPlayerPlay,
-		IconRefresh,
-		IconWand,
-		IconX
-	} from '@tabler/icons-vue';
+	import { IconPalette, IconPhoto, IconPlayerPause, IconPlayerPlay, IconWand, IconX } from '@tabler/icons-vue';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
@@ -745,21 +735,19 @@
 		if (d?.workspace === 'match') void resumeRun(d.checkpoint as Checkpoint<MatchRunState>);
 	}
 
-	// ---------------------------------------------------------------- suggest (templates) and variations
+	// ---------------------------------------------------------------- suggest (templates)
 	interface Card {
 		id: string;
 		label: string;
 		project: Project;
 		loss: number | null;
 		px: { pixels: Uint8ClampedArray; width: number; height: number };
-		current?: boolean;
 	}
 
-	const overlay = ref<null | 'suggest' | 'vary'>(null);
+	const overlay = ref<null | 'suggest'>(null);
 	const cards = shallowRef<Card[]>([]);
 	const busy = ref<string | null>(null);
 	const palette = ref<'none' | 'quake' | 'doom'>('none');
-	const spread = ref(0.3);
 
 	function withPalette(p: Project, on: boolean): Project {
 		return { ...p, post: p.post.map((f) => (f.type === 'palette' ? { ...f, enabled: on } : f)) };
@@ -814,54 +802,11 @@
 		}
 	}
 
-	/** Eight perturbed versions around the current project (centre), scored when a reference is loaded. */
-	async function vary(): Promise<void> {
-		const engine = editor.engine;
-		if (!engine || busy.value) return;
-		overlay.value = 'vary';
-		busy.value = 'Making variations…';
-		await nextFrame();
-		const matcher = reference.value ? await makeMatcher() : null;
-		engine.suspend();
-		try {
-			const base = copyProject();
-			const vs = variations(base, 8, { strength: spread.value });
-			const all = [...vs.slice(0, 4), { project: base, changed: [] as string[] }, ...vs.slice(4)];
-			cards.value = all.map((v, i) => {
-				const img = renderImage(v.project);
-				return {
-					id: `v${i}`,
-					label: v.changed.length ? v.changed.slice(0, 2).join(' · ') + (v.changed.length > 2 ? ' …' : '') : 'Current',
-					project: v.project,
-					loss: matcher ? matcher.score(img).total : null,
-					px: thumb(img),
-					current: v.changed.length === 0
-				};
-			});
-		} catch (e) {
-			editor.notify(`Variations failed: ${e instanceof Error ? e.message : e}`, 'error');
-		} finally {
-			matcher?.dispose();
-			busy.value = null;
-			engine.resume(toRaw(store.project));
-		}
-	}
-
 	function pickCard(c: Card): void {
-		if (overlay.value === 'vary') {
-			if (c.current) {
-				overlay.value = null;
-				return;
-			}
-			store.load(c.project);
-			reset();
-			void vary(); // keep evolving around the pick
-			return;
-		}
 		store.load(c.project);
 		reset();
 		overlay.value = null;
-		editor.notify(`Started from “${c.label}” — Optimise to refine, Variations to explore (undo with Ctrl+Z)`);
+		editor.notify(`Started from “${c.label}” — Optimise to refine (undo with Ctrl+Z)`);
 		void view();
 	}
 
@@ -1012,15 +957,6 @@
 			<button
 				type="button"
 				class="cf-btn"
-				:disabled="!editor.engine || running || !!busy"
-				v-tip="'Eight variations around the current project — pick by eye, repeat'"
-				@click="vary">
-				<IconGrid4x4 :size="13" />
-				Variations
-			</button>
-			<button
-				type="button"
-				class="cf-btn"
 				:disabled="!reference || !editor.engine || running || !!busy || fitting"
 				v-tip="'Fit the current project\'s colours to the reference image (undo with Ctrl+Z)'"
 				@click="fitColoursNow">
@@ -1046,48 +982,26 @@
 
 		<div v-if="overlay" class="overlay">
 			<div class="ohead">
-				<span class="cf-label">{{ overlay === 'suggest' ? 'Start from a template' : 'Variations' }}</span>
+				<span class="cf-label">Start from a template</span>
 				<span class="lo">{{
-					busy ??
-					(overlay === 'suggest'
-						? 'Ranked by the metric (colours fitted). Click one that looks good to start from it.'
-						: 'Click one to take it and vary again; the centre is the current project.')
+					busy ?? 'Ranked by the metric (colours fitted). Click one that looks good to start from it.'
 				}}</span>
 				<span class="grow" />
-				<template v-if="overlay === 'suggest'">
-					<span class="lo">Palette</span>
-					<SelectField
-						v-model="palette"
-						:options="[
-							{ value: 'none', label: 'None' },
-							{ value: 'quake', label: 'Quake' },
-							{ value: 'doom', label: 'Doom' }
-						]"
-						label="Palette snap" />
-				</template>
-				<template v-else>
-					<span class="lo">Spread</span>
-					<div class="spread">
-						<NumberField v-model="spread" :min="0.02" :max="0.6" :step="0.01" label="Variation spread" />
-					</div>
-					<button type="button" class="cf-btn" :disabled="!!busy" @click="vary">
-						<IconRefresh :size="12" />
-						Again
-					</button>
-				</template>
+				<span class="lo">Palette</span>
+				<SelectField
+					v-model="palette"
+					:options="[
+						{ value: 'none', label: 'None' },
+						{ value: 'quake', label: 'Quake' },
+						{ value: 'doom', label: 'Doom' }
+					]"
+					label="Palette snap" />
 				<button type="button" class="cf-ico-btn" aria-label="Close" @click="closeOverlay">
 					<IconX :size="13" />
 				</button>
 			</div>
-			<div class="cards" :class="{ nine: overlay === 'vary' }">
-				<button
-					v-for="c in cards"
-					:key="c.id"
-					type="button"
-					class="card"
-					:class="{ current: c.current }"
-					:title="c.label"
-					@click="pickCard(c)">
+			<div class="cards">
+				<button v-for="c in cards" :key="c.id" type="button" class="card" :title="c.label" @click="pickCard(c)">
 					<ImageCanvas :pixels="c.px.pixels" :width="c.px.width" :height="c.px.height" :label="c.label" pickable />
 					<span class="clabel">{{ c.label }}</span>
 					<span v-if="c.loss !== null" class="closs cf-mono">{{ c.loss.toFixed(3) }}</span>
@@ -1365,10 +1279,6 @@
 		color: var(--text-lo);
 	}
 
-	.spread {
-		width: 90px;
-	}
-
 	.cards {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -1376,13 +1286,6 @@
 		overflow-y: auto;
 		min-height: 0;
 		align-content: start;
-	}
-
-	.cards.nine {
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		grid-auto-rows: minmax(0, 1fr);
-		overflow: hidden;
-		align-content: stretch;
 	}
 
 	.card {
@@ -1399,16 +1302,8 @@
 		text-align: left;
 	}
 
-	.cards.nine .card {
-		min-height: 0;
-	}
-
 	.card:hover {
 		border-color: var(--accent);
-	}
-
-	.card.current {
-		border-color: var(--accent-hi);
 	}
 
 	.card :deep(canvas),

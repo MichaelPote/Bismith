@@ -84,7 +84,7 @@
 			id: 'match',
 			label: 'Match',
 			icon: IconTarget,
-			hint: 'Match a reference image: templates, variations, the optimiser'
+			hint: 'Match a reference image: templates, colour fitting, the optimiser'
 		},
 		{
 			id: 'tiling',

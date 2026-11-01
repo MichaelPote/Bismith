@@ -437,8 +437,7 @@ Before display/export the buffer is encoded to sRGB (with a clamp if no tonemap 
   render and reference at up to 512 px matched both ways, so fine detail counts and the layout doesn't; and an opt-in
   **motifs** term (FR8.27) — the reference's rivets, bolts and studs held in place, for a start that can already make
   them.
-- **Colour fitting** (FR8.2) solves colours directly before any search; **variations** (FR8.4) offer perturbed
-  alternatives to pick by eye.
+- **Colour fitting** (FR8.2) solves colours directly before any search.
 - **Optimiser** (in-app "Match" workspace and headless): an evolution strategy over the unlocked numeric/colour
   params of the stack, rendering each candidate deterministically at low sample counts; adaptive step sizes,
   restarts, and optional structural mutations (toggle/insert/remove layers).
@@ -485,7 +484,7 @@ src/
   layers/            registry, glsl/ (common, noise, sdf, blend chunks), generators/, filters/
   gpu/               three.js context, fullscreen pass helper, render-target utilities, jump flood
   render/            engine, material pipeline, normals, path tracer, post/ stack, display, export
-  match/             metrics, VGG texture term, colour fit, optimiser, templates, emulation, variations
+  match/             metrics, VGG texture term, colour fit, optimiser, templates, emulation
   tiling/            what makes the repeat obvious, which layer is to blame, and a fix by reseeding it (FR9)
   stores/            Pinia: project (with undo/redo), editor (selection, view state), presets (built-ins + the user's, IndexedDB),
                      runCheckpoint (long runs saved for resuming after the page is lost)
@@ -543,7 +542,7 @@ docs/
 | 8.1   | [Texture term: VGG-19 Gram statistics](features/fr8.1-texture-metric.md)                                         |
 | 8.2   | [Colour fitting](features/fr8.2-colour-fit.md)                                                                   |
 | 8.3   | [Groups and group presets (were smart materials)](features/fr8.3-groups.md)                                      |
-| 8.4   | [Start from a reference: Suggest and Variations](features/fr8.4-from-reference.md)                               |
+| 8.4   | [Start from a reference: Suggest](features/fr8.4-from-reference.md)                                              |
 | 8.5   | [Shape editor](features/fr8.5-shape-editor.md)                                                                   |
 | 8.6   | [Material lumps (recipes tuned against references)](features/fr8.6-material-lumps.md)                            |
 | 8.7   | [Supersampling](features/fr8.7-supersampling.md)                                                                 |
