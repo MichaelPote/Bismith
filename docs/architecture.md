@@ -128,6 +128,8 @@ Project {
   render: RenderSettings,
   post: PostFilter[],       // applied in order
   preview?: string,         // small WebP / JPEG data URL of the final image, written on save (FR8.20)
+  variants?: VariantSet,    // FR10: the same stack with each variant's own settings (core/variants.ts); in memory
+                            // the project is the active variant, in a file the base, with the others' changes
 }
 
 Layer {
@@ -466,11 +468,12 @@ The editor uses the _Blender-tempered_ Cinderforge editor language:
   **latched** toggles with a pilot lamp, one ember **primary** key (Export / Optimise), studs for row and panel icons.
 - Field names carry tooltips (Tippy.js, theme `cinder`): the hint, what each option does, the key and default.
 
-Layout: top bar (menus, workspace rail, primary action) · left **Outliner** (Project, one Layers list with Diffuse /
-Height columns headed by the Base row, and collapsible groups, Lights, Post) · centre **Viewport** (channel rail, zoom/pan, tile
-preview, light gizmos, shape editor), or the **Match** or **Tiling** workspace (FR9: 3 × 3 before / fixed / hotspots,
-the fix search's settings, Keep this / Discard) · right **Properties** of the selection (the project node also holds
-world lighting and render settings) · bottom status bar.
+Layout: top bar (menus, workspace rail, primary action: Export…, the Export dialog) · left the **Variants** panel (FR10)
+over the **Outliner** (Project, one Layers list with Diffuse / Height columns headed by the Base row, and collapsible
+groups, Lights, Post) · centre **Viewport** (channel rail, zoom/pan, tile preview, light gizmos, shape editor), or the
+**Match**, **Tiling** (FR9: 3 × 3 before / fixed / hotspots, the fix search's settings, Keep this / Discard) or
+**Variants** workspace (cards of every variant) · right **Properties** of the selection (the project node also holds
+world lighting and render settings; ◆ marks what the shown variant changes) · bottom status bar.
 
 ---
 
@@ -480,7 +483,7 @@ world lighting and render settings) · bottom status bar.
 src/
   main.ts, App.vue
   styles/            tokens.css (Cinderforge), base.css
-  core/              project types + defaults, params, colour maths, serialisation, ids, history
+  core/              project types + defaults, params, colour maths, serialisation, ids, history, variants (FR10)
   layers/            registry, glsl/ (common, noise, sdf, blend chunks), generators/, filters/
   gpu/               three.js context, fullscreen pass helper, render-target utilities, jump flood
   render/            engine, material pipeline, normals, path tracer, post/ stack, display, export
@@ -568,3 +571,4 @@ docs/
 | 8.27  | [Laid-out references: true-shift structure, Bolts / Rivets, Tile + motifs](features/fr8.27-laid-out-matching.md) |
 | 8.28  | [Ice (refracting sheet, cracks, bubbles, frost, icicles)](features/fr8.28-ice.md)                                |
 | 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                                             |
+| 10    | [Project variants](features/fr10-variants.md)                                                                    |

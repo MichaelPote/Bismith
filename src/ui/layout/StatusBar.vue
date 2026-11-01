@@ -6,6 +6,7 @@
 	const editor = useEditorStore();
 	const store = useProjectStore();
 	const s = computed(() => editor.stats);
+	const changes = computed(() => store.changedKeys.size);
 </script>
 
 <template>
@@ -20,6 +21,15 @@
 		>
 		<span class="grow" />
 		<span v-if="s">eval {{ s.evalMs.toFixed(1) }} ms</span>
+		<template v-if="store.variants.list.length > 1">
+			<span class="sep">|</span>
+			<span
+				>variant <span class="hi">{{ store.activeVariant.name }}</span> ·
+				{{
+					store.activeVariant.id === store.variants.baseId ? 'base' : `${changes} change${changes === 1 ? '' : 's'}`
+				}}</span
+			>
+		</template>
 		<span class="sep">|</span>
 		<span
 			>{{ store.project.layers.length }} layers · {{ store.project.lighting.lights.length }} lights ·

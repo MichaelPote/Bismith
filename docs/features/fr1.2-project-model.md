@@ -30,4 +30,5 @@ with undo/redo and autosave.
 - [x] Pinia project store with CRUD for layers, lights, post filters
 - [x] Undo / redo (Ctrl+Z / Ctrl+Shift+Z), debounced while dragging
 - [x] Autosave + restore from localStorage
+- [x] Variants (FR10): `Project.variants`, file version 2 (the base at the top level, the others' changes)
 - [x] Unit tests for colour maths and serialisation

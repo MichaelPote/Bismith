@@ -1,7 +1,7 @@
 # FR10 — Project variants
 
-**Status:** planned — design on the Cinderforge canvas (row _Bismith — project variants_), this plan reconciled with
-the code as it is
+**Status:** done on `feature/variants` — design on the Cinderforge canvas (row _Bismith — project variants_),
+reconciled with the code as it is; checked in a SwiftShader browser, not yet on the Windows GPU backend
 
 ## Problem
 
@@ -88,14 +88,14 @@ The file holds the **base** at the top level, so tools, the harness and older re
                 "list": [ { "id": "wet", "name": "Rain-soaked", "note": "…", "changes": { "layer.k3f9.p.brickColour": "#5e3125" } } ] } }
 ```
 
-- `projectToJSON` writes the file form (materialise the base, list the others' changes); autosave writes it too, so
-  there is one form on disk.
+- `projectToJSON` writes the file form (materialise the base, list the others' changes). Autosave and undo snapshots
+  keep the in-memory form; `normalizeProject` reads either.
 - `normalizeProject` reads both: a block with `baseValues` is the in-memory form (from `store.load` of a Match or
   Tiling result, a run checkpoint); without it, the file form — the top level becomes `baseValues` and the active
   variant is materialised. Changes whose key no longer exists, or whose value fails its ParamDef, are dropped (unknown
   layer types are already dropped; their keys go with them).
-- No `variants` block, or one variant: the project is a single variant, named after the project; nothing extra is
-  written for it. `PROJECT_VERSION` becomes 2 (nothing is released: no migration beyond "no block = one variant").
+- No `variants` block: the project is a single variant (_Variant 1_ until renamed, which adds the block); nothing extra
+  is written for it. `PROJECT_VERSION` becomes 2 (nothing is released: no migration beyond "no block = one variant").
 
 ### Sync
 
@@ -115,7 +115,8 @@ structure and are handled by the sync above. A few rewrite params and must reach
 
 - `resize` (`resizeProject` scales px params): every variant's px values scale with the canvas.
 - `renameMask`: a mask renamed in one variant is renamed in all.
-- `ungroup` (moves the group's Limit to onto its members and its hidden state onto their on/off) and `setGroupLimit`.
+- `ungroup` (moves the group's Limit to onto its members and its hidden state onto their on/off). A group's own Limit
+  to is structure, shared by every variant.
 - Duplicating a layer, light or post filter copies each variant's value of it (a new id with the same changes).
 
 ## UI — reconciled with the code
@@ -131,7 +132,8 @@ thumbnail, name, and a _Base_ badge or `◆ n`; the active row has the Outliner'
 rows and scrolls past that; with one variant it is one row. Header: **+** as the Outliner's `fk add` key (new variant
 from the current one), delete and browse as `cf-ico-btn` studs. Footer hint: `Alt [` `Alt ]` step · right-click for more.
 
-- **Switch:** click a row; `Alt+[` / `Alt+]` step (handled in `App.vue` before its `altKey` early return). Switching
+- **Switch:** click a row; `Alt+[` / `Alt+]` step (handled in `App.vue` before its `altKey` early return, by key
+  position), and the arrow keys while the list has focus. Switching
   syncs, then loads the target's materialisation into `store.project` in place (one undo step; undo returns to the
   previous variant as it was).
 - **Context menu:** a `DropMenu` with `placement="pointer"`, like the Outliner's row menu — plain items with
@@ -146,23 +148,24 @@ from the current one), delete and browse as `cf-ico-btn` studs. Footer hint: `Al
   base first_ (OK). `Del` deletes the active variant only while the panel has focus — elsewhere it keeps deleting the
   selection.
 - **Thumbnails:** `src/ui/variantThumbs.ts` — the active variant's from the viewport (`capturePreview` once its render
-  settles), the others rendered off-screen with `renderThumbnail(engine, materialise(p, id), store.project)` when idle,
-  one at a time, cached by a hash of the materialised project; nothing is stored in the file.
+  settles), the others rendered off-screen while it is idle — all stale ones in one pass (`renderThumbnails`), so the
+  viewport restarts once — cached by a hash of the materialised project; nothing is stored in the file.
 
 ### Changed settings
 
-- **Outliner:** a 6 px ◆ (`--e400`, a rotated square) after the name of a layer, group, light or post row the active
-  variant changes, and on the Base row for base material / sky / ambient / render-look changes; nothing on the base
-  variant. A layer the variant turns off already shows as off. The board's _changed in Rain-soaked_ heading note is
+- **Outliner:** a 6 px ◆ (`--e400`, a rotated square) after the name of a layer, group (or a member), light or post
+  row the active variant changes, on the Base row for base material changes, and on the project row for the seed,
+  height depth, sky, ambient and path tracer look; nothing on the base variant, and no tooltip (per the review). A layer the variant turns off already shows as off. The board's _changed in Rain-soaked_ heading note is
   dropped (done on the canvas too).
 - **Properties / `ParamList`:** a new optional `keyPrefix` prop (`layer.<id>.p.` etc.) lets a row look up whether it
-  changes from the base: a ◆ in the row's leading cell and the label in `--accent-hi`. The existing gold `.noted`
+  changes from the base: a ◆ before the label and the label in `--accent-hi`. The existing gold `.noted`
   labels keep their meaning; changed wins the colour, the note stays in the tooltip.
-- **Param context menu** (new, every `ParamList` row, also with one variant): Copy value `Ctrl C` · Paste value
-  `Ctrl V` (enabled when the copied value's type fits) · — · Make this the base value · Reset to _base name_ (both only
+- **Param context menu** (new, every `ParamList` row, also with one variant): Copy value · Paste value (enabled when
+  the copied value's type fits; no keyboard shortcuts) · — · Make this the base value · Reset to _base name_ (both only
   with more than one variant; disabled on a setting that follows the base) · — · Reset to default. Paste and the resets
   go through the card's own `change` handler, so linked defaults (`setLayerParam`) still apply. The clipboard is the
-  editor store's (`editor.paramClipboard`), not the system's.
+  editor store's (`editor.paramClipboard`), not the system's. The group Mask card and Write to's own rows have no key
+  prefix (shared, or not wired yet): they get Copy / Paste / Reset to default only, and no marks.
 - **Editing banner:** dropped from the plan. The board shows one in the Properties header, but Properties has a
   title and description only, and the panel's active row and the ◆ marks already say which variant is edited.
 
@@ -175,16 +178,17 @@ so the grid has the whole centre; the board's lone top bar is the app's own.
 
 - **Bar:** `cf-label` _Variants_ and count, a Final / Diffuse / Height toggle rail (`fk`, one lit), and when cards are
   ticked _n selected_ with a delete stud. (Compare A | B, Save as projects and Export PNGs are gone, per the review.)
-- **Grid:** cards of the render (the thumbnail service at 256 px; Diffuse and Height read `mapPixels` after the same
-  render), a tick box, _Base_ or _Editing_ badge, name, `◆ n`, note, and edit (switch and go to Create), duplicate and
-  more (the panel's menu) studs. Click switches; drag reorders the list.
+- **Grid:** cards of the render (the thumbnail service at 256 px; Diffuse and Height render each variant's material
+  maps through `renderExport` with no samples), a tick box, _Base_ or _Editing_ badge, name, `◆ n`, note, and edit
+  (switch and go to Create), new-variant-from and more (the panel's menu) studs. Click switches, double-click edits,
+  drag reorders. Rename from a card renames in the panel; deleting the ticked cards asks with the modal (`editor.ask`).
 
 ### Changes dialog (`src/ui/panels/VariantChanges.vue`, new)
 
 Off the variant's right-click menu (_Changes…_, in the panel and on a card's more stud), not on screen otherwise. A
 modal like the preset dialog: the variant's name and note fields, _Compared with_ (the base, or any other variant), its
 changes grouped by item (Base material, each layer, Lighting, Post) as _from → to_ rows with a reset stud, and _Reset
-all_ and _Close_. Edits apply at once (each an undo step). The note is edited here only; cards show it.
+all_ and _Close_. Edits apply at once (a reset, or Reset all, is one undo step). The note is edited here only; cards show it.
 
 ### Export dialog (`src/ui/panels/ExportDialog.vue`, new)
 
@@ -218,7 +222,7 @@ variant; its first entry becomes _Export…_ `Ctrl+E`.
   `variants` block it carries (the in-memory form), and the next sync turns the result into that variant's changes.
 - **Project preview** (FR8.20): what the viewport shows — the active variant — as now.
 
-## Implementation steps
+## Implementation (done, one commit per step)
 
 Each step leaves the app working, with `npx vue-tsc -b`, `npx oxlint`, `npx oxfmt` and `npm test` clean.
 
@@ -228,8 +232,8 @@ Each step leaves the app working, with `npx vue-tsc -b`, `npx oxlint`, `npx oxfm
    without a block loads as one variant; a change equal to the base drops out; invalid and orphaned changes are dropped.
 2. **Store** — `syncVariants` in `commitNow`; actions `addVariant(from)`, `switchVariant`, `renameVariant`,
    `setVariantNote`, `deleteVariant`, `moveVariant`, `makeBase`, `resetVariant`, `resetToBase(key)`,
-   `makeBaseValue(key)`, `changedKeys` (computed for the active variant); `forEachVariant` around `resize`,
-   `renameMask`, `ungroup`, `setGroupLimit` and the duplicates. Tests (`tests/stores/project.test.ts`): adding a layer
+   `makeBaseValue(key)`, `setVariantValues`, `changedKeys` (computed for the active variant); `forEachVariant` around
+   `resize`, `renameMask`, `ungroup`, and `copyItemSettings` for the duplicates. Tests (`tests/stores/project.test.ts`): adding a layer
    on a variant adds it to all; removing one prunes every variant; base edits reach unchanged variants only; make base
    keeps every variant's look; resize scales every variant; undo across a switch; autosave reloads the active variant.
 3. **Variants panel** — `VariantsPanel.vue`, the left-column stack in `App.vue`, menu, inline rename, `AnchoredAsk`,
@@ -245,10 +249,13 @@ Each step leaves the app working, with `npx vue-tsc -b`, `npx oxlint`, `npx oxfm
    workspace, Export dialog); `fr1.2-project-model.md` (the `variants` block, version 2); `fr5.3-export.md` (the
    dialog).
 
-Verification beyond the tests: run the app (`npm run dev`) in Chrome and walk the boards — make three variants of the
-bricks starter, change a layer, a light, the base material and a post filter in one, add and delete a layer there,
-switch, undo across a switch, make another the base, reload (autosave), save and reopen the file, and export two
-variants × three maps; check the zip's files and that each PNG matches its variant's viewport.
+Checked beyond the tests, in Chromium with SwiftShader (`tools/shot.ts` and a throwaway Playwright script): the panel
+over the Outliner with thumbnails, its menu and the anchored delete prompt; a change on a variant giving it `◆ 1` and
+the Outliner / Properties marks and the status bar; the param menu; the workspace grid (Final and Diffuse) and the
+Changes dialog; the Export dialog, and an
+export of two variants × two maps giving a zip of four PNGs (the variants' renders differ) and the project file with its
+`variants` block. Not yet checked: the Windows GPU backend, Height cards, drag reordering, and a long
+session's undo across switches by hand.
 
 ## Naming
 
