@@ -12,6 +12,8 @@
 	import StatusBar from '@/ui/layout/StatusBar.vue';
 	import MatchWorkspace from '@/ui/panels/MatchWorkspace.vue';
 	import TilingWorkspace from '@/ui/panels/TilingWorkspace.vue';
+	import VariantsWorkspace from '@/ui/panels/VariantsWorkspace.vue';
+	import VariantChanges from '@/ui/panels/VariantChanges.vue';
 	import BusyModal from '@/ui/components/BusyModal.vue';
 	import AskModal from '@/ui/components/AskModal.vue';
 	import EyedropperChip from '@/ui/components/EyedropperChip.vue';
@@ -203,6 +205,7 @@
 				<Viewport v-show="editor.workspace === 'create'" />
 				<KeepAlive><MatchWorkspace v-if="editor.workspace === 'match'" /></KeepAlive>
 				<KeepAlive><TilingWorkspace v-if="editor.workspace === 'tiling'" /></KeepAlive>
+				<VariantsWorkspace v-if="editor.workspace === 'variants'" />
 			</div>
 			<div
 				class="gutter"
@@ -218,6 +221,7 @@
 		</div>
 		<NewProjectWizard v-if="editor.wizard" />
 		<PresetDialog v-if="editor.presetDialog" />
+		<VariantChanges v-if="editor.variantChanges" />
 		<AboutDialog v-if="editor.about" />
 		<BusyModal />
 		<AskModal />

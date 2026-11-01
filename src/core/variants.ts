@@ -319,6 +319,20 @@ export function makeBaseValue(p: Project, key: string): void {
 	syncVariants(p);
 }
 
+/** Set variant `id`'s values of the settings in `s` (the base's: the variants that don't change them follow). */
+export function setVariantValues(p: Project, id: string, s: Settings): void {
+	const vs = p.variants;
+	if (!vs) return;
+	if (id === vs.activeId) applySettings(p, s);
+	else if (id === vs.baseId) {
+		for (const k in s) if (vs.baseValues && k in vs.baseValues) vs.baseValues[k] = clone(s[k]);
+	} else {
+		const v = vs.list.find((x) => x.id === id);
+		if (v) for (const k in s) v.changes[k] = clone(s[k]);
+	}
+	syncVariants(p);
+}
+
 /**
  * Give the item `to` (a new copy of `from`: `layer.<id>`, `light.<id>`, `post.<id>`) each variant's settings of
  * `from`. Call after the copy is made and before the next sync adopts it.

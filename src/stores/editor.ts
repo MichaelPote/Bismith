@@ -18,7 +18,7 @@ export interface Selection {
 	id?: string;
 }
 
-export type Workspace = 'create' | 'match' | 'tiling';
+export type Workspace = 'create' | 'match' | 'tiling' | 'variants';
 
 /** Viewport shape tools: edit the selected layer's shapes, or draw a new one (a new layer, or a run of the selected pipes). */
 export type ShapeTool = 'edit' | 'polygon' | 'freehand' | 'line';
@@ -84,6 +84,10 @@ export const useEditorStore = defineStore('editor', () => {
 		| null
 	>(null);
 	const shapeTool = ref<ShapeTool>('edit');
+	/** The variant whose Changes dialog is open (FR10). */
+	const variantChanges = ref<string | null>(null);
+	/** Asks the Variants panel to rename this variant in place (from the workspace's menu). */
+	const variantRename = ref<string | null>(null);
 	/** A param's value copied from its right-click menu, pasted into params of the same type. */
 	const paramClipboard = shallowRef<{ type: ParamType; value: ParamValue } | null>(null);
 
@@ -123,6 +127,8 @@ export const useEditorStore = defineStore('editor', () => {
 		presetDialog,
 		shapeTool,
 		paramClipboard,
+		variantChanges,
+		variantRename,
 		selection,
 		workspace,
 		channel,

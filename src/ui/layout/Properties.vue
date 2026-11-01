@@ -8,8 +8,8 @@
 	import { LIMIT_PARAMS } from '@/layers/commonParams';
 	import { getPostDef } from '@/render/post/registry';
 	import { LIGHT_DEFS, POINT_LIGHT_REF_DIST } from '@/core/lights';
-	import { BASE_DEFS, PROJECT_DEFS, RENDER_DEFS } from '@/core/settingsDefs';
-	import { P, type ParamDef, type ParamValue, type ParamValues } from '@/core/params';
+	import { AMBIENT_DEFS, BASE_DEFS, PROJECT_DEFS, RENDER_DEFS, SKY_DEFS } from '@/core/settingsDefs';
+	import type { ParamDef, ParamValue, ParamValues } from '@/core/params';
 	import { layerUnits, SIZE_PRESETS } from '@/core/project';
 	import { cardIcon, layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta';
 	import { useActions } from '@/ui/actions';
@@ -148,52 +148,6 @@
 	}
 
 	// ---------------------------------------------------------------- project / world param tables
-	const hasEnv = (p: ParamValues) => Boolean(p.image);
-	const SKY_DEFS: ParamDef[] = [
-		P.bool('enabled', 'Sky light', true),
-		P.enum(
-			'plane',
-			'Plane',
-			'floor',
-			[
-				[
-					'floor',
-					'Floor',
-					'lying flat under the sky: the zenith straight out of it, read as a map (top north, right east)'
-				],
-				[
-					'wall',
-					'Wall',
-					'standing upright, the floor stood up on its bottom edge: the sky above its top, the ground below, east still to its right and its face looking south'
-				]
-			],
-			{
-				segmented: true,
-				hint: 'Where the sky (its gradient or environment image) sits round the texture. The lights keep their own directions, relative to the texture'
-			}
-		),
-		P.image('image', 'Environment', {
-			environment: true,
-			hint: 'A panorama (equirectangular, 2:1: its top row straight up, its left edge facing the top of the texture) in place of the zenith → horizon gradient: what metals reflect, coloured by direction, and the light rough surfaces get from the sky. OpenEXR, Radiance HDR and Ultra HDR JPEG keep their full range (a sun lights the scene); PNG, JPEG and WebP work too. Kept as a 512 px Ultra HDR JPEG; the project saves its file name and a lighting preset the image'
-		}),
-		P.color('zenith', 'Zenith', '#9fb4c8', { showIf: (p) => !hasEnv(p) }),
-		P.color('horizon', 'Horizon', '#c8c2b8', { showIf: (p) => !hasEnv(p) }),
-		P.float('rotation', 'Rotation', 0, -180, 180, {
-			step: 1,
-			showIf: hasEnv,
-			hint: 'Turns the environment about the vertical, in degrees: where its features sit in the reflections'
-		}),
-		P.float('intensity', 'Intensity', 0.35, 0, 1000, {
-			softMax: 4,
-			step: 0.001,
-			hint: 'Brightness of the sky (the gradient, or the environment image)'
-		})
-	];
-	const AMBIENT_DEFS: ParamDef[] = [
-		P.color('color', 'Colour', '#ffffff'),
-		P.float('intensity', 'Strength', 0.02, 0, 1000, { softMax: 1, step: 0.001, hint: 'Un-shadowed fill light' })
-	];
-
 	function assign(obj: object, key: string, v: ParamValue): void {
 		(obj as Record<string, ParamValue>)[key] = v;
 	}

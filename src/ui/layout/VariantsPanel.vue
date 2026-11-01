@@ -2,17 +2,19 @@
 	// The Variants panel above the Outliner (docs/features/fr10-variants.md): the project's variants with their
 	// thumbnails; click one to show it, right-click for the rest. Rename in place (double-click or F2); deleting asks
 	// under the row.
-	import { computed, nextTick, ref } from 'vue';
-	import { IconPlus, IconTrash } from '@tabler/icons-vue';
+	import { computed, nextTick, ref, watch } from 'vue';
+	import { IconPlus, IconTrash, IconVersions } from '@tabler/icons-vue';
 	import { useProjectStore } from '@/stores/project';
-	import type { Question } from '@/stores/editor';
+	import { useEditorStore, type Question } from '@/stores/editor';
 	import type { ProjectVariant } from '@/core/variants';
 	import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue';
 	import AnchoredAsk from '@/ui/components/AnchoredAsk.vue';
 	import { useVariantThumbs } from '@/ui/variantThumbs';
+	import { variantMenuItems } from '@/ui/variantMenu';
 	import { vTip } from '@/ui/tooltip';
 
 	const store = useProjectStore();
+	const editor = useEditorStore();
 	const thumbs = useVariantThumbs();
 
 	const list = computed(() => store.variants.list);
@@ -36,6 +38,15 @@
 		renameInput.value?.[0]?.focus();
 		renameInput.value?.[0]?.select();
 	}
+
+	watch(
+		() => editor.variantRename,
+		(id) => {
+			const v = id && list.value.find((x) => x.id === id);
+			editor.variantRename = null;
+			if (v) void startRename(v);
+		}
+	);
 
 	function finishRename(apply: boolean): void {
 		const id = renaming.value;
@@ -87,39 +98,10 @@
 	const menuItems = ref<MenuItem[]>([]);
 
 	function onMenu(e: MouseEvent, v: ProjectVariant): void {
-		const isBase = v.id === baseId.value;
-		const n = count(v);
-		menuItems.value = [
-			{ label: `New variant from ${v.name}`, action: () => store.addVariant(v.id) },
-			...(isBase
-				? []
-				: [{ label: `New variant from ${baseName.value} (base)`, action: () => store.addVariant(baseId.value) }]),
-			{ separator: true },
-			{ label: 'Rename', shortcut: 'F2', action: () => void startRename(v) },
-			...(isBase
-				? []
-				: [
-						{
-							label: 'Make base',
-							hint: 'The others are measured from it; every variant keeps its look',
-							action: () => store.makeBase(v.id)
-						},
-						{
-							label: n
-								? `Reset all ${n} change${n === 1 ? '' : 's'} to ${baseName.value}`
-								: `Reset to ${baseName.value}`,
-							disabled: !n,
-							action: () => store.resetVariant(v.id)
-						}
-					]),
-			{ separator: true },
-			{
-				label: `Delete ${v.name}…`,
-				shortcut: 'Del',
-				disabled: list.value.length < 2,
-				action: () => void confirmDelete(v.id)
-			}
-		];
+		menuItems.value = variantMenuItems(v, {
+			rename: () => void startRename(v),
+			remove: () => void confirmDelete(v.id)
+		});
 		menu.value?.openAt(e.clientX, e.clientY);
 	}
 
@@ -165,6 +147,15 @@
 				:disabled="list.length < 2"
 				@click="confirmDelete(activeId)">
 				<IconTrash :size="14" />
+			</button>
+			<button
+				v-tip="'Browse all variants'"
+				type="button"
+				class="cf-ico-btn"
+				aria-label="Browse all variants"
+				:class="{ latched: editor.workspace === 'variants' }"
+				@click="editor.workspace = 'variants'">
+				<IconVersions :size="14" />
 			</button>
 		</div>
 		<div ref="listEl" class="list" role="listbox" aria-label="Variants" tabindex="0" @keydown="onKey">

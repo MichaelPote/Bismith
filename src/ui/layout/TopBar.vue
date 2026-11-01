@@ -11,7 +11,8 @@
 		IconDownload,
 		IconLayoutGrid,
 		IconStack2,
-		IconTarget
+		IconTarget,
+		IconVersions
 	} from '@tabler/icons-vue';
 	import { vTip } from '@/ui/tooltip';
 
@@ -91,6 +92,12 @@
 			label: 'Tiling',
 			icon: IconLayoutGrid,
 			hint: 'Hide the repeat: what gives it away, which layer draws it, and a fix that keeps the look'
+		},
+		{
+			id: 'variants',
+			label: 'Variants',
+			icon: IconVersions,
+			hint: 'Every variant side by side: compare, name, tidy'
 		}
 	] as const;
 

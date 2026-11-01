@@ -525,6 +525,10 @@ export const useProjectStore = defineStore('project', () => {
 		variantStep(() => V.makeBaseValue(project.value, key));
 	}
 
+	function setVariantValues(id: string, s: V.Settings): void {
+		variantStep(() => V.setVariantValues(project.value, id, s));
+	}
+
 	/** Variant `id` as a plain project (for its thumbnail, card or export). */
 	function variantProject(id: string): Project {
 		commitNow();
@@ -592,6 +596,7 @@ export const useProjectStore = defineStore('project', () => {
 		resetVariant,
 		resetToBase,
 		makeBaseValue,
+		setVariantValues,
 		variantProject
 	};
 });

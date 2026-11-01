@@ -474,11 +474,19 @@ export class Engine {
 	 * with the user's project after.
 	 */
 	async renderExport<T>(
-		opts: { samples: number; supersample: number; signal?: AbortSignal; onProgress?: (f: number) => void },
+		opts: {
+			samples: number;
+			supersample: number;
+			signal?: AbortSignal;
+			onProgress?: (f: number) => void;
+			/** Render this project (a variant, FR10) in place of the one shown; the shown one is resumed after. */
+			project?: Project;
+		},
 		read: () => T
 	): Promise<T | null> {
-		const project = this.project;
-		if (!project) throw new Error('No project');
+		const shown = this.project;
+		const project = opts.project ?? shown;
+		if (!project || !shown) throw new Error('No project');
 		const r = project.render;
 		const target = opts.samples > 0 ? Math.max(r.maxSamples, opts.samples) : 0;
 		const supersample = Math.max(supersampleFactor(project), Math.min(4, Math.max(1, Math.round(opts.supersample))));
@@ -505,8 +513,8 @@ export class Engine {
 			if (target > 0) this.runPost();
 			return read();
 		} finally {
-			if (wasSuspended) this.setProject(project);
-			else this.resume(project);
+			if (wasSuspended) this.setProject(shown);
+			else this.resume(shown);
 		}
 	}
 
