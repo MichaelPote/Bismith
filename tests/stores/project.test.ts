@@ -10,6 +10,18 @@ import { allPostDefs } from '@/render/post/registry';
 describe('project store: lights', () => {
 	beforeEach(() => setActivePinia(createPinia()));
 
+	it('names a layer or light after its type again when its name is cleared', () => {
+		const store = useProjectStore();
+		store.newProject(createProject({ width: 64, height: 64, layers: [createLayer('bricks', {}, 'Wall')] }));
+		const id = store.project.layers[0].id;
+		store.updateLayer(id, { name: '  ' });
+		expect(store.getLayer(id)!.name).toBe('Bricks');
+		const light = store.addLight('point')!;
+		store.updateLight(light.id, { name: 'Torch' });
+		store.updateLight(light.id, { name: '' });
+		expect(store.getLight(light.id)!.name).toBe('Point');
+	});
+
 	it('adds a point light sized to the canvas', () => {
 		const store = useProjectStore();
 		const added = (size: number) => {
@@ -102,6 +114,17 @@ describe('project store: variants', () => {
 		expect(store.variants.activeId).toBe(wet.id);
 		expect(store.project.base.roughness).toBe(0.2);
 		expect([...store.changedKeys]).toEqual(['base.roughness']);
+	});
+
+	it('marks base material, environment and project settings changes on their own rows', () => {
+		const store = start();
+		store.addVariant();
+		store.project.base.roughness = 0.2;
+		store.project.lighting.sky.intensity = 0.9;
+		store.project.lighting.ambient.intensity = 0.1;
+		store.project.render.bounces = 3;
+		store.commitNow();
+		expect([...store.changedItems].sort()).toEqual(['base', 'environment', 'project']);
 	});
 
 	it('steps through the variants, wrapping', () => {

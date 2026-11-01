@@ -64,7 +64,12 @@
 						<h2 id="wizard-title">New project</h2>
 						<p>Start blank, or from a preset. File ▸ Save as template… adds your own.</p>
 					</div>
-					<button v-tip:left="'Close (Esc)'" type="button" class="cf-ico-btn" aria-label="Close" @click="close">
+					<button
+						v-tip:left="{ body: 'Close', keys: 'Esc' }"
+						type="button"
+						class="cf-ico-btn"
+						aria-label="Close"
+						@click="close">
 						<IconX :size="16" />
 					</button>
 				</header>

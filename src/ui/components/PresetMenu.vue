@@ -1,7 +1,7 @@
 <script setup lang="ts">
-	// A card's presets (docs/features/fr5.4-presets.md): a button in its title row opening thumbnail tiles of the presets
-	// for its kind and type — the built-ins and the user's own mixed, grouped by category — and Save as preset… /
-	// Manage…. Clicking a tile applies it; right-clicking edits it.
+	// A card's presets (docs/features/fr5.4-presets.md): a Presets key beside the inspector's description, opening
+	// thumbnail tiles of the presets for its kind and type — the built-ins and the user's own mixed, grouped by
+	// category — and Save as preset… / Manage…. Clicking a tile applies it; right-clicking edits it.
 	import { computed } from 'vue';
 	import type { PresetKind } from '@/core/project';
 	import { useEditorStore, type PresetSource } from '@/stores/editor';
@@ -47,12 +47,12 @@
 
 <template>
 	<DropMenu
-		v-tip:bottom="'Presets'"
+		v-tip:bottom="'Apply a saved preset, or save this one'"
 		:items="items"
 		layout="tiles"
 		placement="under"
-		trigger-class="cf-ico-btn"
+		trigger-class="fk"
 		aria-label="Presets">
-		<IconBookmarks :size="14" />
+		<span class="fk-face"><IconBookmarks :size="13" />Presets</span>
 	</DropMenu>
 </template>

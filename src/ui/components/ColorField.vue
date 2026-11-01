@@ -567,6 +567,7 @@
 			aria-haspopup="dialog"
 			@click="toggle()" />
 		<input
+			data-1p-ignore
 			v-model="draft"
 			class="hex"
 			spellcheck="false"
@@ -649,6 +650,7 @@
 					<label v-for="c in channels" :key="`${model}-${c.key}`" v-tip:top="`${c.name}, ${c.range}`" class="num">
 						<span class="nl">{{ c.label }}</span>
 						<input
+							data-1p-ignore
 							:value="shown(c)"
 							inputmode="decimal"
 							spellcheck="false"
@@ -662,6 +664,7 @@
 				<div class="hexrow">
 					<span class="nl">Hex</span>
 					<input
+						data-1p-ignore
 						ref="popHex"
 						v-model="draft"
 						class="hex"

@@ -10,37 +10,33 @@
 	import { LIGHT_DEFS, POINT_LIGHT_REF_DIST } from '@/core/lights';
 	import { AMBIENT_DEFS, BASE_DEFS, PROJECT_DEFS, RENDER_DEFS, SKY_DEFS } from '@/core/settingsDefs';
 	import type { ParamDef, ParamValue, ParamValues } from '@/core/params';
-	import { layerUnits, SIZE_PRESETS } from '@/core/project';
+	import { SIZE_PRESETS } from '@/core/project';
 	import { cardIcon, layerHue, layerIcon, LIGHT_HUE, POST_HUE } from '@/ui/meta';
-	import { useActions } from '@/ui/actions';
 	import PanelCard from '@/ui/components/PanelCard.vue';
 	import ParamList from '@/ui/components/ParamList.vue';
 	import ShapingGraph from '@/ui/components/ShapingGraph.vue';
 	import WriteToField from '@/ui/components/WriteToField.vue';
-	import {
-		IconArrowDown,
-		IconArrowUp,
-		IconBox,
-		IconBulb,
-		IconCopy,
-		IconLock,
-		IconLockOpen,
-		IconSparkles,
-		IconSquareRotated,
-		IconStack2,
-		IconSun,
-		IconTrash
-	} from '@tabler/icons-vue';
+	import { IconBox, IconBulb, IconSparkles, IconSquareRotated, IconSun, IconWorld } from '@tabler/icons-vue';
 	import PostExtras from '@/ui/panels/PostExtras.vue';
 	import LightingPresets from '@/ui/panels/LightingPresets.vue';
 	import PresetMenu from '@/ui/components/PresetMenu.vue';
+	import ItemStuds from '@/ui/components/ItemStuds.vue';
 	import { vTip } from '@/ui/tooltip';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
-	const act = useActions();
 
 	const sel = computed(() => editor.selection);
+
+	/**
+	 * A name field's edit: the store may keep another name than the one typed (an empty one goes back to the type's),
+	 * so the field shows what was kept even when that didn't change.
+	 */
+	function rename(e: Event, set: (name: string) => void, kept: () => string): void {
+		const input = e.target as HTMLInputElement;
+		set(input.value);
+		input.value = kept();
+	}
 	const layer = computed(() => (sel.value.kind === 'layer' && sel.value.id ? store.getLayer(sel.value.id) : undefined));
 	const layerDef = computed(() => (layer.value ? getLayerDef(layer.value.type) : undefined));
 	const layerDefs = computed(() => (layer.value ? layerParamDefs(layer.value.type) : []));
@@ -78,14 +74,6 @@
 		const g = group.value;
 		if (!g) return;
 		store.setGroupLimit(g.id, layerLimit({ ...groupLimit.value, [key]: value }));
-	}
-
-	function ungroup(): void {
-		const g = group.value;
-		if (!g) return;
-		const first = g.members[0];
-		store.ungroup(g.id);
-		editor.select(first ? 'layer' : 'project', first);
 	}
 
 	/**
@@ -135,18 +123,6 @@
 		return `${store.layerIndex(l.id) + 1} of ${store.project.layers.length}`;
 	}
 
-	/** Can the selected layer / group move one step earlier (−1) or later (+1)? */
-	function canStep(id: string, dir: number): boolean {
-		const at = store.unitOf(id);
-		if (!at) return false;
-		if (at.unit.group && at.unit.group.id !== id) {
-			const i = at.unit.layers.findIndex((x) => x.id === id) + dir;
-			return i >= 0 && i < at.unit.layers.length;
-		}
-		const j = at.index + dir;
-		return j >= 0 && j < layerUnits(store.project.layers, store.project.groups).length;
-	}
-
 	// ---------------------------------------------------------------- project / world param tables
 	function assign(obj: object, key: string, v: ParamValue): void {
 		(obj as Record<string, ParamValue>)[key] = v;
@@ -169,11 +145,18 @@
 			<div class="title">
 				<component :is="layerIcon(layer.type)" :size="15" :color="layerHue(layer.type)" />
 				<input
+					autocomplete="off"
+					data-1p-ignore
 					class="name"
 					:value="layer.name"
 					aria-label="Layer name"
-					@change="store.updateLayer(layer.id, { name: ($event.target as HTMLInputElement).value })" />
-				<PresetMenu kind="layer" :target="layer.type" :source="{ kind: 'layer', id: layer.id }" />
+					@change="
+						rename(
+							$event,
+							(name) => store.updateLayer(layer!.id, { name }),
+							() => layer!.name
+						)
+					" />
 				<label class="en" title="Enabled">
 					<input
 						type="checkbox"
@@ -194,57 +177,12 @@
 					>{{ layerIndexLabel() }}</span
 				>
 				<span class="grow" />
-				<button
-					v-tip="
-						layer.locked
-							? 'Locked: the optimiser leaves this layer alone. Click to unlock'
-							: 'Lock from the optimiser: it will not change this layer'
-					"
-					type="button"
-					class="cf-ico-btn"
-					:class="{ latched: layer.locked }"
-					:aria-pressed="!!layer.locked"
-					aria-label="Lock from the optimiser"
-					@click="store.updateLayer(layer.id, { locked: !layer.locked })">
-					<component :is="layer.locked ? IconLock : IconLockOpen" :size="13" />
-				</button>
-				<span class="vsep" />
-				<button
-					v-tip="'Move up: applied earlier'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Move layer up"
-					:disabled="!canStep(layer.id, -1)"
-					@click="store.stepLayer(layer.id, -1)">
-					<IconArrowUp :size="13" />
-				</button>
-				<button
-					v-tip="'Move down: applied later, over more'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Move layer down"
-					:disabled="!canStep(layer.id, 1)"
-					@click="store.stepLayer(layer.id, 1)">
-					<IconArrowDown :size="13" />
-				</button>
-				<button
-					v-tip="'Duplicate (Ctrl+D)'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Duplicate layer"
-					@click="act.duplicateSelection">
-					<IconCopy :size="13" />
-				</button>
-				<button
-					v-tip="'Delete (Del)'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Delete layer"
-					@click="act.deleteSelection">
-					<IconTrash :size="13" />
-				</button>
+				<ItemStuds kind="layer" :id="layer.id" />
 			</div>
-			<p v-if="layerDef.description" class="desc">{{ layerDef.description }}</p>
+			<div class="desc-row">
+				<p class="desc">{{ layerDef.description }}</p>
+				<PresetMenu kind="layer" :target="layer.type" :source="{ kind: 'layer', id: layer.id }" />
+			</div>
 			<div v-if="layerGroup" class="links">
 				<button
 					v-tip="`Part of the group ${layerGroup.name} — select it`"
@@ -298,11 +236,18 @@
 			<div class="title">
 				<IconSquareRotated :size="15" color="var(--accent-hi)" />
 				<input
+					autocomplete="off"
+					data-1p-ignore
 					class="name"
 					:value="group.name"
 					aria-label="Group name"
-					@change="store.renameGroup(group.id, ($event.target as HTMLInputElement).value)" />
-				<PresetMenu kind="group" :source="{ kind: 'group', id: group.id }" />
+					@change="
+						rename(
+							$event,
+							(name) => store.renameGroup(group!.id, name),
+							() => group!.name
+						)
+					" />
 				<label v-tip="'Shown'" class="en">
 					<input
 						type="checkbox"
@@ -315,45 +260,15 @@
 				<span class="type">Group</span>
 				<span class="cf-mono lo">{{ group.members.length }} layers</span>
 				<span class="grow" />
-				<button
-					v-tip="'Move up: applied earlier'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Move group up"
-					:disabled="!canStep(group.id, -1)"
-					@click="store.stepLayer(group.id, -1)">
-					<IconArrowUp :size="13" />
-				</button>
-				<button
-					v-tip="'Move down: applied later, over more'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Move group down"
-					:disabled="!canStep(group.id, 1)"
-					@click="store.stepLayer(group.id, 1)">
-					<IconArrowDown :size="13" />
-				</button>
-				<button
-					v-tip="'Ungroup: keep the layers, drop the group'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Ungroup"
-					@click="ungroup">
-					<IconStack2 :size="13" />
-				</button>
-				<button
-					v-tip="'Delete the group and its layers (Del)'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Delete group"
-					@click="act.deleteSelection">
-					<IconTrash :size="13" />
-				</button>
+				<ItemStuds kind="group" :id="group.id" />
 			</div>
-			<p class="desc">
-				Ordinary layers kept together — open the group in the outliner to edit one. Hide, move or limit them as one, or
-				save them as a preset from the presets menu.
-			</p>
+			<div class="desc-row">
+				<p class="desc">
+					Ordinary layers kept together — open the group in the outliner to edit one. Hide, move or limit them as one,
+					or save them as a preset from the presets menu.
+				</p>
+				<PresetMenu kind="group" :source="{ kind: 'group', id: group.id }" />
+			</div>
 			<div class="scroll">
 				<PanelCard title="Mask" :icon="cardIcon('Mask')" storage-key="group:mask">
 					<p class="hint">
@@ -371,11 +286,18 @@
 			<div class="title">
 				<component :is="light.type === 'point' ? IconBulb : IconSun" :size="15" :color="LIGHT_HUE" />
 				<input
+					autocomplete="off"
+					data-1p-ignore
 					class="name"
 					:value="light.name"
 					aria-label="Light name"
-					@change="store.updateLight(light.id, { name: ($event.target as HTMLInputElement).value })" />
-				<PresetMenu kind="light" :target="light.type" :source="{ kind: 'light', id: light.id }" />
+					@change="
+						rename(
+							$event,
+							(name) => store.updateLight(light!.id, { name }),
+							() => light!.name
+						)
+					" />
 				<label class="en" title="Enabled">
 					<input
 						type="checkbox"
@@ -387,30 +309,18 @@
 			<div class="sub">
 				<span class="type">{{ LIGHT_DEFS[light.type].label }} light</span>
 				<span class="grow" />
-				<button
-					v-tip="'Duplicate (Ctrl+D)'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Duplicate light"
-					@click="act.duplicateSelection">
-					<IconCopy :size="13" />
-				</button>
-				<button
-					v-tip="'Delete (Del)'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Delete light"
-					@click="act.deleteSelection">
-					<IconTrash :size="13" />
-				</button>
+				<ItemStuds kind="light" :id="light.id" />
 			</div>
-			<p class="desc">
-				{{
-					light.type === 'point'
-						? `Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at ${Number((light.refDist ?? POINT_LIGHT_REF_DIST).toPrecision(4))} px.`
-						: 'Drag the sun gizmo around the texture to set the azimuth. Hold Shift to place it under the cursor, setting the elevation too (the centre is overhead, the dashed ring the horizon); hold Ctrl to snap to 15° steps.'
-				}}
-			</p>
+			<div class="desc-row">
+				<p class="desc">
+					{{
+						light.type === 'point'
+							? `Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at ${Number((light.refDist ?? POINT_LIGHT_REF_DIST).toPrecision(4))} px.`
+							: 'Drag the sun gizmo around the texture to set the azimuth. Hold Shift to place it under the cursor, setting the elevation too (the centre is overhead, the dashed ring the horizon); hold Ctrl to snap to 15° steps.'
+					}}
+				</p>
+				<PresetMenu kind="light" :target="light.type" :source="{ kind: 'light', id: light.id }" />
+			</div>
 			<div class="scroll">
 				<PanelCard title="Light" :icon="light.type === 'point' ? IconBulb : IconSun" :icon-color="LIGHT_HUE">
 					<ParamList
@@ -427,7 +337,6 @@
 			<div class="title">
 				<IconSparkles :size="15" :color="POST_HUE" />
 				<span class="name static">{{ postDef.label }}</span>
-				<PresetMenu kind="post" :target="post.type" :source="{ kind: 'post', id: post.id }" />
 				<label class="en" title="Enabled">
 					<input
 						type="checkbox"
@@ -442,32 +351,12 @@
 					{{ store.project.post.length }}</span
 				>
 				<span class="grow" />
-				<button
-					v-tip="'Move up: applied earlier'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Move filter earlier"
-					@click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) - 1)">
-					<IconArrowUp :size="13" />
-				</button>
-				<button
-					v-tip="'Move down: applied later'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Move filter later"
-					@click="store.movePost(post.id, store.project.post.findIndex((f) => f.id === post!.id) + 1)">
-					<IconArrowDown :size="13" />
-				</button>
-				<button
-					v-tip="'Delete (Del)'"
-					type="button"
-					class="cf-ico-btn"
-					aria-label="Delete filter"
-					@click="act.deleteSelection">
-					<IconTrash :size="13" />
-				</button>
+				<ItemStuds kind="post" :id="post.id" />
 			</div>
-			<p v-if="postDef.description" class="desc">{{ postDef.description }}</p>
+			<div class="desc-row">
+				<p class="desc">{{ postDef.description }}</p>
+				<PresetMenu kind="post" :target="post.type" :source="{ kind: 'post', id: post.id }" />
+			</div>
 			<div class="scroll">
 				<PanelCard :title="postDef.label" :icon="IconSparkles" :icon-color="POST_HUE">
 					<ParamList
@@ -480,15 +369,61 @@
 			</div>
 		</template>
 
-		<!-- Project -->
+		<!-- Base material: the Base row of the layer list -->
+		<template v-else-if="sel.kind === 'base'">
+			<div class="title">
+				<span class="swatch" :style="{ background: store.project.base.color }" />
+				<span class="name static">Base material</span>
+			</div>
+			<p class="desc">The material under every layer.</p>
+			<div class="scroll">
+				<PanelCard title="Base material" :icon="cardIcon('Base material')">
+					<ParamList
+						:defs="BASE_DEFS"
+						:values="asValues(store.project.base)"
+						:key-prefix="'base.'"
+						@change="(k, v) => assign(store.project.base, k, v)" />
+				</PanelCard>
+			</div>
+		</template>
+
+		<!-- Environment: the first row of the lights -->
+		<template v-else-if="sel.kind === 'environment'">
+			<div class="title">
+				<IconWorld :size="15" :color="LIGHT_HUE" />
+				<span class="name static">Environment</span>
+			</div>
+			<p class="desc">The sky and ambient light around the lights.</p>
+			<div class="scroll">
+				<PanelCard title="Lighting presets" :icon="cardIcon('Lighting presets')" storage-key="world:presets">
+					<LightingPresets />
+				</PanelCard>
+				<PanelCard title="Sky light" :icon="cardIcon('Sky light')" storage-key="world:sky">
+					<ParamList
+						:defs="SKY_DEFS"
+						:values="asValues(store.project.lighting.sky)"
+						:key-prefix="'sky.'"
+						@change="(k, v) => assign(store.project.lighting.sky, k, v)" />
+				</PanelCard>
+				<PanelCard title="Ambient" :icon="cardIcon('Ambient')" storage-key="world:ambient">
+					<ParamList
+						:defs="AMBIENT_DEFS"
+						:values="asValues(store.project.lighting.ambient)"
+						:key-prefix="'ambient.'"
+						@change="(k, v) => assign(store.project.lighting.ambient, k, v)" />
+				</PanelCard>
+			</div>
+		</template>
+
+		<!-- Project settings -->
 		<template v-else>
 			<div class="title">
 				<IconBox :size="15" color="var(--text-lo)" />
-				<span class="name static">Project Base</span>
+				<span class="name static">Project settings</span>
 			</div>
-			<p class="desc">Base project, material and renderer settings.</p>
+			<p class="desc">The canvas and the renderer.</p>
 			<div class="scroll">
-				<PanelCard title="Texture" :icon="cardIcon('Texture')">
+				<PanelCard title="Canvas" :icon="cardIcon('Canvas')">
 					<div class="sizes">
 						<button
 							v-for="s in SIZE_PRESETS"
@@ -508,30 +443,6 @@
 						:values="asValues(store.project.render)"
 						:key-prefix="'render.'"
 						@change="(k, v) => assign(store.project.render, k, v)" />
-				</PanelCard>
-				<PanelCard title="Base material" :icon="cardIcon('Base material')">
-					<ParamList
-						:defs="BASE_DEFS"
-						:values="asValues(store.project.base)"
-						:key-prefix="'base.'"
-						@change="(k, v) => assign(store.project.base, k, v)" />
-				</PanelCard>
-				<PanelCard title="Lighting presets" :icon="cardIcon('Lighting presets')" storage-key="world:presets">
-					<LightingPresets />
-				</PanelCard>
-				<PanelCard title="Sky light" :icon="cardIcon('Sky light')" storage-key="world:sky">
-					<ParamList
-						:defs="SKY_DEFS"
-						:values="asValues(store.project.lighting.sky)"
-						:key-prefix="'sky.'"
-						@change="(k, v) => assign(store.project.lighting.sky, k, v)" />
-				</PanelCard>
-				<PanelCard title="Ambient" :icon="cardIcon('Ambient')" storage-key="world:ambient">
-					<ParamList
-						:defs="AMBIENT_DEFS"
-						:values="asValues(store.project.lighting.ambient)"
-						:key-prefix="'ambient.'"
-						@change="(k, v) => assign(store.project.lighting.ambient, k, v)" />
 				</PanelCard>
 			</div>
 		</template>
@@ -594,6 +505,14 @@
 		border-bottom: 1px solid var(--hairline);
 		flex: none;
 	}
+	/* The base material's colour, as on its Outliner row. */
+	.swatch {
+		width: 15px;
+		height: 15px;
+		border: 1px solid var(--line);
+		border-radius: 2px;
+		flex: none;
+	}
 	.name {
 		flex: 1;
 		min-width: 0;
@@ -628,7 +547,7 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		height: 28px;
+		height: 32px;
 		padding: 0 6px 0 10px;
 		flex: none;
 	}
@@ -651,12 +570,6 @@
 	.grow {
 		flex: 1;
 	}
-	.vsep {
-		width: 1px;
-		height: 14px;
-		margin: 0 3px;
-		background: var(--hairline);
-	}
 	.desc {
 		margin: 0;
 		padding: 0 10px 8px;
@@ -667,6 +580,19 @@
 	}
 	.title + .desc {
 		padding-top: 8px;
+	}
+	/* The description, with the item's Presets key at its bottom right. */
+	.desc-row {
+		display: flex;
+		align-items: flex-end;
+		gap: 12px;
+		padding: 0 10px 8px;
+		flex: none;
+	}
+	.desc-row .desc {
+		flex: 1;
+		min-width: 0;
+		padding: 0;
 	}
 	.scroll {
 		flex: 1;

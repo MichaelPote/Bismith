@@ -15,7 +15,7 @@ Get textures out (final image and every map) and projects in and out.
   where it has one (`showSaveFilePicker`: Chrome, Edge); Firefox and Safari give pages no such dialog, so there it
   downloads, and asks where only with _Always ask you where to save files_ turned on.
 - Copy final image to clipboard.
-- **Export dialog** (FR10): Export… (`Ctrl+E`, the top bar's primary key) picks variants and maps; each variant renders
+- **Export dialog** (FR10): Export… (the top bar's primary key; `Ctrl+E`, shown in its tooltip) picks variants and maps; each variant renders
   once at export quality; one file downloads as a PNG, more as a zip with the project file. The File menu keeps the
   direct exports of the variant shown.
 

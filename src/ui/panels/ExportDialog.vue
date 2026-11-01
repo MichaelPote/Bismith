@@ -132,7 +132,12 @@
 					<h2 id="export-title">Export</h2>
 					<span class="kind">{{ store.project.name }} · {{ store.project.width }}×{{ store.project.height }}</span>
 					<span class="grow" />
-					<button v-tip:left="'Close (Esc)'" type="button" class="cf-ico-btn" aria-label="Close" @click="close">
+					<button
+						v-tip:left="{ body: 'Close', keys: 'Esc' }"
+						type="button"
+						class="cf-ico-btn"
+						aria-label="Close"
+						@click="close">
 						<IconX :size="16" />
 					</button>
 				</header>
@@ -147,7 +152,7 @@
 						</div>
 						<label v-for="v in list" :key="v.id" class="pick">
 							<input type="checkbox" :checked="ticked.has(v.id)" @change="toggleVariant(v.id)" />
-							<img v-if="thumbs.url(v.id)" class="thumb" :src="thumbs.url(v.id)" alt="" />
+							<img v-if="thumbs.crop(v.id)" class="thumb" :src="thumbs.crop(v.id)" alt="" />
 							<span v-else class="thumb" />
 							<span class="vname">{{ v.name }}</span>
 							<span v-if="v.id === store.variants.activeId" class="cur" aria-label="Shown now" />
@@ -335,7 +340,7 @@
 		width: 40px;
 		height: 24px;
 		flex: none;
-		object-fit: cover;
+		/* The Variants panel's crop at 50% zoom (variantThumbs.ts). */
 		border-radius: 2px;
 		background: var(--sunken);
 		box-shadow: 0 0 0 1px var(--hairline);

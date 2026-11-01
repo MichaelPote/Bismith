@@ -139,14 +139,23 @@ export function reliefOnly(layer: Layer): Layer {
 export function normalizeProject(input: unknown): Project {
 	ensureBuiltins();
 	let raw = (input && typeof input === 'object' ? input : {}) as Record<string, any>;
+	// The in-memory form (an autosave, a project being loaded) keeps which names still follow the project's; a file's
+	// names are the user's.
+	let auto = new Set<string>();
 	if (isVariantSet(raw.variants)) {
+		auto = new Set(raw.variants.list.filter((v) => v.auto).map((v) => v.id));
 		try {
 			raw = toFileForm(raw as Project) as unknown as Record<string, any>;
 		} catch {
 			raw = { ...raw, variants: undefined };
 		}
 	}
-	return withVariants(normalizeBase(raw), raw.variants);
+	const p = withVariants(normalizeBase(raw), raw.variants);
+	const vs = p.variants;
+	// (`auto` before `changes`, as everywhere else: the same project serialises the same.)
+	if (vs)
+		vs.list = vs.list.map(({ changes, ...v }) => (auto.has(v.id) ? { ...v, auto: true, changes } : { ...v, changes }));
+	return p;
 }
 
 /**

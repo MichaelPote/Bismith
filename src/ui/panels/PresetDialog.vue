@@ -269,7 +269,12 @@
 					</h2>
 					<span v-if="mode !== 'manage'" class="kind">{{ KIND_LABEL[saveKind] }}</span>
 					<span class="grow" />
-					<button v-tip:left="'Close (Esc)'" type="button" class="cf-ico-btn" aria-label="Close" @click="close">
+					<button
+						v-tip:left="{ body: 'Close', keys: 'Esc' }"
+						type="button"
+						class="cf-ico-btn"
+						aria-label="Close"
+						@click="close">
 						<IconX :size="16" />
 					</button>
 				</header>
@@ -282,7 +287,7 @@
 					<div class="fields">
 						<label>
 							<span class="cf-label">Name</span>
-							<input v-model="name" class="cf-field" required />
+							<input autocomplete="off" data-1p-ignore v-model="name" class="cf-field" required />
 						</label>
 						<label>
 							<span class="cf-label">Description</span>
@@ -290,7 +295,13 @@
 						</label>
 						<label>
 							<span class="cf-label">Category</span>
-							<input v-model="category" class="cf-field" list="preset-categories" placeholder="Other" />
+							<input
+								autocomplete="off"
+								data-1p-ignore
+								v-model="category"
+								class="cf-field"
+								list="preset-categories"
+								placeholder="Other" />
 							<datalist id="preset-categories">
 								<option v-for="c in presets.categories(saveKind)" :key="c" :value="c" />
 							</datalist>
@@ -343,11 +354,15 @@
 							<div class="cols">
 								<div class="line">
 									<input
+										autocomplete="off"
+										data-1p-ignore
 										class="cf-field nm"
 										:value="e.name"
 										aria-label="Name"
 										@change="setField(e.key, 'name', ($event.target as HTMLInputElement).value)" />
 									<input
+										autocomplete="off"
+										data-1p-ignore
 										class="cf-field cat"
 										:value="e.category ?? ''"
 										placeholder="Other"
@@ -356,6 +371,8 @@
 									<span class="k">{{ KIND_LABEL[e.kind] }}{{ e.target ? ` · ${e.target}` : '' }}</span>
 								</div>
 								<input
+									autocomplete="off"
+									data-1p-ignore
 									class="cf-field"
 									:value="e.description ?? ''"
 									placeholder="Description"
@@ -365,7 +382,7 @@
 							<button
 								v-tip:left="'Delete'"
 								type="button"
-								class="cf-ico-btn"
+								class="cf-ico-btn danger"
 								aria-label="Delete preset"
 								@click="remove(e.key, e.name)">
 								<IconTrash :size="13" />

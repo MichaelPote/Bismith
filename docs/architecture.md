@@ -468,12 +468,14 @@ The editor uses the _Blender-tempered_ Cinderforge editor language:
   **latched** toggles with a pilot lamp, one ember **primary** key (Export / Optimise), studs for row and panel icons.
 - Field names carry tooltips (Tippy.js, theme `cinder`): the hint, what each option does, the key and default.
 
-Layout: top bar (menus, workspace rail, primary action: Export…, the Export dialog) · left the **Variants** panel (FR10)
-over the **Outliner** (Project, one Layers list with Diffuse / Height columns headed by the Base row, and collapsible
-groups, Lights, Post) · centre **Viewport** (channel rail, zoom/pan, tile preview, light gizmos, shape editor), or the
+Layout: top bar (menus and Undo / Redo, the workspace rail centred, primary action: Export…, the Export dialog) · left a stack of the **Project**
+panel (its name as the title, size, description: what every variant shares), the **Variants** panel (FR10) and the
+**Outliner** (Project settings, one Layers list with Diffuse / Height columns headed by the Base row, and collapsible
+groups, Lights headed by the Environment row, Post) · centre **Viewport** (channel rail, zoom/pan, tile preview, light gizmos, shape editor), or the
 **Match**, **Tiling** (FR9: 3 × 3 before / fixed / hotspots, the fix search's settings, Keep this / Discard) or
-**Variants** workspace (cards of every variant) · right **Properties** of the selection (the project node also holds
-world lighting and render settings; ◆ marks what the shown variant changes) · bottom status bar.
+**Variants** workspace (cards of every variant) · right **Properties** of the selection (Project settings: Canvas and Path
+tracer; the Base row: the base material; Environment: lighting presets, sky light, ambient; ◆ marks what the shown
+variant changes) · bottom status bar.
 
 ---
 

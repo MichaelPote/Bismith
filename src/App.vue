@@ -6,6 +6,7 @@
 	import { CHANNEL_VIEWS } from '@/render/display';
 	import TopBar from '@/ui/layout/TopBar.vue';
 	import Outliner from '@/ui/layout/Outliner.vue';
+	import ProjectPanel from '@/ui/layout/ProjectPanel.vue';
 	import VariantsPanel from '@/ui/layout/VariantsPanel.vue';
 	import Viewport from '@/ui/layout/Viewport.vue';
 	import Properties from '@/ui/layout/Properties.vue';
@@ -78,23 +79,21 @@
 			/* storage unavailable */
 		}
 	});
-	/** The Outliner keeps at least this much of the column. */
+	/** The Outliner keeps at least this much of the column (its `min-height` below); a short window shrinks the panel. */
 	const OUTLINER_MIN = 160;
-	const variantsStyle = computed(() =>
-		variantsH.value ? { height: `${variantsH.value}px`, maxHeight: `calc(100% - ${OUTLINER_MIN}px)` } : undefined
-	);
+	const variantsStyle = computed(() => (variantsH.value ? { height: `${variantsH.value}px` } : undefined));
 
 	function startVariantsResize(e: PointerEvent): void {
 		const el = e.currentTarget as HTMLElement;
 		const panel = el.previousElementSibling as HTMLElement;
-		const column = el.parentElement as HTMLElement;
+		const outliner = el.nextElementSibling as HTMLElement;
 		const startY = e.clientY;
 		const start = panel.offsetHeight;
+		const max = start + outliner.offsetHeight - OUTLINER_MIN;
 		el.setPointerCapture(e.pointerId);
 		const move = (ev: PointerEvent) => {
-			// Head, one row and the footer at least.
-			const max = column.clientHeight - OUTLINER_MIN;
-			variantsH.value = Math.round(Math.max(92, Math.min(max, start + ev.clientY - startY)));
+			// The head and one row at least.
+			variantsH.value = Math.round(Math.max(68, Math.min(max, start + ev.clientY - startY)));
 		};
 		const up = () => {
 			el.removeEventListener('pointermove', move);
@@ -149,10 +148,10 @@
 			editor.wizard = true;
 			return;
 		}
-		// Alt+[ / Alt+]: the previous / next variant (FR10). By key position: Alt changes the character on some layouts.
-		if (e.altKey && !mod && (e.code === 'BracketLeft' || e.code === 'BracketRight') && !isTyping(e.target)) {
+		// Alt+↑ / Alt+↓: the previous / next variant (FR10).
+		if (e.altKey && !mod && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !isTyping(e.target)) {
 			e.preventDefault();
-			store.stepVariant(e.code === 'BracketLeft' ? -1 : 1);
+			store.stepVariant(e.key === 'ArrowUp' ? -1 : 1);
 			return;
 		}
 		if (isTyping(e.target) || mod || e.altKey) {
@@ -229,6 +228,7 @@
 		<TopBar />
 		<main class="main" :style="{ gridTemplateColumns: cols }">
 			<div class="left">
+				<ProjectPanel />
 				<VariantsPanel :class="{ sized: variantsH > 0 }" :style="variantsStyle" />
 				<div
 					class="vgutter"
@@ -287,7 +287,7 @@
 		display: grid;
 		min-height: 0;
 	}
-	/* The Variants panel over the Outliner, sharing the column. */
+	/* The Project, Variants and Outliner panels, stacked in the column. */
 	.left {
 		display: flex;
 		flex-direction: column;
@@ -311,9 +311,12 @@
 	.vgutter:hover {
 		background: linear-gradient(transparent 1px, var(--line) 1px, var(--line) 2px, transparent 2px);
 	}
+	.left > .project {
+		margin-bottom: var(--gap-app);
+	}
 	.left > :last-child {
 		flex: 1;
-		min-height: 0;
+		min-height: 160px;
 	}
 	.centre {
 		display: grid;

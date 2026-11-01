@@ -94,8 +94,10 @@ The file holds the **base** at the top level, so tools, the harness and older re
   Tiling result, a run checkpoint); without it, the file form — the top level becomes `baseValues` and the active
   variant is materialised. Changes whose key no longer exists, or whose value fails its ParamDef, are dropped (unknown
   layer types are already dropped; their keys go with them).
-- No `variants` block: the project is a single variant (_Variant 1_ until renamed, which adds the block); nothing extra
-  is written for it. `PROJECT_VERSION` becomes 2 (nothing is released: no migration beyond "no block = one variant").
+- No `variants` block: the project is a single variant, named after the project; nothing extra is written for it.
+  While it is the only variant and hasn't been renamed (`ProjectVariant.auto`, in memory only), its name follows the
+  project's (`syncVariants`), and saving it writes no block, so it goes on following after a reload. A name read from
+  a file's block is the user's and stays; renaming the variant fixes it too. `PROJECT_VERSION` becomes 2 (nothing is released: no migration beyond "no block = one variant").
 
 ### Sync
 
@@ -126,16 +128,23 @@ New pieces follow the canvas.
 
 ### Variants panel (`src/ui/layout/VariantsPanel.vue`, new)
 
-The left column becomes a stack: `VariantsPanel` above `Outliner`, sharing the resizable width (`cf-left`). The panel
-is a `cf-panel` with the Outliner's `.head` (`cf-label` _Variants_, count in `cf-mono` readout) and rows of a 40 × 24
-thumbnail, name, and a _Base_ badge or `◆ n`; the active row has the Outliner's `.sel` treatment. It shows up to seven
-rows and scrolls past that; with one variant it is one row. Header: **+** as the Outliner's `fk add` key (new variant
-from the current one), delete and browse as `cf-ico-btn` studs. Footer hint: `Alt [` `Alt ]` step · right-click for more.
+The left column becomes a stack: `ProjectPanel` (the project's name as its title — double-click to rename — its size and
+description: text until clicked, then a text box where Esc keeps the old one; all shared by every variant),
+`VariantsPanel`, then `Outliner`, sharing the resizable width (`cf-left`); the top bar no longer shows the name. The
+Outliner's top row is _Project settings_, the shown variant's. The panel is a `cf-panel` with the Outliner's `.head`
+(`cf-label` _Variants_, count in `cf-mono` readout) and rows of a 40 × 24 thumbnail (a crop of the render's middle at
+50% zoom), name, and a _Base_ badge or `◆ n`; the active row has the Outliner's `.sel` treatment. It shows up to seven
+rows and scrolls past that; with one variant it is one row. A divider under it sets its height (`cf-variants`;
+double-click for its own height again). Header: a delete stud (`cf-ico-btn danger`, crimson), then **+** as the Outliner's
+`fk add` key (new variant from the current one); the workspace is reached from the top bar or the menu's _Browse all
+variants_. No footer: the keys are in the Help menu (_Variants_).
 
-- **Switch:** click a row; `Alt+[` / `Alt+]` step (handled in `App.vue` before its `altKey` early return, by key
-  position), and the arrow keys while the list has focus. Switching
-  syncs, then loads the target's materialisation into `store.project` in place (one undo step; undo returns to the
-  previous variant as it was).
+- **Switch:** click a row; `Alt+↑` / `Alt+↓` step (handled in `App.vue` before its `altKey` early return; the panel's
+  own arrow keys, while its list has focus, leave Alt to it). Switching syncs, then loads the target's materialisation
+  into `store.project` in place (one undo step; undo returns to the previous variant as it was).
+- **Reorder:** drag a row, with the Outliner's drop line. The base is always first and isn't dragged; a variant dropped
+  above it becomes the base (the line turns `--gold`; `moveVariant` to 0 is `makeBase`, which also moves the new base
+  to the top — from the menu too). Every variant keeps its look; the others' changes are rediffed from the new base.
 - **Context menu:** a `DropMenu` with `placement="pointer"`, like the Outliner's row menu — plain items with
   shortcuts, as `MenuItem` has no icons or danger style (the board's icons and red Delete are dropped): New variant
   from _name_ · New variant from _base name_ (base) · — · Rename `F2` · Changes… · Make base · Reset all _n_ changes
@@ -147,16 +156,18 @@ from the current one), delete and browse as `cf-ico-btn` studs. Footer hint: `Al
   model): _Delete Rain-soaked?_ (Cancel / Delete; undo brings it back) and _Dry is the base — make another variant the
   base first_ (OK). `Del` deletes the active variant only while the panel has focus — elsewhere it keeps deleting the
   selection.
-- **Thumbnails:** `src/ui/variantThumbs.ts` — the active variant's from the viewport (`capturePreview` once its render
-  settles), the others rendered off-screen while it is idle — all stale ones in one pass (`renderThumbnails`), so the
+- **Thumbnails:** `src/ui/variantThumbs.ts` — a preview of the whole render (workspace cards) and a 50% crop of its
+  middle (`encodeCrop`; the panel's rows and the Export dialog's list); the active variant's from the viewport once its
+  render settles, the others rendered off-screen while it is idle — all stale ones in one pass (`renderThumbnails`), so the
   viewport restarts once — cached by a hash of the materialised project; nothing is stored in the file.
 
 ### Changed settings
 
 - **Outliner:** a 6 px ◆ (`--e400`, a rotated square) after the name of a layer, group (or a member), light or post
-  row the active variant changes, on the Base row for base material changes, and on the project row for the seed,
-  height depth, sky, ambient and path tracer look; nothing on the base variant, and no tooltip (per the review). A layer the variant turns off already shows as off. The board's _changed in Rain-soaked_ heading note is
-  dropped (done on the canvas too).
+  row the active variant changes, on the Base row for base material changes, on the Environment row (first of the
+  lights) for sky and ambient, and on the Project settings row for the seed, height depth and path tracer look; nothing
+  on the base variant, and no tooltip (per the review). A layer the variant turns off already shows as off. The board's
+  _changed in Rain-soaked_ heading note is dropped (done on the canvas too).
 - **Properties / `ParamList`:** a new optional `keyPrefix` prop (`layer.<id>.p.` etc.) lets a row look up whether it
   changes from the base: a ◆ before the label and the label in `--accent-hi`. The existing gold `.noted`
   labels keep their meaning; changed wins the colour, the note stays in the tooltip.
@@ -181,7 +192,7 @@ so the grid has the whole centre; the board's lone top bar is the app's own.
 - **Grid:** cards of the render (the thumbnail service at 256 px; Diffuse and Height render each variant's material
   maps through `renderExport` with no samples), a tick box, _Base_ or _Editing_ badge, name, `◆ n`, note, and edit
   (switch and go to Create), new-variant-from and more (the panel's menu) studs. Click switches, double-click edits,
-  drag reorders. Rename from a card renames in the panel; deleting the ticked cards asks with the modal (`editor.ask`).
+  drag reorders (the panel's rule: dropped before the base card, a variant becomes the base). Rename from a card renames in the panel; deleting the ticked cards asks with the modal (`editor.ask`).
 
 ### Changes dialog (`src/ui/panels/VariantChanges.vue`, new)
 
@@ -237,7 +248,7 @@ Each step leaves the app working, with `npx vue-tsc -b`, `npx oxlint`, `npx oxfm
    on a variant adds it to all; removing one prunes every variant; base edits reach unchanged variants only; make base
    keeps every variant's look; resize scales every variant; undo across a switch; autosave reloads the active variant.
 3. **Variants panel** — `VariantsPanel.vue`, the left-column stack in `App.vue`, menu, inline rename, `AnchoredAsk`,
-   `Alt+[ ]` / F2 / Del, `variantThumbs.ts`.
+   `Alt+↑ ↓` / F2 / Del, `variantThumbs.ts`.
 4. **Changed settings** — Outliner ◆; `ParamList` `keyPrefix`, ◆ and label colour; the param context menu with the
    editor's param clipboard, wired in every `ParamList` of Properties (layer, light, post, the project node's cards,
    group Mask).
@@ -259,6 +270,6 @@ session's undo across switches by hand.
 
 ## Naming
 
-_Base_ stays for the variant the others measure from (its badge, _Make base_), though the Outliner's _Base_ row and
-the _Project Base_ node already mean the base material: every other label names the base variant instead (_Reset to
-Dry_, _New variant from Dry_). Match's _Variations_, whose name sat close to this feature's, has been removed (FR8.4).
+_Base_ stays for the variant the others measure from (its badge, _Make base_), though the Outliner's _Base_ row already
+means the base material: every other label names the base variant instead (_Reset to Dry_, _New variant from Dry_).
+Match's _Variations_, whose name sat close to this feature's, has been removed (FR8.4).

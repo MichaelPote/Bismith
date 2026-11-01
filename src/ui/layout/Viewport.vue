@@ -287,7 +287,7 @@
 	const toggles = computed(() => [
 		{
 			label: 'Preview up to selected layer',
-			tip: 'Preview up to the selected layer - Turns off all layers above the selected one (S)',
+			tip: 'Preview up to the selected layer - Turns off all layers above the selected one',
 			icon: markRaw(IconStackFront),
 			iconOn: markRaw(IconStackMiddle),
 			keybind: 'S',
@@ -296,7 +296,7 @@
 		},
 		{
 			label: 'Tiling preview',
-			tip: 'Tiling Preview - preview this texture in a 5×5 grid (T)',
+			tip: 'Tiling Preview - preview this texture in a 5×5 grid',
 			keybind: 'T',
 			icon: markRaw(IconChartCohort),
 			on: editor.tile,
@@ -304,7 +304,7 @@
 		},
 		{
 			label: 'Pixel grid',
-			tip: 'Pixel Grid - draw a grid around each pixel when zoomed (G)',
+			tip: 'Pixel Grid - draw a grid around each pixel when zoomed',
 			keybind: 'G',
 			icon: markRaw(IconGrid3x3),
 			on: editor.grid,
@@ -611,7 +611,7 @@
 				<button
 					v-for="c in CHANNEL_VIEWS"
 					:key="c.id"
-					v-tip:bottom="`${c.description} (${c.key.toUpperCase()})`"
+					v-tip:bottom="{ body: c.description, keys: c.key.toUpperCase() }"
 					type="button"
 					role="tab"
 					class="fk"
@@ -632,6 +632,8 @@
 				@update:model-value="editor.channel = $event as typeof editor.channel" />
 			<template v-if="editor.channel === 'masks'">
 				<input
+					autocomplete="off"
+					data-1p-ignore
 					v-if="renaming"
 					ref="renameInput"
 					v-model="renameDraft"
@@ -662,7 +664,7 @@
 				<button
 					v-for="t in toggles"
 					:key="t.label"
-					v-tip:bottom="t.tip"
+					v-tip:bottom="{ body: t.tip, keys: t.keybind }"
 					type="button"
 					class="cf-toggle toggle"
 					:class="{ on: t.on }"
@@ -673,7 +675,7 @@
 				</button>
 				<div class="vsep" />
 				<button
-					v-tip:bottom="'Fit to view (F)'"
+					v-tip:bottom="{ body: 'Fit to view', keys: 'F' }"
 					type="button"
 					class="cf-ico-btn fit"
 					aria-label="Fit to view"

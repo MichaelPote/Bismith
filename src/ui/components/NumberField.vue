@@ -263,7 +263,15 @@
 			@keydown.left.prevent="nudge(-1, $event)"
 			@keydown.right.prevent="nudge(1, $event)">
 			<div v-if="hasRange" class="fill" :style="{ width: `${frac * 100}%` }" />
-			<input v-if="editing" ref="input" v-model="draft" class="edit" @keydown="onEditKey" @blur="finishEdit(true)" />
+			<input
+				autocomplete="off"
+				data-1p-ignore
+				v-if="editing"
+				ref="input"
+				v-model="draft"
+				class="edit"
+				@keydown="onEditKey"
+				@blur="finishEdit(true)" />
 			<span v-else class="val">{{ display }}</span>
 		</div>
 		<button type="button" class="arrow" tabindex="-1" :aria-label="`Increase ${label ?? ''}`" @click="nudge(1, $event)">

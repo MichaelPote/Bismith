@@ -1,4 +1,5 @@
-// Tooltips (Tippy.js, Cinderforge theme in styles/base.css): `v-tip="'text'"` or `v-tip="{ title, body, list, meta }"`.
+// Tooltips (Tippy.js, Cinderforge theme in styles/base.css): `v-tip="'text'"` or
+// `v-tip="{ title, body, keys, list, meta }"`.
 // The argument picks the side: `v-tip:right="…"` (default left — the inspector sits on the right edge, so tips open
 // over the viewport instead of covering fields). Content is built as DOM text, never parsed as HTML.
 
@@ -9,6 +10,8 @@ import type { Directive } from 'vue';
 export interface Tip {
 	title?: string;
 	body?: string;
+	/** The shortcut, as a key cap after the body (e.g. 'Ctrl E'). */
+	keys?: string;
 	/** Term / description pairs, e.g. the options of a dropdown. */
 	list?: [string, string][];
 	/** Small mono footer, e.g. the param key and its default. */
@@ -48,7 +51,11 @@ function render(v: TipValue): HTMLElement | null {
 	if (!t.title && !t.body && !t.list?.length && !t.meta) return null;
 	const root = el('div', 'tip');
 	if (t.title) root.append(el('div', 'tip-title', t.title));
-	if (t.body) root.append(el('div', t.title ? 'tip-body' : 'tip-text', t.body));
+	if (t.body) {
+		const body = el('div', t.title ? 'tip-body' : 'tip-text', t.body);
+		if (t.keys) body.append(' ', el('span', 'kc', t.keys));
+		root.append(body);
+	}
 	if (t.list?.length) {
 		const ul = el('ul', 'tip-list');
 		for (const [term, desc] of t.list) {

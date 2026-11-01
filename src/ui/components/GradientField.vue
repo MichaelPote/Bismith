@@ -163,7 +163,7 @@
 			</button>
 			<button
 				type="button"
-				class="cf-ico-btn"
+				class="cf-ico-btn danger"
 				title="Remove stop"
 				aria-label="Remove stop"
 				:disabled="stops.length <= 1"

@@ -185,7 +185,7 @@
 				<button
 					v-tip="'Delete the selected variants (the base stays)'"
 					type="button"
-					class="cf-ico-btn"
+					class="cf-ico-btn danger"
 					aria-label="Delete the selected variants"
 					:disabled="!pickedList.some((v) => v.id !== baseId)"
 					@click="deletePicked">
@@ -202,8 +202,13 @@
 				:key="v.id"
 				:data-variant="v.id"
 				class="card"
-				:class="{ cur: v.id === activeId, picked: picked.has(v.id), dropBefore: dropBefore === v.id }"
-				draggable="true"
+				:class="{
+					cur: v.id === activeId,
+					picked: picked.has(v.id),
+					dropBefore: dropBefore === v.id,
+					rebase: dropBefore === v.id && v.id === baseId
+				}"
+				:draggable="v.id !== baseId"
 				@click="store.switchVariant(v.id)"
 				@dblclick="edit(v.id)"
 				@contextmenu.prevent="onMenu($event, v)"
@@ -345,6 +350,10 @@
 		bottom: 0;
 		width: 2px;
 		background: var(--e400);
+	}
+	/* Before the base, the dragged variant becomes the base (moveVariant). */
+	.card.rebase::before {
+		background: var(--gold);
 	}
 	.pic {
 		position: relative;

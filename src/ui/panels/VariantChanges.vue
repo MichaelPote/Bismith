@@ -91,7 +91,7 @@
 			return { group: table[head][0], label: def?.label ?? rest, def };
 		}
 		const def = pick(PROJECT_DEFS, key);
-		return { group: 'Texture', label: def?.label ?? key, def };
+		return { group: 'Canvas', label: def?.label ?? key, def };
 	}
 
 	function show(v: ParamValue | undefined, def?: ParamDef): Shown {
@@ -181,14 +181,25 @@
 					<h2 id="changes-title">Changes</h2>
 					<span class="kind">{{ variant.name }}</span>
 					<span class="grow" />
-					<button v-tip:left="'Close (Esc)'" type="button" class="cf-ico-btn" aria-label="Close" @click="close">
+					<button
+						v-tip:left="{ body: 'Close', keys: 'Esc' }"
+						type="button"
+						class="cf-ico-btn"
+						aria-label="Close"
+						@click="close">
 						<IconX :size="16" />
 					</button>
 				</header>
 				<div class="fields">
 					<label>
 						<span class="cf-label">Name</span>
-						<input v-model="nameText" class="cf-field" @change="commitName" @keydown.enter="commitName" />
+						<input
+							autocomplete="off"
+							data-1p-ignore
+							v-model="nameText"
+							class="cf-field"
+							@change="commitName"
+							@keydown.enter="commitName" />
 					</label>
 					<label>
 						<span class="cf-label">Note</span>

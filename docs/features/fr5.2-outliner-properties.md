@@ -9,9 +9,14 @@ Blender-style editing: an outliner of everything in the project and a properties
 
 ## Plan
 
-- Outliner sections: **Project** row, **Layers** (top of list = top of stack), **Lights**, **Post**.
-- Rows: category-hued stroke icon, name (double-click to rename), eye toggle, lock, drag-to-reorder,
-  context actions (duplicate, delete); "+" add menus grouped by category.
+- Outliner sections: **Project settings** row (Canvas, Path tracer), **Layers** (top of list = top of stack, headed by
+  the **Base** row: the base material), **Lights** (headed by the **Environment** row: lighting presets, sky light,
+  ambient), **Post**.
+- Rows: category-hued stroke icon, name (double-click to rename; cleared, a layer or light takes its type's name
+  again), and after a renamed layer's or light's name its type, muted, in one column per list; eye toggle,
+  drag-to-reorder; "+" add menus grouped by category. A row's right-click menu holds the same actions as the studs in
+  its inspector heading — lock, move up / down, ungroup, duplicate, delete — from one list (`src/ui/itemActions.ts`,
+  drawn by `ItemStuds.vue`), so the two stay in step; a light's adds Rename.
 - Properties: header with name + type; collapsible `PanelCard`s: Parameters (grouped by `ParamDef.group`),
   Shaping, Mask, and one card per channel output (Diffuse, Opacity, Height, Roughness, Emissive) each with an
   enable checkbox in its header.

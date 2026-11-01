@@ -16,6 +16,11 @@ export interface ProjectVariant {
 	id: string;
 	name: string;
 	note?: string;
+	/**
+	 * Named after the project and never renamed: while it is the only variant, its name follows the project's
+	 * (syncVariants). In memory only — a name read from a file is the user's.
+	 */
+	auto?: boolean;
 	/** The settings it changes from the base (empty for the base itself). */
 	changes: Settings;
 }
@@ -39,7 +44,7 @@ export interface VariantFile {
 	list: ProjectVariant[];
 }
 
-/** The name a project's only variant goes by until it is renamed. */
+/** The name of a project's first variant when the project has none (its only variant otherwise goes by the project's). */
 export const FIRST_VARIANT = 'Variant 1';
 const FIRST_ID = 'v1';
 
@@ -123,7 +128,7 @@ export function variantsOf(p: Project): VariantSet {
 		p.variants ?? {
 			baseId: FIRST_ID,
 			activeId: FIRST_ID,
-			list: [{ id: FIRST_ID, name: FIRST_VARIANT, changes: {} }]
+			list: [{ id: FIRST_ID, name: p.name || FIRST_VARIANT, auto: true, changes: {} }]
 		}
 	);
 }
@@ -185,6 +190,11 @@ export function syncVariants(p: Project): boolean {
 		const next =
 			v.id === vs.baseId ? {} : v.id === vs.activeId ? diffSettings(cur, base) : diffSettings(v.changes, base);
 		changed = setIfChanged(v as unknown as Rec, 'changes', next) || changed;
+	}
+	const only = vs.list.length === 1 ? vs.list[0] : undefined;
+	if (only?.auto && p.name && only.name !== p.name) {
+		only.name = p.name;
+		changed = true;
 	}
 	return changed;
 }
@@ -259,7 +269,9 @@ export function deleteVariant(p: Project, id: string): boolean {
 
 export function renameVariant(p: Project, id: string, name: string): void {
 	const v = ensureVariants(p).list.find((x) => x.id === id);
-	if (v && name.trim()) v.name = uniqueVariantName(p, name, id);
+	if (!v || !name.trim()) return;
+	v.name = uniqueVariantName(p, name, id);
+	delete v.auto;
 }
 
 export function setVariantNote(p: Project, id: string, note: string): void {
@@ -269,20 +281,28 @@ export function setVariantNote(p: Project, id: string, note: string): void {
 	else delete v.note;
 }
 
-/** Move variant `id` to position `to` in the list. */
+/**
+ * Move variant `id` to position `to` in the list. The base is always first and stays there: a variant moved to the
+ * top becomes the base (makeBase).
+ */
 export function moveVariant(p: Project, id: string, to: number): void {
-	const list = p.variants?.list;
-	const i = list?.findIndex((v) => v.id === id) ?? -1;
-	if (!list || i < 0) return;
-	const [v] = list.splice(i, 1);
-	list.splice(Math.max(0, Math.min(list.length, to)), 0, v);
+	const vs = p.variants;
+	const i = vs?.list.findIndex((v) => v.id === id) ?? -1;
+	if (!vs || i < 0 || id === vs.baseId) return;
+	if (to <= 0) return makeBase(p, id);
+	const [v] = vs.list.splice(i, 1);
+	vs.list.splice(Math.min(vs.list.length, to), 0, v);
 }
 
-/** Make variant `id` the base: every variant keeps its look, its changes measured from the new base. */
+/**
+ * Make variant `id` the base, first in the list: every variant keeps its look, its changes measured from the new base.
+ */
 export function makeBase(p: Project, id: string): void {
 	const vs = p.variants;
 	if (!vs || id === vs.baseId || !vs.list.some((v) => v.id === id)) return;
 	syncVariants(p);
+	const at = vs.list.findIndex((v) => v.id === id);
+	vs.list.unshift(...vs.list.splice(at, 1));
 	const all = new Map(vs.list.map((v) => [v.id, variantSettings(p, v.id)]));
 	const base = all.get(id)!;
 	vs.baseId = id;
@@ -379,13 +399,19 @@ export function forEachVariant(p: Project, edit: (q: Project) => void): void {
 	syncVariants(p);
 }
 
-/** `p` (in memory: the active variant) in its file form: the base at the top level, the others' changes listed. */
+/**
+ * `p` (in memory: the active variant) in its file form: the base at the top level, the others' changes listed. A lone
+ * variant still named after the project (and without a note) writes no block, so it goes on following the project's
+ * name when the file is opened again.
+ */
 export function toFileForm(p: Project): Project {
 	if (!p.variants) return p;
 	const q = clone(p);
 	syncVariants(q);
 	const vs = q.variants!;
 	const out = materialise(q, vs.baseId);
+	const only = vs.list.length === 1 ? vs.list[0] : undefined;
+	if (only?.auto && !only.note) return out;
 	const base = vs.list.find((v) => v.id === vs.baseId)!;
 	const meta = (v: ProjectVariant) => ({ id: v.id, name: v.name, ...(v.note ? { note: v.note } : {}) });
 	const file: VariantFile = {

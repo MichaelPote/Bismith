@@ -10,8 +10,11 @@ import type { ParamType, ParamValue } from '@/core/params';
 /** A card a preset is applied to or saved from. */
 export type PresetSource = { kind: 'layer' | 'group' | 'light' | 'post'; id: string } | { kind: 'lighting' };
 
-/** 'base' is the Base row of the layer list: the project panel, highlighted on that row. */
-export type SelectionKind = 'project' | 'base' | 'layer' | 'light' | 'post' | 'group';
+/**
+ * 'project' is the project's settings (canvas, path tracer), 'base' the Base row of the layer list (the base material),
+ * 'environment' the Environment row of the lights (lighting presets, sky, ambient).
+ */
+export type SelectionKind = 'project' | 'base' | 'environment' | 'layer' | 'light' | 'post' | 'group';
 
 export interface Selection {
 	kind: SelectionKind;

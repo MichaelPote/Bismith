@@ -75,11 +75,12 @@ in code.
 
 ### Menus
 
-- **Every card title row** (layer, group, each light, each post filter) gets a presets button
-  (`PresetMenu.vue`). It opens a drop-down of thumbnail tiles for that card's `kind` and `target`, grouped by category
-  (`DropMenu`'s tiles, placed `under` the button). The user's presets and the built-ins are mixed in the same groups,
-  in name order: the starters' categories first in their usual order (Quake-style, UI surfaces, Nature, Basics), then
-  the rest alphabetically, _Other_ (no category) last. Presets of other types aren't shown.
+- **Every inspector** (layer, group, each light, each post filter) has a **Presets** key at the bottom right of its
+  description (`PresetMenu.vue`; it sat in the title row as an icon stud until FR10). It opens a drop-down of thumbnail
+  tiles for that card's `kind` and `target`, grouped by category (`DropMenu`'s tiles, placed `under` the button). The
+  user's presets and the built-ins are mixed in the same groups, in name order: the starters' categories first in their
+  usual order (Quake-style, UI surfaces, Nature, Basics), then the rest alphabetically, _Other_ (no category) last.
+  Presets of other types aren't shown.
 - **The Lighting presets card** (project view) shows the lighting presets as tiles in the card itself, with **Save this
   lighting…** under them.
 - Hovering a tile shows its name and description. Clicking applies it. The user's own tiles are edged in ember.
@@ -183,7 +184,7 @@ Starters (v1):
 - [x] Standard rig, `presetStage` (relief-less items only); thumbnails rendered off-screen without touching the project
 - [x] Apply: layers (mask wiring kept, pixel units rescaled), groups, lights, lighting, post filters; one
       undo step each
-- [x] Presets button and thumbnail drop-down on every card title row; Lighting presets card as tiles
+- [x] Presets key and thumbnail drop-down in every inspector; Lighting presets card as tiles
 - [x] Save as preset… dialog; File ▸ Save as template…; My presets (rename, describe, recategorise, delete)
 - [x] IndexedDB store; Export mine… / Import…
 - [x] Embedded images for Stamp presets

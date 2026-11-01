@@ -1,17 +1,29 @@
 // Variant thumbnails (FR10): the shown variant's captured from the viewport once its render has settled, the others
 // rendered off-screen (presets/thumbnail.ts) while the viewport is idle — all stale ones in one pass, so the viewport
-// restarts once. Kept in memory by a hash of each variant's project; nothing is saved with it.
+// restarts once. Each is a preview of the whole texture (the workspace's cards) and a crop of its middle at 50% zoom
+// (the Variants panel's rows). Kept in memory by a hash of each variant's project; nothing is saved with it.
 
 import { reactive, toRaw, watch } from 'vue';
 import { hashText } from '@/core/hash';
 import * as V from '@/core/variants';
 import type { Project } from '@/core/project';
 import { renderThumbnails } from '@/presets/thumbnail';
-import { capturePreview, PROJECT_PREVIEW } from '@/render/preview';
+import type { Engine } from '@/render/engine';
+import { mapPixels } from '@/render/export';
+import { encodeCrop, encodePreview, PROJECT_PREVIEW } from '@/render/preview';
 import { useEditorStore } from '@/stores/editor';
 import { useProjectStore } from '@/stores/project';
 
-const urls = reactive(new Map<string, string>());
+/** The Variants panel's thumbnail, in CSS px (its `.thumb`), and its zoom (0.5: two texels across a device pixel). */
+export const CROP_SIZE = { w: 40, h: 24 };
+const CROP_ZOOM = 0.5;
+
+interface Thumb {
+	preview: string;
+	crop: string;
+}
+
+const thumbs = reactive(new Map<string, Thumb>());
 const hashes = new Map<string, string>();
 let started = false;
 let running = false;
@@ -20,6 +32,22 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 /** What a thumbnail depends on: the variant's project, less what never shows in the render. */
 function renderHash(p: Project): string {
 	return hashText(JSON.stringify({ ...p, name: '', description: '', preview: '', preset: undefined }));
+}
+
+/** Both thumbnails of what the engine shows now; undefined before anything has rendered. */
+function capture(engine: Engine, p: Project): Thumb | undefined {
+	try {
+		const { width, height, pixels } = mapPixels(engine, 'final');
+		if (!width || !height) return undefined;
+		const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+		return {
+			preview: encodePreview(pixels, width, height, PROJECT_PREVIEW),
+			crop: encodeCrop(pixels, width, height, CROP_SIZE.w * dpr, CROP_SIZE.h * dpr, p.tileable, CROP_ZOOM)
+		};
+	} catch (e) {
+		console.warn('[bismith] variant thumbnail capture failed', e);
+		return undefined;
+	}
 }
 
 function start(): void {
@@ -45,9 +73,9 @@ function start(): void {
 		const p = JSON.parse(JSON.stringify(toRaw(store.project))) as Project;
 		V.syncVariants(p);
 		const vs = V.variantsOf(p);
-		for (const id of [...urls.keys()])
+		for (const id of [...thumbs.keys()])
 			if (!vs.list.some((v) => v.id === id)) {
-				urls.delete(id);
+				thumbs.delete(id);
 				hashes.delete(id);
 			}
 		const stale = vs.list
@@ -58,9 +86,9 @@ function start(): void {
 			.filter((s) => hashes.get(s.id) !== s.hash);
 		const shown = stale.find((s) => s.id === vs.activeId);
 		if (shown) {
-			const url = capturePreview(engine, PROJECT_PREVIEW);
-			if (url) {
-				urls.set(shown.id, url);
+			const t = capture(engine, shown.project);
+			if (t) {
+				thumbs.set(shown.id, t);
 				hashes.set(shown.id, shown.hash);
 			}
 		}
@@ -72,11 +100,12 @@ function start(): void {
 				engine,
 				others.map((s) => s.project),
 				toRaw(store.project),
-				PROJECT_PREVIEW
+				undefined,
+				capture
 			);
 			others.forEach((s, i) => {
 				if (!out[i]) return;
-				urls.set(s.id, out[i]!);
+				thumbs.set(s.id, out[i]!);
 				hashes.set(s.id, s.hash);
 			});
 		} catch (e) {
@@ -104,11 +133,14 @@ function start(): void {
 	schedule();
 }
 
-/** Thumbnails of the project's variants, by id (data URLs; missing until rendered). */
-export function useVariantThumbs(): { url: (id: string) => string | undefined } {
+/** Thumbnails of the project's variants, by id (data URLs; missing until rendered): the whole texture, or its crop. */
+export function useVariantThumbs(): {
+	url: (id: string) => string | undefined;
+	crop: (id: string) => string | undefined;
+} {
 	if (!started) {
 		started = true;
 		start();
 	}
-	return { url: (id) => urls.get(id) };
+	return { url: (id) => thumbs.get(id)?.preview, crop: (id) => thumbs.get(id)?.crop };
 }

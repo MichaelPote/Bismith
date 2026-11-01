@@ -78,6 +78,8 @@
 <template>
 	<div class="cf-select">
 		<input
+			autocomplete="off"
+			data-1p-ignore
 			v-if="editing"
 			ref="input"
 			v-model="draft"

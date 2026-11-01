@@ -13,21 +13,25 @@ export async function renderThumbnail(engine: Engine, preset: Project, restore: 
 	return (await renderThumbnails(engine, [preset], restore))[0];
 }
 
-/** Thumbnails of several projects in one pass (the viewport resumes once, with `restore`). */
-export async function renderThumbnails(
+/**
+ * Thumbnails of several projects in one pass (the viewport resumes once, with `restore`); `capture` takes each from the
+ * engine once it has rendered (by default a preview of `size`).
+ */
+export async function renderThumbnails<T = string | undefined>(
 	engine: Engine,
 	projects: Project[],
 	restore: Project,
-	size?: PreviewSize
-): Promise<(string | undefined)[]> {
+	size?: PreviewSize,
+	capture: (engine: Engine, project: Project) => T = (e) => capturePreview(e, size) as T
+): Promise<T[]> {
 	engine.suspend();
-	const out: (string | undefined)[] = [];
+	const out: T[] = [];
 	try {
 		for (const p of projects) {
 			engine.setProject(p);
 			await engine.precompile(p.layers.map(shaderKey));
 			engine.renderNow(THUMBNAIL_SAMPLES);
-			out.push(capturePreview(engine, size));
+			out.push(capture(engine, p));
 		}
 		return out;
 	} finally {

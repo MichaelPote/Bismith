@@ -78,6 +78,8 @@ doesn't.)
   `bismith-gpu-<port>-0` profile is written) but never reaches the page, every retry fails the same way, and other
   sessions on other ports run fine. Check with a throwaway `python3 -m http.server <port>` and
   `Invoke-WebRequest localhost:<port>` from PowerShell; start the tool on a working port with `BISMITH_PORT=5299`.
+- **Text inputs carry `autocomplete="off" data-1p-ignore`.** Password managers (1Password ignores `autocomplete`
+  alone) otherwise offer to fill layer and project names. Give every new text `<input>` both.
 - **Icons are `@tabler/icons-vue` components, used directly** (`<IconTrash :size="13" />`; `:color`, not `:stroke`, for
   a hue; `<component :is>` for data-driven ones — layer types via `layerIcon` in
   `src/ui/meta.ts`). `.tabler-icon { stroke-width: 1.75 }` in `src/styles/base.css` sets the UI's line weight and

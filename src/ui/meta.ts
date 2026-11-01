@@ -355,7 +355,7 @@ const CARD_ICON: Record<string, Component> = {
 	veins: IconRipple,
 	weather: IconCloudRain,
 	// Fixed cards, by title.
-	Texture: IconPhoto,
+	Canvas: IconPhoto,
 	'Path tracer': IconAperture,
 	'Base material': IconSquare,
 	'Lighting presets': IconSun,

@@ -112,6 +112,9 @@
 		{ label: 'Click — type a value or expression', disabled: true },
 		{ label: 'Double-click — back to the previous value', disabled: true },
 		{ label: 'Wheel / arrows over a dropdown — step through it', disabled: true },
+		{ section: 'Variants' },
+		{ label: 'Alt+↑ / Alt+↓ — previous / next variant', disabled: true },
+		{ label: 'Right-click a variant — rename, changes, export, delete', disabled: true },
 		{ separator: true },
 		{ label: 'About Bismith', action: () => (editor.about = true) }
 	];
@@ -119,14 +122,36 @@
 
 <template>
 	<header class="top cf-panel">
-		<div class="brand">
-			<img :src="logoSrc" width="20" height="20" alt="" />
-			<span>Bismith</span>
+		<div class="left">
+			<div class="brand">
+				<img :src="logoSrc" width="20" height="20" alt="" />
+				<span>Bismith</span>
+			</div>
+			<DropMenu label="File" :items="fileItems" />
+			<DropMenu label="Edit" :items="editItems" />
+			<DropMenu label="View" :items="viewItems" />
+			<DropMenu label="Help" :items="helpItems" />
+			<div class="hist-keys">
+				<button
+					v-tip:bottom="{ body: 'Undo', keys: 'Ctrl Z' }"
+					type="button"
+					class="fk hist"
+					aria-label="Undo"
+					:disabled="!store.canUndo"
+					@click="store.undo">
+					<span class="fk-face"><IconArrowBackUp :size="15" /></span>
+				</button>
+				<button
+					v-tip:bottom="{ body: 'Redo', keys: 'Ctrl Shift Z' }"
+					type="button"
+					class="fk hist"
+					aria-label="Redo"
+					:disabled="!store.canRedo"
+					@click="store.redo">
+					<span class="fk-face"><IconArrowForwardUp :size="15" /></span>
+				</button>
+			</div>
 		</div>
-		<DropMenu label="File" :items="fileItems" />
-		<DropMenu label="Edit" :items="editItems" />
-		<DropMenu label="View" :items="viewItems" />
-		<DropMenu label="Help" :items="helpItems" />
 
 		<div class="ws">
 			<span class="cf-label">Workspace</span>
@@ -147,49 +172,32 @@
 		</div>
 
 		<div class="right">
-			<span class="file cf-mono">
-				{{ store.project.name }}
-				<span class="dim"
-					>· {{ store.project.width }}×{{ store.project.height }}{{ store.project.tileable ? ' · tiling' : '' }}</span
-				>
-			</span>
 			<button
-				v-tip:bottom="'Undo (Ctrl+Z)'"
-				type="button"
-				class="fk hist"
-				aria-label="Undo"
-				:disabled="!store.canUndo"
-				@click="store.undo">
-				<span class="fk-face"><IconArrowBackUp :size="15" /></span>
-			</button>
-			<button
-				v-tip:bottom="'Redo (Ctrl+Shift+Z)'"
-				type="button"
-				class="fk hist"
-				aria-label="Redo"
-				:disabled="!store.canRedo"
-				@click="store.redo">
-				<span class="fk-face"><IconArrowForwardUp :size="15" /></span>
-			</button>
-			<button
-				v-tip:bottom="'Export maps of one or more variants'"
+				v-tip:bottom="{ body: 'Choose which outputs to export to .png or .zip', keys: 'Ctrl E' }"
 				type="button"
 				class="fk primary"
 				aria-haspopup="dialog"
 				@click="editor.exportDialog = {}">
-				<span class="fk-face"><IconDownload :size="13" />Export…<span class="kc">Ctrl E</span></span>
+				<span class="fk-face"><IconDownload :size="13" />Export…</span>
 			</button>
 		</div>
 	</header>
 </template>
 
 <style scoped>
+	/* Menus and Undo / Redo · the workspaces, centred in the bar (pushed right when the window is too narrow) · Export. */
 	.top {
 		height: 36px;
+		display: grid;
+		grid-template-columns: 1fr auto 1fr;
+		align-items: center;
+		gap: 12px;
+		padding: 0 8px;
+	}
+	.left {
 		display: flex;
 		align-items: center;
 		gap: 2px;
-		padding: 0 8px;
 	}
 	.brand {
 		display: flex;
@@ -212,7 +220,6 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		margin-left: 20px;
 	}
 	.ws .fk {
 		height: 26px;
@@ -236,39 +243,26 @@
 		color: var(--e100);
 	}
 	.right {
-		margin-left: auto;
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 6px;
+	}
+	/* Undo / Redo: icon keys at the workspace keys' height, after the menus. */
+	.hist-keys {
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		margin-left: 12px;
 	}
-	.file {
-		font-size: 12px;
-		color: var(--text);
-		margin-right: 6px;
-		white-space: nowrap;
-	}
-	.dim {
-		color: var(--text-lo);
-	}
-	/* Undo / Redo: icon keys at the workspace keys' height. */
-	.right .fk.hist {
+	.fk.hist {
 		width: 30px;
 		height: 26px;
 	}
-	.right .fk.hist .fk-face {
+	.fk.hist .fk-face {
 		padding: 0;
 	}
 	.right .fk.primary {
 		height: 28px;
-		margin-left: 6px;
-	}
-	.right .fk.primary .kc {
-		margin-left: 4px;
-		background: var(--e600);
-		box-shadow:
-			inset 0 0 0 1px var(--e700),
-			0 1px 0 var(--e800);
-		color: var(--e50);
-		text-transform: none;
 	}
 </style>

@@ -130,6 +130,13 @@ html.picking [data-pick] * {
 .cf-ico-btn.latched {
 	color: var(--e300);
 }
+/* Delete studs: inked in the crimson category hue, brighter on hover. */
+.cf-ico-btn.danger {
+	color: var(--cat-crimson);
+}
+.cf-ico-btn.danger:hover {
+	color: var(--blood);
+}
 .cf-ico-btn:disabled {
 	opacity: 0.35;
 	pointer-events: none;

@@ -3,7 +3,7 @@
 	// is applied first and the bottom row last, over everything) · Lights · Post. A group is one collapsible row
 	// holding its member layers. The Diffuse and Height columns (headed on the Base row) show which channels each layer
 	// affects; clicking one flips the same tick as the inspector.
-	import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue';
+	import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch, type Component } from 'vue';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore, type SelectionKind } from '@/stores/editor';
 	import { useActions } from '@/ui/actions';
@@ -26,16 +26,19 @@
 		IconPlus,
 		IconSparkles,
 		IconSquareRotated,
-		IconSun
+		IconSun,
+		IconWorld
 	} from '@tabler/icons-vue';
 	import { maskLinks } from '@/layers/masks';
-	import { supersampleFactor } from '@/core/supersample';
+	import { useItemActions } from '@/ui/itemActions';
+	import { LIGHT_DEFS } from '@/core/lights';
 	import { vTip, type Tip } from '@/ui/tooltip';
 	import { vPick } from '@/ui/eyedropper';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
 	const act = useActions();
+	const itemActs = useItemActions();
 
 	const errors = computed(() => editor.stats?.errors ?? {});
 	const GROUP_HUE = 'var(--accent-hi)';
@@ -118,6 +121,20 @@
 			}
 		}))
 	);
+
+	/**
+	 * The type's name beside a renamed row (the muted label after a layer's or light's name); '' while it still goes by
+	 * its type's name (a number or " copy" after it doesn't count).
+	 */
+	function kindLabel(name: string, label: string): string {
+		return name.replace(/ copy$/, '').replace(/ \d+$/, '') === label ? '' : label;
+	}
+	const layerKind = (l: Layer) => {
+		const label = getLayerDef(l.type)?.label;
+		return label ? kindLabel(l.name, label) : '';
+	};
+	const lightKind = (name: string, type: keyof typeof LIGHT_DEFS) =>
+		kindLabel(name, LIGHT_DEFS[type].label) && `${LIGHT_DEFS[type].label} light`;
 
 	function isSel(kind: SelectionKind, id?: string): boolean {
 		return editor.selection.kind === kind && editor.selection.id === id;
@@ -209,10 +226,27 @@
 		rowPos.value = pos;
 	}
 	watch([visibleRows, laneWidth, laneTrunks], () => measureRows(), { flush: 'post' });
+
+	/** Line up the type labels of each list (Layers, Lights) in one column, after its longest labelled name. */
+	function alignKinds(): void {
+		for (const list of scroller.value?.querySelectorAll<HTMLElement>('.list') ?? []) {
+			const kinds = [...list.querySelectorAll<HTMLElement>('.kind')].filter((k) => k.textContent);
+			for (const k of kinds) k.style.paddingLeft = '';
+			const ends = kinds.map((k) => (k.previousElementSibling as HTMLElement).getBoundingClientRect().right);
+			const col = Math.max(...ends);
+			kinds.forEach((k, i) => (k.style.paddingLeft = `${Math.round(col - ends[i])}px`));
+		}
+	}
+	onUpdated(alignKinds);
+
 	let rowObserver: ResizeObserver | null = null;
 	onMounted(() => {
 		measureRows();
-		rowObserver = new ResizeObserver(() => measureRows());
+		alignKinds();
+		rowObserver = new ResizeObserver(() => {
+			measureRows();
+			alignKinds();
+		});
 		if (listEl.value) rowObserver.observe(listEl.value);
 	});
 	onBeforeUnmount(() => rowObserver?.disconnect());
@@ -313,53 +347,14 @@
 	const rowMenuItems = ref<MenuItem[]>([]);
 
 	/** A post filter's menu items: move it one step through the chain. */
-	function postMoveItems(id: string): MenuItem[] {
-		const list = store.project.post;
-		const i = list.findIndex((f) => f.id === id);
-		return [
-			{ label: 'Move up', disabled: i <= 0, action: () => store.movePost(id, i - 1) },
-			{ label: 'Move down', disabled: i >= list.length - 1, action: () => store.movePost(id, i + 1) }
-		];
-	}
-
 	async function onRowMenu(e: MouseEvent, kind: 'layer' | 'group' | 'light' | 'post', id: string): Promise<void> {
 		const { clientX: x, clientY: y } = e;
 		editor.select(kind, id);
 		const light = kind === 'light' ? store.getLight(id) : undefined;
-		const lightsFull = !!light && store.project.lighting.lights.length >= MAX_LIGHTS;
+		// The inspector heading's actions (ui/itemActions.ts), and Rename for a light (a layer renames in place).
 		rowMenuItems.value = [
-			// Duplicating copies a layer, light or post filter; a group can be ungrouped instead.
-			...(kind !== 'group'
-				? [
-						{
-							label: 'Duplicate',
-							shortcut: 'Ctrl+D',
-							disabled: lightsFull,
-							hint: lightsFull ? `At most ${MAX_LIGHTS} lights` : undefined,
-							action: act.duplicateSelection
-						}
-					]
-				: []),
-			...(light ? [{ label: 'Rename', action: () => startRename(light.id, light.name) }] : []),
-			...(kind === 'post' ? postMoveItems(id) : []),
-			...(kind === 'group'
-				? [
-						{
-							label: 'Ungroup',
-							hint: 'Keep the layers, drop the group (its limit moves onto them)',
-							action: () => {
-								store.ungroup(id);
-								editor.select('project');
-							}
-						}
-					]
-				: []),
-			{
-				label: 'Delete',
-				shortcut: 'Del',
-				hint: kind === 'group' ? 'Delete the group and its layers' : undefined,
-				action: act.deleteSelection
-			}
+			...(light ? [{ label: 'Rename', action: () => startRename(light.id, light.name) }, { separator: true }] : []),
+			...itemActs.menuItems(kind, id)
 		];
 		// The menu closes on scroll, so let a half-hidden row finish scrolling into view (the watch above) first.
 		await nextTick();
@@ -377,33 +372,24 @@
 	const renameText = ref('');
 	const renameInput = ref<HTMLInputElement[] | null>(null);
 	/** The project's own name renames in the root row; its input isn't in a v-for, so it has its own ref. */
-	const PROJECT = '\0project';
-	const projectInput = ref<HTMLInputElement | null>(null);
-
 	async function startRename(id: string, name: string): Promise<void> {
 		renaming.value = id;
 		renameText.value = name;
 		await nextTick();
-		const input = id === PROJECT ? projectInput.value : renameInput.value?.[0];
+		const input = renameInput.value?.[0];
 		input?.focus();
 		input?.select();
 	}
 
-	function finishRename(kind: 'project' | 'layer' | 'light' | 'group', apply: boolean): void {
+	function finishRename(kind: 'layer' | 'light' | 'group', apply: boolean): void {
 		const id = renaming.value;
 		renaming.value = null;
+		// Left empty, a layer or light goes back to its type's name (the store's rule); a group keeps its own.
 		const name = renameText.value.trim();
-		if (!apply || !id || !name) return;
-		if (kind === 'project') store.project.name = name;
-		else if (kind === 'layer') store.updateLayer(id, { name });
+		if (!apply || !id) return;
+		if (kind === 'layer') store.updateLayer(id, { name });
 		else if (kind === 'group') store.renameGroup(id, name);
 		else store.updateLight(id, { name });
-	}
-
-	function setDescription(text: string): void {
-		const t = text.trim();
-		if (t) store.project.description = t;
-		else delete store.project.description;
 	}
 
 	// ---------------------------------------------------------------- drag reorder
@@ -438,6 +424,14 @@
 		e.preventDefault();
 		e.stopPropagation();
 		dropAt.value = { list: group, index: index + (lowerHalf(e) ? 1 : 0) };
+	}
+
+	/** Over the Base row or the Layers heading: the first slot under Base (a member's, the first in its group). */
+	function onTopOver(e: DragEvent): void {
+		const d = drag.value;
+		if (d?.kind !== 'unit' && d?.kind !== 'member') return;
+		e.preventDefault();
+		dropAt.value = { list: d.kind === 'unit' ? 'units' : d.group, index: 0 };
 	}
 
 	function onPostOver(e: DragEvent, index: number): void {
@@ -493,38 +487,12 @@
 		<div ref="scroller" class="scroll">
 			<div class="row root" :class="{ sel: isSel('project') }" @click="editor.select('project')">
 				<IconBox :size="15" :color="isSel('project') ? 'var(--accent-hi)' : 'var(--text-lo)'" />
-				<input
-					v-if="renaming === PROJECT"
-					ref="projectInput"
-					v-model="renameText"
-					class="rename"
-					aria-label="Project name"
-					@click.stop
-					@keydown.enter.prevent="finishRename('project', true)"
-					@keydown.esc.prevent="finishRename('project', false)"
-					@blur="finishRename('project', true)" />
-				<span v-else class="name strong" @dblclick.stop="startRename(PROJECT, store.project.name)">{{
-					store.project.name
-				}}</span>
+				<span v-tip:right="'The canvas and the path tracer'" class="name">Project settings</span>
 				<span v-if="store.changedItems.has('project')" class="dia" role="img" aria-label="Changed in this variant" />
-				<span
-					v-tip:right="
-						'Texture size @ supersampling. Select the project for the texture, base material, world lighting and render settings'
-					"
-					class="meta cf-mono"
-					>{{ store.project.width }}×{{ store.project.height }} @{{ supersampleFactor(store.project) }}x</span
-				>
 			</div>
-			<textarea
-				class="proj-desc"
-				rows="2"
-				placeholder="Project description"
-				aria-label="Project description"
-				:value="store.project.description ?? ''"
-				@change="setDescription(($event.target as HTMLTextAreaElement).value)" />
 
 			<!-- Layers -->
-			<div class="section">
+			<div class="section" @dragover="onTopOver" @drop.prevent="onDrop">
 				<span
 					v-tip:right="{
 						title: 'Layers',
@@ -551,7 +519,12 @@
 					<path v-for="p in lanePaths" :key="p.key" :d="p.d" :style="{ stroke: p.colour }" :class="{ dim: p.dim }" />
 				</svg>
 				<!-- Base material: under every layer; heads the Diffuse / Height columns -->
-				<div class="row base" :class="{ sel: isSel('base') }" @click="editor.select('base')">
+				<div
+					class="row base"
+					:class="{ sel: isSel('base') }"
+					@click="editor.select('base')"
+					@dragover="onTopOver"
+					@drop.prevent="onDrop">
 					<span
 						v-pick="() => store.project.base.color"
 						class="swatch"
@@ -559,7 +532,7 @@
 					<span
 						v-tip:right="{
 							title: 'Base',
-							body: 'The material under every layer: colour, roughness, specular, metalness, height, opacity. Opens the project settings.'
+							body: 'The material under every layer: colour, roughness, specular, metalness, height, opacity.'
 						}"
 						class="name"
 						>Base</span
@@ -622,6 +595,8 @@
 						</button>
 						<IconSquareRotated :size="15" :color="isSel('group', u.group.id) ? 'var(--accent-hi)' : GROUP_HUE" />
 						<input
+							autocomplete="off"
+							data-1p-ignore
 							v-if="renaming === u.group.id"
 							ref="renameInput"
 							v-model="renameText"
@@ -691,6 +666,8 @@
 							:size="15"
 							:color="isSel('layer', layer.id) ? 'var(--accent-hi)' : layerHue(layer.type)" />
 						<input
+							autocomplete="off"
+							data-1p-ignore
 							v-if="renaming === layer.id"
 							ref="renameInput"
 							v-model="renameText"
@@ -701,7 +678,10 @@
 							@keydown.enter.prevent="finishRename('layer', true)"
 							@keydown.esc.prevent="finishRename('layer', false)"
 							@blur="finishRename('layer', true)" />
-						<span v-else class="name" @dblclick.stop="startRename(layer.id, layer.name)">{{ layer.name }}</span>
+						<template v-else>
+							<span class="name fit" @dblclick.stop="startRename(layer.id, layer.name)">{{ layer.name }}</span>
+							<span class="kind">{{ layerKind(layer) }}</span>
+						</template>
 						<span
 							v-if="store.changedItems.has(`layer.${layer.id}`)"
 							class="dia"
@@ -758,6 +738,16 @@
 				></DropMenu>
 			</div>
 			<div class="list">
+				<!-- The sky and ambient light around the lights: heads the list, like Base heads the layers -->
+				<div class="row env" :class="{ sel: isSel('environment') }" @click="editor.select('environment')">
+					<IconWorld :size="15" :color="isSel('environment') ? 'var(--accent-hi)' : LIGHT_HUE" />
+					<span v-tip:right="'Lighting presets, sky light and ambient'" class="name">Environment</span>
+					<span
+						v-if="store.changedItems.has('environment')"
+						class="dia"
+						role="img"
+						aria-label="Changed in this variant" />
+				</div>
 				<div
 					v-for="light in store.project.lighting.lights"
 					:key="light.id"
@@ -770,6 +760,8 @@
 						:size="15"
 						:color="isSel('light', light.id) ? 'var(--accent-hi)' : LIGHT_HUE" />
 					<input
+						autocomplete="off"
+						data-1p-ignore
 						v-if="renaming === light.id"
 						ref="renameInput"
 						v-model="renameText"
@@ -780,7 +772,10 @@
 						@keydown.enter.prevent="finishRename('light', true)"
 						@keydown.esc.prevent="finishRename('light', false)"
 						@blur="finishRename('light', true)" />
-					<span v-else class="name" @dblclick.stop="startRename(light.id, light.name)">{{ light.name }}</span>
+					<template v-else>
+						<span class="name fit" @dblclick.stop="startRename(light.id, light.name)">{{ light.name }}</span>
+						<span class="kind">{{ lightKind(light.name, light.type) }}</span>
+					</template>
 					<span
 						v-if="store.changedItems.has(`light.${light.id}`)"
 						class="dia"
@@ -799,9 +794,7 @@
 						<component :is="light.enabled ? IconEye : IconEyeOff" :size="14" />
 					</button>
 				</div>
-				<div v-if="!store.project.lighting.lights.length" class="empty">
-					No lights: sky and ambient only (project settings).
-				</div>
+				<div v-if="!store.project.lighting.lights.length" class="empty">No lights: the environment only.</div>
 			</div>
 
 			<!-- Post -->
@@ -1007,28 +1000,6 @@
 	.row.root {
 		padding-left: 10px;
 	}
-	.proj-desc {
-		display: block;
-		width: calc(100% - 20px);
-		margin: 2px 10px 4px;
-		min-height: 24px;
-		resize: vertical;
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-field);
-		background: var(--sunken);
-		color: var(--text-hi);
-		padding: 4px 8px;
-		font: inherit;
-		font-size: 12px;
-		line-height: 1.4;
-		user-select: text;
-		-webkit-user-select: text;
-	}
-	.proj-desc:focus {
-		outline: none;
-		border-color: var(--accent);
-		box-shadow: var(--halo);
-	}
 	.row.mat {
 		padding-left: calc(1px + var(--lane, 0px));
 	}
@@ -1094,9 +1065,21 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	.name.strong {
-		font-weight: 500;
-		color: var(--text-hi);
+	/* A renamed layer's or light's type, after its name: the name keeps its room, the type takes what is left. */
+	.name.fit {
+		flex: 0 1 auto;
+	}
+	.kind {
+		flex: 1 1 0;
+		min-width: 0;
+		font-size: 11px;
+		color: var(--text-lo);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.row.off .kind {
+		opacity: 0.6;
 	}
 	/* Changed in the shown variant (FR10). */
 	.dia {

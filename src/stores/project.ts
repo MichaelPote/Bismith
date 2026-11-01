@@ -14,7 +14,8 @@ import {
 	ungroup as groupUngroup
 } from '@/core/groups';
 import { createLayer, createLight, createPostFilter, createProject, normalizeProject } from '@/core/serialize';
-import { freshParams, linkedChanges } from '@/layers/registry';
+import { freshParams, getLayerDef, linkedChanges } from '@/layers/registry';
+import { LIGHT_DEFS } from '@/core/lights';
 import { assignMaskHues, coverageOnlyAt, maskNames, solidSources } from '@/layers/masks';
 import { newId } from '@/core/ids';
 import { hashText } from '@/core/hash';
@@ -353,9 +354,13 @@ export const useProjectStore = defineStore('project', () => {
 		groupDelete(project.value, id);
 	}
 
+	/** A name cleared to nothing goes back to the layer's or light's default: its type's name. */
+	const named = (name: string | undefined, fallback: string) =>
+		name === undefined ? {} : { name: name.trim() || fallback };
+
 	function updateLayer(id: string, patch: Partial<Pick<Layer, 'name' | 'enabled' | 'locked'>>): void {
 		const l = getLayer(id);
-		if (l) Object.assign(l, patch);
+		if (l) Object.assign(l, patch, named(patch.name, getLayerDef(l.type)?.label ?? l.type));
 	}
 
 	// ---------------------------------------------------------------- lights
@@ -394,7 +399,7 @@ export const useProjectStore = defineStore('project', () => {
 
 	function updateLight(id: string, patch: Partial<Pick<Light, 'name' | 'enabled'>>): void {
 		const l = getLight(id);
-		if (l) Object.assign(l, patch);
+		if (l) Object.assign(l, patch, named(patch.name, LIGHT_DEFS[l.type].label));
 	}
 
 	// ---------------------------------------------------------------- post
@@ -452,12 +457,18 @@ export const useProjectStore = defineStore('project', () => {
 	const activeVariant = computed(() => V.activeVariant(project.value));
 	/** Keys of the settings the active variant changes from the base (as of the last commit). */
 	const changedKeys = computed(() => new Set(Object.keys(activeVariant.value.changes)));
-	/** What the outliner marks: `layer.<id>`, `group.<id>`, `light.<id>`, `post.<id>`, 'base' (material), 'project'. */
+	/**
+	 * What the outliner marks: `layer.<id>`, `group.<id>`, `light.<id>`, `post.<id>`, 'base' (material), 'environment'
+	 * (sky, ambient), 'project' (the rest: seed, height depth, path tracer).
+	 */
 	const changedItems = computed(() => {
 		const out = new Set<string>();
 		for (const k of changedKeys.value) {
 			const m = /^(layer|group|light|post)\.([^.]+)\./.exec(k);
-			out.add(m ? `${m[1]}.${m[2]}` : k.startsWith('base.') ? 'base' : 'project');
+			if (m) out.add(`${m[1]}.${m[2]}`);
+			else if (k.startsWith('base.')) out.add('base');
+			else if (k.startsWith('sky.') || k.startsWith('ambient.')) out.add('environment');
+			else out.add('project');
 		}
 		return out;
 	});

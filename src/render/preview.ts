@@ -47,6 +47,52 @@ export function encodePreview(
 	return webp.startsWith('data:image/webp') ? webp : dst.toDataURL('image/jpeg', quality);
 }
 
+/**
+ * A `w`×`h` crop from the middle of RGBA8 pixels at `zoom` (1 = a texel per pixel, 0.5 = two across each), as a PNG
+ * data URL. A tileable texture smaller than the crop repeats to fill it; around another it stays transparent. Browser
+ * only.
+ */
+export function encodeCrop(
+	pixels: Uint8Array | Uint8ClampedArray,
+	width: number,
+	height: number,
+	w: number,
+	h: number,
+	wrap: boolean,
+	zoom = 1
+): string {
+	// The texels it covers, at their own size first.
+	const tw = Math.round(w / zoom);
+	const th = Math.round(h / zoom);
+	const x0 = Math.floor((width - tw) / 2);
+	const y0 = Math.floor((height - th) / 2);
+	const texels = new Uint8ClampedArray(tw * th * 4);
+	for (let y = 0; y < th; y++)
+		for (let x = 0; x < tw; x++) {
+			let sx = x0 + x;
+			let sy = y0 + y;
+			if (wrap) {
+				sx = ((sx % width) + width) % width;
+				sy = ((sy % height) + height) % height;
+			} else if (sx < 0 || sy < 0 || sx >= width || sy >= height) continue;
+			const s = (sy * width + sx) * 4;
+			texels.set(pixels.subarray(s, s + 4), (y * tw + x) * 4);
+		}
+	const src = document.createElement('canvas');
+	src.width = tw;
+	src.height = th;
+	src.getContext('2d')!.putImageData(new ImageData(texels, tw, th), 0, 0);
+	if (tw === w && th === h) return src.toDataURL('image/png');
+	const dst = document.createElement('canvas');
+	dst.width = w;
+	dst.height = h;
+	const ctx = dst.getContext('2d')!;
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = 'high';
+	ctx.drawImage(src, 0, 0, w, h);
+	return dst.toDataURL('image/png');
+}
+
 /** A preview of what the engine shows now (its final, post-processed image); undefined before anything has rendered. */
 export function capturePreview(
 	engine: Engine | null | undefined,
