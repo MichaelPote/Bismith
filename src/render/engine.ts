@@ -282,6 +282,11 @@ export class Engine {
 		this.releaseWaiters();
 	}
 
+	/** Whether the interactive loop is suspended (an optimiser or an off-screen render has the engine). */
+	get isSuspended(): boolean {
+		return this.suspended;
+	}
+
 	/**
 	 * Suspend the interactive loop entirely (e.g. while an optimiser drives renderNow() synchronously).
 	 * Resuming re-applies `project` (or the last one set) and restarts the loop.

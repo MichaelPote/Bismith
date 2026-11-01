@@ -6,6 +6,7 @@
 	import { CHANNEL_VIEWS } from '@/render/display';
 	import TopBar from '@/ui/layout/TopBar.vue';
 	import Outliner from '@/ui/layout/Outliner.vue';
+	import VariantsPanel from '@/ui/layout/VariantsPanel.vue';
 	import Viewport from '@/ui/layout/Viewport.vue';
 	import Properties from '@/ui/layout/Properties.vue';
 	import StatusBar from '@/ui/layout/StatusBar.vue';
@@ -109,6 +110,12 @@
 			editor.wizard = true;
 			return;
 		}
+		// Alt+[ / Alt+]: the previous / next variant (FR10). By key position: Alt changes the character on some layouts.
+		if (e.altKey && !mod && (e.code === 'BracketLeft' || e.code === 'BracketRight') && !isTyping(e.target)) {
+			e.preventDefault();
+			store.stepVariant(e.code === 'BracketLeft' ? -1 : 1);
+			return;
+		}
 		if (isTyping(e.target) || mod || e.altKey) {
 			if (mod && k === 'd' && !isTyping(e.target)) {
 				e.preventDefault();
@@ -182,7 +189,10 @@
 	<div class="app" @dragover.prevent @drop="onDrop">
 		<TopBar />
 		<main class="main" :style="{ gridTemplateColumns: cols }">
-			<Outliner />
+			<div class="left">
+				<VariantsPanel />
+				<Outliner />
+			</div>
 			<div
 				class="gutter"
 				role="separator"
@@ -226,6 +236,18 @@
 	}
 	.main {
 		display: grid;
+		min-height: 0;
+	}
+	/* The Variants panel over the Outliner, sharing the column. */
+	.left {
+		display: flex;
+		flex-direction: column;
+		gap: var(--gap-app);
+		min-width: 0;
+		min-height: 0;
+	}
+	.left > :last-child {
+		flex: 1;
 		min-height: 0;
 	}
 	.centre {
