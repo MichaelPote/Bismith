@@ -315,6 +315,7 @@
 						:defs="c.defs"
 						:values="layer.params"
 						:slotted="['Write to']"
+						:key-prefix="`layer.${layer.id}.p.`"
 						@change="(k, v) => store.setLayerParam(layer!.id, k, v)">
 						<template #section="{ section }">
 							<WriteToField
@@ -328,6 +329,7 @@
 									v-if="layer.params.h_on === true"
 									:defs="heightMirror"
 									:values="layer.params"
+									:key-prefix="`layer.${layer.id}.p.`"
 									class="mirror"
 									@change="(k, v) => store.setLayerParam(layer!.id, k, v)" />
 							</template>
@@ -460,6 +462,7 @@
 					<ParamList
 						:defs="LIGHT_DEFS[light.type].params"
 						:values="light.params"
+						:key-prefix="`light.${light.id}.p.`"
 						@change="(k, v) => store.setLightParam(light!.id, k, v)" />
 				</PanelCard>
 			</div>
@@ -516,6 +519,7 @@
 					<ParamList
 						:defs="postDef.params"
 						:values="post.params"
+						:key-prefix="`post.${post.id}.p.`"
 						@change="(k, v) => store.setPostParam(post!.id, k, v)" />
 					<PostExtras :filter="post" />
 				</PanelCard>
@@ -542,18 +546,20 @@
 							{{ s }}
 						</button>
 					</div>
-					<ParamList :defs="PROJECT_DEFS" :values="asValues(store.project)" @change="setProject" />
+					<ParamList :defs="PROJECT_DEFS" :values="asValues(store.project)" key-prefix="" @change="setProject" />
 				</PanelCard>
 				<PanelCard title="Path tracer" :icon="cardIcon('Path tracer')" storage-key="world:tracer">
 					<ParamList
 						:defs="RENDER_DEFS"
 						:values="asValues(store.project.render)"
+						:key-prefix="'render.'"
 						@change="(k, v) => assign(store.project.render, k, v)" />
 				</PanelCard>
 				<PanelCard title="Base material" :icon="cardIcon('Base material')">
 					<ParamList
 						:defs="BASE_DEFS"
 						:values="asValues(store.project.base)"
+						:key-prefix="'base.'"
 						@change="(k, v) => assign(store.project.base, k, v)" />
 				</PanelCard>
 				<PanelCard title="Lighting presets" :icon="cardIcon('Lighting presets')" storage-key="world:presets">
@@ -563,12 +569,14 @@
 					<ParamList
 						:defs="SKY_DEFS"
 						:values="asValues(store.project.lighting.sky)"
+						:key-prefix="'sky.'"
 						@change="(k, v) => assign(store.project.lighting.sky, k, v)" />
 				</PanelCard>
 				<PanelCard title="Ambient" :icon="cardIcon('Ambient')" storage-key="world:ambient">
 					<ParamList
 						:defs="AMBIENT_DEFS"
 						:values="asValues(store.project.lighting.ambient)"
+						:key-prefix="'ambient.'"
 						@change="(k, v) => assign(store.project.lighting.ambient, k, v)" />
 				</PanelCard>
 			</div>

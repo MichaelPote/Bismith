@@ -4,7 +4,7 @@
 	// side by side, At 0 / At 1 as one ramp. A value missing from the record shows (and resets to) the default. The
 	// `section` slot draws extras under a section heading (the Shaping › Value graph); the sections named in `slotted` are
 	// drawn by that slot alone (Mask › Write to's send slots), their heading still shown while any of their rows is.
-	import { computed } from 'vue';
+	import { computed, ref } from 'vue';
 	import type { Curve, Gradient, ParamDef, ParamValue, ParamValues } from '@/core/params';
 	import NumberField from './NumberField.vue';
 	import ColorField from './ColorField.vue';
@@ -15,11 +15,22 @@
 	import GradientField from './GradientField.vue';
 	import CurveField from './CurveField.vue';
 	import RampField from './RampField.vue';
+	import DropMenu, { type MenuItem } from './DropMenu.vue';
 	import { IconDice5 } from '@tabler/icons-vue';
 	import { useProjectStore } from '@/stores/project';
+	import { useEditorStore } from '@/stores/editor';
 	import { vTip, type Tip } from '@/ui/tooltip';
 
-	const props = defineProps<{ defs: ParamDef[]; values: ParamValues; slotted?: string[] }>();
+	const props = defineProps<{
+		defs: ParamDef[];
+		values: ParamValues;
+		slotted?: string[];
+		/**
+		 * The variant-setting key of these params (FR10), less the param's: `layer.<id>.p.`, `base.`, '' for the project's
+		 * own. Given, rows the shown variant changes are marked (◆) and the menu can reset them to the base.
+		 */
+		keyPrefix?: string;
+	}>();
 	const emit = defineEmits<{
 		(e: 'change', key: string, value: ParamValue): void;
 		(e: 'commit'): void;
@@ -56,6 +67,70 @@
 	const value = (d: ParamDef): ParamValue => props.values[d.key] ?? d.default;
 
 	const store = useProjectStore();
+	const editor = useEditorStore();
+
+	// ---------------------------------------------------------------- variants (FR10) and the row menu
+	const settingKey = (d: ParamDef) => (props.keyPrefix === undefined ? null : props.keyPrefix + d.key);
+	const isChanged = (d: ParamDef) => {
+		const k = settingKey(d);
+		return k !== null && store.changedKeys.has(k);
+	};
+	const changed = (r: Row): boolean => isChanged(r.def) || (!!r.partner && isChanged(r.partner));
+
+	const menu = ref<InstanceType<typeof DropMenu> | null>(null);
+	const menuItems = ref<MenuItem[]>([]);
+	const copyOf = <T>(v: T): T => (typeof v === 'object' && v !== null ? (JSON.parse(JSON.stringify(v)) as T) : v);
+
+	/** Right-click on a row: copy / paste its value, reset it to the base variant's or to its default. */
+	function onMenu(e: MouseEvent, r: Row): void {
+		const t = e.target as HTMLElement;
+		// Text being edited keeps the browser's menu (copy, paste, spelling).
+		if (t.closest('textarea') || (t instanceof HTMLInputElement && document.activeElement === t)) return;
+		e.preventDefault();
+		const at = t.closest<HTMLElement>('[data-key]')?.dataset.key;
+		const d = r.partner && at === r.partner.key ? r.partner : r.def;
+		const clip = editor.paramClipboard;
+		const fits =
+			!!clip && clip.type === d.type && (d.type !== 'enum' || !!d.options?.some((o) => o.value === clip.value));
+		const key = settingKey(d);
+		const vs = store.variants;
+		const variants = key !== null && vs.list.length > 1 && store.isVariantSetting(key);
+		const on = isChanged(d);
+		const baseName = vs.list.find((v) => v.id === vs.baseId)?.name ?? 'the base';
+		menuItems.value = [
+			{ label: 'Copy value', action: () => (editor.paramClipboard = { type: d.type, value: copyOf(value(d)) }) },
+			{
+				label: 'Paste value',
+				disabled: !fits,
+				action: () => {
+					set(d.key, copyOf(clip!.value));
+					emit('commit');
+				}
+			},
+			...(variants
+				? [
+						{ separator: true },
+						{
+							label: 'Make this the base value',
+							disabled: !on,
+							hint: on ? `${baseName} and the variants that follow it take this value` : undefined,
+							action: () => store.makeBaseValue(key!)
+						},
+						{ label: `Reset to ${baseName}`, disabled: !on, action: () => store.resetToBase(key!) }
+					]
+				: []),
+			{ separator: true },
+			{
+				label: 'Reset to default',
+				disabled: JSON.stringify(value(d)) === JSON.stringify(d.default),
+				action: () => {
+					set(d.key, copyOf(d.default));
+					emit('commit');
+				}
+			}
+		];
+		menu.value?.openAt(e.clientX, e.clientY);
+	}
 	/** Slider range: ± the texture width / height for sliderSpan params, else the soft limits. */
 	function slider(d: ParamDef): { lo?: number; hi?: number } {
 		if (!d.sliderSpan) return { lo: d.softMin, hi: d.softMax };
@@ -136,15 +211,24 @@
 			<div v-if="r.heading" class="sec cf-label">{{ r.heading }}</div>
 			<slot v-if="r.heading" name="section" :section="r.heading" />
 			<template v-if="r.slotted" />
-			<div v-else-if="r.def.type === 'bool'" v-tip="tip(r)" class="row">
-				<span />
+			<div
+				v-else-if="r.def.type === 'bool'"
+				v-tip="tip(r)"
+				class="row"
+				:class="{ changed: changed(r) }"
+				@contextmenu="onMenu($event, r)">
+				<span class="lead" />
 				<CheckField
 					:model-value="Boolean(value(r.def))"
 					:label="labelOf(r.def)"
 					@update:model-value="set(r.def.key, $event)"
 					@commit="emit('commit')" />
 			</div>
-			<div v-else-if="r.partner && r.def.join?.as === 'ramp'" class="row wide">
+			<div
+				v-else-if="r.partner && r.def.join?.as === 'ramp'"
+				class="row wide"
+				:class="{ changed: changed(r) }"
+				@contextmenu="onMenu($event, r)">
 				<span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ r.def.join.label }}</span>
 				<RampField
 					:a="Number(value(r.def))"
@@ -161,7 +245,7 @@
 					@update:b="set(r.partner!.key, $event)"
 					@commit="emit('commit')" />
 			</div>
-			<div v-else-if="r.partner" class="row">
+			<div v-else-if="r.partner" class="row" :class="{ changed: changed(r) }" @contextmenu="onMenu($event, r)">
 				<span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ r.def.join!.label }}</span>
 				<div class="pair">
 					<template v-for="d in [r.def, r.partner]" :key="d.key">
@@ -170,6 +254,7 @@
 							:model-value="String(value(d))"
 							:options="d.options ?? []"
 							:label="labelOf(d)"
+							:data-key="d.key"
 							@update:model-value="set(d.key, $event)"
 							@commit="emit('commit')" />
 						<MaskField
@@ -178,6 +263,7 @@
 							:choices="d.maskChoices ?? []"
 							:kind="d.mask"
 							:label="labelOf(d)"
+							:data-key="d.key"
 							@update:model-value="set(d.key, $event)"
 							@commit="emit('commit')" />
 						<NumberField
@@ -191,6 +277,7 @@
 							:unit="d.unit"
 							:int="d.type === 'int'"
 							:label="labelOf(d)"
+							:data-key="d.key"
 							:default-value="Number(d.default)"
 							:memory-key="memory(d)"
 							@update:model-value="set(d.key, $event)"
@@ -198,7 +285,11 @@
 					</template>
 				</div>
 			</div>
-			<div v-else-if="r.def.type === 'gradient'" class="row wide">
+			<div
+				v-else-if="r.def.type === 'gradient'"
+				class="row wide"
+				:class="{ changed: changed(r) }"
+				@contextmenu="onMenu($event, r)">
 				<span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>
 				<GradientField
 					:model-value="value(r.def) as Gradient"
@@ -206,7 +297,11 @@
 					@update:model-value="set(r.def.key, $event)"
 					@commit="emit('commit')" />
 			</div>
-			<div v-else-if="r.def.type === 'curve'" class="row wide">
+			<div
+				v-else-if="r.def.type === 'curve'"
+				class="row wide"
+				:class="{ changed: changed(r) }"
+				@contextmenu="onMenu($event, r)">
 				<span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>
 				<CurveField
 					:model-value="value(r.def) as Curve"
@@ -214,7 +309,11 @@
 					@update:model-value="set(r.def.key, $event)"
 					@commit="emit('commit')" />
 			</div>
-			<div v-else-if="r.def.type === 'enum' && r.def.segmented" class="row">
+			<div
+				v-else-if="r.def.type === 'enum' && r.def.segmented"
+				class="row"
+				:class="{ changed: changed(r) }"
+				@contextmenu="onMenu($event, r)">
 				<span v-if="r.def.bare" />
 				<label v-else v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
 				<div class="segs" role="radiogroup" :aria-label="labelOf(r.def)">
@@ -232,7 +331,11 @@
 					</button>
 				</div>
 			</div>
-			<div v-else-if="r.def.type === 'text' && r.def.mask" class="row">
+			<div
+				v-else-if="r.def.type === 'text' && r.def.mask"
+				class="row"
+				:class="{ changed: changed(r) }"
+				@contextmenu="onMenu($event, r)">
 				<span v-if="r.def.bare" />
 				<label v-else v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
 				<MaskField
@@ -243,7 +346,11 @@
 					@update:model-value="set(r.def.key, $event)"
 					@commit="emit('commit')" />
 			</div>
-			<div v-else-if="r.def.type === 'text' && r.def.image" class="row wide">
+			<div
+				v-else-if="r.def.type === 'text' && r.def.image"
+				class="row wide"
+				:class="{ changed: changed(r) }"
+				@contextmenu="onMenu($event, r)">
 				<label v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
 				<ImageField
 					:model-value="String(value(r.def) ?? '')"
@@ -252,7 +359,11 @@
 					@update:model-value="set(r.def.key, $event)"
 					@commit="emit('commit')" />
 			</div>
-			<div v-else-if="r.def.type === 'text'" class="row wide">
+			<div
+				v-else-if="r.def.type === 'text'"
+				class="row wide"
+				:class="{ changed: changed(r) }"
+				@contextmenu="onMenu($event, r)">
 				<span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>
 				<textarea
 					class="text"
@@ -265,7 +376,7 @@
 						emit('commit');
 					" />
 			</div>
-			<div v-else class="row">
+			<div v-else class="row" :class="{ changed: changed(r) }" @contextmenu="onMenu($event, r)">
 				<label v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
 				<SelectField
 					v-if="r.def.type === 'enum'"
@@ -319,6 +430,7 @@
 					@commit="emit('commit')" />
 			</div>
 		</template>
+		<DropMenu ref="menu" :items="menuItems" placement="pointer" />
 	</div>
 </template>
 
@@ -337,6 +449,25 @@
 	}
 	.row.wide {
 		align-items: start;
+	}
+	/* A setting the shown variant changes from the base (FR10): a diamond before the label, which takes Ember 100. */
+	.row.changed .lbl,
+	.row.changed :deep(.cf-check label) {
+		color: var(--accent-hi);
+	}
+	.row.changed .lbl::before,
+	.row.changed .lead::after {
+		content: '';
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		margin-right: 6px;
+		vertical-align: 1px;
+		transform: rotate(45deg);
+		background: var(--e400);
+	}
+	.lead {
+		text-align: right;
 	}
 	/* A segmented choice (ParamDef.segmented): toggle buttons side by side, like the texture-size presets. */
 	.segs {

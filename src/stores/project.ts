@@ -452,6 +452,20 @@ export const useProjectStore = defineStore('project', () => {
 	const activeVariant = computed(() => V.activeVariant(project.value));
 	/** Keys of the settings the active variant changes from the base (as of the last commit). */
 	const changedKeys = computed(() => new Set(Object.keys(activeVariant.value.changes)));
+	/** What the outliner marks: `layer.<id>`, `group.<id>`, `light.<id>`, `post.<id>`, 'base' (material), 'project'. */
+	const changedItems = computed(() => {
+		const out = new Set<string>();
+		for (const k of changedKeys.value) {
+			const m = /^(layer|group|light|post)\.([^.]+)\./.exec(k);
+			out.add(m ? `${m[1]}.${m[2]}` : k.startsWith('base.') ? 'base' : 'project');
+		}
+		return out;
+	});
+
+	/** Whether `key` is a per-variant setting (not structure, sample counts or canvas size). */
+	function isVariantSetting(key: string): boolean {
+		return key in V.extractSettings(project.value);
+	}
 
 	function variantStep(fn: () => void): void {
 		commitNow();
@@ -565,6 +579,8 @@ export const useProjectStore = defineStore('project', () => {
 		variants,
 		activeVariant,
 		changedKeys,
+		changedItems,
+		isVariantSetting,
 		switchVariant,
 		stepVariant,
 		addVariant,

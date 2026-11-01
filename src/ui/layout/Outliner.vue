@@ -367,6 +367,11 @@
 		rowMenu.value?.openAt(x, y);
 	}
 
+	// ---------------------------------------------------------------- variants (FR10)
+	/** A group is marked when it or any of its members is changed in the shown variant. */
+	const groupChanged = (id: string, members: { id: string }[]) =>
+		store.changedItems.has(`group.${id}`) || members.some((l) => store.changedItems.has(`layer.${l.id}`));
+
 	// ---------------------------------------------------------------- rename
 	const renaming = ref<string | null>(null);
 	const renameText = ref('');
@@ -501,6 +506,7 @@
 				<span v-else class="name strong" @dblclick.stop="startRename(PROJECT, store.project.name)">{{
 					store.project.name
 				}}</span>
+				<span v-if="store.changedItems.has('project')" class="dia" role="img" aria-label="Changed in this variant" />
 				<span
 					v-tip:right="
 						'Texture size @ supersampling. Select the project for the texture, base material, world lighting and render settings'
@@ -558,6 +564,7 @@
 						class="name"
 						>Base</span
 					>
+					<span v-if="store.changedItems.has('base')" class="dia" role="img" aria-label="Changed in this variant" />
 					<span class="cells">
 						<span
 							v-tip:right="{
@@ -626,6 +633,11 @@
 							@keydown.esc.prevent="finishRename('group', false)"
 							@blur="finishRename('group', true)" />
 						<span v-else class="name" @dblclick.stop="startRename(u.group.id, u.group.name)">{{ u.group.name }}</span>
+						<span
+							v-if="groupChanged(u.group.id, u.layers)"
+							class="dia"
+							role="img"
+							aria-label="Changed in this variant" />
 						<span v-tip:right="`${u.layers.length} layers`" class="meta cf-mono">{{ u.layers.length }}</span>
 						<span class="cells">
 							<span
@@ -690,6 +702,11 @@
 							@keydown.esc.prevent="finishRename('layer', false)"
 							@blur="finishRename('layer', true)" />
 						<span v-else class="name" @dblclick.stop="startRename(layer.id, layer.name)">{{ layer.name }}</span>
+						<span
+							v-if="store.changedItems.has(`layer.${layer.id}`)"
+							class="dia"
+							role="img"
+							aria-label="Changed in this variant" />
 						<span v-if="errors[layer.id]" v-tip:right="errors[layer.id]" class="err">!</span>
 						<span class="cells">
 							<template v-for="ch in CHANNELS" :key="ch">
@@ -765,6 +782,11 @@
 						@blur="finishRename('light', true)" />
 					<span v-else class="name" @dblclick.stop="startRename(light.id, light.name)">{{ light.name }}</span>
 					<span
+						v-if="store.changedItems.has(`light.${light.id}`)"
+						class="dia"
+						role="img"
+						aria-label="Changed in this variant" />
+					<span
 						v-pick="() => String(light.params.color)"
 						class="chip"
 						:style="{ background: String(light.params.color) }" />
@@ -816,6 +838,11 @@
 					@contextmenu.prevent="onRowMenu($event, 'post', f.id)">
 					<IconSparkles :size="15" :color="isSel('post', f.id) ? 'var(--accent-hi)' : POST_HUE" />
 					<span class="name">{{ allPostDefs().find((d) => d.type === f.type)?.label ?? f.type }}</span>
+					<span
+						v-if="store.changedItems.has(`post.${f.id}`)"
+						class="dia"
+						role="img"
+						aria-label="Changed in this variant" />
 					<span v-if="errors[f.id]" v-tip:right="errors[f.id]" class="err">!</span>
 					<button
 						v-tip:right="f.enabled ? 'Turn off' : 'Turn on'"
@@ -1070,6 +1097,15 @@
 	.name.strong {
 		font-weight: 500;
 		color: var(--text-hi);
+	}
+	/* Changed in the shown variant (FR10). */
+	.dia {
+		width: 6px;
+		height: 6px;
+		flex: none;
+		margin: 0 4px;
+		transform: rotate(45deg);
+		background: var(--e400);
 	}
 	.meta {
 		font-size: 11px;

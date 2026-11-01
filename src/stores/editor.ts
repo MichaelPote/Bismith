@@ -5,6 +5,7 @@ import { markRaw, ref, shallowRef } from 'vue';
 import type { Engine, EngineStats } from '@/render/engine';
 import type { ChannelView } from '@/render/display';
 import { SHAPE_MASK, type PresetKind } from '@/core/project';
+import type { ParamType, ParamValue } from '@/core/params';
 
 /** A card a preset is applied to or saved from. */
 export type PresetSource = { kind: 'layer' | 'group' | 'light' | 'post'; id: string } | { kind: 'lighting' };
@@ -83,6 +84,8 @@ export const useEditorStore = defineStore('editor', () => {
 		| null
 	>(null);
 	const shapeTool = ref<ShapeTool>('edit');
+	/** A param's value copied from its right-click menu, pasted into params of the same type. */
+	const paramClipboard = shallowRef<{ type: ParamType; value: ParamValue } | null>(null);
 
 	function select(kind: SelectionKind, id?: string): void {
 		selection.value = { kind, id };
@@ -119,6 +122,7 @@ export const useEditorStore = defineStore('editor', () => {
 		about,
 		presetDialog,
 		shapeTool,
+		paramClipboard,
 		selection,
 		workspace,
 		channel,
