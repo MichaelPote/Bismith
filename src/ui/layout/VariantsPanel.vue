@@ -235,6 +235,12 @@
 		overflow-y: auto;
 		outline: none;
 	}
+	/* Given a height by the divider below it (App.vue): the list fills it and scrolls. */
+	.variants.sized .list {
+		flex: 1;
+		min-height: 0;
+		max-height: none;
+	}
 	.list:focus-visible {
 		box-shadow: inset 0 0 0 1px var(--accent);
 	}

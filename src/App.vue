@@ -68,6 +68,42 @@
 		el.addEventListener('pointerup', up);
 	}
 
+	// The Variants panel's height over the Outliner; 0 = its natural height (up to seven rows).
+	const variantsH = ref(readWidth('cf-variants', 0));
+	watch(variantsH, (h) => {
+		try {
+			if (h) localStorage.setItem('cf-variants', String(h));
+			else localStorage.removeItem('cf-variants');
+		} catch {
+			/* storage unavailable */
+		}
+	});
+	/** The Outliner keeps at least this much of the column. */
+	const OUTLINER_MIN = 160;
+	const variantsStyle = computed(() =>
+		variantsH.value ? { height: `${variantsH.value}px`, maxHeight: `calc(100% - ${OUTLINER_MIN}px)` } : undefined
+	);
+
+	function startVariantsResize(e: PointerEvent): void {
+		const el = e.currentTarget as HTMLElement;
+		const panel = el.previousElementSibling as HTMLElement;
+		const column = el.parentElement as HTMLElement;
+		const startY = e.clientY;
+		const start = panel.offsetHeight;
+		el.setPointerCapture(e.pointerId);
+		const move = (ev: PointerEvent) => {
+			// Head, one row and the footer at least.
+			const max = column.clientHeight - OUTLINER_MIN;
+			variantsH.value = Math.round(Math.max(92, Math.min(max, start + ev.clientY - startY)));
+		};
+		const up = () => {
+			el.removeEventListener('pointermove', move);
+			el.removeEventListener('pointerup', up);
+		};
+		el.addEventListener('pointermove', move);
+		el.addEventListener('pointerup', up);
+	}
+
 	// ---------------------------------------------------------------- shortcuts
 	function isTyping(t: EventTarget | null): boolean {
 		const el = t as HTMLElement | null;
@@ -193,7 +229,14 @@
 		<TopBar />
 		<main class="main" :style="{ gridTemplateColumns: cols }">
 			<div class="left">
-				<VariantsPanel />
+				<VariantsPanel :class="{ sized: variantsH > 0 }" :style="variantsStyle" />
+				<div
+					class="vgutter"
+					role="separator"
+					aria-orientation="horizontal"
+					aria-label="Resize variants"
+					@pointerdown="startVariantsResize"
+					@dblclick="variantsH = 0" />
 				<Outliner />
 			</div>
 			<div
@@ -248,9 +291,25 @@
 	.left {
 		display: flex;
 		flex-direction: column;
-		gap: var(--gap-app);
 		min-width: 0;
 		min-height: 0;
+	}
+	/* As thin as the app's gaps, with a wider grip either side. */
+	.vgutter {
+		flex: none;
+		height: var(--gap-app);
+		position: relative;
+		cursor: row-resize;
+		touch-action: none;
+	}
+	.vgutter::before {
+		content: '';
+		position: absolute;
+		inset: -3px 0;
+		z-index: 1;
+	}
+	.vgutter:hover {
+		background: linear-gradient(transparent 1px, var(--line) 1px, var(--line) 2px, transparent 2px);
 	}
 	.left > :last-child {
 		flex: 1;
