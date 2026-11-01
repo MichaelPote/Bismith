@@ -16,8 +16,9 @@ Global lighting as a project setting: sky light, ambient strength, and individua
   `UltraHDRLoader` does), plain PNG / JPEG / WebP as sRGB. Whatever came in is kept as a 512 px **Ultra HDR JPEG** (an
   SDR picture — the thumbnail — and a gain map, ISO 21496-1 / hdrgm, written with gainmap-js's JPEG assembler): tens of
   KB, so the browser and lighting presets keep it as an image like a Stamp's (`core/images.ts`: the project saves the
-  file name). The tracer decodes it to half-float radiance. The built-in Studio, Overcast, Sunset and Workshop presets
-  are painted as HDR by `npx tsx tools/env-presets.ts`, each with a light for its sun or key (a crisp shadow).
+  file name). The tracer decodes it to half-float radiance. The built-in Studio, Overcast, Sunset, Daylight,
+  Night Courtyard and Workshop presets are painted as HDR by `npx tsx tools/env-presets.ts` — gradient ramps, soft panels, clouds and
+  skylines measured from real skies — each with a light for its sun or key (a crisp shadow).
 - **Floor or wall** (Sky light › Plane): a floor reads as a map — its top north, its right east, the zenith straight out
   of it. A wall is that floor stood up on its bottom edge: the camera looks north at it (east on its right), its face
   looks south at the horizon, the zenith is above its top and the ground below. Lights keep their directions relative to

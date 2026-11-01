@@ -56,38 +56,40 @@ import f52 from '../../presets/layer/voronoi/cobblestones.json';
 import f53 from '../../presets/light/raking-sun.json';
 import f54 from '../../presets/light/torch.json';
 import f55 from '../../presets/light/warm-key.json';
-import f56 from '../../presets/lighting/flat.json';
-import f57 from '../../presets/lighting/overcast.json';
-import f58 from '../../presets/lighting/overhead.json';
-import f59 from '../../presets/lighting/raking.json';
-import f60 from '../../presets/lighting/studio.json';
-import f61 from '../../presets/lighting/sunset.json';
-import f62 from '../../presets/lighting/torch.json';
-import f63 from '../../presets/lighting/ui-key.json';
-import f64 from '../../presets/lighting/workshop.json';
-import f65 from '../../presets/post/clamp.json';
-import f66 from '../../presets/post/quake-palette.json';
-import f67 from '../../presets/post/soft-glow.json';
-import f68 from '../../presets/project/ashlar.json';
-import f69 from '../../presets/project/bismuth.json';
-import f70 from '../../presets/project/blank.json';
-import f71 from '../../presets/project/bricks.json';
-import f72 from '../../presets/project/button.json';
-import f73 from '../../presets/project/cobbles.json';
-import f74 from '../../presets/project/frost.json';
-import f75 from '../../presets/project/gem.json';
-import f76 from '../../presets/project/grass.json';
-import f77 from '../../presets/project/lichen.json';
-import f78 from '../../presets/project/panel.json';
-import f79 from '../../presets/project/plates.json';
-import f80 from '../../presets/project/riveted.json';
-import f81 from '../../presets/project/rock.json';
-import f82 from '../../presets/project/rustwall.json';
-import f83 from '../../presets/project/sapphire.json';
-import f84 from '../../presets/project/slate.json';
-import f85 from '../../presets/project/tech.json';
-import f86 from '../../presets/project/water.json';
-import f87 from '../../presets/project/well.json';
+import f56 from '../../presets/lighting/daylight.json';
+import f57 from '../../presets/lighting/flat.json';
+import f58 from '../../presets/lighting/night-courtyard.json';
+import f59 from '../../presets/lighting/overcast.json';
+import f60 from '../../presets/lighting/overhead.json';
+import f61 from '../../presets/lighting/raking.json';
+import f62 from '../../presets/lighting/studio.json';
+import f63 from '../../presets/lighting/sunset.json';
+import f64 from '../../presets/lighting/torch.json';
+import f65 from '../../presets/lighting/ui-key.json';
+import f66 from '../../presets/lighting/workshop.json';
+import f67 from '../../presets/post/clamp.json';
+import f68 from '../../presets/post/quake-palette.json';
+import f69 from '../../presets/post/soft-glow.json';
+import f70 from '../../presets/project/ashlar.json';
+import f71 from '../../presets/project/bismuth.json';
+import f72 from '../../presets/project/blank.json';
+import f73 from '../../presets/project/bricks.json';
+import f74 from '../../presets/project/button.json';
+import f75 from '../../presets/project/cobbles.json';
+import f76 from '../../presets/project/frost.json';
+import f77 from '../../presets/project/gem.json';
+import f78 from '../../presets/project/grass.json';
+import f79 from '../../presets/project/lichen.json';
+import f80 from '../../presets/project/panel.json';
+import f81 from '../../presets/project/plates.json';
+import f82 from '../../presets/project/riveted.json';
+import f83 from '../../presets/project/rock.json';
+import f84 from '../../presets/project/rustwall.json';
+import f85 from '../../presets/project/sapphire.json';
+import f86 from '../../presets/project/slate.json';
+import f87 from '../../presets/project/tech.json';
+import f88 from '../../presets/project/water.json';
+import f89 from '../../presets/project/well.json';
 
 export const BUILTIN_FILES: Record<string, unknown> = {
 	'group/brushed-metal': f0,
@@ -146,36 +148,38 @@ export const BUILTIN_FILES: Record<string, unknown> = {
 	'light/raking-sun': f53,
 	'light/torch': f54,
 	'light/warm-key': f55,
-	'lighting/flat': f56,
-	'lighting/overcast': f57,
-	'lighting/overhead': f58,
-	'lighting/raking': f59,
-	'lighting/studio': f60,
-	'lighting/sunset': f61,
-	'lighting/torch': f62,
-	'lighting/ui-key': f63,
-	'lighting/workshop': f64,
-	'post/clamp': f65,
-	'post/quake-palette': f66,
-	'post/soft-glow': f67,
-	'project/ashlar': f68,
-	'project/bismuth': f69,
-	'project/blank': f70,
-	'project/bricks': f71,
-	'project/button': f72,
-	'project/cobbles': f73,
-	'project/frost': f74,
-	'project/gem': f75,
-	'project/grass': f76,
-	'project/lichen': f77,
-	'project/panel': f78,
-	'project/plates': f79,
-	'project/riveted': f80,
-	'project/rock': f81,
-	'project/rustwall': f82,
-	'project/sapphire': f83,
-	'project/slate': f84,
-	'project/tech': f85,
-	'project/water': f86,
-	'project/well': f87
+	'lighting/daylight': f56,
+	'lighting/flat': f57,
+	'lighting/night-courtyard': f58,
+	'lighting/overcast': f59,
+	'lighting/overhead': f60,
+	'lighting/raking': f61,
+	'lighting/studio': f62,
+	'lighting/sunset': f63,
+	'lighting/torch': f64,
+	'lighting/ui-key': f65,
+	'lighting/workshop': f66,
+	'post/clamp': f67,
+	'post/quake-palette': f68,
+	'post/soft-glow': f69,
+	'project/ashlar': f70,
+	'project/bismuth': f71,
+	'project/blank': f72,
+	'project/bricks': f73,
+	'project/button': f74,
+	'project/cobbles': f75,
+	'project/frost': f76,
+	'project/gem': f77,
+	'project/grass': f78,
+	'project/lichen': f79,
+	'project/panel': f80,
+	'project/plates': f81,
+	'project/riveted': f82,
+	'project/rock': f83,
+	'project/rustwall': f84,
+	'project/sapphire': f85,
+	'project/slate': f86,
+	'project/tech': f87,
+	'project/water': f88,
+	'project/well': f89
 };

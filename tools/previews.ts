@@ -1,7 +1,7 @@
 // Render preset files (presets/**/*.json) and store a small preview in each, so the new-project wizard and the preset
 // menus show them without compiling and rendering (docs/features/fr8.20-project-previews.md, fr5.4-presets.md).
 //
-//   npx tsx tools/previews.ts [--backend windows|swiftshader] [--samples 64] [--only path1,path2] [--missing]
+//   npx tsx tools/previews.ts [--backend windows|swiftshader] [--samples 256] [--only path1,path2] [--missing]
 //
 // --only takes paths under presets/ without .json ("project/bricks", "lighting/torch") or bare file names; --missing
 // renders only the files without a preview. Run it after adding or changing a preset (or the renderer, if their look
@@ -17,7 +17,7 @@ const flag = (n: string, d?: string) => {
 	const i = args.indexOf(`--${n}`);
 	return i >= 0 ? args[i + 1] : d;
 };
-const samples = Number(flag('samples', '64'));
+const samples = Number(flag('samples', '256'));
 const only = (flag('only', '') ?? '').split(',').filter(Boolean);
 const missing = args.includes('--missing');
 
