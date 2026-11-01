@@ -37,6 +37,7 @@ export function variantMenuItems(v: ProjectVariant, h: { rename: () => void; rem
 					}
 				]),
 		{ separator: true },
+		{ label: 'Export…', action: () => (editor.exportDialog = { variants: [v.id] }) },
 		...(editor.workspace === 'variants'
 			? []
 			: [{ label: 'Browse all variants', action: () => (editor.workspace = 'variants') }, { separator: true }]),

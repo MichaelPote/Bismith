@@ -29,7 +29,8 @@
 			{ label: 'Save as template…', action: () => (editor.presetDialog = { mode: 'template' }) },
 			{ label: 'My presets…', action: () => (editor.presetDialog = { mode: 'manage' }) },
 			{ separator: true },
-			{ label: 'Export PNG', shortcut: 'Ctrl+E', action: () => act.exportFinal(1) },
+			{ label: 'Export…', shortcut: 'Ctrl+E', action: () => (editor.exportDialog = {}) },
+			{ label: 'Export PNG', action: () => act.exportFinal(1) },
 			{ label: 'Export PNG @4× (nearest)', action: () => act.exportFinal(4) },
 			{ label: 'Export all maps (.zip)', action: act.exportAllMaps },
 			{ label: 'Copy image', action: act.copyFinal },
@@ -170,8 +171,13 @@
 				@click="store.redo">
 				<span class="fk-face"><IconArrowForwardUp :size="15" /></span>
 			</button>
-			<button v-tip:bottom="'Export the final PNG'" type="button" class="fk primary" @click="act.exportFinal(1)">
-				<span class="fk-face"><IconDownload :size="13" />Export PNG<span class="kc">Ctrl E</span></span>
+			<button
+				v-tip:bottom="'Export maps of one or more variants'"
+				type="button"
+				class="fk primary"
+				aria-haspopup="dialog"
+				@click="editor.exportDialog = {}">
+				<span class="fk-face"><IconDownload :size="13" />Export…<span class="kc">Ctrl E</span></span>
 			</button>
 		</div>
 	</header>

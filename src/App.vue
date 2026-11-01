@@ -14,6 +14,7 @@
 	import TilingWorkspace from '@/ui/panels/TilingWorkspace.vue';
 	import VariantsWorkspace from '@/ui/panels/VariantsWorkspace.vue';
 	import VariantChanges from '@/ui/panels/VariantChanges.vue';
+	import ExportDialog from '@/ui/panels/ExportDialog.vue';
 	import BusyModal from '@/ui/components/BusyModal.vue';
 	import AskModal from '@/ui/components/AskModal.vue';
 	import EyedropperChip from '@/ui/components/EyedropperChip.vue';
@@ -76,8 +77,8 @@
 	}
 
 	function onKey(e: KeyboardEvent): void {
-		// The new-project wizard and questions are modal: the editor's shortcuts wait until they close.
-		if (editor.wizard || editor.question) return;
+		// The new-project wizard, questions and the Export and Changes dialogs are modal: the editor's shortcuts wait.
+		if (editor.wizard || editor.question || editor.exportDialog || editor.variantChanges) return;
 		const mod = e.ctrlKey || e.metaKey;
 		const k = e.key.toLowerCase();
 		if (mod && k === 'z' && !e.shiftKey) {
@@ -104,7 +105,7 @@
 		}
 		if (mod && k === 'e') {
 			e.preventDefault();
-			act.exportFinal(1);
+			editor.exportDialog = {};
 			return;
 		}
 		if (mod && e.altKey && k === 'n') {
@@ -222,6 +223,7 @@
 		<NewProjectWizard v-if="editor.wizard" />
 		<PresetDialog v-if="editor.presetDialog" />
 		<VariantChanges v-if="editor.variantChanges" />
+		<ExportDialog v-if="editor.exportDialog" />
 		<AboutDialog v-if="editor.about" />
 		<BusyModal />
 		<AskModal />

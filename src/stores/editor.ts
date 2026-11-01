@@ -86,6 +86,8 @@ export const useEditorStore = defineStore('editor', () => {
 	const shapeTool = ref<ShapeTool>('edit');
 	/** The variant whose Changes dialog is open (FR10). */
 	const variantChanges = ref<string | null>(null);
+	/** The Export dialog (FR10) is open, with these variants ticked (default: the one shown). */
+	const exportDialog = ref<{ variants?: string[] } | null>(null);
 	/** Asks the Variants panel to rename this variant in place (from the workspace's menu). */
 	const variantRename = ref<string | null>(null);
 	/** A param's value copied from its right-click menu, pasted into params of the same type. */
@@ -129,6 +131,7 @@ export const useEditorStore = defineStore('editor', () => {
 		paramClipboard,
 		variantChanges,
 		variantRename,
+		exportDialog,
 		selection,
 		workspace,
 		channel,

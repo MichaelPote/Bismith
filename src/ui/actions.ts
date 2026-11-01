@@ -130,6 +130,74 @@ export function useActions() {
 		editor.notify(`Exported ${kinds.length} maps + project`);
 	}
 
+	/**
+	 * Export maps of variants (FR10, the Export dialog): each variant rendered once at the project's export quality, its
+	 * maps read from that render. One file downloads as a PNG; more as a zip with the project file.
+	 */
+	async function exportVariants(ids: string[], kinds: MapKind[]): Promise<void> {
+		const engine = engineOrWarn();
+		if (!engine || !ids.length || !kinds.length) return;
+		store.commitNow();
+		const r = store.project.render;
+		const ctrl = new AbortController();
+		const ss = Math.max(r.supersample ?? 1, r.exportSupersample);
+		const trace = kinds.some((k) => k === 'final' || k === 'render');
+		const several = store.variants.list.length > 1;
+		const single = ids.length * kinds.length === 1;
+		const base = slug(store.project.name);
+		const fileName = (id: string, kind: MapKind) => {
+			const v = store.variants.list.find((x) => x.id === id);
+			const parts = [base, ...(several && v ? [slug(v.name)] : []), ...(single && kind === 'final' ? [] : [kind])];
+			return `${parts.join('_')}.png`;
+		};
+		const entries: { name: string; data: Uint8Array }[] = [];
+		try {
+			for (const [i, id] of ids.entries()) {
+				const name = store.variants.list.find((x) => x.id === id)?.name ?? '';
+				editor.busy = {
+					title: ids.length > 1 ? `Rendering ${name} (${i + 1} of ${ids.length})…` : `Rendering ${name || 'the maps'}…`,
+					detail: trace ? `${Math.max(r.maxSamples, r.exportSamples)} samples at ${ss}×` : `At ${ss}×`,
+					instant: true,
+					progress: i / ids.length,
+					cancel: () => ctrl.abort()
+				};
+				await afterPaint();
+				const maps = await engine.renderExport(
+					{
+						samples: trace ? r.exportSamples : 0,
+						supersample: r.exportSupersample,
+						signal: ctrl.signal,
+						onProgress: (f) => editor.busy && (editor.busy.progress = (i + f) / ids.length),
+						project: id === store.variants.activeId ? undefined : store.variantProject(id)
+					},
+					() => kinds.map((k) => mapPixels(engine, k))
+				);
+				if (!maps) {
+					editor.notify('Export cancelled');
+					return;
+				}
+				for (const [j, kind] of kinds.entries()) {
+					const { width, height, pixels } = maps[j];
+					const blob = await pixelsToBlob(pixels, width, height);
+					entries.push({ name: fileName(id, kind), data: new Uint8Array(await blob.arrayBuffer()) });
+				}
+			}
+		} catch (e) {
+			editor.notify(`Export failed: ${e instanceof Error ? e.message : e}`, 'error');
+			return;
+		} finally {
+			editor.busy = null;
+		}
+		if (single) {
+			downloadBlob(new Blob([entries[0].data as BlobPart], { type: 'image/png' }), entries[0].name);
+			editor.notify(`Exported ${entries[0].name}`);
+			return;
+		}
+		entries.push({ name: `${base}.bismith.json`, data: new TextEncoder().encode(projectFile()) });
+		downloadBlob(new Blob([zipStore(entries) as BlobPart], { type: 'application/zip' }), `${base}_maps.zip`);
+		editor.notify(`Exported ${entries.length - 1} PNGs + project`);
+	}
+
 	async function copyFinal(): Promise<void> {
 		const img = await exportRender('the final image', (e) => mapPixels(e, 'final'));
 		if (!img) return;
@@ -352,6 +420,7 @@ export function useActions() {
 		exportFinal,
 		exportMap,
 		exportAllMaps,
+		exportVariants,
 		copyFinal,
 		saveProject,
 		openProject,
