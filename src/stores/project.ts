@@ -20,6 +20,7 @@ import { newId } from '@/core/ids';
 import { hashText } from '@/core/hash';
 import { MAX_LIGHTS } from '@/core/project';
 import { fitLight, resizeProject } from '@/core/pixelScale';
+import * as V from '@/core/variants';
 import { builtinProject } from '@/presets';
 
 const AUTOSAVE_KEY = 'bismith:project';
@@ -78,6 +79,8 @@ export const useProjectStore = defineStore('project', () => {
 			clearTimeout(timer);
 			timer = null;
 		}
+		// The active variant's changes measured again (FR10), in the same undo step as the edit.
+		V.syncVariants(project.value);
 		const s = JSON.stringify(project.value);
 		if (s === current) return;
 		past.value = [...past.value, current].slice(-HISTORY_LIMIT);
@@ -168,11 +171,10 @@ export const useProjectStore = defineStore('project', () => {
 	function resize(width: number, height: number): void {
 		const now = JSON.stringify(project.value);
 		if (!sizeBase || sizeBase.after !== now) sizeBase = { project: now, after: now };
-		const next = resizeProject(
-			JSON.parse(sizeBase.project) as Project,
-			Math.max(1, Math.round(width)),
-			Math.max(1, Math.round(height))
-		);
+		const next = JSON.parse(sizeBase.project) as Project;
+		const [w, h] = [Math.max(1, Math.round(width)), Math.max(1, Math.round(height))];
+		// Every variant's px values scale with the canvas.
+		V.forEachVariant(next, (q) => Object.assign(q, resizeProject(q, w, h)));
 		Object.assign(project.value, next);
 		sizeBase.after = JSON.stringify(project.value);
 	}
@@ -242,10 +244,12 @@ export const useProjectStore = defineStore('project', () => {
 	function duplicateLayer(id: string): Layer | undefined {
 		const i = layerIndex(id);
 		if (i < 0) return undefined;
+		V.syncVariants(project.value);
 		const copy = { ...clone(layers()[i]), id: newId('ly') };
 		copy.name = `${copy.name.replace(/ copy$/, '')} copy`;
 		const at = outsideBlocks(i + 1);
 		layers().splice(at, 0, copy);
+		V.copyItemSettings(project.value, `layer.${id}`, `layer.${copy.id}`);
 		return layers()[at];
 	}
 
@@ -319,7 +323,12 @@ export const useProjectStore = defineStore('project', () => {
 
 	/** Rename a mask wherever it is named (FR8.23). */
 	function renameMask(from: string, to: string): number {
-		return groupRenameMask(project.value, from, to);
+		let n = 0;
+		V.forEachVariant(project.value, (q) => {
+			const k = groupRenameMask(q, from, to);
+			if (q === project.value) n = k;
+		});
+		return n;
 	}
 
 	/** Show or hide a whole group (its members keep their own on/off states). */
@@ -336,7 +345,8 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	function ungroup(id: string): void {
-		groupUngroup(project.value, id);
+		// Its limit and hidden state move onto the members' params in every variant.
+		V.forEachVariant(project.value, (q) => groupUngroup(q, id));
 	}
 
 	function deleteGroup(id: string): void {
@@ -370,8 +380,10 @@ export const useProjectStore = defineStore('project', () => {
 	function duplicateLight(id: string): Light | undefined {
 		const i = lights().findIndex((l) => l.id === id);
 		if (i < 0 || lights().length >= MAX_LIGHTS) return undefined;
+		V.syncVariants(project.value);
 		const copy = { ...clone(lights()[i]), id: newId('lt'), name: `${lights()[i].name} copy` };
 		lights().splice(i + 1, 0, copy);
+		V.copyItemSettings(project.value, `light.${id}`, `light.${copy.id}`);
 		return lights()[i + 1];
 	}
 
@@ -408,7 +420,10 @@ export const useProjectStore = defineStore('project', () => {
 	function duplicatePost(id: string): PostFilter | undefined {
 		const i = post().findIndex((f) => f.id === id);
 		if (i < 0) return undefined;
-		post().splice(i + 1, 0, { ...clone(post()[i]), id: newId('pf') });
+		V.syncVariants(project.value);
+		const copy = { ...clone(post()[i]), id: newId('pf') };
+		post().splice(i + 1, 0, copy);
+		V.copyItemSettings(project.value, `post.${id}`, `post.${copy.id}`);
 		return post()[i + 1];
 	}
 
@@ -429,6 +444,77 @@ export const useProjectStore = defineStore('project', () => {
 	function updatePost(id: string, patch: Partial<Pick<PostFilter, 'enabled'>>): void {
 		const f = getPost(id);
 		if (f) Object.assign(f, patch);
+	}
+
+	// ---------------------------------------------------------------- variants (FR10)
+	// The project is the active variant; core/variants.ts keeps the others. Each action is its own undo step.
+	const variants = computed(() => V.variantsOf(project.value));
+	const activeVariant = computed(() => V.activeVariant(project.value));
+	/** Keys of the settings the active variant changes from the base (as of the last commit). */
+	const changedKeys = computed(() => new Set(Object.keys(activeVariant.value.changes)));
+
+	function variantStep(fn: () => void): void {
+		commitNow();
+		fn();
+		commitNow();
+	}
+
+	function switchVariant(id: string): void {
+		variantStep(() => V.switchVariant(project.value, id));
+	}
+
+	/** Step through the list (−1 / +1), wrapping. */
+	function stepVariant(dir: number): void {
+		const vs = variants.value;
+		if (vs.list.length < 2) return;
+		const i = vs.list.findIndex((v) => v.id === vs.activeId);
+		switchVariant(vs.list[(i + dir + vs.list.length) % vs.list.length].id);
+	}
+
+	function addVariant(from?: string): V.ProjectVariant | undefined {
+		let v: V.ProjectVariant | undefined;
+		variantStep(() => (v = V.addVariant(project.value, from)));
+		return v && V.variantsOf(project.value).list.find((x) => x.id === v!.id);
+	}
+
+	function deleteVariant(id: string): boolean {
+		let ok = false;
+		variantStep(() => (ok = V.deleteVariant(project.value, id)));
+		return ok;
+	}
+
+	function renameVariant(id: string, name: string): void {
+		variantStep(() => V.renameVariant(project.value, id, name));
+	}
+
+	function setVariantNote(id: string, note: string): void {
+		V.setVariantNote(project.value, id, note);
+	}
+
+	function moveVariant(id: string, to: number): void {
+		variantStep(() => V.moveVariant(project.value, id, to));
+	}
+
+	function makeBase(id: string): void {
+		variantStep(() => V.makeBase(project.value, id));
+	}
+
+	function resetVariant(id: string): void {
+		variantStep(() => V.resetVariant(project.value, id));
+	}
+
+	function resetToBase(key: string): void {
+		variantStep(() => V.resetToBase(project.value, key));
+	}
+
+	function makeBaseValue(key: string): void {
+		variantStep(() => V.makeBaseValue(project.value, key));
+	}
+
+	/** Variant `id` as a plain project (for its thumbnail, card or export). */
+	function variantProject(id: string): Project {
+		commitNow();
+		return V.materialise(project.value, id);
 	}
 
 	return {
@@ -475,6 +561,21 @@ export const useProjectStore = defineStore('project', () => {
 		duplicatePost,
 		movePost,
 		setPostParam,
-		updatePost
+		updatePost,
+		variants,
+		activeVariant,
+		changedKeys,
+		switchVariant,
+		stepVariant,
+		addVariant,
+		deleteVariant,
+		renameVariant,
+		setVariantNote,
+		moveVariant,
+		makeBase,
+		resetVariant,
+		resetToBase,
+		makeBaseValue,
+		variantProject
 	};
 });

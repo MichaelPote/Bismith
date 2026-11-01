@@ -1,8 +1,9 @@
 // Project data model. A Project is plain JSON and fully describes a texture (see docs/architecture.md §5).
 
 import type { ParamValues } from './params';
+import type { VariantSet } from './variants';
 
-export const PROJECT_VERSION = 1;
+export const PROJECT_VERSION = 2;
 
 /**
  * Where a recipe's or template's layer belongs (the project itself keeps one list): 'relief' layers shape the surface
@@ -210,6 +211,11 @@ export interface Project {
 	preview?: string;
 	/** Present when the file is a preset (FR5.4): what it applies to and how it is listed. */
 	preset?: PresetInfo;
+	/**
+	 * The project's variants (FR10, core/variants.ts): the same stack with each variant's own settings. Absent = one
+	 * variant. In memory the project's settings are the active variant's; in a file they are the base's.
+	 */
+	variants?: VariantSet;
 }
 
 export const SIZE_PRESETS = [16, 32, 64, 128, 256, 512, 1024];

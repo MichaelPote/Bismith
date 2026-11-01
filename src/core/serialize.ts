@@ -8,6 +8,17 @@ import { LIGHT_DEFS, createLight } from './lights';
 import { sanitizeParams } from './params';
 import { newId } from './ids';
 import {
+	applySettings,
+	diffSettings,
+	extractSettings,
+	isVariantSet,
+	switchVariant,
+	toFileForm,
+	uniqueVariantName,
+	type ProjectVariant,
+	type Settings
+} from './variants';
+import {
 	MAX_LIGHTS,
 	MAX_SIZE,
 	PROJECT_VERSION,
@@ -121,10 +132,54 @@ export function reliefOnly(layer: Layer): Layer {
 	return layer;
 }
 
-/** Validate and default-fill any project-like object. Unknown layer / post types are dropped. */
+/**
+ * Validate and default-fill any project-like object. Unknown layer / post types are dropped. Takes a file (the base
+ * variant at the top level) or a project from the editor (the active one, FR10); returns the editor's form.
+ */
 export function normalizeProject(input: unknown): Project {
 	ensureBuiltins();
-	const raw = (input && typeof input === 'object' ? input : {}) as Record<string, any>;
+	let raw = (input && typeof input === 'object' ? input : {}) as Record<string, any>;
+	if (isVariantSet(raw.variants)) {
+		try {
+			raw = toFileForm(raw as Project) as unknown as Record<string, any>;
+		} catch {
+			raw = { ...raw, variants: undefined };
+		}
+	}
+	return withVariants(normalizeBase(raw), raw.variants);
+}
+
+/**
+ * A file's variants (FR10) on its normalised base: each variant's changes applied to a copy and normalised like the
+ * base, so values are checked and clamped by the same rules, then measured again (changes of items that are gone, or
+ * equal to the base, drop out). The project shows the file's active variant.
+ */
+function withVariants(base: Project, rv: unknown): Project {
+	if (!rv || typeof rv !== 'object') return base;
+	const r = rv as Record<string, any>;
+	const meta = (v: any, name: string): Omit<ProjectVariant, 'changes'> => ({
+		id: str(v?.id, '') || newId('vr'),
+		name: str(v?.name, '').trim() || name,
+		...(typeof v?.note === 'string' && v.note.trim() ? { note: v.note } : {})
+	});
+	const first = meta(r.base, 'Variant 1');
+	base.variants = { baseId: first.id, activeId: first.id, list: [{ ...first, changes: {} }] };
+	const baseValues = extractSettings(base);
+	for (const v of Array.isArray(r.list) ? r.list : []) {
+		if (!v || typeof v !== 'object') continue;
+		const m = meta(v, 'Variant');
+		if (base.variants.list.some((x) => x.id === m.id)) continue;
+		const copy: Project = JSON.parse(JSON.stringify({ ...base, variants: undefined }));
+		if (v.changes && typeof v.changes === 'object') applySettings(copy, v.changes as Settings);
+		const changes = diffSettings(extractSettings(normalizeBase(copy as unknown as Record<string, any>)), baseValues);
+		base.variants.list.push({ ...m, name: uniqueVariantName(base, m.name), changes });
+	}
+	if (typeof r.active === 'string') switchVariant(base, r.active);
+	return base;
+}
+
+/** The project's own fields (in a file, the base variant's), validated and default-filled. */
+function normalizeBase(raw: Record<string, any>): Project {
 	const base = defaultBase();
 	const rb = (raw.base ?? {}) as Record<string, unknown>;
 	const lighting = defaultLighting();
@@ -260,8 +315,9 @@ export function normalizeProject(input: unknown): Project {
 	};
 }
 
+/** The project as a file: the base variant at the top level, the others' changes in `variants` (FR10). */
 export function projectToJSON(project: Project): string {
-	return JSON.stringify(project, null, 2);
+	return JSON.stringify(toFileForm(project), null, 2);
 }
 
 export function projectFromJSON(text: string): Project {

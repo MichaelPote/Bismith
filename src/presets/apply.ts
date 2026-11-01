@@ -178,6 +178,8 @@ export function buildTemplate(
 	meta: { name: string; description?: string; category?: string }
 ): Project {
 	const p = clone(project);
+	// The variant shown, alone (FR10): a template starts a project with one.
+	delete p.variants;
 	p.name = meta.name;
 	if (meta.description) p.description = meta.description;
 	else delete p.description;

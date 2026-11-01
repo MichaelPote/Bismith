@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { createProject } from '@/core/serialize';
 import { LIGHT_REF_SIZE, POINT_LIGHT_REF_DIST } from '@/core/lights';
@@ -77,5 +77,74 @@ describe('project store: post filters', () => {
 		expect(copy.id).not.toBe(a.id);
 		expect(copy.params).toEqual(a.params);
 		expect(copy.params).not.toBe(a.params);
+	});
+});
+
+describe('project store: variants', () => {
+	beforeEach(() => setActivePinia(createPinia()));
+
+	function start() {
+		ensureBuiltins();
+		const store = useProjectStore();
+		store.newProject(createProject({ width: 64, height: 64, layers: [createLayer('bricks', {}, 'Bricks')] }));
+		return store;
+	}
+
+	it('switches as one undo step, and undo returns to the variant as it was', () => {
+		const store = start();
+		const dry = store.variants.activeId;
+		const wet = store.addVariant()!;
+		store.project.base.roughness = 0.2;
+		store.commitNow();
+		store.switchVariant(dry);
+		expect(store.project.base.roughness).toBe(0.75);
+		store.undo();
+		expect(store.variants.activeId).toBe(wet.id);
+		expect(store.project.base.roughness).toBe(0.2);
+		expect([...store.changedKeys]).toEqual(['base.roughness']);
+	});
+
+	it('steps through the variants, wrapping', () => {
+		const store = start();
+		const ids = [store.variants.activeId, store.addVariant()!.id, store.addVariant()!.id];
+		store.stepVariant(1);
+		expect(store.variants.activeId).toBe(ids[0]);
+		store.stepVariant(-1);
+		expect(store.variants.activeId).toBe(ids[2]);
+	});
+
+	it('resizes every variant and copies each one’s settings to a duplicate', () => {
+		const store = start();
+		const dry = store.variants.activeId;
+		store.addVariant();
+		const id = store.project.layers[0].id;
+		store.setLayerParam(id, 'mortar', 4);
+		store.commitNow();
+		const copy = store.duplicateLayer(id)!;
+		store.resize(128, 128);
+		store.commitNow();
+		expect(Number(store.getLayer(copy.id)!.params.mortar)).toBeCloseTo(8);
+		store.switchVariant(dry);
+		const base = Number(store.getLayer(id)!.params.mortar);
+		expect(base).not.toBeCloseTo(8);
+		expect(Number(store.getLayer(copy.id)!.params.mortar)).toBeCloseTo(base);
+	});
+
+	it('reloads the autosave on the variant that was shown', () => {
+		const items = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (k: string) => items.get(k) ?? null,
+			setItem: (k: string, v: string) => void items.set(k, v)
+		});
+		const store = start();
+		const wet = store.addVariant()!;
+		store.project.seed = 42;
+		store.commitNow();
+		setActivePinia(createPinia());
+		const again = useProjectStore();
+		expect(again.variants.activeId).toBe(wet.id);
+		expect(again.project.seed).toBe(42);
+		expect(again.isDirty()).toBe(true);
+		vi.unstubAllGlobals();
 	});
 });
