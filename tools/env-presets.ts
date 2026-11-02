@@ -1,10 +1,10 @@
-// Write the built-in environment lighting presets (presets/lighting/<id>.json): a sky environment image painted here —
-// an equirectangular panorama, its top row the zenith and its columns the azimuth clockwise from the top of the
-// texture, as the lights' — stored as the app stores a loaded environment (a 512 px Ultra HDR JPEG, core/environment.ts)
-// and embedded in the preset (preset.images), and a light where the panorama has its sun or key. The panoramas are HDR
-// (softboxes, lamps and the sun well above 1), so they light the scene as well as tint what metals reflect; the light
-// adds a crisp shadow. A sun is painted as a soft halo rather than a disc; its light carries the crisp shadow and the
-// glint.
+// Write the built-in environment lighting presets (public/presets/lighting/<id>.json): a sky environment image painted
+// here — an equirectangular panorama, its top row the zenith and its columns the azimuth clockwise from the top of the
+// texture, as the lights' — stored as the app stores a loaded environment (a 512 px Ultra HDR JPEG,
+// core/environment.ts) and embedded in the preset (preset.images), and a light where the panorama has its sun or key.
+// The panoramas are HDR (softboxes, lamps and the sun well above 1), so they light the scene as well as tint what
+// metals reflect; the light adds a crisp shadow. A sun is painted as a soft halo rather than a disc; its light carries
+// the crisp shadow and the glint.
 //
 //   npx tsx tools/env-presets.ts [id…]   (all of them, or only these: studio, overcast, sunset, daylight, night-courtyard,
 //   workshop)
@@ -523,7 +523,7 @@ for (const env of ENVS.filter((e) => !only.length || only.includes(e.id))) {
 	p.name = env.name;
 	p.description = env.description;
 	p.preset!.images = { [image]: await paint(env) };
-	const file = join(ROOT, 'presets', 'lighting', `${env.id}.json`);
+	const file = join(ROOT, 'public', 'presets', 'lighting', `${env.id}.json`);
 	writeFileSync(file, projectToJSON(p) + '\n');
 	console.log(`${env.name} → ${file}`);
 }

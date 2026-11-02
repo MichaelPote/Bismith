@@ -27,14 +27,16 @@ Chrome, Edge, Firefox or Safari with hardware acceleration.
 
 ## Scripts
 
-| Command                    | What it does                                             |
-| -------------------------- | -------------------------------------------------------- |
-| `npm run dev`              | Vite dev server with HMR                                 |
-| `npm run build`            | Type-check (`vue-tsc`) and build to `dist/`              |
-| `npm run typecheck`        | Type-check only                                          |
-| `npm test`                 | Unit tests (Vitest)                                      |
-| `npm run lint`             | oxlint                                                   |
-| `npm run harness -- <cmd>` | Headless render / compare / optimise harness (see below) |
+| Command                    | What it does                                                          |
+| -------------------------- | --------------------------------------------------------------------- |
+| `npm run dev`              | Vite dev server with HMR                                              |
+| `npm run build`            | Type-check (`vue-tsc`) and build to `dist/`                           |
+| `npm run typecheck`        | Type-check only                                                       |
+| `npm test`                 | Unit tests (Vitest)                                                   |
+| `npm run lint`             | oxlint                                                                |
+| `npm run harness -- <cmd>` | Headless render / compare / optimise harness (see below)              |
+| `npm run presets:manifest` | List `public/presets/` in its `manifest.json` (the build runs it)     |
+| `npm run deploy`           | Build and upload `dist/` to the Cloudflare Worker (`tools/deploy.ts`) |
 
 ## Using the editor
 

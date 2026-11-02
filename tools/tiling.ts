@@ -25,7 +25,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { openSession, type BackendKind } from './backend';
 import { contactSheet, decodePng, writePng, type Rgba8 } from './png';
-import { PRESETS } from '../src/presets';
+import { setPresetSource, starterPresets } from '../src/presets';
+import { fsPresetSource } from './preset-source';
 import { tileImage } from '../src/match/image';
 import type { HeadlessTilingFixResult, HeadlessTilingResult } from '../src/headless';
 
@@ -68,8 +69,10 @@ const jobs: Job[] = args.map((f) => ({
 }));
 if (presets !== undefined) {
 	const ids = presets.split(',').filter(Boolean);
-	for (const p of PRESETS)
-		if (!ids.length || ids.includes(p.id)) jobs.push({ name: p.id, project: { ...p.build(), preview: undefined } });
+	setPresetSource(fsPresetSource());
+	for (const p of await starterPresets())
+		if (!ids.length || ids.includes(p.id))
+			jobs.push({ name: p.id, project: { ...(await p.build()), preview: undefined } });
 }
 if (!jobs.length) {
 	console.error('usage: npx tsx tools/tiling.ts <project.json…> [--presets [ids]] [--out DIR] [--samples N]');

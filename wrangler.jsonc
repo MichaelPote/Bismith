@@ -1,0 +1,23 @@
+// The Cloudflare Worker that serves the built app: dist/ as static assets, no worker code. Deploy with
+// `npm run deploy` (tools/deploy.ts), which builds first and reads the API token from the environment or .env.local.
+{
+	"$schema": "https://unpkg.com/wrangler/config-schema.json",
+	"name": "bismith",
+	"compatibility_date": "2026-11-01",
+	// Served at bismith.<account>.workers.dev; no preview URL per upload.
+	"workers_dev": true,
+	"preview_urls": false,
+	// Workers Logs: keep request logs, viewable in the dashboard.
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true,
+			"persist": true
+		}
+	},
+	"assets": {
+		"directory": "./dist",
+		// One page: any path that isn't a file gets index.html.
+		"not_found_handling": "single-page-application"
+	}
+}

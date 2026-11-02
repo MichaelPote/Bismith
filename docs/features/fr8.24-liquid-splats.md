@@ -60,7 +60,7 @@ piece's swell (beads fuller, jets thinner, big drops a little lower than the cor
 smaller than a pixel raises no glint brighter than its colour. **Dried rim** adds a darker, raised ring along the edge.
 Defaults: blood (ramp `#c0160f` → `#7d0807`), Height 1, glossy Roughness (0.25 → 0.06 with thickness), Specular on.
 
-## Presets (`presets/layer/splats/`, category Liquids)
+## Presets (`public/presets/layer/splats/`, category Liquids)
 
 Blood splatter (the defaults) · Blood on a wall (Gravity 1, Splash 0.55) · Water splash (Multiply a light grey: wet
 darkening, few jets, lower and wider meniscus, very glossy) · Oil spill (pools, little spray, near-black, glossy).

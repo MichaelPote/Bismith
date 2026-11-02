@@ -7,7 +7,7 @@ import { defineStore } from 'pinia';
 import { computed, shallowRef } from 'vue';
 import type { PresetKind, Project } from '@/core/project';
 import { normalizeProject, projectFromJSON, projectToJSON } from '@/core/serialize';
-import { builtinPresets, type PresetEntry } from '@/presets';
+import { loadBuiltinPresets, type PresetEntry } from '@/presets';
 import { idbRun } from '@/core/idb';
 
 /** One stored user preset: the project file's text, and its header copied out for listing without parsing it all. */
@@ -49,7 +49,7 @@ function toEntry(r: UserRecord): PresetEntry {
 		description: r.description,
 		category: r.category,
 		preview: r.preview,
-		project: () => projectFromJSON(r.text)
+		project: async () => projectFromJSON(r.text)
 	};
 }
 
@@ -73,24 +73,36 @@ export interface PresetGroup {
 }
 
 export const usePresetsStore = defineStore('presets', () => {
+	/** The built-ins, from presets/manifest.json (empty until it has loaded). */
+	const builtin = shallowRef<PresetEntry[]>([]);
 	const user = shallowRef<UserRecord[]>([]);
 	/** false when this browser won't store them (private window, blocked site data): they last for the session only. */
 	const persistent = shallowRef(true);
 	let loading: Promise<void> | null = null;
 
-	/** Read the user's presets from IndexedDB (once; menus call it as they open). */
+	/** Read the built-ins' manifest and the user's presets from IndexedDB (once; menus call it as they open). */
 	function load(): Promise<void> {
-		loading ??= run<UserRecord[]>('readonly', (s) => s.getAll())
-			.then((list) => {
-				user.value = list;
-			})
-			.catch(() => {
-				persistent.value = false;
-			});
+		loading ??= Promise.all([
+			loadBuiltinPresets()
+				.then((list) => {
+					builtin.value = list;
+				})
+				.catch((e) => {
+					console.warn('[bismith] built-in presets did not load', e);
+					loading = null; // try again when a menu next opens
+				}),
+			run<UserRecord[]>('readonly', (s) => s.getAll())
+				.then((list) => {
+					user.value = list;
+				})
+				.catch(() => {
+					persistent.value = false;
+				})
+		]).then(() => undefined);
 		return loading;
 	}
 
-	const entries = computed<PresetEntry[]>(() => [...builtinPresets(), ...user.value.map(toEntry)]);
+	const entries = computed<PresetEntry[]>(() => [...builtin.value, ...user.value.map(toEntry)]);
 
 	/** Presets of a kind (and target, for those that have one). */
 	function list(kind: PresetKind, target?: string): PresetEntry[] {

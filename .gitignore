@@ -24,6 +24,8 @@ dist-ssr
 *.sw?
 harness-out
 .cache
+# wrangler's local state (tools/deploy.ts)
+.wrangler
 
 # Claude Code per-machine settings
 .claude/settings.local.json

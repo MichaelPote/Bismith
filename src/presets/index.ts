@@ -1,13 +1,13 @@
-// The built-in presets: the project files in presets/ (docs/features/fr5.4-presets.md), bundled through the generated
-// builtin.ts. A preset is an ordinary project with a `preset` header saying what it applies to; the starters (kind
-// project) are the new-project wizard's cards and double as optimiser seeds for reference matching.
+// The built-in presets: the project files in public/presets/ (docs/features/fr5.4-presets.md), deployed beside the app,
+// listed by their manifest.json (`npm run presets:manifest`) and fetched one by one when used — the app bundles none. A preset is an ordinary project with a `preset` header saying what it applies to; the starters (kind project)
+// are the new-project wizard's cards and double as optimiser seeds for reference matching.
 
 import type { PresetKind, Project } from '@/core/project';
 import { normalizeProject } from '@/core/serialize';
 import { putImage } from '@/core/images';
-import { BUILTIN_FILES } from './builtin';
+import type { PresetManifest } from './manifest';
 
-/** One preset in a menu: a built-in or one of the user's (stores/presets.ts), loaded on demand. */
+/** One preset in a menu: a built-in or one of the user's (stores/presets.ts), its project loaded when asked for. */
 export interface PresetEntry {
 	/** `builtin:<path under presets/>` or `user:<id>`. */
 	key: string;
@@ -20,42 +20,66 @@ export interface PresetEntry {
 	category?: string;
 	preview?: string;
 	/** A fresh copy of the preset's project. */
-	project: () => Project;
+	project: () => Promise<Project>;
 }
 
-interface RawHeader {
-	name?: unknown;
-	description?: unknown;
-	preview?: unknown;
-	preset?: { kind?: unknown; target?: unknown; category?: unknown };
+/** Where the built-ins come from: presets/ beside the page in the browser; tools and tests set their own. */
+export interface PresetSource {
+	/** presets/manifest.json, parsed. */
+	manifest: () => Promise<unknown>;
+	/** presets/<path>.json, parsed. */
+	file: (path: string) => Promise<unknown>;
 }
 
-const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+/** Checked with the server every time (a cheap 304 when unchanged), so a deploy's presets show at once. */
+async function fetchJson(url: string): Promise<unknown> {
+	const r = await fetch(url, { cache: 'no-cache' });
+	if (!r.ok) throw new Error(`${url}: ${r.status}`);
+	return r.json();
+}
 
-let builtins: PresetEntry[] | null = null;
+/** presets/ beside the page (the built app works from any folder: vite `base: './'`). */
+function defaultSource(): PresetSource {
+	const at = (p: string) => {
+		if (typeof document === 'undefined') throw new Error('No page to fetch presets from: setPresetSource() first');
+		return new URL(`presets/${p}`, document.baseURI).href;
+	};
+	return { manifest: () => fetchJson(at('manifest.json')), file: (p) => fetchJson(at(`${p}.json`)) };
+}
 
-/** Every built-in preset, in file order. Headers are read at once; projects are normalised when asked for. */
-export function builtinPresets(): PresetEntry[] {
-	builtins ??= Object.entries(BUILTIN_FILES).flatMap(([path, raw]): PresetEntry[] => {
-		const h = raw as RawHeader;
-		const kind = str(h.preset?.kind) as PresetKind | undefined;
-		if (!kind) return [];
-		let cached: Project | null = null;
-		return [
-			{
-				key: `builtin:${path}`,
+let source: PresetSource = defaultSource();
+let loading: Promise<PresetEntry[]> | null = null;
+
+/** Load the built-ins from elsewhere (and forget those loaded). */
+export function setPresetSource(s: PresetSource): void {
+	source = s;
+	loading = null;
+}
+
+/** Every built-in preset, in the manifest's order (once; menus call it as they open). */
+export function loadBuiltinPresets(): Promise<PresetEntry[]> {
+	loading ??= source.manifest().then((raw) =>
+		(raw as PresetManifest).presets.map((m): PresetEntry => {
+			let cached: Promise<Project> | null = null;
+			return {
+				key: `builtin:${m.path}`,
 				builtin: true,
-				kind,
-				target: str(h.preset?.target),
-				name: str(h.name) ?? path,
-				description: str(h.description),
-				category: str(h.preset?.category),
-				preview: str(h.preview),
-				project: () => structuredClone((cached ??= normalizeProject(raw)))
-			}
-		];
-	});
-	return builtins;
+				kind: m.kind,
+				target: m.target,
+				name: m.name,
+				description: m.description,
+				category: m.category,
+				preview: m.preview,
+				project: async () => {
+					cached ??= source.file(m.path).then((p) => normalizeProject(p));
+					cached.catch(() => (cached = null)); // a failed fetch is tried again next time
+					return structuredClone(await cached);
+				}
+			};
+		})
+	);
+	loading.catch(() => (loading = null));
+	return loading;
 }
 
 /**
@@ -68,10 +92,13 @@ export function asProject(p: Project): Project {
 	return p;
 }
 
+/** The starter the app opens with on a first visit, and stages preset thumbnails on. */
+export const STARTER = 'bricks';
+
 /** A built-in starter's project by its file name (presets/project/<id>.json), to open. */
-export function builtinProject(id: string): Project | undefined {
-	const e = builtinPresets().find((p) => p.key === `builtin:project/${id}`);
-	return e && asProject(e.project());
+export async function builtinProject(id: string): Promise<Project | undefined> {
+	const e = (await loadBuiltinPresets()).find((p) => p.key === `builtin:project/${id}`);
+	return e && asProject(await e.project());
 }
 
 /** The starters as the tools know them: id (file name), name, group (category) and a builder. */
@@ -79,14 +106,16 @@ export interface Preset {
 	id: string;
 	name: string;
 	group: string;
-	build: () => Project;
+	build: () => Promise<Project>;
 }
 
-export const PRESETS: Preset[] = builtinPresets()
-	.filter((p) => p.kind === 'project')
-	.map((p) => ({
-		id: p.key.slice('builtin:project/'.length),
-		name: p.name,
-		group: p.category ?? 'Other',
-		build: () => asProject(p.project())
-	}));
+export async function starterPresets(): Promise<Preset[]> {
+	return (await loadBuiltinPresets())
+		.filter((p) => p.kind === 'project')
+		.map((p) => ({
+			id: p.key.slice('builtin:project/'.length),
+			name: p.name,
+			group: p.category ?? 'Other',
+			build: async () => asProject(await p.project())
+		}));
+}

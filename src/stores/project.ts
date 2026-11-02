@@ -22,7 +22,6 @@ import { hashText } from '@/core/hash';
 import { MAX_LIGHTS } from '@/core/project';
 import { fitLight, resizeProject } from '@/core/pixelScale';
 import * as V from '@/core/variants';
-import { builtinProject } from '@/presets';
 
 const AUTOSAVE_KEY = 'bismith:project';
 /** Autosave key from before the rename to Bismith; read once if the new key is empty. */
@@ -61,8 +60,11 @@ function clone<T>(v: T): T {
 }
 
 export const useProjectStore = defineStore('project', () => {
-	// First run opens a showcase preset rather than a blank project.
-	const project = ref<Project>(loadAutosave() ?? builtinProject('bricks') ?? createProject());
+	// First run starts blank (empty, like the New Project dialog's Blank) with that dialog open (App.vue).
+	const autosaved = loadAutosave();
+	/** No autosave: this browser hasn't used Bismith before (or its site data was cleared). */
+	const firstRun = !autosaved;
+	const project = ref<Project>(autosaved ?? createProject({ width: 256, height: 256, layers: [] }));
 	assignMaskHues(project.value);
 	const past = shallowRef<string[]>([]);
 	const future = shallowRef<string[]>([]);
@@ -70,6 +72,8 @@ export const useProjectStore = defineStore('project', () => {
 	// The project as last saved to or opened from a file (or started new), by hash. Kept beside the autosave so a
 	// reload still knows what is unsaved; without one (first run) the project counts as saved.
 	let savedHash = loadSavedHash() ?? hashText(current);
+	// Kept at once, so the next visit isn't a first one even if nothing is changed (the dialog opens once).
+	if (firstRun) saveAutosave(current);
 	let suppress = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	/** Bumped when another project is opened or started (load / new), so views can refit. Undo / redo keep the view. */
@@ -548,6 +552,7 @@ export const useProjectStore = defineStore('project', () => {
 
 	return {
 		project,
+		firstRun,
 		generation,
 		canUndo,
 		canRedo,

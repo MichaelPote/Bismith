@@ -359,7 +359,7 @@ export function useActions() {
 
 	/** Add a group preset's layers as a new group just after the selection (the New Layer menu's Presets tab). */
 	async function addGroupPreset(entry: PresetEntry): Promise<void> {
-		const preset = entry.project();
+		const preset = await entry.project();
 		const types = [...new Set(preset.layers.map((l) => l.type))];
 		await withShaders(types, entry.name, () => {
 			const item = groupPresetLayers(store.project, preset);
@@ -373,8 +373,8 @@ export function useActions() {
 	 * Apply a preset to a card of the open project (FR5.4): one undo step; a project preset opens as a new project.
 	 * Shaders it needs compile behind the busy modal (the viewport's guard).
 	 */
-	function applyPreset(entry: PresetEntry, source?: PresetSource): void {
-		const preset = entry.project();
+	async function applyPreset(entry: PresetEntry, source?: PresetSource): Promise<void> {
+		const preset = await entry.project();
 		if (entry.kind === 'project' || !source) {
 			newProject(asProject(preset));
 			return;

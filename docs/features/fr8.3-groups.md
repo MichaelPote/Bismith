@@ -1,6 +1,6 @@
 # FR8.3 — Groups and group presets (were smart materials)
 
-**Status:** done — groups of layers in the Outliner, group presets in `presets/group/`, the add menu's _Presets_ tab.
+**Status:** done — groups of layers in the Outliner, group presets in `public/presets/group/`, the add menu's _Presets_ tab.
 Smart materials (recipes with macro controls) are retired.
 
 ## Goal
@@ -16,7 +16,7 @@ user's back, and a look could only be made by writing a recipe. They are replace
 
 - **Groups** — a name over a block of layers, with no behaviour of their own beyond hiding and limiting.
 - **Group presets** — ordinary preset files (FR5.4) holding a group and its layers. Each old recipe (and the pipe
-  finishes, lava and water) became one, `presets/group/*.json`, in the categories Stone, Floors & walls, Nature,
+  finishes, lava and water) became one, `public/presets/group/*.json`, in the categories Stone, Floors & walls, Nature,
   Liquids, Metal, Industrial and Tech.
 - **Write to rows** (FR8.23) — recipes stacked the same generator several times to reach another of its Output
   modes; the group presets use one layer writing each output to its own mask (a row of Mask › Write to with that
@@ -47,5 +47,5 @@ user's back, and a look could only be made by writing a recipe. They are replace
 - [x] `LayerGroup` model, loading old `materials`, group operations (`core.test.ts`, `masks.test.ts`)
 - [x] Outliner group rows, Ungroup / Delete, the add menu's Presets tab
 - [x] Properties group card with presets menu and mask limit
-- [x] Recipes converted to `presets/group/*.json`; `src/recipes/` deleted
+- [x] Recipes converted to `public/presets/group/*.json`; `src/recipes/` deleted
 - [x] Duplicate output-mode layers collapsed into outputs to masks

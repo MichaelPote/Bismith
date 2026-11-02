@@ -113,7 +113,7 @@
 		const project = toRaw(store.project);
 		const item = presetItemOf(project, source);
 		if (!item) return close();
-		draft.value = buildPreset(project, item, { name: name.value });
+		draft.value = await buildPreset(project, item, { name: name.value });
 		const engine = editor.engine;
 		if (!engine) return;
 		rendering.value = true;
@@ -167,7 +167,7 @@
 			await presets.update(e.key, { name: meta.name, description: description.value, category: category.value });
 		} else {
 			if (replace.value && !draft.value) return;
-			const p = replace.value ? { ...draft.value! } : e.project();
+			const p = replace.value ? { ...draft.value! } : await e.project();
 			p.name = meta.name;
 			if (meta.description) p.description = meta.description;
 			else delete p.description;

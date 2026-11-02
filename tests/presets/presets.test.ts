@@ -1,9 +1,9 @@
-// Every preset file in presets/ (docs/features/fr5.4-presets.md) loads without losing anything — registered types,
-// known param keys — carries a preview, holds what its header says, and is listed in the generated builtin.ts.
+// Every preset file in public/presets/ (docs/features/fr5.4-presets.md) loads without losing anything — registered types,
+// known param keys — carries a preview, holds what its header says, and is listed in an up-to-date manifest.json.
 
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_FILES } from '@/presets/builtin';
-import { builtinPresets } from '@/presets';
+import { loadBuiltinPresets, setPresetSource } from '@/presets';
+import type { PresetManifest } from '@/presets/manifest';
 import { layerParamDefs, getLayerDef } from '@/layers/registry';
 import { getPostDef } from '@/render/post/registry';
 import { LIGHT_DEFS } from '@/core/lights';
@@ -16,27 +16,41 @@ import { createProject } from '@/core/serialize';
 
 ensureBuiltins();
 
-const files = import.meta.glob('../../presets/**/*.json', { eager: true, import: 'default' });
-const onDisk = Object.keys(files)
-	.map((f) => f.replace('../../presets/', '').replace(/\.json$/, ''))
-	.sort();
+const files = import.meta.glob('../../public/presets/**/*.json', { eager: true, import: 'default' });
+const byPath = new Map(
+	Object.entries(files).map(([f, raw]) => [f.replace('../../public/presets/', '').replace(/\.json$/, ''), raw])
+);
+const manifest = byPath.get('manifest') as PresetManifest;
+byPath.delete('manifest');
+const raws = byPath as Map<string, Project>;
+const onDisk = [...raws.keys()].sort();
+setPresetSource({ manifest: async () => manifest, file: async (p) => raws.get(p) });
+const builtins = await loadBuiltinPresets();
 
 describe('presets', () => {
-	it('builtin.ts lists every file in presets/ (npx tsx tools/presets-index.ts)', () => {
-		expect(Object.keys(BUILTIN_FILES).sort()).toEqual(onDisk);
+	it('manifest.json is up to date (npm run presets:manifest)', () => {
+		for (const m of manifest.presets) {
+			const raw = raws.get(m.path);
+			expect(raw, `${m.path} is in presets/`).toBeTruthy();
+			expect([m.kind, m.target, m.name, m.description, m.category], m.path).toEqual([
+				raw!.preset?.kind,
+				raw!.preset?.target,
+				raw!.name,
+				raw!.description,
+				raw!.preset?.category
+			]);
+			// The file's own preview, unless an image beside it took its place.
+			if (raw!.preview) expect(m.preview, `${m.path} preview`).toBe(raw!.preview);
+		}
 	});
 
-	it('every file is a preset', () => {
-		expect(
-			builtinPresets()
-				.map((p) => p.key.slice('builtin:'.length))
-				.sort()
-		).toEqual(onDisk);
+	it('every file is a preset, listed in the manifest', () => {
+		expect(builtins.map((p) => p.key.slice('builtin:'.length)).sort()).toEqual(onDisk);
 	});
 
-	for (const entry of builtinPresets()) {
+	for (const entry of builtins) {
 		const path = entry.key.slice('builtin:'.length);
-		const raw = BUILTIN_FILES[path] as Project;
+		const raw = raws.get(path)!;
 
 		it(`${path} only uses known types and params`, () => {
 			for (const l of raw.layers) {
@@ -64,8 +78,8 @@ describe('presets', () => {
 			expect(n.preset?.kind).toBe(entry.kind);
 		});
 
-		it(`${path} holds what its header says`, () => {
-			const p = entry.project();
+		it(`${path} holds what its header says`, async () => {
+			const p = await entry.project();
 			expect(path.split('/')[0], 'folder = kind').toBe(entry.kind);
 			switch (entry.kind) {
 				case 'layer':
@@ -93,24 +107,24 @@ describe('presets', () => {
 			expect(isPreview(entry.preview)).toBe(true);
 		});
 
-		it(`${path} carries the images it uses (its Stamps', its sky's)`, () => {
-			const p = entry.project();
+		it(`${path} carries the images it uses (its Stamps', its sky's)`, async () => {
+			const p = await entry.project();
 			const names = [p.lighting.sky.image ?? ''];
 			for (const l of p.layers)
 				for (const d of layerParamDefs(l.type)) if (d.image) names.push(String(l.params[d.key] ?? ''));
-			for (const n of names.filter(Boolean)) expect(Object.keys(entry.project().preset?.images ?? {})).toContain(n);
+			for (const n of names.filter(Boolean)) expect(Object.keys(p.preset?.images ?? {})).toContain(n);
 		});
 	}
 });
 
 describe('lighting presets with an environment image', () => {
 	const URL = 'data:image/png;base64,iVBORw0KGgo=';
-	it('save the image with the preset and bring it along when applied', () => {
+	it('save the image with the preset and bring it along when applied', async () => {
 		ensureBuiltins();
 		putImage('test-sky.png', URL, false);
 		const from = createProject();
 		from.lighting.sky.image = 'test-sky.png';
-		const preset = buildPreset(from, presetItemOf(from, { kind: 'lighting' })!, { name: 'Test sky' });
+		const preset = await buildPreset(from, presetItemOf(from, { kind: 'lighting' })!, { name: 'Test sky' });
 		expect(preset.lighting.sky.image).toBe('test-sky.png');
 		expect(preset.preset?.images).toEqual({ 'test-sky.png': URL });
 
@@ -123,8 +137,8 @@ describe('lighting presets with an environment image', () => {
 		expect(imageUrl('other-sky.png')).toBe(URL);
 	});
 
-	it('are among the built-ins', () => {
-		const withEnv = builtinPresets().filter((e) => e.kind === 'lighting' && e.project().lighting.sky.image);
-		expect(withEnv.length).toBeGreaterThanOrEqual(4);
+	it('are among the built-ins', async () => {
+		const lighting = await Promise.all(builtins.filter((e) => e.kind === 'lighting').map((e) => e.project()));
+		expect(lighting.filter((p) => p.lighting.sky.image).length).toBeGreaterThanOrEqual(4);
 	});
 });

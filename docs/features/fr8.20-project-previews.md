@@ -22,7 +22,7 @@ project has one shows it at once.
   alone, so saving adds no undo step; if nothing has rendered yet the previous preview is kept.
 - **Wizard**: every card shows its preset's preview as an image; since FR8.16a the wizard never compiles or renders
   (a preset without one shows a placeholder).
-- **Examples**: the presets are files in `presets/` (FR5.4 v2), so each carries its own preview: `tools/previews.ts`
+- **Examples**: the presets are files in `public/presets/` (FR5.4 v2), so each carries its own preview: `tools/previews.ts`
   renders them on the GPU harness and writes the preview into the file (`--missing` for new ones).
   `presets.test.ts` checks every preset has one — after adding or changing a preset, run `npx tsx tools/previews.ts`
   (`--only project/bricks,torch` for some).

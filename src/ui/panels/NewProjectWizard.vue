@@ -1,5 +1,5 @@
 <script setup lang="ts">
-	// New project wizard: Blank at a chosen size, or a project preset (docs/features/fr5.4-presets.md) — the built-ins and
+	// New project wizard: Blank at a size picked on its card, or a project preset (docs/features/fr5.4-presets.md) — the built-ins and
 	// the user's own, mixed and grouped by category. Every card is its preset's stored preview, so opening compiles and
 	// renders nothing; the picked project's shaders compile in the viewport like any opened project's (FR8.16a).
 	import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -16,8 +16,8 @@
 	const presets = usePresetsStore();
 	const act = useActions();
 
-	const SIZES = [32, 64, 128, 256];
-	const size = ref(64);
+	const SIZES = [128, 256, 512];
+	const size = ref(256);
 	void presets.load();
 
 	function blankProject(): Project {
@@ -33,8 +33,8 @@
 		act.newProject(asProject(project));
 	}
 
-	function pickPreset(e: PresetEntry): void {
-		pick(e.project());
+	async function pickPreset(e: PresetEntry): Promise<void> {
+		pick(await e.project());
 	}
 
 	const tip = (e: PresetEntry) => (e.description ? `${e.name} — ${e.description}` : e.name);
@@ -62,7 +62,7 @@
 				<header class="head">
 					<div class="titles">
 						<h2 id="wizard-title">New project</h2>
-						<p>Start blank, or from a preset. File ▸ Save as template… adds your own.</p>
+						<p>Start from a blank canvas, or choose one of the presets below to get started.</p>
 					</div>
 					<button
 						v-tip:left="{ body: 'Close', keys: 'Esc' }"
@@ -74,31 +74,30 @@
 					</button>
 				</header>
 
-				<div class="bar">
-					<span class="cf-label">Blank size</span>
-					<div class="sizes" role="radiogroup" aria-label="Blank texture size">
-						<button
-							v-for="s in SIZES"
-							:key="s"
-							type="button"
-							class="fk"
-							:class="{ lit: size === s }"
-							role="radio"
-							:aria-checked="size === s"
-							@click="size = s">
-							<span class="fk-face">{{ s }}</span>
-						</button>
-					</div>
-				</div>
-
 				<div class="grid">
-					<button type="button" class="card blank" @click="pick(blankProject())">
-						<div class="thumb"><IconPlus :size="32" color="var(--text-lo)" /></div>
-						<div class="meta">
-							<span class="name">Blank</span>
-							<span class="sub">No layers · {{ size }}×{{ size }}</span>
+					<!-- Blank: the card opens it; its size is picked on the card -->
+					<div class="card blank" role="group" aria-label="Blank">
+						<button type="button" class="open" @click="pick(blankProject())">
+							<div class="thumb"><IconPlus :size="32" color="var(--text-lo)" /></div>
+							<div class="meta">
+								<span class="name">Blank</span>
+								<span class="sub">No layers · {{ size }}×{{ size }}</span>
+							</div>
+						</button>
+						<div class="sizes" role="radiogroup" aria-label="Blank texture size">
+							<button
+								v-for="s in SIZES"
+								:key="s"
+								type="button"
+								class="fk"
+								:class="{ lit: size === s }"
+								role="radio"
+								:aria-checked="size === s"
+								@click="size = s">
+								<span class="fk-face">{{ s }}</span>
+							</button>
 						</div>
-					</button>
+					</div>
 					<template v-for="g in presets.grouped('project')" :key="g.category">
 						<h3 class="section">{{ g.category }}</h3>
 						<button
@@ -152,7 +151,8 @@
 		display: flex;
 		align-items: flex-start;
 		gap: 12px;
-		padding: 16px 16px 10px 20px;
+		padding: 16px 16px 12px 20px;
+		border-bottom: 1px solid var(--hairline);
 	}
 	.titles {
 		flex: 1;
@@ -172,21 +172,19 @@
 		font-size: 13px;
 		color: var(--text-lo);
 	}
-	.bar {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 10px 14px;
-		padding: 8px 20px 12px;
-		border-bottom: 1px solid var(--hairline);
-	}
+	/* Blank's sizes, under its picture and name: three keys across the card. */
 	.sizes {
 		display: flex;
 		gap: 3px;
 	}
+	.sizes .fk {
+		flex: 1;
+		height: 24px;
+	}
 	.sizes .fk-face {
-		min-width: 40px;
+		padding: 0;
 		font-family: var(--font-mono);
+		font-size: 11px;
 	}
 	.grid {
 		flex: 1;
@@ -247,6 +245,25 @@
 		font-size: 11px;
 		color: var(--text-lo);
 		text-align: center;
+	}
+	/* The part of Blank's card that opens it. */
+	.blank .open {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.blank .open:focus-visible {
+		outline: 1px solid var(--e100);
+		outline-offset: 2px;
+	}
+	.blank {
+		cursor: default;
 	}
 	.blank .thumb {
 		display: flex;

@@ -8,7 +8,7 @@ import { resizeProject } from '@/core/pixelScale';
 import { putImage, imageUrl } from '@/core/images';
 import { getLayerDef, layerParamDefs } from '@/layers/registry';
 import { presetBase, presetProject, type PresetItem } from './stage';
-import { builtinProject } from './index';
+import { builtinProject, STARTER } from './index';
 
 /** Mask wiring (FR8.23) belongs to the project, not the look: a preset keeps the layer's own. */
 const isMaskKey = (k: string) => k.startsWith('mk_') || k.startsWith('lim_');
@@ -148,21 +148,20 @@ export function presetItemOf(
  * when it has no relief of its own, a post filter on the Stone bricks starter; named, described and carrying the
  * images it uses. The thumbnail (preview) is rendered from it afterwards.
  */
-export function buildPreset(
+export async function buildPreset(
 	project: Project,
 	item: PresetItem,
 	meta: { name: string; description?: string; category?: string }
-): Project {
+): Promise<Project> {
 	const base = presetBase(project.width, project.height, project.tileable);
 	if (item.kind === 'layer' || item.kind === 'group') base.heightDepth = project.heightDepth;
+	// The starter is fetched only for a post filter (on the plain stage when it can't be).
+	const scene = item.kind === 'post' ? await builtinProject(STARTER).catch(() => undefined) : undefined;
 	const p = presetProject(
 		item,
 		base,
 		{ id: newId('pr'), ...(meta.category ? { category: meta.category } : {}) },
-		() => {
-			const scene = builtinProject('bricks')!;
-			return resizeProject(scene, project.width, project.height);
-		}
+		scene && (() => resizeProject(scene, project.width, project.height))
 	);
 	p.name = meta.name;
 	if (meta.description) p.description = meta.description;

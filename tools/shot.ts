@@ -46,6 +46,9 @@ async function main() {
 		await page.goto(url);
 		await page.evaluate(() => localStorage.clear());
 		await page.goto(url);
+		// A fresh browser is a first visit, which opens the New Project dialog: close it, the shot is of the editor.
+		await page.waitForSelector('.wizard', { timeout: 5000 }).catch(() => undefined);
+		await page.keyboard.press('Escape');
 		const js = flag('eval', '');
 		if (js) await page.evaluate(js);
 		await page.waitForTimeout(Number(flag('wait', '2500')));

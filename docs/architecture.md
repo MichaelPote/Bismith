@@ -494,14 +494,14 @@ src/
   stores/            Pinia: project (with undo/redo), editor (selection, view state), presets (built-ins + the user's, IndexedDB),
                      runCheckpoint (long runs saved for resuming after the page is lost)
   ui/                components/ (fields, panel cards, icons), layout/ (bars, outliner, viewport, properties), panels/
-  presets/           preset loader (builtin.ts: generated index of presets/*.json), stage, apply / save, thumbnails
+  presets/           preset loader (public/presets/manifest.json, files fetched on use), stage, apply / save, thumbnails
   headless.ts        window.__bismith API used by the harness
 tools/
   harness.ts         Playwright CLI (render / compare / optimize / sheet)
   smoke.ts           renders every layer + post type, reports shader errors, writes contact sheets
   presets.ts         renders every preset to a contact sheet
-  previews.ts        renders preset thumbnails into the files in presets/ (--missing, --only)
-  presets-index.ts   regenerates src/presets/builtin.ts from presets/
+  previews.ts        renders preset thumbnails into the files in public/presets/ (--missing, --only)
+  presets-manifest.ts writes public/presets/manifest.json (npm run presets:manifest; build runs it)
   shot.ts            screenshots the editor UI (optionally after scripted clicks)
   tiling.ts          tiling analysis + per-layer blame of projects / presets, tiled hotspot sheets; --fix (FR9)
   png.ts             Node PNG helpers (read/write, contact sheets)

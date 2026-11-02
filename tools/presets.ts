@@ -8,6 +8,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 import { contactSheet, decodePng, writePng, type Rgba8 } from './png';
 import type {} from '../src/headless';
+import { fsPresetSource } from './preset-source';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -37,7 +38,8 @@ async function main() {
 		server: { port: 5193, strictPort: false, host: '127.0.0.1' }
 	});
 	await server.listen();
-	const { PRESETS } = await server.ssrLoadModule('/src/presets/index.ts');
+	const { setPresetSource, starterPresets } = await server.ssrLoadModule('/src/presets/index.ts');
+	setPresetSource(fsPresetSource());
 	const url = server.resolvedUrls?.local[0] ?? 'http://127.0.0.1:5193/';
 	const browser = await chromium.launch({
 		args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
@@ -50,9 +52,9 @@ async function main() {
 	await page.goto(url + '?headless');
 	await page.waitForFunction(() => window.__bismith?.ready === true, null, { timeout: 60_000 });
 	const imgs: Rgba8[] = [];
-	for (const preset of PRESETS as { id: string; build: () => object }[]) {
+	for (const preset of (await starterPresets()) as { id: string; build: () => Promise<object> }[]) {
 		if (only.length && !only.includes(preset.id)) continue;
-		const project = preset.build();
+		const project = await preset.build();
 		writeFileSync(join(out, `${preset.id}.json`), JSON.stringify(project, null, 2));
 		const r = await page.evaluate(
 			({ project, samples }) => {

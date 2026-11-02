@@ -2,6 +2,7 @@
 	import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
+	import { usePresetsStore } from '@/stores/presets';
 	import { useActions } from '@/ui/actions';
 	import { CHANNEL_VIEWS } from '@/render/display';
 	import TopBar from '@/ui/layout/TopBar.vue';
@@ -211,7 +212,12 @@
 		if (store.isDirty()) e.preventDefault();
 	}
 
+	const presets = usePresetsStore();
 	onMounted(() => {
+		// The built-in presets' manifest at once, so menus and the New Project dialog list them fresh and without a wait.
+		void presets.load();
+		// A first visit starts blank, in the New Project dialog.
+		if (store.firstRun) editor.wizard = true;
 		window.addEventListener('keydown', onKey);
 		window.addEventListener('beforeunload', onBeforeUnload);
 		// A long run (Match's optimiser) lost with the page — a discarded background tab, a crash — can carry on.

@@ -1,6 +1,6 @@
 # FR5.4 — Presets
 
-**Status:** v2 done — presets as files in `presets/`, a presets menu on every layer, group, light and post
+**Status:** v2 done — presets as files in `public/presets/` listed by a manifest, a presets menu on every layer, group, light and post
 filter card (and the Lighting presets card), the user's own presets in the browser. v2 supersedes v1's starters built
 in code.
 
@@ -35,21 +35,26 @@ in code.
 - **Images travel with the preset.** A Stamp's image and the sky's environment image are only names
   (`core/images.ts`); the pixels stay in the browser that loaded them. A preset embeds the images its project uses as
   `preset.images: { name: dataURL }`, and applying it (or opening a starter, `asProject`) `putImage`s them first.
-- **Built-ins live in `presets/` at the repository root**, one file each, in a folder per kind:
-  `presets/project/bricks.json`, `presets/layer/<type>/<name>.json`, `presets/group/<name>.json`,
-  `presets/light/…`, `presets/lighting/…`, `presets/post/…`. They are bundled (the app works offline and from a
-  static host, which couldn't list a folder) through `src/presets/builtin.ts`, an index of static imports generated
-  by `npx tsx tools/presets-index.ts`. Static imports load the same way in the app, Vitest and `tsx` tools; Vite's
-  `import.meta.glob` exists only in the first two. All of it loads up front (~50 files, a few hundred KB of JSON,
-  far less gzipped); `src/presets/index.ts` reads the headers and normalises a project only when it's asked for.
-  `presets/*.json` imports are typed `unknown` (`src/presets/json.d.ts`) so the typecheck doesn't infer them.
+- **Built-ins live in `public/presets/`**, one file each, in a folder per kind: `project/bricks.json`,
+  `layer/<type>/<name>.json`, `group/<name>.json`, `light/…`, `lighting/…`, `post/…`. Vite serves `public/` as is and
+  copies it into the build, so they deploy beside the app (`dist/presets/`), none of them bundled. A static host can't
+  list a folder, so **`public/presets/manifest.json`** lists them: each preset's path, kind, target, name, description,
+  category and preview (an image beside the file — `<name>.webp`, `.png` or `.jpg` — when there is one, else the
+  file's own `preview`). `npm run presets:manifest` (`tools/presets-manifest.ts`) writes it; `npm run build` runs it
+  first and `tools/previews.ts` after rendering. `src/presets/index.ts` fetches the manifest when a menu first opens
+  (`loadBuiltinPresets`, through the presets store's `load`) and a preset's own file only when it's applied or opened
+  (`PresetEntry.project()`, async), relative to the page, so the app works from any folder. Tools outside a page read
+  the folder instead (`setPresetSource(fsPresetSource())`, `tools/preset-source.ts`). The manifest loads with the
+  page (fetched `no-cache`: revalidated, so a deploy's presets show at once). A first visit starts on an empty
+  256 px project with the New Project dialog open; a post-filter preset is staged on the _Stone bricks_ starter.
 - **Moving v1 over** (done once): the starters that `src/presets/index.ts` built went to `presets/project/<id>.json`
   with their previews, and `LIGHTING_PRESETS` to `presets/lighting/<id>.json` on the stage; the builders,
   `core/lightingPresets.ts` and `src/presets/previews.ts` are gone, and the Lighting presets card shows the lighting
   presets as thumbnail tiles. `tools/previews.ts` renders previews into the files (`--missing`, `--only
-  project/bricks,torch`) and regenerates the index; `tools/presets.ts` makes its contact sheet from the starters.
-  `PRESETS` (id, name, group, build) is still exported for the tools.
-- **Tests**: `presets.test.ts` checks that `builtin.ts` lists exactly the files in `presets/`, and that each one loads,
+  project/bricks,torch`) and rewrites the manifest; `tools/presets.ts` makes its contact sheet from the starters,
+  `starterPresets()` (id, name, group, build).
+- **Tests**: `presets.test.ts` checks that the manifest is up to date and lists exactly the files in `public/presets/`,
+  and that each one loads,
   uses only registered types and known param keys, sits in its kind's folder, holds the item its header names, and has
   a preview.
 
@@ -136,7 +141,7 @@ in code.
   presets as `my.bismith-presets.json` (an array of preset files), and **Import…** reads one back, or a single preset
   file. Imports with an id already stored are skipped.
 - **Adding a built-in** needs no backend either: save the preset in the app, export it, copy the preset out of the
-  array into `presets/<kind>/…`, and run `npx tsx tools/previews.ts --only <path>` (it re-renders the thumbnail at the
+  array into `public/presets/<kind>/…`, and run `npx tsx tools/previews.ts --only <path>` (it re-renders the thumbnail at the
   file's size and regenerates the index).
 
 ## Built-ins
@@ -177,9 +182,9 @@ Starters (v1):
 
 - [x] `Project.description` (serialised, on the Project card)
 - [x] `preset` header in the project format (`normalizeProject` keeps it; images must be base64 image data URLs)
-- [x] v1 starters → `presets/project/*.json`, lighting presets → `presets/lighting/*.json`; builders,
+- [x] v1 starters → `public/presets/project/*.json`, lighting presets → `public/presets/lighting/*.json`; builders,
       `lightingPresets.ts` and `previews.ts` deleted
-- [x] Generated static-import index (`tools/presets-index.ts` → `src/presets/builtin.ts`); wizard reads from it
+- [x] Manifest (`npm run presets:manifest` → `public/presets/manifest.json`); menus list from it, files load on use
 - [x] `presets.test.ts`, `tools/previews.ts`, `tools/presets.ts` work on the files
 - [x] Standard rig, `presetStage` (relief-less items only); thumbnails rendered off-screen without touching the project
 - [x] Apply: layers (mask wiring kept, pixel units rescaled), groups, lights, lighting, post filters; one

@@ -1,16 +1,16 @@
-// Render preset files (presets/**/*.json) and store a small preview in each, so the new-project wizard and the preset
+// Render preset files (public/presets/**/*.json) and store a small preview in each, so the new-project wizard and the preset
 // menus show them without compiling and rendering (docs/features/fr8.20-project-previews.md, fr5.4-presets.md).
 //
 //   npx tsx tools/previews.ts [--backend windows|swiftshader] [--samples 256] [--only path1,path2] [--missing]
 //
-// --only takes paths under presets/ without .json ("project/bricks", "lighting/torch") or bare file names; --missing
+// --only takes paths under public/presets/ without .json ("project/bricks", "lighting/torch") or bare file names; --missing
 // renders only the files without a preview. Run it after adding or changing a preset (or the renderer, if their look
-// moved); presets.test.ts checks every preset has one. It also regenerates src/presets/builtin.ts.
+// moved); presets.test.ts checks every preset has one. It also rewrites the manifest, which carries the previews.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openSession, type BackendKind } from './backend';
-import { PRESET_DIR, presetFiles, writePresetIndex } from './presets-index';
+import { PRESET_DIR, presetFiles, writeManifest } from './presets-manifest';
 
 const args = process.argv.slice(2);
 const flag = (n: string, d?: string) => {
@@ -34,8 +34,10 @@ async function main() {
 			return !(JSON.parse(readFileSync(join(PRESET_DIR, `${k}.json`), 'utf8')) as { preview?: string }).preview;
 		return true;
 	});
-	writePresetIndex();
-	if (!wanted.length) return console.log('[previews] nothing to render');
+	if (!wanted.length) {
+		writeManifest();
+		return console.log('[previews] nothing to render');
+	}
 	const s = await openSession({ backend: flag('backend') as BackendKind | undefined, workers: 1, logPage: false });
 	console.log(`[previews] ${s.backend}: ${s.renderer}`);
 	try {
@@ -52,6 +54,7 @@ async function main() {
 		}
 	} finally {
 		await s.close();
+		writeManifest();
 	}
 }
 

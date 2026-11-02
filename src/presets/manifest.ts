@@ -1,0 +1,21 @@
+// public/presets/manifest.json (docs/features/fr5.4-presets.md), written by `npm run presets:manifest`: every built-in
+// preset's header and preview, so the menus list them at once; each preset's project is its own file, fetched when
+// used.
+
+import type { PresetKind } from '@/core/project';
+
+export interface PresetManifestEntry {
+	/** Its file under public/presets/, without `.json` ("project/bricks"). */
+	path: string;
+	kind: PresetKind;
+	target?: string;
+	name: string;
+	description?: string;
+	category?: string;
+	preview?: string;
+}
+
+export interface PresetManifest {
+	version: 1;
+	presets: PresetManifestEntry[];
+}
