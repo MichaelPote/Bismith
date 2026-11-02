@@ -23,6 +23,8 @@
 	import NewProjectWizard from '@/ui/panels/NewProjectWizard.vue';
 	import PresetDialog from '@/ui/panels/PresetDialog.vue';
 	import AboutDialog from '@/ui/panels/AboutDialog.vue';
+	import PublishDialog from '@/ui/panels/PublishDialog.vue';
+	import { GALLERY_ID } from '@/gallery/client';
 	import { offerResume } from '@/ui/resumeRuns';
 
 	const store = useProjectStore();
@@ -216,8 +218,17 @@
 	onMounted(() => {
 		// The built-in presets' manifest at once, so menus and the New Project dialog list them fresh and without a wait.
 		void presets.load();
+		// An "Open in Bismith" link from the gallery (?gallery=<id>) opens that project; the parameter is dropped at once,
+		// so a reload doesn't open it again.
+		const url = new URL(location.href);
+		const fromGallery = url.searchParams.get('gallery');
+		if (fromGallery) {
+			url.searchParams.delete('gallery');
+			history.replaceState(history.state, '', url);
+		}
+		if (fromGallery && GALLERY_ID.test(fromGallery)) void act.openFromGallery(fromGallery);
 		// A first visit starts blank, in the New Project dialog.
-		if (store.firstRun) editor.wizard = true;
+		else if (store.firstRun) editor.wizard = true;
 		window.addEventListener('keydown', onKey);
 		window.addEventListener('beforeunload', onBeforeUnload);
 		// A long run (Match's optimiser) lost with the page — a discarded background tab, a crash — can carry on.
@@ -273,6 +284,7 @@
 		<PresetDialog v-if="editor.presetDialog" />
 		<VariantChanges v-if="editor.variantChanges" />
 		<ExportDialog v-if="editor.exportDialog" />
+		<PublishDialog v-if="editor.publishDialog" />
 		<AboutDialog v-if="editor.about" />
 		<BusyModal />
 		<AskModal />

@@ -47,6 +47,10 @@ Chrome, Edge, Firefox or Safari with hardware acceleration.
 - **Properties** (right): everything about the selection. Number fields scrub on drag (Shift fine, Ctrl snap)
   and accept typed values or expressions on click.
 - **File** menu: new / open / save project JSON, export PNG (optionally upscaled), export all maps as a zip.
+- **Publish…** (top bar, or File › Publish to gallery): share the project in the
+  [Bismith Gallery](https://gallery.bismith.dev) with a 1024 px render of each variant; publish again from the same
+  browser to update or remove it. Gallery links open here as `/?gallery=<id>`. (The gallery is its own repo; point a
+  local Bismith at a local gallery with `VITE_GALLERY_URL`.)
 - **Ctrl+Z / Ctrl+Shift+Z** undo/redo; the project autosaves to local storage.
 
 ## Harness (headless)

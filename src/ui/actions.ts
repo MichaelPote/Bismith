@@ -20,6 +20,8 @@ import {
 	applyPostPreset
 } from '@/presets/apply';
 import { getLayerDef } from '@/layers/registry';
+import { fetchProjectFile, MAX_VARIANTS, type GalleryRender } from '@/gallery/client';
+import { galleryImages } from '@/gallery/renders';
 
 /** Resolves once the browser has painted the current DOM (so a modal is on screen before blocking work starts). */
 export function afterPaint(): Promise<void> {
@@ -259,6 +261,79 @@ export function useActions() {
 		input.click();
 	}
 
+	/**
+	 * Render every variant (up to the gallery's limit) at the project's export quality for Publish to gallery, behind
+	 * the busy modal; null when cancelled or failed. A project without variants gives one render, unnamed.
+	 */
+	async function galleryRenders(): Promise<GalleryRender[] | null> {
+		const engine = engineOrWarn();
+		if (!engine) return null;
+		store.commitNow();
+		const r = store.project.render;
+		const ss = Math.max(r.supersample ?? 1, r.exportSupersample);
+		const list = store.variants.list.slice(0, MAX_VARIANTS);
+		const named = store.variants.list.length > 1;
+		const ctrl = new AbortController();
+		const out: GalleryRender[] = [];
+		try {
+			for (const [i, v] of list.entries()) {
+				editor.busy = {
+					title: list.length > 1 ? `Rendering ${v.name} (${i + 1} of ${list.length})…` : 'Rendering for the gallery…',
+					detail: `${Math.max(r.maxSamples, r.exportSamples)} samples at ${ss}×`,
+					instant: true,
+					progress: i / list.length,
+					cancel: () => ctrl.abort()
+				};
+				await afterPaint();
+				const img = await engine.renderExport(
+					{
+						samples: r.exportSamples,
+						supersample: r.exportSupersample,
+						signal: ctrl.signal,
+						onProgress: (f) => editor.busy && (editor.busy.progress = (i + f) / list.length),
+						project: v.id === store.variants.activeId ? undefined : store.variantProject(v.id)
+					},
+					() => mapPixels(engine, 'final')
+				);
+				if (!img) return null;
+				out.push({ name: named ? v.name : '', ...(await galleryImages(img.pixels, img.width, img.height)) });
+			}
+			return out;
+		} catch (e) {
+			editor.notify(`Rendering failed: ${e instanceof Error ? e.message : e}`, 'error');
+			return null;
+		} finally {
+			editor.busy = null;
+		}
+	}
+
+	/** File › Publish to gallery: render the variants, then open the dialog with them. */
+	async function openPublish(): Promise<void> {
+		const renders = await galleryRenders();
+		if (renders) editor.publishDialog = { renders };
+	}
+
+	/** Open a project from the gallery (bismith.dev/?gallery=<id>, its "Open in Bismith" links). */
+	async function openFromGallery(id: string): Promise<void> {
+		if (store.isDirty()) {
+			const go = await editor.ask({
+				title: 'Open a project from the gallery?',
+				detail: 'The project open now has changes no file holds. Opening replaces it; Edit › Undo brings it back.',
+				choices: [{ id: 'open', label: 'Open', primary: true }]
+			});
+			if (go !== 'open') return;
+		}
+		editor.busy = { title: 'Opening from the gallery…', instant: true };
+		try {
+			await afterPaint();
+			loadProjectText(await fetchProjectFile(id));
+		} catch (e) {
+			editor.notify(`Could not open it from the gallery: ${e instanceof Error ? e.message : e}`, 'error');
+		} finally {
+			editor.busy = null;
+		}
+	}
+
 	function newProject(p?: Project): void {
 		store.newProject(p);
 		editor.select('project');
@@ -425,6 +500,9 @@ export function useActions() {
 		saveProject,
 		openProject,
 		loadProjectText,
+		openPublish,
+		openFromGallery,
+		projectFile,
 		newProject,
 		deleteSelection,
 		duplicateSelection,

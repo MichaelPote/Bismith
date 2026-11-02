@@ -216,6 +216,15 @@ export interface Project {
 	 * variant. In memory the project's settings are the active variant's; in a file they are the base's.
 	 */
 	variants?: VariantSet;
+	/**
+	 * Where the project is published in the gallery (src/gallery): the gallery writes it into the files it serves, and
+	 * Publish keeps it, so publishing again offers to update that entry (when this browser holds its edit key).
+	 */
+	gallery?: GalleryRef;
+}
+
+export interface GalleryRef {
+	id: string;
 }
 
 export const SIZE_PRESETS = [16, 32, 64, 128, 256, 512, 1024];

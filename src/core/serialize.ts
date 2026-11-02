@@ -103,6 +103,12 @@ function presetInfo(v: unknown): { preset: PresetInfo } | undefined {
 	return { preset };
 }
 
+/** The project's gallery entry (Project.gallery), or undefined. */
+function galleryRef(v: unknown): { gallery: { id: string } } | undefined {
+	const id = v && typeof v === 'object' ? (v as Record<string, unknown>).id : undefined;
+	return typeof id === 'string' && /^[a-z2-9]{10}$/.test(id) ? { gallery: { id } } : undefined;
+}
+
 function num(v: unknown, def: number, min: number, max: number, int = false): number {
 	let n = typeof v === 'number' ? v : Number(v);
 	if (!Number.isFinite(n)) n = def;
@@ -318,6 +324,7 @@ function normalizeBase(raw: Record<string, any>): Project {
 			exportSupersample: num(rr.exportSupersample, render.exportSupersample, 1, 4, true)
 		},
 		post,
+		...(galleryRef(raw.gallery) ?? {}),
 		// Last, so the file's readable part comes first.
 		...(isPreview(raw.preview) ? { preview: raw.preview } : {}),
 		...(presetInfo(raw.preset) ?? {})

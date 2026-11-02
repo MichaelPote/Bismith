@@ -6,6 +6,7 @@ import type { Engine, EngineStats } from '@/render/engine';
 import type { ChannelView } from '@/render/display';
 import { SHAPE_MASK, type PresetKind } from '@/core/project';
 import type { ParamType, ParamValue } from '@/core/params';
+import type { GalleryRender } from '@/gallery/client';
 
 /** A card a preset is applied to or saved from. */
 export type PresetSource = { kind: 'layer' | 'group' | 'light' | 'post'; id: string } | { kind: 'lighting' };
@@ -91,6 +92,8 @@ export const useEditorStore = defineStore('editor', () => {
 	const variantChanges = ref<string | null>(null);
 	/** The Export dialog (FR10) is open, with these variants ticked (default: the one shown). */
 	const exportDialog = ref<{ variants?: string[] } | null>(null);
+	/** The Publish to gallery dialog is open, with the renders it will upload (one per variant, rendered on opening). */
+	const publishDialog = shallowRef<{ renders: GalleryRender[] } | null>(null);
 	/** Asks the Variants panel to rename this variant in place (from the workspace's menu). */
 	const variantRename = ref<string | null>(null);
 	/** A param's value copied from its right-click menu, pasted into params of the same type. */
@@ -135,6 +138,7 @@ export const useEditorStore = defineStore('editor', () => {
 		variantChanges,
 		variantRename,
 		exportDialog,
+		publishDialog,
 		selection,
 		workspace,
 		channel,

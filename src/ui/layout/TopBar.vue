@@ -12,6 +12,7 @@
 		IconLayoutGrid,
 		IconStack2,
 		IconTarget,
+		IconUpload,
 		IconVersions
 	} from '@tabler/icons-vue';
 	import { vTip } from '@/ui/tooltip';
@@ -26,6 +27,7 @@
 			{ label: 'New project…', shortcut: 'Ctrl+Alt+N', action: () => (editor.wizard = true) },
 			{ label: 'Open project…', shortcut: 'Ctrl+O', action: act.openProject },
 			{ label: 'Save project', shortcut: 'Ctrl+S', action: act.saveProject },
+			{ label: 'Publish to gallery…', action: act.openPublish },
 			{ label: 'Save as template…', action: () => (editor.presetDialog = { mode: 'template' }) },
 			{ label: 'My presets…', action: () => (editor.presetDialog = { mode: 'manage' }) },
 			{ separator: true },
@@ -173,6 +175,14 @@
 
 		<div class="right">
 			<button
+				v-tip:bottom="{ body: 'Share this project in the Bismith Gallery, with a render of each variant' }"
+				type="button"
+				class="fk"
+				aria-haspopup="dialog"
+				@click="act.openPublish">
+				<span class="fk-face"><IconUpload :size="13" />Publish…</span>
+			</button>
+			<button
 				v-tip:bottom="{ body: 'Choose which outputs to export to .png or .zip', keys: 'Ctrl E' }"
 				type="button"
 				class="fk primary"
@@ -262,7 +272,7 @@
 	.fk.hist .fk-face {
 		padding: 0;
 	}
-	.right .fk.primary {
+	.right .fk {
 		height: 28px;
 	}
 </style>
