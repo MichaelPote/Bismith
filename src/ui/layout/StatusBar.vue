@@ -42,6 +42,7 @@
 
 <style scoped>
 	.status {
+		flex: none;
 		height: 24px;
 		display: flex;
 		align-items: center;

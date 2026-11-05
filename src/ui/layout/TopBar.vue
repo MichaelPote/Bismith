@@ -197,7 +197,8 @@
 <style scoped>
 	/* Menus and Undo / Redo · the workspaces, centred in the bar (pushed right when the window is too narrow) · Export. */
 	.top {
-		height: 36px;
+		flex: none;
+		height: 40px;
 		display: grid;
 		grid-template-columns: 1fr auto 1fr;
 		align-items: center;

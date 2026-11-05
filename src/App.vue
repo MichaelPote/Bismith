@@ -293,15 +293,17 @@
 </template>
 
 <style scoped>
+	/* Top bar, the main area (all the room left), status bar; the bars size themselves. */
 	.app {
 		height: 100%;
-		display: grid;
-		grid-template-rows: 36px minmax(0, 1fr) 24px;
+		display: flex;
+		flex-direction: column;
 		gap: var(--gap-app);
 		padding: var(--gap-app);
 		background: var(--void);
 	}
 	.main {
+		flex: 1;
 		display: grid;
 		min-height: 0;
 	}
