@@ -8,7 +8,7 @@
 	//  - template: the whole project as a project preset (a Starter in the new-project wizard), its thumbnail what the
 	//    viewport shows;
 	//  - manage: the user's presets — rename, describe, recategorise, delete — and Import… / Export mine… to a file.
-	import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, toRaw, watch } from 'vue';
+	import { computed, onMounted, ref, shallowRef, toRaw, useId, watch } from 'vue';
 	import type { PresetKind, Project } from '@/core/project';
 	import { newId } from '@/core/ids';
 	import { useEditorStore, type PresetSource } from '@/stores/editor';
@@ -18,7 +18,8 @@
 	import { renderThumbnail } from '@/presets/thumbnail';
 	import { capturePreview, PROJECT_PREVIEW } from '@/render/preview';
 	import { downloadBlob } from '@/render/export';
-	import { IconDownload, IconTrash, IconUpload, IconX } from '@tabler/icons-vue';
+	import { IconDownload, IconTrash, IconUpload } from '@tabler/icons-vue';
+	import DialogFrame from '@/ui/components/DialogFrame.vue';
 	import CheckField from '@/ui/components/CheckField.vue';
 	import { vTip } from '@/ui/tooltip';
 
@@ -234,221 +235,159 @@
 	function close(): void {
 		editor.presetDialog = null;
 	}
-	const dialog = ref<HTMLElement | null>(null);
-	function onKey(e: KeyboardEvent): void {
-		if (e.key === 'Escape') {
-			e.preventDefault();
-			e.stopPropagation();
-			close();
-		}
-	}
-	onMounted(async () => {
-		window.addEventListener('keydown', onKey, true);
-		await nextTick();
-		(dialog.value?.querySelector('input') as HTMLInputElement | null)?.select();
+	const heading = computed(() =>
+		mode.value === 'manage'
+			? 'My presets'
+			: mode.value === 'template'
+				? 'Save as template'
+				: mode.value === 'edit'
+					? 'Edit preset'
+					: 'Save as preset'
+	);
+	/** The save form's id: the tray's Save key submits it from outside. */
+	const formId = useId();
+	const nameInput = ref<HTMLInputElement | null>(null);
+	onMounted(() => {
+		nameInput.value?.select();
 		void prepare();
 	});
-	onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 </script>
 
 <template>
-	<Teleport to="body">
-		<div class="backdrop" @pointerdown.self="close">
-			<div ref="dialog" class="dlg" :class="mode" role="dialog" aria-modal="true" aria-labelledby="preset-title">
-				<header class="head">
-					<h2 id="preset-title">
-						{{
-							mode === 'manage'
-								? 'My presets'
-								: mode === 'template'
-									? 'Save as template'
-									: mode === 'edit'
-										? 'Edit preset'
-										: 'Save as preset'
-						}}
-					</h2>
-					<span v-if="mode !== 'manage'" class="kind">{{ KIND_LABEL[saveKind] }}</span>
-					<span class="grow" />
-					<button
-						v-tip:left="{ body: 'Close', keys: 'Esc' }"
-						type="button"
-						class="cf-ico-btn"
-						aria-label="Close"
-						@click="close">
-						<IconX :size="16" />
-					</button>
-				</header>
+	<DialogFrame
+		:title="heading"
+		:meta="mode === 'manage' ? undefined : KIND_LABEL[saveKind]"
+		:width="mode === 'manage' ? '720px' : '520px'"
+		focus="input"
+		@close="close">
+		<form v-if="mode !== 'manage'" :id="formId" class="save" @submit.prevent="save">
+			<div class="thumb">
+				<img v-if="shownThumb" :src="shownThumb" alt="Thumbnail" />
+				<span v-else-if="rendering" class="spin" aria-label="Rendering the thumbnail" />
+			</div>
+			<div class="fields">
+				<label>
+					<span class="cf-label">Name</span>
+					<input ref="nameInput" autocomplete="off" data-1p-ignore v-model="name" class="cf-field" required />
+				</label>
+				<label>
+					<span class="cf-label">Description</span>
+					<textarea v-model="description" class="cf-field" rows="3" />
+				</label>
+				<label>
+					<span class="cf-label">Category</span>
+					<input
+						autocomplete="off"
+						data-1p-ignore
+						v-model="category"
+						class="cf-field"
+						list="preset-categories"
+						placeholder="Other" />
+					<datalist id="preset-categories">
+						<option v-for="c in presets.categories(saveKind)" :key="c" :value="c" />
+					</datalist>
+				</label>
+				<template v-if="mode === 'edit' && editor.presetDialog?.mode === 'edit'">
+					<CheckField
+						v-model="replace"
+						:label="`Update its settings to the current ${SOURCE_NOUN[editor.presetDialog.source.kind]}`" />
+					<p v-if="edited?.builtin" class="note-inline">
+						Built-in presets can’t be changed: saving adds your own copy beside it.
+					</p>
+				</template>
+				<p v-if="!presets.persistent" class="warn">
+					This browser won’t store presets (private window or blocked site data): this one lasts for the session. Export
+					it from "My presets" to keep it.
+				</p>
+			</div>
+		</form>
 
-				<form v-if="mode !== 'manage'" class="save" @submit.prevent="save">
-					<div class="thumb">
-						<img v-if="shownThumb" :src="shownThumb" alt="Thumbnail" />
-						<span v-else-if="rendering" class="spin" aria-label="Rendering the thumbnail" />
-					</div>
-					<div class="fields">
-						<label>
-							<span class="cf-label">Name</span>
-							<input autocomplete="off" data-1p-ignore v-model="name" class="cf-field" required />
-						</label>
-						<label>
-							<span class="cf-label">Description</span>
-							<textarea v-model="description" class="cf-field" rows="3" />
-						</label>
-						<label>
-							<span class="cf-label">Category</span>
+		<div v-else class="manage">
+			<div class="bar">
+				<select v-model="filter" class="cf-field" aria-label="Show">
+					<option value="all">All kinds</option>
+					<option v-for="k in kindsInUse" :key="k" :value="k">{{ KIND_LABEL[k] }}</option>
+				</select>
+			</div>
+			<p class="note">Your presets live in this browser. Export them to keep a copy or move them to another one.</p>
+			<div class="rows">
+				<div v-for="e in mine" :key="e.key" class="row">
+					<img v-if="e.preview" :src="e.preview" alt="" class="mini" />
+					<span v-else class="mini" />
+					<div class="cols">
+						<div class="line">
 							<input
 								autocomplete="off"
 								data-1p-ignore
-								v-model="category"
-								class="cf-field"
-								list="preset-categories"
-								placeholder="Other" />
-							<datalist id="preset-categories">
-								<option v-for="c in presets.categories(saveKind)" :key="c" :value="c" />
-							</datalist>
-						</label>
-						<template v-if="mode === 'edit' && editor.presetDialog?.mode === 'edit'">
-							<CheckField
-								v-model="replace"
-								:label="`Update its settings to the current ${SOURCE_NOUN[editor.presetDialog.source.kind]}`" />
-							<p v-if="edited?.builtin" class="note-inline">
-								Built-in presets can’t be changed: saving adds your own copy beside it.
-							</p>
-						</template>
-						<p v-if="!presets.persistent" class="warn">
-							This browser won’t store presets (private window or blocked site data): this one lasts for the session.
-							Export it from "My presets" to keep it.
-						</p>
-						<div class="buttons">
-							<button
-								v-if="mode === 'edit' && edited && !edited.builtin"
-								type="button"
-								class="cf-btn delete"
-								@click="removeEdited">
-								<IconTrash :size="13" />Delete
-							</button>
-							<button type="button" class="cf-btn" @click="close">Cancel</button>
-							<button type="submit" class="cf-btn primary" :disabled="rendering">
-								{{ mode === 'edit' && edited?.builtin ? 'Save a copy' : 'Save' }}
-							</button>
+								class="cf-field nm"
+								:value="e.name"
+								aria-label="Name"
+								@change="setField(e.key, 'name', ($event.target as HTMLInputElement).value)" />
+							<input
+								autocomplete="off"
+								data-1p-ignore
+								class="cf-field cat"
+								:value="e.category ?? ''"
+								placeholder="Other"
+								aria-label="Category"
+								@change="setField(e.key, 'category', ($event.target as HTMLInputElement).value)" />
+							<span class="k">{{ KIND_LABEL[e.kind] }}{{ e.target ? ` · ${e.target}` : '' }}</span>
 						</div>
+						<input
+							autocomplete="off"
+							data-1p-ignore
+							class="cf-field"
+							:value="e.description ?? ''"
+							placeholder="Description"
+							aria-label="Description"
+							@change="setField(e.key, 'description', ($event.target as HTMLInputElement).value)" />
 					</div>
-				</form>
-
-				<div v-else class="manage">
-					<div class="bar">
-						<select v-model="filter" class="cf-field" aria-label="Show">
-							<option value="all">All kinds</option>
-							<option v-for="k in kindsInUse" :key="k" :value="k">{{ KIND_LABEL[k] }}</option>
-						</select>
-						<span class="grow" />
-						<button type="button" class="cf-btn" @click="importFile"><IconUpload :size="13" />Import…</button>
-						<button type="button" class="cf-btn" :disabled="!mine.length && filter === 'all'" @click="exportMine">
-							<IconDownload :size="13" />Export mine…
-						</button>
-					</div>
-					<p class="note">Your presets live in this browser. Export them to keep a copy or move them to another one.</p>
-					<div class="rows">
-						<div v-for="e in mine" :key="e.key" class="row">
-							<img v-if="e.preview" :src="e.preview" alt="" class="mini" />
-							<span v-else class="mini" />
-							<div class="cols">
-								<div class="line">
-									<input
-										autocomplete="off"
-										data-1p-ignore
-										class="cf-field nm"
-										:value="e.name"
-										aria-label="Name"
-										@change="setField(e.key, 'name', ($event.target as HTMLInputElement).value)" />
-									<input
-										autocomplete="off"
-										data-1p-ignore
-										class="cf-field cat"
-										:value="e.category ?? ''"
-										placeholder="Other"
-										aria-label="Category"
-										@change="setField(e.key, 'category', ($event.target as HTMLInputElement).value)" />
-									<span class="k">{{ KIND_LABEL[e.kind] }}{{ e.target ? ` · ${e.target}` : '' }}</span>
-								</div>
-								<input
-									autocomplete="off"
-									data-1p-ignore
-									class="cf-field"
-									:value="e.description ?? ''"
-									placeholder="Description"
-									aria-label="Description"
-									@change="setField(e.key, 'description', ($event.target as HTMLInputElement).value)" />
-							</div>
-							<button
-								v-tip:left="'Delete'"
-								type="button"
-								class="cf-ico-btn danger"
-								aria-label="Delete preset"
-								@click="remove(e.key, e.name)">
-								<IconTrash :size="13" />
-							</button>
-						</div>
-						<p v-if="!mine.length" class="empty">
-							You don’t have any presets yet. Save one from a layer’s presets menu, or use File ▸ Save as template…
-						</p>
-					</div>
+					<button
+						v-tip:left="'Delete'"
+						type="button"
+						class="cf-ico-btn danger"
+						aria-label="Delete preset"
+						@click="remove(e.key, e.name)">
+						<IconTrash :size="13" />
+					</button>
 				</div>
+				<p v-if="!mine.length" class="empty">
+					You don’t have any presets yet. Save one from a layer’s presets menu, or use File ▸ Save as template…
+				</p>
 			</div>
 		</div>
-	</Teleport>
+
+		<template v-if="mode !== 'manage'" #tray>
+			<button v-if="mode === 'edit' && edited && !edited.builtin" type="button" class="gk danger" @click="removeEdited">
+				<span class="gk-face"><IconTrash :size="13" />Delete</span>
+			</button>
+			<span class="grow" />
+			<button type="button" class="gk" @click="close"><span class="gk-face">Cancel</span></button>
+			<button type="submit" :form="formId" class="gk primary" :disabled="rendering">
+				<span class="gk-face">{{ mode === 'edit' && edited?.builtin ? 'Save a copy' : 'Save' }}</span>
+			</button>
+		</template>
+		<template v-else #tray>
+			<button type="button" class="gk" @click="importFile">
+				<span class="gk-face"><IconUpload :size="13" />Import…</span>
+			</button>
+			<button type="button" class="gk" :disabled="!mine.length && filter === 'all'" @click="exportMine">
+				<span class="gk-face"><IconDownload :size="13" />Export mine…</span>
+			</button>
+			<span class="grow" />
+			<button type="button" class="gk primary" @click="close"><span class="gk-face">Done</span></button>
+		</template>
+	</DialogFrame>
 </template>
 
 <style scoped>
-	.backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 300;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 24px;
-		background: rgba(17, 19, 22, 0.72);
-	}
-	.dlg {
-		display: flex;
-		flex-direction: column;
-		width: min(520px, 100%);
-		max-height: 100%;
-		background: var(--panel);
-		border: 1px solid var(--line);
-		border-radius: 4px;
-		box-shadow: 0 18px 48px rgba(8, 9, 10, 0.6);
-	}
-	.dlg.manage {
-		width: min(720px, 100%);
-	}
-	.head {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 14px 14px 10px 18px;
-		border-bottom: 1px solid var(--hairline);
-	}
-	h2 {
-		margin: 0;
-		font-family: var(--font-serif);
-		font-weight: 600;
-		font-size: 20px;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--text-hi);
-	}
-	.kind {
-		font-size: 11px;
-		color: var(--text-lo);
-	}
 	.grow {
 		flex: 1;
 	}
 	.save {
 		display: flex;
 		gap: 16px;
-		padding: 16px 18px 18px;
+		padding: 0 16px 16px;
 	}
 	.thumb {
 		flex: none;
@@ -505,24 +444,6 @@
 		margin: 0;
 		font-size: 11.5px;
 		color: var(--e300, var(--text));
-	}
-	.buttons {
-		display: flex;
-		justify-content: flex-end;
-		gap: 6px;
-		margin-top: auto;
-	}
-	.cf-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-	}
-	.cf-btn.primary {
-		border-color: var(--e400);
-		color: var(--text-hi);
-	}
-	.cf-btn.delete {
-		margin-right: auto;
 	}
 	.note-inline {
 		margin: 0;

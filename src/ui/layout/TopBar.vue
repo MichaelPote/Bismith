@@ -177,18 +177,18 @@
 			<button
 				v-tip:bottom="{ body: 'Share this project in the Bismith Gallery, with a render of each variant' }"
 				type="button"
-				class="fk"
+				class="gk bar"
 				aria-haspopup="dialog"
 				@click="act.openPublish">
-				<span class="fk-face"><IconUpload :size="13" />Publish…</span>
+				<span class="gk-face"><IconUpload :size="14" />Publish…</span>
 			</button>
 			<button
 				v-tip:bottom="{ body: 'Choose which outputs to export to .png or .zip', keys: 'Ctrl E' }"
 				type="button"
-				class="fk primary"
+				class="gk bar primary"
 				aria-haspopup="dialog"
 				@click="editor.exportDialog = {}">
-				<span class="fk-face"><IconDownload :size="13" />Export…</span>
+				<span class="gk-face"><IconDownload :size="13" />Export…</span>
 			</button>
 		</div>
 	</header>
@@ -252,11 +252,12 @@
 	.ws .fk.lit .fk-face :deep(svg) {
 		color: var(--e100);
 	}
+	/* Publish and Export: the bar's game keys (.gk.bar, base.css). */
 	.right {
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
-		gap: 6px;
+		gap: 8px;
 	}
 	/* Undo / Redo: icon keys at the workspace keys' height, after the menus. */
 	.hist-keys {
@@ -271,8 +272,5 @@
 	}
 	.fk.hist .fk-face {
 		padding: 0;
-	}
-	.right .fk {
-		height: 28px;
 	}
 </style>

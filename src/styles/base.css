@@ -389,6 +389,169 @@ html.picking [data-pick] * {
 	color: var(--line);
 }
 
+/* Game keys at editor scale (Cinderforge "internal game keys"): a moulded key — a quiet grey face on a 2px lip, with a
+   tight drop shadow. The keys of a dialog's tray (DialogFrame): its one primary lit from beneath by an ember pool
+   (.primary), the rest (Cancel, Reset, Import…) plain; inside the panels themselves keys stay .fk. A pressed key sinks
+   onto its lip.
+   <button class="gk [primary|danger]"><span class="gk-face">…</span></button> */
+.gk {
+	position: relative;
+	flex: none;
+	display: inline-block;
+	height: 32px;
+	min-width: 32px;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--text);
+	font: inherit;
+	cursor: pointer;
+	vertical-align: middle;
+	box-shadow:
+		0 2px 3px rgba(0, 0, 0, 0.45),
+		0 1px 1px rgba(0, 0, 0, 0.35);
+	text-decoration: none;
+}
+.gk::before {
+	content: '';
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 2px;
+	bottom: 0;
+	border-radius: 4px;
+	background: #15171a;
+}
+.gk-face {
+	position: relative;
+	top: 0;
+	height: 30px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 0 16px;
+	border-radius: 4px;
+	background: linear-gradient(180deg, #2d3135 0%, #24282c 100%);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.07),
+		inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+	font-size: 12px;
+	font-weight: 500;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	white-space: nowrap;
+	color: #c9cdd0;
+}
+.gk svg {
+	flex: none;
+}
+.gk:hover > .gk-face {
+	background: linear-gradient(180deg, #33383c 0%, #2a2e32 100%);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.1),
+		inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+	color: var(--text-hi);
+}
+.gk:active > .gk-face {
+	top: 2px;
+	background: linear-gradient(180deg, #212427 0%, #272a2e 100%);
+	box-shadow:
+		inset 0 2px 5px rgba(0, 0, 0, 0.45),
+		inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+	color: var(--text-mid);
+}
+.gk:focus-visible {
+	outline: 1px solid var(--e100);
+	outline-offset: 2px;
+}
+.gk.primary:not(:disabled)::before {
+	background: linear-gradient(90deg, #15171a 10%, var(--e700) 50%, #15171a 90%);
+}
+.gk.primary:not(:disabled) > .gk-face {
+	background:
+		radial-gradient(
+			70% 130% at 50% 135%,
+			rgba(255, 144, 25, 0.5) 0%,
+			rgba(226, 92, 10, 0.18) 45%,
+			rgba(226, 92, 10, 0) 75%
+		),
+		linear-gradient(180deg, #2d3135 0%, #24282c 100%);
+	color: var(--e100);
+}
+.gk.primary:not(:disabled):hover > .gk-face {
+	background:
+		radial-gradient(
+			70% 130% at 50% 135%,
+			rgba(255, 144, 25, 0.62) 0%,
+			rgba(226, 92, 10, 0.24) 45%,
+			rgba(226, 92, 10, 0) 75%
+		),
+		linear-gradient(180deg, #33383c 0%, #2a2e32 100%);
+	color: #fff3dc;
+}
+.gk.primary:not(:disabled):active > .gk-face {
+	background:
+		radial-gradient(
+			70% 130% at 50% 135%,
+			rgba(255, 144, 25, 0.38) 0%,
+			rgba(226, 92, 10, 0.14) 45%,
+			rgba(226, 92, 10, 0) 75%
+		),
+		linear-gradient(180deg, #212427 0%, #272a2e 100%);
+	color: var(--e200);
+}
+.gk.danger:not(:disabled) > .gk-face svg {
+	color: var(--blood);
+}
+.gk.danger:not(:disabled):hover::before {
+	background: linear-gradient(180deg, #7a2219 0%, var(--blood) 100%);
+}
+.gk:disabled {
+	cursor: default;
+	box-shadow: none;
+}
+.gk:disabled > .gk-face {
+	top: 2px;
+	background: #1e2124;
+	box-shadow: none;
+	color: var(--line);
+}
+
+/* In the top bar (the editor's top level, .bar): a plain key in sentence case with an ember icon (Publish…); the
+   primary in bold caps (Export…). */
+.gk.bar > .gk-face {
+	font-size: 13px;
+	font-weight: 500;
+	letter-spacing: 0;
+	text-transform: none;
+}
+.gk.bar:not(.primary):not(:disabled) > .gk-face svg {
+	color: var(--e300);
+}
+.gk.bar.primary > .gk-face {
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+/* A recessed block inside a dialog's plate (DialogFrame): a list, a value group, a preview. */
+.plate-well {
+	border-radius: 4px;
+	background: #1e2124;
+	box-shadow:
+		inset 0 1px 2px rgba(0, 0, 0, 0.4),
+		inset 0 0 0 1px #0d0f11,
+		0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* A destructive key (Delete, Remove): the flat key, its label and icon in blood red. */
+.fk.danger > .fk-face {
+	color: var(--blood);
+}
+
 /* A rail of keys: keys side by side, no tray. */
 .fk-rail {
 	display: flex;

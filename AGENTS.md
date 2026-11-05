@@ -78,6 +78,9 @@ doesn't.)
   `bismith-gpu-<port>-0` profile is written) but never reaches the page, every retry fails the same way, and other
   sessions on other ports run fine. Check with a throwaway `python3 -m http.server <port>` and
   `Invoke-WebRequest localhost:<port>` from PowerShell; start the tool on a working port with `BISMITH_PORT=5299`.
+- **Dialogs use `DialogFrame`** (`src/ui/components/DialogFrame.vue`): plate, 44px head with a close stud, body, and a
+  dark tray below for the keys — game keys (`.gk`, base.css), the one primary underlit (`.gk primary`) and last. It
+  handles the backdrop, Esc (only the top dialog's) and first focus; don't hand-roll a modal.
 - **Text inputs carry `autocomplete="off" data-1p-ignore`.** Password managers (1Password ignores `autocomplete`
   alone) otherwise offer to fill layer and project names. Give every new text `<input>` both.
 - **Icons are `@tabler/icons-vue` components, used directly** (`<IconTrash :size="13" />`; `:color`, not `:stroke`, for

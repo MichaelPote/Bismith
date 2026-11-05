@@ -2,8 +2,8 @@
 	// A variant's Changes dialog (docs/features/fr10-variants.md), from its right-click menu: its name and note, and
 	// every setting it changes from the base — or from any other variant — as from → to rows, each with a reset to the
 	// other's value. Edits apply at once (each an undo step).
-	import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-	import { IconArrowBackUp, IconX } from '@tabler/icons-vue';
+	import { computed, ref, watch } from 'vue';
+	import { IconArrowBackUp } from '@tabler/icons-vue';
 	import type { ParamDef, ParamValue } from '@/core/params';
 	import type { Project } from '@/core/project';
 	import { LIGHT_DEFS } from '@/core/lights';
@@ -14,6 +14,7 @@
 	import { useEditorStore } from '@/stores/editor';
 	import { useProjectStore } from '@/stores/project';
 	import SelectField from '@/ui/components/SelectField.vue';
+	import DialogFrame from '@/ui/components/DialogFrame.vue';
 	import { vTip } from '@/ui/tooltip';
 
 	const store = useProjectStore();
@@ -152,149 +153,79 @@
 	}
 
 	// ---------------------------------------------------------------- open / close
-	const dialog = ref<HTMLElement | null>(null);
 	function close(): void {
 		commitName();
 		editor.variantChanges = null;
 	}
-	function onKey(e: KeyboardEvent): void {
-		if (e.key !== 'Escape') return;
-		e.preventDefault();
-		e.stopPropagation();
-		close();
-	}
 	// A deleted variant closes it.
 	watch(variant, (v) => !v && (editor.variantChanges = null));
-	onMounted(async () => {
-		window.addEventListener('keydown', onKey, true);
-		await nextTick();
-		dialog.value?.querySelector<HTMLElement>('textarea')?.focus();
-	});
-	onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 </script>
 
 <template>
-	<Teleport to="body">
-		<div class="backdrop" @pointerdown.self="close">
-			<div v-if="variant" ref="dialog" class="dlg" role="dialog" aria-modal="true" aria-labelledby="changes-title">
-				<header class="head">
-					<h2 id="changes-title">Changes</h2>
-					<span class="kind">{{ variant.name }}</span>
-					<span class="grow" />
-					<button
-						v-tip:left="{ body: 'Close', keys: 'Esc' }"
-						type="button"
-						class="cf-ico-btn"
-						aria-label="Close"
-						@click="close">
-						<IconX :size="16" />
-					</button>
-				</header>
-				<div class="fields">
-					<label>
-						<span class="cf-label">Name</span>
-						<input
-							autocomplete="off"
-							data-1p-ignore
-							v-model="nameText"
-							class="cf-field"
-							@change="commitName"
-							@keydown.enter="commitName" />
-					</label>
-					<label>
-						<span class="cf-label">Note</span>
-						<textarea
-							class="cf-field"
-							rows="2"
-							:value="variant.note ?? ''"
-							placeholder="What this variant is for"
-							@input="store.setVariantNote(id, ($event.target as HTMLTextAreaElement).value)" />
-					</label>
-					<div class="against">
-						<span class="lo">Compared with</span>
-						<SelectField v-model="against" :options="compareOptions" label="Compared with" />
-					</div>
-				</div>
-				<div class="list">
-					<p v-if="!total" class="empty">No settings differ from {{ againstName }}.</p>
-					<section v-for="g in groups" :key="g.title">
-						<div class="sec cf-label">{{ g.title }}</div>
-						<div v-for="r in g.rows" :key="r.key" class="row">
-							<span class="what">{{ r.label }}</span>
-							<span class="vals cf-mono">
-								<i v-if="r.from.swatch" class="sw" :style="{ background: r.from.swatch }" />
-								<span class="from">{{ r.from.text }}</span>
-								<span class="arrow">→</span>
-								<i v-if="r.to.swatch" class="sw" :style="{ background: r.to.swatch }" />
-								<span class="to">{{ r.to.text }}</span>
-							</span>
-							<button
-								v-tip:left="`Back to ${againstName}'s value`"
-								type="button"
-								class="cf-ico-btn"
-								:aria-label="`Reset ${r.label} to ${againstName}'s value`"
-								@click="reset(r)">
-								<IconArrowBackUp :size="14" />
-							</button>
-						</div>
-					</section>
-				</div>
-				<footer class="foot">
-					<span class="lo">{{ total === 1 ? '1 setting differs' : `${total} settings differ` }}</span>
-					<span class="grow" />
-					<button type="button" class="fk" :disabled="!total" @click="resetAll">
-						<span class="fk-face">Reset all to {{ againstName }}</span>
-					</button>
-					<button type="button" class="fk primary" @click="close">
-						<span class="fk-face">Close</span>
-					</button>
-				</footer>
+	<DialogFrame v-if="variant" title="Changes" :meta="variant.name" width="560px" focus="textarea" @close="close">
+		<div class="fields">
+			<label>
+				<span class="cf-label">Name</span>
+				<input
+					autocomplete="off"
+					data-1p-ignore
+					v-model="nameText"
+					class="cf-field"
+					@change="commitName"
+					@keydown.enter="commitName" />
+			</label>
+			<label>
+				<span class="cf-label">Note</span>
+				<textarea
+					class="cf-field"
+					rows="2"
+					:value="variant.note ?? ''"
+					placeholder="What this variant is for"
+					@input="store.setVariantNote(id, ($event.target as HTMLTextAreaElement).value)" />
+			</label>
+			<div class="against">
+				<span class="lo">Compared with</span>
+				<SelectField v-model="against" :options="compareOptions" label="Compared with" />
 			</div>
 		</div>
-	</Teleport>
+		<div class="list plate-well">
+			<p v-if="!total" class="empty">No settings differ from {{ againstName }}.</p>
+			<section v-for="g in groups" :key="g.title">
+				<div class="sec cf-label">{{ g.title }}</div>
+				<div v-for="r in g.rows" :key="r.key" class="row">
+					<span class="what">{{ r.label }}</span>
+					<span class="vals cf-mono">
+						<i v-if="r.from.swatch" class="sw" :style="{ background: r.from.swatch }" />
+						<span class="from">{{ r.from.text }}</span>
+						<span class="arrow">→</span>
+						<i v-if="r.to.swatch" class="sw" :style="{ background: r.to.swatch }" />
+						<span class="to">{{ r.to.text }}</span>
+					</span>
+					<button
+						v-tip:left="`Back to ${againstName}'s value`"
+						type="button"
+						class="cf-ico-btn"
+						:aria-label="`Reset ${r.label} to ${againstName}'s value`"
+						@click="reset(r)">
+						<IconArrowBackUp :size="14" />
+					</button>
+				</div>
+			</section>
+		</div>
+		<template #tray>
+			<span>{{ total === 1 ? '1 setting differs' : `${total} settings differ` }}</span>
+			<span class="grow" />
+			<button type="button" class="gk" :disabled="!total" @click="resetAll">
+				<span class="gk-face">Reset all to {{ againstName }}</span>
+			</button>
+			<button type="button" class="gk primary" @click="close">
+				<span class="gk-face">Close</span>
+			</button>
+		</template>
+	</DialogFrame>
 </template>
 
 <style scoped>
-	.backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 300;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 24px;
-		background: rgba(17, 19, 22, 0.72);
-	}
-	.dlg {
-		display: flex;
-		flex-direction: column;
-		width: min(560px, 100%);
-		max-height: 100%;
-		background: var(--panel);
-		border: 1px solid var(--line);
-		border-radius: 4px;
-		box-shadow: 0 18px 48px rgba(8, 9, 10, 0.6);
-	}
-	.head {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 14px 14px 10px 18px;
-		border-bottom: 1px solid var(--hairline);
-	}
-	h2 {
-		margin: 0;
-		font-family: var(--font-serif);
-		font-weight: 600;
-		font-size: 20px;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--text-hi);
-	}
-	.kind {
-		font-size: 12px;
-		color: var(--text-lo);
-	}
 	.grow {
 		flex: 1;
 	}
@@ -302,8 +233,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-		padding: 12px 18px;
-		border-bottom: 1px solid var(--hairline);
+		padding: 0 16px 12px;
 	}
 	.fields label {
 		display: grid;
@@ -334,7 +264,8 @@
 		flex: 1;
 		min-height: 120px;
 		overflow-y: auto;
-		padding: 6px 0 10px;
+		margin: 0 16px 16px;
+		padding: 2px 0 8px;
 	}
 	.empty {
 		margin: 16px 18px;
@@ -385,12 +316,5 @@
 	}
 	.to {
 		color: var(--accent-hi);
-	}
-	.foot {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 10px 14px 12px 18px;
-		border-top: 1px solid var(--hairline);
 	}
 </style>

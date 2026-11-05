@@ -3,8 +3,9 @@
 	// a click picks the cover), its name, author and description, then Publish — or Update / Remove when this browser
 	// holds the edit key of the gallery entry the project came from. Done shows the project's gallery link. Not teleported:
 	// App.vue mounts it before the Ask modal, which Remove's question must cover.
-	import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-	import { IconCopy, IconExternalLink, IconKey, IconStack2, IconTrash, IconUpload, IconX } from '@tabler/icons-vue';
+	import { computed, onBeforeUnmount, onMounted, ref, useId } from 'vue';
+	import { IconCopy, IconExternalLink, IconKey, IconStack2, IconTrash, IconUpload } from '@tabler/icons-vue';
+	import DialogFrame from '@/ui/components/DialogFrame.vue';
 	import { useEditorStore } from '@/stores/editor';
 	import { useProjectStore } from '@/stores/project';
 	import { useActions } from '@/ui/actions';
@@ -132,204 +133,148 @@
 		}
 	}
 
-	const dialog = ref<HTMLElement | null>(null);
-	function onKey(e: KeyboardEvent): void {
-		if (e.key !== 'Escape' || editor.question) return;
-		e.preventDefault();
-		e.stopPropagation();
-		close();
-	}
+	/** The form's id: the tray's Publish key submits it from outside. */
+	const formId = useId();
 	onMounted(async () => {
-		window.addEventListener('keydown', onKey, true);
-		await nextTick();
-		dialog.value?.querySelector<HTMLInputElement>('input')?.focus();
 		used.value = await quota().catch(() => null);
 	});
-	onBeforeUnmount(() => {
-		window.removeEventListener('keydown', onKey, true);
-		urls.forEach((u) => URL.revokeObjectURL(u));
-	});
+	onBeforeUnmount(() => urls.forEach((u) => URL.revokeObjectURL(u)));
 </script>
 
 <template>
-	<div class="backdrop" @pointerdown.self="close">
-		<div ref="dialog" class="dlg" role="dialog" aria-modal="true" aria-labelledby="publish-title">
-			<header class="head">
-				<h2 id="publish-title">{{ done ? 'Published' : updating ? 'Update in gallery' : 'Publish to gallery' }}</h2>
-				<span class="kind">bismith gallery</span>
-				<span class="grow" />
-				<button type="button" class="cf-ico-btn" aria-label="Close" :disabled="working" @click="close">
-					<IconX :size="14" />
+	<DialogFrame
+		:title="done ? 'Published' : updating ? 'Update in gallery' : 'Publish to gallery'"
+		meta="bismith gallery"
+		width="820px"
+		:closable="!working"
+		focus="input"
+		@close="close">
+		<div v-if="done" class="done">
+			<p>
+				<strong>{{ name }}</strong> is in the gallery. This browser keeps its edit key: publish again from here to
+				update it.
+			</p>
+			<div class="link">
+				<span class="cf-mono">{{ projectPageUrl(done.id) }}</span>
+				<button type="button" class="cf-ico-btn" aria-label="Copy link" @click="copyLink">
+					<IconCopy :size="14" />
 				</button>
-			</header>
+			</div>
+		</div>
 
-			<div v-if="done" class="done">
-				<p>
-					<strong>{{ name }}</strong> is in the gallery. This browser keeps its edit key: publish again from here to
-					update it.
-				</p>
-				<div class="link">
-					<span class="cf-mono">{{ projectPageUrl(done.id) }}</span>
-					<button type="button" class="cf-ico-btn" aria-label="Copy link" @click="copyLink">
-						<IconCopy :size="14" />
+		<form v-else :id="formId" class="body" @submit.prevent="submit">
+			<div class="renders plate-well">
+				<div class="sub">
+					<span class="cf-label">{{ renders.length > 1 ? 'Variants' : 'Gallery image' }}</span>
+					<span class="n cf-mono">{{ renders.length > 1 ? `${renders.length} · cover first` : '1024 px' }}</span>
+				</div>
+				<img class="cover" :src="urls[cover]" alt="The cover render" />
+				<div v-if="renders.length > 1" class="strip" role="group" aria-label="Choose the cover">
+					<button
+						v-for="(r, i) in renders"
+						:key="i"
+						type="button"
+						class="pick"
+						:class="{ on: i === cover }"
+						:aria-pressed="i === cover"
+						:title="`Use ${r.name} as the cover`"
+						@click="cover = i">
+						<img :src="urls[i]" alt="" />
+						<span>{{ r.name }}</span>
 					</button>
 				</div>
-				<div class="row">
-					<button type="button" class="fk" @click="close"><span class="fk-face">Close</span></button>
-					<a :href="projectPageUrl(done.id)" target="_blank" rel="noopener" class="fk primary"
-						><span class="fk-face"><IconExternalLink :size="13" />View in gallery</span></a
-					>
-				</div>
+				<p v-if="truncated" class="lo">The gallery shows the first {{ MAX_VARIANTS }} variants.</p>
 			</div>
 
-			<form v-else class="body" @submit.prevent="submit">
-				<div class="renders">
-					<div class="sub">
-						<span class="cf-label">{{ renders.length > 1 ? 'Variants' : 'Gallery image' }}</span>
-						<span class="n cf-mono">{{ renders.length > 1 ? `${renders.length} · cover first` : '1024 px' }}</span>
-					</div>
-					<img class="cover" :src="urls[cover]" alt="The cover render" />
-					<div v-if="renders.length > 1" class="strip" role="group" aria-label="Choose the cover">
-						<button
-							v-for="(r, i) in renders"
-							:key="i"
-							type="button"
-							class="pick"
-							:class="{ on: i === cover }"
-							:aria-pressed="i === cover"
-							:title="`Use ${r.name} as the cover`"
-							@click="cover = i">
-							<img :src="urls[i]" alt="" />
-							<span>{{ r.name }}</span>
-						</button>
-					</div>
-					<p v-if="truncated" class="lo">The gallery shows the first {{ MAX_VARIANTS }} variants.</p>
+			<div class="fields">
+				<div v-if="held" class="modes" role="group" aria-label="Publish as">
+					<button type="button" class="fk" :class="{ lit: mode === 'update' }" @click="mode = 'update'">
+						<span class="fk-face">Update the published one</span>
+					</button>
+					<button type="button" class="fk" :class="{ lit: mode === 'new' }" @click="mode = 'new'">
+						<span class="fk-face">Publish as new</span>
+					</button>
 				</div>
-
-				<div class="fields">
-					<div v-if="held" class="modes" role="group" aria-label="Publish as">
-						<button type="button" class="fk" :class="{ lit: mode === 'update' }" @click="mode = 'update'">
-							<span class="fk-face">Update the published one</span>
-						</button>
-						<button type="button" class="fk" :class="{ lit: mode === 'new' }" @click="mode = 'new'">
-							<span class="fk-face">Publish as new</span>
-						</button>
-					</div>
-					<label>
-						<span class="cf-label">Name</span>
-						<input v-model="name" class="cf-field" :maxlength="MAX_NAME" required autocomplete="off" data-1p-ignore />
-					</label>
-					<label>
-						<span class="cf-label">Author <span class="hint">optional, shown publicly</span></span>
-						<input v-model="author" class="cf-field" :maxlength="MAX_AUTHOR" autocomplete="off" data-1p-ignore />
-					</label>
-					<label>
-						<span class="cf-label">Description</span>
-						<textarea
-							v-model="description"
-							class="cf-field"
-							rows="5"
-							:maxlength="MAX_DESCRIPTION"
-							autocomplete="off"
-							data-1p-ignore />
-					</label>
-					<div class="note">
-						<IconKey :size="14" class="note-ico" />
-						<span v-if="updating">
-							This browser holds the edit key for this project. Updating replaces its file, renders and text; its stars
-							are kept.
-						</span>
-						<span v-else>
-							Anyone can open the project and copy it. The gallery gives this browser an edit key so you can update or
-							remove it later. The same layer stack can only be published once.
-						</span>
-					</div>
-					<p v-if="error" class="err" role="alert">
-						{{ error }}
-						<a v-if="duplicateOf" :href="projectPageUrl(duplicateOf)" target="_blank" rel="noopener">See it</a>
-					</p>
+				<label>
+					<span class="cf-label">Name</span>
+					<input v-model="name" class="cf-field" :maxlength="MAX_NAME" required autocomplete="off" data-1p-ignore />
+				</label>
+				<label>
+					<span class="cf-label">Author <span class="hint">optional, shown publicly</span></span>
+					<input v-model="author" class="cf-field" :maxlength="MAX_AUTHOR" autocomplete="off" data-1p-ignore />
+				</label>
+				<label>
+					<span class="cf-label">Description</span>
+					<textarea
+						v-model="description"
+						class="cf-field"
+						rows="5"
+						:maxlength="MAX_DESCRIPTION"
+						autocomplete="off"
+						data-1p-ignore />
+				</label>
+				<div class="note">
+					<IconKey :size="14" class="note-ico" />
+					<span v-if="updating">
+						This browser holds the edit key for this project. Updating replaces its file, renders and text; its stars
+						are kept.
+					</span>
+					<span v-else>
+						Anyone can open the project and copy it. The gallery gives this browser an edit key so you can update or
+						remove it later. The same layer stack can only be published once.
+					</span>
 				</div>
+				<p v-if="error" class="err" role="alert">
+					{{ error }}
+					<a v-if="duplicateOf" :href="projectPageUrl(duplicateOf)" target="_blank" rel="noopener">See it</a>
+				</p>
+			</div>
+		</form>
 
-				<footer class="foot">
-					<span class="lo">{{ quotaText }}</span>
-					<span class="grow" />
-					<button v-if="held" type="button" class="fk danger" :disabled="working" @click="removeIt">
-						<span class="fk-face"><IconTrash :size="13" />Remove</span>
-					</button>
-					<button type="button" class="fk" :disabled="working" @click="close">
-						<span class="fk-face">Cancel</span>
-					</button>
-					<button type="submit" class="fk primary" :disabled="working || !name.trim()">
-						<span class="fk-face"
-							><component :is="updating ? IconStack2 : IconUpload" :size="13" />{{
-								working ? 'Uploading…' : updating ? 'Update' : 'Publish'
-							}}</span
-						>
-					</button>
-				</footer>
-			</form>
-		</div>
-	</div>
+		<template v-if="done" #tray>
+			<span class="grow" />
+			<button type="button" class="gk" @click="close"><span class="gk-face">Close</span></button>
+			<a :href="projectPageUrl(done.id)" target="_blank" rel="noopener" class="gk primary"
+				><span class="gk-face"><IconExternalLink :size="13" />View in gallery</span></a
+			>
+		</template>
+		<template v-else #tray>
+			<span>{{ quotaText }}</span>
+			<span class="grow" />
+			<button v-if="held" type="button" class="gk danger" :disabled="working" @click="removeIt">
+				<span class="gk-face"><IconTrash :size="13" />Remove</span>
+			</button>
+			<button type="button" class="gk" :disabled="working" @click="close">
+				<span class="gk-face">Cancel</span>
+			</button>
+			<button type="submit" :form="formId" class="gk primary" :disabled="working || !name.trim()">
+				<span class="gk-face"
+					><component :is="updating ? IconStack2 : IconUpload" :size="13" />{{
+						working ? 'Uploading…' : updating ? 'Update' : 'Publish'
+					}}</span
+				>
+			</button>
+		</template>
+	</DialogFrame>
 </template>
 
 <style scoped>
-	.backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 300;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 24px;
-		background: rgba(17, 19, 22, 0.72);
-	}
-	.dlg {
-		display: flex;
-		flex-direction: column;
-		width: min(820px, 100%);
-		max-height: 100%;
-		background: var(--panel);
-		border: 1px solid var(--line);
-		border-radius: 4px;
-		box-shadow: 0 18px 48px rgba(8, 9, 10, 0.6);
-	}
-	.head {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 14px 14px 10px 18px;
-		border-bottom: 1px solid var(--hairline);
-	}
-	h2 {
-		margin: 0;
-		font-family: var(--font-serif);
-		font-weight: 600;
-		font-size: 20px;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--text-hi);
-	}
-	.kind {
-		font-size: 12px;
-		color: var(--text-lo);
-	}
 	.grow {
 		flex: 1;
 	}
 	.body {
 		display: grid;
 		grid-template-columns: 300px minmax(0, 1fr);
-		grid-template-rows: minmax(0, 1fr) auto;
+		gap: 16px;
 		min-height: 0;
 		overflow: auto;
+		padding: 2px 16px 16px;
 	}
 	.renders {
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-		padding: 12px 16px 16px;
-		border-right: 1px solid var(--hairline);
-		background: var(--base);
+		padding: 4px 12px 12px;
 	}
 	.sub {
 		display: flex;
@@ -391,7 +336,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
-		padding: 14px 18px 16px;
+		padding-top: 4px;
 	}
 	.fields label {
 		display: flex;
@@ -445,21 +390,10 @@
 		line-height: 1.45;
 		color: var(--blood);
 	}
-	.foot {
-		grid-column: 1 / -1;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 10px 14px 12px 18px;
-		border-top: 1px solid var(--hairline);
-	}
 	.lo {
 		margin: 0;
 		font-size: 12px;
 		color: var(--text-mid);
-	}
-	.fk.danger > .fk-face {
-		color: var(--blood);
 	}
 	.done {
 		display: flex;
@@ -490,13 +424,6 @@
 		background: var(--sunken);
 		font-size: 12px;
 		color: var(--readout);
-	}
-	.row {
-		display: flex;
-		gap: 8px;
-	}
-	a.fk {
-		text-decoration: none;
 	}
 	@media (max-width: 640px) {
 		.body {

@@ -31,7 +31,7 @@ export type ShapeTool = 'edit' | 'polygon' | 'freehand' | 'line';
 export interface Question {
 	title: string;
 	detail?: string;
-	/** Listed after Cancel; the `primary` one is the forged key, focused so Enter picks it. */
+	/** Listed after Cancel; the `primary` one is the tray's game key, focused so Enter picks it. */
 	choices: { id: string; label: string; primary?: boolean }[];
 }
 

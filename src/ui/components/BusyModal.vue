@@ -3,9 +3,10 @@
 	// at once but fades in after a short delay (unless `instant`), so quick work doesn't flash it. The spinner animates
 	// only transform, which browsers can run off the main thread, so it may keep turning while a compile stalls the page.
 	// With `progress` set, a bar shows the share of the steps done (e.g. 1 of 4 shaders compiled: 25%); with `cancel`, a
-	// Cancel button calls it (an export render).
+	// Cancel key in the tray calls it (an export render).
 	import { computed } from 'vue';
 	import { useEditorStore } from '@/stores/editor';
+	import DialogFrame from '@/ui/components/DialogFrame.vue';
 
 	const editor = useEditorStore();
 	const pct = computed(() =>
@@ -14,89 +15,50 @@
 </script>
 
 <template>
-	<div
+	<DialogFrame
 		v-if="editor.busy"
-		class="busy"
-		:class="{ instant: editor.busy.instant }"
-		role="dialog"
-		aria-modal="true"
-		aria-busy="true"
-		aria-labelledby="busy-title"
-		aria-describedby="busy-detail">
-		<div class="card">
-			<span class="spinner" aria-hidden="true" />
-			<div class="body">
-				<div id="busy-title" class="title">{{ editor.busy.title }}</div>
-				<div v-if="editor.busy.detail" id="busy-detail" class="detail">{{ editor.busy.detail }}</div>
-				<div v-if="pct !== null" class="progress">
-					<div
-						class="bar"
-						role="progressbar"
-						aria-label="Progress"
-						:aria-valuenow="pct"
-						aria-valuemin="0"
-						aria-valuemax="100">
-						<span class="fill" :style="{ transform: `scaleX(${pct / 100})` }" />
-					</div>
-					<span class="pct cf-mono">{{ pct }}%</span>
+		busy
+		:instant="editor.busy.instant"
+		:closable="false"
+		width="380px"
+		:describedby="editor.busy.detail ? 'busy-detail' : undefined">
+		<template #title><span class="spinner" aria-hidden="true" />{{ editor.busy.title }}</template>
+		<div class="body">
+			<div v-if="editor.busy.detail" id="busy-detail" class="detail">{{ editor.busy.detail }}</div>
+			<div v-if="pct !== null" class="progress">
+				<div
+					class="bar"
+					role="progressbar"
+					aria-label="Progress"
+					:aria-valuenow="pct"
+					aria-valuemin="0"
+					aria-valuemax="100">
+					<span class="fill" :style="{ transform: `scaleX(${pct / 100})` }" />
 				</div>
-				<div v-if="editor.busy.cancel" class="actions">
-					<button type="button" class="cf-btn" @click="editor.busy.cancel()">Cancel</button>
-				</div>
+				<span class="pct cf-mono">{{ pct }}%</span>
 			</div>
 		</div>
-	</div>
+		<template v-if="editor.busy.cancel" #tray>
+			<span class="grow" />
+			<button type="button" class="gk" @click="editor.busy.cancel()"><span class="gk-face">Cancel</span></button>
+		</template>
+	</DialogFrame>
 </template>
 
 <style scoped>
-	.busy {
-		position: fixed;
-		inset: 0;
-		z-index: 300;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 16px;
-		background: rgba(8, 9, 10, 0.45);
-		cursor: progress;
-		animation: busy-in 160ms ease-out 250ms both;
-	}
-	.busy.instant {
-		animation: none;
-	}
-	.card {
-		display: flex;
-		align-items: flex-start;
-		gap: 14px;
-		width: 360px;
-		max-width: 100%;
-		padding: 16px 18px;
-		border: 1px solid var(--line);
-		border-radius: var(--r-field);
-		background: var(--panel);
-		box-shadow: 0 8px 24px rgba(8, 9, 10, 0.55);
-	}
 	.spinner {
-		width: 20px;
-		height: 20px;
+		width: 16px;
+		height: 16px;
 		flex: none;
-		margin-top: 1px;
 		border: 2px solid var(--line);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: busy-spin 0.8s linear infinite;
 	}
 	.body {
-		flex: 1;
-		min-width: 0;
-	}
-	.title {
-		font-size: 13px;
-		font-weight: 500;
-		color: var(--text-hi);
+		padding: 0 16px 16px;
 	}
 	.detail {
-		margin-top: 4px;
 		font-size: 12px;
 		line-height: 1.45;
 		color: var(--text-mid);
@@ -109,11 +71,13 @@
 	}
 	.bar {
 		flex: 1;
-		height: 4px;
+		height: 6px;
 		overflow: hidden;
-		border-radius: 2px;
-		background: var(--sunken);
-		border: 1px solid var(--hairline);
+		border-radius: 3px;
+		background: #1e2124;
+		box-shadow:
+			inset 0 1px 2px rgba(0, 0, 0, 0.4),
+			inset 0 0 0 1px #0d0f11;
 	}
 	.fill {
 		display: block;
@@ -122,24 +86,11 @@
 		transform-origin: left;
 		transition: transform 200ms ease-out;
 	}
-	.actions {
-		display: flex;
-		justify-content: flex-end;
-		margin-top: 10px;
-	}
 	.pct {
 		min-width: 3ch;
 		font-size: 11px;
 		text-align: right;
-		color: var(--text-mid);
-	}
-	@keyframes busy-in {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
+		color: var(--readout);
 	}
 	@keyframes busy-spin {
 		to {

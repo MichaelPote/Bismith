@@ -2,14 +2,15 @@
 	// New project wizard: Blank at a size picked on its card, or a project preset (docs/features/fr5.4-presets.md) — the built-ins and
 	// the user's own, mixed and grouped by category. Every card is its preset's stored preview, so opening compiles and
 	// renders nothing; the picked project's shaders compile in the viewport like any opened project's (FR8.16a).
-	import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+	import { ref } from 'vue';
 	import type { Project } from '@/core/project';
 	import { createProject } from '@/core/serialize';
 	import { useEditorStore } from '@/stores/editor';
 	import { usePresetsStore } from '@/stores/presets';
 	import { useActions } from '@/ui/actions';
 	import { asProject, type PresetEntry } from '@/presets';
-	import { IconPlus, IconUser, IconX } from '@tabler/icons-vue';
+	import { IconPlus, IconUser } from '@tabler/icons-vue';
+	import DialogFrame from '@/ui/components/DialogFrame.vue';
 	import { vTip } from '@/ui/tooltip';
 
 	const editor = useEditorStore();
@@ -38,137 +39,67 @@
 	}
 
 	const tip = (e: PresetEntry) => (e.description ? `${e.name} — ${e.description}` : e.name);
-
-	const dialog = ref<HTMLElement | null>(null);
-	function onKey(e: KeyboardEvent): void {
-		if (e.key === 'Escape') {
-			e.preventDefault();
-			e.stopPropagation();
-			close();
-		}
-	}
-	onMounted(async () => {
-		window.addEventListener('keydown', onKey, true);
-		await nextTick();
-		dialog.value?.focus();
-	});
-	onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
 </script>
 
 <template>
-	<Teleport to="body">
-		<div class="backdrop" @pointerdown.self="close">
-			<div ref="dialog" class="wizard" role="dialog" aria-modal="true" aria-labelledby="wizard-title" tabindex="-1">
-				<header class="head">
-					<div class="titles">
-						<h2 id="wizard-title">New project</h2>
-						<p>Start from a blank canvas, or choose one of the presets below to get started.</p>
+	<DialogFrame title="New project" width="1120px" focus=".blank .open" @close="close">
+		<p class="blurb">Start from a blank canvas, or choose one of the presets below to get started.</p>
+		<div class="grid">
+			<!-- Blank: the card opens it; its size is picked on the card -->
+			<div class="card blank" role="group" aria-label="Blank">
+				<button type="button" class="open" @click="pick(blankProject())">
+					<div class="thumb"><IconPlus :size="32" color="var(--text-lo)" /></div>
+					<div class="meta">
+						<span class="name">Blank</span>
+						<span class="sub">No layers · {{ size }}×{{ size }}</span>
 					</div>
+				</button>
+				<div class="sizes" role="radiogroup" aria-label="Blank texture size">
 					<button
-						v-tip:left="{ body: 'Close', keys: 'Esc' }"
+						v-for="s in SIZES"
+						:key="s"
 						type="button"
-						class="cf-ico-btn"
-						aria-label="Close"
-						@click="close">
-						<IconX :size="16" />
+						class="fk"
+						:class="{ lit: size === s }"
+						role="radio"
+						:aria-checked="size === s"
+						@click="size = s">
+						<span class="fk-face">{{ s }}</span>
 					</button>
-				</header>
-
-				<div class="grid">
-					<!-- Blank: the card opens it; its size is picked on the card -->
-					<div class="card blank" role="group" aria-label="Blank">
-						<button type="button" class="open" @click="pick(blankProject())">
-							<div class="thumb"><IconPlus :size="32" color="var(--text-lo)" /></div>
-							<div class="meta">
-								<span class="name">Blank</span>
-								<span class="sub">No layers · {{ size }}×{{ size }}</span>
-							</div>
-						</button>
-						<div class="sizes" role="radiogroup" aria-label="Blank texture size">
-							<button
-								v-for="s in SIZES"
-								:key="s"
-								type="button"
-								class="fk"
-								:class="{ lit: size === s }"
-								role="radio"
-								:aria-checked="size === s"
-								@click="size = s">
-								<span class="fk-face">{{ s }}</span>
-							</button>
-						</div>
-					</div>
-					<template v-for="g in presets.grouped('project')" :key="g.category">
-						<h3 class="section">{{ g.category }}</h3>
-						<button
-							v-for="e in g.entries"
-							:key="e.key"
-							v-tip:top="tip(e)"
-							type="button"
-							class="card"
-							@click="pickPreset(e)">
-							<img v-if="e.preview" class="thumb" :src="e.preview" :alt="e.name" draggable="false" />
-							<div v-else class="thumb none">{{ e.name }}</div>
-							<div class="meta">
-								<span class="name">
-									<IconUser v-if="!e.builtin" :size="11" class="mine" aria-label="Yours" />{{ e.name }}
-								</span>
-								<span v-if="e.description" class="sub">{{ e.description }}</span>
-							</div>
-						</button>
-					</template>
 				</div>
 			</div>
+			<template v-for="g in presets.grouped('project')" :key="g.category">
+				<h3 class="section">{{ g.category }}</h3>
+				<button
+					v-for="e in g.entries"
+					:key="e.key"
+					v-tip:top="tip(e)"
+					type="button"
+					class="card"
+					@click="pickPreset(e)">
+					<img v-if="e.preview" class="thumb" :src="e.preview" :alt="e.name" draggable="false" />
+					<div v-else class="thumb none">{{ e.name }}</div>
+					<div class="meta">
+						<span class="name">
+							<IconUser v-if="!e.builtin" :size="11" class="mine" aria-label="Yours" />{{ e.name }}
+						</span>
+						<span v-if="e.description" class="sub">{{ e.description }}</span>
+					</div>
+				</button>
+			</template>
 		</div>
-	</Teleport>
+		<template #tray>
+			<span>File ▸ Save as template… adds your own.</span>
+			<span class="grow" />
+			<button type="button" class="gk" @click="close"><span class="gk-face">Cancel</span></button>
+		</template>
+	</DialogFrame>
 </template>
 
 <style scoped>
-	.backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 300;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 24px;
-		background: rgba(17, 19, 22, 0.72);
-	}
-	.wizard {
-		display: flex;
-		flex-direction: column;
-		width: min(1120px, 100%);
-		max-height: 100%;
-		background: var(--panel);
-		border: 1px solid var(--line);
-		border-radius: 4px;
-		box-shadow: 0 18px 48px rgba(8, 9, 10, 0.6);
-		outline: none;
-		user-select: none;
-		-webkit-user-select: none;
-	}
-	.head {
-		display: flex;
-		align-items: flex-start;
-		gap: 12px;
-		padding: 16px 16px 12px 20px;
-		border-bottom: 1px solid var(--hairline);
-	}
-	.titles {
-		flex: 1;
-		min-width: 0;
-	}
-	h2 {
+	.blurb {
 		margin: 0;
-		font-family: var(--font-serif);
-		font-weight: 600;
-		font-size: 24px;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		color: var(--text-hi);
-	}
-	.titles p {
-		margin: 4px 0 0;
+		padding: 0 20px 4px 16px;
 		font-size: 13px;
 		color: var(--text-lo);
 	}
