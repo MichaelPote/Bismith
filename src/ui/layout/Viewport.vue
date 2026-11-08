@@ -330,6 +330,9 @@
 	function onGizmoDown(e: PointerEvent, g: { id: string; type: 'point' | 'directional' }): void {
 		e.stopPropagation();
 		e.preventDefault();
+		// As the layer gizmos: a field still being typed in would keep Ctrl+Z from reaching the editor.
+		(document.activeElement as HTMLElement | null)?.blur();
+		store.commitNow();
 		editor.select('light', g.id);
 		gizmoDrag = g;
 		gizmoAt = { x: e.clientX, y: e.clientY };

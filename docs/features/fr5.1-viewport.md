@@ -20,8 +20,9 @@ place lights.
   (px, height value).
 - Layer gizmos (Create workspace, the selected layer only; geometry in `src/ui/gizmos.ts`, drawn by
   `LayerGizmo.vue`). Each handle sets the layer's own placement sliders; Ctrl (⌘) snaps angles to 15° and the move
-  dot to half pixels. A drag is one undo step (`beginGesture` / `endGesture` in the store), and grabbing a handle
-  finishes a field still being typed in, so Ctrl+Z reaches the editor.
+  dot to half pixels. Grabbing a handle (a light's too) finishes a field still being typed in, so Ctrl+Z reaches the
+  editor. A drag of any control is one undo step: the history waits while a pointer is held (`App.vue`,
+  `beginGesture` / `endGesture` in the store).
   - Rectangle, Ellipse, Polygon / Star, Cross, Rosette, Glyph: a move dot (X / Y) and a rotation knob above it
     (Rotation). With repeats, it sits on the top-left instance; Shaping › Offset moves it with the pattern.
   - Stamp, Label: the same, with the knob setting Angle on top of the quarter turns.

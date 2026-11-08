@@ -76,7 +76,7 @@
 		// preventDefault keeps the focus where it is: a field still being typed in would keep Ctrl+Z from reaching the
 		// editor. Finished first, its value is an undo step of its own.
 		(document.activeElement as HTMLElement | null)?.blur();
-		store.beginGesture();
+		store.commitNow();
 		const svg = (e.currentTarget as SVGElement).ownerSVGElement!.getBoundingClientRect();
 		// Grab offset: the handle stays where it was taken rather than jumping to the pointer.
 		const at: Pt = [e.clientX - svg.left, e.clientY - svg.top];
@@ -127,7 +127,6 @@
 		end();
 	}
 	function end(): void {
-		if (drag) store.endGesture();
 		drag = null;
 		window.removeEventListener('keydown', onKey);
 		window.removeEventListener('keyup', onKey);

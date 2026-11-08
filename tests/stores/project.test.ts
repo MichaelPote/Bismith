@@ -187,6 +187,7 @@ describe('project store: gestures', () => {
 		const id = store.project.layers[0].id;
 		const rotation = () => store.getLayer(id)!.params.rotation;
 		store.setLayerParam(id, 'rotation', 10);
+		await nextTick();
 		// Grabbed before the edit's own commit is due.
 		store.beginGesture();
 		for (const a of [20, 30, 40]) {

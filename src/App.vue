@@ -114,6 +114,11 @@
 		return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 	}
 
+	// One drag, one undo step, for every control. Captured on the window, so no control's handler can hide it; the release
+	// is handled after the event, once the control has made its last change.
+	const onPointerDown = () => store.beginGesture();
+	const onPointerUp = () => setTimeout(store.endGesture);
+
 	function onKey(e: KeyboardEvent): void {
 		// The new-project wizard, questions and the Export and Changes dialogs are modal: the editor's shortcuts wait.
 		if (editor.wizard || editor.question || editor.exportDialog || editor.variantChanges) return;
@@ -231,12 +236,20 @@
 		else if (store.firstRun) editor.wizard = true;
 		window.addEventListener('keydown', onKey);
 		window.addEventListener('beforeunload', onBeforeUnload);
+		window.addEventListener('pointerdown', onPointerDown, true);
+		window.addEventListener('pointerup', onPointerUp, true);
+		window.addEventListener('pointercancel', onPointerUp, true);
+		window.addEventListener('blur', onPointerUp);
 		// A long run (Match's optimiser) lost with the page — a discarded background tab, a crash — can carry on.
 		void offerResume();
 	});
 	onBeforeUnmount(() => {
 		window.removeEventListener('keydown', onKey);
 		window.removeEventListener('beforeunload', onBeforeUnload);
+		window.removeEventListener('pointerdown', onPointerDown, true);
+		window.removeEventListener('pointerup', onPointerUp, true);
+		window.removeEventListener('pointercancel', onPointerUp, true);
+		window.removeEventListener('blur', onPointerUp);
 	});
 </script>
 
