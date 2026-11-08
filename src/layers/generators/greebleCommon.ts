@@ -59,15 +59,21 @@ const int GRB_FK[8] = int[8](0, 1, 1, 2, 2, 3, 4, 5);
 float grb_fastenerReach(int kind, float r) { return (kind == 2 || kind == 4 ? GRB_SINK_R : 1.0) * r; }
 // A pan head's height (0..0.85) at x = distance ÷ radius: flat over most of it, rounding over at its rim.
 float grb_pan(float x) { return 0.85 * sqrt(max(1.0 - x * x * x * x, 0.0)); }
+// A screw's slot across a pan head of radius r, or two crossed: 1 in the slot, stopping short of the rim.
+float grb_slots(bool crossed, vec2 d, float r) {
+  float gw = max(0.5, 0.11 * r);
+  float g = 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.y));
+  if (crossed) g = max(g, 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.x)));
+  return g * (1.0 - smoothstep(0.75 * r, 0.8 * r, length(d)));
+}
 
 // A fastener head (FASTENER_HEADS: 0 dome, 1 Allen bolt, 2 Allen bolt sunk, 3 hex head, 4 hex head sunk, 5 slotted
 // screw, 6 cross screw, 7 screw hole) at d from its centre — d already turned to the head's own angle — head radius r;
 // the sunk kinds stand in a round counterbore pk deep (in head heights; the caller's choice). Returns x: height relative
 // to the surface round it, in head heights (1 the head's top; negative where sunk: the counterbore, a socket, slot or
 // hole); y: how dark to paint it (sockets, slots, holes, the counterbore's floor); z: the footprint's distance (the head,
-// or its counterbore), for shape outputs. Its proportions, as grb_fastener sets them for the greebles: socketK the Allen
-// socket's across-flats radius and sinkK the counterbore's radius (both × r), hexW how far in a hex head's flats rise (px).
-vec3 grb_fastenerAt(int kind, vec2 d, float r, float pk, float socketK, float sinkK, float hexW) {
+// or its counterbore), for shape outputs. (Bolts / Rivets builds these heads on its Edge controls: shapeRelief, shapes.ts.)
+vec3 grb_fastener(int kind, vec2 d, float r, float pk) {
   r = max(r, 0.5);
   pk = kind == 2 || kind == 4 ? max(pk, 0.0) : 0.0;
   kind = GRB_FK[clamp(kind, 0, 7)];
@@ -78,14 +84,14 @@ vec3 grb_fastenerAt(int kind, vec2 d, float r, float pk, float socketK, float si
     float h = 1.0 - smoothstep(r - e, r + 0.5, l);
     return vec3(-h, h, l - r);
   }
-  float pr = sinkK * r;
+  float pr = GRB_SINK_R * r;
   float pocket = pk > 0.0 ? 1.0 - smoothstep(pr - 1.0, pr, l) : 0.0;
   // (One hexagon: a hex head's flats, or an Allen bolt's socket.)
-  float hx = grb_hexagon(d, kind == 2 ? 0.87 * r : max(socketK * r, 1.0));
+  float hx = grb_hexagon(d, kind == 2 ? 0.87 * r : max(0.5 * r, 1.0));
   float head, dark = 0.0;
   if (kind == 2) {
-    // A hex head: steep flats, its corners chamfered towards a flat top. The widest rise reaches the middle: a pyramid.
-    float side = smoothstep(0.0, 1.0, -hx / max(min(hexW, 0.87 * r), 0.7));
+    // A hex head: steep flats, its corners chamfered towards a flat top.
+    float side = smoothstep(0.0, 1.0, -hx / max(0.2 * r, 0.7));
     head = side * mix(0.75, 1.0, clamp((r - l) / max(0.3 * r, 0.5), 0.0, 1.0));
   } else if (kind == 1) {
     // An Allen bolt: a flat cap with a rounded rim and a hex socket sunk deep in it.
@@ -96,10 +102,7 @@ vec3 grb_fastenerAt(int kind, vec2 d, float r, float pk, float socketK, float si
   } else if (kind >= 3) {
     // A pan-head screw, a slot (or two, crossed) across it.
     head = grb_pan(clamp(l / r, 0.0, 1.0));
-    float gw = max(0.5, 0.11 * r);
-    float g = 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.y));
-    if (kind == 4) g = max(g, 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.x)));
-    g *= 1.0 - smoothstep(0.75 * r, 0.8 * r, l);
+    float g = grb_slots(kind == 4, d, r);
     head *= 1.0 - 0.7 * g;
     dark = g;
   } else {
@@ -111,7 +114,6 @@ vec3 grb_fastenerAt(int kind, vec2 d, float r, float pk, float socketK, float si
   // (The footprint: the counterbore, the hexagon itself, or the round head.)
   return vec3(x, dark, pk > 0.0 ? l - pr : kind == 2 ? hx : l - r);
 }
-vec3 grb_fastener(int kind, vec2 d, float r, float pk) { return grb_fastenerAt(kind, d, r, pk, 0.5, GRB_SINK_R, 0.2 * r); }
 
 // ---- Bevel aspect (Shaping › Edge) on the shape outputs. The wrapper takes a bevel's width from the distance's
 // direction, which flips on the mitre where two straight edges meet: the bevel steps there. So the shape outputs also

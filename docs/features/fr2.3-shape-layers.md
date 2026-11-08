@@ -102,12 +102,15 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
 - **Bolts / Rivets › Head** (`head`; type `circle`, labelled Circle / Bolt until 2026-10-25): the plain circle (the default, with Aspect, Sweep with _Cut from_ / _Bevel the cut_,
   Outline and the dome span), or one of the greebles' shared fastener heads (`grb_fastener`, FASTENER_HEADS in
   `greebleCommon.ts`).
-  - The heads: dome, Allen bolt (_Socket radius_), hex head (Edge › _Bevel_ is how far in its flats slope, up to a
-    pyramid; Edge › Profile doesn't shape them), both also sunk in a counterbore (_Counterbore depth_ and _Radius_),
-    slotted and cross screws, screw hole.
+  - The heads: dome (_Aspect_, _Bulge_), Allen bolt (_Socket radius_), hex head, both also sunk in a counterbore
+    (_Counterbore depth_ and _Radius_), slotted and cross screws, screw hole.
+  - The Edge controls shape each head's outer edge — the cap's or pan's rim, the hex flats, a screw hole's wall going
+    down — through `GenOut.bdist`, so Bevel, Profile, Bevel span, Bevel aspect and Scale the bevel too work as on any
+    shape. A dome's Profile shapes its whole curve, whatever the Bevel (Flat counts as Round). The socket, slots and
+    counterbore are the head's own, so a sunk head's bevel follows the head, not the counterbore.
   - A head's footprint is the shape and the mask. Its relief goes to Height through `GenOut.height` (Source ›
-    Pattern; sunk parts below the surface). Its sockets and slots darken the value, × the bevel at the footprint's edge
-    (`SHAPE_RELIEF` / `shapeRelief`, evaluated for the nearest instance); that value is only shading, so Roughness,
+    Pattern; sunk parts below the surface); it paints its own value (`SHAPE_RELIEF` / `shapeRelief`, evaluated for the
+    nearest instance): the rise, its sockets, slots and floors darker. That value is only shading, so Roughness,
     Specular, Metalness and Emissive with Source › Pattern fill the footprint (`gGenFillLevels`).
   - Rotation and the repeats' rotation variation turn the heads; the Circle-only settings are hidden and have no
     effect (a head is never hollowed by a stored Outline).

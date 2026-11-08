@@ -492,7 +492,7 @@ export const circleLayer = shape({
 			'circle',
 			[['circle', 'Circle', 'a disc or ellipse: Aspect, Sweep, Outline and the bevel as set'], ...FASTENER_HEADS],
 			{
-				hint: 'Picks a plain circle or a fastener head. A head’s relief goes to Height (Source › Pattern; sunk parts go below the surface), its sockets and slots darken the Pattern value, and its footprint is the shape. Rotation turns it, and Edge › Bevel sets how far in a hex head’s flats slope'
+				hint: 'Picks a plain circle or a fastener head. A head’s relief goes to Height (Source › Pattern; sunk parts go below the surface), its sockets and slots darken the Pattern value, and its footprint is the shape. Rotation turns it. The Edge controls shape the head’s outer edge, or a screw hole’s wall; a dome’s Profile shapes its whole curve'
 			}
 		),
 		P.float('radius', 'Radius', 24, 0, 4096, {
@@ -521,8 +521,13 @@ export const circleLayer = shape({
 			softMin: 0.1,
 			softMax: 10,
 			step: 0.001,
-			showIf: circleHead,
+			showIf: (p) => circleHead(p) || p.head === 'dome',
 			hint: 'Squashes or stretches the circle into an ellipse (height / width)'
+		}),
+		P.float('bulge', 'Bulge', 1, 0.5, 4, {
+			step: 0.001,
+			showIf: (p) => p.head === 'dome',
+			hint: 'Sets how full the dome is: 1 = a hemisphere, lower = a shallower lens, higher = a fuller button with a flat top. Height › Amount sets how tall it stands'
 		}),
 		P.float('sweep', 'Sweep', 360, 0, 360, {
 			unit: '°',
@@ -557,7 +562,8 @@ export const circleLayer = shape({
 				'Dome',
 				'a smooth dome over the whole ellipse (1 − x²/a² − y²/b²), without the ridge a bevel makes along a long ellipse'
 			]),
-			showIf: circleHead
+			// (A dome head's curve always spans it.)
+			showIf: (p) => p.head !== 'dome'
 		}
 	],
 	placementShowIf: { outline: circleHead },
@@ -566,11 +572,15 @@ export const circleLayer = shape({
 		GRB_GLSL +
 		/* glsl */ `
 vec2 ellipseAxes() { return vec2(u_radius, u_radius * u_squash); }
-// Head: 0 the circle; else a fastener head (FASTENER_HEADS, grb_fastenerAt's kind + 1) — round, the counterbore u_sink_r ×.
+// Head: 0 the circle; else a fastener head (FASTENER_HEADS' index + 1; GRB_FK its kind).
 bool fastener() { return u_head != 0; }
-float shapeExtent(vec2 cell) { return fastener() ? (u_sink_r + 0.05) * u_radius : u_radius * max(1.0, u_squash); }
+bool headDome() { return u_head == 1; }
+bool headHex() { return u_head == 4 || u_head == 5; }
+bool headSunk() { return (u_head == 3 || u_head == 5) && u_sink > 0.0; }
+#define HEX_FLATS 0.87
+float shapeExtent(vec2 cell) { return fastener() && !headDome() ? (u_sink_r + 0.05) * u_radius : u_radius * max(1.0, u_squash); }
 float shapeInradius(vec2 cell) {
-  if (fastener()) return u_radius;
+  if (fastener()) return headHex() ? HEX_FLATS * u_radius : u_radius;
   // The deepest point: the middle (the minor semi-axis); a sector's: its inscribed circle, roughly.
   float r = min(u_radius, u_radius * u_squash);
   if (u_sweep >= 360.0) return r;
@@ -579,24 +589,62 @@ float shapeInradius(vec2 cell) {
 }
 float shapeSdf(vec2 q, float rnd, vec2 cell) {
   if (!fastener()) return sdEllipseExact(q, ellipseAxes());
-  // A fastener head: its footprint (the head, or its counterbore), solid (Outline is hidden for it, but keeps its value);
-  // its relief for shapeRelief.
+  // A fastener head: solid (Outline is hidden for it, but keeps its value). Its outer edge is what the Edge controls bevel
+  // (gShapeBevel, GenOut.bdist); its footprint, the shape, may be a counterbore round that. For shapeRelief: where the
+  // instance is, and the edge's distance in px.
   gShapeNoOutline = true;
-  // (Edge › Bevel is a hex head's chamfer, in the instance's units, as the wrapper measures the bevel.)
-  gShapeAux = grb_fastenerAt(u_head - 1, q, u_radius, u_sink, u_socket, u_sink_r, u_rep_scale_bevel ? u_bevel : u_bevel / gShapeScale);
-  return gShapeAux.z;
+  float edge = headDome() ? sdEllipseExact(q, ellipseAxes()) : headHex() ? grb_hexagon(q, HEX_FLATS * u_radius) : length(q) - u_radius;
+  gShapeBevel = edge;
+  gShapeAux = vec3(q, edge * gShapeScale);
+  return headSunk() ? length(q) - u_sink_r * u_radius : edge;
 }
-// A fastener head's own relief: its height to Height (GenOut.height, in head heights; sunk parts below the surface),
-// its sockets and slots darkening the value (× the bevel at the footprint's edge), its footprint the coverage. Roughness
-// and the other level outputs fill the footprint: a socket's shading isn't a change of material.
+// A fastener head's relief, for the nearest instance only (one profile call: compile time). The rise from its outer edge
+// is the layer's bevel, as GenOut.bdist has it (Bevel, Bevel span, Bevel aspect, Scale the bevel too); a dome's curve spans
+// it whatever the Bevel. What goes to Height is in head heights, sunk parts below the surface; the socket, slots and
+// counterbore are the head's own. The head paints its own value (Source › Pattern): the rise, its recesses darker.
+// Roughness and the other level outputs fill the footprint: a socket's shading isn't a change of material.
 #define SHAPE_RELIEF
 void shapeRelief(inout GenOut g, float d, vec3 f) {
   if (!fastener()) return;
-  g.own = 2;
-  gGenFillLevels = true;
-  g.value = 1.0 - 0.85 * f.y;
+  int k = GRB_FK[u_head - 1];
+  vec2 q = f.xy;
+  float r = max(u_radius, 0.5);
+  float l = length(q);
+  float onHead = coverage(f.z, u_aa);
+  float rise = 1.0;
+  if (k == 0 || (u_bevel > 0.0 && u_profile != 0))
+    rise = profileCurve(u_profile == 0 ? 3 : u_profile, k == 0 ? 1.0 - length(q / ellipseAxes()) : max(-g.bdist, 0.0) / u_bevel);
+  if (k == 0) rise = pow(max(rise, 0.0), 1.0 / u_bulge);
+  float head = rise * onHead;
+  float dark = 0.0;
+  if (k == 1) {
+    // An Allen bolt: a hex socket sunk deep in its cap.
+    float sock = 1.0 - smoothstep(-0.35, 0.35, grb_hexagon(q, max(u_socket * r, 1.0)));
+    head -= sock;
+    dark = sock;
+  } else if (k == 2) {
+    // A hex head: its corners chamfered towards a flat top.
+    head *= mix(0.75, 1.0, clamp((r - l) / max(0.3 * r, 0.5), 0.0, 1.0));
+  } else if (k == 3 || k == 4) {
+    // A pan-head screw, a slot (or two, crossed) across it.
+    float s = grb_slots(k == 4, q, r);
+    head *= 0.85 * (1.0 - 0.7 * s);
+    dark = s;
+  } else if (k == 5) {
+    // A screw hole: the same rise going down, to a dark floor.
+    head = -head;
+    dark = rise * onHead;
+  }
+  // In a counterbore the head rises from its floor; outside the head the floor shows, darker.
+  float pk = headSunk() ? u_sink : 0.0;
+  float pr = u_sink_r * r;
+  float pocket = pk > 0.0 ? 1.0 - smoothstep(pr - 1.0, pr, l) : 0.0;
+  g.height = -pk * pocket + (1.0 + pk) * head;
+  dark = max(dark, 0.5 * pocket * (1.0 - smoothstep(0.0, 0.2, head)));
+  g.own = 1;
+  g.value = (1.0 - 0.85 * dark) * (k == 5 ? 1.0 : mix(1.0, rise, onHead));
   g.mask = coverage(d, u_aa);
-  g.height = f.x;
+  gGenFillLevels = true;
 }
 // Sweep: keep the sector within ±sweep/2 of the top (after the outline, so an outlined ellipse becomes an arc).
 #define SHAPE_CUT
@@ -622,10 +670,23 @@ float shapeCut(vec2 q, float d, float ol) {
 // 0.1 px) and the two cuts. (An outlined sweep — an arc — keeps the distance's direction; a ring's inner edge too.)
 #define SHAPE_EDGES
 float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
-  // (A fastener's footprint is round: the distance's direction is exact there.)
   if (fastener()) {
-    gShapeEdgesAll = false;
-    return -1e9;
+    // A head's outer edge, stretched: a circle stays an ellipse, a hexagon's flats stay straight. (Not a dome's: it spans.)
+    gShapeEdgesAll = !headDome();
+    if (headDome()) return -1e9;
+    mat2 Mh = bevelFrame(ax, ay);
+    vec2 ph = Mh * q;
+    if (!headHex()) return (length(q) < u_radius ? -1.0 : 1.0) * bevelEllipse(ph, Mh, vec2(u_radius));
+    float rc = u_radius * HEX_FLATS / 0.8660254;
+    vec2 a0 = Mh * vec2(rc, 0.0);
+    float h2 = 1e18;
+    for (int i = 1; i <= 6; i++) {
+      float an = 1.04719755 * float(i);
+      vec2 b0 = Mh * (rc * vec2(cos(an), sin(an)));
+      h2 = min(h2, bevelSeg2(ph, a0, b0));
+      a0 = b0;
+    }
+    return (grb_hexagon(q, HEX_FLATS * u_radius) < 0.0 ? -1.0 : 1.0) * sqrt(h2);
   }
   bool cut = u_sweep < 360.0;
   gShapeEdgesAll = u_outline <= 0.0;
