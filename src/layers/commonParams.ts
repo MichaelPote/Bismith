@@ -813,8 +813,12 @@ float levelBlend(int mode, float o, float x) { return mode == 0 ? x : mode == 1 
 
 // shapeV: inside the layer's shape (Source › Shape), 1 for layers without one.
 float srcValue(int src, float value, float rnd, float shapeV) { return src == 1 ? 1.0 : src == 2 ? rnd : src == 3 ? shapeV : value; }
-// The level outputs' source, with Parts (4: the generator's own level there, gGenLevel; LayerDef.parts).
-float srcLevel(int src, float value, float rnd, float shapeV, float own) { return src == 4 ? (own >= 0.0 ? own : value) : srcValue(src, value, rnd, shapeV); }
+// The level outputs' source, with Parts (4: the generator's own level there, gGenLevel; LayerDef.parts). gGenFillLevels:
+// the generator's value is only shading, so they take the whole shape for it.
+float srcLevel(int src, float value, float rnd, float shapeV, float own) {
+  if (gGenFillLevels) value = shapeValue(shapeV);
+  return src == 4 ? (own >= 0.0 ? own : value) : srcValue(src, value, rnd, shapeV);
+}
 
 // A mask texel (distance, feature random, feature flag) after this layer's write: c is its own distance s combined with
 // the mask's by op; the feature comes from whichever side c follows (the earlier contents where this layer cuts).

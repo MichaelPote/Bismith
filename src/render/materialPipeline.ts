@@ -112,6 +112,9 @@ float gGenGrey = 0.0;
 // The generator's own levels per part (LayerDef.parts), for Roughness, Specular, Metalness and Emissive with Source
 // Parts: x roughness, y specular, z metalness, w emissive (0..1; < 0 = the Pattern value there).
 vec4 gGenLevel = vec4(-1.0);
+// Roughness, Specular, Metalness and Emissive take the whole shape for the Pattern value: the generator's value is only
+// shading (a fastener head's dark socket), not a change of material.
+bool gGenFillLevels = false;
 // The share of the Diffuse colour it lays that is transmitted light (0..1): seen through a clear medium, not shaded by
 // the surface, so carried as emission (layTransparent; Ice).
 float gGenTransmit = 0.0;

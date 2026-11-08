@@ -102,12 +102,15 @@ combined with SDF operators and bevelled analytically — the backbone of skeuom
 - **Bolts / Rivets › Head** (`head`; type `circle`, labelled Circle / Bolt until 2026-10-25): the plain circle (the default, with Aspect, Sweep with _Cut from_ / _Bevel the cut_,
   Outline and the dome span), or one of the greebles' shared fastener heads (`grb_fastener`, FASTENER_HEADS in
   `greebleCommon.ts`).
-  - The heads: dome, Allen bolt, hex head (both also sunk in a counterbore, _Counterbore depth_), slotted and cross
-    screws, screw hole.
+  - The heads: dome, Allen bolt (_Socket radius_), hex head (Edge › _Bevel_ is how far in its flats slope, up to a
+    pyramid; Edge › Profile doesn't shape them), both also sunk in a counterbore (_Counterbore depth_ and _Radius_),
+    slotted and cross screws, screw hole.
   - A head's footprint is the shape and the mask. Its relief goes to Height through `GenOut.height` (Source ›
     Pattern; sunk parts below the surface). Its sockets and slots darken the value, × the bevel at the footprint's edge
-    (`SHAPE_RELIEF` / `shapeRelief`, evaluated for the nearest instance).
-  - Rotation and the repeats' rotation variation turn the heads; the Circle-only settings are hidden.
+    (`SHAPE_RELIEF` / `shapeRelief`, evaluated for the nearest instance); that value is only shading, so Roughness,
+    Specular, Metalness and Emissive with Source › Pattern fill the footprint (`gGenFillLevels`).
+  - Rotation and the repeats' rotation variation turn the heads; the Circle-only settings are hidden and have no
+    effect (a head is never hollowed by a stored Outline).
 - **Round 2 additions:** Ellipse _Arc ends_ (round caps on swept rings); Polygon _Flat tips_ / _Flat valleys_ (gear
   teeth); Line / Curve _Taper curve_ (≥ 1: t^c, leaves; < 1: 1 − (1 − t)^(1/c), needles), _Length variation_ (keeps the
   thickness); Curve _Shape › Circular arc_ (through both ends, Bend = the sagitta: semicircles, horseshoes, elbows),

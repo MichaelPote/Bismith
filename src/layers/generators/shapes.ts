@@ -145,6 +145,8 @@ float gShapeBevel = 1e9;   // a shape's own bevel distance (local units), 1e9 = 
 bool gShapeCutBevel = true;   // (shapeCut) the cut's edges bevel too; false = only the outline before it
 bool gShapeEdgesAll = false;   // (shapeEdges) its pieces make up the whole outline: Bevel aspect needs nothing else
 vec3 gShapeAux = vec3(0.0);   // (shapeSdf, for shapeRelief) whatever the relief needs of the instance
+float gShapeScale = 1.0;   // (shapeSdf) the instance's size: q is divided by it
+bool gShapeNoOutline = false;   // (shapeSdf) Outline doesn't apply to this shape
 // A box's corners anticlockwise (GL y up) from the top-right, as signs of its half size.
 const vec2 SG4[4] = vec2[4](vec2(1.0), vec2(-1.0, 1.0), vec2(-1.0), vec2(1.0, -1.0));
 `;
@@ -221,10 +223,11 @@ GenOut gen(vec2 p) {
         if ((u_rep_flip == 1 || u_rep_flip == 3) && hf.x < 0.5) { q.x = -q.x; ax = -ax; }
         if ((u_rep_flip == 2 || u_rep_flip == 3) && hf.y < 0.5) { q.y = -q.y; ay = -ay; }
       }
-      // In the instance's own units (scaled), so the outline keeps its width in px.
-      float ol = u_outline / s;
       gShapeBevel = 1e9;
+      gShapeScale = s;
       float dl = shapeSdf(q, rnd, cell);
+      // In the instance's own units (scaled), so the outline keeps its width in px.
+      float ol = gShapeNoOutline ? 0.0 : u_outline / s;
       float ds = dl;
       float bl = gShapeBevel < 1e8 ? gShapeBevel : dl;
       dl = sdOnion(dl, ol);
@@ -475,6 +478,7 @@ float shapeDome(vec2 q, vec2 cell) {
 
 /** Bolts / Rivets: the plain circle (the default) rather than a fastener head. */
 const circleHead = (p: ParamValues) => (p.head ?? 'circle') === 'circle';
+const sunkHead = (p: ParamValues) => p.head === 'allen_sunk' || p.head === 'hex_sunk';
 
 export const circleLayer = shape({
 	type: 'circle',
@@ -488,7 +492,7 @@ export const circleLayer = shape({
 			'circle',
 			[['circle', 'Circle', 'a disc or ellipse: Aspect, Sweep, Outline and the bevel as set'], ...FASTENER_HEADS],
 			{
-				hint: 'Picks a plain circle or a fastener head. A head’s relief goes to Height (Source › Pattern; sunk parts go below the surface), its sockets and slots darken the Pattern value, and its footprint is the shape. Rotation turns it'
+				hint: 'Picks a plain circle or a fastener head. A head’s relief goes to Height (Source › Pattern; sunk parts go below the surface), its sockets and slots darken the Pattern value, and its footprint is the shape. Rotation turns it, and Edge › Bevel sets how far in a hex head’s flats slope'
 			}
 		),
 		P.float('radius', 'Radius', 24, 0, 4096, {
@@ -497,10 +501,21 @@ export const circleLayer = shape({
 			step: 0.1,
 			hint: 'Sets half the width (of the head, on a fastener)'
 		}),
+		P.float('socket', 'Socket radius', 0.5, 0.1, 0.85, {
+			step: 0.001,
+			showIf: (p) => p.head === 'allen' || p.head === 'allen_sunk',
+			hint: 'Sizes the hex socket, from the middle to its flats, as a share of the head’s radius'
+		}),
 		P.float('sink', 'Counterbore depth', 0.5, 0, 2, {
 			step: 0.001,
-			showIf: (p) => p.head === 'allen_sunk' || p.head === 'hex_sunk',
+			showIf: sunkHead,
 			hint: 'Sinks the round counterbore the head sits in, by this many head heights'
+		}),
+		P.float('sink_r', 'Counterbore radius', 1.55, 1, 8, {
+			softMax: 3,
+			step: 0.001,
+			showIf: sunkHead,
+			hint: 'Sets how far the round counterbore reaches round the head, as a multiple of the head’s radius. At 1 it fits the head tightly'
 		}),
 		P.float('squash', 'Aspect', 1, 0.01, 100, {
 			softMin: 0.1,
@@ -551,9 +566,9 @@ export const circleLayer = shape({
 		GRB_GLSL +
 		/* glsl */ `
 vec2 ellipseAxes() { return vec2(u_radius, u_radius * u_squash); }
-// Head: 0 the circle; else a fastener head (FASTENER_HEADS, grb_fastener's kind + 1) — round, the counterbore 1.55 ×.
+// Head: 0 the circle; else a fastener head (FASTENER_HEADS, grb_fastenerAt's kind + 1) — round, the counterbore u_sink_r ×.
 bool fastener() { return u_head != 0; }
-float shapeExtent(vec2 cell) { return fastener() ? 1.6 * u_radius : u_radius * max(1.0, u_squash); }
+float shapeExtent(vec2 cell) { return fastener() ? (u_sink_r + 0.05) * u_radius : u_radius * max(1.0, u_squash); }
 float shapeInradius(vec2 cell) {
   if (fastener()) return u_radius;
   // The deepest point: the middle (the minor semi-axis); a sector's: its inscribed circle, roughly.
@@ -564,16 +579,21 @@ float shapeInradius(vec2 cell) {
 }
 float shapeSdf(vec2 q, float rnd, vec2 cell) {
   if (!fastener()) return sdEllipseExact(q, ellipseAxes());
-  // A fastener head: its footprint (the head, or its counterbore); its relief for shapeRelief.
-  gShapeAux = grb_fastener(u_head - 1, q, u_radius, u_sink);
+  // A fastener head: its footprint (the head, or its counterbore), solid (Outline is hidden for it, but keeps its value);
+  // its relief for shapeRelief.
+  gShapeNoOutline = true;
+  // (Edge › Bevel is a hex head's chamfer, in the instance's units, as the wrapper measures the bevel.)
+  gShapeAux = grb_fastenerAt(u_head - 1, q, u_radius, u_sink, u_socket, u_sink_r, u_rep_scale_bevel ? u_bevel : u_bevel / gShapeScale);
   return gShapeAux.z;
 }
 // A fastener head's own relief: its height to Height (GenOut.height, in head heights; sunk parts below the surface),
-// its sockets and slots darkening the value (× the bevel at the footprint's edge), its footprint the coverage.
+// its sockets and slots darkening the value (× the bevel at the footprint's edge), its footprint the coverage. Roughness
+// and the other level outputs fill the footprint: a socket's shading isn't a change of material.
 #define SHAPE_RELIEF
 void shapeRelief(inout GenOut g, float d, vec3 f) {
   if (!fastener()) return;
   g.own = 2;
+  gGenFillLevels = true;
   g.value = 1.0 - 0.85 * f.y;
   g.mask = coverage(d, u_aa);
   g.height = f.x;

@@ -65,8 +65,9 @@ float grb_pan(float x) { return 0.85 * sqrt(max(1.0 - x * x * x * x, 0.0)); }
 // the sunk kinds stand in a round counterbore pk deep (in head heights; the caller's choice). Returns x: height relative
 // to the surface round it, in head heights (1 the head's top; negative where sunk: the counterbore, a socket, slot or
 // hole); y: how dark to paint it (sockets, slots, holes, the counterbore's floor); z: the footprint's distance (the head,
-// or its counterbore), for shape outputs.
-vec3 grb_fastener(int kind, vec2 d, float r, float pk) {
+// or its counterbore), for shape outputs. Its proportions, as grb_fastener sets them for the greebles: socketK the Allen
+// socket's across-flats radius and sinkK the counterbore's radius (both × r), hexW how far in a hex head's flats rise (px).
+vec3 grb_fastenerAt(int kind, vec2 d, float r, float pk, float socketK, float sinkK, float hexW) {
   r = max(r, 0.5);
   pk = kind == 2 || kind == 4 ? max(pk, 0.0) : 0.0;
   kind = GRB_FK[clamp(kind, 0, 7)];
@@ -77,14 +78,14 @@ vec3 grb_fastener(int kind, vec2 d, float r, float pk) {
     float h = 1.0 - smoothstep(r - e, r + 0.5, l);
     return vec3(-h, h, l - r);
   }
-  float pr = GRB_SINK_R * r;
+  float pr = sinkK * r;
   float pocket = pk > 0.0 ? 1.0 - smoothstep(pr - 1.0, pr, l) : 0.0;
   // (One hexagon: a hex head's flats, or an Allen bolt's socket.)
-  float hx = grb_hexagon(d, kind == 2 ? 0.87 * r : max(0.5 * r, 1.0));
+  float hx = grb_hexagon(d, kind == 2 ? 0.87 * r : max(socketK * r, 1.0));
   float head, dark = 0.0;
   if (kind == 2) {
-    // A hex head: steep flats, its corners chamfered towards a flat top.
-    float side = smoothstep(0.0, 1.0, -hx / max(0.2 * r, 0.7));
+    // A hex head: steep flats, its corners chamfered towards a flat top. The widest rise reaches the middle: a pyramid.
+    float side = smoothstep(0.0, 1.0, -hx / max(min(hexW, 0.87 * r), 0.7));
     head = side * mix(0.75, 1.0, clamp((r - l) / max(0.3 * r, 0.5), 0.0, 1.0));
   } else if (kind == 1) {
     // An Allen bolt: a flat cap with a rounded rim and a hex socket sunk deep in it.
@@ -110,6 +111,7 @@ vec3 grb_fastener(int kind, vec2 d, float r, float pk) {
   // (The footprint: the counterbore, the hexagon itself, or the round head.)
   return vec3(x, dark, pk > 0.0 ? l - pr : kind == 2 ? hx : l - r);
 }
+vec3 grb_fastener(int kind, vec2 d, float r, float pk) { return grb_fastenerAt(kind, d, r, pk, 0.5, GRB_SINK_R, 0.2 * r); }
 
 // ---- Bevel aspect (Shaping › Edge) on the shape outputs. The wrapper takes a bevel's width from the distance's
 // direction, which flips on the mitre where two straight edges meet: the bevel steps there. So the shape outputs also
