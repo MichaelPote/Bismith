@@ -22,7 +22,6 @@
       "enabled": true,
       "params": {
         "output": "relief",
-        "style": "fractured",
         "scarp_face": "all",
         "crev_patch": 0.6,
         "crev_reach": 1.84,

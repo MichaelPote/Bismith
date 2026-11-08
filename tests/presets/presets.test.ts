@@ -2,7 +2,7 @@
 // known param keys — carries a preview, holds what its header says, and is listed in an up-to-date manifest.json.
 
 import { describe, expect, it } from 'vitest';
-import { loadBuiltinPresets, setPresetSource } from '@/presets';
+import { loadBuiltinPresets, setPresetSource, builtinImage } from '@/presets';
 import type { PresetManifest } from '@/presets/manifest';
 import { layerParamDefs, getLayerDef } from '@/layers/registry';
 import { getPostDef } from '@/render/post/registry';
@@ -28,6 +28,11 @@ setPresetSource({ manifest: async () => manifest, file: async (p) => raws.get(p)
 const builtins = await loadBuiltinPresets();
 
 describe('presets', () => {
+	it('finds a built-in lighting preset’s sky by name, and nothing else', async () => {
+		expect(await builtinImage('studio-environment.jpg')).toMatch(/^data:image\//);
+		expect(await builtinImage('someone-elses.jpg')).toBeUndefined();
+	});
+
 	it('manifest.json is up to date (npm run presets:manifest)', () => {
 		for (const m of manifest.presets) {
 			const raw = raws.get(m.path);
@@ -112,7 +117,9 @@ describe('presets', () => {
 			const names = [p.lighting.sky.image ?? ''];
 			for (const l of p.layers)
 				for (const d of layerParamDefs(l.type)) if (d.image) names.push(String(l.params[d.key] ?? ''));
-			for (const n of names.filter(Boolean)) expect(Object.keys(p.preset?.images ?? {})).toContain(n);
+			// A built-in lighting preset's sky needs no copy: it's fetched from that preset by name.
+			const carried = [...Object.keys(p.preset?.images ?? {}), ...builtins.flatMap((b) => b.images ?? [])];
+			for (const n of names.filter(Boolean)) expect(carried).toContain(n);
 		});
 	}
 });

@@ -4,7 +4,7 @@
 
 import type { PresetKind, Project } from '@/core/project';
 import { normalizeProject } from '@/core/serialize';
-import { putImage } from '@/core/images';
+import { putImage, setImageResolver } from '@/core/images';
 import type { PresetManifest } from './manifest';
 
 /** One preset in a menu: a built-in or one of the user's (stores/presets.ts), its project loaded when asked for. */
@@ -19,6 +19,8 @@ export interface PresetEntry {
 	/** Menu group; none = Other. */
 	category?: string;
 	preview?: string;
+	/** The sky images a built-in lighting preset owns, by file name. */
+	images?: string[];
 	/** A fresh copy of the preset's project. */
 	project: () => Promise<Project>;
 }
@@ -70,6 +72,7 @@ export function loadBuiltinPresets(): Promise<PresetEntry[]> {
 				description: m.description,
 				category: m.category,
 				preview: m.preview,
+				images: m.images,
 				project: async () => {
 					cached ??= source.file(m.path).then((p) => normalizeProject(p));
 					cached.catch(() => (cached = null)); // a failed fetch is tried again next time
@@ -81,6 +84,13 @@ export function loadBuiltinPresets(): Promise<PresetEntry[]> {
 	loading.catch(() => (loading = null));
 	return loading;
 }
+
+/** The pixels of a sky image a built-in lighting preset owns (a data URL), or undefined when none does. */
+export async function builtinImage(name: string): Promise<string | undefined> {
+	const owner = (await loadBuiltinPresets()).find((p) => p.images?.includes(name));
+	return owner && (await owner.project()).preset?.images?.[name];
+}
+setImageResolver(builtinImage);
 
 /**
  * A preset's project to open as a project of its own: the images it carries stored in this browser first, then without

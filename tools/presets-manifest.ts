@@ -64,6 +64,7 @@ export function buildManifest(): PresetManifest {
 		if (description) e.description = description;
 		if (category) e.category = category;
 		if (preview) e.preview = preview;
+		if (kind === 'lighting' && raw.preset?.images) e.images = Object.keys(raw.preset.images);
 		return [e];
 	});
 	return { version: 1, presets };

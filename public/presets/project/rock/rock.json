@@ -21,7 +21,6 @@
       "enabled": true,
       "params": {
         "output": "relief",
-        "style": "fractured",
         "scarp_face": "all",
         "crev_patch": 0.5,
         "crev_reach": 3,
@@ -187,7 +186,6 @@
       "enabled": true,
       "params": {
         "output": "relief",
-        "style": "fractured",
         "scarp_face": "all",
         "crev_patch": 0.5,
         "crev_reach": 3,
@@ -361,7 +359,6 @@
       "enabled": true,
       "params": {
         "output": "relief",
-        "style": "fractured",
         "scarp_face": "all",
         "crev_patch": 0.5,
         "crev_reach": 3,
@@ -535,7 +532,6 @@
       "enabled": true,
       "params": {
         "output": "scarps",
-        "style": "fractured",
         "scarp_face": "all",
         "crev_patch": 0.5,
         "crev_reach": 3,
@@ -697,7 +693,6 @@
       "enabled": true,
       "params": {
         "output": "crevices",
-        "style": "fractured",
         "scarp_face": "all",
         "crev_patch": 0.6,
         "crev_reach": 1.84,

@@ -1,7 +1,8 @@
 // Images that layers and the sky use (Stamp › Image file, Sky light › Environment), by file name — the "path" a project saves (a browser page sees a file's
 // name, not where it lives). The pixels stay in this browser: a data URL per name, kept in memory and in localStorage,
 // decoded to RGBA8 for the layers' CPU textures. A project file saves only the name; opened where that image isn't
-// stored, its layer draws nothing and the inspector asks for the file again. Loading a file under a name already used
+// stored, a built-in lighting preset's sky is fetched from that preset (setImageResolver), and otherwise its layer draws
+// nothing and the inspector asks for the file again. Loading a file under a name already used
 // replaces it everywhere, as a path pointing at a new file would. (Embedding the images in the project file is for
 // later.) Decoding is asynchronous: until an image is ready its layer draws nothing, and onImageReady listeners (the
 // engine) re-render when it is; pendingImages() resolves once every image asked for is decoded (headless renders).
@@ -27,6 +28,9 @@ const decodedHdr = new Map<string, HdrImage>();
 const pending = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 let version = 0;
+let resolver: ((name: string) => Promise<string | undefined>) | null = null;
+/** Names already asked of the resolver: once each, as a missing image is looked up every frame. */
+const asked = new Set<string>();
 
 /** Bumped whenever an image finishes decoding or is replaced (part of the layers' texture cache keys). */
 export function imagesVersion(): number {
@@ -42,6 +46,34 @@ export function onImageReady(fn: () => void): () => void {
 /** Resolves when every image asked for so far has decoded (or failed). */
 export async function pendingImages(): Promise<void> {
 	while (pending.size) await Promise.all([...pending.values()]);
+}
+
+/**
+ * Where an image this browser doesn't have can come from: presets/index.ts finds the skies of the built-in lighting
+ * presets, which projects name without carrying. Its answer is used for this session only, and anything stored under
+ * that name comes first.
+ */
+export function setImageResolver(fn: (name: string) => Promise<string | undefined>): void {
+	resolver = fn;
+	asked.clear();
+}
+
+function resolveMissing(name: string): void {
+	if (!resolver || asked.has(name)) return;
+	asked.add(name);
+	const key = `resolve:${name}`;
+	const job = resolver(name)
+		.then((url) => {
+			if (!url || urls.has(name)) return;
+			putImage(name, url, false);
+			// The built-ins are skies: pendingImages() then covers their HDR decode too.
+			decodeHdr(name);
+		})
+		.catch(() => {
+			/* not reachable: as if it had no such image */
+		})
+		.finally(() => pending.delete(key));
+	pending.set(key, job);
 }
 
 /** Keep an image (a PNG / JPEG / WebP data URL) under a file name, replacing any before it, and start decoding it. */
@@ -71,7 +103,10 @@ export function imageUrl(name: string): string | undefined {
 			url = undefined;
 		}
 		if (url && URL_PATTERN.test(url)) urls.set(name, url);
-		else url = undefined;
+		else {
+			url = undefined;
+			resolveMissing(name);
+		}
 	}
 	return url;
 }

@@ -3,208 +3,16 @@
 // mesa: its own height, a random tilt, a dip across the bedding (ledges), a rounding (dome, ridge or hexagonal prism),
 // and sides (scarps) that fall away from its border at a fixed slope, so a higher block drapes over its lower
 // neighbours: plateaus, ledges and shelves instead of cliffs everywhere. Finer generations of blocks (facets) are added
-// on top at falling strength: chipped, crumpled faces. The surface is the upper envelope of the mesas, with weathered
+// on top at falling strength: chipped, crumpled faces (or a noise, Facets › Noise). The surface is the upper envelope of the mesas, with weathered
 // shoulders, rills and laminae; the creases where two meet are the joints, which can open into cracks, and the blocks
 // between them go to the mask it writes. Scarps and crevices are outputs of their own, for paint.
 
 import { P, gradient, type ParamValues } from '@/core/params';
 import { PX_SCALE_PARAM, roughnessParams } from '../commonParams';
+import { noiseCalib, noiseControlsAs, noiseFieldGlsl, NZ_SHARED_GLSL, quantileTexture } from './noise';
 import { cellsFor, f32, imod } from '../derivedMath';
 import type { LayerCanvas, LayerDef } from '../types';
 import { ORG_GLSL } from './organicShared';
-
-// Styles: the shape settings of hand-authored recreations (docs/features/fr8.18-rock.md, the settings table), where
-// they differ from the defaults. Block size, facet levels, Height and the paint stay as they are; params a style
-// doesn't name go back to their defaults. (Columns: no facets — the recreation had one level.)
-const STYLES: Record<string, ParamValues> = {
-	fractured: {
-		angle: -60,
-		fold: 0,
-		elong: 1.15,
-		bedding: 0.6,
-		jitter: 1,
-		merge: 0.45,
-		size_var: 0.9,
-		tilt: 1,
-		lean: 0.6,
-		weather: 0.5,
-		facets: 0.35,
-		zones: 0.8,
-		steps: 0.8,
-		joint: 0
-	},
-	ledges: {
-		angle: 0,
-		elong: 1.4,
-		bedding: 0.3,
-		merge: 0.6,
-		size_var: 0.7,
-		fold: 0,
-		coherence: 0.2,
-		tilt: 0.15,
-		scarp: 2,
-		weather: 2,
-		lean: -0.6,
-		steps: 0,
-		bed_relief: 0.8,
-		facets: 0.8,
-		zones: 0.3,
-		rough: 0.02,
-		rough_scale: 3,
-		joint: 0.5,
-		joint_open: 0.12,
-		joint_cross: 2,
-		joint_var: 0.6,
-		joint_depth: 0.15
-	},
-	flakes: {
-		angle: -25,
-		cross: 25,
-		elong: 2.5,
-		bedding: 0.3,
-		jitter: 1,
-		merge: 0,
-		size_var: 0.5,
-		fold: 1.5,
-		heights: 1.2,
-		coherence: 0.4,
-		dip: 0.2,
-		scarp: 5,
-		weather: 0,
-		lean: -0.3,
-		steps: 1,
-		bed_relief: 0.8,
-		zones: 0.6,
-		rough: 0.05,
-		joint: 0,
-		joint_open: 1,
-		joint_cross: 1,
-		joint_var: 0.6,
-		joint_depth: 0.6
-	},
-	slate: {
-		angle: -20,
-		elong: 2,
-		merge: 0,
-		warp: 0.3,
-		jag: 0.6,
-		fold: 1.5,
-		fold_scale: 1,
-		heights: 0.5,
-		coherence: 0.2,
-		tilt: 0.4,
-		dip: 0.2,
-		weather: 0.3,
-		lean: 0.8,
-		steps: 0,
-		facets: 0.3,
-		zones: 0,
-		rough: 0.25,
-		rough_scale: 3,
-		joint: 2.5,
-		joint_open: 1,
-		joint_cross: 0.3,
-		joint_facets: 0.2,
-		joint_var: 1,
-		joint_depth: 0.8,
-		fractures: 0.5,
-		frac_angle: -60
-	},
-	columns: {
-		angle: 90,
-		cross: 20,
-		elong: 2.5,
-		bedding: 0.7,
-		jitter: 1,
-		merge: 0,
-		size_var: 0.4,
-		warp: 0.03,
-		jag: 0.1,
-		fold: 0,
-		heights: 0.8,
-		coherence: 0,
-		tilt: 0.1,
-		pitch: 1,
-		bulge: 1,
-		crest: 'hex',
-		scarp: 0.8,
-		weather: 0,
-		lean: -0.3,
-		steps: 0,
-		bed_relief: 1.5,
-		zones: 0,
-		rough: 0.05,
-		rough_scale: 3,
-		joint: 0,
-		joint_open: 1,
-		joint_cross: 1,
-		joint_var: 0.6,
-		joint_depth: 0.6,
-		facets: 0
-	},
-	rubble: {
-		angle: 0,
-		elong: 1.8,
-		bedding: 0.9,
-		merge: 0,
-		size_var: 0.5,
-		warp: 0.2,
-		jag: 0.4,
-		fold: 0,
-		heights: 0.4,
-		proud: 0.4,
-		coherence: 0.2,
-		tilt: 0.4,
-		dip: 0.1,
-		bulge: 0.3,
-		scarp: 2,
-		weather: 3,
-		corner: 2,
-		steps: 0,
-		facets: 0.3,
-		zones: 0.5,
-		rough: 0.1,
-		rough_scale: 1.5,
-		joint: 1.5,
-		joint_open: 1,
-		joint_cross: 1,
-		joint_facets: 0.3,
-		facet_break: 0.6,
-		joint_var: 0.5,
-		joint_depth: 0.6
-	},
-	cobbles: {
-		angle: 0,
-		elong: 1.3,
-		bedding: 0.2,
-		jitter: 1,
-		merge: 0,
-		warp: 0.2,
-		fold: 0,
-		heights: 0.4,
-		coherence: 0.2,
-		tilt: 0.3,
-		bulge: 0.9,
-		scarp: 2,
-		weather: 2,
-		corner: 3,
-		lean: 0,
-		steps: 0,
-		facets: 0.2,
-		zones: 0.4,
-		rough: 0.05,
-		joint: 2,
-		joint_open: 1,
-		joint_cross: 1,
-		joint_var: 0.5,
-		joint_depth: 0.8
-	}
-};
-const STYLE_KEYS = [...new Set(Object.values(STYLES).flatMap((s) => Object.keys(s)))];
-// What a style puts back before its own settings: every style key's default (built on first use, from the params).
-let styleReset: ParamValues | undefined;
-const STYLE_RESET = () =>
-	(styleReset ??= Object.fromEntries(STYLE_KEYS.map((k) => [k, rockLayer.params.find((d) => d.key === k)!.default])));
 
 // The relief's colour ramp (its default, and what switching back to it restores).
 const reliefGrad = () => gradient('#3b3631', '#7d746a', '#a69c90');
@@ -416,6 +224,12 @@ export function rockDerived(p: ParamValues, c: LayerCanvas) {
 	};
 }
 
+const facetNoise = (p: ParamValues) => p.facet_src === 'noise';
+const blockFacets = (p: ParamValues) => !facetNoise(p) && Number(p.detail) > 1;
+const hasFacets = (p: ParamValues) => facetNoise(p) || Number(p.detail) > 1;
+/** Noise facets start as about half-block lumps; octaves past pixel size would only alias. */
+const FACET_NOISE_DEFAULTS: ParamValues = { scale: 32, octaves: 3 };
+
 export const rockLayer: LayerDef = {
 	type: 'rock',
 	label: 'Rock',
@@ -453,29 +267,6 @@ export const rockLayer: LayerDef = {
 			],
 			{
 				hint: 'Picks what the layer outputs. Every output uses the same rock (same settings and seed) and writes its blocks into the mask'
-			}
-		),
-		P.enum(
-			'style',
-			'Style',
-			'default',
-			[
-				['default', 'Default', 'the generator’s defaults: gently folded strata of tilted blocks'],
-				[
-					'fractured',
-					'Fractured face',
-					'steep strata broken into tilted blocks of many sizes, with finer fractures (the wizard’s Rock face)'
-				],
-				['ledges', 'Layered ledges', 'level beds standing out as ledges with sheer undersides, a few open joints'],
-				['flakes', 'Flaky strata', 'folded beds of thin plates, with every ledge a staircase of flakes'],
-				['slate', 'Slate plates', 'flat plates in angled, folded beds, wide open joints and long fractures'],
-				['columns', 'Columns', 'hexagonal columns with sheared, lit ends'],
-				['rubble', 'Coursed rubble', 'big rounded stones in courses, partly cracked, mostly flush'],
-				['cobbles', 'Cobbles', 'domed, rounded stones with open joints']
-			],
-			{
-				uniform: false,
-				hint: 'Sets the shape to a ready-made look (block size, Height and paint are kept). Anything you change afterwards stays as you set it'
 			}
 		),
 		P.enum(
@@ -699,22 +490,39 @@ export const rockLayer: LayerDef = {
 			showIf: (p) => Number(p.steps) > 0,
 			hint: 'How far apart the scarp’s steps are, in px (varied randomly by ±30 % per block)'
 		}),
+		P.enum(
+			'facet_src',
+			'Facets',
+			'blocks',
+			[
+				['blocks', 'Blocks', 'splits each face into smaller blocks: crumpled planes meeting in creases'],
+				[
+					'noise',
+					'Noise',
+					'lays a noise of your choice over the faces instead, leaving the blocks and joints as they are'
+				]
+			],
+			// It picks the shader variant (shaderFeatures), not a branch in it.
+			{ uniform: false, section: 'Relief', hint: 'What makes the detail inside each block' }
+		),
 		P.int('detail', 'Facet levels', 3, 1, 3, {
 			section: 'Relief',
+			showIf: (p) => !facetNoise(p),
 			hint: 'How many levels of blocks to make: each extra level splits the faces into smaller facets half the size (levels under ~8 px fade out)'
 		}),
 		P.float('facets', 'Facet relief', 0.4, 0, 1, {
 			step: 0.001,
 			section: 'Relief',
-			showIf: (p) => Number(p.detail) > 1,
+			showIf: hasFacets,
 			hint: 'How much relief the finer facets get compared to the blocks (halved again for each further level)'
 		}),
 		P.float('zones', 'Fracture zones', 0.7, 0, 1, {
 			step: 0.001,
 			section: 'Relief',
-			showIf: (p) => Number(p.detail) > 1 || Number(p.rough) > 0,
+			showIf: (p) => hasFacets(p) || Number(p.rough) > 0,
 			hint: 'Makes the facets and roughness come and go across the rock in zones a few blocks wide, so smooth, whole faces sit beside shattered, crumbly ones'
 		}),
+		...noiseControlsAs('fn_', 'Facet noise', facetNoise, FACET_NOISE_DEFAULTS),
 		...roughnessParams(0.04, 4).map((d) => (d.key === 'rough_scale' ? { ...d, uniform: false } : d)),
 
 		P.float('rills', 'Rills', 0, 0, 1, {
@@ -790,13 +598,13 @@ export const rockLayer: LayerDef = {
 		P.float('joint_facets', 'Facet joints', 0, 0, 1, {
 			step: 0.001,
 			section: 'Joints',
-			showIf: (p) => Number(p.joint) > 0 && Number(p.detail) > 1,
+			showIf: (p) => Number(p.joint) > 0 && blockFacets(p),
 			hint: 'Cracks some of the borders between the first level of facets too, as hairlines thinner and shallower than the joints. Each border cracks along its whole length or not at all'
 		}),
 		P.float('facet_break', 'Facet joint breakup', 0, 0, 1, {
 			step: 0.001,
 			section: 'Joints',
-			showIf: (p) => Number(p.joint) > 0 && Number(p.joint_facets) > 0 && Number(p.detail) > 1,
+			showIf: (p) => Number(p.joint) > 0 && Number(p.joint_facets) > 0 && blockFacets(p),
 			hint: 'Makes the facet cracks fade in and out along their length (noise about half a block across), for partial hairline cracks inside the stones rather than whole straight ones'
 		}),
 		P.float('joint_var', 'Joint variation', 0.8, 0, 1, {
@@ -859,6 +667,10 @@ export const rockLayer: LayerDef = {
 		dif_on: true,
 		dif_grad: reliefGrad()
 	},
+	// Noise facets' code compiles only for the layers that pick them (a dropdown, so no slider recompiles).
+	shaderFeatures: (p) => (facetNoise(p) ? ['RK_FACET_NOISE'] : []),
+	textures: ['calib'],
+	cpuData: (p, ctx) => (facetNoise(p) ? noiseCalib(p, ctx.tileable, 'fn_') : quantileTexture(null)),
 	// Added in the editor: blocks a little over a tenth of the texture's mean side, the relief deepening with them.
 	fresh: ({ width, height }) => {
 		const size = Math.round(Math.min(48, Math.max(6, Math.sqrt(width * height) * 0.12)) * 10) / 10;
@@ -866,17 +678,14 @@ export const rockLayer: LayerDef = {
 	},
 	// Relief is the height; scarps and crevices are masks for paint (their coverage is their value, so a colour lands only
 	// on them): scarps darken the faces they cover, crevices fill with moss.
-	linkedDefaults: (p) => ({
-		...(p.output === 'scarps'
+	linkedDefaults: (p) =>
+		p.output === 'scarps'
 			? { h_on: false, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#7a6a58') }
 			: p.output === 'crevices'
 				? { h_on: false, dif_blend: 'normal', dif_grad: gradient('#3a3a1c', '#4e5226') }
 				: p.output === 'streaks'
 					? { h_on: false, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#6a5e50') }
-					: { h_on: true, dif_blend: 'normal', dif_grad: reliefGrad() }),
-		...STYLE_RESET(),
-		...STYLES[String(p.style)]
-	}),
+					: { h_on: true, dif_blend: 'normal', dif_grad: reliefGrad() },
 	// Uniform-only work on the CPU (rockDerived); the params only it reads are `uniform: false`.
 	derivedUniforms: {
 		decl: {
@@ -1062,6 +871,16 @@ float rk_streaks(vec2 p, float dTop, float scarpsAll, float pxs) {
   return clamp(st, 0.0, 1.0) * (1.0 - scarpsAll);
 }
 
+// Noise facets (Facets › Noise) replace the finer generations of blocks.
+#ifdef RK_FACET_NOISE
+${NZ_SHARED_GLSL}
+${noiseFieldGlsl('fn_')}
+const bool rkBlockFacets = false;
+const float RK_NOISE_RELIEF = 2.0;
+#else
+const bool rkBlockFacets = true;
+#endif
+
 GenOut gen(vec2 p) {
   // The strata frame (rockDerived: the same at every pixel, so it comes from the CPU): steeper than 45° it turns 90°;
   // u = (q.x − s q.y) / W along the bedding, v = (q.y + t q.x) / H across it. Rows (courses, columns) get their own
@@ -1172,9 +991,9 @@ GenOut gen(vec2 p) {
   // Generations: the detail, less the last when it fades out entirely (see amp; the first facets stay for the facet
   // joints and values). It bounds the loop: breaking out of it instead cost 0.3 s of D3D compile. Each generation visits
   // its 38 cells, then (g == 38) the pixel's own block.
-  int nGen = min(u_detail > 2 && (u_facets <= 0.0 || zf <= 0.0 || T <= 16.0 * pxs) ? 2 : u_detail, 3);
+  int nGen = rkBlockFacets ? min(u_detail > 2 && (u_facets <= 0.0 || zf <= 0.0 || T <= 16.0 * pxs) ? 2 : u_detail, 3) : 1;
   for (int e = 0; e < nGen * 39 * UNI_1; e++) {
-    int o = e / 39, g = e - o * 39;
+    int o = rkBlockFacets ? e / 39 : 0, g = e - o * 39;
     if (g == 0) {
       m = float(1 << o);
       mx = o == 0 ? 1.0 : m * E;
@@ -1437,6 +1256,13 @@ GenOut gen(vec2 p) {
     }
   }
 
+#ifdef RK_FACET_NOISE
+  // Noise facets: over the faces, following the warped rock. Added after the blocks are chosen, so it moves no border, and
+  // a Worley noise's cells stand in for the first facets' colours.
+  float fnRnd;
+  relief += RK_NOISE_RELIEF * u_facets * zf * (nz_field(pw, uSeed + 211.0, fnRnd) - 0.5);
+  if (u_fn_noise >= 3) rndF = fnRnd;
+#endif
   // Height coherence: a smooth swell (value noise, ~3 block lengths across) shared by all the blocks at a pixel. Added to
   // every mesa alike it changes none of the comparisons, so it is added once here: neighbouring blocks share it at their
   // border, and only the blocks' own (shrunk) heights make steps — ledges here and there instead of at every joint.
@@ -1459,7 +1285,7 @@ GenOut gen(vec2 p) {
   bool mainOpen = false, thirdOpen = false, facetOpen = false;
   for (int k = 0; k < 3 * UNI_1; k++) {
     bool facet = k == 2;
-    if (k == 0 || (k == 1 ? !mainOpen && dc.z < 1e6 : u_joint_facets > 0.0 && u_joint > 0.0 && u_detail >= 2)) {
+    if (k == 0 || (k == 1 ? !mainOpen && dc.z < 1e6 : rkBlockFacets && u_joint_facets > 0.0 && u_joint > 0.0 && u_detail >= 2)) {
       vec2 sN = (k == 1 ? s5 : s2) - s1;
       float crossK = abs(sN.x) / max(length(sN), 1e-6);
       // Facet cracks: 0.6 × the width, at most a twelfth of a facet (half a block); see below for their depth.

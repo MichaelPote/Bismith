@@ -150,6 +150,14 @@ by default).
   became pits), their scarps run twice as far and don't lean (sheer facet steps lit as one-pixel cracks), and a level
   whose cells are under ~8 px fades out (a grid of pixel bumps). _Fracture zones_ scale the facets and surface grain by a
   broad noise, 0 to 2: whole, smooth faces beside shattered, crumbly ones. _Surface grain_ is a little Perlin noise on top.
+- **Noise facets.** _Facets_ picks what makes the detail inside the blocks: **Blocks** (above) or **Noise**, which has
+  the Noise layer's controls (type, fractal, cells across, Worley's shape, octaves, warp, levels; a _Facet noise_
+  section, without White, as _Surface grain_ is the pixel grain). The noise is added to the relief after the blocks are
+  chosen, following the rock's warp and scaled by _Facet relief_ and _Fracture zones_, so it moves no border: blocks,
+  joints, scarps and the mask stay the blocks'. Worley's cells stand in for the first facets under _Random value › Per
+  facet_; _Facet joints_ need block facets. The controls and shader are Noise's own (`noiseControlsAs`, `noiseFieldGlsl`
+  under the `fn_` prefix). Noise compiles as a variant (`RK_FACET_NOISE`) only for the layers that pick it: 2.6 s plain
+  against about 5 s on D3D, once, and changing a noise control after that compiles nothing.
 - **Relief.** `0.5 + 0.5·tanh(Σ mesas)`: linear over the usual range, rounding off big stacks instead of clipping them
   flat (clipped plateaus read as cardboard).
 
@@ -226,11 +234,9 @@ floors follow it, so supersampling doesn't bring back facets the small-block tun
 
 The defaults are a generic rock face — strata at −15°, gently folded (0.5), tilted blocks (0.8) with stepped scarps
 (0.6, every 2 px) leaning down the screen (0.3); the first defaults (folds 1, tilt 0.3, sheer undersides) read as wavy
-plaster. The recreations keep every param explicit, so they don't move when a default does. _Style_ (UI-only, `uniform:
-false`) jumps to a proven look — fractured face (the template), layered ledges, flaky strata, slate plates, columns,
-coursed rubble, cobbles — through the same linked defaults: the shape params the recreations settled on (block size,
-Height and paint stay), and those a style doesn't name back to their defaults; as with every linked default, a param the
-user changed stays changed. Defaults follow the output (`linkedDefaults`); a layer added in the editor sizes its blocks
+plaster. The recreations keep every param explicit, so they don't move when a default does. The proven looks are layer
+presets (`public/presets/layer/rock/`): Fractured face (the template), Layered ledges, Flaky strata, Slate plates, Columns,
+Coursed rubble and Cobbles. Defaults follow the output (`linkedDefaults`); a layer added in the editor sizes its blocks
 and relief to the texture (`fresh`: blocks ~12 % of the texture's mean side, Height 0.32 × the block size). All noise
 (warp, jaggies, roughness, rills' meander, breakup, zones, folds) runs in one flat loop and every generation in another
 (38 cells each, its bound the generation count — per pixel, as fracture zones can fade the last one out); the two
@@ -253,8 +259,7 @@ stay interactive.
 tilted blocks of widely spread sizes (0.9), 45 % merged — big blocks among small ones; at 30 % and 0.6 they read as a
 regular lattice of scales — three facet levels with fracture zones at 0.8 — whole, smooth fracture planes beside
 shattered zones — scarps stepped every 2 px (thin layered edges along the blocks' sides), no laminae (even at 0.15 they
-turned the smooth faces into wood grain), Height 0.32 × the block size. Its Rock copies (and the recipe's) carry the
-style _Fractured face_, which is this look, so picking another style moves every param. (At this angle merging only took
+turned the smooth faces into wood grain), Height 0.32 × the block size. (At this angle merging only took
 effect once it worked on the reduced lattice.) Blocks are 12 % of the texture's mean side (√(w·h), so wide textures
 don't get huge blocks), 7–32 px. Small blocks lose their facets (cells under ~8 px fade out), so the settings blend from
 a small-block look (less bedding, more tilt, a little grain) at 8 px to the large-block one from 16 px up. Five copies
@@ -277,7 +282,7 @@ every size: the ledges looked like a flagstone wall and dried mud, the columns l
 
 ## Settings that reproduce the references
 
-The layer's _Style_ presets take their shape settings from these rows (where they differ from the defaults): Fractured
+The layer presets take their shape settings from these rows (where they differ from the defaults): Fractured
 face from the template, Layered ledges, Flaky strata (Sandstone flakes), Slate plates, Columns (without facets), Coursed
 rubble and Cobbles (Brown cobbles) — generated from the recreations, not retyped.
 
@@ -321,7 +326,7 @@ light cast them best. Colour comes as much from geometry as from paint: dark rec
 - [x] Joints with width variation (per joint and along it), open share, cross-joint width, facet joints along the facet
       borders (with breakup), long fractures on a lattice basis, sub-pixel fade; Shape mask
 - [x] Corner rounding (rounded-box form), bed relief, pitch, stagger (running bond), scarp steps
-- [x] Proud blocks; editor defaults that read as rock (recreations keep every param explicit); Style presets
+- [x] Proud blocks; editor defaults that read as rock (recreations keep every param explicit); layer presets of the proven looks
 - [x] Outputs: Relief, Scarps (facing), Crevices (reach, patches), Streaks; per-bed / per-facet randoms
 - [x] Smoke, D3D11 compile time, seam tests (half-tile offset vs roll) with every feature on, renders compared between
       D3D11 and OpenGL

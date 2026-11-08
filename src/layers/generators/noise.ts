@@ -1,6 +1,6 @@
 import { pcg3, u2d } from '@/core/hash';
 import { memoize } from '@/core/memo';
-import { P, type ParamValues } from '@/core/params';
+import { P, type ParamDef, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
 
 export const NOISE_TYPES: ([string, string] | [string, string, string])[] = [
@@ -231,161 +231,175 @@ const notWhite = (p: Record<string, unknown>) => p.noise !== 'white';
 const isFractal = (p: Record<string, unknown>) => p.noise !== 'white' && p.fractal !== 'none';
 const isWorley = (p: Record<string, unknown>) => p.noise === 'worley' || p.noise === 'worley2' || p.noise === 'cells';
 
-export const noiseLayer: LayerDef = {
-	type: 'noise',
-	noise: true,
-	label: 'Noise',
-	category: 'noise',
-	kind: 'generator',
-	description:
-		'Noise: Lattice, cellular and white noise, with optional fractal layering, domain warp and contrast. Makes clouds, grain, stone, marbling, hammered metal.',
-	params: [
-		P.enum('noise', 'Type', 'perlin', NOISE_TYPES),
-		P.enum('fractal', 'Fractal', 'fbm', FRACTAL_MODES, { showIf: notWhite }),
-		P.float('scale', 'Cells across', 6, 0.25, 1024, {
-			softMax: 128,
-			step: 0.01,
-			showIf: notWhite,
-			hint: 'Sets how many cells fit across the texture width (rounded when tiling)'
-		}),
-		P.float('stretch', 'Stretch', 1, 0.02, 100, {
-			softMin: 0.1,
-			softMax: 16,
-			step: 0.01,
-			showIf: notWhite,
-			hint: 'Stretches the features horizontally above 1 (brushed metal, wood fibre: 8–30) and vertically below 1'
-		}),
-		P.float('jitter', 'Jitter', 1, 0, 1, {
-			step: 0.001,
-			showIf: isWorley,
-			hint: 'Moves each cell’s point randomly away from a regular grid (0 = a square lattice of identical cells, 1 = fully random)'
-		}),
-		P.enum(
-			'metric',
-			'Distance',
-			'euclidean',
+/** The noise's controls, but for White's Pixel size. */
+const NOISE_CONTROLS: ParamDef[] = [
+	P.enum('noise', 'Type', 'perlin', NOISE_TYPES),
+	P.enum('fractal', 'Fractal', 'fbm', FRACTAL_MODES, { showIf: notWhite }),
+	P.float('scale', 'Cells across', 6, 0.25, 1024, {
+		softMax: 128,
+		step: 0.01,
+		showIf: notWhite,
+		hint: 'Sets how many cells fit across the texture width (rounded when tiling)'
+	}),
+	P.float('stretch', 'Stretch', 1, 0.02, 100, {
+		softMin: 0.1,
+		softMax: 16,
+		step: 0.01,
+		showIf: notWhite,
+		hint: 'Stretches the features horizontally above 1 (brushed metal, wood fibre: 8–30) and vertically below 1'
+	}),
+	P.float('jitter', 'Jitter', 1, 0, 1, {
+		step: 0.001,
+		showIf: isWorley,
+		hint: 'Moves each cell’s point randomly away from a regular grid (0 = a square lattice of identical cells, 1 = fully random)'
+	}),
+	P.enum(
+		'metric',
+		'Distance',
+		'euclidean',
+		[
+			['euclidean', 'Euclidean', 'makes round cells and dimples'],
 			[
-				['euclidean', 'Euclidean', 'makes round cells and dimples'],
-				[
-					'manhattan',
-					'Manhattan',
-					'makes a rounded-diamond falloff and angular cell walls (a 1.3-norm, so no flat patches where two points tie)'
-				],
-				[
-					'chebyshev',
-					'Chebyshev',
-					'makes a rounded-square falloff and boxy cell walls (a 4-norm, so no flat patches where two points tie)'
-				]
+				'manhattan',
+				'Manhattan',
+				'makes a rounded-diamond falloff and angular cell walls (a 1.3-norm, so no flat patches where two points tie)'
 			],
-			{ showIf: isWorley }
-		),
-		P.bool('w_even', 'Even cells', true, {
-			showIf: (p) => p.noise === 'worley' || p.noise === 'cells',
-			hint: 'Measures each cell from its true borders, so big and small cells look alike. Worley edges rise over the Wall width from every wall, and each Worley F1 dimple runs from its point to its border, so it reaches full depth (off = the raw distance: big cells clip to flat white, small ones stay dark)'
-		}),
-		P.float('w_wall', 'Wall width', 0.15, 0.01, 2, {
-			softMax: 0.6,
-			step: 0.001,
-			showIf: (p) => p.noise === 'cells' && p.w_even === true,
-			hint: 'Sets how far in from each wall the cells rise, in cells (Even cells). Big and small cells get the same width, with level middles'
-		}),
-		P.enum('w_profile', 'Cell profile', 'smooth', CELL_PROFILES, {
-			showIf: isWorley,
-			hint: 'Shapes the curve across each cell from its point to its border (F1 the other way up). Round and Smooth turn the cone at every point into a dimple'
-		}),
-		P.int('octaves', 'Octaves', 5, 1, 12, { showIf: isFractal }),
-		P.float('lacunarity', 'Lacunarity', 2, 1, 8, {
-			softMin: 1.5,
-			softMax: 6,
-			step: 0.01,
-			showIf: isFractal,
-			hint: 'Sets how much finer each octave is than the one before (rounded to a whole number when tiling: 2, 3, 4 …)'
-		}),
-		P.float('gain', 'Gain', 0.5, 0, 1, {
-			step: 0.001,
-			showIf: isFractal,
-			hint: 'Sets how much strength each octave keeps from the one before (low = smooth, high = rough and grainy)'
-		}),
-		P.float('ridge', 'Ridge offset', 0.4, 0, 2, {
-			softMax: 1,
-			step: 0.001,
-			showIf: (p) => notWhite(p) && p.fractal === 'ridged',
-			hint: 'Lifts the valleys between the ridges and lets at least this share of the finer octaves into them (0 = classic ridged multifractal, with flat black basins and detail only on the crests; 0.5 = shallower basins with half the fine detail; 1 = detail everywhere)'
-		}),
-		P.float('crease', 'Crease softness', 0.5, 0, 1, {
-			step: 0.001,
-			showIf: (p) => notWhite(p) && (p.fractal === 'ridged' || p.fractal === 'billow'),
-			hint: 'Rounds off the knife-sharp crests of Ridged and creases of Billow, more so on the finer octaves, whose thin crests look like wiry hair (0 = sharp)'
-		}),
-		P.float('hier', 'Ridge hierarchy', 0.7, 0, 1, {
-			step: 0.001,
-			showIf: (p) => notWhite(p) && p.fractal === 'ridged',
-			hint: 'Branches smaller ridges off the main ridgelines by keeping the finer octaves near (and a bit wider than) the crests of the coarser ones, leaving the flanks smooth (0 = every scale at once, a tangle of crests like the classic ridged multifractal)'
-		}),
-		P.float('warp', 'Warp', 0, 0, 16, {
-			softMax: 3,
-			step: 0.001,
-			showIf: notWhite,
-			hint: 'Swirls the noise around with a domain warp this strong, in cells. Good for swirls and marbling'
-		}),
-		P.float('warp_scale', 'Warp scale', 4, 0.25, 128, {
-			softMax: 32,
-			step: 0.01,
-			showIf: (p) => notWhite(p) && Number(p.warp) > 0,
-			hint: 'Sets how many warp swirls fit across the texture (rounded when tiling)'
-		}),
-		P.bool('even', 'Even levels', true, {
-			section: 'Levels',
-			showIf: (p) => notWhite(p) && !isWorley(p),
-			hint: 'Measures the spread of values for these settings and evens it out, so mid-grey is the median and the darks and lights balance in every fractal mode. Billow and Ridged don’t come out dark, and Contrast and Brightness work the same on all of them (off = the raw values)'
-		}),
-		P.float('contrast', 'Contrast', 1, 0, 64, {
-			softMax: 8,
-			step: 0.01,
-			section: 'Levels',
-			showIf: notWhite,
-			hint: 'Spreads the values out from mid-grey, clipping at black and white (1 = the noise as it comes)'
-		}),
-		P.float('bias', 'Brightness', 0, -1, 1, {
-			step: 0.001,
-			section: 'Levels',
-			showIf: notWhite,
-			hint: 'Shifts the values up or down after Contrast. Together with Contrast, it sets how much of the area clips to white'
-		}),
-		P.float('soft', 'Clip softness', 0, 0, 1, {
-			step: 0.001,
-			section: 'Levels',
-			showIf: (p) => notWhite(p) && (Number(p.contrast) !== 1 || Number(p.bias) !== 0),
-			hint: 'Rounds off where the values clip to black and white, leaving the mid-tones alone (0 = a hard cut with a crease round every flat plateau, 1 = soft shoulders that meet at mid-grey)'
-		}),
-		P.int('block', 'Pixel size', 1, 1, 256, { softMax: 32, unit: 'px', showIf: (p) => p.noise === 'white' }),
-		P.seed()
-	],
-	// Added in the editor: a little more contrast, rolling off without a clip. Code-built layers keep neutral levels: they
-	// are usually thresholded (Cutoff, height masks), where a roll-off would move the cut.
-	fresh: () => ({ contrast: 1.1, soft: 1 }),
-	textures: ['calib'],
-	cpuData: (p, ctx) => {
-		// Value, Perlin and simplex: Worley isn't levelled.
-		if (p.even !== true || !notWhite(p) || isWorley(p)) return quantileTexture(null);
-		const mode = Math.max(
-			0,
-			FRACTAL_MODES.findIndex(([v]) => v === p.fractal)
-		);
-		return quantileTexture({
-			basis: p.noise === 'value' ? 0 : 1,
-			mode,
-			octaves: Number(p.octaves),
-			gain: Number(p.gain),
-			lacunarity: effLacunarity(p, ctx.tileable),
-			crease: Number(p.crease ?? 0),
-			ridgeOffset: 1 + Number(p.ridge ?? 0),
-			hier: Number(p.hier ?? 0)
-		});
-	},
-	defaults: { h_on: true, h_amount: 0.25 },
-	glsl: /* glsl */ `
-${NZ_SHARED_GLSL}
+			[
+				'chebyshev',
+				'Chebyshev',
+				'makes a rounded-square falloff and boxy cell walls (a 4-norm, so no flat patches where two points tie)'
+			]
+		],
+		{ showIf: isWorley }
+	),
+	P.bool('w_even', 'Even cells', true, {
+		showIf: (p) => p.noise === 'worley' || p.noise === 'cells',
+		hint: 'Measures each cell from its true borders, so big and small cells look alike. Worley edges rise over the Wall width from every wall, and each Worley F1 dimple runs from its point to its border, so it reaches full depth (off = the raw distance: big cells clip to flat white, small ones stay dark)'
+	}),
+	P.float('w_wall', 'Wall width', 0.15, 0.01, 2, {
+		softMax: 0.6,
+		step: 0.001,
+		showIf: (p) => p.noise === 'cells' && p.w_even === true,
+		hint: 'Sets how far in from each wall the cells rise, in cells (Even cells). Big and small cells get the same width, with level middles'
+	}),
+	P.enum('w_profile', 'Cell profile', 'smooth', CELL_PROFILES, {
+		showIf: isWorley,
+		hint: 'Shapes the curve across each cell from its point to its border (F1 the other way up). Round and Smooth turn the cone at every point into a dimple'
+	}),
+	P.int('octaves', 'Octaves', 5, 1, 12, { showIf: isFractal }),
+	P.float('lacunarity', 'Lacunarity', 2, 1, 8, {
+		softMin: 1.5,
+		softMax: 6,
+		step: 0.01,
+		showIf: isFractal,
+		hint: 'Sets how much finer each octave is than the one before (rounded to a whole number when tiling: 2, 3, 4 …)'
+	}),
+	P.float('gain', 'Gain', 0.5, 0, 1, {
+		step: 0.001,
+		showIf: isFractal,
+		hint: 'Sets how much strength each octave keeps from the one before (low = smooth, high = rough and grainy)'
+	}),
+	P.float('ridge', 'Ridge offset', 0.4, 0, 2, {
+		softMax: 1,
+		step: 0.001,
+		showIf: (p) => notWhite(p) && p.fractal === 'ridged',
+		hint: 'Lifts the valleys between the ridges and lets at least this share of the finer octaves into them (0 = classic ridged multifractal, with flat black basins and detail only on the crests; 0.5 = shallower basins with half the fine detail; 1 = detail everywhere)'
+	}),
+	P.float('crease', 'Crease softness', 0.5, 0, 1, {
+		step: 0.001,
+		showIf: (p) => notWhite(p) && (p.fractal === 'ridged' || p.fractal === 'billow'),
+		hint: 'Rounds off the knife-sharp crests of Ridged and creases of Billow, more so on the finer octaves, whose thin crests look like wiry hair (0 = sharp)'
+	}),
+	P.float('hier', 'Ridge hierarchy', 0.7, 0, 1, {
+		step: 0.001,
+		showIf: (p) => notWhite(p) && p.fractal === 'ridged',
+		hint: 'Branches smaller ridges off the main ridgelines by keeping the finer octaves near (and a bit wider than) the crests of the coarser ones, leaving the flanks smooth (0 = every scale at once, a tangle of crests like the classic ridged multifractal)'
+	}),
+	P.float('warp', 'Warp', 0, 0, 16, {
+		softMax: 3,
+		step: 0.001,
+		showIf: notWhite,
+		hint: 'Swirls the noise around with a domain warp this strong, in cells. Good for swirls and marbling'
+	}),
+	P.float('warp_scale', 'Warp scale', 4, 0.25, 128, {
+		softMax: 32,
+		step: 0.01,
+		showIf: (p) => notWhite(p) && Number(p.warp) > 0,
+		hint: 'Sets how many warp swirls fit across the texture (rounded when tiling)'
+	}),
+	P.bool('even', 'Even levels', true, {
+		section: 'Levels',
+		showIf: (p) => notWhite(p) && !isWorley(p),
+		hint: 'Measures the spread of values for these settings and evens it out, so mid-grey is the median and the darks and lights balance in every fractal mode. Billow and Ridged don’t come out dark, and Contrast and Brightness work the same on all of them (off = the raw values)'
+	}),
+	P.float('contrast', 'Contrast', 1, 0, 64, {
+		softMax: 8,
+		step: 0.01,
+		section: 'Levels',
+		showIf: notWhite,
+		hint: 'Spreads the values out from mid-grey, clipping at black and white (1 = the noise as it comes)'
+	}),
+	P.float('bias', 'Brightness', 0, -1, 1, {
+		step: 0.001,
+		section: 'Levels',
+		showIf: notWhite,
+		hint: 'Shifts the values up or down after Contrast. Together with Contrast, it sets how much of the area clips to white'
+	}),
+	P.float('soft', 'Clip softness', 0, 0, 1, {
+		step: 0.001,
+		section: 'Levels',
+		showIf: (p) => notWhite(p) && (Number(p.contrast) !== 1 || Number(p.bias) !== 0),
+		hint: 'Rounds off where the values clip to black and white, leaving the mid-tones alone (0 = a hard cut with a crease round every flat plateau, 1 = soft shoulders that meet at mid-grey)'
+	})
+];
+
+/** p's noise controls, stored under a prefix, by their plain keys. */
+const unprefixed = (p: ParamValues, prefix: string): ParamValues =>
+	Object.fromEntries(NOISE_CONTROLS.map((d) => [d.key, p[prefix + d.key]]));
+
+/**
+ * The noise's controls for another generator, under a key prefix and a section heading (noiseFieldGlsl is their shader).
+ * `show` hides them all; `defaults` are by the plain keys. No White: single pixels are that generator's grain to add.
+ */
+export function noiseControlsAs(
+	prefix: string,
+	section: string,
+	show: (p: ParamValues) => boolean,
+	defaults: ParamValues = {}
+): ParamDef[] {
+	return NOISE_CONTROLS.map((d) => ({
+		...d,
+		key: prefix + d.key,
+		section,
+		default: defaults[d.key] ?? d.default,
+		...(d.key === 'noise' ? { options: d.options!.filter((o) => o.value !== 'white') } : {}),
+		showIf: (p) => show(p) && (!d.showIf || d.showIf(unprefixed(p, prefix)))
+	}));
+}
+
+/** The measured levels Even levels needs (t_calib), for controls stored under `prefix`. */
+export function noiseCalib(params: ParamValues, tileable: boolean, prefix = ''): Record<string, CpuTexture> {
+	const p = prefix ? unprefixed(params, prefix) : params;
+	// Value, Perlin and simplex: Worley isn't levelled.
+	if (p.even !== true || !notWhite(p) || isWorley(p)) return quantileTexture(null);
+	const mode = Math.max(
+		0,
+		FRACTAL_MODES.findIndex(([v]) => v === p.fractal)
+	);
+	return quantileTexture({
+		basis: p.noise === 'value' ? 0 : 1,
+		mode,
+		octaves: Number(p.octaves),
+		gain: Number(p.gain),
+		lacunarity: effLacunarity(p, tileable),
+		crease: Number(p.crease ?? 0),
+		ridgeOffset: 1 + Number(p.ridge ?? 0),
+		hier: Number(p.hier ?? 0)
+	});
+}
+
+/** The noise's shader: nz_worley and the rest of what nz_field needs, then nz_field. */
+const NZ_FIELD_GLSL = /* glsl */ `
 // worleyNoise() — the same F1, F2 and cell random — in one flat loop with a runtime bound: 9 cells for the nearest
 // points, then the 25 round the nearest one for its border. w = the distance to the nearest cell's border (cell units):
 // a soft minimum ((Σ d⁻³)^(-1/3), which rounds the creases from the point to the corners yet stays exactly 0 on the
@@ -436,28 +450,23 @@ vec4 nz_worley(vec2 x, ivec2 period, float jitter, int metric, float seed) {
 // The integral of clamp(x, 0, 1): differences of it give the clamp box-filtered over a width (soft shoulders).
 float nz_clampInt(float x) { return x < 0.0 ? 0.0 : x < 1.0 ? 0.5 * x * x : x - 0.5; }
 
-GenOut gen(vec2 p) {
-  if (u_noise == 6) {
-    float b = float(u_block);
-    ivec2 c = ivec2(floor(p / b));
-    c = wrapCell(c, ivec2(snapCells(uRes / b)));
-    float v = animValue(hashI(c, uSeed), c, uSeed);
-    return genOut(v, 1.0, v, 0.0);
-  }
+// The noise at p (px), by the layer's controls; rnd: a Worley noise's cell random (first octave).
+float nz_field(vec2 p, float seed, out float rnd) {
   vec2 cells = cellsFor(u_scale, u_stretch);
   ivec2 period = periodOf(cells);
   vec2 x = p / uRes * cells;
   if (u_warp > 0.0) {
     vec2 wc = cellsFor(u_warp_scale, 1.0);
     ivec2 wper = periodOf(wc);
-    x += warpOffset(p / uRes * wc, wper, uSeed + 7.0) * u_warp * 2.0;
+    x += warpOffset(p / uRes * wc, wper, seed + 7.0) * u_warp * 2.0;
   }
   // The fractal sum in one flat loop with a runtime bound, so each base noise is compiled once (a generic dispatch
   // would inline Worley in every unrolled octave), and Worley takes the layer's jitter, metric and cell profile.
   // Worley's cell random (the per-feature rnd) comes from the first octave.
   bool worley = u_noise >= 3;
   int oct = u_fractal == 0 ? 1 : u_octaves;
-  float sum = 0.0, amp = 1.0, norm = 0.0, weight = 1.0, rnd = 0.0, f0 = 1.0;
+  float sum = 0.0, amp = 1.0, norm = 0.0, weight = 1.0, f0 = 1.0;
+  rnd = 0.0;
   vec2 q = x;
   ivec2 per = period;
   int ilac = int(u_lacunarity + 0.5);
@@ -466,13 +475,13 @@ GenOut gen(vec2 p) {
   bool turned = uTile && !worley && period.x == period.y;
   for (int o = 0; o < 12 * UNI_1; o++) {
     if (o >= oct) break;
-    float s = uSeed + float(o) * 31.0;
+    float s = seed + float(o) * 31.0;
     // Decorrelated octaves: each octave's lattice shifted off the others (any shift keeps the period; the first octave
     // stays put on the axis-aligned lattice, while the turned one shifts every octave) and turned —
     // freely when the project doesn't tile; value and Perlin on a turned lattice that tiles (rl_noise) on a square
     // grid — so no grid lines, crests or octaves line up along the axes.
     vec2 qo = q;
-    vec2 sh = vec2(hashI(ivec2(o, 3), uSeed), hashI(ivec2(o, 5), uSeed)) + 0.37 * float(o);
+    vec2 sh = vec2(hashI(ivec2(o, 3), seed), hashI(ivec2(o, 5), seed)) + 0.37 * float(o);
     if (o > 0) qo += sh;
     if (!uTile) qo = rot2(0.5 + 2.4 * float(o)) * qo;
     float n;
@@ -563,8 +572,49 @@ GenOut gen(vec2 p) {
     float sw = u_soft;
     v = sw > 0.0 ? (nz_clampInt(l + 0.5 * sw) - nz_clampInt(l - 0.5 * sw)) / sw : clamp(l, 0.0, 1.0);
   }
+  return v;
+}
+`;
+
+const CONTROL_UNIFORMS = new RegExp(`\\bu_(?=(?:${NOISE_CONTROLS.map((d) => d.key).join('|')})\\b)`, 'g');
+
+/** nz_field for controls stored under a key prefix (it needs NZ_SHARED_GLSL before it, and t_calib: noiseCalib). */
+export const noiseFieldGlsl = (prefix: string) => NZ_FIELD_GLSL.replace(CONTROL_UNIFORMS, `u_${prefix}`);
+
+export const noiseLayer: LayerDef = {
+	type: 'noise',
+	noise: true,
+	label: 'Noise',
+	category: 'noise',
+	kind: 'generator',
+	description:
+		'Noise: Lattice, cellular and white noise, with optional fractal layering, domain warp and contrast. Makes clouds, grain, stone, marbling, hammered metal.',
+	params: [
+		...NOISE_CONTROLS,
+		P.int('block', 'Pixel size', 1, 1, 256, { softMax: 32, unit: 'px', showIf: (p) => p.noise === 'white' }),
+		P.seed()
+	],
+	// Added in the editor: a little more contrast, rolling off without a clip. Code-built layers keep neutral levels: they
+	// are usually thresholded (Cutoff, height masks), where a roll-off would move the cut.
+	fresh: () => ({ contrast: 1.1, soft: 1 }),
+	textures: ['calib'],
+	cpuData: (p, ctx) => noiseCalib(p, ctx.tileable),
+	defaults: { h_on: true, h_amount: 0.25 },
+	glsl: /* glsl */ `
+${NZ_SHARED_GLSL}
+${NZ_FIELD_GLSL}
+GenOut gen(vec2 p) {
+  if (u_noise == 6) {
+    float b = float(u_block);
+    ivec2 c = ivec2(floor(p / b));
+    c = wrapCell(c, ivec2(snapCells(uRes / b)));
+    float v = animValue(hashI(c, uSeed), c, uSeed);
+    return genOut(v, 1.0, v, 0.0);
+  }
+  float rnd;
+  float v = nz_field(p, uSeed, rnd);
   // Worley types have cells (features); value / perlin / simplex are smooth — their "random" is the value itself.
-  if (worley) return genOut(v, 1.0, rnd, 0.0);
+  if (u_noise >= 3) return genOut(v, 1.0, rnd, 0.0);
   return genOutSmooth(v, 1.0, v, 0.0);
 }
 `

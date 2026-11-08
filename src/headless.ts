@@ -3,6 +3,7 @@
 import type { Project } from '@/core/project';
 import { normalizeProject } from '@/core/serialize';
 import { getHdrImage, getImage, putImage } from '@/core/images';
+import '@/presets';
 import { Engine } from '@/render/engine';
 import { mapPixels, pixelsToDataURL, type MapKind } from '@/render/export';
 import { capturePreview, PROJECT_PREVIEW, TILE_PREVIEW } from '@/render/preview';
@@ -295,6 +296,8 @@ export function installHeadless(engine: Engine): BismithHeadless {
 				getImage(name);
 				getHdrImage(name);
 			}
+			// A built-in lighting preset's sky, named and not carried, is looked up now.
+			getHdrImage(project.lighting.sky.image ?? '');
 			engine.setProject(project);
 			return project;
 		},

@@ -6,6 +6,8 @@ import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, linkedChanges } from '@/layers/registry';
 import { imod } from '@/layers/derivedMath';
 import { rockDerived, rockLayer } from '@/layers/generators/rock';
+import { noiseFieldGlsl, noiseLayer } from '@/layers/generators/noise';
+import { shaderKey } from '@/render/materialPipeline';
 
 describe('rock', () => {
 	ensureBuiltins();
@@ -21,6 +23,26 @@ describe('rock', () => {
 		expect(big.detail).toBe(3);
 		// A wide texture's blocks follow its mean side, not its width.
 		expect(Number(freshParams('rock', { width: 512, height: 32 }).size)).toBeLessThan(Number(big.size));
+	});
+
+	it('compiles noise facets only for the layers that pick them, with the Noise layer’s controls', () => {
+		const layer = createLayer('rock');
+		expect(shaderKey(layer)).toBe('rock');
+		const def = (key: string) => rockLayer.params.find((d) => d.key === key)!;
+		expect(def('fn_noise').showIf!(layer.params)).toBe(false);
+		const noisy = { ...layer.params, facet_src: 'noise' };
+		expect(shaderKey({ type: 'rock', params: noisy })).toBe('rock~f:RK_FACET_NOISE');
+		expect(def('fn_noise').showIf!(noisy)).toBe(true);
+		expect(def('detail').showIf!(noisy)).toBe(false);
+		// The controls' own conditions read their prefixed values.
+		expect(def('fn_jitter').showIf!(noisy)).toBe(false);
+		expect(def('fn_jitter').showIf!({ ...noisy, fn_noise: 'worley' })).toBe(true);
+		// One shader whatever the type; single pixels are Surface grain's.
+		expect(def('fn_noise').options!.map((o) => o.value)).not.toContain('white');
+		expect(noiseLayer.params.find((d) => d.key === 'noise')!.options!.map((o) => o.value)).toContain('white');
+		const glsl = noiseFieldGlsl('fn_');
+		expect(glsl).toContain('u_fn_warp_scale');
+		expect(glsl).not.toMatch(/\bu_(noise|fractal|warp_scale)\b/);
 	});
 
 	it('switches the paint defaults with the output, and back', () => {
@@ -40,22 +62,6 @@ describe('rock', () => {
 			expect(back.h_on, output).toBe(true);
 			expect(back.dif_grad, output).toEqual(relief.params.dif_grad);
 		}
-	});
-
-	it('switches the shape with the style, keeps what the user changed, and goes back', () => {
-		const base = createLayer('rock').params;
-		const cols = linkedChanges('rock', base, 'style', 'columns');
-		expect(cols).toMatchObject({ angle: 90, crest: 'hex', bulge: 1 });
-		// Block size, Height and paint aren't the style's.
-		for (const k of ['size', 'h_amount', 'dif_grad', 'output']) expect(k in cols, k).toBe(false);
-		// A param the user set stays; untouched ones follow the next style, and Default restores them.
-		const user = { ...base, ...cols, angle: 80 };
-		const rubble = linkedChanges('rock', user, 'style', 'rubble');
-		expect(rubble.angle).toBeUndefined();
-		expect(rubble).toMatchObject({ crest: 'dome', weather: 3, proud: 0.4 });
-		const back = linkedChanges('rock', { ...user, ...rubble }, 'style', 'default');
-		for (const d of rockLayer.params)
-			if (d.key in back && d.key !== 'style') expect(back[d.key], d.key).toEqual(d.default);
 	});
 
 	it('keeps defaults inside their ranges', () => {

@@ -653,9 +653,7 @@ function rockFace(a: Analysis, ctx: TemplateContext): Project {
 		steps: 0.8,
 		step_px: 2,
 		joint: 0,
-		mk_target: '',
-		// (The Rock layer's Fractured face style is this look: picking another style then moves every param.)
-		style: 'fractured'
+		mk_target: ''
 	};
 	// Moss only for a real (yellowish) green: greenest() also takes slate's blue-greys, and lighter than the rock they
 	// drew pale lines along every crevice.

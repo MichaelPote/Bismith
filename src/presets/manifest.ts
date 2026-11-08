@@ -13,6 +13,8 @@ export interface PresetManifestEntry {
 	description?: string;
 	category?: string;
 	preview?: string;
+	/** A lighting preset's sky images, by file name: projects name them without carrying them (setImageResolver). */
+	images?: string[];
 }
 
 export interface PresetManifest {
