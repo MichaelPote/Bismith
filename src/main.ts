@@ -13,8 +13,12 @@ import App from './App.vue';
 import { bootHeadless } from './headless';
 
 const root = document.getElementById('app')!;
-if (new URLSearchParams(location.search).has('headless')) {
+const params = new URLSearchParams(location.search);
+if (params.has('headless')) {
 	bootHeadless(root);
 } else {
 	createApp(App).use(createPinia()).mount(root);
+	// The GPU tools' editor (tools/editor.ts). Dev server only: the build drops this branch and the module.
+	if (import.meta.env.DEV && params.has('editor'))
+		void import('./editorDriver').then((m) => m.startEditorDriver(params.get('worker') ?? '0'));
 }

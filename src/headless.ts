@@ -628,7 +628,7 @@ export function bootHeadless(root: HTMLElement): void {
  * Worker mode (tools/backend.ts, windows backend): pull jobs `{ id, method, args }` from the dev server's
  * long-poll queue, run `window.__bismith[method](...args)`, post `{ id, ok, result | error }` back.
  */
-async function workerLoop(api: BismithHeadless, worker: string): Promise<void> {
+export async function workerLoop(api: { rendererInfo(): string }, worker: string): Promise<void> {
 	const q = `?worker=${encodeURIComponent(worker)}`;
 	const post = (path: string, body: unknown) =>
 		fetch(`/__bismith/${path}${q}`, {

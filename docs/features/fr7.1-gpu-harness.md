@@ -20,6 +20,13 @@ ANGLE/D3D11 on the RTX 5080) — without a visible window and without exposing a
   killed by tag on close / Ctrl-C.
 - **swiftshader** backend: the previous Playwright path, kept as a portable fallback.
 - `--backend windows|swiftshader`, `--workers N` on every harness command; `BISMITH_BACKEND` env var.
+- **The editor on the GPU** (`tools/editor.ts`, `openEditor()`; `tools/shot.ts` uses it): for checks that go through the
+  UI. Windows Chrome opens `/?editor&worker=0`, the normal app plus `src/editorDriver.ts` (dev server only; the build
+  drops it), which pulls `eval` and `cdp` jobs from the same queue. Since nothing in WSL can reach the browser's DevTools
+  port, the page opens that socket on itself (`--remote-debugging-port=0`, the port read from the profile's
+  `DevToolsActivePort`), for trusted clicks, drags and keys and for screenshots. It has its own profile
+  (`bismith-gpu-editor-<port>`), storage cleared on open and its shader cache kept. On SwiftShader the same API is
+  plain Playwright.
 
 ## Findings
 
@@ -37,3 +44,4 @@ ANGLE/D3D11 on the RTX 5080) — without a visible window and without exposing a
 - [x] Backend abstraction used by harness render / compare / optimize
 - [x] Multi-worker sessions
 - [x] Benchmark tool (`tools/bench.ts`)
+- [x] The real editor on the GPU, driven through its UI (`tools/editor.ts`)

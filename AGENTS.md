@@ -70,6 +70,9 @@ doesn't.)
   for `'srgb'`, the default — so the viewport's hues drift from the Match panes and exports (reds toward orange).
   Our shaders write display values themselves; `Gpu.clearCanvas` passes its colour as sRGB instead
   (`src/gpu/context.ts`).
+- **Check the UI on the GPU.** `openEditor()` (`tools/editor.ts`) drives the real editor on the Windows GPU: real clicks,
+  drags, keys and screenshots (`tools/shot.ts` for a quick look). Playwright's own Chromium in WSL is SwiftShader: renders
+  take ~100× longer, so anything that waits on convergence behaves differently there and can mislead a repro.
 - **The studio's page loads `src/` once.** `tools/studio.ts` keeps one browser page for its whole run, so edits to
   `src/` never reach it: a new layer type is silently dropped on load and renders come out unchanged. Restart the
   studio after changing generator or pipeline code (check a render's metrics actually moved).

@@ -12,7 +12,7 @@
 // Windows browser is reachable, else swiftshader.
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -60,7 +60,7 @@ export async function openSession(opts: SessionOptions = {}): Promise<Session> {
 
 // ------------------------------------------------------------------------------------------------ shared
 
-function chromiumEnv(): Record<string, string> {
+export function chromiumEnv(): Record<string, string> {
 	const env: Record<string, string> = {};
 	for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
 	const lib = join(ROOT, '.cache/chromium-libs/usr/lib/x86_64-linux-gnu');
@@ -68,7 +68,7 @@ function chromiumEnv(): Record<string, string> {
 	return env;
 }
 
-function quietLog(text: string): boolean {
+export function quietLog(text: string): boolean {
 	return /GPU stall due to ReadPixels|GL Driver Message|warning X[0-9]+:|potentially uninitialized/.test(text);
 }
 
@@ -218,7 +218,11 @@ class JobQueue {
 										this.send(res, 204);
 									}
 								}, 20_000);
-								res.on('close', () => clearTimeout(timer));
+								// A page that reloads leaves its poll behind: a job handed to it would be lost.
+								res.on('close', () => {
+									clearTimeout(timer);
+									if (this.waiting.get(worker) === res) this.waiting.delete(worker);
+								});
 								return;
 							}
 							case '/__bismith/result': {
@@ -253,10 +257,25 @@ class JobQueue {
 	}
 }
 
-async function openWindowsSession(opts: SessionOptions): Promise<Session> {
+/** The real editor in the Windows browser (tools/editor.ts): one page, with what a driver needs beyond the RPC. */
+export interface WindowsEditor extends Session {
+	/** The browser's DevTools WebSocket, for the page itself to connect to (it is on the Windows side too). */
+	devtoolsUrl(): Promise<string>;
+	/** Run `action`, which reloads the page, and wait until the new page has connected. */
+	reloading(action: () => Promise<unknown>): Promise<void>;
+}
+
+export function openWindowsEditor(size: { width: number; height: number }, logPage = true): Promise<WindowsEditor> {
+	return openWindowsSession({ logPage }, size) as Promise<WindowsEditor>;
+}
+
+async function openWindowsSession(
+	opts: SessionOptions,
+	editor?: { width: number; height: number }
+): Promise<Session | WindowsEditor> {
 	const browser = findWindowsBrowser();
 	if (!browser) throw new Error('No Windows Chrome/Edge found (expected under C:\\Program Files)');
-	const workers = Math.max(1, opts.workers ?? 1);
+	const workers = editor ? 1 : Math.max(1, opts.workers ?? 1);
 	const queue = new JobQueue();
 	queue.logPage = opts.logPage ?? true;
 	const server: ViteDevServer = await createServer({
@@ -278,8 +297,11 @@ async function openWindowsSession(opts: SessionOptions): Promise<Session> {
 	});
 	await server.listen();
 	const port = (server.httpServer?.address() as { port: number }).port;
-	const tag = `bismith-gpu-${port}`;
+	const tag = `bismith-gpu${editor ? '-editor' : ''}-${port}`;
 	const temp = windowsTemp();
+	// Chrome writes its DevTools port here; the profile itself is kept, with its shader cache.
+	const portFile = () =>
+		join(execFileSync('wslpath', ['-u', temp], { encoding: 'utf8' }).trim(), `${tag}-0`, 'DevToolsActivePort');
 	const launch = (w: number) => {
 		const args = [
 			'--headless=new',
@@ -296,7 +318,14 @@ async function openWindowsSession(opts: SessionOptions): Promise<Session> {
 			'--disable-background-timer-throttling',
 			'--disable-renderer-backgrounding',
 			'--disable-backgrounding-occluded-windows',
-			`http://localhost:${port}/?headless&worker=${w}`
+			...(editor
+				? [
+						`--window-size=${editor.width},${editor.height}`,
+						'--remote-debugging-port=0',
+						`--remote-allow-origins=http://localhost:${port}`
+					]
+				: []),
+			`http://localhost:${port}/?${editor ? 'editor' : 'headless'}&worker=${w}`
 		];
 		const list = args.map((a) => `'${a.replace(/'/g, "''")}'`).join(',');
 		powershell(`Start-Process -FilePath '${browser.windows}' -ArgumentList ${list} -WindowStyle Hidden`);
@@ -305,6 +334,7 @@ async function openWindowsSession(opts: SessionOptions): Promise<Session> {
 	// second start with the same profile to the running instance, keeping its old flags and possibly a hung GPU).
 	killTagged(tag);
 	await new Promise((r) => setTimeout(r, 750));
+	if (editor) rmSync(portFile(), { force: true });
 	for (let w = 0; w < workers; w++) launch(w);
 	const cleanup = () => killTagged(tag);
 	process.once('SIGINT', () => {
@@ -332,7 +362,23 @@ async function openWindowsSession(opts: SessionOptions): Promise<Session> {
 			busy[worker]--;
 		}
 	};
+	const editorParts = {
+		async devtoolsUrl(): Promise<string> {
+			for (let i = 0; i < 60; i++) {
+				const [devPort, path] = existsSync(portFile()) ? readFileSync(portFile(), 'utf8').split('\n') : [];
+				if (devPort && path) return `ws://localhost:${devPort.trim()}${path.trim()}`;
+				await new Promise((r) => setTimeout(r, 250));
+			}
+			throw new Error('the browser never wrote its DevTools port');
+		},
+		async reloading(action: () => Promise<unknown>): Promise<void> {
+			queue.ready.delete(0);
+			await action();
+			await queue.whenReady(1, 60_000);
+		}
+	};
 	return {
+		...(editor ? editorParts : {}),
 		backend: 'windows',
 		renderer: queue.ready.get(0) ?? 'unknown',
 		workers,
