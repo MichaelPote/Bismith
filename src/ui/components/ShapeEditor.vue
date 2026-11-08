@@ -2,7 +2,8 @@
 	// Shape editor (docs/features/fr8.5-shape-editor.md): draw and edit shapes on the viewport.
 	//   Edit      the selected item's shapes only — a Path layer's polygons, a Polyline layer's lines, the runs of a Pipes
 	//             material or pipework layer, hand-placed splats: drag vertices (a press within GRAB px grabs one), click
-	//             an edge to insert a vertex, right-click or double-click a vertex to delete it, click a shape to select it
+	//             an edge to insert a vertex, right-click or double-click a vertex to delete it, click a shape to select it,
+	//             drag a polygon's centre dot to move the whole polygon
 	//   Polygon   click to place vertices; Enter, double-click or a click on the first vertex closes it → a new Path layer
 	//   Freehand  press and draw a closed shape → a new Path layer
 	//   Line      click to place points; Enter, double-click or a click on the last point ends it → a new Polyline layer, or a
@@ -10,7 +11,8 @@
 	// Backspace drops the last point placed, Esc cancels; a hint under the tools says how to go on and finish. Splats'
 	// points stand alone (ShapeEdit.dots): drawn as dots, no lines, and a click near the last one places another.
 	// Drafts are kept in texture px and converted to the destination's units on commit. Vertices snap to half pixels
-	// (hold Alt for free placement). The `points` text stays the source of truth; the middle button still pans.
+	// (hold Alt for free placement); dragging one, Ctrl (⌘) keeps it to the nearer axis through where it was taken and Shift
+	// snaps it to every tenth pixel. The `points` text stays the source of truth; the middle button still pans.
 	import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 	import { MAX_PATH_POINTS, parsePointLines } from '@/core/bitmap';
 	import type { ParamDef } from '@/core/params';
@@ -18,9 +20,12 @@
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore, type ShapeTool } from '@/stores/editor';
 	import { useActions } from '@/ui/actions';
+	import { polygonCentroid, vertexTo } from '@/ui/gizmos';
 	import { IconKeyboard, IconLine, IconPolygon, IconTrash, IconVectorSpline } from '@tabler/icons-vue';
 
 	type Pt = [number, number];
+	/** A pointer's place and the modifiers held: from a pointer event, or a key press mid-drag. */
+	type Held = Pick<MouseEvent, 'clientX' | 'clientY' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>;
 
 	const props = defineProps<{
 		/** The selected layer whose shapes are edited (null: drawing only). */
@@ -102,6 +107,8 @@
 		// (Single points too for hand-placed splats, where each is a splat.)
 		return parsePointLines(s.text).filter((p) => p.length >= Math.max(1, s.min)) as Pt[][];
 	});
+	/** The shapes drawn over the texture: none with the viewport's gizmos hidden (a draft still shows, to draw it). */
+	const shown = computed<Pt[][]>(() => (editor.showGizmos ? shapes.value : []));
 	const total = computed(() => shapes.value.reduce((n, p) => n + p.length, 0));
 	const minPoints = computed(() => source.value?.min ?? (open.value ? 2 : 3));
 
@@ -110,7 +117,10 @@
 	/** The shape being drawn, in texture px. */
 	const draft = ref<Pt[]>([]);
 	const hover = ref<Pt | null>(null);
-	let drag: { shape: number; vert: number } | null = null;
+	/** Dragging a vertex: `from` is where it was taken (texture px), `at` the pointer, for a modifier pressed mid-drag. */
+	let drag: { shape: number; vert: number; from: Pt; at: Held } | null = null;
+	/** Moving a whole polygon: where it was taken (texture px) and its vertices then, so rounding can't creep. */
+	let moving: { shape: number; grab: Pt; from: Pt[] } | null = null;
 	let sketching = false;
 	const svg = ref<SVGSVGElement | null>(null);
 
@@ -142,7 +152,7 @@
 	const toScreen = (p: Pt): Pt => pxToScreen(srcToPx(p));
 
 	/** Pointer → texture px (snapped to half pixels unless Alt). */
-	function toPx(e: PointerEvent | MouseEvent, snap = !e.altKey): Pt {
+	function toPx(e: Pick<MouseEvent, 'clientX' | 'clientY' | 'altKey'>, snap = !e.altKey): Pt {
 		const b = svg.value!.getBoundingClientRect();
 		const r = props.rect;
 		let x = ((e.clientX - b.left - r.x) / r.w) * props.texW;
@@ -172,11 +182,15 @@
 	const edges = (p: Pt[]) => (open.value ? p.slice(0, -1) : p).map((q, j) => [q, p[(j + 1) % p.length]] as [Pt, Pt]);
 
 	// ---------------------------------------------------------------- edit
+	/** The pointer on screen (CSS px, relative to the stage). */
+	function pointerAt(e: MouseEvent): Pt {
+		const b = svg.value!.getBoundingClientRect();
+		return [e.clientX - b.left, e.clientY - b.top];
+	}
+
 	/** The vertex nearest the pointer within GRAB screen px (the selected shape's first), if any. */
 	function nearestVertex(e: MouseEvent): { shape: number; vert: number } | null {
-		const b = svg.value!.getBoundingClientRect();
-		const x = e.clientX - b.left;
-		const y = e.clientY - b.top;
+		const [x, y] = pointerAt(e);
 		let best: { shape: number; vert: number } | null = null;
 		let bestD = GRAB;
 		shapes.value.forEach((p, i) =>
@@ -193,12 +207,38 @@
 		return best;
 	}
 
-	function startDrag(e: PointerEvent, shape: number, vert: number): void {
+	/** A press that starts a drag. As with the gizmos, a field still being typed in is finished: its own undo step. */
+	function takePress(e: PointerEvent): void {
 		e.stopPropagation();
 		e.preventDefault();
+		(document.activeElement as HTMLElement | null)?.blur();
+		store.commitNow();
+	}
+
+	function startDrag(e: PointerEvent, shape: number, vert: number): void {
+		takePress(e);
 		selected.value = shape;
-		drag = { shape, vert };
+		drag = { shape, vert, from: srcToPx(shapes.value[shape][vert]), at: e };
 		capture(e, true);
+	}
+
+	/** Puts the dragged vertex under the pointer, as the modifiers held say. */
+	function dragVertex(at: Held): void {
+		if (!drag) return;
+		drag.at = at;
+		const next = copy();
+		next[drag.shape][drag.vert] = pxToSrc(
+			vertexTo(toPx(at, false), drag.from, { free: at.altKey, tens: at.shiftKey, axis: at.ctrlKey || at.metaKey })
+		);
+		write(next);
+	}
+
+	/** Pressing or releasing a modifier mid-drag applies it without a move. */
+	function onDragKey(e: KeyboardEvent): void {
+		if (!drag || e.repeat || !['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) return;
+		const { clientX, clientY } = drag.at;
+		const { altKey, ctrlKey, metaKey, shiftKey } = e;
+		dragVertex({ clientX, clientY, altKey, ctrlKey, metaKey, shiftKey });
 	}
 
 	function onVertexDown(e: PointerEvent): void {
@@ -230,13 +270,13 @@
 		const v = nearestVertex(e);
 		if (v) return startDrag(e, v.shape, v.vert);
 		if (total.value >= (source.value?.budget ?? MAX_PATH_POINTS)) return;
-		e.stopPropagation();
-		e.preventDefault();
+		takePress(e);
 		const next = copy();
-		next[shape].splice(after + 1, 0, pxToSrc(toPx(e)));
+		const inserted = toPx(e);
+		next[shape].splice(after + 1, 0, pxToSrc(inserted));
 		write(next);
 		selected.value = shape;
-		drag = { shape, vert: after + 1 };
+		drag = { shape, vert: after + 1, from: inserted, at: e };
 		capture(e, true);
 	}
 
@@ -246,6 +286,27 @@
 		if (v) return startDrag(e, v.shape, v.vert);
 		e.stopPropagation();
 		selected.value = shape;
+	}
+
+	/** Each closed polygon's centre dot on screen, while its handles are up. */
+	const centres = computed<Pt[]>(() =>
+		tool.value === 'edit' && !open.value && !dots.value
+			? shown.value.map((p) => pxToScreen(polygonCentroid(p.map(srcToPx))))
+			: []
+	);
+
+	function onCentreDown(e: PointerEvent, shape: number): void {
+		if (tool.value !== 'edit' || e.button !== 0) return;
+		// A vertex nearer the press than the dot is (a small polygon's, or another polygon's under the dot) is what was meant.
+		const v = nearestVertex(e);
+		const at = pointerAt(e);
+		const away = (q: Pt) => Math.hypot(q[0] - at[0], q[1] - at[1]);
+		if (v && away(toScreen(shapes.value[v.shape][v.vert])) < away(centres.value[shape]))
+			return startDrag(e, v.shape, v.vert);
+		takePress(e);
+		selected.value = shape;
+		moving = { shape, grab: toPx(e, false), from: shapes.value[shape].map(srcToPx) };
+		capture(e, true);
 	}
 
 	// ---------------------------------------------------------------- drawing
@@ -299,12 +360,19 @@
 	}
 
 	function onMove(e: PointerEvent): void {
-		if (drag) {
+		if (moving) {
+			const { shape, grab, from } = moving;
+			const [x, y] = toPx(e, false);
+			// The move snaps, not the vertices: the polygon keeps its shape.
+			const step = (d: number) => (e.altKey ? d : Math.round(d * 2) / 2);
+			const dx = step(x - grab[0]);
+			const dy = step(y - grab[1]);
 			const next = copy();
-			next[drag.shape][drag.vert] = pxToSrc(toPx(e));
+			next[shape] = from.map(([px, py]) => pxToSrc([px + dx, py + dy]));
 			write(next);
 			return;
 		}
+		if (drag) return dragVertex(e);
 		if (sketching) {
 			const p = toPx(e, false);
 			const [ax, ay] = pxToScreen(draft.value[draft.value.length - 1]);
@@ -316,8 +384,9 @@
 	}
 
 	function onUp(e: PointerEvent): void {
-		if (drag) {
+		if (drag || moving) {
 			drag = null;
+			moving = null;
 			capture(e, false);
 		}
 		if (sketching) {
@@ -402,8 +471,16 @@
 			tool.value = 'edit';
 		}
 	}
-	onMounted(() => window.addEventListener('keydown', onKey, true));
-	onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true));
+	onMounted(() => {
+		window.addEventListener('keydown', onKey, true);
+		window.addEventListener('keydown', onDragKey);
+		window.addEventListener('keyup', onDragKey);
+	});
+	onBeforeUnmount(() => {
+		window.removeEventListener('keydown', onKey, true);
+		window.removeEventListener('keydown', onDragKey);
+		window.removeEventListener('keyup', onDragKey);
+	});
 
 	/** While drawing: what the next click does and how to finish — shown under the tools. */
 	const drawHint = computed(() => {
@@ -453,7 +530,7 @@
 			:height="size.h"
 			@pointerdown="onCaptureDown"
 			@dblclick="onCaptureDbl" />
-		<g v-for="(p, i) in shapes" :key="`p${i}`" :class="{ sel: selected === i, open }">
+		<g v-for="(p, i) in shown" :key="`p${i}`" :class="{ sel: selected === i, open }">
 			<path
 				v-if="!dots"
 				:d="pathD(p, !open)"
@@ -485,6 +562,18 @@
 			</template>
 			<path v-else :d="pathD(p, !open)" class="outline" />
 		</g>
+		<!-- Above every shape, so that a polygon lying over another can't cover its dot. -->
+		<g
+			v-for="(c, i) in centres"
+			:key="`c${i}`"
+			class="centre"
+			:class="{ sel: selected === i }"
+			@pointerdown="onCentreDown($event, i)"
+			@dblclick.stop>
+			<circle class="hit" :cx="c[0]" :cy="c[1]" r="11" />
+			<circle class="ring" :cx="c[0]" :cy="c[1]" r="9" />
+			<path class="cross" :d="`M${c[0] - 4} ${c[1]}h8M${c[0]} ${c[1] - 4}v8`" />
+		</g>
 		<template v-if="draft.length">
 			<path v-if="!drawingDots" :d="draftPath" class="draft" :class="{ open: !draftClosed }" />
 			<circle
@@ -501,7 +590,7 @@
 		<button
 			type="button"
 			:class="{ on: tool === 'edit' }"
-			title="Edit the selected layer's shapes: drag vertices, click an edge to add one, right-click a vertex to remove it"
+			title="Edit the selected layer's shapes: drag vertices, click an edge to add one, right-click a vertex to remove it, drag a polygon's centre dot to move it. Dragging a vertex: Ctrl keeps it to one axis, Shift snaps to every 10 px"
 			@click="tool = 'edit'">
 			<IconPolygon :size="13" />Edit
 		</button>
@@ -604,6 +693,24 @@
 	}
 	.vgrab:hover .vertex {
 		fill: var(--accent-hi);
+	}
+	.centre {
+		cursor: move;
+	}
+	.ring {
+		fill: rgba(23, 25, 28, 0.55);
+		stroke: var(--text-hi);
+		stroke-width: 1.5;
+		pointer-events: none;
+	}
+	.centre.sel .ring,
+	.centre:hover .ring {
+		stroke: var(--accent-hi);
+	}
+	.cross {
+		stroke: var(--text-hi);
+		stroke-width: 1.5;
+		pointer-events: none;
 	}
 	.open .fill {
 		fill: none;

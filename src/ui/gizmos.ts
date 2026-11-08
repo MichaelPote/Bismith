@@ -162,6 +162,43 @@ function cableFrame(p: ParamValues, project: Project): { d: Pt; n: Pt; across: n
 	return { d, n, across, centre: [W / 2 + k * n[0] + ox, H / 2 + k * n[1] + oy], base };
 }
 
+/**
+ * Where a drawn polygon's move handle sits: its area centroid. A polygon with no area, or crossing itself so that the
+ * centroid lands outside its bounds, takes the mean of its vertices.
+ */
+export function polygonCentroid(p: Pt[]): Pt {
+	let area = 0,
+		cx = 0,
+		cy = 0;
+	p.forEach(([x, y], i) => {
+		const [nx, ny] = p[(i + 1) % p.length];
+		const c = x * ny - nx * y;
+		area += c;
+		cx += (x + nx) * c;
+		cy += (y + ny) * c;
+	});
+	const at: Pt = [cx / (3 * area), cy / (3 * area)];
+	const xs = p.map((q) => q[0]);
+	const ys = p.map((q) => q[1]);
+	// (Written so that a zero area's NaN or infinity falls through too.)
+	const inside =
+		at[0] >= Math.min(...xs) && at[0] <= Math.max(...xs) && at[1] >= Math.min(...ys) && at[1] <= Math.max(...ys);
+	if (inside) return at;
+	return [xs.reduce((a, b) => a + b, 0) / p.length, ys.reduce((a, b) => a + b, 0) / p.length];
+}
+
+/**
+ * Where a dragged vertex lands, with the pointer at `at` and the vertex taken at `from` (texture px). It snaps to half
+ * pixels, or not at all when `free`, or to every tenth pixel when `tens`; `axis` keeps it on the horizontal or vertical
+ * through `from`, whichever the pointer has gone further along.
+ */
+export function vertexTo(at: Pt, from: Pt, o: { free?: boolean; tens?: boolean; axis?: boolean } = {}): Pt {
+	const step = o.tens ? 10 : o.free ? 0 : 0.5;
+	const [x, y] = step ? [round(at[0], step), round(at[1], step)] : at;
+	if (!o.axis) return [x, y];
+	return Math.abs(at[0] - from[0]) >= Math.abs(at[1] - from[1]) ? [x, from[1]] : [from[0], y];
+}
+
 /** The selected layer's gizmo, or null when its type has none. */
 export function layerGizmo(layer: Layer, project: Project): Gizmo | null {
 	const p = layer.params;

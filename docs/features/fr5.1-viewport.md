@@ -33,6 +33,9 @@ place lights.
 
   Size handles are still to come.
 
+- _Show Gizmos_ (header, top right; on by default, not saved with the project) hides the light and layer gizmos and the
+  drawn shapes' outlines and handles. The shape tools stay, and a shape being drawn still shows.
+
 ## Checklist
 
 - [x] Display pass with zoom / pan / nearest

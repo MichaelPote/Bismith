@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Layer, Project } from '@/core/project';
-import { endTo, layerGizmo, moveTo, turnTo, type Pt } from '@/ui/gizmos';
+import { endTo, layerGizmo, moveTo, polygonCentroid, turnTo, vertexTo, type Pt } from '@/ui/gizmos';
 
 const project = (tileable = false) => ({ width: 256, height: 128, tileable }) as Project;
 const layer = (type: string, params: Record<string, number | string | boolean>): Layer => ({
@@ -27,6 +27,60 @@ describe('gizmos', () => {
 		near(layerGizmo(r, P)!.move, [35, 30]);
 		const moved = apply(r, moveTo(r, P, [50, 41]));
 		near(layerGizmo(moved, P)!.move, [50, 41]);
+	});
+
+	it('puts a drawn polygon’s centre dot on its area centroid, whichever way it winds', () => {
+		// Extra vertices along one side don't pull it over, as a mean of the vertices would.
+		const square: Pt[] = [
+			[0, 0],
+			[10, 0],
+			[20, 0],
+			[30, 0],
+			[40, 0],
+			[40, 40],
+			[0, 40]
+		];
+		near(polygonCentroid(square), [20, 20]);
+		near(polygonCentroid([...square].reverse()), [20, 20]);
+	});
+
+	it('lands a dragged vertex on half pixels, free with Alt, on every tenth pixel with Shift', () => {
+		const from: Pt = [40, 40];
+		expect(vertexTo([70.3, 46.8], from)).toEqual([70.5, 47]);
+		expect(vertexTo([70.3, 46.8], from, { free: true })).toEqual([70.3, 46.8]);
+		expect(vertexTo([74.9, 45.1], from, { tens: true })).toEqual([70, 50]);
+		expect(vertexTo([74.9, 45.1], from, { tens: true, free: true })).toEqual([70, 50]);
+	});
+
+	it('keeps a dragged vertex to the axis the pointer has gone further along', () => {
+		const from: Pt = [41.5, 40.25];
+		expect(vertexTo([70.3, 46.8], from, { axis: true })).toEqual([70.5, 40.25]);
+		expect(vertexTo([47, 90.2], from, { axis: true })).toEqual([41.5, 90]);
+		// With Shift, the free coordinate steps by ten and the held one stays put, on or off the ten-pixel grid.
+		expect(vertexTo([74.9, 46], from, { axis: true, tens: true })).toEqual([70, 40.25]);
+		expect(vertexTo([47, 88], from, { axis: true, tens: true })).toEqual([41.5, 90]);
+	});
+
+	it('falls back on the vertices’ mean for a polygon with no area or that crosses itself', () => {
+		near(
+			polygonCentroid([
+				[0, 0],
+				[10, 10],
+				[20, 20]
+			]),
+			[10, 10]
+		);
+		// A bow tie whose two halves nearly cancel: the area formula alone lands far outside it.
+		const c = polygonCentroid([
+			[0, 0],
+			[40, 40],
+			[40, 0],
+			[0, 40.01]
+		]);
+		expect(c[0]).toBeGreaterThanOrEqual(0);
+		expect(c[0]).toBeLessThanOrEqual(40);
+		expect(c[1]).toBeGreaterThanOrEqual(0);
+		expect(c[1]).toBeLessThanOrEqual(40.01);
 	});
 
 	it('turns a shape with the knob above its centre (Rotation clockwise)', () => {

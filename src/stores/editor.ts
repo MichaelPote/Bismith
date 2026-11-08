@@ -44,6 +44,8 @@ export const useEditorStore = defineStore('editor', () => {
 	const tile = ref(false);
 	const grid = ref(false);
 	const checker = ref(true);
+	/** Draw the viewport's handles: light and layer gizmos, and the drawn shapes' outlines and vertices. */
+	const showGizmos = ref(true);
 	/** Preview the stack only up to the selected layer. */
 	const solo = ref(false);
 	/** Canvas device px per texel and top-left offset in device px. */
@@ -146,6 +148,7 @@ export const useEditorStore = defineStore('editor', () => {
 		tile,
 		grid,
 		checker,
+		showGizmos,
 		solo,
 		zoom,
 		offsetX,

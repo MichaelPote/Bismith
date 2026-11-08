@@ -16,7 +16,9 @@
 		IconMaximize,
 		IconPencil,
 		IconStackFront,
-		IconStackMiddle
+		IconStackMiddle,
+		IconVectorTriangle,
+		IconVectorTriangleOff
 	} from '@tabler/icons-vue';
 	import ShapeEditor from '@/ui/components/ShapeEditor.vue';
 	import LayerGizmo from '@/ui/components/LayerGizmo.vue';
@@ -186,6 +188,7 @@
 	// Only the selected light's.
 	const gizmos = computed(() => {
 		const r = texRect.value;
+		if (!editor.showGizmos) return [];
 		return project.value.lighting.lights
 			.filter((l) => l.enabled && editor.selection.kind === 'light' && editor.selection.id === l.id)
 			.map((l) => {
@@ -316,6 +319,14 @@
 			icon: markRaw(IconBackground),
 			on: editor.checker,
 			flip: () => (editor.checker = !editor.checker)
+		},
+		{
+			label: 'Show gizmos',
+			tip: 'Show Gizmos - Show or hide the handles drawn over the texture',
+			icon: markRaw(IconVectorTriangleOff),
+			iconOn: markRaw(IconVectorTriangle),
+			on: editor.showGizmos,
+			flip: () => (editor.showGizmos = !editor.showGizmos)
 		}
 	]);
 
@@ -602,7 +613,12 @@
 					</g>
 				</template>
 			</svg>
-			<LayerGizmo v-if="gizmoLayer" :layer="gizmoLayer" :project="project" :rect="texRect" :size="cssSize" />
+			<LayerGizmo
+				v-if="gizmoLayer && editor.showGizmos"
+				:layer="gizmoLayer"
+				:project="project"
+				:rect="texRect"
+				:size="cssSize" />
 			<ShapeEditor
 				v-if="editor.workspace === 'create'"
 				:target="shapeTarget"

@@ -23,14 +23,18 @@ layers — each drawn shape a layer in the layer list.
   - **Edit**: only the selected item's shapes — a Path's polygons, a Polyline's lines, the Pipework layer's runs, the placed
     splats (deleting a splat's last point removes it): drag vertices
     (a press within 10 screen px grabs one), click an edge to insert one, right-click or double-click a vertex to
-    delete it, click a shape to select it (🗑 deletes it when there are several). A shape can't be edited unless its
-    layer is selected.
+    delete it, click a shape to select it (🗑 deletes it when there are several). A closed polygon also has a dot on
+    its area centroid: dragging it moves the whole polygon, in half pixels (Alt: free), so its shape never changes; a
+    vertex nearer the press than the dot is grabbed instead. A shape can't be edited unless its layer is selected.
   - After a shape is drawn the tool returns to Edit with it selected. Esc cancels a draft / returns to Edit; Backspace
     removes the draft's last point. Only the left button draws; the middle button still pans.
   - **A hint bar** at the top of the viewport says, while a drawing tool is active, what to do next and how to finish:
     how many points are placed (and the minimum), click the first vertex / last point, double-click or Enter, Esc.
 - Drafts are kept in texture px and converted to the destination's units when committed (new layers: px; Pipework:
-  fractions of the texture). Vertices snap to half pixels (Alt: free).
+  fractions of the texture). Vertices snap to half pixels (Alt: free). While dragging a vertex, Ctrl (⌘) keeps it on
+  the horizontal or vertical through where it was taken, whichever the pointer has gone further along, and Shift snaps
+  it to every tenth pixel; together, it moves along that axis in steps of 10 px. Pressing or releasing one applies
+  at once.
 - **Shape params**: `bitmap: 'points'` (closed polygons, even–odd holes) or `'lines'` (open polylines, two or more
   points; the packed "next" of a line's last vertex wraps and the shader skips that segment). The editor draws and
   edits a param by its kind. Fractions scale x by the width and y by the height (Path and Polyline alike — Path used
