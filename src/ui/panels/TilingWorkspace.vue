@@ -738,11 +738,11 @@
 			<div class="settings">
 				<div class="row">
 					<span v-tip:right="TIPS.seeds" class="lbl">Seeds</span>
-					<NumberField v-model="seeds" :min="0" :max="200" :soft-min="4" :soft-max="64" int label="Seeds per layer" />
+					<NumberField v-model="seeds" :min="0" :max="200" :soft-min="4" :soft-max="128" int label="Seeds per layer" />
 				</div>
 				<div class="row">
 					<span v-tip:right="TIPS.layers" class="lbl">Layers</span>
-					<NumberField v-model="culprits" :min="1" :max="8" :soft-max="4" int label="Layers to fix" />
+					<NumberField v-model="culprits" :min="1" :max="8" int label="Layers to fix" />
 				</div>
 				<div class="row">
 					<span v-tip:right="TIPS.nudge" class="lbl">Nudge</span>
@@ -758,7 +758,7 @@
 				</div>
 				<div class="row">
 					<span v-tip:right="TIPS.samples" class="lbl">Samples</span>
-					<NumberField v-model="samples" :min="1" :max="256" :soft-max="64" int label="Samples per candidate" />
+					<NumberField v-model="samples" :min="1" :max="256" :soft-max="128" int label="Samples per candidate" />
 				</div>
 				<div class="row">
 					<span v-tip:right="TIPS.scale" class="lbl">Scale</span>
