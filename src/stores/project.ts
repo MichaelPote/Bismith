@@ -75,6 +75,7 @@ export const useProjectStore = defineStore('project', () => {
 	// Kept at once, so the next visit isn't a first one even if nothing is changed (the dialog opens once).
 	if (firstRun) saveAutosave(current);
 	let suppress = false;
+	let gesture = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	/** Bumped when another project is opened or started (load / new), so views can refit. Undo / redo keep the view. */
 	const generation = ref(0);
@@ -97,12 +98,22 @@ export const useProjectStore = defineStore('project', () => {
 	watch(
 		project,
 		() => {
-			if (suppress) return;
+			if (suppress || gesture) return;
 			if (timer) clearTimeout(timer);
 			timer = setTimeout(commitNow, 350);
 		},
 		{ deep: true }
 	);
+
+	/** A drag is one undo step, pauses and all: what came before it is its own step, and it commits when it ends. */
+	function beginGesture(): void {
+		commitNow();
+		gesture = true;
+	}
+	function endGesture(): void {
+		gesture = false;
+		commitNow();
+	}
 	// A newly named mask gets its colour (FR8.23) in the same undo step as the change that named it.
 	watch(
 		() => maskNames(project.value).join('\u0000'),
@@ -559,6 +570,8 @@ export const useProjectStore = defineStore('project', () => {
 		undo,
 		redo,
 		commitNow,
+		beginGesture,
+		endGesture,
 		load,
 		newProject,
 		markSaved,

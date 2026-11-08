@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { createProject } from '@/core/serialize';
 import { LIGHT_REF_SIZE, POINT_LIGHT_REF_DIST } from '@/core/lights';
@@ -169,5 +170,34 @@ describe('project store: variants', () => {
 		expect(again.project.seed).toBe(42);
 		expect(again.isDirty()).toBe(true);
 		vi.unstubAllGlobals();
+	});
+});
+
+describe('project store: gestures', () => {
+	beforeEach(() => {
+		setActivePinia(createPinia());
+		vi.useFakeTimers();
+	});
+	afterEach(() => vi.useRealTimers());
+
+	it('makes a drag one undo step, apart from the edit before it, however long it pauses', async () => {
+		ensureBuiltins();
+		const store = useProjectStore();
+		store.newProject(createProject({ width: 64, height: 64, layers: [createLayer('rect', {}, 'Box')] }));
+		const id = store.project.layers[0].id;
+		const rotation = () => store.getLayer(id)!.params.rotation;
+		store.setLayerParam(id, 'rotation', 10);
+		// Grabbed before the edit's own commit is due.
+		store.beginGesture();
+		for (const a of [20, 30, 40]) {
+			store.setLayerParam(id, 'rotation', a);
+			await nextTick();
+			vi.advanceTimersByTime(1000);
+		}
+		store.endGesture();
+		store.undo();
+		expect(rotation()).toBe(10);
+		store.undo();
+		expect(rotation()).toBe(0);
 	});
 });
