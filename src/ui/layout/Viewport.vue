@@ -482,8 +482,9 @@
 	/**
 	 * Every change of the project reaches the engine here. One that brings generator types whose shaders haven't compiled
 	 * (opening a file, the wizard, undo / redo, a preset, an import) is held behind the busy modal while they compile: the
-	 * engine keeps showing the last frame, and changes made meanwhile are applied with it. Only plain types are checked —
-	 * a type's shader variants (Bevel aspect, optional parts) compile in the background as they are used.
+	 * engine keeps showing the last frame, and changes made meanwhile are applied with it. A type's shader variants (Custom
+	 * bevel aspect, optional parts) compile in the background as they are used; where the browser can't do that (Firefox:
+	 * no KHR_parallel_shader_compile, the compile stalls the page) they are held behind the modal too.
 	 */
 	let compiling = false;
 	let held: Project | null = null;
@@ -497,7 +498,9 @@
 			held = p;
 			return;
 		}
-		const need = e.uncompiled(p.layers.map((l) => l.type));
+		// Only layers whose own shader isn't ready; with a background compile, what they need meanwhile is the plain type.
+		const waiting = p.layers.filter((l) => e.uncompiled([shaderKey(l)]).length > 0);
+		const need = e.uncompiled(waiting.map((l) => (e.parallelCompile ? l.type : shaderKey(l))));
 		if (!need.length) {
 			e.setProject(p);
 			return;

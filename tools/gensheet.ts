@@ -119,6 +119,7 @@ const SHARED_SHOWN = [
 	'mk_op',
 	'bevel',
 	'profile',
+	'bevel_aspect_on',
 	'bevel_aspect',
 	'aa',
 	'sh_invert',

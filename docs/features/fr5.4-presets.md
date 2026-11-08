@@ -35,7 +35,9 @@ in code.
 - **Images travel with the preset.** A Stamp's image and the sky's environment image are only names
   (`core/images.ts`); the pixels stay in the browser that loaded them. A preset embeds the images its project uses as
   `preset.images: { name: dataURL }`, and applying it (or opening a starter, `asProject`) `putImage`s them first.
-- **Built-ins live in `public/presets/`**, one file each, in a folder per kind: `project/bricks.json`,
+- **Built-ins live in `public/presets/`**, one file each, in a folder per kind: `project/<category>/<name>.json`
+  (`project/retro/bricks.json`; the folder follows the preset's category: basics, gems, metal, nature, retro, rock, stone,
+  tiles, ui, wood),
   `layer/<type>/<name>.json`, `group/<name>.json`, `light/…`, `lighting/…`, `post/…`. Vite serves `public/` as is and
   copies it into the build, so they deploy beside the app (`dist/presets/`), none of them bundled. A static host can't
   list a folder, so **`public/presets/manifest.json`** lists them: each preset's path, kind, target, name, description,

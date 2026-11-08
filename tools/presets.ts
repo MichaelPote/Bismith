@@ -53,9 +53,11 @@ async function main() {
 	await page.waitForFunction(() => window.__bismith?.ready === true, null, { timeout: 60_000 });
 	const imgs: Rgba8[] = [];
 	for (const preset of (await starterPresets()) as { id: string; build: () => Promise<object> }[]) {
-		if (only.length && !only.includes(preset.id)) continue;
+		// --only takes the id ("retro/bricks") or the file name alone ("bricks"); outputs are named by the id, flattened.
+		if (only.length && !only.some((o) => o === preset.id || o === preset.id.split('/').pop())) continue;
+		const file = preset.id.replace(/\//g, '-');
 		const project = await preset.build();
-		writeFileSync(join(out, `${preset.id}.json`), JSON.stringify(project, null, 2));
+		writeFileSync(join(out, `${file}.json`), JSON.stringify(project, null, 2));
 		const r = await page.evaluate(
 			({ project, samples }) => {
 				const a = window.__bismith!;
@@ -65,7 +67,7 @@ async function main() {
 			{ project, samples }
 		);
 		const img = decodePng(Buffer.from(r.png.split(',')[1], 'base64'));
-		writePng(join(out, `${preset.id}.png`), img);
+		writePng(join(out, `${file}.png`), img);
 		imgs.push(img);
 		const errs = Object.values(r.errors);
 		console.log(

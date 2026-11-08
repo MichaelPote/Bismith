@@ -24,7 +24,7 @@ const IMAGE_TYPES: Record<string, string> = {
 	'.jpeg': 'image/jpeg'
 };
 
-/** Every preset file, as its path under public/presets/ without `.json` ("project/bricks", "layer/bricks/red-brick"). */
+/** Every preset file, as its path under public/presets/ without `.json` ("project/retro/bricks", "layer/bricks/red-brick"). */
 export function presetFiles(dir = PRESET_DIR): string[] {
 	const out: string[] = [];
 	const walk = (d: string) => {

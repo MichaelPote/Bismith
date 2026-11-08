@@ -10,15 +10,15 @@ import '@fontsource/cormorant-garamond/600.css';
 import './styles/tokens.css';
 import './styles/base.css';
 import App from './App.vue';
-import { bootHeadless } from './headless';
 
 const root = document.getElementById('app')!;
 const params = new URLSearchParams(location.search);
-if (params.has('headless')) {
-	bootHeadless(root);
+// The harness's page and the GPU tools' editor (tools/backend.ts, tools/editor.ts) run on the dev server only: the build
+// drops these branches and their modules.
+if (import.meta.env.DEV && params.has('headless')) {
+	void import('./headless').then((m) => m.bootHeadless(root));
 } else {
 	createApp(App).use(createPinia()).mount(root);
-	// The GPU tools' editor (tools/editor.ts). Dev server only: the build drops this branch and the module.
 	if (import.meta.env.DEV && params.has('editor'))
 		void import('./editorDriver').then((m) => m.startEditorDriver(params.get('worker') ?? '0'));
 }

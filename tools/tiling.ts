@@ -71,8 +71,9 @@ if (presets !== undefined) {
 	const ids = presets.split(',').filter(Boolean);
 	setPresetSource(fsPresetSource());
 	for (const p of await starterPresets())
-		if (!ids.length || ids.includes(p.id))
-			jobs.push({ name: p.id, project: { ...(await p.build()), preview: undefined } });
+		// An id ("retro/bricks") or the file name alone ("bricks"); the outputs are named by the id, flattened.
+		if (!ids.length || ids.some((i) => i === p.id || i === p.id.split('/').pop()))
+			jobs.push({ name: p.id.replace(/\//g, '-'), project: { ...(await p.build()), preview: undefined } });
 }
 if (!jobs.length) {
 	console.error('usage: npx tsx tools/tiling.ts <project.json…> [--presets [ids]] [--out DIR] [--samples N]');

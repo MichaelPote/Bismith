@@ -93,15 +93,18 @@ export function asProject(p: Project): Project {
 }
 
 /** The starter the app opens with on a first visit, and stages preset thumbnails on. */
-export const STARTER = 'bricks';
+export const STARTER = 'retro/bricks';
 
-/** A built-in starter's project by its file name (presets/project/<id>.json), to open. */
+/**
+ * A built-in starter's project by its path under presets/project/ without .json — the category folder and file name
+ * ("retro/bricks") — to open.
+ */
 export async function builtinProject(id: string): Promise<Project | undefined> {
 	const e = (await loadBuiltinPresets()).find((p) => p.key === `builtin:project/${id}`);
 	return e && asProject(await e.project());
 }
 
-/** The starters as the tools know them: id (file name), name, group (category) and a builder. */
+/** The starters as the tools know them: id (path under presets/project/, "retro/bricks"), name, group (category) and a builder. */
 export interface Preset {
 	id: string;
 	name: string;

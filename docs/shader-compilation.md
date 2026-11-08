@@ -201,7 +201,7 @@ at draw time, [doc](https://chromium.googlesource.com/angle/angle/+/HEAD/doc/Dyn
   keyed by source, so a second visit is fast but any change to the source (a `#define`, a salt) is a cold compile.
   Specialising shaders with `#define`s multiplies cold compiles; Bismith keeps "everything is a uniform"
   (docs/architecture.md), except for optional parts a big generator compiles only when a layer uses them
-  (`LayerDef.shaderFeatures`, Bevel aspect's `BEVEL_ASPECT`): one extra cold compile when they are first switched on,
+  (`LayerDef.shaderFeatures`, Custom bevel aspect's `BEVEL_ASPECT`; only a tickbox or dropdown may pick one, never a slider, or dragging it compiles: put the slider behind a tickbox with `gate`): one extra cold compile when they are first switched on,
   done in the background, against seconds off every plain compile.
 - Chrome's GPU watchdog kills a GPU process that stalls too long (10 s by default in 2017,
   [Ken Russell](https://groups.google.com/g/webgl-dev-list/c/9caMjxg7xO8)); the Traces and Cable shaders hung the page

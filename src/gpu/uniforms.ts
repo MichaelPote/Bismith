@@ -125,7 +125,7 @@ export function updateUniforms(u: Uniforms, defs: ParamDef[], values: ParamValue
 	for (const d of defs) {
 		if (!hasUniform(d)) continue;
 		const n = `u_${d.key}`;
-		const v = values[d.key] ?? d.default;
+		const v = d.gate && !values[d.gate.by] ? d.gate.off : (values[d.key] ?? d.default);
 		switch (d.type) {
 			case 'float':
 			case 'seed':

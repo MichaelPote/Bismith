@@ -122,7 +122,7 @@ Hand-authored in the studio (kept with the references in the private repo). What
 ## Starters (New project wizard)
 
 Each recreation is also a Starter in the _Nature_ group (`presets/index.ts`), at 512 px as tuned: _Sandstone ashlar_,
-_Rust rubble wall_, _Lichen sandstone_, _Mossy slate wall_, _Frosted stone_ (`public/presets/project/*.json`). Each has one
+_Rust rubble wall_, _Lichen sandstone_, _Mossy slate wall_, _Frosted stone_ (`public/presets/project/stone/*.json`). Each has one
 Stone blocks layer: the relief writes _Joints_ (the slate's _Moss_) and, in the ashlar, _Gaps_, and Mask area layers
 (Features › Inside) paint the joints and gaps from those masks, so nothing can drift from the stones. They replaced
 copies of the layer set to the Joints and Gaps outputs; renders of all five came out pixel-identical. (They were

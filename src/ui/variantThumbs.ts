@@ -1,4 +1,5 @@
-// Variant thumbnails (FR10): the shown variant's captured from the viewport once its render has settled, the others
+// Variant thumbnails (FR10): the shown variant's captured from the viewport once its render has THUMBNAIL_SAMPLES and
+// again when it has settled, the others
 // rendered off-screen (presets/thumbnail.ts) while the viewport is idle — all stale ones in one pass, so the viewport
 // restarts once. Each is a preview of the whole texture (the workspace's cards) and a crop of its middle at 50% zoom
 // (the Variants panel's rows). Kept in memory by a hash of each variant's project; nothing is saved with it.
@@ -7,7 +8,7 @@ import { reactive, toRaw, watch } from 'vue';
 import { hashText } from '@/core/hash';
 import * as V from '@/core/variants';
 import type { Project } from '@/core/project';
-import { renderThumbnails } from '@/presets/thumbnail';
+import { renderThumbnails, THUMBNAIL_SAMPLES } from '@/presets/thumbnail';
 import type { Engine } from '@/render/engine';
 import { mapPixels } from '@/render/export';
 import { encodeCrop, encodePreview, PROJECT_PREVIEW } from '@/render/preview';
@@ -25,6 +26,18 @@ interface Thumb {
 
 const thumbs = reactive(new Map<string, Thumb>());
 const hashes = new Map<string, string>();
+/** The samples behind each thumbnail: the shown variant's is taken again once its render has settled. */
+const quality = new Map<string, number>();
+
+/**
+ * How far the viewport's render is: 0 too early for a thumbnail, 1 good enough for the shown variant's (THUMBNAIL_SAMPLES —
+ * a project tracing hundreds of samples would otherwise leave it blank for a minute), 2 settled.
+ */
+function stage(st: { samples: number; maxSamples: number } | null): 0 | 1 | 2 {
+	if (!st) return 0;
+	if (st.samples >= st.maxSamples) return 2;
+	return st.samples >= Math.min(st.maxSamples, THUMBNAIL_SAMPLES) ? 1 : 0;
+}
 let started = false;
 let running = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -69,7 +82,8 @@ function start(): void {
 			return;
 		}
 		const st = editor.stats;
-		if (!st || st.samples < st.maxSamples) return;
+		const at = stage(st);
+		if (!st || at === 0) return;
 		const p = JSON.parse(JSON.stringify(toRaw(store.project))) as Project;
 		V.syncVariants(p);
 		const vs = V.variantsOf(p);
@@ -77,23 +91,30 @@ function start(): void {
 			if (!vs.list.some((v) => v.id === id)) {
 				thumbs.delete(id);
 				hashes.delete(id);
+				quality.delete(id);
 			}
 		const stale = vs.list
 			.map((v) => {
 				const project = V.materialise(p, v.id);
 				return { id: v.id, project, hash: renderHash(project) };
 			})
-			.filter((s) => hashes.get(s.id) !== s.hash);
+			.filter(
+				(s) =>
+					hashes.get(s.id) !== s.hash ||
+					(at === 2 && s.id === vs.activeId && (quality.get(s.id) ?? 0) < st.samples)
+			);
 		const shown = stale.find((s) => s.id === vs.activeId);
 		if (shown) {
 			const t = capture(engine, shown.project);
 			if (t) {
 				thumbs.set(shown.id, t);
 				hashes.set(shown.id, shown.hash);
+				quality.set(shown.id, st.samples);
 			}
 		}
 		const others = stale.filter((s) => s !== shown);
-		if (!others.length) return;
+		// Rendering the others restarts the viewport: only once it has settled.
+		if (!others.length || at < 2) return;
 		running = true;
 		try {
 			const out = await renderThumbnails(
@@ -107,6 +128,7 @@ function start(): void {
 				if (!out[i]) return;
 				thumbs.set(s.id, out[i]!);
 				hashes.set(s.id, s.hash);
+				quality.set(s.id, THUMBNAIL_SAMPLES);
 			});
 		} catch (e) {
 			console.warn('[bismith] variant thumbnails failed', e);
@@ -123,8 +145,8 @@ function start(): void {
 		{ deep: true }
 	);
 	watch(
-		() => editor.stats && editor.stats.samples >= editor.stats.maxSamples,
-		(done) => done && schedule(200)
+		() => stage(editor.stats),
+		(at) => at > 0 && schedule(200)
 	);
 	watch(
 		() => editor.workspace,

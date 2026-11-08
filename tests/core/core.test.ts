@@ -1,7 +1,10 @@
+import { shaderKey } from '@/render/materialPipeline';
+import { updateUniforms } from '@/gpu/uniforms';
+import { layerParamDefs } from '@/layers/registry';
 import { describe, expect, it } from 'vitest';
 import { hexToRgb, linearToOklab, linearToSrgb1, oklabToLinear, rgbToHex, srgbToLinear1 } from '@/core/color';
 import { P, evalCurve, sanitizeParams, sanitizeValue } from '@/core/params';
-import { createProject, normalizeProject, projectFromJSON, projectToJSON } from '@/core/serialize';
+import { createLayer, createProject, normalizeProject, projectFromJSON, projectToJSON } from '@/core/serialize';
 import { gatherGroups, layerUnits } from '@/core/project';
 import { crc32, zipStore } from '@/core/zip';
 
@@ -143,6 +146,32 @@ describe('serialize', () => {
 		expect(p.post[0].params.operator).toBe('aces');
 		expect(p.lighting.sky.enabled).toBe(true);
 	});
+	it('gives a repeated layer, light or post id a fresh one, keeping the first', () => {
+		const p = normalizeProject({
+			layers: [
+				{ id: 'a', type: 'noise' },
+				{ id: 'a', type: 'tiles' },
+				{ id: 'b', type: 'noise' }
+			],
+			lighting: {
+				lights: [
+					{ id: 'k', type: 'directional' },
+					{ id: 'k', type: 'point' }
+				]
+			},
+			post: [
+				{ id: 't', type: 'tonemap' },
+				{ id: 't', type: 'tonemap' }
+			]
+		});
+		const ids = (list: { id: string }[]) => list.map((x) => x.id);
+		expect(ids(p.layers)[0]).toBe('a');
+		expect(new Set(ids(p.layers)).size).toBe(3);
+		expect(p.layers[1].type).toBe('tiles');
+		expect(ids(p.lighting.lights)[0]).toBe('k');
+		expect(new Set(ids(p.lighting.lights)).size).toBe(2);
+		expect(new Set(ids(p.post)).size).toBe(2);
+	});
 	it("keeps a point light's reference distance when valid", () => {
 		const p = normalizeProject({
 			lighting: {
@@ -218,6 +247,24 @@ describe('serialize', () => {
 		expect(normalizeProject({ base: { color: '#806040' } }).base.metalness).toBe(0);
 		expect(normalizeProject({ base: { metalness: 0.7 } }).base.metalness).toBe(0.7);
 		expect(normalizeProject({ base: { metalness: 3 } }).base.metalness).toBe(1);
+	});
+});
+
+describe('sliders behind a tickbox', () => {
+	it('never pick a shader variant: only the tickbox does', () => {
+		const key = (p: Record<string, unknown>) => shaderKey(createLayer('tiles', p as never));
+		const plain = key({});
+		expect(key({ bevel_aspect: 2 })).toBe(plain);
+		expect(key({ bevel_aspect_on: true })).not.toBe(plain);
+		expect(key({ bevel_aspect_on: true, bevel_aspect: 2 })).toBe(key({ bevel_aspect_on: true }));
+	});
+	it('reach the shaders as their off value until ticked', () => {
+		const defs = layerParamDefs('tiles');
+		const u = { u_bevel_aspect: { value: 0 } };
+		updateUniforms(u as never, defs, { bevel_aspect: 2 });
+		expect(u.u_bevel_aspect.value).toBe(1);
+		updateUniforms(u as never, defs, { bevel_aspect: 2, bevel_aspect_on: true });
+		expect(u.u_bevel_aspect.value).toBe(2);
 	});
 });
 

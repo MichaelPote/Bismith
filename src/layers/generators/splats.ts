@@ -216,7 +216,7 @@ function splatData(q: ParamValues, ctx: LayerCanvas) {
 	// (Bevel — its wider side with Bevel aspect —, Soft edge, Dilate, Edge roughness on top) and, for whatever reads the
 	// mask (Bevel, Etch), at least 8 px. Rounded up to 4 px, so dragging one of them re-encodes only now and then.
 	const card = (key: string) => Number(q[key] ?? 0);
-	const aspect = Math.max(Number(q.bevel_aspect ?? 1), 1e-3);
+	const aspect = q.bevel_aspect_on ? Math.max(Number(q.bevel_aspect ?? 1), 1e-3) : 1;
 	const bevel = card('bevel') * Math.sqrt(Math.max(aspect, 1 / aspect));
 	const reads = Math.max(bevel, card('soft_edge'), num(q, 'meniscus'), 8 * num(q, 'px_scale'));
 	const margin = Math.ceil((reads + card('dilate') + num(q, 'edge') + 1) / 4) * 4;

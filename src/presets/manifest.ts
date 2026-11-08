@@ -5,7 +5,7 @@
 import type { PresetKind } from '@/core/project';
 
 export interface PresetManifestEntry {
-	/** Its file under public/presets/, without `.json` ("project/bricks"). */
+	/** Its file under public/presets/, without `.json` ("project/retro/bricks"). */
 	path: string;
 	kind: PresetKind;
 	target?: string;

@@ -360,7 +360,11 @@ export const bismuthLayer: LayerDef = {
 	// Anti-alias only matters where the crystals alone cover; the crystals bevel themselves (Outline › Edge bevel), so
 	// the Edge card's bevel — which would scale the colour's ramp position — is hidden.
 	sdfShowIf: (p, key) =>
-		key !== 'bevel' && key !== 'profile' && key !== 'bevel_aspect' && (key !== 'aa' || p.ground === false),
+		key !== 'bevel' &&
+		key !== 'profile' &&
+		key !== 'bevel_aspect' &&
+		key !== 'bevel_aspect_on' &&
+		(key !== 'aa' || p.ground === false),
 	defaults: {
 		mk_target: '',
 		h_on: true,

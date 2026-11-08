@@ -193,6 +193,19 @@ function withVariants(base: Project, rv: unknown): Project {
 	return base;
 }
 
+/**
+ * Ids made unique: a repeat (a hand-edited or badly converted file) gets a fresh id, or the two items would share
+ * everything kept by id — shader state, variant changes, group membership.
+ */
+function uniqueIds<T extends { id: string }>(items: T[], prefix: string): T[] {
+	const seen = new Set<string>();
+	return items.map((it) => {
+		const id = seen.has(it.id) ? newId(prefix) : it.id;
+		seen.add(id);
+		return id === it.id ? it : { ...it, id };
+	});
+}
+
 /** The project's own fields (in a file, the base variant's), validated and default-filled. */
 function normalizeBase(raw: Record<string, any>): Project {
 	const base = defaultBase();
@@ -216,7 +229,7 @@ function normalizeBase(raw: Record<string, any>): Project {
 				})
 			);
 	// Older projects had a separate relief stack, evaluated before the paint stack: it now leads the one list.
-	const flat = [...stack(raw.relief).map(reliefOnly), ...stack(raw.layers)];
+	const flat = uniqueIds([...stack(raw.relief).map(reliefOnly), ...stack(raw.layers)], 'ly');
 	const layerIds = new Set(flat.map((l) => l.id));
 	// Groups keep only members that still exist; one with none left is dropped. Older projects' smart materials load as
 	// groups (their members were by role; their recipe and macros are gone).
@@ -241,30 +254,36 @@ function normalizeBase(raw: Record<string, any>): Project {
 		)
 	) as Record<string, string>;
 
-	const lights: Light[] = (Array.isArray(rl.lights) ? rl.lights : [])
-		.filter((l: any) => l && (l.type === 'directional' || l.type === 'point'))
-		.slice(0, MAX_LIGHTS)
-		.map((l: any) => ({
-			id: str(l.id, newId('lt')),
-			type: l.type,
-			name: str(l.name, LIGHT_DEFS[l.type as 'point'].label),
-			enabled: l.enabled !== false,
-			params: sanitizeParams(LIGHT_DEFS[l.type as 'point'].params, l.params),
-			...(l.type === 'point' && typeof l.refDist === 'number' && l.refDist > 0
-				? { refDist: Math.min(l.refDist, 1e6) }
-				: {})
-		}));
+	const lights: Light[] = uniqueIds(
+		(Array.isArray(rl.lights) ? rl.lights : [])
+			.filter((l: any) => l && (l.type === 'directional' || l.type === 'point'))
+			.slice(0, MAX_LIGHTS)
+			.map((l: any) => ({
+				id: str(l.id, newId('lt')),
+				type: l.type,
+				name: str(l.name, LIGHT_DEFS[l.type as 'point'].label),
+				enabled: l.enabled !== false,
+				params: sanitizeParams(LIGHT_DEFS[l.type as 'point'].params, l.params),
+				...(l.type === 'point' && typeof l.refDist === 'number' && l.refDist > 0
+					? { refDist: Math.min(l.refDist, 1e6) }
+					: {})
+			})),
+		'lt'
+	);
 
-	const post: PostFilter[] = (Array.isArray(raw.post) ? raw.post : [])
-		.filter((f: any) => f && typeof f.type === 'string' && getPostDef(f.type))
-		.map((f: any) =>
-			sanitizePostFilter({
-				id: str(f.id, newId('pf')),
-				type: f.type,
-				enabled: f.enabled !== false,
-				params: f.params ?? {}
-			})
-		);
+	const post: PostFilter[] = uniqueIds(
+		(Array.isArray(raw.post) ? raw.post : [])
+			.filter((f: any) => f && typeof f.type === 'string' && getPostDef(f.type))
+			.map((f: any) =>
+				sanitizePostFilter({
+					id: str(f.id, newId('pf')),
+					type: f.type,
+					enabled: f.enabled !== false,
+					params: f.params ?? {}
+				})
+			),
+		'pf'
+	);
 
 	// Specular used to be a single render setting (the level, F0 = 0.08 × specular). Projects without a base level
 	// keep their look: base level 0.5, render scale = old level / 0.5.

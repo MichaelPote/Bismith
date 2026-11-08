@@ -105,10 +105,12 @@ describe('marble / caustics params', () => {
 	it('works marble’s wave vectors out per pixel only under Tiles’ vein turn', () => {
 		const feats = (p: ParamValues) => marbleLayer.shaderFeatures!(createLayer('marble', p).params);
 		expect(feats({})).toEqual([]);
-		expect(feats({ tiles: 3 })).toEqual(['MB_TILE_ROT']);
-		expect(feats({ tiles: 3, tile_rot: 0 })).toEqual([]);
-		expect(feats({ tiles: 3, style: 'network', fine: 0 })).toEqual([]);
-		expect(feats({ tiles: 3, style: 'network', fine_style: 'ridges' })).toEqual(['MB_TILE_ROT']);
+		expect(feats({ tiles: 3 })).toEqual([]);
+		expect(feats({ tiled: true })).toEqual(['MB_TILE_ROT']);
+		// Only the tickbox and the style dropdowns pick the variant: dragging a slider never compiles.
+		expect(feats({ tiled: true, tile_rot: 0 })).toEqual(['MB_TILE_ROT']);
+		expect(feats({ tiled: true, style: 'network', fine: 0 })).toEqual([]);
+		expect(feats({ tiled: true, style: 'network', fine_style: 'ridges' })).toEqual(['MB_TILE_ROT']);
 		// The usual shader has none of that work: it reads the derived uniforms.
 		const glsl = getLayerDef('marble')!.glsl!.replace(/#ifdef MB_TILE_ROT[\s\S]*?#(else|endif)/g, '');
 		expect(glsl).not.toMatch(/igcd\(|mb_waveK\(|mb_turbDir\(|mb_turbFrame\(|cellsFor\(/);

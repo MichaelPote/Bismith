@@ -15,8 +15,7 @@ const along = (style: unknown) => style === 'streaks' || style === 'ridges';
 const fineStyle = (p: ParamValues) => (p.fine_style === 'same' ? p.style : p.fine_style);
 // Tiles turn the veins per tile, and the turn reaches veins along an angle: the wave vectors and turbulence lattices
 // then follow each tile's angle, per pixel (the MB_TILE_ROT variant); otherwise they are derived uniforms.
-const tileTurn = (p: ParamValues) =>
-	Number(p.tiles) > 0 && Number(p.tile_rot) !== 0 && (along(p.style) || (Number(p.fine) > 0 && along(fineStyle(p))));
+const tileTurn = (p: ParamValues) => p.tiled === true && (along(p.style) || along(fineStyle(p)));
 
 type V2 = [number, number];
 type I4 = [number, number, number, number];
@@ -182,8 +181,9 @@ export function marbleDerived(p: ParamValues, c: LayerCanvas) {
 	}
 	// Breakup noise cells, and the tiles across and down.
 	const bc = cellsFor(f32(Math.max(ws, 1) * 2), 1, c);
-	const tn = Math.max(1, Math.floor(f32(f32(f32(n('tiles') * c.height) / c.width) + 0.5)));
-	return { k, g, T, B, nc, wc, pc, flow, bt: [...bc, n('tiles'), tn] };
+	const tiles = p.tiled ? n('tiles') : 0;
+	const tn = Math.max(1, Math.floor(f32(f32(f32(tiles * c.height) / c.width) + 0.5)));
+	return { k, g, T, B, nc, wc, pc, flow, bt: [...bc, tiles, tn] };
 }
 
 export const marbleLayer: LayerDef = {
@@ -377,14 +377,21 @@ export const marbleLayer: LayerDef = {
 			showIf: (p) => Number(p.fine) > 0,
 			hint: 'Varies the density of the fine veins across the slab, making dense patches and clear areas (0 = even everywhere)'
 		}),
-		P.int('tiles', 'Tiles across', 0, 0, 64, {
+		P.bool('tiled', 'Cut into tiles', false, {
+			uniform: false,
+			optimize: false,
+			hint: 'Cuts the marble into tiles, each showing a different piece of marble; the per-feature random is per tile. Needs a variant of the shader, compiled the first time'
+		}),
+		P.int('tiles', 'Tiles across', 4, 1, 64, {
+			gate: { by: 'tiled', off: 0 },
 			softMax: 8,
-			hint: 'Cuts the marble into this many tiles across (0 = off), each showing a different piece of marble; the per-feature random is per tile'
+			showIf: (p) => p.tiled === true,
+			hint: 'Sets how many tiles fit across the texture'
 		}),
 		P.float('tile_rot', 'Vein angle per tile', 45, 0, 180, {
 			unit: '°',
 			step: 0.1,
-			showIf: (p) => Number(p.tiles) > 0 && along(p.style),
+			showIf: (p) => p.tiled === true && along(p.style),
 			hint: 'Turns the veins of each tile by a random angle, up to this much either way'
 		}),
 		P.float('cloud', 'Clouds', 0.25, 0, 1, {

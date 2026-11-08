@@ -31,7 +31,7 @@ import { P, gradient, halfPx, round1, type ParamValues } from '@/core/params';
 import { LEDGE_GLSL, ledgeCells, ledgeParams } from '../ledges';
 import type { LayerDef } from '../types';
 
-const icicles = (p: ParamValues) => Number(p.icicles) > 0;
+const icicles = (p: ParamValues) => p.icicles_on === true;
 /** Ledge cells along a side of the canvas for Icicle spacing gap (whole numbers, so they tile; the shader mirrors it). */
 const iceCells = (side: number, gap: number) => Math.max(1, Math.floor(side / gap + 0.5));
 
@@ -282,10 +282,18 @@ export const iceLayer: LayerDef = {
 			hint: 'How many frosted patches fit across the width'
 		}),
 
-		P.float('icicles', 'Icicles', 0, 0, 1, {
+		P.bool('icicles_on', 'Icicles', false, {
+			uniform: false,
+			optimize: false,
+			section: 'Icicles',
+			hint: 'Grows icicles from the overhangs in the relief below. Needs a variant of the shader, compiled the first time'
+		}),
+		P.float('icicles', 'Icicle chance', 0.5, 0, 1, {
+			gate: { by: 'icicles_on', off: 0 },
 			step: 0.001,
 			section: 'Icicles',
-			hint: 'Chance that a spot along an overhang in the relief below (a ledge, as Drips finds them) grows an icicle (0 = none)'
+			showIf: icicles,
+			hint: 'Chance that a spot along an overhang (a ledge, as Drips finds them) grows an icicle'
 		}),
 		P.float('ice_gap', 'Icicle spacing', 12, 1, 512, {
 			softMax: 64,

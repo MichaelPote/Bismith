@@ -179,14 +179,14 @@ const FEATURES_KEY = '~f:';
 
 /**
  * The shader a generator layer runs, for compiling ahead (uncompiled / precompile): its type, plus the variant's parts —
- * an SDF layer with Bevel aspect off 1 carries the exact stretched bevels (`#define BEVEL_ASPECT`, GLSL_BEVEL's
- * bevelAspectOn; at aspect 1 they would give the plain bevel anyway), and a type's optional parts its params use
- * (LayerDef.shaderFeatures, a `#define` each). The usual shader leaves all that code out.
+ * an SDF layer with Custom bevel aspect ticked carries the exact stretched bevels (`#define BEVEL_ASPECT`, GLSL_BEVEL's
+ * bevelAspectOn), and a type's optional parts its params use (LayerDef.shaderFeatures, a `#define` each). The usual
+ * shader leaves all that code out. Only a tickbox or a dropdown may pick a variant: a slider would compile mid-drag.
  */
 export function shaderKey(layer: Pick<Layer, 'type' | 'params'>): string {
 	const def = getLayerDef(layer.type);
 	let key = layer.type;
-	if (def?.sdf === true && Number(layer.params.bevel_aspect ?? 1) !== 1) key += ASPECT_KEY;
+	if (def?.sdf === true && layer.params.bevel_aspect_on === true) key += ASPECT_KEY;
 	const f = def?.shaderFeatures?.(layer.params) ?? [];
 	if (f.length) key += FEATURES_KEY + [...f].sort().join(',');
 	return key;

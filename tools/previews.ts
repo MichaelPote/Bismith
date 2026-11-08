@@ -3,7 +3,7 @@
 //
 //   npx tsx tools/previews.ts [--backend windows|swiftshader] [--samples 256] [--only path1,path2] [--missing]
 //
-// --only takes paths under public/presets/ without .json ("project/bricks", "lighting/torch") or bare file names; --missing
+// --only takes paths under public/presets/ without .json ("project/retro/bricks", "lighting/torch") or bare file names; --missing
 // renders only the files without a preview. Run it after adding or changing a preset (or the renderer, if their look
 // moved); presets.test.ts checks every preset has one. It also rewrites the manifest, which carries the previews.
 

@@ -76,6 +76,11 @@ export interface ParamDef {
 	outputPx?: boolean;
 	/** Whether the optimiser may mutate it. Defaults: float/int/color/gradient yes, others no. */
 	optimize?: boolean;
+	/**
+	 * Counts only while the bool param `by` is on; with it off the shaders get `off`, whatever this holds. For a slider
+	 * behind a tickbox because it picks a shader variant (the tickbox picks it instead, so dragging never compiles).
+	 */
+	gate?: { by: string; off: number };
 	/** Set false for UI-only params that are not uploaded as uniforms. */
 	uniform?: boolean;
 	/**

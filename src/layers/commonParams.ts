@@ -272,13 +272,22 @@ export const SDF_PARAMS: ParamDef[] = [
 	P.float('bevel', 'Bevel', 3, 0, 1024, { softMax: 64, unit: 'px', step: 0.1, group: 'shaping', section: 'Edge' }),
 	P.enum('profile', 'Profile', 'round', PROFILES, { group: 'shaping', section: 'Edge' }),
 	{ ...bevelCurveParam('shaping'), section: 'Edge' },
+	P.bool('bevel_aspect_on', 'Custom bevel aspect', false, {
+		uniform: false,
+		optimize: false,
+		group: 'shaping',
+		section: 'Edge',
+		showIf: (p) => Number(p.bevel) > 0 && p.profile !== 'flat',
+		hint: 'Gives the top and bottom bevels a different width from the left and right. Needs a variant of the shader, compiled the first time'
+	}),
 	P.float('bevel_aspect', 'Bevel aspect', 1, 0.05, 20, {
+		gate: { by: 'bevel_aspect_on', off: 1 },
 		softMin: 0.25,
 		softMax: 4,
 		step: 0.01,
 		group: 'shaping',
 		section: 'Edge',
-		showIf: (p) => Number(p.bevel) > 0 && p.profile !== 'flat',
+		showIf: (p) => p.bevel_aspect_on === true && Number(p.bevel) > 0 && p.profile !== 'flat',
 		hint: 'Trades the top / bottom bevel width against left / right, keeping Bevel as their geometric mean. 2 makes top and bottom bevels 1.41× Bevel and left and right 0.71× (the ends of vertical planks round off twice as far in as their sides), 0.5 the reverse. Slanted edges and corners fall in between'
 	}),
 	P.bool('aa', 'Anti-alias', true, {
