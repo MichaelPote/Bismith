@@ -97,10 +97,12 @@
 		const variants = key !== null && vs.list.length > 1 && store.isVariantSetting(key);
 		const on = isChanged(d);
 		const baseName = vs.list.find((v) => v.id === vs.baseId)?.name ?? 'the base';
+		// Name what is copied where it isn't a plain value (paste stays off unless the clipboard holds the same type).
+		const what = d.type === 'gradient' ? 'gradient' : 'value';
 		menuItems.value = [
-			{ label: 'Copy value', action: () => (editor.paramClipboard = { type: d.type, value: copyOf(value(d)) }) },
+			{ label: `Copy ${what}`, action: () => (editor.paramClipboard = { type: d.type, value: copyOf(value(d)) }) },
 			{
-				label: 'Paste value',
+				label: `Paste ${what}`,
 				disabled: !fits,
 				action: () => {
 					set(d.key, copyOf(clip!.value));

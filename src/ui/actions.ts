@@ -6,7 +6,7 @@ import { useEditorStore } from '@/stores/editor';
 import { projectFromJSON, projectToJSON } from '@/core/serialize';
 import { zipStore } from '@/core/zip';
 import { downloadBlob, mapPixels, pixelsToBlob, saveBlobAs, upscale, type MapKind } from '@/render/export';
-import { capturePreview, PROJECT_PREVIEW } from '@/render/preview';
+import { PROJECT_PREVIEW, renderPreview } from '@/render/preview';
 import type { Project } from '@/core/project';
 import type { Engine } from '@/render/engine';
 import type { PresetSource } from '@/stores/editor';
@@ -127,7 +127,7 @@ export function useActions() {
 			const blob = await pixelsToBlob(pixels, width, height);
 			entries.push({ name: `${base}_${kinds[i]}.png`, data: new Uint8Array(await blob.arrayBuffer()) });
 		}
-		entries.push({ name: `${base}.bismith.json`, data: new TextEncoder().encode(projectFile()) });
+		entries.push({ name: `${base}.bismith.json`, data: new TextEncoder().encode(await projectFile()) });
 		downloadBlob(new Blob([zipStore(entries) as BlobPart], { type: 'application/zip' }), `${base}_maps.zip`);
 		editor.notify(`Exported ${kinds.length} maps + project`);
 	}
@@ -195,7 +195,7 @@ export function useActions() {
 			editor.notify(`Exported ${entries[0].name}`);
 			return;
 		}
-		entries.push({ name: `${base}.bismith.json`, data: new TextEncoder().encode(projectFile()) });
+		entries.push({ name: `${base}.bismith.json`, data: new TextEncoder().encode(await projectFile()) });
 		downloadBlob(new Blob([zipStore(entries) as BlobPart], { type: 'application/zip' }), `${base}_maps.zip`);
 		editor.notify(`Exported ${entries.length - 1} PNGs + project`);
 	}
@@ -213,21 +213,24 @@ export function useActions() {
 	}
 
 	/**
-	 * The project as a file: with a preview of what the viewport shows now (FR8.20 — the previous one if nothing has
-	 * rendered). Only the file gets it: the open project is left alone, so saving adds no undo step.
+	 * The project as a file: with a preview of what the viewport shows (FR8.20), traced to at least PREVIEW_SAMPLES first
+	 * if it hasn't been yet — the previous one if nothing can render. Only the file gets it: the open project is left
+	 * alone, so saving adds no undo step.
 	 */
-	function projectFile(): string {
-		const preview = capturePreview(editor.engine, PROJECT_PREVIEW) ?? store.project.preview;
+	async function projectFile(): Promise<string> {
+		const preview = (await renderPreview(editor.engine, PROJECT_PREVIEW)) ?? store.project.preview;
 		return projectToJSON(preview ? { ...store.project, preview } : store.project);
 	}
 
 	async function saveProject(): Promise<void> {
 		store.commitNow();
-		const blob = new Blob([projectFile()], { type: 'application/json' });
+		// The file (and its preview, which may need rendering) is made once the Save dialog has been answered.
+		const file = async () => new Blob([await projectFile()], { type: 'application/json' });
 		try {
-			const name = await saveBlobAs(blob, `${slug(store.project.name)}.bismith.json`, {
+			const name = await saveBlobAs(file, `${slug(store.project.name)}.bismith.json`, {
 				description: 'Bismith project',
-				extension: '.json'
+				extension: '.json',
+				mime: 'application/json'
 			});
 			if (name === false) return;
 			store.markSaved();
@@ -340,10 +343,43 @@ export function useActions() {
 		editor.requestFit();
 	}
 
-	function deleteSelection(): void {
+	/**
+	 * Before deleting layer `id`: layers are shared by every variant (FR10), so on another variant the base loses it
+	 * too, and on the base its deletion takes the other variants' settings for it with it. Resolves to whether to go on.
+	 */
+	async function confirmDeleteLayer(id: string): Promise<boolean> {
+		const layer = store.getLayer(id);
+		const vs = store.variants;
+		if (!layer || vs.list.length < 2) return true;
+		const base = vs.list.find((v) => v.id === vs.baseId);
+		const baseName = base?.name ?? 'the base';
+		const changing = store.variantsChangingItem(`layer.${id}`);
+		const names = changing.map((v) => v.name);
+		const list =
+			names.length <= 3
+				? names.join(', ').replace(/, ([^,]+)$/, ' and $1')
+				: `${names.slice(0, 2).join(', ')} and ${names.length - 2} other variants`;
+		let detail: string;
+		if (vs.activeId !== vs.baseId) {
+			detail = `Layers are shared by every variant: deleting it here removes it from ${baseName} (the base) and from every other variant${names.length ? `, with the settings ${list} ${names.length === 1 ? 'has' : 'have'} for it` : ''}. Undo brings it back.`;
+		} else if (names.length) {
+			detail = `${list} ${names.length === 1 ? 'has its' : 'have their'} own settings for this layer; they go with it. Undo brings it back.`;
+		} else return true;
+		const go = await editor.ask({
+			title: `Delete ${layer.name}?`,
+			detail,
+			choices: [{ id: 'delete', label: 'Delete', primary: true }]
+		});
+		return go === 'delete';
+	}
+
+	async function deleteSelection(): Promise<void> {
 		const s = editor.selection;
 		if (!s.id) return;
 		if (s.kind === 'layer') {
+			if (!(await confirmDeleteLayer(s.id))) return;
+			// The selection may have moved while the question was open.
+			if (editor.selection.kind !== 'layer' || editor.selection.id !== s.id) return;
 			const at = store.layerIndex(s.id);
 			store.removeLayer(s.id);
 			const list = store.project.layers;

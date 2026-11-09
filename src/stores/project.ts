@@ -557,6 +557,17 @@ export const useProjectStore = defineStore('project', () => {
 		variantStep(() => V.resetToBase(project.value, key));
 	}
 
+	/** The active variant drops all its changes to item `item` (`layer.<id>` …): it shows the base's settings for it. */
+	function resetItemToBase(item: string): void {
+		variantStep(() => V.resetItemToBase(project.value, item));
+	}
+
+	/** The other variants that change a setting of item `item` (`layer.<id>` …) from the base. */
+	function variantsChangingItem(item: string): V.ProjectVariant[] {
+		commitNow();
+		return V.variantsChangingItem(project.value, item);
+	}
+
 	function makeBaseValue(key: string): void {
 		variantStep(() => V.makeBaseValue(project.value, key));
 	}
@@ -634,6 +645,8 @@ export const useProjectStore = defineStore('project', () => {
 		makeBase,
 		resetVariant,
 		resetToBase,
+		resetItemToBase,
+		variantsChangingItem,
 		makeBaseValue,
 		setVariantValues,
 		variantProject

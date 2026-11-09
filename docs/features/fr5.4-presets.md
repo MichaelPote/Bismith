@@ -53,8 +53,8 @@ in code.
   with their previews, and `LIGHTING_PRESETS` to `presets/lighting/<id>.json` on the stage; the builders,
   `core/lightingPresets.ts` and `src/presets/previews.ts` are gone, and the Lighting presets card shows the lighting
   presets as thumbnail tiles. `tools/previews.ts` renders previews into the files (`--missing`, `--only
-  project/bricks,torch`) and rewrites the manifest; `tools/presets.ts` makes its contact sheet from the starters,
-  `starterPresets()` (id, name, group, build).
+  project/bricks,torch`) and rewrites the manifest; `tools/presets.ts` renders the starters to a contact sheet, on
+  the GPU when there is one. `starterPresets()` lists them for the other tools (id, name, group, build).
 - **Tests**: `presets.test.ts` checks that the manifest is up to date and lists exactly the files in `public/presets/`,
   and that each one loads,
   uses only registered types and known param keys, sits in its kind's folder, holds the item its header names, and has

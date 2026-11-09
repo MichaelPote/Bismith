@@ -270,7 +270,7 @@
 		flex: none;
 		/* The Variants panel's crop at 50% zoom (variantThumbs.ts). */
 		border-radius: 2px;
-		background: var(--sunken);
+		background: var(--alpha-bg);
 		box-shadow: 0 0 0 1px var(--hairline);
 	}
 	.vname {

@@ -13,6 +13,7 @@ import { ensureBuiltins } from './builtins';
 import { scaleProject, supersampleFactor } from '@/core/supersample';
 import { clamp01, linearToSrgb1 } from '@/core/color';
 import { onImageReady, pendingImages } from '@/core/images';
+import { toSrgb8 } from './export';
 
 // Box filter for supersampling: average each k×k block of a k× texture (the traced image, linear HDR, or a material
 // map) into one texel.
@@ -51,6 +52,38 @@ export interface EngineView {
 	previewUpTo: number | null;
 	/** The mask the Masks view shows (FR8.23). */
 	mask: string;
+}
+
+/** A final (post-processed) image kept for reuse (Engine.bestFinal): sRGB RGBA8 at the texture size. */
+export interface KeptFinal {
+	samples: number;
+	width: number;
+	height: number;
+	pixels: Uint8ClampedArray;
+}
+
+/** How many projects' final images an engine keeps (Engine.bestFinal): an export, the viewport before it was replaced. */
+const KEPT_FINALS = 4;
+
+/**
+ * What a project's final image depends on: not sample counts, export settings, supersampling or jitter — those change
+ * its quality, not what it shows — so a kept render serves any of them.
+ */
+function imageKey(p: Project): string {
+	const { maxSamples, samplesPerFrame, exportSamples, exportSupersample, supersample, jitter, ...look } = p.render;
+	return JSON.stringify([
+		p.width,
+		p.height,
+		p.tileable,
+		p.heightDepth,
+		p.seed,
+		p.base,
+		p.layers,
+		p.groups?.map((g) => [g.id, g.members, g.enabled !== false, g.limit ?? null]),
+		p.lighting,
+		look,
+		p.post
+	]);
 }
 
 export interface ImageData32 {
@@ -106,6 +139,8 @@ export class Engine {
 	/** Time of the last material / lighting edit; while recent, the tracer runs in draft quality. */
 	private lastEdit = -Infinity;
 	private draft = false;
+	/** Final images worth reusing, by imageKey, oldest first (bestFinal). */
+	private finals = new Map<string, KeptFinal>();
 	/** Draft (fast preview) settings used while the user is dragging. */
 	draftWindowMs = 250;
 	private currentShaderOwner = '';
@@ -292,6 +327,8 @@ export class Engine {
 	 * Resuming re-applies `project` (or the last one set) and restarts the loop.
 	 */
 	suspend(): void {
+		// Whatever traces next replaces the viewport's accumulation: keep it if it's the best of its project yet.
+		if (!this.suspended && this.project && this.showsFinal()) this.keep(this.project, this.tracer.samples);
 		this.suspended = true;
 		cancelAnimationFrame(this.raf);
 		this.raf = 0;
@@ -477,6 +514,8 @@ export class Engine {
 		opts: {
 			samples: number;
 			supersample: number;
+			/** Trace exactly `samples` (a preview), not at least the project's Max samples. */
+			exact?: boolean;
 			signal?: AbortSignal;
 			onProgress?: (f: number) => void;
 			/** Render this project (a variant, FR10) in place of the one shown; the shown one is resumed after. */
@@ -488,7 +527,7 @@ export class Engine {
 		const project = opts.project ?? shown;
 		if (!project || !shown) throw new Error('No project');
 		const r = project.render;
-		const target = opts.samples > 0 ? Math.max(r.maxSamples, opts.samples) : 0;
+		const target = opts.samples > 0 ? (opts.exact ? opts.samples : Math.max(r.maxSamples, opts.samples)) : 0;
 		const supersample = Math.max(supersampleFactor(project), Math.min(4, Math.max(1, Math.round(opts.supersample))));
 		const wasSuspended = this.suspended;
 		this.suspend();
@@ -511,11 +550,44 @@ export class Engine {
 				if (opts.signal?.aborted) return null;
 			}
 			if (target > 0) this.runPost();
+			if (target > 0 && this.view.previewUpTo === null) this.keep(project, target);
 			return read();
 		} finally {
 			if (wasSuspended) this.setProject(shown);
 			else this.resume(shown);
 		}
+	}
+
+	/** The viewport shows its project's final image: the whole stack, at full quality, with samples traced. */
+	private showsFinal(): boolean {
+		return this.view.previewUpTo === null && !this.draft && this.tracer.samples > 0;
+	}
+
+	/** Keep the final image now on the GPU as `project`'s, when it has more samples than the one kept. */
+	private keep(project: Project, samples: number): void {
+		const key = imageKey(project);
+		if ((this.finals.get(key)?.samples ?? 0) >= samples) return;
+		const img = this.readFinal();
+		this.finals.delete(key);
+		this.finals.set(key, { samples, width: img.width, height: img.height, pixels: toSrgb8(img) });
+		while (this.finals.size > KEPT_FINALS) this.finals.delete(this.finals.keys().next().value!);
+	}
+
+	/**
+	 * The most-sampled final image of `project` (by default the one shown) that this engine has without tracing: the
+	 * viewport's own when it shows that project in full, or one kept from an export or from the viewport before something
+	 * else was traced. Null when it has none. Use it before rendering a preview or thumbnail.
+	 */
+	bestFinal(project?: Project): KeptFinal | null {
+		const p = project ?? this.project;
+		if (!p) return null;
+		const key = imageKey(p);
+		const kept = this.finals.get(key) ?? null;
+		const live =
+			!this.suspended && this.project && this.showsFinal() && imageKey(this.project) === key ? this.tracer.samples : 0;
+		if (live <= (kept?.samples ?? 0)) return kept;
+		const img = this.readFinal();
+		return { samples: live, width: img.width, height: img.height, pixels: toSrgb8(img) };
 	}
 
 	/** The traced image at the texture size: the tracer output, box-filtered down when supersampling. */

@@ -52,14 +52,15 @@ describe('scales', () => {
 	it('starts lapped, irregular and tilted, writing its outline to the Shape mask', () => {
 		const p = createLayer('scales').params;
 		expect(p).toMatchObject({ edges: 'lapped', mk_target: 'Shape', profile: 'smooth' });
-		for (const k of ['jitter', 'wobble', 'size_var', 'tilt', 'lip', 'growth'])
+		for (const k of ['jitter', 'wobble', 'size_var', 'tilt', 'darken', 'lip', 'growth'])
 			expect(Number(p[k]), k).toBeGreaterThan(0);
 	});
 
-	it('grows its outline, bevel and row curve with the texture', () => {
+	it('grows its outline, bevel, row curve and height with the texture', () => {
 		const small = freshParams('scales', { width: 64, height: 64 });
 		const big = freshParams('scales', { width: 512, height: 512 });
-		expect(small).toMatchObject({ outline: 1, bevel: 2, dw_amount: 2.5 });
+		expect(small).toMatchObject({ outline: 1, bevel: 2, dw_amount: 2.5, h_amount: 1.2 });
+		expect(big.h_amount).toBe(9.6);
 		expect(Number(big.outline)).toBeGreaterThan(1);
 		expect(Number(big.bevel)).toBeGreaterThan(2);
 		expect(Number(big.dw_amount)).toBeGreaterThan(2.5);

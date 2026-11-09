@@ -1,24 +1,16 @@
-// Render every preset to harness-out/presets (or --out) and write a contact sheet.
-//   npx tsx tools/presets.ts [--out dir] [--only id1,id2] [--samples N] [--scale 3]
+// Render every starter preset to harness-out/presets (or --out) and write a contact sheet, on the GPU when there is one
+// (tools/backend.ts). It reads the presets and writes only there: the manifest is `npm run presets:manifest`.
+//   npx tsx tools/presets.ts [--out dir] [--only id1,id2] [--samples N] [--scale 3] [--backend windows|swiftshader]
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createServer } from 'vite';
-import { chromium } from 'playwright';
+import { openSession, type BackendKind } from './backend';
 import { contactSheet, decodePng, writePng, type Rgba8 } from './png';
-import type {} from '../src/headless';
-import { fsPresetSource } from './preset-source';
+import { buildManifest, PRESET_DIR } from './presets-manifest';
+import type { HeadlessRenderResult } from '../src/headless';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-function chromiumEnv(): Record<string, string> {
-	const env: Record<string, string> = {};
-	for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
-	const lib = join(ROOT, '.cache/chromium-libs/usr/lib/x86_64-linux-gnu');
-	if (existsSync(lib)) env.LD_LIBRARY_PATH = [lib, join(lib, 'nss'), env.LD_LIBRARY_PATH].filter(Boolean).join(':');
-	return env;
-}
 
 const flag = (name: string, def: string) => {
 	const i = process.argv.indexOf(`--${name}`);
@@ -31,55 +23,38 @@ async function main() {
 	const samples = flag('samples', '');
 	const scale = Number(flag('scale', '3'));
 	mkdirSync(out, { recursive: true });
-	const server = await createServer({
-		root: ROOT,
-		configFile: join(ROOT, 'vite.config.ts'),
-		logLevel: 'error',
-		server: { port: 5193, strictPort: false, host: '127.0.0.1' }
-	});
-	await server.listen();
-	const { setPresetSource, starterPresets } = await server.ssrLoadModule('/src/presets/index.ts');
-	setPresetSource(fsPresetSource());
-	const url = server.resolvedUrls?.local[0] ?? 'http://127.0.0.1:5193/';
-	const browser = await chromium.launch({
-		args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-		env: chromiumEnv()
-	});
-	const page = await browser.newPage();
-	page.on('console', (m) =>
-		m.type() === 'error' && !/GPU stall/.test(m.text()) ? console.error('[page]', m.text()) : undefined
-	);
-	await page.goto(url + '?headless');
-	await page.waitForFunction(() => window.__bismith?.ready === true, null, { timeout: 60_000 });
+	// --only takes the id ("retro/bricks") or the file name alone ("bricks"); outputs are named by the id, flattened.
+	const ids = buildManifest()
+		.presets.filter((p) => p.kind === 'project')
+		.map((p) => p.path.slice('project/'.length))
+		.filter((id) => !only.length || only.some((o) => o === id || o === id.split('/').pop()));
+	const s = await openSession({ backend: flag('backend', 'auto') as BackendKind | 'auto', workers: 1 });
+	console.log(`${s.backend}: ${s.renderer}`);
 	const imgs: Rgba8[] = [];
-	for (const preset of (await starterPresets()) as { id: string; build: () => Promise<object> }[]) {
-		// --only takes the id ("retro/bricks") or the file name alone ("bricks"); outputs are named by the id, flattened.
-		if (only.length && !only.some((o) => o === preset.id || o === preset.id.split('/').pop())) continue;
-		const file = preset.id.replace(/\//g, '-');
-		const project = await preset.build();
-		writeFileSync(join(out, `${file}.json`), JSON.stringify(project, null, 2));
-		const r = await page.evaluate(
-			({ project, samples }) => {
-				const a = window.__bismith!;
-				a.loadProject(project);
-				return a.render(samples ? { samples: Number(samples) } : {});
-			},
-			{ project, samples }
-		);
-		const img = decodePng(Buffer.from(r.png.split(',')[1], 'base64'));
-		writePng(join(out, `${file}.png`), img);
-		imgs.push(img);
-		const errs = Object.values(r.errors);
-		console.log(
-			`${preset.id.padEnd(10)} ${r.width}×${r.height} ${r.samples} spp ${r.ms.toFixed(0)} ms${errs.length ? '  ERR ' + errs[0].slice(0, 200) : ''}`
-		);
+	try {
+		for (const id of ids) {
+			const file = id.replace(/\//g, '-');
+			// The whole file: the images a preset carries are in its header.
+			await s.callOn(0, 'loadProject', JSON.parse(readFileSync(join(PRESET_DIR, `project/${id}.json`), 'utf8')));
+			await s.callOn(0, 'settle');
+			const { preset: _header, ...project } = await s.callOn<Record<string, unknown>>(0, 'getProject');
+			writeFileSync(join(out, `${file}.json`), JSON.stringify(project, null, 2));
+			const r = await s.callOn<HeadlessRenderResult>(0, 'render', samples ? { samples: Number(samples) } : {});
+			const img = decodePng(Buffer.from(r.png.split(',')[1], 'base64'));
+			writePng(join(out, `${file}.png`), img);
+			imgs.push(img);
+			const errs = Object.values(r.errors);
+			console.log(
+				`${id.padEnd(10)} ${r.width}×${r.height} ${r.samples} spp ${r.ms.toFixed(0)} ms${errs.length ? '  ERR ' + errs[0].slice(0, 200) : ''}`
+			);
+		}
+	} finally {
+		await s.close();
 	}
 	if (imgs.length) {
 		writePng(join(out, 'sheet.png'), contactSheet(imgs, scale));
 		console.log(`sheet → ${join(out, 'sheet.png')}`);
 	}
-	await browser.close();
-	await server.close();
 }
 
 main().catch((e) => {

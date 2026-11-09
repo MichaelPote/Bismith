@@ -94,6 +94,8 @@ export const useEditorStore = defineStore('editor', () => {
 	const variantChanges = ref<string | null>(null);
 	/** The Export dialog (FR10) is open, with these variants ticked (default: the one shown). */
 	const exportDialog = ref<{ variants?: string[] } | null>(null);
+	/** File ▸ Export as Preset… (dev server only). */
+	const presetExport = ref(false);
 	/** The Publish to gallery dialog is open, with the renders it will upload (one per variant, rendered on opening). */
 	const publishDialog = shallowRef<{ renders: GalleryRender[] } | null>(null);
 	/** Asks the Variants panel to rename this variant in place (from the workspace's menu). */
@@ -140,6 +142,7 @@ export const useEditorStore = defineStore('editor', () => {
 		variantChanges,
 		variantRename,
 		exportDialog,
+		presetExport,
 		publishDialog,
 		selection,
 		workspace,

@@ -1,6 +1,7 @@
 // Variant thumbnails (FR10): the shown variant's captured from the viewport once its render has THUMBNAIL_SAMPLES and
 // again when it has settled, the others
-// rendered off-screen (presets/thumbnail.ts) while the viewport is idle — all stale ones in one pass, so the viewport
+// from an image the engine already has (Engine.bestFinal: a recent export, the viewport before switching) or else
+// rendered off-screen (presets/thumbnail.ts) while the viewport is idle — all those in one pass, so the viewport
 // restarts once. Each is a preview of the whole texture (the workspace's cards) and a crop of its middle at 50% zoom
 // (the Variants panel's rows). Kept in memory by a hash of each variant's project; nothing is saved with it.
 
@@ -9,7 +10,7 @@ import { hashText } from '@/core/hash';
 import * as V from '@/core/variants';
 import type { Project } from '@/core/project';
 import { renderThumbnails, THUMBNAIL_SAMPLES } from '@/presets/thumbnail';
-import type { Engine } from '@/render/engine';
+import type { Engine, KeptFinal } from '@/render/engine';
 import { mapPixels } from '@/render/export';
 import { encodeCrop, encodePreview, PROJECT_PREVIEW } from '@/render/preview';
 import { useEditorStore } from '@/stores/editor';
@@ -47,16 +48,20 @@ function renderHash(p: Project): string {
 	return hashText(JSON.stringify({ ...p, name: '', description: '', preview: '', preset: undefined }));
 }
 
+/** Both thumbnails of a final image. */
+function thumbOf({ width, height, pixels }: Omit<KeptFinal, 'samples'>, p: Project): Thumb | undefined {
+	if (!width || !height) return undefined;
+	const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+	return {
+		preview: encodePreview(pixels, width, height, PROJECT_PREVIEW),
+		crop: encodeCrop(pixels, width, height, CROP_SIZE.w * dpr, CROP_SIZE.h * dpr, p.tileable, CROP_ZOOM)
+	};
+}
+
 /** Both thumbnails of what the engine shows now; undefined before anything has rendered. */
 function capture(engine: Engine, p: Project): Thumb | undefined {
 	try {
-		const { width, height, pixels } = mapPixels(engine, 'final');
-		if (!width || !height) return undefined;
-		const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
-		return {
-			preview: encodePreview(pixels, width, height, PROJECT_PREVIEW),
-			crop: encodeCrop(pixels, width, height, CROP_SIZE.w * dpr, CROP_SIZE.h * dpr, p.tileable, CROP_ZOOM)
-		};
+		return thumbOf(mapPixels(engine, 'final'), p);
 	} catch (e) {
 		console.warn('[bismith] variant thumbnail capture failed', e);
 		return undefined;
@@ -100,19 +105,29 @@ function start(): void {
 			})
 			.filter(
 				(s) =>
-					hashes.get(s.id) !== s.hash ||
-					(at === 2 && s.id === vs.activeId && (quality.get(s.id) ?? 0) < st.samples)
+					hashes.get(s.id) !== s.hash || (at === 2 && s.id === vs.activeId && (quality.get(s.id) ?? 0) < st.samples)
 			);
 		const shown = stale.find((s) => s.id === vs.activeId);
 		if (shown) {
-			const t = capture(engine, shown.project);
+			const best = engine.bestFinal(shown.project);
+			const t = best ? thumbOf(best, shown.project) : capture(engine, shown.project);
 			if (t) {
 				thumbs.set(shown.id, t);
 				hashes.set(shown.id, shown.hash);
-				quality.set(shown.id, st.samples);
+				quality.set(shown.id, best?.samples ?? st.samples);
 			}
 		}
-		const others = stale.filter((s) => s !== shown);
+		// Variants the engine already has a good enough image of (an export, the viewport before switching) need no render.
+		const others = stale.filter((s) => {
+			if (s === shown) return false;
+			const best = engine.bestFinal(s.project);
+			const t = best && best.samples >= THUMBNAIL_SAMPLES ? thumbOf(best, s.project) : undefined;
+			if (!t) return true;
+			thumbs.set(s.id, t);
+			hashes.set(s.id, s.hash);
+			quality.set(s.id, best!.samples);
+			return false;
+		});
 		// Rendering the others restarts the viewport: only once it has settled.
 		if (!others.length || at < 2) return;
 		running = true;

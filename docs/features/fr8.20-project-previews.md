@@ -11,7 +11,8 @@ project has one shows it at once.
 ## Design
 
 - **Format**: `Project.preview` — optional, last in the file. A data URL of the final (post-processed) image: WebP
-  (JPEG where the browser can't encode WebP), the longest side scaled (smoothly) to at most 256 px — smaller textures
+  with its alpha (JPEG over the viewport's alpha checkerboard where the browser can't encode WebP; cards and menus
+  show previews over that checkerboard too, `--alpha-bg`), the longest side scaled (smoothly) to at most 256 px — smaller textures
   keep their size — at quality 0.8 (`PROJECT_PREVIEW`): sharp on a wizard card (150 px and up, 2× screens too). A
   64 px texture is a few KB, a 256 px one 10–35 KB of base64. Preset tiles in the menus (~76 px) keep 128 px at
   quality 0.6 (`TILE_PREVIEW`), a few KB each. On load it is kept only

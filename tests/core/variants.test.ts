@@ -12,11 +12,13 @@ import {
 	materialise,
 	moveVariant,
 	renameVariant,
+	resetItemToBase,
 	resetToBase,
 	resetVariant,
 	switchVariant,
 	syncVariants,
 	variantSettings,
+	variantsChangingItem,
 	variantsOf
 } from '@/core/variants';
 import { resizeProject } from '@/core/pixelScale';
@@ -109,6 +111,28 @@ describe('variants: editing', () => {
 		p.seed = 7;
 		resetVariant(p, activeVariant(p).id);
 		expect(p.seed).toBe(1);
+	});
+
+	it('resets every setting of one layer to the base, and knows which variants change a layer', () => {
+		const p = bricks();
+		const dry = variantsOf(p).baseId;
+		const wet = addVariant(p, undefined, 'Wet');
+		p.layers[0].enabled = false;
+		p.layers[0].params.seed = 42;
+		p.layers[1].params.seed = 43;
+		syncVariants(p);
+		expect(Object.keys(wet.changes)).toHaveLength(3);
+		// On the base, Wet changes both layers; the shown variant is never listed.
+		switchVariant(p, dry);
+		expect(variantsChangingItem(p, `layer.${p.layers[0].id}`).map((v) => v.name)).toEqual(['Wet']);
+		switchVariant(p, wet.id);
+		expect(variantsChangingItem(p, `layer.${p.layers[0].id}`)).toEqual([]);
+		resetItemToBase(p, `layer.${p.layers[0].id}`);
+		expect(p.layers[0].enabled).toBe(true);
+		expect(p.layers[0].params.seed).toBe(1);
+		expect(Object.keys(activeVariant(p).changes)).toEqual([key(p, 1, 'seed')]);
+		switchVariant(p, dry);
+		expect(variantsChangingItem(p, `layer.${p.layers[0].id}`)).toEqual([]);
 	});
 
 	it('makes another variant the base, first in the list, without changing any variant’s look', () => {

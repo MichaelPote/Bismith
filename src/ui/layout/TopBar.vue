@@ -29,6 +29,7 @@
 			{ label: 'Save project', shortcut: 'Ctrl+S', action: act.saveProject },
 			{ label: 'Publish to gallery…', action: act.openPublish },
 			{ label: 'Save as template…', action: () => (editor.presetDialog = { mode: 'template' }) },
+			...(import.meta.env.DEV ? [{ label: 'Export as Preset…', action: () => (editor.presetExport = true) }] : []),
 			{ label: 'My presets…', action: () => (editor.presetDialog = { mode: 'manage' }) },
 			{ separator: true },
 			{ label: 'Export…', shortcut: 'Ctrl+E', action: () => (editor.exportDialog = {}) },

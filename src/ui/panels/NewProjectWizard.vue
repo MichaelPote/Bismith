@@ -166,7 +166,7 @@
 		object-fit: cover;
 		image-rendering: pixelated;
 		border: 1px solid var(--deep);
-		background: var(--sunken);
+		background: var(--alpha-bg);
 	}
 	.thumb.none {
 		display: flex;

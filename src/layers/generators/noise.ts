@@ -589,6 +589,21 @@ export const noiseLayer: LayerDef = {
 	kind: 'generator',
 	description:
 		'Noise: Lattice, cellular and white noise, with optional fractal layering, domain warp and contrast. Makes clouds, grain, stone, marbling, hammered metal.',
+	maskSources: [
+		{
+			value: 'layer',
+			label: 'This layer',
+			hint: 'where the layer covers: everywhere, or down to its Cutoff',
+			params: {}
+		},
+		{
+			value: 'value',
+			label: 'Value',
+			hint: 'the noise’s value after Value shaping, the grey that Diffuse’s gradient and Height read, as a soft mask',
+			params: {},
+			soft: true
+		}
+	],
 	params: [
 		...NOISE_CONTROLS,
 		P.int('block', 'Pixel size', 1, 1, 256, { softMax: 32, unit: 'px', showIf: (p) => p.noise === 'white' }),

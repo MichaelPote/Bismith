@@ -4,18 +4,23 @@
 import type { Project } from '@/core/project';
 import type { Engine } from '@/render/engine';
 import { shaderKey } from '@/render/materialPipeline';
-import { capturePreview, type PreviewSize } from '@/render/preview';
+import { capturePreview, renderPreview, TILE_PREVIEW, type PreviewSize } from '@/render/preview';
 
-/** Samples of a thumbnail: enough for soft shadows at 128 px, quick enough to render while a dialog is open. */
+/** Samples of a thumbnail kept in memory only (renderThumbnails): enough for soft shadows at card size, and quick. */
 export const THUMBNAIL_SAMPLES = 64;
 
-export async function renderThumbnail(engine: Engine, preset: Project, restore: Project): Promise<string | undefined> {
-	return (await renderThumbnails(engine, [preset], restore))[0];
+/** A preset's stored thumbnail: rendered off-screen at PREVIEW_SAMPLES, the page responsive meanwhile. */
+export function renderThumbnail(
+	engine: Engine,
+	preset: Project,
+	size: PreviewSize = TILE_PREVIEW
+): Promise<string | undefined> {
+	return renderPreview(engine, size, preset);
 }
 
 /**
- * Thumbnails of several projects in one pass (the viewport resumes once, with `restore`); `capture` takes each from the
- * engine once it has rendered (by default a preview of `size`).
+ * In-memory thumbnails of several projects (the variant cards) in one pass, at THUMBNAIL_SAMPLES (the viewport resumes
+ * once, with `restore`); `capture` takes each from the engine once it has rendered (by default a preview of `size`).
  */
 export async function renderThumbnails<T = string | undefined>(
 	engine: Engine,

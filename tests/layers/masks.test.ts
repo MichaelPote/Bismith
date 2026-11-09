@@ -358,6 +358,14 @@ describe('Mask area', () => {
 });
 
 describe('Mask area sources', () => {
+	it('writes a Noise layer’s value as a soft mask, from its Value source', () => {
+		const def = getLayerDef('noise')!;
+		const l = createLayer('noise');
+		expect(maskSourcesOf('noise').map((s) => s.value)).toEqual(['layer', 'value']);
+		const write = (src: string) => layerWrites(def, { ...l.params, mk_src: src, mk_target: 'N' })[0];
+		expect(write('layer')).toMatchObject({ target: 'N', kind: 'coverage', soft: false, extra: false });
+		expect(write('value')).toMatchObject({ target: 'N', kind: 'coverage', soft: true, extra: true });
+	});
 	it('writes crevices and high spots, as distances, from any row', () => {
 		const def = getLayerDef('surfacemask');
 		const l = createLayer('surfacemask', {

@@ -176,32 +176,37 @@ type SaveFilePicker = (options: {
  * Save `blob` through the browser's Save As dialog where it has one (Chrome, Edge). Firefox and Safari offer no way
  * for a page to open it, so there the file is downloaded, which asks where only if the browser is set to ask.
  * Resolves to the saved file's name (null if it went to the downloads instead), or false if the dialog was cancelled.
+ * `blob` may be a function that makes it: it is called once the dialog has been answered, since the browser only opens
+ * the dialog right after the click — work that takes a while (rendering a preview) goes after it.
  */
 export async function saveBlobAs(
-	blob: Blob,
+	blob: Blob | (() => Promise<Blob>),
 	filename: string,
-	type: { description: string; extension: string }
+	type: { description: string; extension: string; mime?: string }
 ): Promise<string | null | false> {
+	const make = () => (blob instanceof Blob ? Promise.resolve(blob) : blob());
 	const picker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
 	if (!picker) {
-		downloadBlob(blob, filename);
+		downloadBlob(await make(), filename);
 		return null;
 	}
+	const mime = type.mime ?? (blob instanceof Blob ? blob.type : 'application/octet-stream');
 	let handle: FileSystemFileHandle;
 	try {
 		// The id makes the dialog reopen in the folder last saved to.
 		handle = await picker({
 			suggestedName: filename,
 			id: 'bismith-save',
-			types: [{ description: type.description, accept: { [blob.type]: [type.extension] } }]
+			types: [{ description: type.description, accept: { [mime]: [type.extension] } }]
 		});
 	} catch (e) {
 		if (e instanceof DOMException && e.name === 'AbortError') return false;
-		downloadBlob(blob, filename);
+		downloadBlob(await make(), filename);
 		return null;
 	}
+	const data = await make();
 	const out = await handle.createWritable();
-	await out.write(blob);
+	await out.write(data);
 	await out.close();
 	return handle.name;
 }

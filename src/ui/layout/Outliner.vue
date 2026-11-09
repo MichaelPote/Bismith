@@ -346,7 +346,21 @@
 	const rowMenu = ref<InstanceType<typeof DropMenu> | null>(null);
 	const rowMenuItems = ref<MenuItem[]>([]);
 
-	/** A post filter's menu items: move it one step through the chain. */
+	/** On a variant other than the base, a layer it changes offers to drop those changes (FR10). */
+	function resetLayerItems(kind: string, id: string): MenuItem[] {
+		const vs = store.variants;
+		if (kind !== 'layer' || vs.activeId === vs.baseId || !store.changedItems.has(`layer.${id}`)) return [];
+		const baseName = vs.list.find((v) => v.id === vs.baseId)?.name ?? 'the base';
+		return [
+			{ separator: true },
+			{
+				label: 'Reset all changes to this layer',
+				hint: `Its settings go back to ${baseName}'s`,
+				action: () => store.resetItemToBase(`layer.${id}`)
+			}
+		];
+	}
+
 	async function onRowMenu(e: MouseEvent, kind: 'layer' | 'group' | 'light' | 'post', id: string): Promise<void> {
 		const { clientX: x, clientY: y } = e;
 		editor.select(kind, id);
@@ -354,7 +368,8 @@
 		// The inspector heading's actions (ui/itemActions.ts), and Rename for a light (a layer renames in place).
 		rowMenuItems.value = [
 			...(light ? [{ label: 'Rename', action: () => startRename(light.id, light.name) }, { separator: true }] : []),
-			...itemActs.menuItems(kind, id)
+			...itemActs.menuItems(kind, id),
+			...resetLayerItems(kind, id)
 		];
 		// The menu closes on scroll, so let a half-hidden row finish scrolling into view (the watch above) first.
 		await nextTick();

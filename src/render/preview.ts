@@ -2,6 +2,7 @@
 // the project file as a data URL (`Project.preview`) so the new-project wizard can show a card without compiling and
 // rendering it.
 
+import type { Project } from '@/core/project';
 import type { Engine } from './engine';
 import { mapPixels } from './export';
 
@@ -18,6 +19,35 @@ export const TILE_PREVIEW: PreviewSize = { max: 128, quality: 0.6 };
  * size, 10–35 KB of base64.
  */
 export const PROJECT_PREVIEW: PreviewSize = { max: 256, quality: 0.8 };
+
+/**
+ * The fewest path-traced samples a stored preview (a project's, a preset's) is rendered with: fewer leave soft shadows
+ * and glossy highlights grainy on a card.
+ */
+export const PREVIEW_SAMPLES = 256;
+
+/**
+ * A preview to store with a project or preset: of `project` (rendered in place of the shown one), else of what the
+ * engine shows. Reuses the best image the engine already has (Engine.bestFinal: the viewport, a recent export) when it
+ * has PREVIEW_SAMPLES or more; otherwise traces exactly that many off-screen (Engine.renderExport: in chunks, so the
+ * page stays responsive). Undefined without an engine or project.
+ */
+export async function renderPreview(
+	engine: Engine | null | undefined,
+	size: PreviewSize = PROJECT_PREVIEW,
+	project?: Project
+): Promise<string | undefined> {
+	if (!engine) return undefined;
+	const best = engine.bestFinal(project);
+	if (best && best.samples >= PREVIEW_SAMPLES) return encodePreview(best.pixels, best.width, best.height, size);
+	try {
+		const opts = { samples: PREVIEW_SAMPLES, supersample: 1, exact: true, ...(project ? { project } : {}) };
+		return (await engine.renderExport(opts, () => capturePreview(engine, size))) ?? undefined;
+	} catch (e) {
+		console.warn('[bismith] preview render failed', e);
+		return undefined;
+	}
+}
 
 /**
  * Encode RGBA8 pixels as a preview: scaled down (smoothly) so the longest side is at most `max` px, as WebP — JPEG where
@@ -44,7 +74,26 @@ export function encodePreview(
 	ctx.imageSmoothingQuality = 'high';
 	ctx.drawImage(src, 0, 0, dst.width, dst.height);
 	const webp = dst.toDataURL('image/webp', quality);
-	return webp.startsWith('data:image/webp') ? webp : dst.toDataURL('image/jpeg', quality);
+	return webp.startsWith('data:image/webp') ? webp : onChecker(dst).toDataURL('image/jpeg', quality);
+}
+
+/**
+ * `src` over the viewport's alpha checkerboard (display.ts: its two greys, 8 px cells, larger on big images), for formats
+ * without alpha (the JPEG fallbacks): transparent texels show as the checkerboard instead of turning black. Browser only.
+ */
+export function onChecker(src: HTMLCanvasElement): HTMLCanvasElement {
+	const c = document.createElement('canvas');
+	c.width = src.width;
+	c.height = src.height;
+	const g = c.getContext('2d')!;
+	const cell = Math.max(8, Math.round(Math.max(c.width, c.height) / 64));
+	g.fillStyle = '#2b3036';
+	g.fillRect(0, 0, c.width, c.height);
+	g.fillStyle = '#3b4045';
+	for (let y = 0; y * cell < c.height; y++)
+		for (let x = y & 1; x * cell < c.width; x += 2) g.fillRect(x * cell, y * cell, cell, cell);
+	g.drawImage(src, 0, 0);
+	return c;
 }
 
 /**

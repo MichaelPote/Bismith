@@ -1,5 +1,5 @@
 <script setup lang="ts">
-	import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue';
+	import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
 	import { usePresetsStore } from '@/stores/presets';
@@ -26,6 +26,11 @@
 	import PublishDialog from '@/ui/panels/PublishDialog.vue';
 	import { GALLERY_ID } from '@/gallery/client';
 	import { offerResume } from '@/ui/resumeRuns';
+
+	// Dev server only: a build leaves out the dialog and its chunk.
+	const ExportPresetDialog = import.meta.env.DEV
+		? defineAsyncComponent(() => import('@/ui/panels/ExportPresetDialog.vue'))
+		: null;
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
@@ -295,6 +300,7 @@
 		</div>
 		<NewProjectWizard v-if="editor.wizard" />
 		<PresetDialog v-if="editor.presetDialog" />
+		<ExportPresetDialog v-if="ExportPresetDialog && editor.presetExport" />
 		<VariantChanges v-if="editor.variantChanges" />
 		<ExportDialog v-if="editor.exportDialog" />
 		<PublishDialog v-if="editor.publishDialog" />

@@ -366,6 +366,7 @@
 		height: 100%;
 		object-fit: cover;
 		image-rendering: pixelated;
+		background: var(--alpha-bg);
 	}
 	.spin {
 		position: absolute;

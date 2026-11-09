@@ -9,6 +9,8 @@
 	--raised: #2c3136;
 	--sunken: #1a1d20;
 	--deep: #111316;
+	/* Behind a render shown as an image: the viewport's alpha checkerboard (8 px cells), so transparent texels read as such. */
+	--alpha-bg: repeating-conic-gradient(#3b4045 0 25%, #2b3036 0 50%) 0 0 / 16px 16px;
 
 	/* Lines */
 	--hairline: #363c41;

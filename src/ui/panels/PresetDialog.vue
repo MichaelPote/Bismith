@@ -16,7 +16,7 @@
 	import { usePresetsStore } from '@/stores/presets';
 	import { buildPreset, buildTemplate, presetItemOf } from '@/presets/apply';
 	import { renderThumbnail } from '@/presets/thumbnail';
-	import { capturePreview, PROJECT_PREVIEW } from '@/render/preview';
+	import { PROJECT_PREVIEW, renderPreview, TILE_PREVIEW } from '@/render/preview';
 	import { downloadBlob } from '@/render/export';
 	import { IconDownload, IconTrash, IconUpload } from '@tabler/icons-vue';
 	import DialogFrame from '@/ui/components/DialogFrame.vue';
@@ -96,7 +96,12 @@
 		name.value = defaultName();
 		if (d?.mode === 'template') {
 			description.value = project.description ?? '';
-			thumb.value = capturePreview(editor.engine, PROJECT_PREVIEW);
+			rendering.value = true;
+			try {
+				thumb.value = await renderPreview(editor.engine, PROJECT_PREVIEW);
+			} finally {
+				rendering.value = false;
+			}
 			return;
 		}
 		if (d?.mode === 'edit') {
@@ -119,7 +124,8 @@
 		if (!engine) return;
 		rendering.value = true;
 		try {
-			thumb.value = await renderThumbnail(engine, draft.value, toRaw(store.project));
+			const size = draft.value.preset?.kind === 'project' ? PROJECT_PREVIEW : TILE_PREVIEW;
+			thumb.value = await renderThumbnail(engine, draft.value, size);
 		} catch (e) {
 			editor.notify(`Thumbnail failed: ${e instanceof Error ? e.message : e}`, 'error');
 		} finally {
@@ -404,6 +410,7 @@
 		height: 100%;
 		object-fit: cover;
 		image-rendering: pixelated;
+		background: var(--alpha-bg);
 	}
 	.spin {
 		width: 20px;
@@ -489,7 +496,7 @@
 		height: 48px;
 		object-fit: cover;
 		image-rendering: pixelated;
-		background: var(--sunken);
+		background: var(--alpha-bg);
 	}
 	.cols {
 		flex: 1;

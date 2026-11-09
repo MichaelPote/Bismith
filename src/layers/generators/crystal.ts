@@ -354,8 +354,9 @@ GenOut gen(vec2 p) {
   // strength (half round the finer layers' crystals), distance to its nearest cell edge, the crystals' coverage, its crystal's random, the distance to its
   // visible outline (< 0 inside).
   float H = -1e3, V = 0.0, VA = 0.0, WA = 0.0, DR = 1e4, MR = 1.0, DV = 1e4, MV = 1.0, DE = 1e4, C = 0.0, RN = 0.0, SD = 1e4;
-  // The front facet's own random (the mask's feature with Mask features › Facets).
-  float RF = 0.0;
+  // The front facet's own random (the mask's feature with Mask features › Facets); the front crystal's bevel there.
+  float RF = 0.0, BV = 1.0;
+  bool facets = u_mask_feat == 1;
   // The front facet's gradient; whether the one across the boundary is the ground.
   vec2 dH = vec2(0.0);
   bool AG = false;
@@ -428,8 +429,6 @@ GenOut gen(vec2 p) {
         float ht = covI * Hc * (base + (1.0 - base) * min(gc, tab) / tab + (t > 0 ? u_layer_lift : 0.0)) / hmax;
         float sl = covI * Hc * (1.0 - base) / (tab * hmax);
         vec2 dht = onTab ? vec2(0.0) : sl * n1 / den1;
-        // Stack on top: the crystal stands on the surface so far (its height added, so it is in front wherever it rises).
-        if (add && H > -1.0) { ht += H; dht += dH; }
         // This facet (the table, or the lowest face), and the one across its nearest ridge: the next face, or the table's
         // edge (both in px: g is d / den).
         float vF = cyFacet(r1, n1, gc, rc, tl, ldir);
@@ -445,6 +444,12 @@ GenOut gen(vec2 p) {
         vec2 nr = dTab < dRid ? n1 : n1 + n2;
         float mR = (0.3 + 1.4 * rr * rr) * (0.7 - 0.3 * dot(nr, ldir) / max(length(nr), 1e-6)) * (t > 0 ? 0.5 : 1.0);
         dRid = min(dRid, dTab);
+        // Bevel: on this crystal alone, along its own edges (and ridges, with Mask features › Facets), before the layers
+        // combine: they then meet at the true max of their bevelled heights, with no dip along the creases between them.
+        float bev = bevelPlain(-(facets ? min(de, dRid) : de));
+        ht *= bev;
+        // Stack on top: the crystal stands on the surface so far (its height added, so it is in front wherever it rises).
+        if (add && H > -1.0) { ht += H; dht += dH; }
         float vS = onTab ? vT : vF;
         // Across the nearest edge: the neighbour's face, or the ground (value 0) across a gap.
         float wG = u_ground ? max(1.0 - covI - wNb, 0.0) : 0.0;
@@ -476,7 +481,7 @@ GenOut gen(vec2 p) {
           FS = fS; FA = fA; TP = tip; TA = tA;
           H += fill;
           DR = dRid; MR = mR; DE = max(de, 0.0); DV = min(DE, dt); MV = t > 0 ? 0.5 : 1.0;
-          C = min(covI + wNb, 1.0); RN = rnd; SD = -min(de, dt); RF = onTab ? rT : r1;
+          C = min(covI + wNb, 1.0); RN = rnd; SD = -min(de, dt); RF = onTab ? rT : r1; BV = bev;
         } else {
           if (wt > WA) { VA = vS; WA = wt; AG = false; FA = fS; TA = tip; }
           // A crease with a layer hidden below counts only within that layer's facet: its plane, carried on past the
@@ -505,10 +510,11 @@ GenOut gen(vec2 p) {
   float smax = 4.0 / (hmax * min(uRes.x / c0.x, uRes.y / c0.y));
   if (vw > 0.0 && DE < vw) H += min(length(dH), smax) * (vw - DE) * (vw - DE) / (2.0 * vw);
   // The mask: the front crystal (its outline) or its facet (its ridges and edges too), with its random.
-  bool facets = u_mask_feat == 1;
-  GenOut g = genOut(clamp(cyEdges(V, DR, MR, DV, MV), 0.0, 1.0), u_ground ? 1.0 : C, RN, facets ? max(SD, -DR) : SD);
+  GenOut g = genOut(BV * clamp(cyEdges(V, DR, MR, DV, MV), 0.0, 1.0), u_ground ? 1.0 : C, RN, facets ? max(SD, -DR) : SD);
+  // (The bevel is done: the wrapper's, by the mask's distance, would dip along the creases between layers.)
+  g.bdist = -1e4;
   if (facets) g.fid = fract(RF * 7.13 + RN);
-  gGenAlt = vec2(clamp(cyEdges(VA, DR, MR, DV, MV), 0.0, 1.0), WA);
+  gGenAlt = vec2(BV * clamp(cyEdges(VA, DR, MR, DV, MV), 0.0, 1.0), WA);
   // Per-feature variation is each crystal's height (above), not a scale of the whole value.
   g.feat = 0.0;
   g.hval = clamp(H, 0.0, 1.0);

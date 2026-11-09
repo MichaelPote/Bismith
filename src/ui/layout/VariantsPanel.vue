@@ -345,7 +345,7 @@
 		/* A crop at 50% zoom, a pixel per device pixel (variantThumbs.ts, CROP_SIZE). */
 		border-radius: 2px;
 		box-shadow: 0 0 0 1px var(--hairline);
-		background: var(--sunken);
+		background: var(--alpha-bg);
 	}
 	.row.sel .thumb {
 		box-shadow: 0 0 0 1px var(--e400);

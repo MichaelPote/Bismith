@@ -13,8 +13,12 @@
 // broad flat troughs). The gather walks the parameter lattice: each sample lands at X(u) + strength · ∇z, where
 // ∇z = J⁻ᵀ ∂Z/∂u (J = ∂X/∂u), and carries det J — the horizontal area of its patch, i.e. the light it catches.
 //
-// Phase animates the surface: each wave travels along its direction by a whole number of wavelengths per loop (coarse
-// waves one, fine waves two — faster, as short water waves are), forwards or backwards, so 0 → 1 loops seamlessly.
+// Octaves: Waves plane waves per band, each band at twice the frequency of the last with Detail × its slope share,
+// its directions turned between all the earlier ones (fBm-like detail without parallel, redundant waves).
+//
+// Phase animates the surface: each wave travels along its direction by a whole number of wavelengths per loop (octave
+// o by o + 1 — faster, as short water waves are; the meander's waves one), forwards or backwards, so 0 → 1 loops
+// seamlessly.
 
 import { hashI } from '@/core/hash';
 import { P, type ParamValues } from '@/core/params';
@@ -22,12 +26,15 @@ import { PHASE_PARAM } from '../commonParams';
 import { GLSL_PRIMTEX } from '../primTexture';
 import type { CpuTexture, LayerDef } from '../types';
 
-const LC_MAX = 16;
+const LC_MAX = 32; // waves in all octaves
+const LC_OCT = 4;
+const LC_ROWS = LC_MAX + 5;
 
 /**
  * The wave table, from the params, seed and canvas size (the same for every pixel, so worked out here once): float32s
- * as the bits of RGBA8 texels, 8 a row — rows 0–15 the waves (k.x, k.y, φ, a, q, w = a·|k|), rows 16–19 the meander
- * waves (k.x, k.y, φ, a), row 20 Gerstner's largest shift Σ q and the height normaliser Σ w (1 + c).
+ * as the bits of RGBA8 texels, 8 a row — rows 0…LC_MAX−1 the waves, octave by octave (k.x, k.y, φ, a, q, w = a·|k|),
+ * the next four the meander waves (k.x, k.y, φ, a), the last Gerstner's largest shift Σ q, the height normaliser
+ * Σ w (1 + c) and the wave count.
  */
 function waveTable(
 	p: ParamValues,
@@ -37,34 +44,73 @@ function waveTable(
 		H = ctx.height,
 		seed = ctx.seed;
 	const num = (k: string, d: number) => (typeof p[k] === 'number' ? (p[k] as number) : d);
-	const n = Math.max(1, Math.min(LC_MAX, Math.round(num('waves', 7))));
+	// Octaves: bands of nb waves, each band at twice the frequency of the one before and Detail × its slope share.
+	const nb = Math.max(1, Math.min(LC_MAX, Math.round(num('waves', 5))));
+	const detail = num('octave2', 0.3);
+	const nOct = detail > 0 ? Math.max(1, Math.min(LC_OCT, Math.round(num('octaves', 2)))) : 1;
+	const n = Math.min(LC_MAX, nb * nOct);
 	const scale = num('scale', 4),
-		spread = num('spread', 0.35),
-		oct2 = num('octave2', 0.25),
+		// Wave variation: 0 = every wave alike (one length, one height, directions rounded first for evenness), 1 = a
+		// varied mix (±0.35 octaves of length, heights down to 0.755); beyond 1 the lengths and heights spread further.
+		vary = Math.max(num('spread', 0), 0),
+		spread = 0.35 * vary,
 		phase = num('phase', 0);
 	const ger = p.model === 'gerstner';
 	// c = 1/16 keeps the trough curvature at its maximum (1 − 4c) mid-trough — the sharpest crest without splitting cells.
 	const c = ger ? 0 : 0.0625 * num('harmonic', 1);
-	const f = new Float32Array(8 * 21);
+	const f = new Float32Array(8 * LC_ROWS);
 	const K: [number, number][] = [];
 	const A: number[] = [];
 	let norm = 0;
-	// Coarse and fine waves each take exactly evenly spaced directions (one random rotation per seed) — an uneven or
-	// duplicated set of directions stretches the cells along the dominant ones.
-	const nf = oct2 > 0 && n > 2 ? Math.max(1, Math.floor(n / 3)) : 0;
-	const nc = n - nf;
-	const rot = Math.PI * hashI(0, 9, seed);
+	// Each band takes exactly evenly spaced directions — an uneven or duplicated set of directions stretches the cells
+	// along the dominant ones. The first band has one random rotation per seed; each further band is rotated as far from
+	// every earlier direction as it can get (modulo 180°), so no wave runs parallel to another and adds nothing new.
+	const lenW = 0.12 + 1.38 * Math.min(vary, 1);
+	const dirs: number[] = [];
+	for (let o = 0; o < nOct; o++) {
+		const m = Math.min(nb, n - o * nb);
+		let off = Math.PI * hashI(0, 9, seed);
+		if (o > 0) {
+			let best = -1;
+			for (let t = 0; t < 64; t++) {
+				const x = ((t + 0.5) / 64) * (Math.PI / m);
+				let md = Math.PI;
+				for (let j = 0; j < m; j++)
+					for (const d0 of dirs) {
+						const d = (x + (Math.PI * j) / m - d0) / Math.PI;
+						md = Math.min(md, Math.PI * Math.abs(d - Math.round(d)));
+					}
+				if (md > best) {
+					best = md;
+					off = x;
+				}
+			}
+		}
+		for (let j = 0; j < m; j++) dirs.push(off + (Math.PI * j) / m);
+	}
+	// Wavelengths: each band's waves take their lengths from evenly spaced strata of ±Wave variation octaves, shuffled
+	// over the directions — a plain random length per wave often gave two waves the same length (an even grid).
+	const rank = (i: number) => {
+		const lo = i - (i % nb),
+			hi = Math.min(lo + nb, n);
+		let r = 0;
+		for (let j = lo; j < hi; j++) if (hashI(j, 1, seed) < hashI(i, 1, seed)) r++;
+		return r;
+	};
 	for (let i = 0; i < n; i++) {
-		const h1 = hashI(i, 1, seed),
-			h3 = hashI(i, 3, seed);
-		const fine = i >= nc;
-		const m = fine ? nf : nc;
-		const th = rot + ((fine ? 0.5 : 0) * Math.PI) / m + (Math.PI * (fine ? i - nc : i)) / m;
-		const r = Math.max(scale * (fine ? 2 : 1) * (1 + 0.6 * spread * (2 * h1 - 1)), 1);
+		const h3 = hashI(i, 3, seed);
+		const o = Math.floor(i / nb);
+		const m = Math.min(nb, n - o * nb);
+		const th = dirs[i];
+		const u = m > 1 ? (2 * (rank(i) + 0.25 + 0.5 * hashI(i, 2, seed))) / m - 1 : 2 * hashI(i, 2, seed) - 1;
+		const r = Math.max(scale * 2 ** o * 2 ** (spread * u), 1);
 		const ideal = [r * Math.cos(th), (r * Math.sin(th) * H) / W];
 		let v = ideal;
 		if (ctx.tileable) {
-			// Whole wave counts (to tile), picked for the closest direction (modulo 180°), then the closest length.
+			// Whole wave counts (to tile): the candidate closest in direction (modulo 180°) and length. At Wave variation 0
+			// direction comes first (a relative length error weighs 0.12 radians: evenly spaced, alike waves); towards 1
+			// length counts as much as 1.5 radians, or most lengths round alike at a few cells across and a couple of
+			// waves draw an even, square grid.
 			const ta = Math.atan2(ideal[1], ideal[0]);
 			const il = Math.hypot(ideal[0], ideal[1]);
 			let be = 1e9;
@@ -75,7 +121,7 @@ function waveTable(
 					if (cx * cx + cy * cy < 0.5) continue;
 					const x = Math.atan2(cy, cx) - ta + Math.PI / 2;
 					let e = Math.abs(x - Math.PI * Math.floor(x / Math.PI) - Math.PI / 2);
-					e += (0.12 * Math.abs(Math.hypot(cx, cy) - il)) / il;
+					e += (lenW * Math.abs(Math.hypot(cx, cy) - il)) / il;
 					if (e < be) {
 						be = e;
 						v = [cx, cy];
@@ -84,10 +130,11 @@ function waveTable(
 		}
 		const k: [number, number] = [(2 * Math.PI * v[0]) / W, (2 * Math.PI * v[1]) / H];
 		const kl = Math.hypot(k[0], k[1]);
-		// Travel: a whole number of wavelengths per loop (fine waves twice as fast), forwards or backwards.
-		const travel = (fine ? 2 : 1) * (hashI(i, 5, seed) < 0.5 ? -1 : 1);
+		// Travel: a whole number of wavelengths per loop (each octave one more: shorter waves run faster), either way.
+		const travel = (o + 1) * (hashI(i, 5, seed) < 0.5 ? -1 : 1);
 		K.push(k);
-		A.push((fine ? oct2 : 1) / kl);
+		// Each wave its own height too (Wave variation), so no two weigh the same and a few waves don't read as an even grid.
+		A.push((detail ** o * (1 - 0.7 * spread * hashI(i, 4, seed))) / kl);
 		f.set([k[0], k[1], 2 * Math.PI * (h3 + travel * phase)], i * 8);
 		// A wave's steepest slope is |k| (1 + 2c): normalise so the whole surface's slope stays ≤ 1.
 		norm += A[i] * kl * (1 + 2 * c);
@@ -123,7 +170,7 @@ function waveTable(
 		}
 	}
 	// Meander waves: about two cells long, whole cycles across (tiles); each bends its axis by at most 0.35·meander of
-	// slope, so the warped surface never folds over.
+	// slope, so the warped surface never folds over. They travel with Phase too, one wavelength per loop either way.
 	const rw = Math.PI * hashI(0, 19, seed);
 	for (let j = 0; j < 4; j++) {
 		const th = rw + (Math.PI / 4) * j + 0.4 * (hashI(j, 11, seed) - 0.5);
@@ -137,10 +184,11 @@ function waveTable(
 		}
 		const k = [(2 * Math.PI * v[0]) / W, (2 * Math.PI * v[1]) / H];
 		const a = (0.35 * num('meander', 0.5)) / Math.max(Math.hypot(k[0], k[1]), 1e-6);
-		f.set([k[0], k[1], 2 * Math.PI * hashI(j, 13, seed), a], (16 + j) * 8);
+		const travel = hashI(j, 14, seed) < 0.5 ? -1 : 1;
+		f.set([k[0], k[1], 2 * Math.PI * (hashI(j, 13, seed) + travel * phase), a], (LC_MAX + j) * 8);
 	}
-	f.set([dmax, hn], 20 * 8);
-	return { width: 8, height: 21, data: new Uint8Array(f.buffer) };
+	f.set([dmax, hn, n], (LC_MAX + 4) * 8);
+	return { width: 8, height: LC_ROWS, data: new Uint8Array(f.buffer) };
 }
 
 export const causticLightLayer: LayerDef = {
@@ -168,12 +216,21 @@ export const causticLightLayer: LayerDef = {
 			step: 0.01,
 			hint: 'How many cells fit across the texture (rounded per wave so it tiles)'
 		}),
-		P.int('waves', 'Waves', 7, 1, 16, {
-			hint: 'How many plane waves are added together; more gives rounder, more irregular cells'
+		P.int('waves', 'Waves', 5, 1, 16, {
+			hint: 'How many plane waves each octave adds together, in evenly spaced directions; more gives rounder, more irregular cells'
 		}),
-		P.float('spread', 'Wavelength variation', 0.35, 0, 1, {
+		P.int('octaves', 'Octaves', 2, 1, LC_OCT, {
+			hint: 'Layers further bands of waves, each at twice the frequency of the last and turned between the earlier ones, like octaves of noise: finer ripples over the cells (up to 32 waves in all)'
+		}),
+		P.float('octave2', 'Detail', 0.3, 0, 1, {
 			step: 0.001,
-			hint: 'Varies the wave counts around Cells across'
+			showIf: (p) => Number(p.octaves ?? 2) > 1,
+			hint: 'How strong each further octave is against the one before; it breaks up the filaments'
+		}),
+		P.float('spread', 'Wave variation', 0, 0, 3, {
+			softMax: 1,
+			step: 0.001,
+			hint: "Varies each wave's length around Cells across and its height: 0 gives evenly matched, symmetrical waves, 1 a varied mix"
 		}),
 		P.float('strength', 'Refraction', 5, 0, 256, {
 			softMax: 12,
@@ -195,10 +252,6 @@ export const causticLightLayer: LayerDef = {
 		P.float('contrast', 'Contrast', 1.6, 0.5, 4, {
 			step: 0.01,
 			hint: 'Darkens the cells while the filaments keep their brightness (a power on the gathered light before Exposure)'
-		}),
-		P.float('octave2', 'Fine waves', 0.25, 0, 1, {
-			step: 0.001,
-			hint: 'Adds a second band of waves at double frequency, which breaks up the filaments'
 		}),
 		P.float('meander', 'Meander', 0.5, 0, 4, {
 			softMax: 2,
@@ -232,9 +285,13 @@ export const causticLightLayer: LayerDef = {
 		dif_src: 'value',
 		dif_grad: {
 			stops: [
-				{ pos: 0, color: '#000010' },
-				{ pos: 0.5, color: '#0010a0' },
-				{ pos: 1, color: '#80a0ff' }
+				{ pos: 0, color: '#021a2b' },
+				{ pos: 1 / 6, color: '#06384d' },
+				{ pos: 2 / 6, color: '#0b5a6e' },
+				{ pos: 3 / 6, color: '#138388' },
+				{ pos: 4 / 6, color: '#2aa9a3' },
+				{ pos: 5 / 6, color: '#7fdcd0' },
+				{ pos: 1, color: '#d4fbf3' }
 			]
 		}
 	},
@@ -259,7 +316,7 @@ float lcWp[4];
 float lcWa[4];
 
 void lc_init() {
-  lcN = clamp(u_waves, 1, LC_MAX);
+  lcN = clamp(int(lc_f(2, LC_MAX + 4) + 0.5), 1, LC_MAX);
   lcC = u_model == 1 ? 0.0 : 0.0625 * u_harmonic;
   for (int i = 0; i < lcN; i++) {
     lcK[i] = vec2(lc_f(0, i), lc_f(1, i));
@@ -269,12 +326,12 @@ void lc_init() {
     lcW[i] = lc_f(5, i);
   }
   for (int j = 0; j < 4 * UNI_1; j++) {
-    lcWk[j] = vec2(lc_f(0, 16 + j), lc_f(1, 16 + j));
-    lcWp[j] = lc_f(2, 16 + j);
-    lcWa[j] = lc_f(3, 16 + j);
+    lcWk[j] = vec2(lc_f(0, LC_MAX + j), lc_f(1, LC_MAX + j));
+    lcWp[j] = lc_f(2, LC_MAX + j);
+    lcWa[j] = lc_f(3, LC_MAX + j);
   }
-  lcDmax = lc_f(0, 20);
-  lcHn = lc_f(1, 20);
+  lcDmax = lc_f(0, LC_MAX + 4);
+  lcHn = lc_f(1, LC_MAX + 4);
 }
 
 // Meander: the surface is read at q = p + w(p); the slope at p is then (I + J)^T ∇h(q) (chain rule).

@@ -58,6 +58,11 @@ export function setPresetSource(s: PresetSource): void {
 	loading = null;
 }
 
+/** Read the manifest afresh next time (a dev export changed the presets). */
+export function forgetBuiltinPresets(): void {
+	loading = null;
+}
+
 /** Every built-in preset, in the manifest's order (once; menus call it as they open). */
 export function loadBuiltinPresets(): Promise<PresetEntry[]> {
 	loading ??= source.manifest().then((raw) =>

@@ -386,6 +386,8 @@ same undo step as the change that named the mask; read with `maskColour` (ui/met
   GLSL_GENERATOR_MAIN), the output's value after Shaping: a shape output gives a crisp mask, a gradient (underside,
   facing, grain) one that fades along it. Soft writes never go into _Shape_ on a shape layer. Other sources write by the
   type's rule (`maskWriteKind`): a shape its distance, the rest their coverage.
+- **Noise's Value source**: Noise has no Output dropdown, so it declares a soft source of its own (`maskSources`,
+  _Value_): the value after Value shaping, the grey Diffuse's gradient and Height read.
 - **Old projects**: the fields before the rows — an output's `mk_<output>`, Stone blocks' `mk_joints`…, Greebles'
   `mk_lights`…, Mask area's `mk_crev` / `mk_high` / `mk_sdf`, the parts choices and Crystal's `mask_feat` — fold into rows
   on load (`migrateMaskRows` in registry.ts); the presets were rewritten the same way.

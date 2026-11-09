@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
+import { devPresets } from './tools/dev-presets';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
@@ -9,7 +10,7 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 export default defineConfig({
 	// Relative asset URLs: the built app works from any folder or vhost (e.g. dist/ served directly).
 	base: './',
-	plugins: [vue()],
+	plugins: [vue(), devPresets()],
 	define: {
 		// Help → About shows it.
 		__APP_VERSION__: JSON.stringify(pkg.version)
@@ -24,6 +25,7 @@ export default defineConfig({
 		// can reach the dev server from the Windows host.
 		host: true,
 		port: 5173,
+		hmr: false,
 		strictPort: true
 	},
 	build: {

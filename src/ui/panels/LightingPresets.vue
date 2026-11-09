@@ -84,6 +84,7 @@
 		aspect-ratio: 1;
 		object-fit: cover;
 		border-radius: 2px;
+		background: var(--alpha-bg);
 	}
 	.lbl {
 		font-size: 10.5px;

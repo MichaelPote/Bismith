@@ -681,7 +681,7 @@ export const scalesLayer: LayerDef = {
 				['shape', 'Scale shapes (SDF)']
 			],
 			{
-				hint: 'Scales: the shading (Dome, Tilt, Keel) with bevelled rims and outlines; the scale outlines also go to the mask it writes. Shape: just the outline of each visible scale for that mask, drawn as the bevel'
+				hint: 'Scales: the relief (Dome, Tilt, Keel) and shading with bevelled rims and outlines; the scale outlines also go to the mask it writes. Shape: just the outline of each visible scale for that mask, drawn as the bevel'
 			}
 		),
 		P.int('columns', 'Columns', 4, 1, 128, { softMax: 24, hint: 'How many scales fit in each row' }),
@@ -747,9 +747,13 @@ export const scalesLayer: LayerDef = {
 			step: 0.001,
 			hint: 'Bulges each scale up into a rounded dome around its centre'
 		}),
-		P.float('tilt', 'Tilt', 0.4, 0, 1, {
+		P.float('tilt', 'Tilt', 0.7, 0, 1, {
 			step: 0.001,
-			hint: 'Tilts the scales up from where they come out from under the row in front to their free edge, like shingles. The hidden end sits at 1 − Tilt of the height, so each row steps up over the next'
+			hint: 'Tilts each scale as a plane in Height, low at its base under the row in front and rising to its free edge, so that edge stands up over the next scale (0 = lying flat)'
+		}),
+		P.float('darken', 'Darken inside', 0.4, 0, 1, {
+			step: 0.001,
+			hint: 'Darkens each scale towards where it comes out from under the row in front, in the colour only (0 = off)'
 		}),
 		P.float('keel', 'Keel', 0, 0, 1, {
 			step: 0.001,
@@ -785,17 +789,19 @@ export const scalesLayer: LayerDef = {
 		// A height per scale.
 		h_var: 0.3,
 		dif_on: true,
-		// A light top: Dome × Tilt keep most of a scale below full value.
+		// A light top: Dome × Darken inside keep most of a scale below full value.
 		dif_grad: gradient('#101412', '#2a3530', '#4a5a51', '#7a8a7e', '#a2b0a2'),
 		dif_jitter: 0.15,
 		// Rows curving gently.
 		dw_amount: 2.5,
 		dw_scale: 2
 	},
-	// Added in the editor: an outline, bevel and row curve that grow with the texture (the plain defaults up to 128 px).
+	// Added in the editor: an outline, bevel and row curve that grow with the texture (the plain defaults up to 128 px), and
+	// a height that follows the scales' size (the default 4 columns, a radius of width / 8), so their rims cast shadows.
 	fresh: ({ width, height }) => {
 		const k = Math.max(1, Math.sqrt(width * height) / 128);
 		return {
+			h_amount: Math.max(0.5, Math.round(width * 0.1875) / 10),
 			outline: Math.round(Math.sqrt(k)),
 			bevel: Math.round(2 * k ** 0.3),
 			dw_amount: Math.round(2.5 * Math.sqrt(k) * 10) / 10
@@ -985,25 +991,35 @@ GenOut gen(vec2 p) {
   // the row in front.
   // (Edge wobble: the dome a little off-centre, per scale.)
   vec2 dofs = u_wobble * 0.15 * vec2(Rb, Sb) * (hash3I(id, uSeed + 17.0).xy - 0.5);
-  float rr = length(vec2((u.x - dofs.x) / Rb, (u.y + Sb - S - dofs.y) / Sb));
+  vec2 dv = vec2((u.x - dofs.x) / Rb, (u.y + Sb - S - dofs.y) / Sb);
+  float rr = length(dv);
   float dome = sqrt(max(1.0 - rr * rr, 0.0));
-  // Tilt: 0 where the scale comes out from under the row in front, 1 at its free edge.
+  // Darken inside (colour): 0 where the scale comes out from under the row in front, 1 at its free edge.
   // (Rising fastest from the hidden end, so less of each scale lies in the dark low end.)
-  float tilt = pow(clamp(bestFront / max(bestFront - bestDc, 1e-3), 0.0, 1.0), 0.6);
+  float inner = pow(clamp(bestFront / max(bestFront - bestDc, 1e-3), 0.0, 1.0), 0.6);
+  // Tilt (Height): the scale is a plane in its own turned frame, as Rock's faces are, 0 at the far end of its length and
+  // 1 at its tip. plate: its height; a row further back lies rowDrop lower on the plane at the same pixel.
+  float plane = clamp(0.5 - 0.5 * dv.y, 0.0, 1.0);
+  float plate = mix(1.0, plane, u_tilt);
+  float rowDrop = 0.5 * rh / Sb;
+  // In Height the dome keeps its crown towards a tilted scale's free edge: rounded across, its tip staying the high point.
+  float dy = dv.y < 0.0 ? dv.y * (1.0 - u_tilt) : dv.y;
+  float domeH = sqrt(max(1.0 - dv.x * dv.x - dy * dy, 0.0));
   // Keel: a V across the scale, its crest rounded over a px or two, its flanks reaching Keel width × the radius.
   float kw = max(u_keel_w * Rb, 1.0);
   float kc = min(1.5, 0.3 * kw);
   float keelV = clamp((sqrt(u.x * u.x + kc * kc) - kc) / max(kw - kc, 1e-3), 0.0, 1.0);
-  float shade = mix(1.0, dome, u_dome) * (1.0 - 0.7 * u_keel * keelV);
-  float v = shade * mix(1.0, tilt, u_tilt);
+  float keelK = 1.0 - 0.7 * u_keel * keelV;
+  float v = mix(1.0, dome, u_dome) * keelK * mix(1.0, inner, u_darken);
+  float vh = plate * mix(1.0, domeH, u_dome) * keelK;
   // Grooved: the wrapper multiplies the shading by the bevel of the (combined) shape, every edge into the outline.
   if (u_edges == 1) {
     GenOut o = genOutShaded(clamp(v, 0.0, 1.0), 1.0, rnd, d);
     o.bdist = g.bdist;
+    o.hval = clamp(vh, 0.0, 1.0);
     return o;
   }
-  // Lapped: the rim (the scale's own edge) is bevelled down to about where the scale beneath starts — the hidden end of a
-  // scale sits at 1 − Tilt — and the outline is a crevice on the scale beneath, just beyond the rim of the one on top.
+  // Lapped: the rim (the scale's own edge) is bevelled down to about where the scale beneath lies, and the outline is a crevice on the scale beneath, just beyond the rim of the one on top.
   // (Bevel aspect: across the rim's direction there, turned back to the screen.)
   float st = 1.0;
   if (bevAsp) {
@@ -1017,15 +1033,23 @@ GenOut gen(vec2 p) {
   float lw = max(1.5, 0.07 * Rb);
   float lc = u_bevel + lw;
   float lipB = exp(-0.5 * (din - lc) * (din - lc) / (lw * lw));
-  v = mix(v * (1.0 - 0.12 * u_lip * smoothstep(lc, lc + 3.0 * lw, din)), 1.0, 0.5 * u_lip * lipB);
-  // Every rim comes down to one level (about a rim's own shading at the hidden end), so where a scale lies on another
-  // both sides meet there: the covered side slopes down to it over a pixel or two — a clean crevice, never a step.
-  float base = mix(1.0, 0.2, u_dome) * (1.0 - u_tilt) * 0.8;
-  float hq = mix(base, v, bev);
+  // (x: the colour's value, y: Height's. The lip follows the plate, or it would stand up from a scale's low end.)
+  vec2 vv = vec2(v, vh);
+  vv = mix(vv * (1.0 - 0.12 * u_lip * smoothstep(lc, lc + 3.0 * lw, din)), vec2(1.0, plate), 0.5 * u_lip * lipB);
+  // Every rim comes down to the level of what lies beneath, so where a scale lies on another both sides meet there. In
+  // the colour that's one level (about a rim's own shading at the hidden end); in Height the plane of the row behind, at
+  // this pixel: a rim's own side a rowDrop down its plane, and the side it covers (baseC) its own plane.
+  float rimK = mix(1.0, 0.2, u_dome) * 0.8;
+  vec2 baseC = rimK * vec2(1.0 - u_darken, plate);
+  vec2 base = vec2(baseC.x, rimK * mix(1.0, max(plane - rowDrop, 0.0), u_tilt));
+  // Per-feature variation (Height): only the relief above the plane varies, so a scale lying on another never ends up
+  // below it where they meet (the wrapper's own variation, a factor on everything, is off).
+  vv.y = baseC.y + (vv.y - baseC.y) * (1.0 - u_h_var * featVar(rnd));
+  vec2 hq = mix(base, vv, bev);
   // The half pixel beside the rim of a scale lying on this one comes down to that rim's level: the step anti-aliased.
-  hq = mix(base, hq, smoothstep(0.0, max(1.25, 0.4 * u_bevel), bestOcc));
+  hq = mix(baseC, hq, smoothstep(0.0, max(1.25, 0.4 * u_bevel), bestOcc));
   // Slivers: where the visible part is under ~3 px across (own edge to the scale on top), it reads as part of the crevice.
-  hq = mix(hq, base, 1.0 - smoothstep(1.5, 3.5, bestOcc - bestDc));
+  hq = mix(hq, baseC, 1.0 - smoothstep(1.5, 3.5, bestOcc - bestDc));
   // Growth lines following the edge (dark in colour, faint grooves in Height): each wavers round the scale (two low
   // harmonics of the angle) and the spacing varies (a monotonic remap, slope ≤ 0.6), they fade towards the focus and
   // where they would crowd under ~2 px (screen derivative), and their strength varies per scale.
@@ -1041,12 +1065,8 @@ GenOut gen(vec2 p) {
   // Holes (rows set far apart): nothing covers the pixel.
   // (The union of every scale walked, not the visible part's own distance, which is ~0 along every lap.)
   float inside = clamp(0.5 - frontMin, 0.0, 1.0);
-  GenOut o = genOutOwn(clamp(hq * (1.0 - 0.35 * gl) * (1.0 - crev) * inside, 0.0, 1.0), 1.0, rnd, d);
-  float hh = hq * (1.0 - 0.15 * gl);
-  // Per-feature variation (Height): only the relief above the level the rims come down to varies, so a scale lying on
-  // another never ends up below it where they meet (the wrapper's own variation, a factor on everything, is off).
-  hh = base + (hh - base) * (1.0 - u_h_var * featVar(rnd));
-  o.hval = clamp(hh * (1.0 - 0.5 * crev) * inside, 0.0, 1.0);
+  GenOut o = genOutOwn(clamp(hq.x * (1.0 - 0.35 * gl) * (1.0 - crev) * inside, 0.0, 1.0), 1.0, rnd, d);
+  o.hval = clamp(hq.y * (1.0 - 0.15 * gl) * (1.0 - 0.5 * crev) * inside, 0.0, 1.0);
   o.feat = 0.0;
   return o;
 }

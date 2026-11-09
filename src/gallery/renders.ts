@@ -1,6 +1,7 @@
 // A variant's final render as the gallery shows it: the full image at up to 1024 px on its longer side (a small
 // texture upscaled by a whole factor, nearest neighbour, so pixel art stays crisp; a larger one scaled down), and a
-// thumbnail at half that. WebP where the browser can encode it, else JPEG.
+// thumbnail at half that. WebP where the browser can encode it, else PNG: both keep the alpha, since visitors download
+// these renders (a JPEG would flatten it).
 
 import { pixelsToCanvas, upscale } from '@/render/export';
 
@@ -11,9 +12,9 @@ function toBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
 	const encode = (type: string) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
 	return encode('image/webp').then(async (b) => {
 		if (b && b.type === 'image/webp') return b;
-		const jpeg = await encode('image/jpeg');
-		if (!jpeg) throw new Error('This browser could not encode the render.');
-		return jpeg;
+		const png = await encode('image/png');
+		if (!png) throw new Error('This browser could not encode the render.');
+		return png;
 	});
 }
 

@@ -329,6 +329,28 @@ export function resetToBase(p: Project, key: string): void {
 	syncVariants(p);
 }
 
+/** The active variant takes the base's values of every setting of item `item` (`layer.<id>`, `light.<id>`, `post.<id>`). */
+export function resetItemToBase(p: Project, item: string): void {
+	const vs = p.variants;
+	if (!vs || vs.activeId === vs.baseId) return;
+	const base = baseSettings(p);
+	const s: Settings = {};
+	for (const k in base) if (k.startsWith(`${item}.`)) s[k] = base[k];
+	applySettings(p, s);
+	syncVariants(p);
+}
+
+/**
+ * The variants other than the active one that change a setting of item `item` (`layer.<id>` …) from the base, in list
+ * order (after syncVariants). Deleting the item drops those changes with it.
+ */
+export function variantsChangingItem(p: Project, item: string): ProjectVariant[] {
+	const vs = variantsOf(p);
+	return vs.list.filter(
+		(v) => v.id !== vs.activeId && v.id !== vs.baseId && Object.keys(v.changes).some((k) => k.startsWith(`${item}.`))
+	);
+}
+
 /** The base takes the active variant's value of `key` (variants that don't change it follow). */
 export function makeBaseValue(p: Project, key: string): void {
 	const vs = p.variants;

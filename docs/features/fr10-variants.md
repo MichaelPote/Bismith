@@ -163,6 +163,12 @@ variants_. No footer: the keys are in the Help menu (_Variants_).
 
 ### Changed settings
 
+- **Deleting a layer** (`confirmDeleteLayer` in `ui/actions.ts`, before `deleteSelection`): layers are structure, so a
+  deletion reaches every variant. On a variant other than the base the modal says the base and the others lose it too
+  (naming the variants with their own settings for it); on the base it asks only when another variant changes the
+  layer, as those changes go with it. A layer no variant changes, on the base, deletes without asking.
+- **Outliner row menu:** on a variant other than the base, a layer it changes (◆) adds _Reset all changes to this
+  layer_ after the item's actions (`store.resetItemToBase('layer.<id>')`: every `layer.<id>.` key back to the base's).
 - **Outliner:** a 6 px ◆ (`--e400`, a rotated square) after the name of a layer, group (or a member), light or post
   row the active variant changes, on the Base row for base material changes, on the Environment row (first of the
   lights) for sky and ambient, and on the Project settings row for the seed, height depth and path tracer look; nothing
@@ -242,7 +248,7 @@ Each step leaves the app working, with `npx vue-tsc -b`, `npx oxlint`, `npx oxfm
    Tests (`tests/core/variants.test.ts`): round trips (memory → file → memory renders the same per variant); a file
    without a block loads as one variant; a change equal to the base drops out; invalid and orphaned changes are dropped.
 2. **Store** — `syncVariants` in `commitNow`; actions `addVariant(from)`, `switchVariant`, `renameVariant`,
-   `setVariantNote`, `deleteVariant`, `moveVariant`, `makeBase`, `resetVariant`, `resetToBase(key)`,
+   `setVariantNote`, `deleteVariant`, `moveVariant`, `makeBase`, `resetVariant`, `resetToBase(key)`, `resetItemToBase(item)`, `variantsChangingItem(item)`,
    `makeBaseValue(key)`, `setVariantValues`, `changedKeys` (computed for the active variant); `forEachVariant` around
    `resize`, `renameMask`, `ungroup`, and `copyItemSettings` for the duplicates. Tests (`tests/stores/project.test.ts`): adding a layer
    on a variant adds it to all; removing one prunes every variant; base edits reach unchanged variants only; make base

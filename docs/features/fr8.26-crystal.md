@@ -55,6 +55,9 @@ _Amethyst shards_ and _Sapphire stones_ (layer).
 - **Height** (`hval`) is the surface over the tallest layer's height. Per-feature variation scales each crystal (`feat`
   is zeroed). The default ramp runs from deep navy through royal blue and cyan to white (sapphire), with Roughness 0.08
   (glossy).
+- **Bevel** is applied to each crystal along its own edges (and ridges, with _Facets_) before the layers combine, so they
+  meet at the true max of their bevelled heights. Measured by the mask's distance it dipped along the creases between
+  layers, drawing a dark band round the small crystals.
 - **Mask**: the crystal structure goes to the Shape mask by default (Mask › Write to), so the layers after it — Bevel,
   Etch, Chips, Mask area, anything limited to it — work on the crystals. Write to's **Source** picks what it holds: _Crystals_,
   each front crystal's random and its distance to its visible outline (including where another layer's crystal cuts

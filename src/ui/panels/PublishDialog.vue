@@ -75,7 +75,7 @@
 			store.commitNow();
 			const ordered = [renders[cover.value], ...renders.filter((_, i) => i !== cover.value)];
 			const sub = {
-				project: act.projectFile(),
+				project: await act.projectFile(),
 				name: n,
 				description: d,
 				author: author.value.trim(),
@@ -291,7 +291,7 @@
 		width: 100%;
 		aspect-ratio: 1 / 1;
 		object-fit: contain;
-		background: var(--deep);
+		background: var(--alpha-bg);
 		border: 1px solid var(--hairline);
 	}
 	.strip {
@@ -325,6 +325,7 @@
 		width: 100%;
 		aspect-ratio: 1 / 1;
 		object-fit: cover;
+		background: var(--alpha-bg);
 	}
 	.pick span {
 		white-space: nowrap;

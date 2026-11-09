@@ -56,7 +56,7 @@ crust.
       height mode following the mode
 - [x] Wood: planks + joints + stagger + width variation, fine grain, ring figure with cathedral arches,
       knots, horizontal / vertical, no-planks mode; outputs wood / plank SDF / grain only
-- [x] Scales: columns, rows (auto), radius, up / down, outline, dome, tilt; outputs scales / SDF
+- [x] Scales: columns, rows (auto), radius, up / down, outline, dome, tilt, darken inside; outputs scales / SDF
 - [x] Cracks (optional extra): main + partial fine networks, jaggies, warp; outputs plates / SDF
 - [x] Cracks fidelity (crazed glaze / dried slip): rounded plate corners (junction wedges), bowed sides, widths that
       flare at junctions and set the crack's depth, a faint fine hairline web (Fine crack darkness), shattered patches,
@@ -80,7 +80,7 @@ All five are category `pattern`, tileable, and use only `org_`-prefixed GLSL hel
 | `marble`   | no                           | 1 on veins, cloudy background up to `cloud`                                                                                                                            | per vein band (per tile with `tiles`)   | diffuse (white marble ramp), roughness 0.25 → 0.45, height subtract (Relief 0.12: faintly etched veins)        |
 | `caustics` | mask (cells, off by default) | brightness: rims 1, glow → dark cell centres (net); bright blobs, dark cracks (blobs); Height: optional rounded dome per cell (`hval`)                                 | per cell                                | diffuse (lava ramp), height **subtract** (blobs: **add**) 0.35, emissive ×0.6                                  |
 | `wood`     | output                       | grain (1 = light wood, 0 = dark lines / gaps) × plank-edge bevel                                                                                                       | per board                               | diffuse (oak ramp, jitter 0.2), height 0.3 (per-board variation 0.25), bevel 1 px smooth                       |
-| `scales`   | output                       | dome / tilt shading × edge bevel, outline = 0                                                                                                                          | per scale                               | diffuse (green-grey, jitter 0.15), height 0.5 (per-scale variation 0.3), bevel 2 px smooth, domain warp 2.5 px |
+| `scales`   | output                       | dome / Darken inside shading (Height: dome × Tilt plane) × edge bevel, outline = 0                                                                                                                          | per scale                               | diffuse (green-grey, jitter 0.15), height 0.5 (per-scale variation 0.3), bevel 2 px smooth, domain warp 2.5 px |
 | `cracks`   | yes (both outputs)           | 1 on plates × bevel, the cracks sunk by their depth (fine cracks by their tone); Height: plate surface (dome, tilt, halo, roughness) less the fine grooves, × the same | per main plate (× fine with `sub_vary`) | diffuse (mud ramp, jitter 0.15), height 0.3, variation 0.3, bevel 2 px smooth                                  |
 
 ### marble
@@ -210,13 +210,15 @@ same seed and plank params, diffuse on, height off, _Limit to_ Shape: `lim_1: 'S
 | `jitter`              | 0.35         | centres move by up to ¼ column across and 0.3 row along, turn by up to 12° and lengthen by up to 30 %; every scale grows by the largest move, so no holes open where three meet; 0 is exactly regular                                                                                                                            |
 | `size_var`            | 0.3          | scales grow by up to 0.5 × this (only grow, for the same reason)                                                                                                                                                                                                                                                                 |
 | `outline`             | 1 px         | dark line along each visible edge                                                                                                                                                                                                                                                                                                |
-| `dome`, `tilt`        | 0.6, 0.4     | bulge around each scale centre; rise from where the scale comes out from under the row in front (1 − tilt) to its free edge (1): (front distance / (front distance + inside distance))^0.6, the front a smooth union (no crease)                                                                                                 |
+| `dome`             | 0.6          | bulge around each scale centre |
+| `tilt`             | 0.7          | Height only: each scale is a plane in its own frame, low at its base under the row in front and rising to its free edge, which stands over the next scale; rims come down to the plane of the row behind |
+| `darken`           | 0.4          | Darken inside, colour only: from the free edge down to where the scale comes out from under the row in front |
 | `keel`, `keel_w`      | 0, 0.6       | ridge down the middle of each scale: a V (crest rounded over ≤ 1.5 px) whose flanks fall to 1 − 0.7 × keel at `keel_w` × r                                                                                                                                                                                                       |
 | `lip`                 | 0.5          | lapped: a rolled band just inside the rim, past the bevel (width max(1.5 px, 0.07 r)), rises halfway to full height; the face behind sinks 12 %                                                                                                                                                                                  |
 | `growth`, `growth_sp` | 0.15, 0.08 r | lapped: lines following the edge `growth_sp` × r apart, wavering (2θ, 3θ harmonics), unevenly spaced (monotonic remap), fading towards the focus and where they crowd under ~2 px (screen derivative of their phase), strength per scale; dark in colour (35 %), faint in Height (15 %)                                          |
 
 Shared defaults: a smooth profile, Height › Per-feature variation 0.3, a light green-grey ramp, Domain warp 2.5 px at
-scale 2 (rows curve gently). Editor layers (`fresh`) grow the outline, bevel and warp with the texture (1 / 2 / 2.5 px
+scale 2 (rows curve gently). Editor layers (`fresh`) set Height to 0.15 × the default radius, or the rims are too low to cast shadows (top-lit, a free edge casts onto the next scale with Arches down; Arches up points the free edges at the light), and grow the outline, bevel and warp with the texture (1 / 2 / 2.5 px
 up to 128 px; 2 / 3 / 5 px at 512).
 
 A scale's free edge stays on its row's line (± jitter): grown scales (Size variation, and the growth that keeps

@@ -7,7 +7,7 @@ import { defineStore } from 'pinia';
 import { computed, shallowRef } from 'vue';
 import type { PresetKind, Project } from '@/core/project';
 import { normalizeProject, projectFromJSON, projectToJSON } from '@/core/serialize';
-import { loadBuiltinPresets, type PresetEntry } from '@/presets';
+import { forgetBuiltinPresets, loadBuiltinPresets, type PresetEntry } from '@/presets';
 import { idbRun } from '@/core/idb';
 
 /** One stored user preset: the project file's text, and its header copied out for listing without parsing it all. */
@@ -79,6 +79,12 @@ export const usePresetsStore = defineStore('presets', () => {
 	/** false when this browser won't store them (private window, blocked site data): they last for the session only. */
 	const persistent = shallowRef(true);
 	let loading: Promise<void> | null = null;
+
+	/** The built-ins' manifest again (a dev export changed the presets). */
+	async function reloadBuiltins(): Promise<void> {
+		forgetBuiltinPresets();
+		builtin.value = await loadBuiltinPresets();
+	}
 
 	/** Read the built-ins' manifest and the user's presets from IndexedDB (once; menus call it as they open). */
 	function load(): Promise<void> {
@@ -198,5 +204,19 @@ export const usePresetsStore = defineStore('presets', () => {
 		return { added, skipped };
 	}
 
-	return { user, persistent, load, entries, list, grouped, categories, save, update, remove, exportText, importText };
+	return {
+		user,
+		persistent,
+		load,
+		reloadBuiltins,
+		entries,
+		list,
+		grouped,
+		categories,
+		save,
+		update,
+		remove,
+		exportText,
+		importText
+	};
 });

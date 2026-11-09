@@ -422,6 +422,7 @@
 		height: 100%;
 		object-fit: cover;
 		border-radius: 2px;
+		background: var(--alpha-bg);
 	}
 	.tlbl {
 		width: 100%;

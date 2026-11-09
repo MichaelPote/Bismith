@@ -1,282 +1,282 @@
 {
-	"version": 1,
-	"name": "Hopper cube",
-	"width": 128,
-	"height": 128,
-	"tileable": true,
-	"heightDepth": 2,
-	"seed": 1,
-	"base": {
-		"color": "#26242b",
-		"roughness": 0.6,
-		"specular": 0.5,
-		"metalness": 0,
-		"height": 0,
-		"opacity": 1
-	},
-	"layers": [
-		{
-			"id": "ly_ivgv407",
-			"type": "bismuth",
-			"name": "Hopper cube",
-			"enabled": true,
-			"params": {
-				"habit": "cube",
-				"scale": 1,
-				"size": 0.95,
-				"size_var": 0,
-				"scatter": 0,
-				"angle": 0,
-				"angle_var": 0,
-				"stack": 0.7,
-				"stack_angle": 90,
-				"rise_var": 0,
-				"lean": 0,
-				"daughters": 0,
-				"pairs": 0.5,
-				"daughter": 0.55,
-				"daughter_depth": 2,
-				"core": 0,
-				"cores": 1,
-				"gens": 1,
-				"fill": 0.85,
-				"gen_h": 0.6,
-				"ground": false,
-				"top": 1,
-				"ledges": 3,
-				"terraces": 10,
-				"depth": 0.7,
-				"rim": 1.5,
-				"keys": 1,
-				"key_size": 0.35,
-				"key_w": 0.9,
-				"tilt": 1,
-				"grade": 0.6,
-				"turns": 0,
-				"branch": 0.02,
-				"hollow": 0,
-				"groove": 0.45,
-				"soft": 0.6,
-				"slope": 0.3,
-				"round": 0.15,
-				"edge": 5,
-				"notches": 0.4,
-				"notch": 0.12,
-				"edge_noise": 0,
-				"grain": 0,
-				"col_ofs": 0,
-				"col_var": 0,
-				"contrast": 0.8,
-				"col_step": 0.04,
-				"band": 0.08,
-				"sweep": 0.3,
-				"sweep_angle": 0,
-				"face_col": 0.333,
-				"sub_col": 0.3,
-				"mottle": 0.08,
-				"seed": 1,
-				"bevel": 0,
-				"profile": "round",
-				"bevel_curve": {
-					"points": [
-						{
-							"x": 0,
-							"y": 0
-						},
-						{
-							"x": 0.15,
-							"y": 0.55
-						},
-						{
-							"x": 0.45,
-							"y": 0.82
-						},
-						{
-							"x": 1,
-							"y": 1
-						}
-					]
-				},
-				"bevel_aspect": 1,
-				"aa": true,
-				"soft_edge": 0,
-				"dilate": 0,
-				"ofs_x": 0,
-				"ofs_y": 0,
-				"dw_amount": 0,
-				"dw_scale": 4,
-				"sh_invert": false,
-				"sh_lo": 0,
-				"sh_hi": 1,
-				"sh_gamma": 1,
-				"sh_steps": 0,
-				"sh_cut": 0,
-				"sh_cut_soft": 0,
-				"phase": 0,
-				"opacity": 1,
-				"lim_1": "",
-				"lim_op2": "and",
-				"lim_2": "",
-				"lim_op3": "and",
-				"lim_3": "",
-				"lim_op4": "and",
-				"lim_4": "",
-				"lim_out": false,
-				"mk_target": "",
-				"mk_op": "replace",
-				"mk_smooth": 4,
-				"mk_feather": 0,
-				"m_hmode": "none",
-				"m_hlevel": 0.5,
-				"m_hsoft": 0.1,
-				"dif_on": true,
-				"dif_src": "value",
-				"dif_blend": "normal",
-				"dif_opacity": 1,
-				"dif_grad": {
-					"stops": [
-						{
-							"pos": 0,
-							"color": "#3a3542"
-						},
-						{
-							"pos": 0.143,
-							"color": "#f0c050"
-						},
-						{
-							"pos": 0.38,
-							"color": "#f2a858"
-						},
-						{
-							"pos": 0.52,
-							"color": "#e070b8"
-						},
-						{
-							"pos": 0.66,
-							"color": "#b878e0"
-						},
-						{
-							"pos": 0.76,
-							"color": "#70a0ec"
-						},
-						{
-							"pos": 0.88,
-							"color": "#50d0b8"
-						},
-						{
-							"pos": 1,
-							"color": "#e0d470"
-						}
-					]
-				},
-				"dif_jitter": 0,
-				"op_on": false,
-				"op_mode": "replace",
-				"h_on": true,
-				"h_src": "value",
-				"h_mode": "add",
-				"h_amount": 3,
-				"h_offset": 0,
-				"h_var": 0,
-				"r_on": true,
-				"r_src": "parts",
-				"r_mode": "replace",
-				"r_a": 0.22,
-				"r_b": 0.25,
-				"r_opacity": 1,
-				"s_on": false,
-				"s_src": "value",
-				"s_mode": "replace",
-				"s_a": 0,
-				"s_b": 0.6,
-				"s_opacity": 1,
-				"mt_on": true,
-				"mt_src": "parts",
-				"mt_mode": "replace",
-				"mt_a": 0,
-				"mt_b": 1,
-				"mt_opacity": 1,
-				"e_on": false,
-				"e_src": "value",
-				"e_mode": "add",
-				"e_color": "#ff9019",
-				"e_intensity": 2
-			}
-		}
-	],
-	"lighting": {
-		"sky": {
-			"enabled": true,
-			"zenith": "#b8c8dc",
-			"horizon": "#d8d0c8",
-			"intensity": 0.45
-		},
-		"ambient": {
-			"color": "#ffffff",
-			"intensity": 0.01
-		},
-		"lights": [
-			{
-				"id": "lt_bikey01",
-				"type": "directional",
-				"name": "Key",
-				"enabled": true,
-				"params": {
-					"color": "#fff6ea",
-					"intensity": 1,
-					"azimuth": 315,
-					"elevation": 42,
-					"angle": 18
-				}
-			}
-		]
-	},
-	"render": {
-		"samplesPerFrame": 4,
-		"maxSamples": 256,
-		"bounces": 2,
-		"specular": 1,
-		"specularTint": 1,
-		"ao": 0.6,
-		"aoRadius": 6,
-		"jitter": true,
-		"clamp": 8,
-		"shadows": true,
-		"supersample": 1,
-		"exportSamples": 1024,
-		"exportSupersample": 2
-	},
-	"post": [
-		{
-			"id": "pf_5l3pl0b",
-			"type": "glow",
-			"enabled": true,
-			"params": {
-				"threshold": 0.6,
-				"knee": 0.5,
-				"intensity": 1.5,
-				"radius": 0.7,
-				"levels": 6,
-				"tint": "#ffffff"
-			}
-		},
-		{
-			"id": "pf_8lsok0c",
-			"type": "tonemap",
-			"enabled": true,
-			"params": {
-				"exposure": 0.3,
-				"operator": "aces",
-				"white": 4
-			}
-		}
-	],
-	"description": "One isometric bismuth hopper cube: three faces sunk in stair-stepped spirals, on its own (no ground)",
-	"preview": "data:image/webp;base64,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",
-	"preset": {
-		"id": "pr_bihcube",
-		"category": "Metal",
-		"kind": "layer",
-		"target": "bismuth"
-	}
+  "version": 1,
+  "name": "Hopper cube",
+  "description": "One large iridescent bismuth hopper crystal.",
+  "width": 128,
+  "height": 128,
+  "tileable": true,
+  "heightDepth": 2,
+  "seed": 1,
+  "base": {
+    "color": "#26242b",
+    "roughness": 0.6,
+    "specular": 0.5,
+    "metalness": 0,
+    "height": 0,
+    "opacity": 1
+  },
+  "layers": [
+    {
+      "id": "ly_ivgv407",
+      "type": "bismuth",
+      "name": "Hopper cube",
+      "enabled": true,
+      "params": {
+        "habit": "cube",
+        "scale": 1,
+        "size": 0.95,
+        "size_var": 0,
+        "scatter": 0,
+        "angle": 0,
+        "angle_var": 0,
+        "stack": 0.7,
+        "stack_angle": 90,
+        "rise_var": 0,
+        "lean": 0,
+        "daughters": 0,
+        "pairs": 0.5,
+        "daughter": 0.55,
+        "daughter_depth": 2,
+        "core": 0,
+        "cores": 1,
+        "gens": 1,
+        "fill": 0.85,
+        "gen_h": 0.6,
+        "ground": false,
+        "top": 1,
+        "ledges": 3,
+        "terraces": 10,
+        "depth": 0.7,
+        "rim": 1.5,
+        "keys": 1,
+        "key_size": 0.35,
+        "key_w": 0.9,
+        "tilt": 1,
+        "grade": 0.6,
+        "turns": 0,
+        "branch": 0.02,
+        "hollow": 0,
+        "groove": 0.45,
+        "soft": 0.6,
+        "slope": 0.3,
+        "round": 0.15,
+        "edge": 5,
+        "notches": 0.4,
+        "notch": 0.12,
+        "edge_noise": 0,
+        "grain": 0,
+        "col_ofs": 0,
+        "col_var": 0,
+        "contrast": 0.8,
+        "col_step": 0.04,
+        "band": 0.08,
+        "sweep": 0.3,
+        "sweep_angle": 0,
+        "face_col": 0.333,
+        "sub_col": 0.3,
+        "mottle": 0.08,
+        "seed": 1,
+        "bevel": 0,
+        "profile": "round",
+        "bevel_curve": {
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.15,
+              "y": 0.55
+            },
+            {
+              "x": 0.45,
+              "y": 0.82
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        "bevel_aspect": 1,
+        "aa": true,
+        "soft_edge": 0,
+        "dilate": 0,
+        "ofs_x": 0,
+        "ofs_y": 0,
+        "dw_amount": 0,
+        "dw_scale": 4,
+        "sh_invert": false,
+        "sh_lo": 0,
+        "sh_hi": 1,
+        "sh_gamma": 1,
+        "sh_steps": 0,
+        "sh_cut": 0,
+        "sh_cut_soft": 0,
+        "phase": 0,
+        "opacity": 1,
+        "lim_1": "",
+        "lim_op2": "and",
+        "lim_2": "",
+        "lim_op3": "and",
+        "lim_3": "",
+        "lim_op4": "and",
+        "lim_4": "",
+        "lim_out": false,
+        "mk_target": "",
+        "mk_op": "replace",
+        "mk_smooth": 4,
+        "mk_feather": 0,
+        "m_hmode": "none",
+        "m_hlevel": 0.5,
+        "m_hsoft": 0.1,
+        "dif_on": true,
+        "dif_src": "value",
+        "dif_blend": "normal",
+        "dif_opacity": 1,
+        "dif_grad": {
+          "stops": [
+            {
+              "pos": 0,
+              "color": "#3a3542"
+            },
+            {
+              "pos": 0.143,
+              "color": "#f0c050"
+            },
+            {
+              "pos": 0.38,
+              "color": "#f2a858"
+            },
+            {
+              "pos": 0.52,
+              "color": "#e070b8"
+            },
+            {
+              "pos": 0.66,
+              "color": "#b878e0"
+            },
+            {
+              "pos": 0.76,
+              "color": "#70a0ec"
+            },
+            {
+              "pos": 0.88,
+              "color": "#50d0b8"
+            },
+            {
+              "pos": 1,
+              "color": "#e0d470"
+            }
+          ]
+        },
+        "dif_jitter": 0,
+        "op_on": false,
+        "op_mode": "replace",
+        "h_on": true,
+        "h_src": "value",
+        "h_mode": "add",
+        "h_amount": 3,
+        "h_offset": 0,
+        "h_var": 0,
+        "r_on": true,
+        "r_src": "parts",
+        "r_mode": "replace",
+        "r_a": 0.22,
+        "r_b": 0.25,
+        "r_opacity": 1,
+        "s_on": false,
+        "s_src": "value",
+        "s_mode": "replace",
+        "s_a": 0,
+        "s_b": 0.6,
+        "s_opacity": 1,
+        "mt_on": true,
+        "mt_src": "parts",
+        "mt_mode": "replace",
+        "mt_a": 0,
+        "mt_b": 1,
+        "mt_opacity": 1,
+        "e_on": false,
+        "e_src": "value",
+        "e_mode": "add",
+        "e_color": "#ff9019",
+        "e_intensity": 2
+      }
+    }
+  ],
+  "lighting": {
+    "sky": {
+      "enabled": true,
+      "zenith": "#b8c8dc",
+      "horizon": "#d8d0c8",
+      "intensity": 0.45
+    },
+    "ambient": {
+      "color": "#ffffff",
+      "intensity": 0.01
+    },
+    "lights": [
+      {
+        "id": "lt_bikey01",
+        "type": "directional",
+        "name": "Key",
+        "enabled": true,
+        "params": {
+          "color": "#fff6ea",
+          "intensity": 1,
+          "azimuth": 315,
+          "elevation": 42,
+          "angle": 18
+        }
+      }
+    ]
+  },
+  "render": {
+    "samplesPerFrame": 4,
+    "maxSamples": 256,
+    "bounces": 2,
+    "specular": 1,
+    "specularTint": 1,
+    "ao": 0.6,
+    "aoRadius": 6,
+    "jitter": true,
+    "clamp": 8,
+    "shadows": true,
+    "supersample": 1,
+    "exportSamples": 1024,
+    "exportSupersample": 2
+  },
+  "post": [
+    {
+      "id": "pf_5l3pl0b",
+      "type": "glow",
+      "enabled": true,
+      "params": {
+        "threshold": 0.6,
+        "knee": 0.5,
+        "intensity": 1.5,
+        "radius": 0.7,
+        "levels": 6,
+        "tint": "#ffffff"
+      }
+    },
+    {
+      "id": "pf_8lsok0c",
+      "type": "tonemap",
+      "enabled": true,
+      "params": {
+        "exposure": 0.3,
+        "operator": "aces",
+        "white": 4
+      }
+    }
+  ],
+  "preview": "data:image/webp;base64,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",
+  "preset": {
+    "id": "pr_bihcube",
+    "category": "Metal",
+    "kind": "layer",
+    "target": "bismuth"
+  }
 }
