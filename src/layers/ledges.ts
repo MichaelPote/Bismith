@@ -3,7 +3,7 @@
 // Blisters' blisters start there) and Ice (its icicles hang there).
 //
 // The test reads the layer's `ledge` (the drop that counts), `ledge_reach` (how far below it is measured) and
-// `ledge_soft` (LEDGE_PARAMS). The cells pass finds, in every cell of a grid, its strongest ledge pixel — every pixel
+// `ledge_soft` (ledgeParams). The cells pass finds, in every cell of a grid, its strongest ledge pixel — every pixel
 // tried, so a ledge anywhere in a cell is found whatever the grid.
 
 import type { Texture } from 'three';

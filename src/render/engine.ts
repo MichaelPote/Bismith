@@ -155,8 +155,6 @@ export class Engine {
 		errors: {}
 	};
 	onStats: ((s: EngineStats) => void) | null = null;
-	/** Called after each material evaluation (e.g. to refresh thumbnails). */
-	onMaterial: (() => void) | null = null;
 	/** settled() callers waiting for the pending material evaluation. */
 	private materialWaiters: (() => void)[] = [];
 	private offImages: () => void = () => undefined;
@@ -367,7 +365,6 @@ export class Engine {
 			this.stats.evalMs = performance.now() - t0;
 			this.materialDirty = false;
 			this.traceDirty = true;
-			this.onMaterial?.();
 			this.releaseWaiters();
 		}
 		if (this.traceDirty) {
@@ -395,7 +392,9 @@ export class Engine {
 			if (traced > 0) this.sampleTimes.push([now, traced]);
 			while (this.sampleTimes.length && now - this.sampleTimes[0][0] > 1000) this.sampleTimes.shift();
 		}
-		if (this.postDirty && this.tracer.output) this.runPost();
+		// (Post only for the Final view: a material channel shows none of it. What reads the final image brings it up to
+		// date first — currentPost.)
+		if (this.view.channel === 'final') this.currentPost();
 		if (this.displayDirty) {
 			this.draw();
 			this.displayDirty = false;
@@ -465,6 +464,11 @@ export class Engine {
 	}
 
 	// ------------------------------------------------------------------ synchronous rendering (export, harness)
+
+	/** Run post if the traced image changed since it last ran (before anything reads the final image). */
+	private currentPost(): void {
+		if (this.postDirty && this.tracer.output) this.runPost();
+	}
 
 	/** Run the post stack on the traced image (its shader errors reported against 'post'). */
 	private runPost(): void {
@@ -621,7 +625,10 @@ export class Engine {
 		if (this.view.channel === 'diffuse') {
 			const k = this.ss;
 			v = this.material.probe(x * k + (k >> 1), y * k + (k >> 1))?.albedo ?? null;
-		} else v = this.post.probe(x, y);
+		} else {
+			this.currentPost();
+			v = this.post.probe(x, y);
+		}
 		return v && [linearToSrgb1(clamp01(v[0])), linearToSrgb1(clamp01(v[1])), linearToSrgb1(clamp01(v[2]))];
 	}
 
@@ -631,11 +638,13 @@ export class Engine {
 	 * (the tiling analysis). Null before the first render.
 	 */
 	finalTexture(): THREE.Texture | null {
+		this.currentPost();
 		return this.post.output;
 	}
 
 	/** Read the final post-processed image (linear, display-referred), rows top-to-bottom. */
 	readFinal(): ImageData32 {
+		this.currentPost();
 		const p = this.project!;
 		const data = this.gpu.readTexture(this.post.output!, p.width, p.height);
 		return { width: p.width, height: p.height, data: flipRows(data, p.width, p.height) };

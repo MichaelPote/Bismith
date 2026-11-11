@@ -146,8 +146,16 @@ export function quantilesOf(vals: number[] | Float64Array): number[] {
 	return Array.from({ length: 17 }, (_, k) => vals[Math.round((0.01 + (0.98 * k) / 16) * (vals.length - 1))]);
 }
 
-/** Quantiles as a 17 × 1 data texture (16 bits each in r, g): measured for the stats, given, or zeros when not wanted. */
-export function quantileTexture(stats: FractalStats | number[] | null): Record<string, CpuTexture> {
+/**
+ * Quantiles as a 17 × 1 data texture (16 bits each in r, g): measured for the stats, given, or zeros when not wanted.
+ * The same stats give the same arrays, so the pipeline keeps the uploaded texture while other params change.
+ */
+export const quantileTexture: (stats: FractalStats | number[] | null) => Record<string, CpuTexture> = memoize(
+	buildQuantileTexture,
+	16
+);
+
+function buildQuantileTexture(stats: FractalStats | number[] | null): Record<string, CpuTexture> {
 	const data = new Uint8Array(17 * 4);
 	if (stats) {
 		(Array.isArray(stats) ? stats : fractalQuantiles(stats)).forEach((q, k) => {

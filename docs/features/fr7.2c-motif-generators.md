@@ -317,16 +317,13 @@ Full projects (existing layers plus these; post = tonemap, then palette `doom` o
   cell loop made it 2.6 s / 1.15 s; the taps folded into the cell loop (one flat loop over taps × 3×3 cells) and
   the free-end bookkeeping done at arrival (no loop) give ≈ 2.15 s / 0.9 s (the pre-pass versions: 2.05 s /
   0.82 s).
-- **Seeds.** `uSeed` can be negative (see below), so these layers hash with `abs(uSeed)` (`GLSL_MOT_SEED` in
-  motifRadial.ts).
+- **Seeds.** These layers hash with `uSeed` directly: `mixSeed` never returns a negative seed now (it once did, and an
+  `abs(uSeed)` macro worked around it).
 
 ## Recommended shared changes (not made — outside this feature's files)
 
-- **`mixSeed` (src/gpu/uniforms.ts) returns negative seeds.** `h ^= h >>> 12` turns `h` back into a signed int32,
-  so `h % 65521` can be negative. GLSL `uint()` of a negative float is undefined (SwiftShader gives 0), so many
-  layer seeds produce **identical output in every layer that hashes with `uSeed`**. For example, bricks with seed 1
-  and seed 7 render byte-identical. Fix: `return (h >>> 0) % 65521`. This changes which pattern each seed gives in
-  existing projects. Once it is fixed, the `abs()` workaround here is harmless.
+- ~~**`mixSeed` (src/gpu/uniforms.ts) returns negative seeds.**~~ Fixed: it returns `(h >>> 0) % 65521`, and the
+  `abs()` workaround is gone.
 - **Registration.** `MOTIF_LAYERS` now exports `[truchet, rosette, glyph]` and `SYMMETRY_FILTERS` exports
   `[symmetry]`. No index change is needed.
 - **Possible follow-ups:** a preset or two built from the recreations (circuit board, teleporter, carpet

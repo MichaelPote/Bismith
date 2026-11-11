@@ -458,7 +458,7 @@
 		};
 	}
 
-	/** Fit the current project's colours to the reference (materials through their colour controls; Liquid by tones). */
+	/** Fit the current project's colours to the reference (materials through their colour controls). */
 	async function fitColoursNow(): Promise<void> {
 		const engine = editor.engine;
 		if (!engine || !reference.value || running.value || busy.value || fitting.value) return;

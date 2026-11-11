@@ -19,8 +19,8 @@ import { LEDGE_GLSL, ledgeCells, ledgeParams } from './ledges';
  * Margins of the per-cell source texture: DR_MX columns either side and rows below, DR_ROWS rows above (the most a
  * search looks up).
  */
-export const DR_MX = 8;
-export const DR_ROWS = 96;
+const DR_MX = 8;
+const DR_ROWS = 96;
 
 /** The set B spacing a layer uses: a GLSL expression and its TS mirror (the ledge cells must match). */
 export interface SourceSpacing {
@@ -172,8 +172,11 @@ bool dr_cell(ivec2 c, vec2 cells, vec2 cs, int row0, float cseed, out ivec2 cw, 
 }
 `;
 
+/** Whether a layer has ledge sources (set B). */
+const ledgeSources = (p: ParamValues) => Number(p.ledge_density) > 0;
+
 /** Set B's ledge cells across and down, as the shader works them out (dr_cellsB). */
-export function ledgeGrid(p: ParamValues, w: number, h: number, gap: SourceSpacing) {
+function ledgeGrid(p: ParamValues, w: number, h: number, gap: SourceSpacing) {
 	const g = gap.px(p);
 	return [w, h].map((r) => Math.max(1, Math.floor(r / g + 0.5))) as [number, number];
 }
@@ -186,7 +189,7 @@ export function ledgeGrid(p: ParamValues, w: number, h: number, gap: SourceSpaci
  */
 export function sourceCells(ctx: FilterContext, p: ParamValues, gap: SourceSpacing, span?: string): Texture {
 	const type = ctx.layer.type;
-	const ledges = Number(p.ledge_density) > 0;
+	const ledges = ledgeSources(p);
 	const cellsB = ledgeGrid(p, ctx.width, ctx.height, gap);
 	const [bx, by] = ledges ? [cellsB[0] + 1, cellsB[1] + 1] : [0, 0];
 	const cells = ctx.scratch(
@@ -201,8 +204,6 @@ export function sourceCells(ctx: FilterContext, p: ParamValues, gap: SourceSpaci
 	ctx.run(mat, cells);
 	return cells.texture;
 }
-
-const ledgeSources = (p: ParamValues) => Number(p.ledge_density) > 0;
 
 /**
  * The placement params: `grid` for the top of the layer (Columns, Rows, Density, Clustering) and `ledges` for its

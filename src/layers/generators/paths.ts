@@ -3,9 +3,10 @@
 // the CPU works out once into a data texture of floats (t_poly, t_line).
 
 import { MAX_PATH_POINTS, parsePolygons, parsePolylines, takePolygons } from '@/core/bitmap';
+import { memoReads } from '@/core/memo';
 import { P, type ParamValues } from '@/core/params';
 import { GLSL_PRIMTEX } from '../primTexture';
-import type { CpuTexture, LayerDef } from '../types';
+import type { CpuTexture, LayerCanvas, LayerDef } from '../types';
 
 type V2 = [number, number];
 
@@ -391,14 +392,15 @@ export const pathLayer: LayerDef = {
 	],
 	groups: [{ id: 'repeat', label: 'Repeat', collapsed: true }],
 	textures: ['poly'],
-	cpuData: (q, ctx) => ({
+	// (Memoised by the params it reads: a colour or Height slider keeps the uploaded texture.)
+	cpuData: memoReads((q: ParamValues, ctx: LayerCanvas) => ({
 		poly: pathData(
 			shaderPoints(parsePolygons(String(q.points ?? '')), unitsScale(q, ctx)),
 			q.fill,
 			Number(q.radius ?? 1),
 			q.round_at
 		)
-	}),
+	})),
 	defaults: { bevel: 1, radius: 1, profile: 'round', h_on: true, h_amount: 0.6, dif_on: true },
 	fresh: (t) => {
 		const s = Math.min(t.width, t.height);
@@ -864,13 +866,13 @@ export const polylineLayer: LayerDef = {
 		return { points: scaledPoints('8,44 22,20 42,44 56,20', t), width, radius: width * 1.5, bevel: width / 2 };
 	},
 	textures: ['line'],
-	cpuData: (q, ctx) => ({
+	cpuData: memoReads((q: ParamValues, ctx: LayerCanvas) => ({
 		line: polylineData(
 			shaderPoints(parsePolylines(String(q.points ?? '')), unitsScale(q, ctx)),
 			Number(q.radius ?? 4.5),
 			0.5 * Number(q.width ?? 3)
 		)
-	}),
+	})),
 	glsl: PATHS_GLSL + POLYLINE_GLSL
 };
 

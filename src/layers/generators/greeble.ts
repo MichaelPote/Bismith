@@ -6,6 +6,4 @@ import { greeblesLayer } from './greebles';
 import { pipesLayer, ventsLayer } from './greebleVents';
 import { trimLayer } from './greebleTrim';
 
-export { greeblesLayer, ventsLayer, pipesLayer, trimLayer };
-
 export const GREEBLE_LAYERS: LayerDef[] = [greeblesLayer, ventsLayer, pipesLayer, trimLayer];

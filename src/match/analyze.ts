@@ -2,7 +2,7 @@
 // templates use to seed a project — size, tileability, a dark→light colour ramp, contrast and dominant
 // orientation. Pure TypeScript (browser, headless page and Node).
 
-import { linearToOklab, linearToSrgb1, rgbToHex, srgbToLinear1, type RGB } from '@/core/color';
+import { linearToOklab, srgbToLinear1 } from '@/core/color';
 import { extractPalette } from '@/render/post/palettes';
 import type { MatchImage } from './image';
 
@@ -18,11 +18,6 @@ export interface Analysis {
 	palette: string[];
 	/** Pixel-count weight of each palette entry (same order), sums to 1. */
 	weights: number[];
-	/**
-	 * Tonal ramp, dark → light: the mean colour at the lightness ranks TONE_RANKS, the ends from the darkest / lightest
-	 * few percent. Unlike the palette (cluster means) it keeps the full range — deep shadows, bright glowing cores.
-	 */
-	tones: string[];
 	/** Mean / std of OKLab lightness. */
 	meanL: number;
 	stdL: number;
@@ -112,37 +107,6 @@ function seamRatio(L: Float32Array, w: number, h: number, axis: 'x' | 'y'): numb
 	return seam / n / Math.max(1e-4, inner / (n * Math.max(1, h - 1)));
 }
 
-/**
- * Lightness ranks of the tonal ramp: denser towards the light end, where glowing looks keep their brightest colour to
- * a few percent of the pixels (evenly spaced ranks would blend the second-lightest tone into it over a fifth of them).
- */
-export const TONE_RANKS = [0, 0.15, 0.3, 0.5, 0.7, 0.85, 0.95, 1];
-
-/** The mean colour (linear light) of a ±1.5 % rank band around each of `ranks`, clipped at the ends. */
-function tonalRamp(lin: Float32Array, L: Float32Array, ranks: number[]): string[] {
-	const n = L.length;
-	const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => L[a] - L[b]);
-	const band = Math.max(1, Math.round(0.03 * n));
-	return ranks.map((q) => {
-		const lo = Math.max(0, Math.min(n - band, Math.round(q * (n - 1)) - (band >> 1)));
-		const sum = [0, 0, 0];
-		for (let r = lo; r < lo + band; r++) for (let c = 0; c < 3; c++) sum[c] += lin[order[r] * 4 + c];
-		return rgbToHex(sum.map((v) => linearToSrgb1(v / band)) as RGB);
-	});
-}
-
-/** The tonal ramp of an image at `ranks` (see Analysis.tones). */
-export function targetTones(img: MatchImage, ranks: number[] = TONE_RANKS): string[] {
-	const n = img.width * img.height;
-	const lin = new Float32Array(n * 4);
-	const L = new Float32Array(n);
-	for (let p = 0; p < n; p++) {
-		for (let c = 0; c < 3; c++) lin[p * 4 + c] = srgbToLinear1(img.data[p * 4 + c]);
-		L[p] = linearToOklab([lin[p * 4], lin[p * 4 + 1], lin[p * 4 + 2]])[0];
-	}
-	return tonalRamp(lin, L, ranks);
-}
-
 export function analyzeTarget(img: MatchImage, paletteSize = 5): Analysis {
 	const { width: w, height: h, data: d } = img;
 	const n = w * h;
@@ -210,8 +174,6 @@ export function analyzeTarget(img: MatchImage, paletteSize = 5): Analysis {
 	}
 	const weights = counts.map((c) => c / n);
 
-	const tones = tonalRamp(lin, L, TONE_RANKS);
-
 	// Edge profiles: horizontal lines raise the row profile, vertical lines the column profile.
 	const rowProfile = new Float64Array(h);
 	const colProfile = new Float64Array(w);
@@ -241,7 +203,6 @@ export function analyzeTarget(img: MatchImage, paletteSize = 5): Analysis {
 		tileY,
 		palette,
 		weights,
-		tones,
 		meanL,
 		stdL,
 		chroma: sumC / n,

@@ -26,6 +26,7 @@
 	import PublishDialog from '@/ui/panels/PublishDialog.vue';
 	import { GALLERY_ID } from '@/gallery/client';
 	import { offerResume } from '@/ui/resumeRuns';
+	import { modalOpen } from '@/ui/modals';
 
 	// Dev server only: a build leaves out the dialog and its chunk.
 	const ExportPresetDialog = import.meta.env.DEV
@@ -125,8 +126,8 @@
 	const onPointerUp = () => setTimeout(store.endGesture);
 
 	function onKey(e: KeyboardEvent): void {
-		// The new-project wizard, questions and the Export and Changes dialogs are modal: the editor's shortcuts wait.
-		if (editor.wizard || editor.question || editor.exportDialog || editor.variantChanges) return;
+		// While a dialog or an anchored question is open, the editor's shortcuts wait (ui/modals.ts).
+		if (modalOpen()) return;
 		const mod = e.ctrlKey || e.metaKey;
 		const k = e.key.toLowerCase();
 		if (mod && k === 'z' && !e.shiftKey) {

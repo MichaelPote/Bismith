@@ -1,8 +1,3 @@
-<script lang="ts">
-	/** The open frames, newest last: Esc answers only the top one (a question over the Publish dialog…). */
-	const open: object[] = [];
-</script>
-
 <script setup lang="ts">
 	// Every dialog's frame (Cinderforge "editor dialog"): a dark base holding a raised plate — a 44px head with the title,
 	// a muted readout and a close stud, then the body — and, below the plate, a recessed tray for the action keys:
@@ -11,6 +6,7 @@
 	import { onBeforeUnmount, onMounted, ref, useId } from 'vue';
 	import { IconX } from '@tabler/icons-vue';
 	import { vTip } from '@/ui/tooltip';
+	import { closeModal, isTopModal, openModal } from '@/ui/modals';
 
 	const props = withDefaults(
 		defineProps<{
@@ -36,16 +32,17 @@
 
 	const titleId = useId();
 	const root = ref<HTMLElement | null>(null);
-	const self = {};
+	// (Esc answers only the newest open modal: a question over the Publish dialog…)
+	let self: object = {};
 
 	function onKey(e: KeyboardEvent): void {
-		if (e.key !== 'Escape' || open[open.length - 1] !== self || !props.closable) return;
+		if (e.key !== 'Escape' || !isTopModal(self) || !props.closable) return;
 		e.preventDefault();
 		e.stopPropagation();
 		emit('close');
 	}
 	onMounted(() => {
-		open.push(self);
+		self = openModal();
 		window.addEventListener('keydown', onKey, true);
 		const target = props.focus
 			.split(',')
@@ -54,7 +51,7 @@
 		(target ?? root.value)?.focus();
 	});
 	onBeforeUnmount(() => {
-		open.splice(open.indexOf(self), 1);
+		closeModal(self);
 		window.removeEventListener('keydown', onKey, true);
 	});
 </script>

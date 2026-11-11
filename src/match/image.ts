@@ -40,10 +40,6 @@ export function createImage(
 	return { width, height, data };
 }
 
-export function cloneImage(img: MatchImage): MatchImage {
-	return { width: img.width, height: img.height, data: new Float32Array(img.data) };
-}
-
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 /** Engine output (linear float, possibly HDR) → MatchImage (sRGB-encoded, clamped 0..1). */
@@ -74,13 +70,6 @@ export function toRgba8(img: MatchImage): Uint8ClampedArray {
 	const out = new Uint8ClampedArray(img.width * img.height * 4);
 	for (let i = 0; i < out.length; i++) out[i] = Math.round(clamp01(img.data[i]) * 255);
 	return out;
-}
-
-/** True when every pixel has alpha ≥ 0.999. */
-export function isOpaque(img: MatchImage): boolean {
-	const d = img.data;
-	for (let i = 3; i < d.length; i += 4) if (d[i] < 0.999) return false;
-	return true;
 }
 
 /** Largest size with the same aspect ratio whose long side is ≤ maxSize (never upscales). */
@@ -441,11 +430,6 @@ export function heatOverlay(L: Float32Array, v: ArrayLike<number>, width: number
 		data[i * 4 + 3] = 1;
 	}
 	return { width, height, data };
-}
-
-/** heatOverlay on an image (its OKLab L, dimmed; pass `L` when it is already known). */
-export function heatOverlayOn(img: MatchImage, v: ArrayLike<number>, L = toOklab(img).L): MatchImage {
-	return heatOverlay(L, v, img.width, img.height);
 }
 
 /** RGBA pixels (4 values each, rows top-down) repeated n × n, row by row. */

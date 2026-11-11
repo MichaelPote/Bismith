@@ -493,29 +493,6 @@ vec2 mb_waveK(float count, float deg, out int g) {
 }
 #endif
 
-// worleyNoise(x, per, 1.0, 0, seed).wz — distance to the cell border (cells) and the cell's random — in one flat loop:
-// the 3×3 cells for the nearest point, then the 5×5 for the border (the library's nested loops compile slower).
-vec2 mb_worleyBorder(vec2 x, ivec2 per, float seed) {
-  ivec2 ip = ivec2(floor(x));
-  vec2 fp = fract(x);
-  float F1 = 1e9, md = 1e9;
-  vec2 mr = vec2(0.0);
-  ivec2 mc = ip;
-  for (int e = 0; e < 34 * UNI_1; e++) {
-    bool near = e < 9;
-    ivec2 g = near ? ivec2(e % 3 - 1, e / 3 - 1) : ivec2((e - 9) % 5 - 2, (e - 9) / 5 - 2);
-    vec2 r = vec2(g) + cellPoint(imod(ip + g, per), seed) - fp;
-    if (near) {
-      float d = dot(r, r);
-      if (d < F1) { F1 = d; mr = r; mc = ip + g; }
-    } else {
-      vec2 dr = r - mr;
-      if (dot(dr, dr) > 1e-6) md = min(md, dot(0.5 * (mr + r), normalize(dr)));
-    }
-  }
-  return vec2(md, hashI(imod(mc, per), seed + 17.0));
-}
-
 // Marble's noise wraps on any integer period lattice, not only axis-aligned periods, so the streaks' turbulence can be
 // stretched along veins at any (snapped) angle and still tile. The period lattice has the integer basis B = (b1, b2)
 // (an ivec4: b1.xy, b2.xy); a lattice point c is reduced to its representative in the cell B·[0, 1)², exactly (small
@@ -834,7 +811,7 @@ GenOut gen(vec2 p) {
         vec2 sep = vec2(0.0), spr = vec2(0.0);
         float vr = 0.0, fade = 1.0, fadeS = 1.0, ff = 1.0, gEst = 0.0;
         if (cells) {
-          vec2 wb = mb_worleyBorder(x, periodOf(nc), sd);
+          vec2 wb = worleyNoise(x, periodOf(nc), 1.0, 0, sd).wz;  // (distance to the cell border, the cell's random)
           vec2 cs = uRes / nc;
           ds.x = wb.x * sqrt(cs.x * cs.y);
           vr = wb.y;

@@ -12,13 +12,8 @@ export const MOTIF_DEFAULTS = {
 	dif_grad: { stops: [{ pos: 0, color: '#c8a85a' }] }
 };
 
-/**
- * MOT_SEED: the layer seed for hashing. uSeed can arrive negative (mixSeed in gpu/uniforms.ts returns a signed
- * remainder) and uint() of a negative float is undefined in GLSL, which made different seeds hash alike; abs() keeps
- * them apart. Then the Bevel aspect toolkit (gMotStr, gMotF, mot_bl, mot_bandS, mot_segS, mot_discS).
- */
+/** The Bevel aspect toolkit shared by the motif layers (gMotStr, gMotF, mot_bl, mot_bandS, mot_segS, mot_discS). */
 export const GLSL_MOT_COMMON = /* glsl */ `
-#define MOT_SEED abs(uSeed)
 // Bevel aspect (GLSL_BEVEL; all motif layers are SDF layers): set, the distances are measured in the space the aspect
 // stretches instead (px of Bevel), so the bevels meet in clean mitres rather than stepping where the distance's
 // direction turns at a corner. gMotF: the local frame's axes on screen (columns). mot_bl: a distance d across an edge

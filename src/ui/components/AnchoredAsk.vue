@@ -4,6 +4,7 @@
 	// with OK.
 	import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 	import type { Question } from '@/stores/editor';
+	import { closeModal, isTopModal, openModal } from '@/ui/modals';
 
 	const props = defineProps<{ question: Question; anchor: HTMLElement }>();
 	const emit = defineEmits<{ (e: 'answer', id: string | null): void }>();
@@ -18,8 +19,11 @@
 		pos.value = { left: `${left}px`, top: `${r.bottom + 6}px`, width: `${width}px` };
 	}
 
+	// Modal while open: the editor's shortcuts wait (App's onKey).
+	let self: object = {};
+
 	function onKey(e: KeyboardEvent): void {
-		if (e.key !== 'Escape') return;
+		if (e.key !== 'Escape' || !isTopModal(self)) return;
 		e.preventDefault();
 		e.stopPropagation();
 		emit('answer', null);
@@ -30,6 +34,7 @@
 	}
 
 	onMounted(async () => {
+		self = openModal();
 		place();
 		window.addEventListener('keydown', onKey, true);
 		window.addEventListener('pointerdown', onPointer, true);
@@ -38,6 +43,7 @@
 		(card.value?.querySelector<HTMLElement>('.primary') ?? card.value?.querySelector<HTMLElement>('button'))?.focus();
 	});
 	onBeforeUnmount(() => {
+		closeModal(self);
 		window.removeEventListener('keydown', onKey, true);
 		window.removeEventListener('pointerdown', onPointer, true);
 		window.removeEventListener('resize', place);

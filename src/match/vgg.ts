@@ -194,7 +194,6 @@ interface Layer {
 interface Run {
 	width: number;
 	height: number;
-	input: THREE.WebGLRenderTarget;
 	outs: THREE.WebGLRenderTarget[];
 	pools: (THREE.WebGLRenderTarget | null)[];
 	grams: THREE.WebGLRenderTarget[];
@@ -311,7 +310,7 @@ export class TextureNet {
 			} else pools.push(null);
 		}
 		const maxC = Math.max(...this.layers.filter((l) => l.tap).map((l) => l.spec.cout));
-		r = { width, height, input: gpu.target(width, height), outs, pools, grams, reduce: gpu.target(maxC, this.taps) };
+		r = { width, height, outs, pools, grams, reduce: gpu.target(maxC, this.taps) };
 		this.runs.set(key, r);
 		return r;
 	}

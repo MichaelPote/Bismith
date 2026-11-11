@@ -12,7 +12,7 @@ import { hashI } from '@/core/hash';
 import { memoReads } from '@/core/memo';
 import { P, halfPx, type ParamValues } from '@/core/params';
 import { modeIs } from '../commonParams';
-import type { LayerDef } from '../types';
+import type { LayerCanvas, LayerDef } from '../types';
 import { routeTraces } from './router';
 import { KING, linkDegrees, linkTo, traceLinks } from './traceLinks';
 
@@ -362,7 +362,8 @@ export const tracesLayer: LayerDef = {
 	// R = link mask (bit d: a trace toward KING[d]); G = flags: 1 a trace end with a pad, 2 via, 4 a crowded end with a pad
 	// (fill's ends without room for a full one), 8 on a wide trace; B + 256 A = connected trace id (16 bits: on boards of
 	// more than 65 535 traces, ids repeat).
-	cpuData(q, ctx) {
+	// (Memoised by the params it reads: a colour or Height slider keeps the uploaded texture.)
+	cpuData: memoReads((q: ParamValues, ctx: LayerCanvas) => {
 		const { nx, ny, links, flags, id } = traceNet(q, ctx);
 		const n = nx * ny;
 		// Per trace and per end, drawn here rather than per pixel for every node in reach: which traces are wide, and which
@@ -381,7 +382,7 @@ export const tracesLayer: LayerDef = {
 			data[i * 4 + 3] = tid >> 8;
 		}
 		return { route: { width: nx, height: ny, data } };
-	},
+	}),
 	glsl: /* glsl */ `
 const ivec2 KING[8] = ivec2[8](${KING.map(([x, y]) => `ivec2(${x}, ${y})`).join(', ')});
 ivec2 tr_n;

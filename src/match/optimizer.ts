@@ -26,7 +26,7 @@ import { getPostDef } from '@/render/post/registry';
 import { patternKeys } from '@/core/links';
 import { applyColourMap, colourMap } from './colourFit';
 import { colourRange, constrainLab, type ColourRange } from './colourRange';
-import type { MatchImage } from './image';
+import { resample, type MatchImage } from './image';
 
 // ------------------------------------------------------------------------------------------------ RNG
 
@@ -1024,7 +1024,9 @@ interface Candidate {
  * dark to light — what a layer added to supply the missing detail should paint.
  */
 export function residualColours(render: MatchImage, target: MatchImage, count: number, rng: Rng): string[] {
-	const n = Math.min(render.width * render.height, target.width * target.height);
+	// (Pixel by pixel at the target's size: the render is the full image, the target the matcher's smaller copy.)
+	render = resample(render, target.width, target.height);
+	const n = target.width * target.height;
 	const err = new Float32Array(n);
 	for (let i = 0; i < n; i++) {
 		const o = i * 4;

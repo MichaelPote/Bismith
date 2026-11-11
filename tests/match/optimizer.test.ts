@@ -350,6 +350,22 @@ describe('Optimizer', () => {
 		expect(residualColours(render, target, 3, new Rng(1))).toEqual(['#cc1a1a', '#cc1a1a', '#cc1a1a']);
 	});
 
+	it('compares a full-size render with the smaller reference place for place', () => {
+		// The reference (16 px, as the matcher keeps it): a red block top left and a green one bottom right. The render
+		// (32 px) has the red block where it belongs and lacks the green one — green is what's missing.
+		const target = createImage(16, 16, [0.5, 0.5, 0.5, 1]);
+		for (let y = 0; y < 6; y++)
+			for (let x = 0; x < 6; x++) {
+				target.data.set([0.8, 0.1, 0.1], (y * 16 + x) * 4);
+				target.data.set([0.1, 0.8, 0.1], ((y + 10) * 16 + x + 10) * 4);
+			}
+		const render = createImage(32, 32, [0.5, 0.5, 0.5, 1]);
+		for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) render.data.set([0.8, 0.1, 0.1], (y * 32 + x) * 4);
+		const picks = residualColours(render, target, 8, new Rng(1));
+		expect(new Set(picks).size).toBe(1);
+		expect(hexToRgb(picks[0])[1]).toBeGreaterThan(0.7);
+	});
+
 	it('inserts relief snippets under the colour layers', async () => {
 		const p = normalizeProject({
 			width: 64,

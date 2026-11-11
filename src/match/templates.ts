@@ -30,8 +30,6 @@ export interface TemplateContext {
 export interface Template {
 	id: string;
 	label: string;
-	/** Families / hints this template suits (used to pre-select candidates). */
-	tags: string[];
 	/** Layer types it needs (templates whose types aren't registered are skipped). */
 	requires?: string[];
 	build(a: Analysis, ctx: TemplateContext): Project;
@@ -729,7 +727,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'rough',
 		label: 'Rough surface (rock, ground, concrete)',
-		tags: ['rock', 'ground', 'concrete', 'dirt', 'sand', 'generic'],
 		build: (a, ctx) =>
 			base(
 				a,
@@ -795,14 +792,12 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'rocky',
 		label: 'Rock face (fractured strata)',
-		tags: ['rock', 'cliff', 'stone'],
 		requires: ['rock', 'cavity'],
 		build: (a, ctx) => rockFace(a, ctx)
 	},
 	{
 		id: 'cobbles',
 		label: 'Cobbles / flagstones',
-		tags: ['rock', 'cobble', 'stone'],
 		requires: ['voronoi'],
 		build: (a, ctx) => {
 			const cell = Math.max(6, a.periodX || a.periodY || 13);
@@ -831,7 +826,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'bricks',
 		label: 'Bricks / dressed stone courses',
-		tags: ['brick', 'stone', 'wall', 'city'],
 		requires: ['bricks', 'voronoi'],
 		build: (a, ctx) => {
 			const [columns, rows] = counts(a, 32, 16, 2);
@@ -856,7 +850,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'bricks-v',
 		label: 'Vertical brick courses',
-		tags: ['brick', 'stone', 'wall'],
 		requires: ['bricks', 'voronoi'],
 		build: (a, ctx) => {
 			const rows = a.periodX ? Math.max(1, Math.round(a.width / a.periodX)) : Math.max(1, Math.round(a.width / 16));
@@ -885,7 +878,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'blocks',
 		label: 'Large stone blocks',
-		tags: ['stone', 'wall', 'block'],
 		requires: ['bricks', 'voronoi'],
 		build: (a, ctx) => {
 			const [columns, rows] = counts(a, 32, 32);
@@ -914,7 +906,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'rubble',
 		label: 'Hand-placed rubble stone (dry wall)',
-		tags: ['stone', 'wall', 'rubble', 'city', 'rock'],
 		requires: ['bricks', 'voronoi'],
 		build: (a, ctx) => {
 			const [columns, rows] = counts(a, 16, 8, 2);
@@ -946,7 +937,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'carved',
 		label: 'Carved courses fading into the surface',
-		tags: ['brick', 'stone', 'wall', 'city'],
 		requires: ['bricks'],
 		build: (a, ctx) => {
 			// Grooved walls (FR7.6): grooves cut into a flat surface, their depth multiplied by noise so the coursing fades out
@@ -1043,7 +1033,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'plate',
 		label: 'Riveted metal plate',
-		tags: ['metal', 'plate', 'iron', 'panel'],
 		build: (a, ctx) =>
 			base(
 				a,
@@ -1103,7 +1092,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'panelgrid',
 		label: 'Metal panels in a grid',
-		tags: ['metal', 'panel', 'tech', 'base'],
 		requires: ['grid', 'drips'],
 		build: (a, ctx) => {
 			const [count_x, count_y] = counts(a, 32, 32);
@@ -1170,7 +1158,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'riveted',
 		label: 'Riveted plates',
-		tags: ['metal', 'plate', 'panel', 'base', 'iron'],
 		requires: ['greebles', 'drips'],
 		build: (a, ctx) => {
 			const size = Math.max(8, a.periodX || a.periodY || Math.min(a.width, a.height) / 2);
@@ -1235,7 +1222,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'brushed',
 		label: 'Brushed metal with rust stains',
-		tags: ['metal', 'tech', 'base', 'panel', 'rust'],
 		requires: ['drips'],
 		build: (a, ctx) => {
 			// Brushed metal (FR7.7): streaks `len` long and 2 px wide (scale = W / len, stretch = width / len), levels widening the
@@ -1284,7 +1270,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'hammered',
 		label: 'Hammered metal (copper, bronze)',
-		tags: ['metal', 'copper', 'bronze', 'hammered'],
 		requires: ['hammered'],
 		build: (a, ctx) => {
 			// Hammered copper (FR7.7): interlocking radial arcs of dents in relief; the same pattern (tied) tones the dents.
@@ -1390,7 +1375,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'tiles',
 		label: 'Floor tiles',
-		tags: ['tile', 'floor', 'marble'],
 		requires: ['tiles'],
 		build: (a, ctx) => {
 			const [count_x, count_y] = counts(a, 32, 32);
@@ -1438,7 +1422,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'checker2',
 		label: 'Two-tone alternating tiles',
-		tags: ['tile', 'floor', 'marble'],
 		requires: ['tiles', 'grid'],
 		build: (a, ctx) => {
 			const [count_x, count_y] = counts(a, 32, 32);
@@ -1496,7 +1479,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'planks',
 		label: 'Wood planks',
-		tags: ['wood', 'plank', 'floor', 'crate'],
 		requires: ['stripes'],
 		build: (a, ctx) => {
 			const vertical = a.edgeX > a.edgeY;
@@ -1569,7 +1551,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'liquid',
 		label: 'Lava / slime / water',
-		tags: ['lava', 'water', 'slime', 'liquid', 'glow'],
 		requires: ['voronoi'],
 		build: (a, ctx) =>
 			base(
@@ -1626,7 +1607,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'trim',
 		label: 'Horizontal trim / strip',
-		tags: ['trim', 'strip'],
 		requires: ['stripes'],
 		build: (a, ctx) =>
 			base(
@@ -1690,7 +1670,6 @@ export const TEMPLATES: Template[] = [
 	{
 		id: 'light',
 		label: 'Light fixture',
-		tags: ['light', 'glow'],
 		build: (a, ctx) =>
 			base(
 				a,
@@ -1754,7 +1733,6 @@ TEMPLATES.push(
 	{
 		id: 'greeble',
 		label: 'Tech greebles (machinery panels)',
-		tags: ['tech', 'panel', 'machine', 'comp'],
 		requires: ['greebles'],
 		build: (a, ctx) => {
 			// One panel layout (tied): the panels with their height and colour, and their lights.
@@ -1842,7 +1820,6 @@ TEMPLATES.push(
 	{
 		id: 'vents',
 		label: 'Vents / grates / slots',
-		tags: ['vent', 'grate', 'slot', 'grill'],
 		requires: ['vents'],
 		build: (a, ctx) => {
 			const horizontal = a.edgeY >= a.edgeX;
@@ -1894,7 +1871,6 @@ TEMPLATES.push(
 	{
 		id: 'pipes',
 		label: 'Pipes / conduits',
-		tags: ['pipe', 'tech', 'conduit'],
 		requires: ['pipes'],
 		build: (a, ctx) => {
 			const horizontal = a.edgeY >= a.edgeX;
@@ -1949,7 +1925,6 @@ TEMPLATES.push(
 	{
 		id: 'trimbands',
 		label: 'Banded trim strip',
-		tags: ['trim', 'strip'],
 		requires: ['trim'],
 		build: (a, ctx) =>
 			base(
@@ -2003,7 +1978,6 @@ TEMPLATES.push(
 	{
 		id: 'marble',
 		label: 'Veined marble',
-		tags: ['marble', 'stone', 'floor'],
 		requires: ['marble'],
 		build: (a, ctx) =>
 			base(
@@ -2035,7 +2009,6 @@ TEMPLATES.push(
 	{
 		id: 'marbletiles',
 		label: 'Marble tiles',
-		tags: ['marble', 'tile', 'floor'],
 		requires: ['marble', 'tiles', 'grid'],
 		build: (a, ctx) => {
 			const [cx, cy] = counts(a, 32, 32);
@@ -2091,7 +2064,6 @@ TEMPLATES.push(
 	{
 		id: 'caustics',
 		label: 'Caustic liquid (water, slime, lava net)',
-		tags: ['lava', 'water', 'slime', 'liquid', 'glow'],
 		requires: ['caustics'],
 		build: (a, ctx) =>
 			base(
@@ -2134,7 +2106,6 @@ TEMPLATES.push(
 	{
 		id: 'blobs',
 		label: 'Blobby lava / goo',
-		tags: ['lava', 'slime', 'liquid', 'glow'],
 		requires: ['caustics'],
 		build: (a, ctx) =>
 			base(
@@ -2165,7 +2136,6 @@ TEMPLATES.push(
 	{
 		id: 'wood',
 		label: 'Wood boards with grain',
-		tags: ['wood', 'plank', 'floor', 'crate'],
 		requires: ['wood'],
 		build: (a, ctx) => {
 			const vertical = a.edgeX > a.edgeY;
@@ -2201,7 +2171,6 @@ TEMPLATES.push(
 	{
 		id: 'scales',
 		label: 'Overlapping scales',
-		tags: ['scale', 'metal', 'roof'],
 		requires: ['scales'],
 		build: (a, ctx) =>
 			base(
@@ -2241,7 +2210,6 @@ TEMPLATES.push(
 	{
 		id: 'cracks',
 		label: 'Cracked plates (mud, lava crust)',
-		tags: ['cracks', 'mud', 'lava', 'rock', 'dirt'],
 		requires: ['cracks'],
 		build: (a, ctx) =>
 			base(
@@ -2287,7 +2255,6 @@ TEMPLATES.push(
 	{
 		id: 'circuit',
 		label: 'Circuit traces',
-		tags: ['tech', 'circuit', 'computer'],
 		requires: ['truchet'],
 		build: (a, ctx) =>
 			base(
@@ -2340,7 +2307,6 @@ TEMPLATES.push(
 	{
 		id: 'maze',
 		label: 'Maze / meander lines',
-		tags: ['maze', 'meander', 'lines', 'tech'],
 		requires: ['truchet'],
 		build: (a, ctx) =>
 			base(
@@ -2370,7 +2336,6 @@ TEMPLATES.push(
 	{
 		id: 'disc',
 		label: 'Glowing disc / medallion',
-		tags: ['light', 'glow', 'teleport', 'medallion'],
 		requires: ['rosette'],
 		build: (a, ctx) =>
 			base(
@@ -2414,7 +2379,6 @@ TEMPLATES.push(
 	{
 		id: 'carpet',
 		label: 'Ornamental carpet / inlay (kaleidoscope)',
-		tags: ['carpet', 'ornament', 'tile', 'fancy'],
 		requires: ['symmetry'],
 		build: (a, ctx) =>
 			base(
@@ -2457,7 +2421,6 @@ TEMPLATES.push(
 	{
 		id: 'emblem',
 		label: 'Emblem / rune panel',
-		tags: ['emblem', 'rune', 'sigil', 'panel'],
 		requires: ['glyph'],
 		build: (a, ctx) =>
 			base(
@@ -2515,12 +2478,4 @@ TEMPLATES.push(
 
 export function availableTemplates(): Template[] {
 	return TEMPLATES.filter((t) => (t.requires ?? []).every((type) => getLayerDef(type)));
-}
-
-/** Templates whose tags match a family hint, or all of them. */
-export function templatesFor(tags: string[] = []): Template[] {
-	const all = availableTemplates();
-	if (!tags.length) return all;
-	const hit = all.filter((t) => t.tags.some((g) => tags.includes(g)));
-	return hit.length ? hit : all;
 }

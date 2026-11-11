@@ -398,6 +398,7 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			const finalSamples = opts.finalSamples ?? 64;
 			api.loadProject(best.project);
 			const compare = compareResult(matcher, renderToMatchImage(engine, project!, finalSamples), finalSamples, t0);
+			matcher.dispose();
 			session = null;
 			return {
 				bestProject: best.project,
@@ -600,6 +601,7 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			const matcher = new Matcher(img, { weights: result.final.weights, size: [img.width, img.height], maxSize: 4096 });
 			const render = renderToMatchImage(engine, project!, opts.finalSamples ?? 128);
 			const c = compareResult(matcher, render, opts.finalSamples ?? 128, performance.now(), 2);
+			matcher.dispose();
 			return { ...result, renderPng: c.renderPng, targetPng: c.targetPng, diffPng: c.diffPng };
 		}
 	};

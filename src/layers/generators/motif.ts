@@ -676,7 +676,7 @@ export function truchetCells(
 	if (!['maze', 'rooms', 'labyrinth', 'circuit'].includes(style))
 		return { cells: { width: 1, height: 1, data: new Uint8Array(4) } };
 	const [nx, ny] = cellCount(p, ctx.width, ctx.height);
-	const seed = Math.abs(ctx.seed);
+	const seed = ctx.seed;
 	const W = nx + 2;
 	const H = ny + 2;
 	if (style === 'circuit') return { cells: { width: W, height: H, data: circuitTiles(p, nx, ny, ctx.tileable, seed) } };
@@ -986,7 +986,7 @@ vec2 mot_circuitTile(ivec2 c, vec2 l, vec2 cs, ivec2 n, float hw, out float rr, 
   int on = 0;   // bit 0, 1: segment 0, 1 drawn; bit 2, 3: pad 0, 1
   float ds = 1e9, dsS = 1e9;
   int k = int(R) + int(L) + int(U) + int(D);
-  vec3 hh = hash3I(cw, MOT_SEED + 5.0);
+  vec3 hh = hash3I(cw, uSeed + 5.0);
   bool junc = hh.x < u_junctions;
   int dir = ((t >> 4) & 7) - 1;
   bool chip = (t & 128) != 0;
@@ -1136,7 +1136,7 @@ GenOut gen(vec2 p) {
     for (int i = -UNI_1; i <= UNI_1; i++) {
       ivec2 c = c0 + ivec2(i, j);
       ivec2 cw = wrapCell(c, n);
-      vec3 h = hash3I(cw, MOT_SEED);
+      vec3 h = hash3I(cw, uSeed);
       // (An if around the body, not continue: ANGLE / D3D can miscompile continue in a loop.)
       if (h.x < dens) {
       bool crossing = h.x < dens * u_cross;   // h.x / dens is uniform over the drawn tiles
@@ -1296,7 +1296,7 @@ GenOut gen(vec2 p) {
           bestS = min(bestS, sg.y);
         }
       }
-      if (d < best) { best = d; rnd = hashI(wrapCell(k, max(n / PP, ivec2(1))), MOT_SEED); }
+      if (d < best) { best = d; rnd = hashI(wrapCell(k, max(n / PP, ivec2(1))), uSeed); }
     }
   } else {
     // Circuit: tiles centred on lattice nodes (traces run along lattice lines), laid out on the CPU.

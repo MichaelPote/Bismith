@@ -120,12 +120,12 @@ GenOut gen(vec2 p0) {
     repAt(rg, k, c, centre);
     // Odd rows, counted from the top, shift by the row offset.
     if (((n.y - 1 - c.y) & 1) == 1) centre.x += shift;
-    if (fin || !(u_rep_drop > 0.0 && hashI(c, MOT_SEED + 3.0) < u_rep_drop)) {
-      float inst = hashI(c, MOT_SEED);
-      vec3 jit = hash3I(c, MOT_SEED + 7.0);
+    if (fin || !(u_rep_drop > 0.0 && hashI(c, uSeed + 3.0) < u_rep_drop)) {
+      float inst = hashI(c, uSeed);
+      vec3 jit = hash3I(c, uSeed + 7.0);
       centre += (jit.xy - 0.5) * u_rep_jit * pitch;
       centre = motifSnap(centre);
-      float ang = u_rotation + (u_rep_rot > 0.0 ? (hashI(c, MOT_SEED + 5.0) - 0.5) * 2.0 * u_rep_rot : 0.0);
+      float ang = u_rotation + (u_rep_rot > 0.0 ? (hashI(c, uSeed + 5.0) - 0.5) * 2.0 * u_rep_rot : 0.0);
       float sc = 1.0 - u_rep_scale * jit.z;
       vec2 q = unrotCW(p - centre, ang) / sc;
       if (fin) {
@@ -1071,7 +1071,7 @@ vec2 mot_centreOff(ivec2 lo, ivec2 hi, ivec2 g, float sp) {
 bool mot_cellOn(int i, int j, ivec2 g, int gid) {
   int mi = u_mirror ? min(i, g.x - 1 - i) : i;
   int mj = u_mirror_y ? min(j, g.y - 1 - j) : j;
-  return hashI(ivec2(mi + 16 * mj, gid), MOT_SEED + 211.0) < u_density;
+  return hashI(ivec2(mi + 16 * mj, gid), uSeed + 211.0) < u_density;
 }
 // Visited nodes for the overlap test: one bit per node (x + 9y < 81) over three words. Mirroring folds the node
 // onto the top-left (x onto the left half, y onto the top half), so a node a mirror image has drawn counts as
@@ -1085,7 +1085,7 @@ int mot_nodeKey(ivec2 n, ivec2 g) {
 vec2 mot_pt(ivec2 n, ivec2 g, float sp, int gid) {
   vec2 p = mot_node(n, g, sp);
   if (u_jitter <= 0.0) return p;
-  vec2 j = (hash2I(ivec2(mot_nodeKey(n, g), gid), MOT_SEED + 503.0) - 0.5) * u_jitter * sp;
+  vec2 j = (hash2I(ivec2(mot_nodeKey(n, g), gid), uSeed + 503.0) - 0.5) * u_jitter * sp;
   if (u_snap) j = floor(j + 0.5);
   if (u_mirror) j.x *= float(sign(g.x - 1 - 2 * n.x));
   if (u_mirror_y) j.y *= float(sign(g.y - 1 - 2 * n.y));
@@ -1266,7 +1266,7 @@ float motifSdf(vec2 q, float inst) {
         seen = uvec3(0u);
         cnt = 0;
       }
-      vec3 h0 = hash3I(ivec2(w * 16, gid), MOT_SEED + 101.0);
+      vec3 h0 = hash3I(ivec2(w * 16, gid), uSeed + 101.0);
       pos = min(ivec2(floor(h0.xy * vec2(g))), g - 1);
       // Connected: the first stroke starts at the centre node (on the mirror axes for odd counts), so the glyph
       // grows out from the middle; later ones on a drawn node.
@@ -1307,7 +1307,7 @@ float motifSdf(vec2 q, float inst) {
         before = 2.0 * pB - pC;
         after = 2.0 * pC - pB;
       }
-      float wf = 1.0 - 0.9 * u_width_var * hashI(ivec2(w * 16 + 15, gid), MOT_SEED + 601.0);
+      float wf = 1.0 - 0.9 * u_width_var * hashI(ivec2(w * 16 + 15, gid), uSeed + 601.0);
       // The ends' bits for mot_segD: first / last segment (4, 8); its first / last node free (1, 2) — no other
       // stroke meets it, nor the stroke itself, nor its mirror image: on a mirror axis it does, unless the segment
       // runs along the axis —, or else on an axis (16 / 32 on X, 64 / 128 on Y).
@@ -1324,7 +1324,7 @@ float motifSdf(vec2 q, float inst) {
         for (int k = 0; k < 2 * UNI_1; k++) {
           // Dot chance: one draw per stroke end (its mirror images share it).
           bool on = (u_dot_joins || (k == 0 ? fS : fE)) &&
-                    (u_dot_chance >= 1.0 || hashI(ivec2(w * 2 + k, gid), MOT_SEED + 701.0) < u_dot_chance);
+                    (u_dot_chance >= 1.0 || hashI(ivec2(w * 2 + k, gid), uSeed + 701.0) < u_dot_chance);
           if (on) {
             vec2 c = k == 0 ? pStart : pC;
             // Nearest of the dot and its mirror images: fold both onto the same side of each mirror axis.
@@ -1356,7 +1356,7 @@ float motifSdf(vec2 q, float inst) {
       float nbow = 0.0;
       if (s < steps) {
         int hid = w * 16 + s + 1;
-        vec4 hs = vec4(hash3I(ivec2(hid, gid), MOT_SEED + 101.0), hashI(ivec2(hid, gid), MOT_SEED + 307.0));
+        vec4 hs = vec4(hash3I(ivec2(hid, gid), uSeed + 101.0), hashI(ivec2(hid, gid), uSeed + 307.0));
         // Reservoir sample of the nodes a stroke steps on from: each replaces the pick with chance 1 / count.
         cnt++;
         if (fract(hs.x * 13.71 + hs.w * 3.17) * float(cnt) < 1.0) pick = pos;
@@ -1364,7 +1364,7 @@ float motifSdf(vec2 q, float inst) {
           int k = int(hs.z * 4.0);
           nd = hs.y < u_diag ? 2 * k + 1 : 2 * k;
         }
-        bool revisit = (u_overlap >= 1.0 || hashI(ivec2(hid, gid), MOT_SEED + 409.0) < u_overlap) && !(spline && old);
+        bool revisit = (u_overlap >= 1.0 || hashI(ivec2(hid, gid), uSeed + 409.0) < u_overlap) && !(spline && old);
         for (int t = 0; t < 8 * UNI_1; t++) {
           ivec2 np = pos + MOT_DIRS[nd];
           bool inGrid = all(greaterThanEqual(np, ivec2(0))) && all(lessThan(np, g));

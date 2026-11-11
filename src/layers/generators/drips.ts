@@ -259,7 +259,7 @@ export const dripsLayer: LayerDef = {
 	],
 	groups: [{ id: 'relief', label: 'Ledges' }],
 	// The Runnels style's stains (the ragged wash and its runnels) in a variant of their own: they were well over half of
-	// the cold compile, and Streak and Sources don't need them.
+	// the cold compile, and Streak doesn't need them.
 	shaderFeatures: (p) => (isRunnels(p) ? ['DR_RUNNELS'] : []),
 	// No shape of its own (stains write their coverage to a mask), but the Edge card's Anti-alias picks crisp pixel
 	// streaks or smooth ones.

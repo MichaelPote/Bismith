@@ -143,11 +143,6 @@ export function activeVariant(p: Project): ProjectVariant {
 	return vs.list.find((v) => v.id === vs.activeId) ?? vs.list[0];
 }
 
-export function baseVariant(p: Project): ProjectVariant {
-	const vs = variantsOf(p);
-	return vs.list.find((v) => v.id === vs.baseId) ?? vs.list[0];
-}
-
 /** The base's settings (call syncVariants first when the active variant's changes may be stale). */
 export function baseSettings(p: Project): Settings {
 	const vs = p.variants;
