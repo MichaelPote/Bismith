@@ -1,9 +1,9 @@
 import { shaderKey } from '@/render/materialPipeline';
-import { updateUniforms } from '@/gpu/uniforms';
+import { createUniforms, declareUniforms, updateUniforms } from '@/gpu/uniforms';
 import { layerParamDefs } from '@/layers/registry';
 import { describe, expect, it } from 'vitest';
 import { hexToRgb, linearToOklab, linearToSrgb1, oklabToLinear, rgbToHex, srgbToLinear1 } from '@/core/color';
-import { P, evalCurve, sanitizeParams, sanitizeValue } from '@/core/params';
+import { P, evalCurve, sanitizeParams, sanitizeValue, type Gradient } from '@/core/params';
 import { createLayer, createProject, normalizeProject, projectFromJSON, projectToJSON } from '@/core/serialize';
 import { gatherGroups, layerUnits } from '@/core/project';
 import { crc32, zipStore } from '@/core/zip';
@@ -60,6 +60,27 @@ describe('params', () => {
 				{ pos: 0.8, color: '#111111' }
 			]
 		});
+	});
+	it('keeps a stop’s opacity below 1 (clamped), and uploads every stop’s, 1 for none', () => {
+		const g = sanitizeValue(defs[4], {
+			stops: [
+				{ pos: 0, color: '#111111', alpha: -2 },
+				{ pos: 0.5, color: '#222222', alpha: 0.4 },
+				{ pos: 1, color: '#333333', alpha: 1 }
+			]
+		}) as Gradient;
+		expect(g.stops.map((s) => s.alpha)).toEqual([0, 0.4, undefined]);
+		const u = createUniforms([defs[4]]);
+		updateUniforms(u, [defs[4]], { g });
+		const alpha = (u.u_g_alpha.value as { x: number; y: number; z: number; w: number }[]).map((v) => [
+			v.x,
+			v.y,
+			v.z,
+			v.w
+		]);
+		expect(alpha[0].map((v) => Number(v.toFixed(3)))).toEqual([0, 0.4, 1, 1]);
+		expect(alpha[1]).toEqual([1, 1, 1, 1]);
+		expect(declareUniforms([defs[4]])).toContain('uniform vec4 u_g_alpha[2];');
 	});
 });
 

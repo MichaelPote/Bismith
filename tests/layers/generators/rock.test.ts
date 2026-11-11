@@ -118,17 +118,9 @@ describe('rock', () => {
 					// Rows repeat every gR beds: a divisor of the beds that the shear carries across the tile.
 					expect(v % d.gR, at).toBe(0);
 					expect(Math.abs(sh % d.gR), at).toBe(0);
-					// Long fractures: whole lanes across the tile and whole segments along it.
-					const [fx, fy, lane, segL] = d.frac;
-					const [nL, nS] = d.frac2;
-					expect(Math.hypot(fx, fy), at).toBeCloseTo(1, 5);
-					expect(Number.isInteger(nL) && Number.isInteger(nS) && nL >= 1 && nS >= 1, at).toBe(true);
-					const Lp = nS * segL;
-					expect(nL * lane * Lp, at).toBeCloseTo(width * height, 2);
 				}
 		// Untiled, nothing is snapped.
 		const u = rockDerived(base, { width: 100, height: 70, tileable: false, seed: 0 });
-		expect(u.frac2[0]).toBe(1e6);
 		expect(u.wrap0).toEqual([1, 1, 1]);
 	});
 });

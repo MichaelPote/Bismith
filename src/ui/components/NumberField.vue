@@ -1,8 +1,8 @@
 <script setup lang="ts">
 	// Blender-style number field: drag to scrub (Shift = fine, Ctrl = snap to the range's divisions — 0.1 on 0–1, 10 on
-	// 0–360, see snapDivision), click to type, arrows to step (Ctrl = to the next division). Dragging stops at the soft
-	// range (softMin / softMax) like a notch; a new drag that starts at the soft max (or min) goes on to the hard max (or
-	// min), as do typing and the arrows. Double-click goes back to the value before the last change — again to return —
+	// 0–360, see snapDivision), click to type, arrows to step (Ctrl = to the next division). Dragging pauses at the
+	// soft range's ends (softMin / softMax) like a notch, for NOTCH_PX, then goes on to the hard min or max; typing and the
+	// arrows go past them freely. Double-click goes back to the value before the last change — again to return —
 	// or, if the field hasn't been changed, to its default. The fill bar shows the value within its soft range.
 	import { computed, nextTick, ref } from 'vue';
 	import { IconChevronLeft, IconChevronRight } from '@tabler/icons-vue';
@@ -10,6 +10,8 @@
 
 	/** Previous values by memory key, so they outlive the field (the inspector rebuilds its fields on reselect). */
 	const previousByKey = new Map<string, number>();
+	/** How far (px) a drag holds at a soft limit before carrying on past it. */
+	const NOTCH_PX = 12;
 
 	const props = withDefaults(
 		defineProps<{
@@ -158,16 +160,24 @@
 		else perPx = stepSize.value / 2;
 		if (e.shiftKey) perPx *= 0.1;
 		let v = startValue + dx * perPx;
-		if (e.ctrlKey || e.metaKey) v = snapTo(v, division.value);
-		else if (!props.int) v = round(v, stepSize.value / 10);
-		// The soft range bounds a drag, like a notch: a drag that starts at (or past) the soft max may carry on up to the
-		// hard max, and one that starts at (or below) the soft min down to the hard min.
+		// The soft limits are notches: crossing one, the value holds there for NOTCH_PX, then carries on towards the hard
+		// limit (set clamps to it). Taken in the order the drag meets them, each one it has passed holding it back.
 		if (hasRange.value) {
 			const eps = Math.max(1e-9, (hi.value - lo.value) * 1e-6);
-			const low = startValue <= lo.value + eps ? (props.min ?? -Infinity) : lo.value;
-			const high = startValue >= hi.value - eps ? (props.max ?? Infinity) : hi.value;
-			v = Math.min(Math.max(v, low), high);
+			const hold = NOTCH_PX * perPx;
+			const notches = [
+				props.softMin !== props.min ? props.softMin : undefined,
+				props.softMax !== props.max ? props.softMax : undefined
+			]
+				.filter((L): L is number => L !== undefined && Math.abs(startValue - L) > eps)
+				.sort((a, b) => (v > startValue ? a - b : b - a));
+			for (const L of notches) {
+				if (startValue < L && v > L) v = Math.max(L, v - hold);
+				else if (startValue > L && v < L) v = Math.min(L, v + hold);
+			}
 		}
+		if (e.ctrlKey || e.metaKey) v = snapTo(v, division.value);
+		else if (!props.int) v = round(v, stepSize.value / 10);
 		set(v);
 	}
 

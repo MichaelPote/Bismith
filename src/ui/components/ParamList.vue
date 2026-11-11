@@ -295,6 +295,7 @@
 				<span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</span>
 				<GradientField
 					:model-value="value(r.def) as Gradient"
+					:alpha="r.def.alpha"
 					:label="labelOf(r.def)"
 					@update:model-value="set(r.def.key, $event)"
 					@commit="emit('commit')" />

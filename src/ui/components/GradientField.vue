@@ -1,15 +1,16 @@
 <script setup lang="ts">
 	// Colour-ramp editor: a bar with draggable gem stops. Click the bar to add a stop. The eyedropper takes the ramp's
-	// colour under the pointer.
+	// colour under the pointer. With `alpha` (a ramp that paints Diffuse) each stop has an opacity too, the bar drawn over
+	// a checkerboard.
 	import { computed, ref } from 'vue';
-	import { MAX_GRADIENT_STOPS, type Gradient } from '@/core/params';
+	import { MAX_GRADIENT_STOPS, type Gradient, type GradientStop } from '@/core/params';
 	import { hexToRgb, rgbToHex } from '@/core/color';
 	import ColorField from './ColorField.vue';
 	import NumberField from './NumberField.vue';
 	import { IconArrowsLeftRight, IconTrash } from '@tabler/icons-vue';
 	import { vPick } from '@/ui/eyedropper';
 
-	const props = defineProps<{ modelValue: Gradient; label?: string }>();
+	const props = defineProps<{ modelValue: Gradient; label?: string; alpha?: boolean }>();
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: Gradient): void;
 		(e: 'commit', v: Gradient): void;
@@ -21,10 +22,21 @@
 	const stops = computed(() => props.modelValue.stops);
 	const sel = computed(() => stops.value[Math.min(selected.value, stops.value.length - 1)]);
 
+	/** A stop's colour as CSS, with its opacity. */
+	function cssColor(s: GradientStop): string {
+		const a = props.alpha ? (s.alpha ?? 1) : 1;
+		if (a >= 1) return s.color;
+		const [r, g, b] = hexToRgb(s.color).map((c) => Math.round(c * 255));
+		return `rgba(${r}, ${g}, ${b}, ${a})`;
+	}
+
 	const css = computed(() => {
 		const s = [...stops.value].sort((a, b) => a.pos - b.pos);
-		if (s.length === 1) return s[0].color;
-		return `linear-gradient(90deg, ${s.map((x) => `${x.color} ${(x.pos * 100).toFixed(2)}%`).join(', ')})`;
+		const ramp =
+			s.length === 1
+				? `linear-gradient(${cssColor(s[0])}, ${cssColor(s[0])})`
+				: `linear-gradient(90deg, ${s.map((x) => `${cssColor(x)} ${(x.pos * 100).toFixed(2)}%`).join(', ')})`;
+		return props.alpha ? `${ramp}, var(--alpha-bg)` : ramp;
 	});
 
 	function clone(): Gradient {
@@ -34,6 +46,17 @@
 	function update(g: Gradient, commit = false): void {
 		emit('update:modelValue', g);
 		if (commit) emit('commit', g);
+	}
+
+	/** The ramp's opacity at t. */
+	function alphaAt(t: number): number {
+		const s = [...stops.value].sort((a, b) => a.pos - b.pos);
+		const a = (x: GradientStop) => x.alpha ?? 1;
+		if (t <= s[0].pos) return a(s[0]);
+		for (let i = 1; i < s.length; i++)
+			if (t <= s[i].pos)
+				return a(s[i - 1]) + ((a(s[i]) - a(s[i - 1])) * (t - s[i - 1].pos)) / Math.max(1e-6, s[i].pos - s[i - 1].pos);
+		return a(s[s.length - 1]);
 	}
 
 	function colorAt(t: number): string {
@@ -64,7 +87,8 @@
 		if (stops.value.length >= MAX_GRADIENT_STOPS) return;
 		const pos = posFromEvent(e);
 		const g = clone();
-		g.stops.push({ pos, color: colorAt(pos) });
+		const alpha = props.alpha ? Number(alphaAt(pos).toFixed(3)) : 1;
+		g.stops.push({ pos, color: colorAt(pos), ...(alpha < 1 ? { alpha } : {}) });
 		selected.value = g.stops.length - 1;
 		update(g, true);
 	}
@@ -91,6 +115,14 @@
 	function setColor(c: string, commit: boolean): void {
 		const g = clone();
 		g.stops[selected.value].color = c;
+		update(g, commit);
+	}
+	/** The selected stop's opacity, from the field's percent (100 % = none stored). */
+	function setAlpha(pct: number, commit: boolean): void {
+		const g = clone();
+		const a = Math.min(1, Math.max(0, pct / 100));
+		if (a >= 1) delete g.stops[selected.value].alpha;
+		else g.stops[selected.value].alpha = a;
 		update(g, commit);
 	}
 	function setPos(p: number, commit: boolean): void {
@@ -138,17 +170,31 @@
 					<path
 						d="M8 3 L15 10 L15 18 L8 25 L1 18 L1 10 Z"
 						:fill="s.color"
+						:fill-opacity="alpha ? 0.25 + 0.75 * (s.alpha ?? 1) : 1"
 						:stroke="i === selected ? 'var(--e100)' : 'var(--line-strong)'"
 						stroke-width="2" />
 				</svg>
 			</button>
 		</div>
-		<div v-if="sel" class="edit">
+		<div v-if="sel" class="edit" :class="{ two: alpha }">
 			<ColorField
 				:model-value="sel.color"
 				:label="`${label ?? 'Ramp'} stop`"
 				@update:model-value="setColor($event, false)"
 				@commit="setColor($event, true)" />
+			<NumberField
+				v-if="alpha"
+				class="opa"
+				:model-value="Math.round((sel.alpha ?? 1) * 100)"
+				:min="0"
+				:max="100"
+				:step="1"
+				int
+				unit="%"
+				label="Stop opacity"
+				title="Stop opacity: lower lets the colour below show through"
+				@update:model-value="setAlpha($event, false)"
+				@commit="setAlpha($event, true)" />
 			<NumberField
 				class="pos"
 				:model-value="sel.pos"
@@ -223,5 +269,19 @@
 	.pos {
 		flex: none;
 		width: 76px;
+	}
+	/* With opacity, two lines: the colour, then opacity and position. */
+	.edit.two {
+		flex-wrap: wrap;
+		row-gap: 2px;
+	}
+	.edit.two > :first-child {
+		flex: 1 0 100%;
+	}
+	.edit.two .opa,
+	.edit.two .pos {
+		flex: 1;
+		width: auto;
+		min-width: 0;
 	}
 </style>

@@ -5,6 +5,8 @@
 export interface GradientStop {
 	pos: number; // 0..1
 	color: string; // sRGB hex
+	/** Opacity 0..1 (none = 1): honoured by the ramps that paint Diffuse (ParamDef.alpha). */
+	alpha?: number;
 }
 
 export interface Gradient {
@@ -76,6 +78,8 @@ export interface ParamDef {
 	outputPx?: boolean;
 	/** Whether the optimiser may mutate it. Defaults: float/int/color/gradient yes, others no. */
 	optimize?: boolean;
+	/** A gradient whose stops each have an opacity (the editor shows it): one that paints Diffuse. */
+	alpha?: boolean;
 	/**
 	 * Counts only while the bool param `by` is on; with it off the shaders get `off`, whatever this holds. For a slider
 	 * behind a tickbox because it picks a shader variant (the tickbox picks it instead, so dragging never compiles).
@@ -218,10 +222,14 @@ export function sanitizeValue(def: ParamDef, v: ParamValue | undefined): ParamVa
 			if (!g || !Array.isArray(g.stops) || g.stops.length === 0) return cloneValue(def.default);
 			const stops = g.stops
 				.slice(0, MAX_GRADIENT_STOPS)
-				.map((s) => ({
-					pos: Math.min(1, Math.max(0, Number(s.pos) || 0)),
-					color: typeof s.color === 'string' && /^#[0-9a-f]{6}$/i.test(s.color) ? s.color.toLowerCase() : '#808080'
-				}))
+				.map((s) => {
+					const a = Number(s.alpha);
+					return {
+						pos: Math.min(1, Math.max(0, Number(s.pos) || 0)),
+						color: typeof s.color === 'string' && /^#[0-9a-f]{6}$/i.test(s.color) ? s.color.toLowerCase() : '#808080',
+						...(Number.isFinite(a) && a < 1 ? { alpha: Math.max(0, a) } : {})
+					};
+				})
 				.sort((a, b) => a.pos - b.pos);
 			return { stops };
 		}

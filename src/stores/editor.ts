@@ -25,7 +25,7 @@ export interface Selection {
 export type Workspace = 'create' | 'match' | 'tiling' | 'variants';
 
 /** Viewport shape tools: edit the selected layer's shapes, or draw a new one (a new layer, or a run of the selected pipes). */
-export type ShapeTool = 'edit' | 'polygon' | 'freehand' | 'line';
+export type ShapeTool = 'grab' | 'select' | 'polygon' | 'freehand' | 'line';
 
 /** A question for the user (editor.ask): pick one of `choices`, or cancel. */
 export interface Question {
@@ -89,7 +89,9 @@ export const useEditorStore = defineStore('editor', () => {
 		| { mode: 'manage'; kind?: PresetKind }
 		| null
 	>(null);
-	const shapeTool = ref<ShapeTool>('edit');
+	const shapeTool = ref<ShapeTool>('grab');
+	/** The shape editor's snap toggle: vertices snap to the 10 px grid unless Shift is held (off: only with Shift). */
+	const shapeSnap = ref(false);
 	/** The variant whose Changes dialog is open (FR10). */
 	const variantChanges = ref<string | null>(null);
 	/** The Export dialog (FR10) is open, with these variants ticked (default: the one shown). */
@@ -138,6 +140,7 @@ export const useEditorStore = defineStore('editor', () => {
 		about,
 		presetDialog,
 		shapeTool,
+		shapeSnap,
 		paramClipboard,
 		variantChanges,
 		variantRename,

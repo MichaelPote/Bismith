@@ -1,6 +1,7 @@
 // ParamDef → GLSL uniform declarations and values. Every param `key` becomes `u_<key>`:
 //   float/seed → float · int → int · bool → bool · enum → int (option index)
-//   color → vec3 (LINEAR rgb) · gradient → vec4 u_<key>_stops[8] (sRGB rgb, position) + int u_<key>_count
+//   color → vec3 (LINEAR rgb) · gradient → vec4 u_<key>_stops[8] (sRGB rgb, position), vec4 u_<key>_alpha[2] (the
+//   stops' opacities) + int u_<key>_count
 //   text with a 'points' / 'lines' `bitmap` → vec4 u_<key>[64] (polygon vertices) + ivec2 u_<key>_size;
 //   other text params are not uploaded (Stamp's pixels and Label's text are read on the CPU)
 
@@ -65,7 +66,12 @@ export function declareUniforms(defs: ParamDef[]): string {
 				lines.push(`uniform vec3 ${n};`);
 				break;
 			case 'gradient':
-				lines.push(`uniform vec4 ${n}_stops[${MAX_GRADIENT_STOPS}];`, `uniform int ${n}_count;`);
+				// (The stops' opacities four to a vec4: gradientLookupA.)
+				lines.push(
+					`uniform vec4 ${n}_stops[${MAX_GRADIENT_STOPS}];`,
+					`uniform vec4 ${n}_alpha[${MAX_GRADIENT_STOPS / 4}];`,
+					`uniform int ${n}_count;`
+				);
 				break;
 			case 'curve':
 				// Points (x, y, slope, 0) for a shape-preserving cubic Hermite; curve_<key>(x) evaluates it.
@@ -115,6 +121,7 @@ export function createUniforms(defs: ParamDef[]): Uniforms {
 			u[`${n}_size`] = { value: new Int32Array(2) };
 		} else if (d.type === 'gradient') {
 			u[`${n}_stops`] = { value: Array.from({ length: MAX_GRADIENT_STOPS }, () => new THREE.Vector4()) };
+			u[`${n}_alpha`] = { value: Array.from({ length: MAX_GRADIENT_STOPS / 4 }, () => new THREE.Vector4(1, 1, 1, 1)) };
 			u[`${n}_count`] = { value: 0 };
 		} else u[n] = { value: 0 };
 	}
@@ -166,9 +173,12 @@ export function updateUniforms(u: Uniforms, defs: ParamDef[], values: ParamValue
 				const arr = u[`${n}_stops`]?.value as THREE.Vector4[] | undefined;
 				if (!arr) break;
 				const stops = [...g.stops].sort((a, b) => a.pos - b.pos).slice(0, MAX_GRADIENT_STOPS);
+				const alpha = u[`${n}_alpha`]?.value as THREE.Vector4[] | undefined;
+				alpha?.forEach((a) => a.set(1, 1, 1, 1));
 				stops.forEach((s, i) => {
 					const c = hexToRgb(s.color);
 					arr[i].set(c[0], c[1], c[2], s.pos);
+					alpha?.[i >> 2].setComponent(i & 3, Math.min(1, Math.max(0, s.alpha ?? 1)));
 				});
 				u[`${n}_count`].value = stops.length;
 				break;

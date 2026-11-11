@@ -65,10 +65,13 @@ void applyFilter(inout vec4 A, inout vec4 S, inout vec4 E, ivec2 ip) {
   vec2 width = max(vec2(u_wear_width * u_wear_radius, u_dirt_width * u_dirt_radius) * 1.5, vec2(1e-3));
   vec2 t = maskEmpty(d) ? 1.0 - m0 : clamp(abs(d) / width, 0.0, 1.0);
   // The colours in sRGB: a solid one (stored linear) or the ramp's.
-  vec3 wearCol = u_wear_src == 1
-    ? gradientLookup(u_wear_grad_stops, u_wear_grad_count, t.x) : linearToSrgb(u_wear_color);
-  vec3 dirtCol = u_dirt_src == 1
-    ? gradientLookup(u_dirt_grad_stops, u_dirt_grad_count, t.y) : linearToSrgb(u_dirt_color);
+  // (A ramp stop's opacity thins the wear or dirt there.)
+  vec4 wearRamp = gradientLookupA(u_wear_grad_stops, u_wear_grad_alpha, u_wear_grad_count, t.x);
+  vec4 dirtRamp = gradientLookupA(u_dirt_grad_stops, u_dirt_grad_alpha, u_dirt_grad_count, t.y);
+  vec3 wearCol = u_wear_src == 1 ? wearRamp.rgb : linearToSrgb(u_wear_color);
+  vec3 dirtCol = u_dirt_src == 1 ? dirtRamp.rgb : linearToSrgb(u_dirt_color);
+  if (u_wear_src == 1) wear *= wearRamp.a;
+  if (u_dirt_src == 1) dirt *= dirtRamp.a;
   // Dirt, then wear over it, each blended by its mode in sRGB (as a layer's Diffuse is) and mixed in by its mask; Normal
   // is a plain mix. (One blendMode call in a loop: D3D inlines every call.)
   for (int i = 0; i < 2 * UNI_1; i++) {
@@ -108,6 +111,7 @@ const colourParams = (k: 'wear' | 'dirt', colour: string, ramp: Gradient, blendN
 		P.color(`${k}_color`, 'Colour', colour, { group: k, showIf: (p) => !isShape(p) }),
 		P.gradient(`${k}_grad`, 'Colour ramp', ramp, {
 			group: k,
+			alpha: true,
 			showIf: isShape,
 			hint: `Colours the ${k} by distance from the Shape mask's edge: the left end at the edge, the right end a Ramp width away`
 		}),

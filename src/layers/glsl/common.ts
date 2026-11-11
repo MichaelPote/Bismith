@@ -207,6 +207,26 @@ vec3 gradientLookup(vec4 stops[${MAX_GRADIENT_STOPS}], int count, float t) {
   return stops[count - 1].rgb;
 }
 
+// The ramp with its stops' opacities (four to a vec4): (sRGB rgb, opacity). Colours mix weighted by their opacity, so a
+// colour fading out keeps its hue rather than turning towards a transparent stop's.
+vec4 gradientLookupA(vec4 stops[${MAX_GRADIENT_STOPS}], vec4 alpha[${MAX_GRADIENT_STOPS / 4}], int count, float t) {
+  int i1 = 0;
+  float f = 0.0;
+  t = clamp(t, 0.0, 1.0);
+  if (count > 1 && t > stops[0].a) {
+    i1 = count - 1;
+    for (int i = 1; i < ${MAX_GRADIENT_STOPS}; i++) {
+      if (i >= count) break;
+      if (t <= stops[i].a) { i1 = i; f = (t - stops[i - 1].a) / max(stops[i].a - stops[i - 1].a, 1e-6); break; }
+    }
+  }
+  int i0 = max(i1 - (f > 0.0 ? 1 : 0), 0);
+  float a0 = alpha[i0 / 4][i0 - 4 * (i0 / 4)], a1 = alpha[i1 / 4][i1 - 4 * (i1 / 4)];
+  float a = mix(a0, a1, f);
+  vec3 c = mix(stops[i0].rgb * a0, stops[i1].rgb * a1, f);
+  return vec4(a > 1e-5 ? c / a : mix(stops[i0].rgb, stops[i1].rgb, f), a);
+}
+
 // ---------------------------------------------------------------- blend modes (sRGB space, 0..1)
 // 0 normal, 1 multiply, 2 screen, 3 overlay, 4 add, 5 subtract, 6 darken, 7 lighten, 8 soft light
 vec3 blendMode(int mode, vec3 b, vec3 t) {

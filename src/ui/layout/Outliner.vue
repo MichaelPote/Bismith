@@ -15,6 +15,7 @@
 	import DropMenu, { type MenuItem, type MenuTab } from '@/ui/components/DropMenu.vue';
 	import { usePresetsStore } from '@/stores/presets';
 	import {
+		IconAlertTriangle,
 		IconBox,
 		IconBulb,
 		IconChevronDown,
@@ -29,7 +30,7 @@
 		IconSun,
 		IconWorld
 	} from '@tabler/icons-vue';
-	import { maskLinks } from '@/layers/masks';
+	import { maskLinks, unwrittenMasks } from '@/layers/masks';
 	import { useItemActions } from '@/ui/itemActions';
 	import { LIGHT_DEFS } from '@/core/lights';
 	import { vTip, type Tip } from '@/ui/tooltip';
@@ -172,6 +173,14 @@
 		}
 		return m;
 	});
+
+	/** Masks each row reads before anything writes them (unwrittenMasks), and its warning's tooltip. */
+	const unwritten = computed(() => unwrittenMasks(store.project));
+	function emptyTip(masks: string[]): string {
+		const names = masks.map((m) => `“${m}”`);
+		const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+		return `Reads ${list}, which nothing above it writes yet: ${names.length > 1 ? 'they are' : 'it is'} empty here`;
+	}
 
 	const LANE_STEP = 7;
 	/** Trunks: one per (writer row, mask), with its readers' rows and its lane (0 = innermost). */
@@ -628,6 +637,14 @@
 							class="dia"
 							role="img"
 							aria-label="Changed in this variant" />
+						<span
+							v-if="unwritten.get(`group:${u.group.id}`)"
+							v-tip:right="emptyTip(unwritten.get(`group:${u.group.id}`)!)"
+							class="warn"
+							role="img"
+							aria-label="Its limit reads an empty mask">
+							<IconAlertTriangle :size="13" />
+						</span>
 						<span v-tip:right="`${u.layers.length} layers`" class="meta cf-mono">{{ u.layers.length }}</span>
 						<span class="cells">
 							<span
@@ -702,6 +719,14 @@
 							class="dia"
 							role="img"
 							aria-label="Changed in this variant" />
+						<span
+							v-if="unwritten.get(layer.id)"
+							v-tip:right="emptyTip(unwritten.get(layer.id)!)"
+							class="warn"
+							role="img"
+							aria-label="Reads an empty mask">
+							<IconAlertTriangle :size="13" />
+						</span>
 						<span v-if="errors[layer.id]" v-tip:right="errors[layer.id]" class="err">!</span>
 						<span class="cells">
 							<template v-for="ch in CHANNELS" :key="ch">
@@ -1178,6 +1203,11 @@
 		color: var(--text-hi);
 		background: var(--hairline);
 		box-shadow: inset 0 0 0 1px var(--line);
+	}
+	.warn {
+		flex: none;
+		display: flex;
+		color: var(--e300);
 	}
 	.err {
 		width: 14px;

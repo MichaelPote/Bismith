@@ -76,8 +76,6 @@
         "facet_break": 0.6,
         "joint_var": 0.5,
         "joint_depth": 0.6,
-        "fractures": 0,
-        "frac_angle": 70,
         "px_scale": 1,
         "rnd_mode": "block",
         "seed": 1,

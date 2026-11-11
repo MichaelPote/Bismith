@@ -253,6 +253,37 @@ export function maskLinks(p: Project): MaskLink[] {
 	return links;
 }
 
+/**
+ * The masks read where nothing has written them yet, so they are empty there (the outliner's warning): per layer, its
+ * Limit to and its source mask (Bevel, Etch, Mask area…); per group with a limit (`group:<id>`, read at its first
+ * member), the group's. Disabled layers write nothing.
+ */
+export function unwrittenMasks(p: Project): Map<string, string[]> {
+	const out = new Map<string, string[]>();
+	const check = (key: string, at: string, names: string[]) => {
+		const empty = [...new Set(names)].filter((m) => !writesHeld(p, at, m).length);
+		if (empty.length) out.set(key, empty);
+	};
+	for (const l of p.layers) {
+		const def = getLayerDef(l.type);
+		if (!def) continue;
+		const names = (layerLimit(l.params)?.terms ?? []).map((t) => t.mask);
+		const src = def.maskSource?.(l.params);
+		if (src) names.push(src);
+		check(l.id, l.id, names);
+	}
+	for (const g of p.groups ?? []) {
+		const first = p.layers.find((l) => g.members.includes(l.id));
+		if (first && g.limit?.terms.length)
+			check(
+				`group:${g.id}`,
+				first.id,
+				g.limit.terms.map((t) => t.mask)
+			);
+	}
+	return out;
+}
+
 /** The chain as a short expression, "Panel − Vent" (the last three writers at most). */
 export function maskChainLabel(chain: MaskWriter[]): string {
 	const terms = chain.map((w, k) => (k === 0 ? w.name : `${OP_SYMBOL[w.op] ?? '+'} ${w.name}`));

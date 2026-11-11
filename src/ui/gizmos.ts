@@ -187,16 +187,46 @@ export function polygonCentroid(p: Pt[]): Pt {
 	return [xs.reduce((a, b) => a + b, 0) / p.length, ys.reduce((a, b) => a + b, 0) / p.length];
 }
 
+/** The lines a vertex can be held to (Ctrl): verticals at `x`, horizontals at `y` (texture px). */
+export interface SnapLines {
+	x: number[];
+	y: number[];
+}
+
 /**
- * Where a dragged vertex lands, with the pointer at `at` and the vertex taken at `from` (texture px). It snaps to half
- * pixels, or not at all when `free`, or to every tenth pixel when `tens`; `axis` keeps it on the horizontal or vertical
- * through `from`, whichever the pointer has gone further along.
+ * Where a dragged or placed vertex lands with the pointer at `at` (texture px), and the snap lines it lies on. It snaps
+ * to half pixels, or not at all when `free`, or to every tenth pixel when `tens`. With `lines` (the verticals and
+ * horizontals through its neighbours) it goes onto the nearest of them, its other coordinate still snapped — and onto
+ * the crossing with a line across that one when the pointer is within `reach` of it too. Distances are in screen px:
+ * `scale` is screen px per texture px on each axis.
  */
-export function vertexTo(at: Pt, from: Pt, o: { free?: boolean; tens?: boolean; axis?: boolean } = {}): Pt {
+export function snapVertex(
+	at: Pt,
+	o: { free?: boolean; tens?: boolean; lines?: SnapLines; scale?: Pt; reach?: number } = {}
+): { p: Pt; on: { x?: number; y?: number } } {
 	const step = o.tens ? 10 : o.free ? 0 : 0.5;
-	const [x, y] = step ? [round(at[0], step), round(at[1], step)] : at;
-	if (!o.axis) return [x, y];
-	return Math.abs(at[0] - from[0]) >= Math.abs(at[1] - from[1]) ? [x, from[1]] : [from[0], y];
+	const p: Pt = step ? [round(at[0], step), round(at[1], step)] : [at[0], at[1]];
+	const on: { x?: number; y?: number } = {};
+	if (!o.lines || (!o.lines.x.length && !o.lines.y.length)) return { p, on };
+	const [sx, sy] = o.scale ?? [1, 1];
+	const nearest = (vals: number[], v: number, s: number) =>
+		vals.reduce<{ v?: number; d: number }>(
+			(b, c) => (Math.abs(v - c) * s < b.d ? { v: c, d: Math.abs(v - c) * s } : b),
+			{
+				d: Infinity
+			}
+		);
+	const nx = nearest(o.lines.x, at[0], sx);
+	const ny = nearest(o.lines.y, at[1], sy);
+	const reach = o.reach ?? 0;
+	if (nx.d <= ny.d) {
+		on.x = p[0] = nx.v!;
+		if (ny.v !== undefined && ny.d <= reach) on.y = p[1] = ny.v;
+	} else {
+		on.y = p[1] = ny.v!;
+		if (nx.v !== undefined && nx.d <= reach) on.x = p[0] = nx.v;
+	}
+	return { p, on };
 }
 
 /** The selected layer's gizmo, or null when its type has none. */

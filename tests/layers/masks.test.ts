@@ -24,7 +24,8 @@ import {
 	masksAbove,
 	planMasks,
 	sanitizeLimit,
-	solidSources
+	solidSources,
+	unwrittenMasks
 } from '@/layers/masks';
 import { getLayerDef } from '@/layers/registry';
 
@@ -511,5 +512,46 @@ describe('mask colours', () => {
 		const p = project([]);
 		expect(maskHue(p, 'Moss')).toBe(maskHue(project([]), 'Moss'));
 		expect(MASK_HUES).toContain(maskHue(p, 'Moss'));
+	});
+});
+
+describe('masks read before anything writes them', () => {
+	const writer = (target: string) => {
+		const w = createLayer('noise', {}, 'Writer');
+		w.params.mk_target = target;
+		return w;
+	};
+	const reader = () => {
+		const r = createLayer('noise', {}, 'Reader');
+		r.params.lim_1 = 'Rust';
+		return r;
+	};
+
+	it('flags a Limit to whose mask nothing above writes, or only a disabled or later layer', () => {
+		const r = reader();
+		expect(unwrittenMasks(project([r])).get(r.id)).toEqual(['Rust']);
+		expect(unwrittenMasks(project([writer('Rust'), r])).has(r.id)).toBe(false);
+		expect(unwrittenMasks(project([r, writer('Rust')])).get(r.id)).toEqual(['Rust']);
+		const off = writer('Rust');
+		off.enabled = false;
+		expect(unwrittenMasks(project([off, r])).get(r.id)).toEqual(['Rust']);
+	});
+
+	it('flags a source mask (Mask area › Features) and a group’s limit', () => {
+		const area = createLayer('surfacemask', { select: 'features', src_mask: 'Plates' }, 'Area');
+		const p = project([area]);
+		expect(unwrittenMasks(p).get(area.id)).toEqual(['Plates']);
+		const member = createLayer('noise', {}, 'Member');
+		const g = project([member]);
+		g.groups = [
+			{
+				id: 'g1',
+				name: 'G',
+				members: [member.id],
+				enabled: true,
+				limit: { terms: [{ mask: 'Wet', op: 'and' }], outside: false }
+			}
+		];
+		expect(unwrittenMasks(g).get('group:g1')).toEqual(['Wet']);
 	});
 });

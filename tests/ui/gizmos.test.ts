@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Layer, Project } from '@/core/project';
-import { endTo, layerGizmo, moveTo, polygonCentroid, turnTo, vertexTo, type Pt } from '@/ui/gizmos';
+import { endTo, layerGizmo, moveTo, polygonCentroid, snapVertex, turnTo, type Pt } from '@/ui/gizmos';
 
 const project = (tileable = false) => ({ width: 256, height: 128, tileable }) as Project;
 const layer = (type: string, params: Record<string, number | string | boolean>): Layer => ({
@@ -44,21 +44,29 @@ describe('gizmos', () => {
 		near(polygonCentroid([...square].reverse()), [20, 20]);
 	});
 
-	it('lands a dragged vertex on half pixels, free with Alt, on every tenth pixel with Shift', () => {
-		const from: Pt = [40, 40];
-		expect(vertexTo([70.3, 46.8], from)).toEqual([70.5, 47]);
-		expect(vertexTo([70.3, 46.8], from, { free: true })).toEqual([70.3, 46.8]);
-		expect(vertexTo([74.9, 45.1], from, { tens: true })).toEqual([70, 50]);
-		expect(vertexTo([74.9, 45.1], from, { tens: true, free: true })).toEqual([70, 50]);
+	it('lands a vertex on half pixels, free with Alt, on every tenth pixel with Shift', () => {
+		const at = (q: Pt, o = {}) => snapVertex(q, o).p;
+		expect(at([70.3, 46.8])).toEqual([70.5, 47]);
+		expect(at([70.3, 46.8], { free: true })).toEqual([70.3, 46.8]);
+		expect(at([74.9, 45.1], { tens: true })).toEqual([70, 50]);
+		expect(at([74.9, 45.1], { tens: true, free: true })).toEqual([70, 50]);
 	});
 
-	it('keeps a dragged vertex to the axis the pointer has gone further along', () => {
-		const from: Pt = [41.5, 40.25];
-		expect(vertexTo([70.3, 46.8], from, { axis: true })).toEqual([70.5, 40.25]);
-		expect(vertexTo([47, 90.2], from, { axis: true })).toEqual([41.5, 90]);
-		// With Shift, the free coordinate steps by ten and the held one stays put, on or off the ten-pixel grid.
-		expect(vertexTo([74.9, 46], from, { axis: true, tens: true })).toEqual([70, 40.25]);
-		expect(vertexTo([47, 88], from, { axis: true, tens: true })).toEqual([41.5, 90]);
+	it('holds a vertex to the nearest line through its neighbours, and their crossing when near it too', () => {
+		// Neighbours at (41.5, 40.25) and (100, 90).
+		const lines = { x: [41.5, 100], y: [40.25, 90] };
+		const at = (q: Pt, o = {}) => snapVertex(q, { lines, ...o });
+		expect(at([70.3, 46.8]).p).toEqual([70.5, 40.25]);
+		expect(at([70.3, 46.8]).on).toEqual({ y: 40.25 });
+		expect(at([97, 60.2]).p).toEqual([100, 60]);
+		// The other coordinate keeps its grid: steps of ten along the line.
+		expect(at([74.9, 46], { tens: true }).p).toEqual([70, 40.25]);
+		// Within reach of a line across: the corner.
+		expect(at([97, 87], { reach: 4 })).toEqual({ p: [100, 90], on: { x: 100, y: 90 } });
+		expect(at([97, 80], { reach: 4 }).p).toEqual([100, 80]);
+		// Reach is in screen px: zoomed in 4×, 3 texture px is 12 screen px.
+		expect(at([97, 87], { reach: 8, scale: [4, 4] }).p).toEqual([100, 87]);
+		expect(snapVertex([70.3, 46.8], { lines: { x: [], y: [] } }).p).toEqual([70.5, 47]);
 	});
 
 	it('falls back on the vertices’ mean for a polygon with no area or that crosses itself', () => {
