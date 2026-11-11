@@ -130,6 +130,8 @@
 	// ---------------------------------------------------------------- texel probe (throttled)
 	const probe = ref<{ h: number; r: number; hex: string; e: number; sdf: number } | null>(null);
 	let probeAt = 0;
+	let probing = false;
+	let probeAgain = false;
 
 	function probeCursor(): void {
 		const c = cursor.value;
@@ -139,20 +141,34 @@
 			return;
 		}
 		if (now - probeAt < 60) return;
+		// One read in flight at a time (asynchronous, so hovering never stalls the GPU); a move meanwhile probes again after.
+		if (probing) {
+			probeAgain = true;
+			return;
+		}
 		probeAt = now;
-		const k = engine.supersample;
-		const v = engine.material.probe(c.x * k + (k >> 1), c.y * k + (k >> 1));
-		// The colour shown, as the eyedropper takes it: the final image, or the albedo in Diffuse.
-		const rgb = engine.pickColour(c.x, c.y);
-		if (!v || !rgb) return;
-		probe.value = {
-			h: v.surface[0],
-			r: v.surface[1],
-			hex: rgbToHex(rgb),
-			e: Math.max(v.emissive[0], v.emissive[1], v.emissive[2]),
-			// The viewed mask's distance here (FR8.23; Shape unless the Masks view picks another).
-			sdf: engine.material.probeMask(editor.viewMask, c.x * k + (k >> 1), c.y * k + (k >> 1))?.[0] ?? 1e4
-		};
+		probing = true;
+		// The viewed mask's distance comes with it (FR8.23; Shape unless the Masks view picks another).
+		engine
+			.probeTexel(c.x, c.y, editor.viewMask)
+			.then((v) => {
+				if (!v?.colour || !cursor.value) return;
+				probe.value = {
+					h: v.surface[0],
+					r: v.surface[1],
+					// The colour shown, as the eyedropper takes it: the final image, or the albedo in Diffuse.
+					hex: rgbToHex(v.colour),
+					e: Math.max(v.emissive[0], v.emissive[1], v.emissive[2]),
+					sdf: v.mask
+				};
+			})
+			.finally(() => {
+				probing = false;
+				if (probeAgain) {
+					probeAgain = false;
+					probeCursor();
+				}
+			});
 	}
 
 	// ---------------------------------------------------------------- eyedropper

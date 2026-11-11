@@ -269,7 +269,16 @@ export class MaterialPipeline {
 	private clearMat: THREE.RawShaderMaterial;
 	private normalMat: THREE.RawShaderMaterial;
 	private reduceMat: THREE.RawShaderMaterial;
+	/**
+	 * The height range (world px), for the stats readout and the Height view's shading: read back asynchronously after
+	 * each evaluation (onHeightStats fires when it changes), so it can lag an edit by a frame. The tracer reads the exact
+	 * range on the GPU instead (heightStatsTexture).
+	 */
 	heightStats: HeightStats = { min: 0, max: 0 };
+	onHeightStats: (() => void) | null = null;
+	/** The height range on the GPU after each evaluation: one texel, r = min, g = max (world px). */
+	private hStats: THREE.WebGLRenderTarget | null = null;
+	private statsRead = 0;
 	/** Last compile/runtime error per layer id (shown in the UI). */
 	errors = new Map<string, string>();
 	/** Called with the layer id before each layer runs (lets the engine attribute shader errors). */
@@ -932,17 +941,26 @@ ${fetches}
 		ctx.runMRT(mat);
 	}
 
-	/** Min/max world height via an 8×8-block GPU reduction, then a tiny readback. */
+	/** The height range on the GPU (one texel: r = min, g = max, world px), as the last evaluation left it. */
+	get heightStatsTexture(): THREE.Texture | null {
+		return this.hStats?.texture ?? null;
+	}
+
+	/**
+	 * Min/max world height via 8×8-block GPU reductions down to one texel (heightStatsTexture), then read back
+	 * asynchronously for heightStats: a synchronous read here waited, on every edit, for every traced frame queued.
+	 */
 	private updateHeightStats(): void {
 		let src: THREE.Texture = this.normal!.texture;
 		let w = this.width;
 		let h = this.height;
 		let first = true;
 		let level = 0;
-		while (first || w > 8 || h > 8) {
+		while (first || w > 1 || h > 1) {
 			const nw = Math.max(1, Math.ceil(w / 8));
 			const nh = Math.max(1, Math.ceil(h / 8));
-			const t = this.scratch(`~reduce${level}`, nw, nh);
+			const t =
+				nw === 1 && nh === 1 ? (this.hStats ??= this.gpu.target(1, 1)) : this.scratch(`~reduce${level}`, nw, nh);
 			const u = this.reduceMat.uniforms;
 			u.tSrc.value = src;
 			(u.uSrcSize.value as THREE.Vector2).set(w, h);
@@ -954,15 +972,20 @@ ${fetches}
 			first = false;
 			level++;
 		}
-		const data = this.gpu.readTexture(src, w, h);
-		let min = Infinity;
-		let max = -Infinity;
-		for (let i = 0; i < data.length; i += 4) {
-			min = Math.min(min, data[i]);
-			max = Math.max(max, data[i + 1]);
-		}
-		if (!Number.isFinite(min) || !Number.isFinite(max)) min = max = 0;
-		this.heightStats = { min, max };
+		const id = ++this.statsRead;
+		const buf = new Float32Array(4);
+		this.gpu.renderer
+			.readRenderTargetPixelsAsync(this.hStats!, 0, 0, 1, 1, buf)
+			.then(() => {
+				// (Only the latest evaluation's: an older read can land after a newer one.)
+				if (id !== this.statsRead) return;
+				let [min, max] = [buf[0], buf[1]];
+				if (!Number.isFinite(min) || !Number.isFinite(max)) min = max = 0;
+				if (min === this.heightStats.min && max === this.heightStats.max) return;
+				this.heightStats = { min, max };
+				this.onHeightStats?.();
+			})
+			.catch(() => {});
 	}
 
 	/** Read the material at one texel (x, y in user space: y down). */
@@ -978,18 +1001,9 @@ ${fetches}
 		return { albedo: read(0), surface: read(1), emissive: read(2) };
 	}
 
-	/** A mask's texel (distance, feature random, feature flag) as the stack left it, at x, y (user space: y down). */
-	probeMask(name: string, x: number, y: number): Float32Array | null {
-		const r = this.maskPlan?.final.get(name);
-		if (!r || x < 0 || y < 0 || x >= this.width || y >= this.height) return null;
-		if (r.slot < 0) return Float32Array.of(MASK_EMPTY, 0, 0, 0);
-		const buf = new Float32Array(4);
-		this.gpu.renderer.readRenderTargetPixels(this.slots[r.slot], x, this.height - 1 - y, 1, 1, buf);
-		return buf;
-	}
-
 	dispose(): void {
 		this.state?.dispose();
+		this.hStats?.dispose();
 		this.normal?.dispose();
 		for (const m of this.materials.values()) m.dispose();
 		this.updatedFor.clear();

@@ -23,8 +23,8 @@ uniform sampler2D tNormal;   // xyz normal, w = world height px (linear filtered
 uniform sampler2D tAccum;
 uniform float uN;            // samples already accumulated (also the frame's random stream)
 uniform int uSteps;          // height-field march steps
-uniform float uMaxH;
-uniform float uMinH;
+uniform sampler2D tHStats;   // the height range: one texel, r = min, g = max (MaterialPipeline.heightStatsTexture)
+float uMaxH, uMinH;          // (set from it at the start of main)
 uniform int uBounces;
 uniform float uF0;
 uniform float uSpecTint;
@@ -420,6 +420,9 @@ vec3 clampLum(vec3 c) {
 }
 
 void main() {
+  vec2 hRange = texelFetch(tHStats, ivec2(0), 0).xy;
+  uMinH = hRange.x;
+  uMaxH = hRange.y + 0.01;
   ivec2 ip = ivec2(gl_FragCoord.xy);
   rngState = pcg3(uvec3(uint(ip.x), uint(ip.y), uint(uN) * 9781u + 1u));
 
@@ -516,8 +519,7 @@ export class PathTracer {
 			tAccum: { value: null },
 			uN: { value: 0 },
 			uSteps: { value: MARCH_STEPS },
-			uMaxH: { value: 0 },
-			uMinH: { value: 0 },
+			tHStats: { value: null },
 			uBounces: { value: 2 },
 			uF0: { value: 0.04 },
 			uSpecTint: { value: 0 },
@@ -580,8 +582,12 @@ export class PathTracer {
 	}
 
 	/** Ambient-occlusion map (R), recomputed when the height (a material evaluation), its radius or the tiling change. */
-	get aoTexture(): THREE.Texture | null {
-		return this.ao?.texture ?? null;
+	/** The ambient-occlusion map of the material as it is now (made when first wanted after an evaluation). */
+	aoFor(project: Project, material: MaterialPipeline): THREE.Texture | null {
+		const nt = material.normalTex;
+		if (!nt) return null;
+		this.computeAO(project, nt, material.evaluations, project.render.aoRadius ?? 4);
+		return this.ao!.texture;
 	}
 
 	/** Horizon-based AO from the world height (normal texture w): 16 directions × 8 steps within the radius. */
@@ -677,16 +683,14 @@ export class PathTracer {
 		u.tNormal.value = nt;
 		const ss = opts.ss ?? 1;
 		u.uSteps.value = MARCH_STEPS * ss;
-		u.uMaxH.value = material.heightStats.max + 0.01;
-		u.uMinH.value = material.heightStats.min;
+		u.tHStats.value = material.heightStatsTexture;
 		const r = project.render;
 		u.uBounces.value = Math.min(4, Math.max(0, opts.bounces ?? r.bounces));
 		u.uF0.value = 0.08 * r.specular;
 		u.uSpecTint.value = r.specularTint ?? 1;
 		u.uAO.value = r.ao ?? 0;
-		// Always computed (cheap) so the AO channel can be viewed and exported even at strength 0.
-		this.computeAO(project, nt, material.evaluations, r.aoRadius ?? 4);
-		u.tAO.value = this.ao!.texture;
+		// Only when the trace uses it (512 fetches a pixel, after every edit); the AO view and export ask for it (aoFor).
+		u.tAO.value = (r.ao ?? 0) > 0 ? this.aoFor(project, material) : null;
 		u.uJitter.value = r.jitter;
 		u.uClamp.value = r.clamp;
 		u.uShadows.value = r.shadows !== false;

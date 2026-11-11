@@ -154,10 +154,10 @@ function start(): void {
 		schedule();
 	}
 
+	// (After edits settle — the store's revision — rather than a deep watch over the project on every change.)
 	watch(
-		() => store.project,
-		() => schedule(),
-		{ deep: true }
+		() => store.revision,
+		() => schedule()
 	);
 	watch(
 		() => stage(editor.stats),

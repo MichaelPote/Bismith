@@ -80,6 +80,11 @@ export const useProjectStore = defineStore('project', () => {
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	/** Bumped when another project is opened or started (load / new), so views can refit. Undo / redo keep the view. */
 	const generation = ref(0);
+	/**
+	 * Bumped whenever the project's committed state changes (an edit once it pauses or its drag ends, undo, redo, a
+	 * load): for views that refresh after edits settle, instead of a deep watch that walks the project on every change.
+	 */
+	const revision = ref(0);
 
 	function commitNow(): void {
 		if (timer) {
@@ -93,6 +98,7 @@ export const useProjectStore = defineStore('project', () => {
 		past.value = [...past.value, current].slice(-HISTORY_LIMIT);
 		future.value = [];
 		current = s;
+		revision.value++;
 		saveAutosave(s);
 	}
 
@@ -134,6 +140,7 @@ export const useProjectStore = defineStore('project', () => {
 		suppress = true;
 		project.value = JSON.parse(json) as Project;
 		current = json;
+		revision.value++;
 		saveAutosave(json);
 		// Let the deep watcher see the change while suppressed.
 		queueMicrotask(() => (suppress = false));
@@ -586,6 +593,7 @@ export const useProjectStore = defineStore('project', () => {
 		project,
 		firstRun,
 		generation,
+		revision,
 		canUndo,
 		canRedo,
 		undo,

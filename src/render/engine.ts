@@ -30,6 +30,41 @@ void main() {
 }
 `;
 
+/**
+ * The hover probe's gather pass: texel 0 albedo, 1 surface (height, roughness, …), 2 emissive (material texel uM), 3 the
+ * final image (texel uF), 4 the viewed mask (uM; distance 1e4 when it has none) — one 5 × 1 read instead of five.
+ */
+const PROBE = /* glsl */ `
+uniform sampler2D tA;
+uniform sampler2D tS;
+uniform sampler2D tE;
+uniform sampler2D tF;
+uniform sampler2D tM;
+uniform ivec2 uM;
+uniform ivec2 uF;
+uniform bool uHasF;
+uniform bool uHasM;
+out vec4 oColor;
+void main() {
+  int i = int(gl_FragCoord.x);
+  vec4 none = vec4(1e4, 0.0, 0.0, 0.0);
+  oColor = i == 0 ? texelFetch(tA, uM, 0) : i == 1 ? texelFetch(tS, uM, 0) : i == 2 ? texelFetch(tE, uM, 0)
+         : i == 3 ? (uHasF ? texelFetch(tF, uF, 0) : none) : (uHasM ? texelFetch(tM, uM, 0) : none);
+}
+`;
+
+/** What the viewport shows at one texel (Engine.probeTexel). */
+export interface TexelProbe {
+	albedo: Float32Array;
+	/** Height, roughness, specular, metalness. */
+	surface: Float32Array;
+	emissive: Float32Array;
+	/** The colour shown, sRGB 0..1, as the eyedropper takes it: the final image, or the albedo in Diffuse. */
+	colour: [number, number, number] | null;
+	/** The viewed mask's distance here (1e4 where it has none). */
+	mask: number;
+}
+
 export interface EngineStats {
 	samples: number;
 	maxSamples: number;
@@ -120,10 +155,14 @@ export class Engine {
 	/** Supersampling factor and the k× project the material stack and tracer render. */
 	private ss = 1;
 	private inner: Project | null = null;
+	/** The project `inner` was scaled from (the viewport passes the store's own, edited in place). */
+	private innerOf: Project | null = null;
 	private down: THREE.WebGLRenderTarget | null = null;
 	/** A material map box-filtered to the texture size, for readback. */
 	private mapDown: THREE.WebGLRenderTarget | null = null;
 	private downMat: THREE.RawShaderMaterial | null = null;
+	private probeTarget: THREE.WebGLRenderTarget | null = null;
+	private probeMat: THREE.RawShaderMaterial | null = null;
 	private traceKey = '';
 	private postKey = '';
 	private materialDirty = true;
@@ -169,6 +208,12 @@ export class Engine {
 			console.error('[bismith] shader error in', this.currentShaderOwner, log);
 		};
 		this.material = new MaterialPipeline(this.gpu);
+		// The height range arrives a frame after its evaluation (read back asynchronously): redraw the Height view and the
+		// readout with it.
+		this.material.onHeightStats = () => {
+			this.displayDirty = true;
+			this.kick();
+		};
 		this.material.onBeforeLayer = (id) => {
 			this.currentShaderOwner = id;
 		};
@@ -190,26 +235,31 @@ export class Engine {
 		this.project = project;
 		// Supersampling: the material stack and the tracer see the k× project; post runs at the real size.
 		this.ss = supersampleFactor(project);
-		const inner = scaleProject(project, this.ss);
-		this.inner = inner;
 		const upTo = this.view.previewUpTo;
+		// (The keys are taken from the project as it is, with the factor: the k× copy follows from both, so it is built —
+		// a deep copy — only when one of them changed, not on every edit.)
 		// Groups: their members, on/off and Limit to (planMasks reads it) change the stack.
 		const mKey = JSON.stringify([
-			inner.width,
-			inner.height,
-			inner.tileable,
-			inner.heightDepth,
-			inner.seed,
-			inner.base,
-			inner.layers,
+			project.width,
+			project.height,
+			this.ss,
+			project.tileable,
+			project.heightDepth,
+			project.seed,
+			project.base,
+			project.layers,
 			upTo,
-			inner.groups?.map((g) => [g.id, g.members, g.enabled !== false, g.limit ?? null])
+			project.groups?.map((g) => [g.id, g.members, g.enabled !== false, g.limit ?? null])
 		]);
 		// Sample counts and export settings don't change the image: raising Max samples continues the accumulation.
-		const { maxSamples, samplesPerFrame, exportSamples, exportSupersample, ...look } = inner.render;
-		const tKey = JSON.stringify([inner.lighting, look, this.ss]);
+		const { maxSamples, samplesPerFrame, exportSamples, exportSupersample, supersample, ...look } = project.render;
+		const tKey = JSON.stringify([project.lighting, look, this.ss]);
 		const pKey = JSON.stringify(project.post);
 		const first = this.materialKey === '';
+		if (this.ss <= 1 || this.innerOf !== project || mKey !== this.materialKey || tKey !== this.traceKey) {
+			this.inner = scaleProject(project, this.ss);
+			this.innerOf = project;
+		}
 		if (mKey !== this.materialKey) {
 			this.materialKey = mKey;
 			this.materialDirty = true;
@@ -409,6 +459,12 @@ export class Engine {
 		for (const [k, v] of this.material.errors) errors[k] = v;
 		for (const [k, v] of this.post.errors) errors[k] = v;
 		for (const [k, v] of this.shaderErrors) errors[k] = v;
+		// (The same object while nothing changed: the stats go out every frame, and a new errors object re-renders
+		// everything that shows them — the Outliner, eight times a second while tracing.)
+		const prev = this.stats.errors;
+		const same =
+			Object.keys(errors).length === Object.keys(prev).length &&
+			Object.entries(errors).every(([k, v]) => prev[k] === v);
 		this.stats = {
 			...this.stats,
 			samples: this.tracer.samples,
@@ -417,7 +473,7 @@ export class Engine {
 			draft: this.draft,
 			heightMin: this.material.heightStats.min / this.ss,
 			heightMax: this.material.heightStats.max / this.ss,
-			errors
+			errors: same ? prev : errors
 		};
 		this.onStats?.(this.stats);
 	}
@@ -439,7 +495,7 @@ export class Engine {
 			case 'specular':
 				return this.material.emissive;
 			case 'ao':
-				return this.tracer.aoTexture;
+				return this.tracer.aoFor(this.inner ?? this.project!, this.material);
 			case 'masks':
 				return this.material.maskTexture(this.view.mask);
 		}
@@ -633,6 +689,61 @@ export class Engine {
 	}
 
 	/**
+	 * Everything the viewport's readout shows at texel (x, y) of the texture (user space: y down) — the material there,
+	 * the colour shown and `mask`'s distance — gathered into one small target and read back asynchronously, so hovering
+	 * never stalls the GPU (a synchronous read waits for every traced frame queued). The final image is as the last post
+	 * left it: in a material view it can lag the trace by a few samples. Null outside the texture or before the first
+	 * evaluation.
+	 */
+	async probeTexel(x: number, y: number, mask: string): Promise<TexelProbe | null> {
+		const p = this.project;
+		const { albedo, surface, emissive } = this.material;
+		if (!p || !albedo || !surface || !emissive || x < 0 || y < 0 || x >= p.width || y >= p.height) return null;
+		const k = this.ss;
+		const { height } = this.material.size;
+		const final = this.post.output;
+		const maskTex = this.material.maskTexture(mask);
+		this.probeTarget ??= this.gpu.target(5, 1);
+		this.probeMat ??= this.gpu.material(PROBE, {
+			tA: { value: null },
+			tS: { value: null },
+			tE: { value: null },
+			tF: { value: null },
+			tM: { value: null },
+			uM: { value: new THREE.Vector2() },
+			uF: { value: new THREE.Vector2() },
+			uHasF: { value: false },
+			uHasM: { value: false }
+		});
+		const u = this.probeMat.uniforms;
+		u.tA.value = albedo;
+		u.tS.value = surface;
+		u.tE.value = emissive;
+		u.tF.value = final ?? albedo;
+		u.tM.value = maskTex ?? albedo;
+		u.uM.value.set(x * k + (k >> 1), height - 1 - (y * k + (k >> 1)));
+		u.uF.value.set(x, p.height - 1 - y);
+		u.uHasF.value = !!final;
+		u.uHasM.value = !!maskTex;
+		this.gpu.run(this.probeMat, this.probeTarget);
+		const buf = new Float32Array(20);
+		await this.gpu.renderer.readRenderTargetPixelsAsync(this.probeTarget, 0, 0, 5, 1, buf);
+		const texel = (i: number) => buf.slice(i * 4, i * 4 + 4);
+		const shown = this.view.channel === 'diffuse' ? texel(0) : final ? texel(3) : null;
+		return {
+			albedo: texel(0),
+			surface: texel(1),
+			emissive: texel(2),
+			colour: shown && [
+				linearToSrgb1(clamp01(shown[0])),
+				linearToSrgb1(clamp01(shown[1])),
+				linearToSrgb1(clamp01(shown[2]))
+			],
+			mask: buf[16]
+		};
+	}
+
+	/**
 	 * The final post-processed image where it is, on the GPU (linear, display-referred, straight alpha; the project's
 	 * width × height texels, rows bottom-up), until the next render: for reading it without a round trip through the CPU
 	 * (the tiling analysis). Null before the first render.
@@ -660,7 +771,7 @@ export class Engine {
 	/** Read the ambient-occlusion map (R = AO, 1 = open). */
 	readAO(): ImageData32 {
 		this.prepare();
-		return this.readAtTextureSize(this.tracer.aoTexture!);
+		return this.readAtTextureSize(this.tracer.aoFor(this.inner ?? this.project!, this.material)!);
 	}
 
 	/** Supersampling factor of the current project (material maps are this many texels per texture pixel). */
@@ -694,6 +805,8 @@ export class Engine {
 		this.down?.dispose();
 		this.mapDown?.dispose();
 		this.downMat?.dispose();
+		this.probeTarget?.dispose();
+		this.probeMat?.dispose();
 		this.post.dispose();
 		this.display.dispose();
 		this.gpu.dispose();

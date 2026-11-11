@@ -60,14 +60,11 @@
 			rendering = false;
 		}
 	}
-	watch(
-		[view, () => store.project],
-		() => {
-			if (mapsTimer) clearTimeout(mapsTimer);
-			mapsTimer = setTimeout(() => void renderMaps(), 600);
-		},
-		{ deep: true }
-	);
+	// (After edits settle — the store's revision — rather than a deep watch over the project on every change.)
+	watch([view, () => store.revision], () => {
+		if (mapsTimer) clearTimeout(mapsTimer);
+		mapsTimer = setTimeout(() => void renderMaps(), 600);
+	});
 	const image = (id: string) => (view.value === 'final' ? thumbs.url(id) : maps.value.get(`${id}:${view.value}`)?.url);
 
 	// ---------------------------------------------------------------- selection

@@ -1,7 +1,18 @@
 <script setup lang="ts">
 	// Reference matching (docs/features/fr6.3-optimizer.md): load a reference, then let the evolution strategy
 	// tune the unlocked layers toward it while you watch the loss fall.
-	import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, toRaw, watch } from 'vue';
+	import {
+		computed,
+		onActivated,
+		onBeforeUnmount,
+		onDeactivated,
+		onMounted,
+		ref,
+		shallowRef,
+		toRaw,
+		watch,
+		type WatchStopHandle
+	} from 'vue';
 	import type { Project } from '@/core/project';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
@@ -870,27 +881,31 @@
 
 	// Edits show against the reference as you make them (the outliner and properties stay live beside Match), unless a
 	// run, an overlay or another job holds the engine. A run optimises its own copy: Resume and Apply best ask about edits.
+	// Watched only while the workspace is shown (the deep watch walks the whole project on every edit, and the workspace
+	// is kept alive behind Create).
 	let active = false;
 	let viewTimer: ReturnType<typeof setTimeout> | null = null;
 	let runEditNoted = false;
-	watch(
-		() => store.project,
-		() => {
-			if (!active || !reference.value) return;
-			if (running.value) {
-				if (!runEditNoted)
-					editor.notify("Edits aren't part of the running optimisation — pause to see them against the reference");
-				runEditNoted = true;
-				return;
-			}
-			viewTimer ??= setTimeout(() => {
-				viewTimer = null;
-				if (active && !running.value && !busy.value && !fitting.value && !overlay.value && snapshot() !== seen)
-					void view();
-			}, 120);
-		},
-		{ deep: true }
-	);
+	let unwatch: WatchStopHandle | null = null;
+	const watchEdits = () =>
+		watch(
+			() => store.project,
+			() => {
+				if (!active || !reference.value) return;
+				if (running.value) {
+					if (!runEditNoted)
+						editor.notify("Edits aren't part of the running optimisation — pause to see them against the reference");
+					runEditNoted = true;
+					return;
+				}
+				viewTimer ??= setTimeout(() => {
+					viewTimer = null;
+					if (active && !running.value && !busy.value && !fitting.value && !overlay.value && snapshot() !== seen)
+						void view();
+				}, 120);
+			},
+			{ deep: true }
+		);
 
 	onMounted(() => {
 		window.addEventListener('bismith:reference', onDropEvent);
@@ -911,10 +926,13 @@
 	onDeactivated(() => {
 		active = false;
 		abort = true;
+		unwatch?.();
+		unwatch = null;
 		if (!viewing) freePaneMatcher();
 	});
 	onActivated(() => {
 		active = true;
+		unwatch ??= watchEdits();
 		if (!reference.value || running.value) return;
 		if (snapshot() !== seen) void view();
 	});
