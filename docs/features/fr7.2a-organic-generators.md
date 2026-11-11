@@ -33,7 +33,8 @@ crust.
   (nearest board box of a 3×3 neighbourhood, gaps on the left / top so whole-px sizes are crisp). Grain per
   board: stretched value-noise streaks; elongated growth rings around a per-board heart (periodic along the
   board so full-length boards tile) with low-frequency wobble; knots that bend the grain like potential flow
-  around a cylinder, with dark concentric rings inside.
+  around a cylinder, with dark concentric rings inside. **Carved** (a shader variant, `WD_CARVE`): the face carved
+  into rolling ridges along the grain that the rings cut through, so the grain swirls in 3D (see below).
 - **Scales** — rows of discs (alternate rows offset half a column). A scale's visible part is its disc (split
   from its row neighbours at the midline) minus every disc of the rows in front; rows are walked front to
   back with a running union, giving an exact-enough SDF of the visible part. Dome / tilt shading. (Later: pointed
@@ -80,7 +81,7 @@ All five are category `pattern`, tileable, and use only `org_`-prefixed GLSL hel
 | `marble`   | no                           | 1 on veins, cloudy background up to `cloud`                                                                                                                            | per vein band (per tile with `tiles`)   | diffuse (white marble ramp), roughness 0.25 → 0.45, height subtract (Relief 0.12: faintly etched veins)        |
 | `caustics` | mask (cells, off by default) | brightness: rims 1, glow → dark cell centres (net); bright blobs, dark cracks (blobs); Height: optional rounded dome per cell (`hval`)                                 | per cell                                | diffuse (lava ramp), height **subtract** (blobs: **add**) 0.35, emissive ×0.6                                  |
 | `wood`     | output                       | grain (1 = light wood, 0 = dark lines / gaps) × plank-edge bevel                                                                                                       | per board                               | diffuse (oak ramp, jitter 0.2), height 0.3 (per-board variation 0.25), bevel 1 px smooth                       |
-| `scales`   | output                       | dome / Darken inside shading (Height: dome × Tilt plane) × edge bevel, outline = 0                                                                                                                          | per scale                               | diffuse (green-grey, jitter 0.15), height 0.5 (per-scale variation 0.3), bevel 2 px smooth, domain warp 2.5 px |
+| `scales`   | output                       | dome / Darken inside shading (Height: dome × Tilt plane) × edge bevel, outline = 0                                                                                     | per scale                               | diffuse (green-grey, jitter 0.15), height 0.5 (per-scale variation 0.3), bevel 2 px smooth, domain warp 2.5 px |
 | `cracks`   | yes (both outputs)           | 1 on plates × bevel, the cracks sunk by their depth (fine cracks by their tone); Height: plate surface (dome, tilt, halo, roughness) less the fine grooves, × the same | per main plate (× fine with `sub_vary`) | diffuse (mud ramp, jitter 0.15), height 0.3, variation 0.3, bevel 2 px smooth                                  |
 
 ### marble
@@ -188,6 +189,55 @@ through one call site (warp x / y and rim variation at p, the warp one px right 
 | `figure`                                 | 0.5            | planks: fraction of boards cut through the heart; no planks: Cathedral the depth of the arched middle, Ovals the fold strength (gentle up to 0.5, then steeply stronger)                                                                                                                                                      |
 | `ring_stretch`, `ring_warp`              | 6, 0.5         | ring elongation along the board; wobble                                                                                                                                                                                                                                                                                       |
 | `knots`, `knot_size`                     | 0.15, 3 px     | knots per board: up to 1 the chance of one, above that many on average (≤ 4; bends add up, the strongest paints); radius across the grain                                                                                                                                                                                     |
+| `carved`                                 | off            | Carving group: the tickbox picks the `WD_CARVE` variant (the sliders below act only with it)                                                                                                                                                                                                                                  |
+| `carve_depth`, `carve_px`, `carve_len`   | 0.7, 24 px, 3  | Relief (crest to trough, a share of the height); ridge spacing across the grain; how far a ridge runs along it before it bends, merges or ends                                                                                                                                                                                |
+| `carve_crease`, `carve_shade`            | 0.4, 0.2       | troughs from rolling (cos²) to V-shaped creases with a soft bottom between rounded swells; colour darkened down into the troughs                                                                                                                                                                                              |
+| `carve_whorl`, `gnarl`, `knot_hollow`    | 0.55, 0.5, 0.6 | Whorls: the relief field's share of the rings (× Wave spacing px, max 1.2; 0 = straight past, 0.3 bowed, ≥ 0.6 eyes on crests); S-bends of grain and ridges together plus the ridges' wander; knot pits 4.5 knot radii across (they warp the rings at least 0.6 × Wave spacing)                                               |
+| `carve_jitter`, `carve_fine`             | 0.4, 0.5       | Ring noise: the main rings wobble on a fine noise of their own (a few rings across, stretched along the grain); Fine rings: fainter copies of the grain between them, three to a ring, drifting on a finer noise                                                                                                              |
+
+**Carved.** One field drives both the rings and the height, so the rings' whorls sit on the bulges and in the pits —
+carved wood swells round its figure. The field H (0 in the troughs, 1 on the crests, knot pits below) is a ridge wave
+across the grain, cos(π · (across / Wave spacing + phase)), one ridge per spacing (whole ridges round the tile), whose
+phase is a broad, gentle 2-octave noise (3 spacings each way, scaled by Gnarl) — steeper phase noise folds back and
+pinches knife-edge crests. Each ridge (trough to trough, where H = 0, so the per-ridge random is seamless) rises and
+falls along its length over Wave length, into swells and saddles; a knot is a rounded cone pit (1 − q)², the ridges
+flattening round it. The ring field is the growth layers plus Whorls × Wave spacing px of H: where H is steep the rings
+run along its contours (with the ridges), and they close into whorls round its peaks and pits. The ring field's own
+deformations (Ring warp, the Ovals fold) go into H at the same scale, so they bulge too; Gnarl shifts grain and ridges
+together. Height is H (Relief deep); the colour darkens into the troughs (Trough shade). The noises run in the ring
+wobble's loop (one `org_noiseFbm`; cold D3D11 compile: plain 1.2 s, the variant 1.5 s).
+
+- **Each ring is drawn in proportion to its own width**: earlywood, a gradient into the latewood (Earlywood fade) and
+  the latewood core (Latewood) are fixed shares of the ring, the edge after it soft. Where the carving spreads the rings
+  the grain thickens, where it crowds them it thins, the ratio never changing. Rings crowding past ~8× their spacing blend to their
+  mean tone. A maximum grain density: rings squeezed closer than ~0.45 Ring spacing (≥ 3 px) lose every second ring,
+  which fades where it stands, and the rest are drawn against twice the spacing, so their latewood widens in
+  proportion — fewer, bolder grains (again at 4× and 8×; two levels blended; lines never move). Tried and dropped: an
+  even px line width (reads as a contour map), and levels that faded in or branched extra lines where the rings spread
+  (phantom fragments, hooks).
+- Fractal grain: Ring noise wobbles the main rings on a fine noise stretched along the grain; Fine rings are the same
+  field at three rings per ring on a finer noise of their own, drawn thin in the earlywood, and lighter wood between
+  them in wide latewood bands (so a spread ring isn't a plain blot). Both noises are passes 4–5 of the loop. Ring noise
+  eases off where the ring field is nearly flat: there a fixed shift swings the lines far sideways into zigzags and
+  makes eyes of its own on plain slopes.
+- Short waves get deeper saddles (Wave length 1: swells down to a tenth), so they break into swells.
+- All the carving's noises are value noise in the variant: `perlinNoise` clamps to 0..1, and its flat, sharp-edged
+  plateaus creased the ridges' phase into straight seams. The Ovals fold has one smooth octave there (finer octaves drew
+  meanders along the crests, where the ring field is nearly flat).
+- A carved one-piece slab ignores the Cathedral heart (it mirrors the rings across a seam — a crease the carving's field
+  turns into seams); Cathedral stays for carved boards.
+- Creases have a soft bottom (~3 px in Height, ~10 % of the wave in the rings), or every ring crossing one kinks.
+- The knot's flow bend eases with Knot hollows (it and the pit together pinch the rings into fans), and its wake eases
+  between its two lengths (switched at the line through the knot, it kinked the ring field into a straight seam).
+  The height eases exponentially towards 0 below 0.1 and towards 1 above 0.9, with headroom for the pits.
+- Ring grooves in Height are shallow (an eighth or less of Grain depth): deeper ones read as lit terraces on the flanks.
+  The fine streaks fade where the grain tilts more than ~1 in 6 off the board, where it stands still, where it is
+  squeezed past 2× and inside knot pits.
+
+Open (critic runs 2026-11-11, last 8.0 / 10; `private/critic/wood-carved/GAPS.md`): some lens eyes sit on slopes
+rather than bulges (ring-only phase terms); Ring noise still ruffles at Whorls ≈ 0.7; a few wide latewood lenses read
+plain; 64 px is muddy. Preset: _Carved wavy
+wood_.
 
 The Shape group's `bevel` / `profile` / `aa` shade plank edges in the `wood` output too (the layer reads them
 itself). Two-layer recipe for exact bevels: `wood` (`output: shape`, height on) then `wood` (`output: grain`,
@@ -210,9 +260,9 @@ same seed and plank params, diffuse on, height off, _Limit to_ Shape: `lim_1: 'S
 | `jitter`              | 0.35         | centres move by up to ¼ column across and 0.3 row along, turn by up to 12° and lengthen by up to 30 %; every scale grows by the largest move, so no holes open where three meet; 0 is exactly regular                                                                                                                            |
 | `size_var`            | 0.3          | scales grow by up to 0.5 × this (only grow, for the same reason)                                                                                                                                                                                                                                                                 |
 | `outline`             | 1 px         | dark line along each visible edge                                                                                                                                                                                                                                                                                                |
-| `dome`             | 0.6          | bulge around each scale centre |
-| `tilt`             | 0.7          | Height only: each scale is a plane in its own frame, low at its base under the row in front and rising to its free edge, which stands over the next scale; rims come down to the plane of the row behind |
-| `darken`           | 0.4          | Darken inside, colour only: from the free edge down to where the scale comes out from under the row in front |
+| `dome`                | 0.6          | bulge around each scale centre                                                                                                                                                                                                                                                                                                   |
+| `tilt`                | 0.7          | Height only: each scale is a plane in its own frame, low at its base under the row in front and rising to its free edge, which stands over the next scale; rims come down to the plane of the row behind                                                                                                                         |
+| `darken`              | 0.4          | Darken inside, colour only: from the free edge down to where the scale comes out from under the row in front                                                                                                                                                                                                                     |
 | `keel`, `keel_w`      | 0, 0.6       | ridge down the middle of each scale: a V (crest rounded over ≤ 1.5 px) whose flanks fall to 1 − 0.7 × keel at `keel_w` × r                                                                                                                                                                                                       |
 | `lip`                 | 0.5          | lapped: a rolled band just inside the rim, past the bevel (width max(1.5 px, 0.07 r)), rises halfway to full height; the face behind sinks 12 %                                                                                                                                                                                  |
 | `growth`, `growth_sp` | 0.15, 0.08 r | lapped: lines following the edge `growth_sp` × r apart, wavering (2θ, 3θ harmonics), unevenly spaced (monotonic remap), fading towards the focus and where they crowd under ~2 px (screen derivative of their phase), strength per scale; dark in colour (35 %), faint in Height (15 %)                                          |

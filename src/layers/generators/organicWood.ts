@@ -22,6 +22,7 @@ const woodAlong = orientAxis('direction', { vertical: 'y', horizontal: 'x' });
 const planksOn = (p: Record<string, unknown>) => p.planks !== false;
 const jointsOn = (p: Record<string, unknown>) => p.planks !== false && Number(p.joints) > 0;
 const ringsOn = (p: Record<string, unknown>) => Number(p.rings) > 0;
+const carvedOn = (p: Record<string, unknown>) => p.carved === true;
 
 export const woodLayer: LayerDef = {
 	type: 'wood',
@@ -33,7 +34,7 @@ export const woodLayer: LayerDef = {
 	// The plank outline goes to its mask from the Wood and Plank shapes outputs (not Grain only, nor one slab).
 	sdfShowIf: (p) => p.planks !== false && p.output !== 'grain',
 	description:
-		'Wooden planks: Made from boards with staggered end joints and wood grain, with fine streaks, growth rings (cathedral arches or ovals) and knots. Makes floorboards, decking, panelling, crates.',
+		'Wooden planks: Made from boards with staggered end joints and wood grain, with fine streaks, growth rings (cathedral arches or ovals) and knots, or carved into deep rolling waves with the grain swirling over them. Makes floorboards, decking, panelling, crates, carved and gnarled wood.',
 	params: [
 		P.enum(
 			'output',
@@ -236,9 +237,83 @@ export const woodLayer: LayerDef = {
 			showIf: (p) => Number(p.knots) > 0,
 			hint: 'Sets the knot radius across the grain (knots are about 1.7× longer along it, and always fit within the board)'
 		}),
+		P.bool('carved', 'Carved', false, {
+			uniform: false,
+			optimize: false,
+			group: 'carve',
+			hint: 'Carves the wood into deep, rolling waves that run with the grain, and cuts the rings through them, so the grain swirls over every swell and round every hollow. Needs a variant of the shader, compiled the first time'
+		}),
+		P.float('carve_depth', 'Relief', 0.7, 0, 1, {
+			step: 0.001,
+			group: 'carve',
+			showIf: carvedOn,
+			hint: "Sets how deep the waves dip, as a share of the layer's height (Height only: the colours keep the grain)"
+		}),
+		P.float('carve_px', 'Wave spacing', 24, 2, 1024, {
+			softMax: 256,
+			unit: 'px',
+			axis: woodAcross,
+			step: 0.1,
+			group: 'carve',
+			showIf: carvedOn,
+			hint: 'Sets the distance between the crests across the grain'
+		}),
+		P.float('carve_len', 'Wave length', 3, 1, 16, {
+			softMax: 8,
+			step: 0.01,
+			group: 'carve',
+			showIf: carvedOn,
+			hint: 'Sets how far a ridge runs along the grain before it dips into a saddle or bends (1 = short, lens-shaped swells; 8 = long, smooth ridges)'
+		}),
+		P.float('carve_crease', 'Creases', 0.4, 0, 1, {
+			step: 0.001,
+			group: 'carve',
+			showIf: carvedOn,
+			hint: 'Sharpens the troughs (0 = smooth, rolling waves; 1 = rounded swells between narrow, V-shaped creases)'
+		}),
+		P.float('carve_whorl', 'Whorls', 0.55, 0, 1.2, {
+			step: 0.001,
+			group: 'carve',
+			showIf: carvedOn,
+			hint: 'Sets how strongly the rings follow the carving: the same field shapes both, so the rings run along the ridges and close into whorls round every swell and knot pit (0 = the rings run straight past the relief; 0.3 = they bow over it; above 0.6 = eyes on the crests and the ridges drawn in their own lines)'
+		}),
+		P.float('gnarl', 'Gnarl', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'carve',
+			showIf: carvedOn,
+			hint: 'Winds the grain and the ridges together in big S-bends, and lets the ridges wander, merge and split (0 = nearly straight, parallel ridges; 1 = bends about a wave spacing deep)'
+		}),
+		P.float('carve_shade', 'Trough shade', 0.2, 0, 1, {
+			step: 0.001,
+			group: 'carve',
+			showIf: carvedOn,
+			hint: 'Darkens the colour down into the troughs and hollows, as dirt and old finish gather there (0 = the light alone shades the relief)'
+		}),
+		P.float('carve_jitter', 'Ring noise', 0.4, 0, 1, {
+			step: 0.001,
+			group: 'carve',
+			showIf: carvedOn,
+			hint: 'Lets the rings wobble on their own, on a fine noise stretched along the grain (0 = they follow the carving exactly)'
+		}),
+		P.float('carve_fine', 'Fine rings', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'carve',
+			showIf: carvedOn,
+			hint: 'Draws fainter, finer copies of the grain between the main rings (three to a ring), following the same flow but drifting on a noise of their own'
+		}),
+		P.float('knot_hollow', 'Knot hollows', 0.6, 0, 1, {
+			step: 0.001,
+			group: 'carve',
+			showIf: (p) => carvedOn(p) && Number(p.knots) > 0,
+			hint: 'Sinks each knot into a round pit about 4.5 knot radii across, down past the troughs; with Whorls the rings wrap round it'
+		}),
 		P.seed()
 	],
-	groups: [{ id: 'grain', label: 'Grain' }],
+	groups: [
+		{ id: 'grain', label: 'Grain' },
+		{ id: 'carve', label: 'Carving' }
+	],
+	shaderFeatures: (p) => (carvedOn(p) ? ['WD_CARVE'] : []),
 	// Added in the editor: px sizes that grow with the texture — the plain defaults up to 128 px (pixel art), at 512 px 2 px
 	// gaps, a 5 px bevel, 8 px rings and knots that read on 128 px boards instead of hairlines and pinholes.
 	fresh: ({ width, height }) => {
@@ -255,6 +330,7 @@ export const woodLayer: LayerDef = {
 			grain_px: r1(2 * k ** 0.35),
 			ring_px: r1(4 * Math.sqrt(k)),
 			knot_size: r1(3 * k ** 0.95),
+			carve_px: r1(24 * k),
 			end_wobble_px: Math.round(32 * Math.sqrt(k))
 		};
 	},
@@ -387,6 +463,9 @@ GenOut gen(vec2 p) {
   float knotTail = 0.0;
   float knotKr = 1.0;
   float knotSink = 0.0;
+  // Carved: the deepest knot pit here, (1 − q)² of the distance q in 4.5 knot radii (1 at a knot's centre, 0 from 4.5
+  // radii out), and how far its pit flattens the ridges ((1 − q²)²).
+  float kHol = 0.0, kFlat = 0.0;
   for (int s = 0; s < 4 * UNI_1; s++) {
     float fs = float(s);
     if (fs >= u_knots) break;
@@ -402,12 +481,22 @@ GenOut gen(vec2 p) {
       float dl = ll - (nj > 0 ? 0.12 + 0.76 * kz : kz) * Lb;
       dl -= Lb * floor(dl / Lb + 0.5);
       float rr = length(vec2(da, dl * 0.6));
+#ifdef WD_CARVE
+      float hq = min(rr / (4.5 * rk), 1.0);
+      float hb2 = 1.0 - hq * hq;
+      kFlat = max(kFlat, hb2 * hb2);
+      kHol = max(kHol, (1.0 - hq) * (1.0 - hq));
+#endif
       // Windowed so the bend stays local (and seamless): fades out between 2.5 and 5 knot radii, over a wake longer
       // downstream (a random way along the board) than up; the lines bend round a cylinder a little wider than the knot,
       // so they part before its rim instead of running into it.
       vec3 hs = hash3I(bid, uSeed + 107.0 + 13.0 * fs);
-      float wk = dl * (hs.z < 0.5 ? 1.0 : -1.0) > 0.0 ? 0.15 : 0.35;
-      float win = 1.0 - smoothstep(2.5 * rk, 5.0 * rk, length(vec2(da, dl * wk)));
+      // (Eased from one to the other over a knot radius: switched at the line through the knot, the ring field kinked along
+      // it, and a straight seam showed where anything reads the field's slope.)
+      float wk = mix(0.35, 0.15, smoothstep(-rk, rk, dl * (hs.z < 0.5 ? 1.0 : -1.0)));
+      // (The wake also ends before half a board / the texture along, where dl wraps: a longer one, from a big knot, was cut
+      // off there in a straight seam across the grain.)
+      float win = (1.0 - smoothstep(2.5 * rk, 5.0 * rk, length(vec2(da, dl * wk)))) * (1.0 - smoothstep(0.3 * Lb, 0.45 * Lb, abs(dl)));
       float rb = 1.2 * rk;
       bend += da * win * rb * rb / max(rr * rr, rb * rb);
       float kr = rr / rk;
@@ -427,12 +516,22 @@ GenOut gen(vec2 p) {
       }
     }
   }
+#ifdef WD_CARVE
+  // (Carved: a knot's pit wraps the rings round the knot (with Whorls), so its flow bend eases — both together pinch the
+  // lines beside it into fans.)
+  bend *= 1.0 - 0.6 * u_knot_hollow;
+#endif
   float aEff = la - bend;
   float aAbs = aEff + 0.5 * (box.x + box.y);
 
   // One continuous piece: its lines fold where a broad wobble bends them back (see the ring figure); worked out first, so
   // the fine grain can follow the folds.
   bool cath = u_cut == 1;
+#ifdef WD_CARVE
+  // (Carved, one piece: the grain comes from the carving. The Cathedral heart mirrors the rings across a seam — a crease
+  // in the ring field that the carving's field turns into visible seams and patches — so it is for boards only.)
+  cath = cath && u_planks;
+#endif
   float slabFold = 0.0;
   float fineBend = 0.0;
   // Cathedral slab: the heart wanders sideways a little once along the texture (the fine streaks with it), so the saddle
@@ -451,15 +550,47 @@ GenOut gen(vec2 p) {
   // Both in one loop (one copy of org_noiseFbm; see UNI_1): pass 0 the fold (one slab with ovals only), pass 1 the
   // wobble (cathedral: sampled at an offset per board, so a board's wobble doesn't carry on into the next one).
   float fn = 0.0, wn = 0.0;
-  for (int e = 0; e < 2 * UNI_1; e++) {
+  // Carved: pass 2 the gnarl (gw, px across: the grain and the waves shift together, cg cells) and pass 3 the ridges'
+  // phase noise (hn, ch cells), sampled where the gnarl and the knots have moved the grain, so its ridges run with it.
+#ifdef WD_CARVE
+  // (Carved: value noise for every pass — perlinNoise clamps to 0..1, and its flat, sharp-edged plateaus put creases in
+  // the ridges' phase that the rings follow as straight seams. One kind per variant, so only one is compiled in.)
+  const int NKIND = 0;
+  // (One smooth octave for the Ovals fold: along a crest the ring field is nearly flat, and finer octaves drew little
+  // meanders and hooks in its contours there.)
+  const int FOLD_OCT = 1;
+  // Passes 4 and 5: the fine noises that perturb the main rings (jn: Ring noise) and the fine rings (nf), a few rings
+  // across and stretched along the grain, sampled in its flow.
+  const int NPASS = 6;
+  vec2 cg = snapCells(vec2(A / (4.0 * u_carve_px), Lr / (2.0 * u_carve_px * u_carve_len)));
+  vec2 ch = snapCells(vec2(A / (3.0 * u_carve_px), Lr / (3.0 * u_carve_px)));
+  vec2 cj = snapCells(vec2(A / (5.0 * u_ring_px), Lr / (16.0 * u_ring_px)));
+  vec2 cf = snapCells(vec2(A / (1.2 * u_ring_px), Lr / (5.0 * u_ring_px)));
+#else
+  const int NKIND = 1;
+  const int FOLD_OCT = 3;
+  const int NPASS = 2;
+  vec2 cg = vec2(1.0), ch = vec2(1.0), cj = vec2(1.0), cf = vec2(1.0);
+#endif
+  float gw = 0.0, hn = 0.0, jn = 0.0, nf = 0.0;
+  for (int e = 0; e < NPASS * UNI_1; e++) {
     bool wb = e == 1;
-    if (wb || slab) {
-      float nn = org_noiseFbm(1, false, vec2(a / A, l / Lr) * (wb ? rc : fc) + (wb && cath ? hb.yx * vec2(17.0, 23.0) : vec2(0.0)),
-                              periodOf(wb ? rc : fc), wb ? 2 : 3, wb ? 0.5 : 0.5 - 0.4 * foldHi, uSeed + (wb ? 13.0 : 17.0)) - 0.5;
-      if (wb) wn = nn;
-      else fn = nn;
+    if (e > 0 || slab) {
+      vec2 cells = e == 0 ? fc : wb ? rc : e == 2 ? cg : e == 3 ? ch : e == 4 ? cj : cf;
+      vec2 x = vec2((e >= 3 ? aAbs - gw : a) / A, l / Lr) * cells + (wb && cath ? hb.yx * vec2(17.0, 23.0) : vec2(0.0));
+      float gain = e == 0 ? 0.5 - 0.4 * foldHi : e == 3 ? 0.35 : 0.5;
+      float sd = e == 0 ? 17.0 : wb ? 13.0 : e == 2 ? 153.0 : e == 3 ? 159.0 : e == 4 ? 171.0 : 177.0;
+      float nn = org_noiseFbm(NKIND, false, x, periodOf(cells), e == 0 ? FOLD_OCT : 2, gain, uSeed + sd) - 0.5;
+      if (e == 0) fn = nn;
+      else if (wb) wn = nn;
+      else if (e == 2) gw = u_gnarl * 1.8 * u_carve_px * nn;
+      else if (e == 3) hn = nn;
+      else if (e == 4) jn = nn;
+      else nf = nn;
     }
   }
+  aEff -= gw;
+  aAbs -= gw;
   if (slab) {
     // Fold strength: gentle waves up to Arches 0.5, then steeply stronger, so the lines really turn back into arches
     // and ovals towards 1 — with the finer octaves fading out (foldHi), so the folds are a few broad arches, not a
@@ -535,9 +666,69 @@ GenOut gen(vec2 p) {
   } else {
     // One continuous piece: lines along the grain, folded into arches where the (stronger, with Arches)
     // wobble bends them back. Whole rings across the tile.
-    if (uTile) { float nr = max(floor(A / spacing + 0.5), 1.0); spacing = A / nr; nRings = int(nr); }
+    if (uTile) {
+      float nr = max(floor(A / spacing + 0.5), 1.0);
+#ifdef WD_CARVE
+      // (Carved: a multiple of 8, so the merged ring levels below — every 2nd, 4th, 8th ring — wrap round the tile.)
+      nr = max(8.0 * floor(A / (8.0 * spacing) + 0.5), 8.0);
+#endif
+      spacing = A / nr;
+      nRings = int(nr);
+    }
     r = aAbs + u_ring_warp * spacing * 2.0 * wn + slabFold;
   }
+  // Carved: one field drives both the rings and the height — the relief (0 in the troughs, 1 on the crests, a knot pit
+  // below them). Ridges along the grain, one per Wave spacing across it (whole ridges round the tile), their phase
+  // wandering with a broad, gentle noise (more with Gnarl) so they merge and split without folding back (which pinches
+  // knife-edge crests) — rolling (cos²), or with Creases rounded swells between V-shaped troughs with a soft bottom
+  // (|cos| softened ~3 px: a sharp V kinks every ring crossing it). Each ridge (trough to trough, where the relief is 0,
+  // so its random is seamless) rises and falls along its length over about Wave length, into swells and saddles.
+  float relief = 1.0;
+#ifdef WD_CARVE
+  float nW = snapCells(A / u_carve_px);
+  float ph = aAbs / A * nW + (0.4 + 1.4 * u_gnarl) * hn;
+  float wc = cos(PI * ph);
+  int ridge = int(floor(ph + 0.5));
+  float nL = snapCells(Lr / (u_carve_px * u_carve_len));
+  float swell = valueNoise1(l / Lr * nL, uTile ? int(nL) : NO_PERIOD.x, ivec2(uTile ? imod(ridge, max(int(nW), 1)) : ridge, 3), uSeed + 163.0);
+  // (Deeper saddles for short waves, so they break into swells rather than running on as ridges.)
+  swell = mix(1.0, smoothstep(0.1, 0.9, swell), mix(0.9, 0.6, smoothstep(1.0, 4.0, u_carve_len)));
+  // The crease's |cos| softened: ~3 px for the height, ~10 % of the wave for the rings — contours of a V fold into hard
+  // corners along it.
+  float vc = (sqrt(wc * wc + 0.0064) - 0.08) / (sqrt(1.0064) - 0.08);
+  float vr = (sqrt(wc * wc + 0.09) - 0.3) / (sqrt(1.09) - 0.3);
+  float shape = mix(wc * wc, vc, u_carve_crease);
+  float shapeR = mix(wc * wc, vr, u_carve_crease);
+  // A knot is a round pit (the ridges flatten round it, so it doesn't merge with a trough into a claw).
+  float pit = 1.2 * u_knot_hollow * kHol;
+  relief = mix(shape * swell, 0.0, u_knot_hollow * kFlat) - pit;
+  // The rings are the growth layers plus Whorls × Wave spacing px of this field: where it is steep they run along its
+  // contours (with the ridges), and they close into whorls round its peaks and pits — so every whorl sits on a swell or
+  // in a hollow, the way carved wood bulges round its figure. A knot pit warps them at least 0.6 × Wave spacing, so the
+  // rings wrap it whatever Whorls is (the wood grows round a branch). The ring field's own wobble (Ring warp, the Ovals
+  // fold) is part of the same deformation, so it goes into the height too, at the same scale. The streaks follow
+  // (fineBend).
+  float wpx = u_carve_whorl * u_carve_px;
+  float kpx = max(wpx, 0.6 * u_carve_px);
+  float cpl = wpx * mix(shapeR * swell, 0.0, u_knot_hollow * kFlat) - kpx * pit;
+  relief += (u_ring_warp * spacing * 2.0 * wn + slabFold) / max(wpx, 0.25 * u_carve_px);
+  r += cpl;
+  // Ring noise: the main rings wobble a little on their own, a few rings across and stretched along the grain — less
+  // where the ring field is nearly flat (crests, whorls), where the same shift would swing the lines far sideways into
+  // zigzags and make eyes of its own on plain slopes.
+  r += u_carve_jitter * spacing * 1.5 * jn * smoothstep(0.15, 0.7, length(vec2(dFdx(r), dFdy(r))));
+  fineBend += cpl;
+  if (cath) {
+    // The ring field's gradient with the gnarl and the cut (their screen derivatives, turned into the plank frame: both
+    // vary slowly, so the 2 × 2 blocks don't show).
+    vec2 sg = vec2(dFdx(gw), dFdy(gw)), sc = vec2(dFdx(cpl), dFdy(cpl));
+    vec2 pg = horiz ? vec2(-sg.y, sg.x) : vec2(sg.x, -sg.y);
+    vec2 pc = horiz ? vec2(-sc.y, sc.x) : vec2(sc.x, -sc.y);
+    // (gRa.x is ∂r/∂dx: dx moves by −gw.)
+    gRa -= pg * gRa.x;
+    gRa += pc;
+  }
+#endif
   // How fast the ring field changes (rings per px × spacing): small at arch tips and round the heart.
   float gradR = cath ? length(gRa) : length(vec2(dFdx(r), dFdy(r)));
 
@@ -565,7 +756,7 @@ GenOut gen(vec2 p) {
   // The streaks cluster — a slow noise across the grain thickens and darkens them in some bands, thins others.
   // (Board-local across boards; one slab wraps it round the tile.)
   float nc = max(floor(A / (5.0 * u_grain_px) + 0.5), 1.0);
-  float xc = wrapC ? (aAbs + fineBend) / A * nc : (cath ? r : aEff + run) / (5.0 * u_grain_px);
+  float xc = wrapC ? (aAbs + fineBend) / A * nc : (cath ? r : aEff + run + fineBend) / (5.0 * u_grain_px);
   float cl = 2.0 * valueNoise1(xc, wrapC && uTile ? int(nc) : NO_PERIOD.x, bid + ivec2(0, 11), uSeed + 83.0) - 1.0;
   // Each streak its own width and darkness (a noise at about the streak spacing), and anti-aliased by the noise's screen
   // derivative — a line thinner than a pixel fades instead of breaking into stair-steps and dots.
@@ -583,6 +774,16 @@ GenOut gen(vec2 p) {
   // runs steeply across the board (arch flanks near the tips) the streaks, stretched along the board, would turn into
   // short dashes: they soften there (to 35 %), keeping the clean ring lines.
   if (cath) fineDark *= smoothstep(0.3, 0.75, gradR) * mix(0.35, 1.0, smoothstep(0.55, 0.9, abs(gRa.x) / max(gradR, 1e-4)));
+#ifdef WD_CARVE
+  // Carved: the grain tilts every way; the streaks, stretched along the board, would cut across it as rows of dashes, so
+  // they fade where it runs more than ~1 in 6 off the board, where it folds right back (its across coordinate standing
+  // still) and inside knot pits, where they would smear into blots or fan into stars; and where it is squeezed past 2×,
+  // where they alias. Wide rings keep them: a broad band of latewood without pores reads as plastic.
+  vec2 sf = vec2(dFdx(fineX), dFdy(fineX));
+  vec2 pf = horiz ? vec2(-sf.y, sf.x) : vec2(sf.x, -sf.y);
+  fineDark *= mix(0.2, 1.0, smoothstep(0.35, 0.1, abs(pf.y) / max(abs(pf.x), 1e-4))) * smoothstep(0.08, 0.25, length(pf)) * smoothstep(3.0, 1.8, length(pf))
+              * (1.0 - u_knot_hollow * kFlat);
+#endif
 
   // Ring variation: wide years and narrow ones — r through a smooth monotonic remap (slope 1 ± Ring variation).
   // Smooth 1D noise over 2.5 rings: the rings stay in order, typically 3:1 in width.
@@ -627,6 +828,60 @@ GenOut gen(vec2 p) {
   vec2 ringDark = ramp * (1.0 - smoothstep(1.0 - hE, 1.0 + hE, vec2(t))) * (0.25 + 0.75 * hr.x) + (1.0 - smoothstep(-hE, hE, vec2(t))) * ap;
   // Fade rings that crowd closer than ~2 px (they would alias into moiré).
   ringDark *= 1.0 - smoothstep(0.35, 0.6, density);
+#ifdef WD_CARVE
+  // Carved: each ring drawn in proportion to its own width, whatever the carving does to it — the earlywood, the gradient
+  // into the latewood (Earlywood fade) and the latewood core (Latewood) are fixed shares of the ring, and the edge after it
+  // a soft one, so where the carving spreads the rings the grain thickens and where it crowds them it thins, the ratio
+  // never changing (no width caps: a capped line stays thin where its ring is wide, which reads as a contour map). In
+  // Height a shallow groove either side of each ring's edge, a share of the ring too (at least 1.5 px).
+  // A maximum grain density: where the carving squeezes the rings closer than ~0.45 Ring spacing (at least 3 px) apart,
+  // every second ring fades out where it stands and the rest are drawn against twice the spacing, so their latewood
+  // widens in proportion — fewer, bolder grains instead of a band too fine to tell apart — and again at 4× and 8×
+  // (λ = log2 of the squeeze past that pitch; two levels blended). Lines never move, so nothing branches. Past 8× they
+  // blend to their mean tone.
+  float pmin = max(0.45 * spacing, 3.0);
+  float lamC = log2(max(pmin * density, 1e-3));
+  float kc = clamp(floor(lamC), 0.0, 2.0);
+  float wc2 = smoothstep(0.0, 1.0, clamp(lamC - kc, 0.0, 1.0));
+  bool wrapL = !u_planks && uTile && !cath;
+  ringDark = vec2(0.0);
+  float meanD = 0.0;
+  for (int e = 0; e < 2 * UNI_1; e++) {
+    float k = kc + float(e);
+    float S = spacing * exp2(k);
+    float xk = r / S;
+    float tk = fract(xk);
+    float dkk = density * spacing / S;
+    int stp = int(exp2(k) + 0.5);
+    int iN = (int(floor(xk)) + 1) * stp, iP = int(floor(xk)) * stp;
+    if (wrapL) { iN = imod(iN, nRings); iP = imod(iP, nRings); }
+    vec2 hN = hash3I(ivec2(iN, bid.x * 131 + bid.y), uSeed + 19.0).xy;
+    float hP = hash3I(ivec2(iP, bid.x * 131 + bid.y), uSeed + 19.0).x;
+    float aaf = u_aa ? dkk : 1e-4;
+    float lwf = clamp(u_ring_line * (0.7 + 0.6 * hN.y), 0.05, 0.8);
+    float rwf = 0.8 * u_ring_ramp * (1.0 - lwf);
+    float ewf = 0.04 + 0.15 * rwf;
+    float into = smoothstep(1.0 - lwf - rwf - aaf, 1.0 - lwf + aaf, tk) * (0.55 + 0.45 * hN.x);
+    float past = (1.0 - smoothstep(0.0, ewf + aaf, tk)) * (0.55 + 0.45 * hP);
+    vec2 rd = vec2(max(into, past), 1.0 - smoothstep(0.0, max(0.12, 1.5 * dkk), min(tk, 1.0 - tk)));
+    float we = e == 0 ? 1.0 - wc2 : wc2;
+    ringDark += rd * we;
+    meanD += 0.8 * (lwf + 0.5 * rwf) * we;
+  }
+  ringDark = mix(ringDark, vec2(meanD, 0.25), smoothstep(3.0, 3.6, lamC));
+  // Fine rings: fainter copies of the grain between the main rings — the same field at three rings per ring, drifting on a
+  // finer noise of their own, so they follow the flow but wander off and back. Drawn the same way (in proportion, so they
+  // thicken and thin with the carving), thinner, in the light earlywood only, and blended to their mean tone where they
+  // crowd.
+  float tf = fract((r + u_carve_jitter * spacing * 0.9 * nf) * 3.0 / spacing + 0.5);
+  float dF = 3.0 * density;
+  float aF = u_aa ? dF : 1e-4;
+  float fl = max(smoothstep(0.62 - aF, 0.85 + aF, tf), 1.0 - smoothstep(0.0, 0.08 + aF, tf));
+  fl = mix(fl, 0.2, smoothstep(0.15, 0.3, dF));
+  // (Darker lines in the earlywood; in a wide latewood band, lighter wood between them, so a spread ring isn't a plain
+  // dark blot.)
+  ringDark.x = clamp(ringDark.x + u_carve_fine * (0.75 * fl * (1.0 - ringDark.x) - 0.3 * (1.0 - fl) * ringDark.x), 0.0, 1.0);
+#endif
 
   // The pores show most in the earlywood (the light part of each ring), so the streaks band with the rings.
   fineDark *= 1.0 - 0.6 * u_rings * smoothstep(1.0 - rw, 1.0, t);
@@ -635,12 +890,18 @@ GenOut gen(vec2 p) {
   vv = clamp(mix(vv, vec2(1.0 - knotDark), knotMask) * (1.0 - 0.4 * knotTail), 0.0, 1.0);
   float v = vv.x;
   // Height: the grain at Grain depth on a full-height surface; edges and gaps keep the full range.
-  float hv = mix(1.0, vv.y, u_grain_depth);
+  // (Carved: the relief takes most of the height and the grain a twelfth of its share, less at full Relief — the lines
+  // are drawn in colour on a smooth surface, barely incised; deeper grooves read as ribs or lit ledges on the flanks.)
+  float gdep = u_grain_depth;
+#ifdef WD_CARVE
+  gdep *= 0.08 * (1.0 - 0.75 * u_carve_depth);
+#endif
+  float hv = mix(1.0, vv.y, gdep);
   // A knot in Height: per knot it either stands proud (hard wood, a gentle dome) or has a sunken, shrunken core, with a
   // shallow groove at its rim and its rings showing — not a sunken flat disc.
   float kd = knotSink < 0.4 ? 0.2 + 0.4 * (1.0 - knotKr * knotKr) : 0.4 * knotKr * knotKr;
   kd += 0.25 * smoothstep(0.75, 1.0, knotKr) + 0.12 * (0.5 + 0.5 * sin(TAU * 2.6 * knotKr));
-  hv = mix(hv, 1.0 - u_grain_depth * min(kd, 1.0), knotMask);
+  hv = mix(hv, 1.0 - gdep * min(kd, 1.0), knotMask);
   // Broad, soft tone over each board (the ring wobble's noise, offset per board) — in colour only, not dents.
   v *= 1.0 - 0.22 * (wn + 0.5);
   // Crown (Height only): domed boards sink at their edges, cupped ones in the middle.
@@ -649,6 +910,19 @@ GenOut gen(vec2 p) {
     e2 *= e2;
     hv *= 1.0 - abs(u_crown) * bestJs * (u_crown > 0.0 ? e2 : 1.0 - e2);
   }
+#ifdef WD_CARVE
+  // Carved: the grain on the relief, Relief deep from crest to trough; a knot hollow sinks further, eased so its floor
+  // rounds off.
+  float rl = relief >= 0.0 ? relief : relief / (1.0 - relief);
+  // (Below 0.1 the height eases exponentially towards 0 instead of clipping: a deep knot pit at high Relief kept a flat,
+  // polygon-edged floor with a shading crease round it.)
+  // (Room for the knot pits below the troughs, so they keep a rounded floor rather than easing flat at 0.)
+  float hc = hv - u_carve_depth * (1.0 - rl) / (1.0 + (u_knots > 0.0 ? 0.35 * u_knot_hollow : 0.0));
+  hv = hc >= 0.1 ? hc : 0.1 * exp(hc / 0.1 - 1.0);
+  // (And above 0.9 towards 1: the ring warp and fold lift some crests past it, which clipped them flat.)
+  hv = hv <= 0.9 ? hv : 1.0 - 0.1 * exp(-(hv - 0.9) / 0.1);
+  v *= 1.0 - u_carve_shade * (1.0 - smoothstep(-0.3, 0.8, rl));
+#endif
   // Wood output: the grain on the planks — the wrapper multiplies it by their bevel (gaps = 0), from the combined shape.
   GenOut o;
   if (u_output == 0 && u_planks) { o = genOutShaded(v, 1.0, rnd, best); o.bdist = bestA; }

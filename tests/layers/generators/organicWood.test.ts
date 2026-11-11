@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, getLayerDef } from '@/layers/registry';
 import { woodLayer } from '@/layers/generators/organicWood';
+import { shaderKey } from '@/render/materialPipeline';
 
 describe('wood', () => {
 	ensureBuiltins();
@@ -16,11 +17,11 @@ describe('wood', () => {
 		const small = freshParams('wood', { width: 64, height: 64 });
 		const def = getLayerDef('wood')!;
 		const plain = (k: string) => def.params.find((d) => d.key === k)!.default;
-		for (const k of ['gap', 'gap_y', 'grain_px', 'ring_px', 'knot_size', 'end_wobble_px', 'rings', 'fine'])
+		for (const k of ['gap', 'gap_y', 'grain_px', 'ring_px', 'knot_size', 'end_wobble_px', 'carve_px', 'rings', 'fine'])
 			expect(small[k], k).toBe(plain(k));
 		expect(small.bevel).toBe(def.defaults!.bevel);
 		const big = freshParams('wood', { width: 512, height: 512 });
-		expect(big).toMatchObject({ gap: 2, gap_y: 2, bevel: 5, ring_px: 8, rings: 0.8, fine: 0.45 });
+		expect(big).toMatchObject({ gap: 2, gap_y: 2, bevel: 5, ring_px: 8, carve_px: 96, rings: 0.8, fine: 0.45 });
 		expect(Number(big.knot_size)).toBeGreaterThan(8);
 		expect(Number(big.grain_px)).toBeGreaterThan(Number(small.grain_px));
 	});
@@ -43,6 +44,13 @@ describe('wood', () => {
 		const knots = woodLayer.params.find((d) => d.key === 'knots')!;
 		expect(knots.max).toBe(4);
 		expect(createLayer('wood', { knots: 2.5 }).params.knots).toBe(2.5);
+	});
+
+	it('compiles the carving only in its own variant, picked by the Carved tickbox', () => {
+		expect(createLayer('wood').params.carved).toBe(false);
+		expect(shaderKey(createLayer('wood'))).toBe('wood');
+		expect(shaderKey(createLayer('wood', { carved: true }))).toBe('wood~f:WD_CARVE');
+		expect(woodLayer.glsl).toContain('#ifdef WD_CARVE');
 	});
 });
 
