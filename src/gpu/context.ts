@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { FULLSCREEN_VERT, GLSL_HEADER } from '@/layers/glsl/common';
+import { type MaterialProgramProps, programError } from './shaderErrors';
 
 export type Uniforms = Record<string, THREE.IUniform>;
 
@@ -28,6 +29,8 @@ export class Gpu {
 	private readonly clearColor = new THREE.Color();
 	/** The browser compiles shaders off the main thread (KHR_parallel_shader_compile): compile() doesn't stall. */
 	readonly parallelCompile: boolean;
+	/** Compile errors of the passes run since the last takeErrors(), each log once. */
+	private runErrors = new Set<string>();
 
 	constructor(canvas: HTMLCanvasElement) {
 		this.canvas = canvas;
@@ -143,6 +146,21 @@ export class Gpu {
 			r.setViewport(0, 0, s.x, s.y);
 		}
 		r.render(this.scene, this.camera);
+		const err = this.programError(material);
+		if (err) this.runErrors.add(err);
+	}
+
+	/** The material's compile error once it has run (or null): every time it runs, not only the first (see shaderErrors.ts). */
+	programError(material: THREE.Material): string | null {
+		return programError(this.renderer.properties.get(material) as MaterialProgramProps);
+	}
+
+	/** The compile errors of the passes run since the last call (joined, or null when they all ran), and forget them. */
+	takeErrors(): string | null {
+		if (!this.runErrors.size) return null;
+		const e = [...this.runErrors].join('\n');
+		this.runErrors.clear();
+		return e;
 	}
 
 	clearCanvas(r = 0, g = 0, b = 0, a = 0): void {

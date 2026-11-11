@@ -236,10 +236,13 @@ export class MaterialPipeline {
 	 * Compile a variant (shaderKey: Bevel aspect, a type's optional parts) in the background where the browser can,
 	 * running the plain shader meanwhile (its bevel steps at the mitres, the optional parts missing) and calling
 	 * onVariantReady to re-run when it is done: the editor, so the first move of such a slider doesn't freeze the page
-	 * for a cold compile. Off for headless renders, which must come out exact.
+	 * for a cold compile. Off for headless renders, which must come out exact, and in any exact evaluation (exports, map
+	 * reads: `evaluate(…, exact)`).
 	 */
 	deferVariants = false;
 	onVariantReady?: () => void;
+	/** The last evaluation ran the plain shader in place of a variant still compiling (deferVariants): not exact. */
+	deferred = false;
 	private pendingVariants = new Set<string>();
 	/** A comment in generator shaders (measuring cold compiles: a new salt defeats the browser's and driver's caches). */
 	private salt = '';
@@ -820,12 +823,14 @@ ${fetches}
 	}
 
 	/**
-	 * Evaluate the stack. `upTo` (inclusive layer index) previews the stack partway; -1 = base only.
+	 * Evaluate the stack. `upTo` (inclusive layer index) previews the stack partway; -1 = base only. `exact` runs every
+	 * layer's own variant, compiling it now if it has to, even while deferVariants is on.
 	 */
-	evaluate(project: Project, upTo = Infinity): void {
+	evaluate(project: Project, upTo = Infinity, exact = false): void {
 		this.resize(project.width, project.height);
 		const state = this.state!;
 		this.errors.clear();
+		this.deferred = false;
 		this.evaluations++;
 		// CPU data of layers no longer in the stack.
 		const ids = new Set(project.layers.map((l) => l.id));
@@ -862,13 +867,21 @@ ${fetches}
 			const seed = mixSeed(Number(layer.params.seed ?? 0), project.seed);
 			const masks = plan.layers.get(layer.id);
 			this.onBeforeLayer?.(layer.id);
+			this.gpu.takeErrors();
 			try {
 				this.bindMasks(masks);
 				if (def.kind === 'generator') {
 					let key = shaderKey(layer);
-					if (key !== layer.type && this.deferVariants && this.gpu.parallelCompile && !this.compiled.has(key)) {
+					if (
+						key !== layer.type &&
+						!exact &&
+						this.deferVariants &&
+						this.gpu.parallelCompile &&
+						!this.compiled.has(key)
+					) {
 						this.compileVariant(def, key);
 						key = layer.type;
+						this.deferred = true;
 					}
 					const mat = this.generatorMaterial(def, key);
 					this.bindTextures(def, layer, project, seed, mat);
@@ -913,6 +926,10 @@ ${fetches}
 					this.bindDerived(def, layer.id, layer.params, project, seed, mat);
 					ctx.runMRT(mat);
 				}
+				// A pass whose shader failed to compile (three reports that only at its first run; a cached program is
+				// read here on every run, so the error stays as long as the layer is broken).
+				const failed = this.gpu.takeErrors();
+				if (failed) this.errors.set(layer.id, failed);
 			} catch (e) {
 				this.errors.set(layer.id, e instanceof Error ? e.message : String(e));
 			}

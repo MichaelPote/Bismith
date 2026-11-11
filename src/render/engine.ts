@@ -400,7 +400,10 @@ export class Engine {
 		});
 	}
 
-	/** Bring material + tracer configuration up to date. `allowDraft` enables the interactive fast preview. */
+	/**
+	 * Bring material + tracer configuration up to date. `allowDraft` enables the interactive fast preview; without it
+	 * (renders, exports, map reads) the result is exact: no layer runs the plain shader while its variant compiles.
+	 */
 	private prepare(allowDraft = false): void {
 		const project = this.inner ?? this.project!;
 		const draft = allowDraft && performance.now() - this.lastEdit < this.draftWindowMs;
@@ -408,10 +411,11 @@ export class Engine {
 			this.draft = draft;
 			this.traceDirty = true;
 		}
+		if (!allowDraft && this.material.deferred) this.materialDirty = true;
 		if (this.materialDirty) {
 			const t0 = performance.now();
 			this.shaderErrors.clear();
-			this.material.evaluate(project, this.view.previewUpTo ?? Infinity);
+			this.material.evaluate(project, this.view.previewUpTo ?? Infinity, !allowDraft);
 			this.stats.evalMs = performance.now() - t0;
 			this.materialDirty = false;
 			this.traceDirty = true;
@@ -559,6 +563,8 @@ export class Engine {
 		}
 		gl.finish();
 		this.runPost();
+		// The loop isn't running for headless renders: their errors (stats.errors) are this evaluation's.
+		this.updateStats();
 		this.kick();
 	}
 
