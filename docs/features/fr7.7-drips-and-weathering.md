@@ -1,6 +1,6 @@
 # FR7.7 — Drips, weathering and relief/paint mixing
 
-**Status:** done (generator); the riveted panels and hammered copper reworked
+**Status:** done (generators: Drips, Blisters); the riveted panels and hammered copper reworked
 
 ## Goal
 
@@ -14,22 +14,28 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
   (`len_min..len_max`), width (tapering to half, `width_var`), strength `start × (1 − t)^fade`, and a gentle
   wobble. Coverage is the strength (soft), so a Normal or Multiply diffuse blend stains in proportion. Wraps on
   tileable projects; pixel-snapped in _hard_ mode so 1 px trails hit whole pixels.
-  - **Output → Sources**: the blisters of peeling paint the stains bleed from (see _Blisters_ below). Same seed ⇒
-    same places, so a Sources layer and a Stains layer line up.
-  - **Head size** (off by default): an optional drop blob for viscous fluids; water, rust and blood have none.
-  - **Drips from** (`spawn`; old files' _Relief drive_ r loads as r / 2): one slider from the grid to the ledges, the
-    drip count growing steadily along it. 0: only the Columns × Rows grid, scattered. Towards 0.5 a growing share (2·s)
-    of the grid cells drips from the strongest ledge anywhere inside them; at 0.5 all do, one drip per cell. A second
-    set — cells of _Ledge spacing_ px (blisters: at least half the radius), each holding its strongest ledge pixel,
-    dripping by Density × Clustering, a px or two below the lip now and then — fades in from 0 as s^1.5, while above
-    0.5 the grid drips thin out; at 1 drips start anywhere along every ledge, whatever the grid. Prepare runs two
-    ledge-cell passes (every pixel tried: set B's cells, and the grid's search cells, no bigger than half a grid cell,
-    so even a 3 px grid finds every ledge) and the source pass (one texture, set B below set A); the generator runs
-    through both sets in one flat loop (no `continue`: ANGLE can miscompile it). Stains and Sources alike.
-    **Off-ledge drips** (`bare`, 0.4) keeps a share of the grid cells without a ledge dripping where they are even
-    from 0.5 up — scaled down on grids finer than a tenth of the texture, so a fine grid laid for ledges doesn't fill
-    with them. The amount rises with the ledges on the base (Density counts per grid cell, then per Ledge spacing of
-    ledge): on the riveted test panel 11.7 → 26.8 → 42.3 → 52.9 → 67.2 k px stained over 0 / 0.25 / 0.5 / 0.75 / 1.
+  - **Blisters** are a layer of their own (`blisters`, see _Blisters_ below; once Drips' _Output → Sources_). Both
+    place their sources through `src/layers/dripSources.ts`, so the same seed and placement settings line them up.
+  - **Head**: _Head fade_ (px, off by default) fades each trail in over its first stretch, eased at both ends, so it
+    grows out of the surface instead of starting at a hard line; _Head rounding_ caps its top in a half-ellipse
+    (0.5: a half circle as wide as the trail; up to 2: a longer, rounded point — a runnels stain's wash and its runnels'
+    lanes narrow into the cap together). _Drop blob_ (`head`, off) adds a round drop at the source for viscous fluids;
+    water, rust and blood have none.
+  - **Two sets of drips**, independent of each other. **Scattered**: Columns × Rows grid cells, each dripping by
+    _Density_ from a random spot in it — never looking at the relief. **Ledge drips** (`ledge_density`, Ledges group, 0
+    by default): cells of _Ledge spacing_ px (blisters: at least half the radius), each holding its strongest ledge
+    pixel (`ledgeCells`: pixels within 4 % of the strongest are picked among at random, so drips along an even ledge
+    — a pipe, a moulding — don't line up a cell apart), dripping by Ledge drips × how much the drop counts × Clustering.
+    So rows / columns / Density place the free drips, and Ledge drips / spacing / threshold / reach / softness the ones
+    on the relief. (Replaced the single _Drips from_ slider, `spawn`, and its _Off-ledge drips_, `bare`; the built-in
+    presets were converted by the counts they gave.) Prepare runs one ledge-cell pass and the source pass (one
+    texture, set B below set A; `sourceCells` in dripSources.ts); the generator runs through both sets in one flat loop
+    (no `continue`: ANGLE can miscompile it).
+  - **Start at** (`ledge_start`, 1): where on a ledge's drop its drips start — 0 at the lip (the ledge pixel, the top
+    of the Ledge reach window), 1 at its foot: the source pass walks down from the lip (`dr_foot`, at most 6 × reach +
+    8 px, ≤ 96) while the height keeps falling by at least a fifth of the ledge's average per px, so under a hard step
+    the foot is about the reach below, and under a round pipe or a rounded lip it is the crease where it meets the
+    surface behind, rather than somewhere on its flank. The search windows of set B reach that far further up.
   - **Ledge drips** start on the ledge's own line, darkest against it — no ragged lip, no fade-in, tight corners —
     with a seep of Seep width × their width centred on the ledge spot, fanning out by Fan-out like any stain, up to
     1.5 × as wide, all by how far the ledge runs (the source pass measures it at 8 offsets, ±¼…1½ stain widths): a lip
@@ -42,12 +48,12 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
     - 3 px below the source, so its own ledge doesn't dim it; rivet-sized rises under 0.25 height units ignored; over
       ~8 px below a rise rather than a cut; each trail its own sensitivity), pooling darker just above a rise.
       Overlapping stains add up (1 − ∏(1 − strength)), so a column of rivets darkens all the way down.
-  - **Relief-aware** (group _Relief_): Drips reads the height the layers beneath have built. _Drips from_ moves
-    the sources from the scattered grid (0) onto **ledges** — where the height drops by at least the
-    _ledge threshold_ within the _ledge reach_ below the source (short reach = only hard steps; long = soft, gradual
-    edges too; _ledge softness_ turns the cut-off into a ramp): the lower edges of rivets, lips, blisters. _Length from height_ lengthens a
-    trail with the drop it falls from (taller rivets, longer tails). Use a fine source grid (≈ 2 px cells) so every
-    ledge gets candidates; place the layer after whatever raises the ledges.
+  - **Relief-aware** (group _Ledges_, `relief`): Drips reads the height the layers beneath have built. _Ledge drips_
+    puts sources on **ledges** — where the height drops by at least the _Threshold_ within the _Reach_ below the source
+    (short reach = only hard steps; long = soft, gradual edges too; _Softness_ turns the cut-off into a ramp; in the
+    Ledges group they drop the "Ledge" prefix that Ice's Icicles section keeps, `ledgeParams(…, short)`): the lower edges of rivets, lips, pipes, blisters. _Length
+    from height_ lengthens a trail with the drop it falls from (taller rivets, longer tails). Place the layer after
+    whatever raises the ledges.
 - **Two-stage staining** (from review feedback): one Drips layer as a wide, soft _water stain_ with Multiply
   (darkens what is beneath), and a second with the **same seed** as a narrow _rust_ trail using the shaping
   **cutoff** on the same strength field — rust appears only where the darkening is extreme (near the source).
@@ -170,22 +176,26 @@ models water running down a wall instead (`dr_runnels` in `drips.ts`):
   - **Defaults**: the look itself is the plain default — broad seeps (0.8) narrowing down (Wash taper 0.45, Fan-out 0.1),
     Shape variation 0.8, Wash feather 0.4, Streaks 0.55, Wash 1, Tide marks 0.25, Dry patches 0.2, three faint braided
     runnels (Runnel strength 0.5, Runnel braiding 0.35, Runnel beads 0.15), Strength variation 0.45, Width variation 0.65,
-    Clustering 0.35, Surface flow 0.6, Off-ledge drips 0.4, Raggedness 0.8. The **editor default** (`fresh`) adds what
-    depends on the texture size or the style: runnels at Drips from 0.5 on a 7 × 3 grid, 14–80 / 128 of the width long,
-    Stain softness, widths, Ledge spacing 14 / 128, a brown multiply ramp; below 128 px crisp pixel streaks instead; blister
-    radius and edge lift width for a switch to Sources — and the paint swaps with the output (`linkedDefaults`: brown
-    multiply ↔ a rust ramp, while the layer is still on that pair). Layers built in code keep the streak style and
-    Drips from 0 unless they ask.
+    Clustering 0.35, Surface flow 0.6, Start at 1 (the foot), Raggedness 0.8. The **editor default** (`fresh`) adds what
+    depends on the texture size or the style: runnels, Density 0.4 on a 7 × 3 grid and Ledge drips 0.3, 14–80 / 128 of the width long,
+    Stain softness, widths, Ledge spacing 14 / 128, a brown multiply ramp; below 128 px crisp pixel streaks instead
+    (Density 0.3, Ledge drips 0.15). Layers built in code keep the streak style and scattered drips only (Ledge drips 0)
+    unless they ask. Its Edge card holds only Anti-alias (`sdf: 'mask'`, `sdfShowIf` for `aa`): stains have no shape,
+    and write their coverage when given a mask other than Shape.
 
-## Blisters (Sources output)
+## Blisters
 
-Peeling paint giving way to the rust beneath, as a **mask** rather than domes (`dr_blisters` in `drips.ts`):
+Peeling paint giving way to the rust beneath, as a **mask** rather than domes: the **Blisters** generator (`blisters`,
+`src/layers/generators/blisters.ts`), split out of Drips (where it was _Output → Sources_) so each shader carries only
+its own work. Its placement params, defaults and hashes are Drips' (`placementParams` / `sourceCells` in
+`dripSources.ts`), so a Blisters layer and a Drips layer above it with the same seed and placement have the stains run
+down from the blisters; built-in presets and recreations that used Sources were converted to it.
 
-- **Where**: a ragged hole at each drip source (the stains' own placement, `dr_source`, so the same seed lines them
-  up; _Relief drive_ moves them onto ledges as before) smooth-unioned with bands along **every ledge** — the pixels the
-  ledge test (_Ledge threshold / reach / softness_) accepts, flooded into an exact distance field before the layer runs
-  (`prepare` → jump flood with a custom source, `t_ledges`). _Ledge blisters_ (0..1) sets how fast the bands grow with the
-  radius (0 = spots only); a band opens from its middle, so radius 0 shows nothing.
+- **Where**: a ragged hole at each source (scattered, and with _Ledge blisters_ along the ledges, at least half the
+  radius apart) smooth-unioned with bands along **every ledge** — the pixels the ledge test (_Threshold / Reach /
+  Softness_) accepts, flooded into an exact distance field before the layer runs (`prepare` → jump flood with a custom
+  source, `t_ledges`). _Ledge bands_ (`ledge_mix`, 0..1) sets how fast the bands grow with the radius (0 = spots only);
+  a band opens from its middle, so radius 0 shows nothing.
 - **Blister radius** grows everything: specks → dots and thin ledge lines → blobs → patches that merge into whole
   areas. _Size variation_ gives each source its own share. A big radius on a fine grid is cut short at 5 source cells
   each way (8 without the relief search); by then the blisters have merged anyway.
@@ -206,10 +216,9 @@ Peeling paint giving way to the rust beneath, as a **mask** rather than domes (`
   lift width_); at the edge it falls to _Hole depth_ below the surface onto a rough floor — both × the Height amount, added to the
   relief beneath (which shows through the hole). Coverage is the hole; the value its floor's roughness (0.6–1), for a
   diffuse ramp to shade the rust by. _Hard edges_ steps the edge and the drop at whole pixels.
-- Old Sources layers without a radius take their head size as it (`migrate`); the Water & rust stains material's
-  _Blisters_ macro and the rusty-panel template build them without writing a mask (`mk_target: ''`), with
-  ledge blisters only when they start at ledges.
-- **Height** turns on with the Sources output (and off again with Stains) unless set by hand (`linkedDefaults`).
+- The rusty-panel Match template builds them without writing a mask (`mk_target: ''`), with ledge bands only when its
+  stains start at ledges.
+- **Height** is on from the start (the peel is the layer), with a rust ramp that isn't metal.
 - Compile cost (D3D11, cold, `tools/compile-time.ts`): one flat cell loop serves both outputs (each picks its cell
   range first), so the source search is inlined once; the blisters' five noise lookups run through one `valueNoise`
   call; the runnels' loop is bounded by their count, not a constant 8 with a break (which D3D unrolled). 1.7 s → 0.95 s
@@ -218,7 +227,8 @@ Peeling paint giving way to the rust beneath, as a **mask** rather than domes (`
   streak noises (four lookups through one `valueNoise` call, accumulated as they come rather than into an indexed
   array) and the fBm lobes; the source search moved to its own pass, and a bead reuses its runnel's position (one
   `dr_bj` / `dr_cx` / width evaluation fewer: 1.43 → 1.25 s). With everything since (two source sets, ledge drips,
-  the free head, flow) ≈ 1.45 s.
+  the free head, flow) ≈ 1.45 s. Split into two layers (and the source pass shared): Drips 0.25 s, Blisters 0.35 s on
+  an RTX 5080 (the combined Drips was 0.58 s there).
 
 ## Relief / paint mixing (lesson)
 
@@ -244,6 +254,10 @@ Caution: the Noise generator's default has height on (0.25) — set it deliberat
 - [x] Blisters as a mask: sources + flooded ledges grown by one radius, ragged edges, lift-and-drop peel height
 - [x] Drips from: one slider grid → ledges (old Relief drive = its first half),
       whole-cell ledge search, crossfaded so the drip count grows steadily, ledge-spaced sources, both outputs
+- [x] Blisters split out of Drips into a layer of its own; shared placement (`dripSources.ts`); Relief group → Ledges
+- [x] Placement split: scattered (Columns × Rows × Density) and Ledge drips (own density, spacing, ledge test)
+      independent; Start at lip → foot (the crease under a pipe or rounded lip); Head fade and Head rounding; random
+      pick among near-strongest ledge pixels
 - [x] Drips quality pass: seep width, fan-out, taper past it, shape variation, feather, streaks, softness, strength
       variation, runnel strength and braiding, clustering, surface flow, per-cell source pass (96-row reach), capped
       strength, fractal blister edges, uneven ledge bands and lips, bowl floors, wider ranges, editor default and paint swap

@@ -1,49 +1,29 @@
-// Drips: its blisters (a shape for the mask, written by the Sources output), Height and paint following the output,
-// and the editor's defaults.
+// Drips: the stains (their coverage for a mask, no shape), the placement and head controls, and the editor's
+// defaults. (The blisters are a layer of their own: blisters.test.ts.)
 import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
-import { createLayer, freshParams, getLayerDef, layerGroups, layerParamDefs, linkedChanges } from '@/layers/registry';
+import { createLayer, freshParams, getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry';
 import { maskWriteKind } from '@/layers/masks';
 
 ensureBuiltins();
 const def = (key: string) => layerParamDefs('drips').find((p) => p.key === key)!;
 
-describe('drips blisters', () => {
-	it('writes the Shape mask, with an Edge card whose bevel starts off', () => {
-		const keys = layerParamDefs('drips').map((p) => p.key);
-		expect(keys).toEqual(expect.arrayContaining(['mk_target', 'mk_op', 'mk_smooth', 'bevel', 'aa']));
-		expect(def('bevel').default).toBe(0);
+describe('drips mask and edge', () => {
+	it('writes only its coverage to a mask (not into Shape), with an Edge card of just Anti-alias, crisp by default', () => {
+		const stains = createLayer('drips').params;
+		const drips = getLayerDef('drips');
+		expect(maskWriteKind(drips, stains)).toBe(false);
+		expect(maskWriteKind(drips, { ...stains, mk_target: 'Wet' })).toBe('coverage');
 		expect(def('aa').default).toBe(false);
-		expect(def('mk_target').group).toBe('mask');
-		expect(def('mk_target').default).toBe('Shape');
+		expect(def('aa').showIf!(stains)).toBe(true);
+		expect(def('bevel').showIf!(stains)).toBe(false);
 		expect(layerGroups(getLayerDef('drips')!).map((g) => g.id)).not.toContain('shape');
 	});
 
-	it('writes its blisters as a shape from Sources; stains only their coverage, and not into Shape', () => {
-		const stains = createLayer('drips').params;
-		const sources = createLayer('drips', { output: 'source' }).params;
-		const drips = getLayerDef('drips');
-		expect(maskWriteKind(drips, sources)).toBe('shape');
-		expect(maskWriteKind(drips, stains)).toBe(false);
-		expect(maskWriteKind(drips, { ...stains, mk_target: 'Wet' })).toBe('coverage');
-		expect(def('mk_smooth').showIf!({ ...sources, mk_op: 'smooth-union' })).toBe(true);
-		expect(def('mk_smooth').showIf!({ ...sources, mk_op: 'union' })).toBe(false);
-	});
-});
-
-describe('drips height follows the output', () => {
-	it('starts Sources with Height on, Stains with it off', () => {
+	it('has no blister controls or Output switch any more', () => {
+		const keys = layerParamDefs('drips').map((p) => p.key);
+		for (const k of ['output', 'blister', 'ragged', 'lift', 'depth', 'ledge_mix']) expect(keys).not.toContain(k);
 		expect(createLayer('drips').params.h_on).toBe(false);
-		expect(createLayer('drips', { output: 'source' }).params.h_on).toBe(true);
-		expect(createLayer('drips', { output: 'source', h_on: false }).params.h_on).toBe(false);
-	});
-	it('switches Height with the output unless it was set by hand', () => {
-		const stains = createLayer('drips').params;
-		expect(linkedChanges('drips', stains, 'output', 'source')).toEqual({ output: 'source', h_on: true });
-		const sources = { ...stains, output: 'source', h_on: true };
-		expect(linkedChanges('drips', sources, 'output', 'stain')).toEqual({ output: 'stain', h_on: false });
-		expect(linkedChanges('drips', { ...stains, h_on: true }, 'output', 'source')).toEqual({ output: 'source' });
-		expect(linkedChanges('drips', stains, 'density', 0.3)).toEqual({ density: 0.3 });
 	});
 });
 
@@ -52,7 +32,11 @@ describe('drips stains', () => {
 		const p = createLayer('drips').params;
 		expect(p).toMatchObject({
 			style: 'streak',
-			spawn: 0,
+			density: 0.5,
+			ledge_density: 0,
+			ledge_start: 1,
+			head_fade: 0,
+			head_round: 0,
 			soft: 0,
 			streaks: 0.55,
 			seep: 0.8,
@@ -63,33 +47,17 @@ describe('drips stains', () => {
 		});
 	});
 
-	it('shows Ledge spacing only when drips start from ledges', () => {
-		expect(def('ledge_gap').showIf!({ spawn: 0 })).toBe(false);
-		expect(def('ledge_gap').showIf!({ spawn: 0.3 })).toBe(true);
+	it('groups the ledge controls under Ledges, without the Ledge prefix on the test', () => {
+		expect(getLayerDef('drips')!.groups).toEqual([{ id: 'relief', label: 'Ledges' }]);
+		expect(['ledge', 'ledge_reach', 'ledge_soft'].map((k) => def(k).label)).toEqual(['Threshold', 'Reach', 'Softness']);
+		expect(def('ledge_density').label).toBe('Ledge drips');
 	});
 
-	it('swaps the editor paint with the output: brown multiply for stains, rust for blisters — paint set by hand stays', () => {
-		const fresh = createLayer('drips', freshParams('drips', { width: 512, height: 512 })).params;
-		const toSources = linkedChanges('drips', fresh, 'output', 'source');
-		expect(toSources).toMatchObject({ output: 'source', h_on: true, dif_blend: 'normal' });
-		const back = linkedChanges('drips', { ...fresh, ...toSources }, 'output', 'stain');
-		expect(back).toMatchObject({ output: 'stain', h_on: false, dif_blend: 'multiply' });
-		expect(back.dif_grad).toEqual(fresh.dif_grad);
-		// A layer built in code (the plain rust ramp) or repainted keeps its paint.
-		expect(linkedChanges('drips', createLayer('drips').params, 'output', 'source')).toEqual({
-			output: 'source',
-			h_on: true
-		});
-		const repainted = {
-			...fresh,
-			dif_grad: {
-				stops: [
-					{ pos: 0, color: '#000000' },
-					{ pos: 1, color: '#ffffff' }
-				]
-			}
-		};
-		expect(linkedChanges('drips', repainted, 'output', 'source')).toEqual({ output: 'source', h_on: true });
+	it('shows Ledge spacing and Start at only with Ledge drips', () => {
+		for (const k of ['ledge_gap', 'ledge_start']) {
+			expect(def(k).showIf!({ ledge_density: 0 })).toBe(false);
+			expect(def(k).showIf!({ ledge_density: 0.3 })).toBe(true);
+		}
 	});
 
 	it('starts editor layers as a detailed stain from 128 px, crisp pixel streaks below', () => {

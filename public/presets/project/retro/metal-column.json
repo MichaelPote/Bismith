@@ -479,20 +479,11 @@
       "name": "Drips",
       "enabled": true,
       "params": {
-        "output": "stain",
         "style": "streak",
         "cols": 7,
         "rows": 4,
-        "spawn": 0.2767,
-        "density": 0.95207,
-        "bare": 0.937,
+        "density": 0.892,
         "cluster": 0.1858,
-        "blister": 2,
-        "blister_var": 0.5,
-        "ragged": 0.8,
-        "lift": 0.8,
-        "lift_width": 2,
-        "depth": 1,
         "len_min": 9.9542,
         "len_max": 40.115,
         "width": 1.5941,
@@ -525,7 +516,6 @@
         "ledge_soft": 0.71293,
         "relief_len": 2.6383,
         "flow": 0.36365,
-        "ledge_mix": 0.5,
         "seed": 19599,
         "bevel": 0,
         "profile": "round",
@@ -579,12 +569,10 @@
         "mk_op": "replace",
         "mk_smooth": 4,
         "mk_feather": 4.8774,
-        "mk_src_2": "out_stain",
         "mk_target_2": "",
         "mk_op_2": "replace",
         "mk_smooth_2": 4,
         "mk_feather_2": 0,
-        "mk_src_3": "out_source",
         "mk_target_3": "",
         "mk_op_3": "replace",
         "mk_smooth_3": 4,
@@ -684,7 +672,8 @@
         "e_src": "value",
         "e_mode": "add",
         "e_color": "#ff9019",
-        "e_intensity": 2
+        "e_intensity": 2,
+        "ledge_density": 0.369
       }
     }
   ],
@@ -758,7 +747,7 @@
       }
     }
   ],
-  "preview": "data:image/webp;base64,UklGRr4EAABXRUJQVlA4WAoAAAAgAAAAPwAAPwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgg0AIAADARAJ0BKkAAQAA+bTaUSKQjIaEkGArYgA2JZwC361DvTP7m6if5QA3uurW/wXWv7gGtA/SvUK4x/CH8Y8yH6Ac9H6h30QHOfq8RrjIQ9fdK9LTvFz9T+qyqUiSWyevscY31Eu2f4+emN4T2xpjNRR59u9ZSFCW9IujLNx6rd9y1avoIc4UiB7bOllTxS0gPBl4AAP74jozTAhrxPmyqqSbR5MXhAXEPbEUkFZgUCfdMqhDZKF2qZuXVqYhvI3yF70MdHzdK8I0gcsPVMHtozHoDfcpY6GQDmbY8yrI2Fo2z1hD2gi4w2FrTPE4ZAeNWCdSt4G08e1hHMf7n55gJi/w2+iJYI8jYkJWzln4++wqybATl+aLgawJ9D/KDr7G76NFBm/zGPHFBqUFeqMNFhsf4wO79bNiRTAscju8ibiGpE9bnmXdN/q4ozHEkg0HmU6da4OGL4By+Vn77EUUdS11lQ3w+hRZs9favwlF40dcu1H6flLO9egk0PcC4T3PptPmHLsGAE6ZFIAS9yijC2P373X0sXaNo0gbfj2T51jfT9c6V5zj44Vq3Xt7XRvZNahznlLAAbtXBWnjT9BsFOXZg5xyREmLJWa4QEvnGVsBzAb0h3t8c5tqmyLy5DoOGr5Z/qqfzI4iNdUlyQYtwmIfDOnIJchKLxt0m1GH+nRRMTftyXwu0IeXBgPsjVo1pRxPlvrQJl8LVU+UAkkn+H38TKhcrNAFefpc70N0gFqK71mVmA04R6SuQHaSQbvM/8KgKNt9aglyEovtETp6aGlInzu9Sycna+U4RWp2AwuqwZsDe81mac8KMJaeD3RzMPArD943T3O6NC6WegJfO708n15lU2a9ZP7IiIVBQ1np3l7HSpHjVhZ/yuyd7SSO2IOzjhpcmpq2gd6KuAq0GwrboJwc4bSeeKjW0T8Flf9AqOf2vD5Ry1qsbyCqh9tnAAA==",
+  "preview": "data:image/webp;base64,UklGRtAEAABXRUJQVlA4WAoAAAAgAAAAPwAAPwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgg4gIAAPAQAJ0BKkAAQAA+bTaVSKQjIiEkGAm4gA2JZw3GJJQ3f4NoJzjpP8oMb3TR5u7RsxbkPXS7gGsW/S/RAp0nM18k8yP6Ae9D31/pvfYAcSlI7nOgoD523+NqRKGqncBPrNtIM+70jMJGHzSDGY/NDaCHT7HS4ea4tcWn4HGKYytF0Am2eoPT4EVKHrCASpM6AAD++I/bK/cr4SdJrzrvR26a7dYTWg4PYbHVBwWZTAJJEUdpu6wL11VrqiRsUOXdlglou3dD+jEMctp0evNgzd3HhjJr+uuOfgWhzo98V3lxD24tg9aETc2Gjs3nvnlg7xMq0MWaWaT+htYHExY5qm0YXxy51K2lPNGEXagGjHQcLF+mnyn860vVeelgvDOcCLzliM7lCVGI5MIj2aKMO2AScwbxxPzXr+qsszG+sUmB+PeNpohaurEM9ZGJfkM4ic9Xfy2DQUHbz7UU48xOfmHUdcP2Z/opGujL5JETqwO6YAu4te+DpGO6mGke9DBDENOVyj6n5kmkpzBzv9VUNORKhMv4xHMZrwZrEyk8vidVy/vofvC5z7/wY4gq88srpY0QzaMF251dNhiAeAFoh+KlABDD9YIMHTLRD1qPusAsMdZ2pcT6/C/9tObA4q52CAN9lPIQy1bxY0TqMoNaPEOCoAeeKnAToxzzrIWLl4VBJW5ANUogFwYBmwY9M/s7hZLqYCl8+Gv0Km/xbrNkzNnN/YGacv9+efAZvSW6Bl+TXqDUW+7W/w0PtFk1gHzHG3MiDbkb3a/hjELt+2f7OtwIvOQ0gphrI8yKgCFxisb9MsYxvJz/AqUd2ywjddVNJueDNZ7GyqgX54aQaxwpJ4xmqyBEGjW9XsN5ucjzx/9AMZ2m5T+daUiG7YTYYXLiiz9U94ZoEddt66kh/KsawYMbjAUnDz58Rzn/92Om5kzE7ee8lThyliE8hAWxan7Hc1Hi+R2rcdAnCWR5huIstAAAAA==",
   "preset": {
     "kind": "project",
     "id": "metal-column",

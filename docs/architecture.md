@@ -155,7 +155,7 @@ LayerDef {
   params: ParamDef[],            // drives both the UI and the uniforms
   glsl?: string,                 // generator: defines `GenOut gen(vec2 p)`
   sdf?: boolean | 'mask',        // generator produces a signed distance (shapes, bricks, voronoi); 'mask': for the
-                                 //   mask it writes only, the generator shapes its own value and coverage (Drips' blisters,
+                                 //   mask it writes only, the generator shapes its own value and coverage (Blisters,
                                  //   Splats, Scratches, Cable, Hammered, Caustics) — the Edge card still applies: Bevel (0 by
                                  //   default) × its own value, Anti-alias read by the generator itself (u_aa)
   maskWrite?: (params) => 'shape' | 'coverage' | false, // what it writes into its mask (masks.ts, FR8.23)
@@ -194,7 +194,7 @@ A generator's GLSL returns `GenOut { float value; float mask; float rnd; float s
 - `sdf` — signed distance in px, negative inside (SDF generators only).
 - `height` — optional (`genOutHeight`): a signed height profile of the generator's own. Height › Pattern adds it
   (× amount) instead of the value, wherever it is non-zero — not limited by the coverage, so it can rise past what the
-  other outputs paint and sink below the surface (Drips' blisters: a lifted lip outside the hole, the hole below).
+  other outputs paint and sink below the surface (Blisters: a lifted lip outside the hole, the hole below).
 - `own` — how an SDF generator's value relates to its shape: 0 the wrapper draws the shape (value = bevel profile,
   coverage = inside); 1 (`genOutOwn`) the generator painted its own value and coverage and `sdf` only goes to the mask
   it writes (Cracks' carve); 2 (`genOutShaded`) the generator's pattern × the bevel of the combined shape, its
@@ -225,8 +225,8 @@ shader): the normal of a slope, the lens shift through it, the layers below seen
 `tAlbedo`), tinting, grazing-angle rims, the inner glint where a dome focuses light, and `layTransparent`, which splits a
 colour into lit albedo and transmitted light. The Glass filter and Ice both go through it; new refracting layers should
 too. Likewise, layers that hang things from the relief below share `src/layers/ledges.ts`: the ledge test (`LEDGE_GLSL`,
-`ledgeParams`) and the pass that finds each cell's strongest ledge pixel (`ledgeCells`) — Drips' trails and blisters
-and Ice's icicles.
+`ledgeParams`) and the pass that finds each cell's strongest ledge pixel (`ledgeCells`) — Drips' trails, Blisters'
+blisters and Ice's icicles.
 
 The common generator wrapper then:
 
@@ -287,7 +287,8 @@ Beyond the procedural families, three generators take hand-authored input (FR7.5
 as rows of characters — insignia, emblems), **Label** (pixel-font lettering) and **Path** (polygons from a vertex
 list — chamfered cut-outs, channels, inlays), all as SDFs so bevels and masks apply; and **Cable**
 draws tubes wound on a helix (coils, twisted rope mouldings). **Drips** (FR7.7) runs stains down from scattered
-sources (or outputs the sources as blisters); **Hammered** lays dish dents on concentric rings around a few centres
+sources and ledges, and **Blisters** tears ragged holes of peeling paint at the same sources (both placed through
+`src/layers/dripSources.ts`, so the same seed lines them up); **Hammered** lays dish dents on concentric rings around a few centres
 whose regions interlock along arcs. **Cracks** (FR8.17; was Chips & splits, listed with the filters) damages whatever is in its mask (the Shape mask):
 in stone, breaks, flake scars struck in from the edges, cracks and faults; in wood, chips off its edges and corners,
 splits along the grain from the edges that cross it (merging where they meet), nicks across it. **Rock**

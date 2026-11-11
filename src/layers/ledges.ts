@@ -1,6 +1,6 @@
 // Ledges in the relief below — where the height drops going down the texture, as under a brick's lower edge or a
 // moulding's lip — and the cells that find them, shared by the layers that hang things from them: Drips (the trails and
-// blisters start there) and Ice (its icicles hang there).
+// Blisters' blisters start there) and Ice (its icicles hang there).
 //
 // The test reads the layer's `ledge` (the drop that counts), `ledge_reach` (how far below it is measured) and
 // `ledge_soft` (LEDGE_PARAMS). The cells pass finds, in every cell of a grid, its strongest ledge pixel — every pixel
@@ -32,12 +32,15 @@ void main() {
   ivec2 hi = ivec2(ceil(vec2(l + 1) * csL - 0.5));
   int n = max(hi.x - lo.x, 1);
   int count = n * max(hi.y - lo.y, 0);
-  float best = -1.0;
+  float best = -1.0, bestS = -1.0;
   vec2 pos = (vec2(l) + 0.5) * csL;
   for (int i = 0; i < count; i++) {
     ivec2 pu = lo + ivec2(i - (i / n) * n, i / n);  // user px
     float dd = ledgeDrop(ivec2(pu.x, int(uRes.y) - 1 - pu.y));
-    if (dd > best) { best = dd; pos = vec2(pu) + 0.5; }
+    // (Pixels within a few % of the strongest are picked among at random: along an even ledge — a pipe, a moulding —
+    // the first would win in every cell, lining the drips up a cell apart.)
+    float sc = dd * (1.0 + 0.04 * hashI(pu, uSeed + 4049.0));
+    if (sc > bestS) { bestS = sc; best = dd; pos = vec2(pu) + 0.5; }
   }
   oColor = vec4(pos, max(best, 0.0), 1.0);
 }
@@ -56,17 +59,25 @@ export function ledgeCells(ctx: FilterContext, name: string, cells: [number, num
 	return target.texture;
 }
 
-/** The ledge test's params, for a layer's ParamDefs (Drips puts them in its Relief group, Ice in its Icicles section). */
-export function ledgeParams(extra: Partial<ParamDef> = {}, showIf?: (p: ParamValues) => boolean): ParamDef[] {
+/**
+ * The ledge test's params, for a layer's ParamDefs (Drips and Blisters put them in their Ledges group, Ice in its
+ * Icicles section). `short`: labels without the "Ledge" prefix, for a group that already says it.
+ */
+export function ledgeParams(
+	extra: Partial<ParamDef> = {},
+	showIf?: (p: ParamValues) => boolean,
+	short = false
+): ParamDef[] {
+	const label = (s: string) => (short ? s[0].toUpperCase() + s.slice(1) : `Ledge ${s}`);
 	return [
-		P.float('ledge', 'Ledge threshold', 0.15, 0, 8, {
+		P.float('ledge', label('threshold'), 0.15, 0, 8, {
 			softMax: 1,
 			step: 0.001,
 			...extra,
 			showIf,
-			hint: 'Sets the height drop (in height units, over the Ledge reach) that counts as a ledge. Raise it until shallow bumps stop sprouting'
+			hint: 'Sets the height drop (in height units, over the reach below) that counts as a ledge. Raise it until shallow bumps stop sprouting'
 		}),
-		P.float('ledge_reach', 'Ledge reach', 2, 1, 64, {
+		P.float('ledge_reach', label('reach'), 2, 1, 64, {
 			softMax: 16,
 			unit: 'px',
 			axis: 'y',
@@ -75,11 +86,11 @@ export function ledgeParams(extra: Partial<ParamDef> = {}, showIf?: (p: ParamVal
 			showIf,
 			hint: 'Sets how far below a point the drop is measured (short = only hard, sharp steps count; long = soft, gradual edges count too)'
 		}),
-		P.float('ledge_soft', 'Ledge softness', 0.15, 0, 1, {
+		P.float('ledge_soft', label('softness'), 0.15, 0, 1, {
 			step: 0.001,
 			...extra,
 			showIf,
-			hint: 'Softens the Ledge threshold (0 = a hard cut-off; 1 = gradual, so weaker ledges sprout less often)'
+			hint: 'Softens the threshold (0 = a hard cut-off; 1 = gradual, so weaker ledges sprout less often)'
 		})
 	];
 }

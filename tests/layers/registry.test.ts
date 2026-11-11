@@ -16,7 +16,17 @@ const noUniform = (d: ParamDef) => d.key === 'seed' || d.uniform === false;
  * in their prepare passes (Drips) — so a param missing from `glsl` is not necessarily unused: skipped here (their own
  * tests cover their CPU side). A new layer of this kind must be added deliberately.
  */
-const READ_ELSEWHERE = new Set(['stamp', 'label', 'polyline', 'drips', 'splats', 'traces', 'causticlight', 'pipework']);
+const READ_ELSEWHERE = new Set([
+	'stamp',
+	'label',
+	'polyline',
+	'drips',
+	'blisters',
+	'splats',
+	'traces',
+	'causticlight',
+	'pipework'
+]);
 /** Filter params read only by their prepare passes (the edge filters' jump flood, Cavity's mask pass). */
 const READ_IN_PREPARE = new Set([
 	'bevel.threshold',

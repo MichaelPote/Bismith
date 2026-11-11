@@ -653,7 +653,6 @@ export const DEFAULT_LIBRARY: LayerTemplate[] = [
 		name: 'Water stains',
 		stack: 'paint',
 		params: {
-			output: 'stain',
 			cols: 12,
 			rows: 6,
 			density: 0.5,

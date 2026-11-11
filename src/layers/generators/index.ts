@@ -11,6 +11,7 @@ import { STAMP_LAYERS } from './stamp';
 import { PATH_LAYERS } from './paths';
 import { cableLayer } from './cable';
 import { dripsLayer } from './drips';
+import { blistersLayer } from './blisters';
 import { splatsLayer } from './splats';
 import { hammeredLayer } from './hammered';
 import { tabsLayer } from './tabs';
@@ -41,6 +42,7 @@ export const GENERATORS: LayerDef[] = [
 	...PATH_LAYERS,
 	cableLayer,
 	dripsLayer,
+	blistersLayer,
 	splatsLayer,
 	hammeredLayer,
 	tabsLayer,

@@ -520,10 +520,11 @@ function stains(a: Analysis, opts: { ledges?: boolean; seed?: number; blisters?:
 		? {
 				cols: Math.ceil(a.width / 3),
 				rows: Math.ceil(a.height / 3),
-				density: 0.9,
+				density: 0,
+				ledge_density: 1,
+				ledge_gap: 3,
 				len_min: 3,
 				len_max: Math.round(a.height * 0.25),
-				spawn: 0.5,
 				ledge: 0.15,
 				ledge_reach: 2,
 				ledge_soft: 0.15,
@@ -537,10 +538,12 @@ function stains(a: Analysis, opts: { ledges?: boolean; seed?: number; blisters?:
 				len_max: Math.round(a.height * 0.45)
 			};
 	const src = { ...grid, wobble: 0.3, head: 0, seed: opts.seed ?? 5 };
+	// The blisters: placed as the stains are (the same seed and placement), so the rust runs down from them.
+	const PLACE = ['cols', 'rows', 'density', 'ledge_density', 'ledge_gap', 'ledge', 'ledge_reach', 'ledge_soft', 'seed'];
+	const place = Object.fromEntries(Object.entries(src).filter(([k]) => PLACE.includes(k)));
 	const rust = warmest(a);
 	return [
 		L('drips', 'Water stain', {
-			output: 'stain',
 			...src,
 			width: 3,
 			width_var: 0.5,
@@ -555,7 +558,6 @@ function stains(a: Analysis, opts: { ledges?: boolean; seed?: number; blisters?:
 		...(rust
 			? [
 					L('drips', 'Rust trails', {
-						output: 'stain',
 						...src,
 						width: 1.4,
 						width_var: 0.6,
@@ -571,9 +573,8 @@ function stains(a: Analysis, opts: { ledges?: boolean; seed?: number; blisters?:
 					}),
 					...(opts.blisters
 						? [
-								L('drips', 'Blisters', {
-									output: 'source',
-									...src,
+								L('blisters', 'Blisters', {
+									...place,
 									blister: 1.2,
 									ledge_mix: opts.ledges ? 0.6 : 0,
 									aa: false,
