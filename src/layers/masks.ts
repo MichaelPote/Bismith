@@ -200,29 +200,48 @@ const OP_SYMBOL: Record<string, string> = {
 };
 
 /**
+ * Every mask write of the running layers, in evaluation order, and for each layer of the stack how many come before it:
+ * built in one pass, so the queries below (several per layer in the outliner, on every edit) each walk it instead of
+ * re-filtering the stack and working out every earlier layer's writes again.
+ */
+interface WriteLog {
+	steps: { layer: Layer; target: string; op: string }[];
+	before: Map<string, number>;
+}
+function writeLog(p: Project): WriteLog {
+	const steps: WriteLog['steps'] = [];
+	const before = new Map<string, number>();
+	const run = new Set(running(p));
+	for (const l of p.layers) {
+		before.set(l.id, steps.length);
+		if (run.has(l)) for (const w of layerWrites(getLayerDef(l.type), l.params)) steps.push({ layer: l, ...w });
+	}
+	return { steps, before };
+}
+
+/**
  * The writers `mask` holds when `layerId` runs, in evaluation order: back to the last one in Normal mode (which
  * replaced everything before it). Empty: nothing has written it yet.
  */
 export function maskChain(p: Project, layerId: string, mask: string): MaskWriter[] {
-	return writesHeld(p, layerId, mask).map((w) => ({ name: w.layer.name, op: w.op }));
+	return writesHeld(writeLog(p), layerId, mask).map((w) => ({ name: w.layer.name, op: w.op }));
 }
 
 /** The layers whose writes `mask` holds when `layerId` runs, in stack order (see maskChain). */
 export function maskWriters(p: Project, layerId: string, mask: string): Layer[] {
-	return [...new Set(writesHeld(p, layerId, mask).map((w) => w.layer))];
+	return writersHeld(writeLog(p), layerId, mask);
 }
+const writersHeld = (log: WriteLog, layerId: string, mask: string) => [
+	...new Set(writesHeld(log, layerId, mask).map((w) => w.layer))
+];
 
-function writesHeld(p: Project, layerId: string, mask: string): { layer: Layer; op: string }[] {
+function writesHeld(log: WriteLog, layerId: string, mask: string): { layer: Layer; op: string }[] {
 	const chain: { layer: Layer; op: string }[] = [];
-	const at = p.layers.findIndex((l) => l.id === layerId);
-	for (const l of running(p)
-		.filter((l) => p.layers.indexOf(l) < at)
-		.reverse()) {
-		for (const w of layerWrites(getLayerDef(l.type), l.params).reverse()) {
-			if (w.target !== mask) continue;
-			chain.unshift({ layer: l, op: w.op });
-			if (w.op === 'replace') return chain;
-		}
+	for (let i = (log.before.get(layerId) ?? 0) - 1; i >= 0; i--) {
+		const s = log.steps[i];
+		if (s.target !== mask) continue;
+		chain.unshift({ layer: s.layer, op: s.op });
+		if (s.op === 'replace') break;
 	}
 	return chain;
 }
@@ -240,10 +259,11 @@ export interface MaskLink {
  */
 export function maskLinks(p: Project): MaskLink[] {
 	const links: MaskLink[] = [];
+	const log = writeLog(p);
 	// `at`: the layer whose place in the stack decides what the mask holds.
 	const add = (reader: string, at: string, e: LimitExpr | null | undefined) => {
 		for (const t of e?.terms ?? [])
-			for (const w of maskWriters(p, at, t.mask)) links.push({ reader, writer: w.id, mask: t.mask });
+			for (const w of writersHeld(log, at, t.mask)) links.push({ reader, writer: w.id, mask: t.mask });
 	};
 	for (const l of p.layers) add(l.id, l.id, layerLimit(l.params));
 	for (const g of p.groups ?? []) {
@@ -260,8 +280,9 @@ export function maskLinks(p: Project): MaskLink[] {
  */
 export function unwrittenMasks(p: Project): Map<string, string[]> {
 	const out = new Map<string, string[]>();
+	const log = writeLog(p);
 	const check = (key: string, at: string, names: string[]) => {
-		const empty = [...new Set(names)].filter((m) => !writesHeld(p, at, m).length);
+		const empty = [...new Set(names)].filter((m) => !writesHeld(log, at, m).length);
 		if (empty.length) out.set(key, empty);
 	};
 	for (const l of p.layers) {
@@ -292,13 +313,16 @@ export function maskChainLabel(chain: MaskWriter[]): string {
 
 /** Names of the masks written above `layerId` (or anywhere, without one), Shape first, then in order of first write. */
 export function masksAbove(p: Project, layerId?: string): string[] {
-	const at = layerId ? p.layers.findIndex((l) => l.id === layerId) : p.layers.length;
-	const names: string[] = [];
-	for (const l of running(p)) {
-		if (p.layers.indexOf(l) >= at) break;
-		for (const w of layerWrites(getLayerDef(l.type), l.params)) if (!names.includes(w.target)) names.push(w.target);
+	if (layerId && !p.layers.some((l) => l.id === layerId)) return [];
+	const hidden = hiddenByGroup(p);
+	const names = new Set<string>();
+	for (const l of p.layers) {
+		if (l.id === layerId) break;
+		// (The running layers, as running() picks them, without building the list.)
+		const def = l.enabled && !hidden.has(l.id) ? getLayerDef(l.type) : undefined;
+		if (def) for (const w of layerWrites(def, l.params)) names.add(w.target);
 	}
-	return names.sort((a, b) => (a === SHAPE_MASK ? -1 : b === SHAPE_MASK ? 1 : 0));
+	return [...names].sort((a, b) => (a === SHAPE_MASK ? -1 : b === SHAPE_MASK ? 1 : 0));
 }
 
 // ------------------------------------------------------------------------------------------------ colours
@@ -419,7 +443,8 @@ function flatten(e: LimitExpr, group: 0 | 1): { mask: string; op: LimitOp | 'fir
 /** Plan the masks of one evaluation of the layers up to index `upTo` (FR8.23). */
 export function planMasks(p: Project, upTo = Infinity): MaskPlan {
 	const groups = groupsOf(p);
-	const list = running(p).filter((l) => p.layers.indexOf(l) <= upTo);
+	const index = new Map(p.layers.map((l, i) => [l, i]));
+	const list = running(p).filter((l) => index.get(l)! <= upTo);
 	// Current version of each mask, and whether it's exact or a plain coverage.
 	const current = new Map<string, { version: number; exact: boolean; plain: boolean }>();
 	const refOf = (mask: string): MaskRef => {

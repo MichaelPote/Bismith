@@ -35,7 +35,6 @@
 
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: number): void;
-		(e: 'commit', v: number): void;
 	}>();
 
 	const track = ref<HTMLElement | null>(null);
@@ -88,11 +87,10 @@
 	/** The latest value set (the prop catches up a render later). */
 	let current = props.modelValue;
 
-	function set(v: number, commit = false): void {
+	function set(v: number): void {
 		const c = clamp(Number(v.toFixed(6)));
 		current = c;
 		if (c !== props.modelValue) emit('update:modelValue', c);
-		if (commit) emit('commit', c);
 	}
 
 	// ---------------------------------------------------------------- previous value (double-click)
@@ -122,7 +120,7 @@
 		const target = getPrevious() ?? props.defaultValue;
 		if (target === undefined || !Number.isFinite(target) || target === props.modelValue) return;
 		setPrevious(props.modelValue);
-		set(target, true);
+		set(target);
 	}
 
 	function nudge(dir: number, e?: MouseEvent | KeyboardEvent): void {
@@ -131,7 +129,7 @@
 		const v = props.modelValue;
 		// Ctrl: to the next division in that direction.
 		const next = e && (e.ctrlKey || e.metaKey) ? snapStep(v, division.value, dir) : v + dir * stepSize.value;
-		set(next, true);
+		set(next);
 		end();
 	}
 
@@ -187,7 +185,6 @@
 		el.releasePointerCapture(e.pointerId);
 		if (moved) {
 			dragging.value = false;
-			emit('commit', current);
 			end();
 		} else {
 			before = null;
@@ -240,7 +237,7 @@
 				v = NaN;
 			}
 		}
-		if (Number.isFinite(v)) set(v, true);
+		if (Number.isFinite(v)) set(v);
 		end();
 	}
 </script>

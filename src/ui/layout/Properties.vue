@@ -82,12 +82,16 @@
 	 * every mask the project has (and Shape) — and, reading, a note on what the mask holds here ("Shape here: Panel −
 	 * Vent") or that it's empty.
 	 */
-	function withMasks(d: ParamDef, layerId: string | undefined): ParamDef {
+	function withMasks(
+		d: ParamDef,
+		layerId: string | undefined,
+		choices?: { read: string[]; write: string[] }
+	): ParamDef {
 		if (!d.mask) return d;
-		if (d.mask === 'write') return { ...d, maskChoices: [...new Set([SHAPE_MASK, ...masksAbove(store.project)])] };
+		if (d.mask === 'write') return { ...d, maskChoices: choices?.write ?? writeMasks() };
 		return {
 			...d,
-			maskChoices: layerId ? masksAbove(store.project, layerId) : [],
+			maskChoices: choices?.read ?? (layerId ? masksAbove(store.project, layerId) : []),
 			note: (p) => {
 				const name = String(p[d.key] ?? '').trim();
 				if (!name || !layerId) return undefined;
@@ -97,22 +101,38 @@
 		};
 	}
 
-	const layerCards = computed(() => {
+	const writeMasks = () => [...new Set([SHAPE_MASK, ...masksAbove(store.project)])];
+	// The selected layer's mask choices, the same arrays while they don't change: masksAbove reads every layer, so these
+	// rerun on any edit, and new arrays would hand every card new defs — re-rendering them all on every drag frame.
+	const sameList = (prev: string[] | undefined, next: string[]) =>
+		prev && prev.length === next.length && prev.every((v, i) => v === next[i]) ? prev : next;
+	const writeChoices = computed<string[]>((prev) => sameList(prev, writeMasks()));
+	const readChoices = computed<string[]>((prev) =>
+		sameList(prev, layer.value ? masksAbove(store.project, layer.value.id) : [])
+	);
+
+	/** The selected layer's cards and their params: built per layer and type, not per edit (see layerCards). */
+	const layerCardDefs = computed(() => {
 		const l = layer.value;
 		const def = layerDef.value;
 		if (!l || !def) return [];
-		const defs = layerParamDefs(l.type).map((d) => withMasks(d, l.id));
+		const choices = { read: readChoices.value, write: writeChoices.value };
+		const defs = layerParamDefs(l.type).map((d) => withMasks(d, l.id, choices));
+		return layerGroups(def)
+			.map((g) => ({
+				group: g,
+				defs: defs.filter((d) => (d.group ?? 'params') === g.id && d.key !== g.toggleKey),
+				toggle: defs.find((d) => d.key === g.toggleKey)
+			}))
+			.filter((c) => c.defs.length > 0);
+	});
+	// A card whose params (and header tick) are all hidden for these settings goes. (The cards themselves are the same
+	// objects from edit to edit, so each card's ParamList keeps its defs and re-renders only for what it shows.)
+	const layerCards = computed(() => {
+		const l = layer.value;
+		if (!l) return [];
 		const shown = (d: ParamDef) => !d.showIf || d.showIf(l.params);
-		return (
-			layerGroups(def)
-				.map((g) => ({
-					group: g,
-					defs: defs.filter((d) => (d.group ?? 'params') === g.id && d.key !== g.toggleKey),
-					toggle: defs.find((d) => d.key === g.toggleKey)
-				}))
-				// A card whose params (and header tick) are all hidden for these settings goes too.
-				.filter((c) => c.defs.length > 0 && (c.defs.some(shown) || (c.toggle !== undefined && shown(c.toggle))))
-		);
+		return layerCardDefs.value.filter((c) => c.defs.some(shown) || (c.toggle !== undefined && shown(c.toggle)));
 	});
 
 	/** Position in the layer list (top = applied first), or within its group. */

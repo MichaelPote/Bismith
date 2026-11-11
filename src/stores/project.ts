@@ -85,6 +85,12 @@ export const useProjectStore = defineStore('project', () => {
 	 * load): for views that refresh after edits settle, instead of a deep watch that walks the project on every change.
 	 */
 	const revision = ref(0);
+	/**
+	 * Bumped on every change to the project as it happens (each drag step, undo, a load): for what must follow every
+	 * change at once (the viewport). Watching it costs nothing; a deep watch walks the whole project on every change, and
+	 * the one below already does.
+	 */
+	const edits = ref(0);
 
 	function commitNow(): void {
 		if (timer) {
@@ -105,6 +111,7 @@ export const useProjectStore = defineStore('project', () => {
 	watch(
 		project,
 		() => {
+			edits.value++;
 			if (suppress) return;
 			if (gesture) {
 				gestureChanged = true;
@@ -594,6 +601,7 @@ export const useProjectStore = defineStore('project', () => {
 		firstRun,
 		generation,
 		revision,
+		edits,
 		canUndo,
 		canRedo,
 		undo,

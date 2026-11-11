@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { hexToRgb, linearToOklab, linearToSrgb1, oklabToLinear, rgbToHex, srgbToLinear1 } from '@/core/color';
 import { P, evalCurve, sanitizeParams, sanitizeValue, type Gradient } from '@/core/params';
 import { createLayer, createProject, normalizeProject, projectFromJSON, projectToJSON } from '@/core/serialize';
-import { gatherGroups, layerUnits } from '@/core/project';
+import { defaultBase, defaultRender, gatherGroups, layerUnits } from '@/core/project';
 import { crc32, zipStore } from '@/core/zip';
 
 describe('color', () => {
@@ -247,14 +247,11 @@ describe('serialize', () => {
 		expect(units.map((u) => (u.group ? u.group.id : u.layer!.id))).toEqual(['x', 'y', 'ma', 'mb']);
 		expect(gatherGroups(p.layers, p.groups)).toEqual(p.layers);
 	});
-	it('migrates the old single specular setting to base level × render scale with the same F0', () => {
-		const old = normalizeProject({ base: { color: '#806040' }, render: { specular: 0.8 } });
-		expect(old.base.specular).toBe(0.5);
-		expect(0.08 * old.base.specular * old.render.specular).toBeCloseTo(0.08 * 0.8);
-		const off = normalizeProject({ render: { specular: 0 } });
-		expect(off.base.specular * off.render.specular).toBe(0);
+	it('loads the base specular level and render scale (no migration: nothing released)', () => {
 		const cur = normalizeProject({ base: { specular: 0.2 }, render: { specular: 1.5 } });
 		expect([cur.base.specular, cur.render.specular]).toEqual([0.2, 1.5]);
+		const bare = normalizeProject({ base: { color: '#806040' } });
+		expect([bare.base.specular, bare.render.specular]).toEqual([defaultBase().specular, defaultRender().specular]);
 	});
 	it('loads the sky environment image and rotation, none for projects saved before them', () => {
 		const old = normalizeProject({ lighting: { sky: { zenith: '#8090a0' } } }).lighting.sky;

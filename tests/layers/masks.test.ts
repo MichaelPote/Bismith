@@ -277,20 +277,12 @@ describe('mask plan', () => {
 		expect(shown(after, { ...l.params, [`mk_target_${srcs.length}`]: 'X' })).toBe(false);
 		expect(shown(after, { ...l.params, ...full })).toBe(true);
 		expect(shown(after, { ...l.params, ...full, mk_target_2: '', [after]: 'Extra' })).toBe(true);
-		// On load (saves held the first source in every row, their masks packed from row 2), a row writing from another
-		// source moves to that source's row while it's empty, and an empty row offers its own source again.
-		const old = sanitizeLayer({
+		// On load, a row keeps the source it writes from (any of the type's), and an empty row offers its own source again.
+		const loaded = sanitizeLayer({
 			...l,
 			params: { ...l.params, mk_src_2: srcs[3], mk_target_2: 'J', mk_feather_2: 3, mk_src_3: srcs[0] }
 		});
-		expect(old.params).toMatchObject({
-			mk_src_2: srcs[1],
-			mk_target_2: '',
-			mk_src_3: srcs[2],
-			mk_src_4: srcs[3],
-			mk_target_4: 'J',
-			mk_feather_4: 3
-		});
+		expect(loaded.params).toMatchObject({ mk_src_2: srcs[3], mk_target_2: 'J', mk_feather_2: 3, mk_src_3: srcs[2] });
 	});
 
 	it('runs a part source of the first row in the layer’s own pass, other rows as passes of their own', () => {
@@ -302,29 +294,6 @@ describe('mask plan', () => {
 			['Seams', 'seams', false, 'shape']
 		]);
 		expect(planMasks(project([l])).layers.get(l.id)!.params.mask).toBe('seams');
-	});
-
-	it('folds the old mask fields into rows', () => {
-		const stone = sanitizeLayer({ ...createLayer('stone_blocks'), params: { mk_joints: 'J', mk_scars: '' } });
-		expect(stone.params).toMatchObject({ mk_src_2: 'out_joints', mk_target_2: 'J' });
-		expect('mk_joints' in stone.params).toBe(false);
-		const grb = sanitizeLayer({ ...createLayer('greebles'), params: { mask: 'seams', mk_lights: 'Glow' } });
-		// Into the source's own row.
-		const lightsRow = maskSourcesOf('greebles').findIndex((s) => s.value === 'lights') + 1;
-		expect(grb.params).toMatchObject({
-			mk_src: 'seams',
-			[`mk_src_${lightsRow}`]: 'lights',
-			[`mk_target_${lightsRow}`]: 'Glow'
-		});
-		const none = sanitizeLayer({ ...createLayer('vents'), params: { mask: 'none' } });
-		expect(none.params.mk_target).toBe('');
-		const area = sanitizeLayer({
-			...createLayer('surfacemask'),
-			params: { find: 'high', mk_sdf: 'distance', mk_crev: 'Crev' }
-		});
-		expect(area.params).toMatchObject({ mk_src: 'high_sdf', mk_src_2: 'crevices_sdf', mk_target_2: 'Crev' });
-		const cry = sanitizeLayer({ ...createLayer('crystal'), params: { mask_feat: 'facets' } });
-		expect(cry.params.mk_src).toBe('facets');
 	});
 
 	it('skips disabled layers and reads Shape for layers that read a mask without writing one', () => {

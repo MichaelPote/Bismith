@@ -175,9 +175,6 @@ export const MASK_WRITE_PARAMS: ParamDef[] = Array.from({ length: MAX_WRITE_ROWS
 	];
 }).flat();
 
-/** Every key of Write to's rows. */
-export const WRITE_ROW_KEYS = new Set(MASK_WRITE_PARAMS.map((p) => p.key));
-
 /**
  * A generator's parts for its masks (Greebles, Vents, Pipes, Trim): the enum `key` its shader reads to pick the shape that
  * goes to the mask (hidden — Write to › Source picks it; its 'none' kept for stored values), and one Source per part,

@@ -8,7 +8,6 @@
 	const props = defineProps<{ modelValue: Curve; label?: string }>();
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: Curve): void;
-		(e: 'commit', v: Curve): void;
 	}>();
 
 	const W = 200;
@@ -42,10 +41,9 @@
 		};
 	}
 
-	function emitPoints(points: CurvePoint[], commit = false): void {
+	function emitPoints(points: CurvePoint[]): void {
 		const v = { points: points.map((p) => ({ x: +p.x.toFixed(4), y: +p.y.toFixed(4) })) };
 		emit('update:modelValue', v);
-		if (commit) emit('commit', v);
 	}
 
 	function onPointDown(e: PointerEvent, i: number): void {
@@ -70,26 +68,20 @@
 	function onUp(): void {
 		if (dragging.value === null) return;
 		dragging.value = null;
-		emitPoints(pts.value, true);
+		emitPoints(pts.value);
 	}
 
 	function onBackground(e: MouseEvent): void {
 		if (pts.value.length >= MAX_CURVE_POINTS) return;
 		const p = local(e);
 		if (p.x <= 0.005 || p.x >= 0.995) return;
-		emitPoints(
-			[...pts.value, p].sort((a, b) => a.x - b.x),
-			true
-		);
+		emitPoints([...pts.value, p].sort((a, b) => a.x - b.x));
 	}
 
 	function onRemove(e: MouseEvent, i: number): void {
 		e.stopPropagation();
 		if (i === 0 || i === pts.value.length - 1 || pts.value.length <= 2) return;
-		emitPoints(
-			pts.value.filter((_, j) => j !== i),
-			true
-		);
+		emitPoints(pts.value.filter((_, j) => j !== i));
 	}
 </script>
 

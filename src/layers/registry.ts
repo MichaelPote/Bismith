@@ -17,7 +17,6 @@ import {
 	MASK_PARAMS,
 	MASK_WRITE_PARAMS,
 	MAX_WRITE_ROWS,
-	rowKey,
 	rowOf,
 	rowTarget,
 	OUTPUT_PARAMS,
@@ -33,8 +32,6 @@ import { SHAPE_MASK } from '@/core/project';
 const defs = new Map<string, LayerDef>();
 /** Mask › Write to's params, which show only while the layer can write a mask. */
 const WRITE_KEYS = new Set(MASK_WRITE_PARAMS.map((p) => p.key));
-/** The params of one Write to row (`rowKey` gives row n's). */
-const ROW_BASES = ['mk_src', 'mk_target', 'mk_op', 'mk_smooth', 'mk_feather'];
 const fullParams = new Map<string, ParamDef[]>();
 
 export const CATEGORY_LABELS: Record<LayerCategory, string> = {
@@ -189,56 +186,6 @@ export function layerChannels(type: string): LayerChannels {
 	return def.kind === 'generator' ? GENERATOR_CHANNELS : (def.channels ?? {});
 }
 
-/** Params stored before a change to a type's params, rewritten by the type (LayerDef.migrate), then the old mask fields. */
-export function migrateParams(params: ParamValues, type: string): ParamValues {
-	const def = defs.get(type);
-	const p = def?.migrate ? def.migrate(params) : params;
-	return def?.kind === 'generator' ? migrateMaskRows(p, type) : p;
-}
-
-/**
- * The mask fields before Write to's rows (FR8.23) folded into rows: "… to" fields (an output's `mk_<output>`, Mask
- * area's `mk_crev` / `mk_high`) into rows after the first with that source; a "what goes to the mask" choice (Greebles,
- * Vents and Pipes' `mask`, Trim's `mask_shape`, Crystal's `mask_feat`, Mask area's `mk_sdf`) into row 1's source.
- */
-function migrateMaskRows(params: ParamValues, type: string): ParamValues {
-	const srcs = sources.get(type) ?? [];
-	const has = (v: string) => srcs.some((s) => s.value === v);
-	const out: ParamValues = { ...params };
-	const extra: [string, string][] = [];
-	for (const [k, v] of Object.entries(params)) {
-		const m = /^mk_(.+)$/.exec(k);
-		if (!m || WRITE_KEYS.has(k)) continue;
-		// (An output's, else a part of the same name: Greebles' lights, Trim's dividers.)
-		const src =
-			m[1] === 'crev' ? 'crevices_sdf' : m[1] === 'high' ? 'high_sdf' : has(`out_${m[1]}`) ? `out_${m[1]}` : m[1];
-		delete out[k];
-		if (has(src) && String(v ?? '').trim()) extra.push([src, String(v).trim()]);
-	}
-	// Row 1's source from the old choice of what goes to the mask ('none': it wrote nothing).
-	const pick = (key: string, map: (v: string) => string) => {
-		if (!(key in params) || 'mk_src' in params) return;
-		const v = String(params[key]);
-		if (v === 'none') out.mk_target = '';
-		else if (has(map(v))) out.mk_src = map(v);
-	};
-	pick('mask', (v) => v);
-	pick('mask_shape', (v) => v);
-	pick('mask_feat', (v) => v);
-	if (params.mk_sdf === 'distance') pick('find', (v) => (v === 'high' ? 'high_sdf' : 'crevices_sdf'));
-	// Each into its source's own row when that is free, else the first free row after row 1.
-	const free = (n: number) => !String(out[rowKey('mk_target', n)] ?? '').trim();
-	for (const [src, target] of extra) {
-		const at = srcs.findIndex((s) => s.value === src) + 1;
-		let n = at > 1 && free(at) ? at : 2;
-		while (n <= MAX_WRITE_ROWS && !free(n)) n++;
-		if (n > MAX_WRITE_ROWS) break;
-		out[rowKey('mk_src', n)] = src;
-		out[rowKey('mk_target', n)] = target;
-	}
-	return out;
-}
-
 /**
  * What a layer added in the editor starts with (before the caller's overrides): a shape layer's Roughness, Specular and
  * Metalness follow its shape (unless the type's defaults pick their Source) — one value inside, another outside (Source › Shape) — not its pattern, which on a shape is the
@@ -257,7 +204,7 @@ export function freshParams(type: string, texture: { width: number; height: numb
 export function createLayer(type: string, overrides: ParamValues = {}, name?: string): Layer {
 	const def = defs.get(type);
 	if (!def) throw new Error(`Unknown layer type: ${type}`);
-	const params = { ...defaultParams(layerParamDefs(type)), ...migrateParams(overrides, type) };
+	const params = { ...defaultParams(layerParamDefs(type)), ...overrides };
 	if (def.linkedDefaults)
 		for (const [k, v] of Object.entries(def.linkedDefaults(params))) if (!(k in overrides)) params[k] = v;
 	return { id: newId('ly'), type, name: name ?? def.label, enabled: true, params };
@@ -283,18 +230,8 @@ export function linkedChanges(type: string, params: ParamValues, key: string, va
 /** Fill missing params with defaults, drop unknown ones, clamp values. */
 export function sanitizeLayer(layer: Layer): Layer {
 	const defsForType = layerParamDefs(layer.type);
-	const params = sanitizeParams(defsForType, migrateParams(layer.params, layer.type));
-	// Write to's rows (FR8.23): a further row that writes from another source's own row, while that one is empty, moves
-	// there; a further row that writes nothing offers its own source again. (Saves from before each source had a row of
-	// its own hold the first source in every row, and their masks packed from row 2.)
-	const srcs = sources.get(layer.type) ?? [];
-	const srcRows = Math.min(srcs.length, MAX_WRITE_ROWS);
-	for (let n = 2; n <= srcRows; n++) {
-		const k = srcs.findIndex((s) => s.value === params[rowKey('mk_src', n)]) + 1;
-		if (k < 2 || k > srcRows || k === n || !rowTarget(params, n) || rowTarget(params, k)) continue;
-		for (const b of ROW_BASES)
-			[params[rowKey(b, k)], params[rowKey(b, n)]] = [params[rowKey(b, n)], params[rowKey(b, k)]];
-	}
+	const params = sanitizeParams(defsForType, layer.params);
+	// Write to's rows (FR8.23): a further row that writes nothing offers its own source again.
 	for (const d of defsForType)
 		if (d.key.startsWith('mk_src_') && !rowTarget(params, rowOf(d.key))) params[d.key] = d.default;
 	return { ...layer, params };

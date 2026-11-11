@@ -18,7 +18,6 @@
 	}>();
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: string): void;
-		(e: 'commit', v: string): void;
 	}>();
 
 	const store = useProjectStore();
@@ -40,7 +39,6 @@
 
 	function choose(v: string): void {
 		emit('update:modelValue', v);
-		emit('commit', v);
 	}
 
 	async function onChange(e: Event): Promise<void> {

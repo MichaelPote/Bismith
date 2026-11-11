@@ -881,7 +881,7 @@
 
 	// Edits show against the reference as you make them (the outliner and properties stay live beside Match), unless a
 	// run, an overlay or another job holds the engine. A run optimises its own copy: Resume and Apply best ask about edits.
-	// Watched only while the workspace is shown (the deep watch walks the whole project on every edit, and the workspace
+	// Watched only while the workspace is shown (it runs on every edit, and the workspace
 	// is kept alive behind Create).
 	let active = false;
 	let viewTimer: ReturnType<typeof setTimeout> | null = null;
@@ -889,7 +889,7 @@
 	let unwatch: WatchStopHandle | null = null;
 	const watchEdits = () =>
 		watch(
-			() => store.project,
+			() => store.edits,
 			() => {
 				if (!active || !reference.value) return;
 				if (running.value) {
@@ -903,8 +903,7 @@
 					if (active && !running.value && !busy.value && !fitting.value && !overlay.value && snapshot() !== seen)
 						void view();
 				}, 120);
-			},
-			{ deep: true }
+			}
 		);
 
 	onMounted(() => {

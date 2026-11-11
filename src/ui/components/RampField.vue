@@ -28,7 +28,6 @@
 	const emit = defineEmits<{
 		(e: 'update:a', v: number): void;
 		(e: 'update:b', v: number): void;
-		(e: 'commit'): void;
 	}>();
 
 	const bar = ref<HTMLElement | null>(null);
@@ -73,14 +72,12 @@
 		(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
 		drag = null;
 		dragging.value = null;
-		emit('commit');
 	}
 
 	function swap(): void {
 		const { a, b } = props;
 		emit('update:a', b);
 		emit('update:b', a);
-		emit('commit');
 	}
 </script>
 
@@ -118,8 +115,7 @@
 				:default-value="defaultA"
 				:memory-key="memoryA"
 				:label="`${label ?? 'Ramp'} at 0`"
-				@update:model-value="emit('update:a', $event)"
-				@commit="emit('commit')" />
+				@update:model-value="emit('update:a', $event)" />
 			<button v-tip:top="'Swap the ends'" type="button" class="cf-ico-btn" aria-label="Swap the ends" @click="swap">
 				<IconArrowsLeftRight :size="13" />
 			</button>
@@ -131,8 +127,7 @@
 				:default-value="defaultB"
 				:memory-key="memoryB"
 				:label="`${label ?? 'Ramp'} at 1`"
-				@update:model-value="emit('update:b', $event)"
-				@commit="emit('commit')" />
+				@update:model-value="emit('update:b', $event)" />
 		</div>
 	</div>
 </template>

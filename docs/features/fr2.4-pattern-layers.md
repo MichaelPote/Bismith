@@ -69,8 +69,8 @@ and Smallest cell sized to the cells; grid 5 px lines with a 1.8 px bevel at
 512 px; stripes a bevel of a quarter of a stripe.
 
 Recipes and templates that stack copies of one shape and build their own relief (stone walls, cobbles, tiles, panels,
-plates) spread `BRICKS_PLAIN` / `BRICKS_REGULAR` / `HEX_PLAIN` / `VORONOI_PLAIN` (exported from `patterns.ts`) to turn
-the layers' own relief and wear (and, for `*_REGULAR`, the bricks' irregular geometry) off.
+plates) spread `BRICKS_PLAIN` / `VORONOI_PLAIN` (exported from `patterns.ts`) to turn the layers' own relief and wear
+off.
 
 **Face relief** (bricks, hex tiles, Voronoi cells; `PAT_FACE_GLSL`). _Face relief_ dents each face with smooth
 3-octave noise, each feature its own (noise offset, lump size 0.6–1.4×, strength 0.4–1×, and character: cloudy

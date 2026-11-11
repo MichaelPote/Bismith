@@ -33,7 +33,6 @@
 	}>();
 	const emit = defineEmits<{
 		(e: 'change', key: string, value: ParamValue): void;
-		(e: 'commit'): void;
 	}>();
 
 	/**
@@ -106,7 +105,6 @@
 				disabled: !fits,
 				action: () => {
 					set(d.key, copyOf(clip!.value));
-					emit('commit');
 				}
 			},
 			...(variants
@@ -127,7 +125,6 @@
 				disabled: JSON.stringify(value(d)) === JSON.stringify(d.default),
 				action: () => {
 					set(d.key, copyOf(d.default));
-					emit('commit');
 				}
 			}
 		];
@@ -146,7 +143,6 @@
 
 	function randomSeed(key: string): void {
 		set(key, Math.floor(Math.random() * 99999));
-		emit('commit');
 	}
 
 	// ---------------------------------------------------------------- double-click memory (NumberField)
@@ -223,8 +219,7 @@
 				<CheckField
 					:model-value="Boolean(value(r.def))"
 					:label="labelOf(r.def)"
-					@update:model-value="set(r.def.key, $event)"
-					@commit="emit('commit')" />
+					@update:model-value="set(r.def.key, $event)" />
 			</div>
 			<div
 				v-else-if="r.partner && r.def.join?.as === 'ramp'"
@@ -244,8 +239,7 @@
 					:memory-a="memory(r.def)"
 					:memory-b="memory(r.partner)"
 					@update:a="set(r.def.key, $event)"
-					@update:b="set(r.partner!.key, $event)"
-					@commit="emit('commit')" />
+					@update:b="set(r.partner!.key, $event)" />
 			</div>
 			<div v-else-if="r.partner" class="row" :class="{ changed: changed(r) }" @contextmenu="onMenu($event, r)">
 				<span v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ r.def.join!.label }}</span>
@@ -257,8 +251,7 @@
 							:options="d.options ?? []"
 							:label="labelOf(d)"
 							:data-key="d.key"
-							@update:model-value="set(d.key, $event)"
-							@commit="emit('commit')" />
+							@update:model-value="set(d.key, $event)" />
 						<MaskField
 							v-else-if="d.type === 'text' && d.mask"
 							:model-value="String(value(d) ?? '')"
@@ -266,8 +259,7 @@
 							:kind="d.mask"
 							:label="labelOf(d)"
 							:data-key="d.key"
-							@update:model-value="set(d.key, $event)"
-							@commit="emit('commit')" />
+							@update:model-value="set(d.key, $event)" />
 						<NumberField
 							v-else
 							:model-value="Number(value(d))"
@@ -282,8 +274,7 @@
 							:data-key="d.key"
 							:default-value="Number(d.default)"
 							:memory-key="memory(d)"
-							@update:model-value="set(d.key, $event)"
-							@commit="emit('commit')" />
+							@update:model-value="set(d.key, $event)" />
 					</template>
 				</div>
 			</div>
@@ -297,8 +288,7 @@
 					:model-value="value(r.def) as Gradient"
 					:alpha="r.def.alpha"
 					:label="labelOf(r.def)"
-					@update:model-value="set(r.def.key, $event)"
-					@commit="emit('commit')" />
+					@update:model-value="set(r.def.key, $event)" />
 			</div>
 			<div
 				v-else-if="r.def.type === 'curve'"
@@ -309,8 +299,7 @@
 				<CurveField
 					:model-value="value(r.def) as Curve"
 					:label="labelOf(r.def)"
-					@update:model-value="set(r.def.key, $event)"
-					@commit="emit('commit')" />
+					@update:model-value="set(r.def.key, $event)" />
 			</div>
 			<div
 				v-else-if="r.def.type === 'enum' && r.def.segmented"
@@ -329,7 +318,7 @@
 						class="cf-toggle seg"
 						:class="{ on: value(r.def) === o.value }"
 						:aria-checked="value(r.def) === o.value"
-						@click="(set(r.def.key, o.value), emit('commit'))">
+						@click="set(r.def.key, o.value)">
 						{{ o.label }}
 					</button>
 				</div>
@@ -346,8 +335,7 @@
 					:choices="r.def.maskChoices ?? []"
 					:kind="r.def.mask"
 					:label="labelOf(r.def)"
-					@update:model-value="set(r.def.key, $event)"
-					@commit="emit('commit')" />
+					@update:model-value="set(r.def.key, $event)" />
 			</div>
 			<div
 				v-else-if="r.def.type === 'text' && r.def.image"
@@ -359,8 +347,7 @@
 					:model-value="String(value(r.def) ?? '')"
 					:label="labelOf(r.def)"
 					:environment="r.def.environment"
-					@update:model-value="set(r.def.key, $event)"
-					@commit="emit('commit')" />
+					@update:model-value="set(r.def.key, $event)" />
 			</div>
 			<div
 				v-else-if="r.def.type === 'text'"
@@ -374,10 +361,7 @@
 					spellcheck="false"
 					:value="String(value(r.def) ?? '')"
 					:aria-label="labelOf(r.def)"
-					@change="
-						set(r.def.key, ($event.target as HTMLTextAreaElement).value);
-						emit('commit');
-					" />
+					@change="set(r.def.key, ($event.target as HTMLTextAreaElement).value)" />
 			</div>
 			<div v-else class="row" :class="{ changed: changed(r) }" @contextmenu="onMenu($event, r)">
 				<label v-tip="tip(r)" :class="{ noted: rowNote(r) }" class="lbl">{{ labelOf(r.def) }}</label>
@@ -386,14 +370,12 @@
 					:model-value="String(value(r.def))"
 					:options="r.def.options ?? []"
 					:label="labelOf(r.def)"
-					@update:model-value="set(r.def.key, $event)"
-					@commit="emit('commit')" />
+					@update:model-value="set(r.def.key, $event)" />
 				<ColorField
 					v-else-if="r.def.type === 'color'"
 					:model-value="String(value(r.def))"
 					:label="labelOf(r.def)"
-					@update:model-value="set(r.def.key, $event)"
-					@commit="emit('commit')" />
+					@update:model-value="set(r.def.key, $event)" />
 				<div v-else-if="r.def.type === 'seed'" class="seed">
 					<NumberField
 						:model-value="Number(value(r.def))"
@@ -405,8 +387,7 @@
 						:label="labelOf(r.def)"
 						:default-value="Number(r.def.default)"
 						:memory-key="memory(r.def)"
-						@update:model-value="set(r.def.key, $event)"
-						@commit="emit('commit')" />
+						@update:model-value="set(r.def.key, $event)" />
 					<button
 						v-tip:top="'Random seed'"
 						type="button"
@@ -429,8 +410,7 @@
 					:label="labelOf(r.def)"
 					:default-value="Number(r.def.default)"
 					:memory-key="memory(r.def)"
-					@update:model-value="set(r.def.key, $event)"
-					@commit="emit('commit')" />
+					@update:model-value="set(r.def.key, $event)" />
 			</div>
 		</template>
 		<DropMenu ref="menu" :items="menuItems" placement="pointer" />

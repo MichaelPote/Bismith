@@ -13,7 +13,6 @@
 	const props = defineProps<{ modelValue: Gradient; label?: string; alpha?: boolean }>();
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: Gradient): void;
-		(e: 'commit', v: Gradient): void;
 	}>();
 
 	const bar = ref<HTMLElement | null>(null);
@@ -43,9 +42,8 @@
 		return { stops: stops.value.map((s) => ({ ...s })) };
 	}
 
-	function update(g: Gradient, commit = false): void {
+	function update(g: Gradient): void {
 		emit('update:modelValue', g);
-		if (commit) emit('commit', g);
 	}
 
 	/** The ramp's opacity at t. */
@@ -90,7 +88,7 @@
 		const alpha = props.alpha ? Number(alphaAt(pos).toFixed(3)) : 1;
 		g.stops.push({ pos, color: colorAt(pos), ...(alpha < 1 ? { alpha } : {}) });
 		selected.value = g.stops.length - 1;
-		update(g, true);
+		update(g);
 	}
 
 	let dragIndex = -1;
@@ -109,38 +107,38 @@
 		if (dragIndex < 0) return;
 		(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
 		dragIndex = -1;
-		update(clone(), true);
+		update(clone());
 	}
 
-	function setColor(c: string, commit: boolean): void {
+	function setColor(c: string): void {
 		const g = clone();
 		g.stops[selected.value].color = c;
-		update(g, commit);
+		update(g);
 	}
 	/** The selected stop's opacity, from the field's percent (100 % = none stored). */
-	function setAlpha(pct: number, commit: boolean): void {
+	function setAlpha(pct: number): void {
 		const g = clone();
 		const a = Math.min(1, Math.max(0, pct / 100));
 		if (a >= 1) delete g.stops[selected.value].alpha;
 		else g.stops[selected.value].alpha = a;
-		update(g, commit);
+		update(g);
 	}
-	function setPos(p: number, commit: boolean): void {
+	function setPos(p: number): void {
 		const g = clone();
 		g.stops[selected.value].pos = p;
-		update(g, commit);
+		update(g);
 	}
 	function removeStop(): void {
 		if (stops.value.length <= 1) return;
 		const g = clone();
 		g.stops.splice(selected.value, 1);
 		selected.value = Math.max(0, selected.value - 1);
-		update(g, true);
+		update(g);
 	}
 	function reverse(): void {
 		const g = clone();
 		g.stops = g.stops.map((s) => ({ ...s, pos: Number((1 - s.pos).toFixed(4)) }));
-		update(g, true);
+		update(g);
 	}
 </script>
 
@@ -177,11 +175,7 @@
 			</button>
 		</div>
 		<div v-if="sel" class="edit" :class="{ two: alpha }">
-			<ColorField
-				:model-value="sel.color"
-				:label="`${label ?? 'Ramp'} stop`"
-				@update:model-value="setColor($event, false)"
-				@commit="setColor($event, true)" />
+			<ColorField :model-value="sel.color" :label="`${label ?? 'Ramp'} stop`" @update:model-value="setColor($event)" />
 			<NumberField
 				v-if="alpha"
 				class="opa"
@@ -193,8 +187,7 @@
 				unit="%"
 				label="Stop opacity"
 				title="Stop opacity: lower lets the colour below show through"
-				@update:model-value="setAlpha($event, false)"
-				@commit="setAlpha($event, true)" />
+				@update:model-value="setAlpha($event)" />
 			<NumberField
 				class="pos"
 				:model-value="sel.pos"
@@ -202,8 +195,7 @@
 				:max="1"
 				:step="0.01"
 				label="Stop position"
-				@update:model-value="setPos($event, false)"
-				@commit="setPos($event, true)" />
+				@update:model-value="setPos($event)" />
 			<button type="button" class="cf-ico-btn" title="Reverse" aria-label="Reverse ramp" @click="reverse">
 				<IconArrowsLeftRight :size="13" />
 			</button>

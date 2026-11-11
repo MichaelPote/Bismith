@@ -520,14 +520,14 @@
 
 	// Edits made beside the workspace (outliner, properties) are analysed once they pause, unless a run or its result
 	// holds the panes: a slider being dragged doesn't render and analyse on every step. Watched only while the workspace
-	// is shown (the deep watch walks the whole project on every edit).
+	// is shown (it runs on every edit).
 	let active = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let unwatch: WatchStopHandle | null = null;
 	onActivated(() => {
 		active = true;
 		unwatch ??= watch(
-			() => store.project,
+			() => store.edits,
 			() => {
 				if (!active || running.value || phase.value === 'done') return;
 				if (timer) clearTimeout(timer);
@@ -535,8 +535,7 @@
 					timer = null;
 					if (active && snapshot() !== seen) void analyseCurrent();
 				}, 300);
-			},
-			{ deep: true }
+			}
 		);
 		if (!running.value && phase.value !== 'done' && snapshot() !== seen) void analyseCurrent();
 	});

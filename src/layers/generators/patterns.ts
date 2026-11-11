@@ -386,14 +386,12 @@ const faceParams = (what: string) => [
 ];
 
 /**
- * Bricks, hex tiles and Voronoi cells with their own relief and wear off (face relief, crown, tilt, chips, the mortar /
- * grout bed, per-feature height): for recipes and templates that stack copies of one shape (pillow, edges, heights,
- * colour) and build the relief themselves. *_REGULAR also drops the bricks' irregular geometry (panels, plates).
+ * Bricks and Voronoi cells with their own relief and wear off (face relief, crown, tilt, chips, the mortar / grout bed,
+ * per-feature height): for recipes and templates that stack copies of one shape (pillow, edges, heights, colour) and
+ * build the relief themselves.
  */
 const RELIEF_OFF = { face: 0, crown: 0, face_tilt: 0, h_var: 0 };
 export const BRICKS_PLAIN = { ...RELIEF_OFF, mortar_level: 0, chips: 0 };
-export const BRICKS_REGULAR = { ...BRICKS_PLAIN, len_var: 0, min_size: 0, rot_jitter: 0 };
-export const HEX_PLAIN = { ...RELIEF_OFF, grout_level: 0, chips: 0 };
 export const VORONOI_PLAIN = { ...RELIEF_OFF, grout_level: 0 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));

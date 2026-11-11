@@ -285,11 +285,8 @@ function normalizeBase(raw: Record<string, any>): Project {
 		'pf'
 	);
 
-	// Specular used to be a single render setting (the level, F0 = 0.08 × specular). Projects without a base level
-	// keep their look: base level 0.5, render scale = old level / 0.5.
-	const legacySpec = rb.specular === undefined;
-	const specLevel = legacySpec ? 0.5 : num(rb.specular, base.specular, 0, 1);
-	const specScale = legacySpec ? num(rr.specular, 0.5, 0, 2) / 0.5 : num(rr.specular, render.specular, 0, 4);
+	const specLevel = num(rb.specular, base.specular, 0, 1);
+	const specScale = num(rr.specular, render.specular, 0, 4);
 
 	return {
 		version: PROJECT_VERSION,

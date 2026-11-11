@@ -15,12 +15,10 @@
 	}>();
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: string): void;
-		(e: 'commit', v: string): void;
 	}>();
 
 	function choose(v: string): void {
 		emit('update:modelValue', v);
-		emit('commit', v);
 	}
 
 	function onChange(e: Event): void {

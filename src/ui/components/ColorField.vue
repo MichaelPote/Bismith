@@ -53,8 +53,8 @@
 	//   of each hue's most chromatic colour.
 	// Below them: the numbers of the model, the colour the picker opened with (click to go back) and the hex with a copy
 	// key. While the picker is open, a click on the texture, a ramp, palette or swatch in the sidebars, or a Match image
-	// takes that colour, and the picker stays open (ui/eyedropper.ts). Drags update live and commit on release; keys, typed
-	// values and picks commit as they land. The picker keeps its own coordinates, so the hue survives greys and black, and in OKLCH
+	// takes that colour, and the picker stays open (ui/eyedropper.ts). Drags, keys, typed values and picks update the
+	// colour as they land (one drag is one undo step: App.vue's pointer gesture). The picker keeps its own coordinates, so the hue survives greys and black, and in OKLCH
 	// the chroma asked for survives a trip through a hue or lightness with less room for it.
 	// (`ref`, `rgbToHex`, `oklchToSrgb` and `srgbCusp` come from the module script above.)
 	import { computed, nextTick, onBeforeUnmount, reactive, watch } from 'vue';
@@ -66,7 +66,6 @@
 	const props = defineProps<{ modelValue: string; label?: string }>();
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: string): void;
-		(e: 'commit', v: string): void;
 	}>();
 
 	function normalize(v: string): string | null {
@@ -196,7 +195,6 @@
 		if (n === sent) return;
 		adopt(n);
 		emit('update:modelValue', n);
-		emit('commit', n);
 	}
 
 	// ---------------------------------------------------------------- hex fields
@@ -378,7 +376,6 @@
 	);
 
 	let drag: 'area' | 'hue' | null = null;
-	let dragChanged = false;
 
 	function pickAt(e: PointerEvent): void {
 		const el = drag === 'area' ? areaEl.value : hueEl.value;
@@ -386,12 +383,12 @@
 		const r = el.getBoundingClientRect();
 		const x = clamp01((e.clientX - r.left) / r.width);
 		const y = clamp01((e.clientY - r.top) / r.height);
-		let changed: boolean;
-		if (drag === 'hue') changed = model.value === 'hsv' ? setHsv(x, hsv.s, hsv.v) : setLch(lch.l, lch.c, x * 360);
-		else if (model.value === 'hsv') changed = setHsv(hsv.h, x, 1 - y);
+		if (drag === 'hue') {
+			if (model.value === 'hsv') setHsv(x, hsv.s, hsv.v);
+			else setLch(lch.l, lch.c, x * 360);
+		} else if (model.value === 'hsv') setHsv(hsv.h, x, 1 - y);
 		// Past the gamut, the pick slides in along its lightness to the edge.
-		else changed = setLch(1 - y, Math.min(x * CHROMA_MAX, maxSrgbChroma(1 - y, lch.h)), lch.h);
-		dragChanged ||= changed;
+		else setLch(1 - y, Math.min(x * CHROMA_MAX, maxSrgbChroma(1 - y, lch.h)), lch.h);
 	}
 	function onDown(e: PointerEvent, which: 'area' | 'hue'): void {
 		if (e.button !== 0) return;
@@ -400,7 +397,6 @@
 		el.setPointerCapture(e.pointerId);
 		el.focus();
 		drag = which;
-		dragChanged = false;
 		pickAt(e);
 	}
 	function onMove(e: PointerEvent): void {
@@ -411,7 +407,6 @@
 		drag = null;
 		const el = e.currentTarget as HTMLElement;
 		if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-		if (dragChanged) emit('commit', hex.value);
 	}
 
 	/**
@@ -429,17 +424,16 @@
 		if (!d) return;
 		e.preventDefault();
 		const k = e.shiftKey ? 10 : 1;
-		let changed: boolean;
 		if (which === 'hue') {
 			const dh = (d[0] + d[1]) * k;
-			changed = model.value === 'hsv' ? setHsv(hsv.h + dh / 360, hsv.s, hsv.v) : setLch(lch.l, lch.c, lch.h + dh);
+			if (model.value === 'hsv') setHsv(hsv.h + dh / 360, hsv.s, hsv.v);
+			else setLch(lch.l, lch.c, lch.h + dh);
 		} else if (model.value === 'hsv') {
-			changed = setHsv(hsv.h, hsv.s + d[0] * 0.01 * k, hsv.v + d[1] * 0.01 * k);
+			setHsv(hsv.h, hsv.s + d[0] * 0.01 * k, hsv.v + d[1] * 0.01 * k);
 		} else {
 			const c = d[0] ? Math.min(Math.max(0, chroma.value + d[0] * 0.002 * k), maxSrgbChroma(lch.l, lch.h)) : lch.c;
-			changed = setLch(lch.l + d[1] * 0.01 * k, c, lch.h);
+			setLch(lch.l + d[1] * 0.01 * k, c, lch.h);
 		}
-		if (changed) emit('commit', hex.value);
 	}
 
 	// ---------------------------------------------------------------- numbers
@@ -526,7 +520,7 @@
 		return c.key === 'h' ? String(Math.round(v) % 360) : v.toFixed(c.digits);
 	}
 	function setChannel(c: Channel, n: number): void {
-		if (Number.isFinite(n) && c.set(n)) emit('commit', hex.value);
+		if (Number.isFinite(n)) c.set(n);
 	}
 	function onChannelChange(c: Channel, e: Event): void {
 		const el = e.target as HTMLInputElement;

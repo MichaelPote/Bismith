@@ -3,13 +3,11 @@
 	defineProps<{ modelValue: boolean; label?: string }>();
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: boolean): void;
-		(e: 'commit', v: boolean): void;
 	}>();
 	const id = useId();
 	function onChange(e: Event): void {
 		const v = (e.target as HTMLInputElement).checked;
 		emit('update:modelValue', v);
-		emit('commit', v);
 	}
 </script>
 

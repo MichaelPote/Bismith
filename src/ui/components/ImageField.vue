@@ -14,7 +14,6 @@
 	const props = defineProps<{ modelValue: string; label?: string; environment?: boolean }>();
 	const emit = defineEmits<{
 		(e: 'update:modelValue', v: string): void;
-		(e: 'commit', v: string): void;
 	}>();
 
 	const store = useProjectStore();
@@ -47,7 +46,6 @@
 			putImage(file.name, url);
 			tick.value++;
 			emit('update:modelValue', file.name);
-			emit('commit', file.name);
 		} catch {
 			editor.notify(`Could not read “${file.name}” as an image`, 'error');
 		} finally {
@@ -57,7 +55,6 @@
 
 	function clear(): void {
 		emit('update:modelValue', '');
-		emit('commit', '');
 	}
 </script>
 

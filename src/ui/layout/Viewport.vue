@@ -567,10 +567,10 @@
 		engine = null;
 	});
 
+	// Every change, as it happens (the store's edits: one deep watch over the project for everyone).
 	watch(
-		() => store.project,
-		(p) => updateProject(toRaw(p)),
-		{ deep: true }
+		() => store.edits,
+		() => updateProject(toRaw(store.project))
 	);
 	watch(
 		() => [
