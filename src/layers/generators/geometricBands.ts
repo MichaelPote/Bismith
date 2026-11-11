@@ -54,6 +54,7 @@ export const bandsLayer: LayerDef = {
 	label: 'Bands',
 	category: 'pattern',
 	kind: 'generator',
+	area: true,
 	sdf: true,
 	description:
 		'Bands: Thick diagonal, zig-zag, chevron or Z-step bands running in lanes, optionally between rails, with mitred bends and chamfered or rounded ends. Makes tech walls, sci-fi panels, hazard stripes, trim.',

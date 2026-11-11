@@ -10,6 +10,7 @@ import type { Layer } from '@/core/project';
 import { newId } from '@/core/ids';
 import type { LayerCategory, LayerChannels, LayerDef, MaskSourceDef } from './types';
 import {
+	AREA_PARAMS,
 	FILTER_GROUPS,
 	GENERATOR_GROUPS,
 	LIMIT_PARAMS,
@@ -96,7 +97,10 @@ export function registerLayer(def: LayerDef): void {
 				: seedAt < 0
 					? [...own, PHASE_PARAM]
 					: [...own.slice(0, seedAt), PHASE_PARAM, ...own.slice(seedAt)];
-		const shaping = hasPhase || def.noise ? SHAPING_PARAMS : [...SHAPING_PARAMS, WARP_PHASE_PARAM];
+		const shaping = [
+			...(hasPhase || def.noise ? SHAPING_PARAMS : [...SHAPING_PARAMS, WARP_PHASE_PARAM]),
+			...(def.area ? AREA_PARAMS : [])
+		];
 		// Shape layers and mask-only ones alike get the Edge card; on a mask-only layer the bevel shapes the generator's own
 		// value, so it starts at 0 (the generator's look) there.
 		let shape = def.sdf === true ? SDF_PARAMS : def.sdf === 'mask' ? MASK_SDF_PARAMS : [];

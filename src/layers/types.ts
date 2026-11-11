@@ -36,6 +36,14 @@ export interface LayerDef {
 	 */
 	sdf?: boolean | 'mask';
 	/**
+	 * Generators only (FR8.30): the layer can be restricted to an Area — a rectangle of the canvas it is laid out in
+	 * (its `uRes`, origin and CPU canvas become the area's; no wrapping unless it is the whole canvas) and limited to,
+	 * with a grid over it whose cells can be switched off (commonParams AREA_PARAMS, edited by GridGizmo.vue). For layers
+	 * that lay out against `uRes` and don't read the layers below at moved coordinates. `'layout'`: the grid is also the
+	 * layer's own layout (Panelling's panels), so the gizmo offers merging cells too.
+	 */
+	area?: boolean | 'layout';
+	/**
 	 * When the shape params apply (default: always) — e.g. only one of a generator's outputs has a shape. Called with a
 	 * `key` it decides that one Edge control (a value mode may keep Anti-alias but hide Bevel); without one, whether the
 	 * layer has a shape at all.

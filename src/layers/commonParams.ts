@@ -433,6 +433,81 @@ float bevelArc2(vec2 p, mat2 M, vec2 c, float r, vec2 d0, vec2 d1, vec2 m) {
 }
 `;
 
+/**
+ * Area (FR8.30; LayerDef.area): the rectangle of the canvas the layer is laid out in and limited to, and the grid over it
+ * whose cells can be switched off (and, for layers that use it as their layout, merged). Fractions of the canvas;
+ * the CPU turns them into whole px (core/grid.ts areaPx) and the area uniforms, so none is a uniform itself. The grid's
+ * text params are edited on the canvas (GridGizmo.vue) and never shown.
+ */
+export const AREA_PARAMS: ParamDef[] = [
+	...(
+		[
+			['area_x', 'Left', 0, 'The area’s left edge, a share of the canvas width'],
+			['area_y', 'Top', 0, 'The area’s top edge, a share of the canvas height'],
+			['area_w', 'Width', 1, 'The area’s width, a share of the canvas width'],
+			['area_h', 'Height', 1, 'The area’s height, a share of the canvas height']
+		] as const
+	).map(([key, label, def, hint]) =>
+		P.float(key, label, def, 0, 1, {
+			step: 0.001,
+			group: 'shaping',
+			section: 'Area',
+			uniform: false,
+			optimize: false,
+			hint: `${hint}. The layer is laid out in the area and draws nothing outside it — drag the outline on the canvas`
+		})
+	),
+	...['grid_cols', 'grid_rows', 'grid_merge', 'grid_off'].map((key) =>
+		P.text(key, key, key === 'grid_cols' || key === 'grid_rows' ? '1' : '', {
+			group: 'shaping',
+			uniform: false,
+			optimize: false,
+			showIf: () => false
+		})
+	)
+];
+
+/** The most grid columns / rows the area uniforms hold (core/grid.ts MAX_GRID). */
+const AREA_GRID = 16;
+
+/**
+ * Area layers' wrapper code: the uniforms, and the pixel's place in the area — its position from the area's corner
+ * (GL, y up), and the distance to where the layer may draw (negative inside an on cell; outside the area, or in an off
+ * cell, positive). Across a cell's side the distance counts only where the neighbour there is off (or outside).
+ */
+export const GLSL_AREA = /* glsl */ `
+uniform vec4 uArea;
+uniform float uAreaX[${AREA_GRID + 1}];
+uniform float uAreaY[${AREA_GRID + 1}];
+uniform int uAreaN[2];
+uniform int uAreaOff[${AREA_GRID}];
+
+bool areaOn(int c, int r) {
+  return c >= 0 && r >= 0 && c < uAreaN[0] && r < uAreaN[1] && ((uAreaOff[r] >> c) & 1) == 0;
+}
+
+// q: px from the area's top-left (y down). Distance to the drawable region.
+float areaDist(vec2 q) {
+  vec2 sz = uArea.zw;
+  vec2 o = max(-q, q - sz);
+  if (max(o.x, o.y) > 0.0) return length(max(o, 0.0)) + min(max(o.x, o.y), 0.0);
+  int c = 0, r = 0;
+  for (int i = 1; i < ${AREA_GRID}; i++) {
+    if (i < uAreaN[0] && q.x >= uAreaX[i]) c = i;
+    if (i < uAreaN[1] && q.y >= uAreaY[i]) r = i;
+  }
+  float x0 = q.x - uAreaX[c], x1 = uAreaX[c + 1] - q.x;
+  float y0 = q.y - uAreaY[r], y1 = uAreaY[r + 1] - q.y;
+  if (!areaOn(c, r)) return 0.5 + min(min(x0, x1), min(y0, y1));
+  float d = -1e5;
+  if (!areaOn(c - 1, r)) d = max(d, -x0);
+  if (!areaOn(c + 1, r)) d = max(d, -x1);
+  if (!areaOn(c, r - 1)) d = max(d, -y0);
+  if (!areaOn(c, r + 1)) d = max(d, -y1);
+  return d;
+}
+`;
+
 export const SHAPING_PARAMS: ParamDef[] = [
 	P.float('ofs_x', 'Offset X', 0, -4096, 4096, {
 		softMin: -32,
@@ -808,8 +883,8 @@ const SHAPE_MASK_WRITE = /* glsl */ `if (op != 0) {
     }`;
 
 /** GLSL for the generator wrapper's use of the common params (declared automatically from the defs above). */
-export const GLSL_GENERATOR_MAIN = (sdf: boolean | 'mask') => /* glsl */ `
-
+export const GLSL_GENERATOR_MAIN = (sdf: boolean | 'mask', area = false) => /* glsl */ `
+${area ? GLSL_AREA : ''}
 float shapeValue(float v) {
   v = clamp((v - u_sh_lo) / max(u_sh_hi - u_sh_lo, 1e-5), 0.0, 1.0);
   if (u_sh_gamma != 1.0) v = pow(v, u_sh_gamma);
@@ -848,13 +923,30 @@ void main() {
   float prevDist = maskPrev.x;
   gPhase = u_phase;
 
-  vec2 pp = gl_FragCoord.xy - vec2(u_ofs_x, -u_ofs_y);
+  vec2 pp = gl_FragCoord.xy - vec2(u_ofs_x, -u_ofs_y);${
+	area
+		? /* glsl */ `
+  // Area: the layer's canvas is the area (uRes is its size), its origin the area's bottom-left corner.
+  pp -= uArea.xy;
+  vec2 aq = vec2(gl_FragCoord.x - uArea.x, uArea.y + uArea.w - gl_FragCoord.y);
+  float aDist = areaDist(aq);`
+		: ''
+}
   if (u_dw_amount > 0.0) {
     // Domain warp of the whole pattern: neighbouring features move together, so gaps keep their width.
     vec2 wc = cellsFor(u_dw_scale, 1.0);
     pp += warpOffset(gl_FragCoord.xy / uRes * wc, periodOf(wc), uSeed + 409.0) * 2.0 * u_dw_amount;
   }
-  GenOut g = gen(pp);
+  GenOut g = gen(pp);${
+	area
+		? /* glsl */ `
+  // Nothing outside the area or in an off cell; a shape is cut there (its distance at least the area's).
+  if (aDist > 0.0) g.mask = 0.0;
+  if (g.sdf > NO_SDF) g.sdf = max(g.sdf, aDist);
+  if (g.bdist > NO_SDF) g.bdist = max(g.bdist, aDist);
+  if (aDist > 0.0) g.height = NO_SDF;`
+		: ''
+}
   float value = g.value;
   float cov = g.mask;
   float shapeV = 1.0;

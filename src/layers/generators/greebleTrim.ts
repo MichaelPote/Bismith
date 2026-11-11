@@ -120,6 +120,7 @@ export const trimLayer: LayerDef = {
 	label: 'Trim strip',
 	category: 'pattern',
 	kind: 'generator',
+	area: true,
 	sdf: true,
 	// The relief writes its shape to the mask only when it is given one (mask_shape); the shape outputs always do.
 	maskWrite: (p) => (p.output !== 'relief' || p.mask_shape !== 'none' ? 'shape' : false),

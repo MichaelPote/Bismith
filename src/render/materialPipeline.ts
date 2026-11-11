@@ -12,6 +12,7 @@ import { GLSL_COMMON } from '@/layers/glsl/common';
 import { GLSL_NOISE } from '@/layers/glsl/noise';
 import { GLSL_SDF } from '@/layers/glsl/sdf';
 import { GLSL_TRANSPARENCY } from '@/layers/glsl/transparency';
+import { MAX_GRID, areaPx, edgesPx, gridOf } from '@/core/grid';
 import { GLSL_BEVEL, GLSL_GENERATOR_MAIN, GLSL_MASK_OP, bevelCurveDefine, bevelCurveImpl } from '@/layers/commonParams';
 import { planMasks, type LayerMasks, type MaskPlan, type MaskRef } from '@/layers/masks';
 import { getLayerDef, layerParamDefs } from '@/layers/registry';
@@ -403,10 +404,34 @@ export class MaterialPipeline {
 		this.height = h;
 	}
 
-	private setCommon(mat: THREE.RawShaderMaterial, project: Project, seed: number): void {
+	/**
+	 * The uniforms every pass shares. `params` of an Area layer (LayerDef.area): its canvas is the area — uRes the area's
+	 * size, no wrapping unless it is the whole canvas — and the area uniforms place it and its grid's off cells.
+	 */
+	private setCommon(mat: THREE.RawShaderMaterial, project: Project, seed: number, params?: Layer['params']): void {
 		const u = mat.uniforms;
-		if (u.uRes) (u.uRes.value as THREE.Vector2).set(this.width, this.height);
-		if (u.uTile) u.uTile.value = project.tileable;
+		const area = params && u.uArea ? areaPx(params, this.width, this.height) : null;
+		if (u.uRes) (u.uRes.value as THREE.Vector2).set(area?.w ?? this.width, area?.h ?? this.height);
+		if (u.uTile) u.uTile.value = project.tileable && (!area || area.full);
+		if (area) {
+			// GL's origin is the bottom-left: the area's lower edge.
+			(u.uArea.value as THREE.Vector4).set(area.x, this.height - area.y - area.h, area.w, area.h);
+			const g = gridOf(params!);
+			const xs = edgesPx(g.cols, area.w);
+			const ys = edgesPx(g.rows, area.h);
+			const X = u.uAreaX.value as Float32Array;
+			const Y = u.uAreaY.value as Float32Array;
+			X.fill(area.w);
+			Y.fill(area.h);
+			X.set(xs);
+			Y.set(ys);
+			const n = u.uAreaN.value as Int32Array;
+			n[0] = g.cols.length;
+			n[1] = g.rows.length;
+			const off = u.uAreaOff.value as Int32Array;
+			off.fill(0);
+			off.set(g.off);
+		}
 		if (u.uSeed) u.uSeed.value = seed;
 		if (u.uDepth) u.uDepth.value = project.heightDepth;
 		if (u.tAlbedo) u.tAlbedo.value = this.state!.read.textures[0];
@@ -548,7 +573,11 @@ ${fetches}
 	}
 
 	/** The canvas a layer's CPU work sees (cpuData, derivedUniforms). */
-	private canvas(project: Project, seed: number): LayerCanvas {
+	private canvas(project: Project, seed: number, def?: LayerDef, params?: Layer['params']): LayerCanvas {
+		if (def?.area && params) {
+			const a = areaPx(params, this.width, this.height);
+			return { width: a.w, height: a.h, tileable: project.tileable && a.full, seed };
+		}
 		return { width: this.width, height: this.height, tileable: project.tileable, seed };
 	}
 
@@ -558,7 +587,7 @@ ${fetches}
 		const key = JSON.stringify([layer.params, this.width, this.height, project.tileable, seed, imagesVersion()]);
 		const hit = this.cpuCache.get(layer.id);
 		if (hit && hit.key === key) return hit.tex;
-		const data = def.cpuData!(layer.params, this.canvas(project, seed));
+		const data = def.cpuData!(layer.params, this.canvas(project, seed, def, layer.params));
 		// cpuData memoises (core/memo.ts): a param it doesn't read changed, and it handed back the same arrays — keep the
 		// uploaded textures.
 		const names = Object.keys(data);
@@ -614,7 +643,7 @@ ${fetches}
 		mat: THREE.RawShaderMaterial
 	): void {
 		const d = def.derivedUniforms;
-		if (d) setDerived(mat.uniforms, d, this.derived.values(slot, d, params, this.canvas(project, seed)));
+		if (d) setDerived(mat.uniforms, d, this.derived.values(slot, d, params, this.canvas(project, seed, def, params)));
 	}
 
 	/** GLSL and zeroed uniforms of a layer's inputs beside its params: its data textures and derived uniforms. */
@@ -699,12 +728,25 @@ ${fetches}
 				(def.sdf ? GLSL_BEVEL : '') +
 				inputs.glsl +
 				(def.glsl ?? '') +
-				GLSL_GENERATOR_MAIN(def.sdf === 'mask' ? 'mask' : Boolean(def.sdf));
+				GLSL_GENERATOR_MAIN(def.sdf === 'mask' ? 'mask' : Boolean(def.sdf), Boolean(def.area));
 			mat = this.stageMaterial(
 				def.type,
 				MRT_OUTS,
 				body,
-				{ ...inputs.uniforms, uMaskKind: { value: 0 }, uMaskSoft: { value: false } },
+				{
+					...inputs.uniforms,
+					uMaskKind: { value: 0 },
+					uMaskSoft: { value: false },
+					...(def.area
+						? {
+								uArea: { value: new THREE.Vector4() },
+								uAreaX: { value: new Float32Array(MAX_GRID + 1) },
+								uAreaY: { value: new Float32Array(MAX_GRID + 1) },
+								uAreaN: { value: new Int32Array(2) },
+								uAreaOff: { value: new Int32Array(MAX_GRID) }
+							}
+						: {})
+				},
 				(this.salt ? `// salt ${this.salt}\n` : '') + keyDefines(shader)
 			);
 			this.materials.set(key, mat);
@@ -836,7 +878,7 @@ ${fetches}
 						updateUniforms(mat.uniforms, layerParamDefs(def.type), e.params);
 						this.bindDerived(def, `${layer.id}#${i}`, e.params, project, seed, mat);
 						this.cur.input = this.refTexture(e.input);
-						this.setCommon(mat, project, seed);
+						this.setCommon(mat, project, seed, e.params);
 						mat.uniforms.uMaskKind.value = maskKind(e.write);
 						mat.uniforms.uMaskSoft.value = e.soft;
 						this.gpu.run(mat, state.write);
@@ -847,7 +889,7 @@ ${fetches}
 					const own = masks?.params ?? layer.params;
 					updateUniforms(mat.uniforms, layerParamDefs(def.type), own);
 					this.bindDerived(def, layer.id, own, project, seed, mat);
-					this.setCommon(mat, project, seed);
+					this.setCommon(mat, project, seed, own);
 					const w = masks?.write;
 					mat.uniforms.uMaskKind.value = maskKind(w);
 					mat.uniforms.uMaskSoft.value = false;

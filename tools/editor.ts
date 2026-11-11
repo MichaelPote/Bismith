@@ -49,6 +49,10 @@ export interface EditorPage {
 	click(selector: string, nth?: number): Promise<void>;
 	/** A real mouse drag from the middle of the nth element a selector matches, by (dx, dy) px, over `ms`. */
 	drag(selector: string, nth: number, dx: number, dy: number, ms?: number): Promise<void>;
+	/** A real mouse move (no button) to page px — hover. */
+	move(x: number, y: number): Promise<void>;
+	/** A real mouse drag from page px (x, y) by (dx, dy) px, over `ms`. */
+	dragAt(x: number, y: number, dx: number, dy: number, ms?: number): Promise<void>;
 	/** A real key press: a character, or Escape, Enter, Tab, ArrowUp… */
 	key(key: string): Promise<void>;
 	/** Open a project file's text, as if it were the autosave, and reload. */
@@ -134,6 +138,16 @@ async function gpuEditor(width: number, height: number, logPage: boolean): Promi
 				await mouse('mousePressed', at);
 				await mouse('mouseReleased', at);
 			},
+			move: (x, y) => mouse('mouseMoved', { x, y }).then(() => undefined),
+			async dragAt(x, y, dx, dy, ms = 500) {
+				await mouse('mouseMoved', { x, y });
+				await mouse('mousePressed', { x, y });
+				for (let i = 1; i <= DRAG_STEPS; i++) {
+					await mouse('mouseMoved', { x: x + (dx * i) / DRAG_STEPS, y: y + (dy * i) / DRAG_STEPS }, true);
+					await sleep(ms / DRAG_STEPS);
+				}
+				await mouse('mouseReleased', { x: x + dx, y: y + dy });
+			},
 			async drag(selector, nth, dx, dy, ms = 500) {
 				const at = await centre(selector, nth);
 				await mouse('mouseMoved', at);
@@ -200,6 +214,16 @@ async function swiftShaderEditor(width: number, height: number, logPage: boolean
 		eval: evalIn,
 		waitFor: withWaitFor(evalIn),
 		click: (selector, nth = 0) => page.locator(selector).nth(nth).click(),
+		move: (x, y) => page.mouse.move(x, y),
+		async dragAt(x, y, dx, dy, ms = 500) {
+			await page.mouse.move(x, y);
+			await page.mouse.down();
+			for (let i = 1; i <= DRAG_STEPS; i++) {
+				await page.mouse.move(x + (dx * i) / DRAG_STEPS, y + (dy * i) / DRAG_STEPS);
+				await sleep(ms / DRAG_STEPS);
+			}
+			await page.mouse.up();
+		},
 		async drag(selector, nth, dx, dy, ms = 500) {
 			const box = await page.locator(selector).nth(nth).boundingBox();
 			if (!box) throw new Error(`nothing matches ${selector} [${nth}]`);

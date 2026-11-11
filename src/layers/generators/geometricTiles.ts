@@ -260,6 +260,7 @@ export const tilesLayer: LayerDef = {
 	label: 'Tiles',
 	category: 'pattern',
 	kind: 'generator',
+	area: true,
 	sdf: true,
 	description:
 		'Tiles: Square tiles and checkerboards, tumbling blocks, herringbone, basketweave, crosses, octagons, triangles, pinwheel and Cairo patterns, with gaps and rounded corners, or just a soft tone per kind of tile. Makes floors, tiled walls, parquet, paving.',

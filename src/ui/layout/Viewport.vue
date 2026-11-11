@@ -22,6 +22,7 @@
 	} from '@tabler/icons-vue';
 	import ShapeEditor from '@/ui/components/ShapeEditor.vue';
 	import LayerGizmo from '@/ui/components/LayerGizmo.vue';
+	import GridGizmo from '@/ui/components/GridGizmo.vue';
 	import { hasGizmo } from '@/ui/gizmos';
 	import SelectField from '@/ui/components/SelectField.vue';
 	import { vTip } from '@/ui/tooltip';
@@ -246,6 +247,14 @@
 		if (editor.workspace !== 'create' || s.kind !== 'layer' || !s.id) return null;
 		const l = store.getLayer(s.id);
 		return l && l.enabled && hasGizmo(l.type) ? l : null;
+	});
+
+	/** The selected Area layer (LayerDef.area): its area and grid gizmo. */
+	const areaLayer = computed(() => {
+		const s = editor.selection;
+		if (editor.workspace !== 'create' || s.kind !== 'layer' || !s.id) return null;
+		const l = store.getLayer(s.id);
+		return l && l.enabled && getLayerDef(l.type)?.area ? l : null;
 	});
 
 	// ---------------------------------------------------------------- shape editor
@@ -632,6 +641,13 @@
 			<LayerGizmo
 				v-if="gizmoLayer && editor.showGizmos"
 				:layer="gizmoLayer"
+				:project="project"
+				:rect="texRect"
+				:size="cssSize" />
+			<GridGizmo
+				v-if="areaLayer && editor.showGizmos"
+				:key="areaLayer.id"
+				:layer="areaLayer"
 				:project="project"
 				:rect="texRect"
 				:size="cssSize" />

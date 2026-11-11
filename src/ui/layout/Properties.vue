@@ -16,6 +16,7 @@
 	import ParamList from '@/ui/components/ParamList.vue';
 	import ShapingGraph from '@/ui/components/ShapingGraph.vue';
 	import WriteToField from '@/ui/components/WriteToField.vue';
+	import GridControls from '@/ui/components/GridControls.vue';
 	import { IconBox, IconBulb, IconSparkles, IconSquareRotated, IconSun, IconWorld } from '@tabler/icons-vue';
 	import PostExtras from '@/ui/panels/PostExtras.vue';
 	import LightingPresets from '@/ui/panels/LightingPresets.vue';
@@ -215,6 +216,11 @@
 								:defs="c.defs"
 								:values="layer.params"
 								@change="(k, v) => store.setLayerParam(layer!.id, k, v)" />
+							<GridControls
+								v-else-if="c.group.id === 'shaping' && section === 'Area'"
+								:layer="layer"
+								:width="store.project.width"
+								:height="store.project.height" />
 							<template v-else-if="c.group.id === 'shaping' && section === 'Value'">
 								<ShapingGraph :defs="layerDefs" :values="layer.params" :sdf="layerDef.sdf === true" />
 								<ParamList

@@ -116,6 +116,7 @@ export const greeblesLayer: LayerDef = {
 	label: 'Greebles',
 	category: 'pattern',
 	kind: 'generator',
+	area: true,
 	sdf: true,
 	// Its parts go to masks by Write to › Source (as many rows as masks).
 	maskSources: PARTS.sources,

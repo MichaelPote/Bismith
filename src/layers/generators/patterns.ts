@@ -1739,6 +1739,7 @@ export const gridLayer: LayerDef = {
 	label: 'Grid lines',
 	category: 'pattern',
 	kind: 'generator',
+	area: true,
 	sdf: true,
 	description:
 		'Grid lines: A grid of lines used as a shape, with a random value per panel. Makes panel seams, tile grout, etched guides.',
@@ -1893,6 +1894,7 @@ export const stripesLayer: LayerDef = {
 	label: 'Stripes',
 	category: 'pattern',
 	kind: 'generator',
+	area: true,
 	sdf: true,
 	description:
 		'Stripes: Parallel stripes at any angle, either as a shape or as a wave of values. Makes planks, ruled lines, barcodes, hazard stripes.',
