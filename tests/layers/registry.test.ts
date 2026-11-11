@@ -36,7 +36,15 @@ const READ_IN_PREPARE = new Set([
 	'cavity.wear_threshold',
 	'cavity.wear_sensitivity',
 	'cavity.dirt_threshold',
-	'cavity.dirt_sensitivity'
+	'cavity.dirt_sensitivity',
+	'splits.source',
+	'splits.follow',
+	'splits.line',
+	'splits.select',
+	'splits.ends',
+	'splits.length',
+	'splits.spacing',
+	'splits.knots'
 ]);
 
 /** The enum variants of a layer's own params (defaults, then each other option), to probe param-dependent hooks. */

@@ -13,7 +13,7 @@ import { ORG_GLSL } from './organicShared';
 
 const fineOn = (p: ParamValues) => Number(p.sub) > 0;
 
-export const cracksLayer: LayerDef = {
+export const crackedCrustLayer: LayerDef = {
 	type: 'cracks',
 	noise: true,
 	label: 'Cracked crust',

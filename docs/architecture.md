@@ -290,8 +290,9 @@ draws tubes wound on a helix (coils, twisted rope mouldings). **Drips** (FR7.7) 
 sources and ledges, and **Blisters** tears ragged holes of peeling paint at the same sources (both placed through
 `src/layers/dripSources.ts`, so the same seed lines them up); **Hammered** lays dish dents on concentric rings around a few centres
 whose regions interlock along arcs. **Cracks** (FR8.17; was Chips & splits, listed with the filters) damages whatever is in its mask (the Shape mask):
-in stone, breaks, flake scars struck in from the edges, cracks and faults; in wood, chips off its edges and corners,
-splits along the grain from the edges that cross it (merging where they meet), nicks across it. **Rock**
+breaks, flake scars struck in from the edges, cracks and faults. (Wood's splits are the **Splits** filter's, FR8.29: it
+pulls the layers below apart along the dark lines of their colour — a ring's latewood — into tapering, bevelled
+splits that push the material aside.) **Rock**
 (FR8.18) builds natural rock faces from blocks in strata on a sheared lattice — each block a mesa with its own height,
 tilt and draped scarps, finer facets, joints, folds — with outputs for the relief and for paint (scarps, crevices, rain
 streaks). **Grass** (FR8.21) strews tapered blades that bend, curl and waver, in depth over one another, shaded light at
@@ -329,8 +330,9 @@ main thread where the browser has `KHR_parallel_shader_compile`, otherwise with 
 
 Filters read the current channels and rewrite them in one `filterGlsl` pass (`applyFilter`), which also applies
 their limit, after optional `prepare` pre-passes: bevel and etch (jump-flood distance field, or a mask's exact
-distance), cavity / edge wear (curvature = height − blur(height)), height-from-diffuse (blurred luminance); warp,
-glass, levels, HSV and symmetry need none. Only Blur (separable Gaussian) owns a multi-pass `run()`.
+distance), cavity / edge wear (curvature = height − blur(height)), height-from-diffuse (blurred luminance), splits
+(the weak lines of the colour or height below, the grain's streamlines and what runs along them: FR8.29); warp, glass,
+levels, HSV and symmetry need none. Only Blur (separable Gaussian) owns a multi-pass `run()`.
 
 ### 5.4 Channel storage (GPU)
 
@@ -573,5 +575,6 @@ docs/
 | 8.26  | [Crystal (faceted crystals)](features/fr8.26-crystal.md)                                                         |
 | 8.27  | [Laid-out references: true-shift structure, Bolts / Rivets, Tile + motifs](features/fr8.27-laid-out-matching.md) |
 | 8.28  | [Ice (refracting sheet, cracks, bubbles, frost, icicles)](features/fr8.28-ice.md)                                |
+| 8.29  | [Splits (the layers below pulled apart along their weakest lines)](features/fr8.29-splits.md)                    |
 | 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                                             |
 | 10    | [Project variants](features/fr10-variants.md)                                                                    |

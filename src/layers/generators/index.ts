@@ -20,7 +20,7 @@ import { causticLightLayer } from './causticLight';
 import { settsLayer } from './setts';
 import { pipeworkLayer } from './pipes';
 import { surfaceMaskLayer } from './surfaceMask';
-import { chipsLayer } from './chips';
+import { cracksLayer } from './cracks';
 import { rockLayer } from './rock';
 import { stoneBlocksLayer } from './stoneBlocks';
 import { grassLayer } from './grass';
@@ -51,7 +51,7 @@ export const GENERATORS: LayerDef[] = [
 	settsLayer,
 	pipeworkLayer,
 	surfaceMaskLayer,
-	chipsLayer,
+	cracksLayer,
 	rockLayer,
 	stoneBlocksLayer,
 	grassLayer,

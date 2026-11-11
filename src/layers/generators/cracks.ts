@@ -1,42 +1,28 @@
-// Cracks (type `chips`): damage taken out of its mask as it stands. Stone (default): big breaks and worn chips off
-// its edges, flake scars struck in from them, cracks and faults running in. Wood: angular chips knocked off its edges
-// (more at corners), splits that run along the grain from the edges that cross it, tapering as they go, the odd split
-// in the open and short nicks across the grain. Works on whatever wrote the mask (planks, bricks, panels, setts); with
-// nothing there the whole texture is one piece, which only gets the splits in the open and the nicks.
+// Cracks (type `chips`): stone damage taken out of its mask as it stands — big breaks and worn chips off its edges, flake
+// scars struck in from them, cracks and faults running in. Works on whatever wrote the mask (blocks, bricks, panels,
+// setts). (Splits along wood grain are the Splits filter's: filters/splits.ts.)
 //
 // Every feature is a cut c (px, > 0 inside it) and a depth f (0..1). Two outputs:
 //   - Carve (default): value = how deep to carve (0 untouched … 1 the whole bevel, down to the shape's edge level),
 //     covering only the damage, so Height › Subtract carves it out of the relief below and Diffuse › Multiply darkens
 //     it. It is the bevel on the original less the bevel re-evaluated on the chipped shape (this layer's Bevel / Profile /
 //     aspect): with those and Height › Amount matched to the layer that drew the relief, the subtract leaves exactly
-//     that relief, its bevel following every chip and split. Flake scars, faults and a crack's lower side carve a share
+//     that relief, its bevel following every break and crack. Flake scars, faults and a crack's lower side carve a share
 //     of the height on top; hairline cracks add their thin-line coverage.
 //   - Chipped shape: the mask minus the cuts as an SDF; a part-depth cut sinks (1 − f) × bevel below the surface
 //     instead of reaching the edge, so the wrapper's bevel gives it a floor.
 // Both write the chipped shape to the mask when it writes one (genOutOwn for Carve), for later limits.
 
-import { P, gradient, orientAxis } from '@/core/params';
+import { P, gradient } from '@/core/params';
 import type { LayerDef } from '../types';
 
-// Splits run along the grain, their spacing, width and wobble across it, nicks across it (for resizing the canvas:
-// core/pixelScale.ts).
-const grainAlong = orientAxis('grain', { vertical: 'y', horizontal: 'x' });
-const grainAcross = orientAxis('grain', { vertical: 'y', horizontal: 'x' }, true);
-
 type P_ = Record<string, unknown>;
-// Stone unless set to Wood (the default; old files without the key are Stone too).
-const stone = (p: P_) => p.material !== 'wood';
-const wood = (p: P_) => !stone(p);
-const chipsOn = (p: P_) => wood(p) && (Number(p.chips) > 0 || Number(p.corners) > 0);
-const splitsOn = (p: P_) => wood(p) && (Number(p.splits) > 0 || Number(p.interior) > 0);
-const nicksOn = (p: P_) => wood(p) && Number(p.nicks) > 0;
-const breaksOn = (p: P_) =>
-	stone(p) && (Number(p.stone_chips) > 0 || Number(p.stone_corners) > 0 || Number(p.stone_wear) > 0);
-const scarsOn = (p: P_) => stone(p) && Number(p.flakes) > 0;
-const cracksOn = (p: P_) => stone(p) && Number(p.cracks) > 0;
-const faultsOn = (p: P_) => stone(p) && Number(p.faults) > 0;
+const breaksOn = (p: P_) => Number(p.stone_chips) > 0 || Number(p.stone_corners) > 0 || Number(p.stone_wear) > 0;
+const scarsOn = (p: P_) => Number(p.flakes) > 0;
+const cracksOn = (p: P_) => Number(p.cracks) > 0;
+const faultsOn = (p: P_) => Number(p.faults) > 0;
 
-export const chipsLayer: LayerDef = {
+export const cracksLayer: LayerDef = {
 	type: 'chips',
 	label: 'Cracks',
 	// In the menu with the filters: it damages the shape the layers before it drew.
@@ -45,19 +31,8 @@ export const chipsLayer: LayerDef = {
 	sdf: true,
 	readsMask: true,
 	description:
-		'Damaged edges: Breaks, flake scars and cracks carved into the shape the layers before it drew (the Shape mask by default), in stone or wood. Makes broken masonry, weathered blocks, worn planks.',
+		'Damaged edges: Breaks, flake scars and cracks carved into the shape the layers before it drew (the Shape mask by default). Makes broken masonry, weathered blocks and slabs.',
 	params: [
-		P.enum(
-			'material',
-			'Material',
-			'stone',
-			[
-				['stone', 'Stone', 'big breaks out of the edges, flake scars struck in from them, deep cracks and faults'],
-				['wood', 'Wood', 'small angular chips, splits running along the grain from the board ends, and nicks across it']
-			],
-			// It picks the shader variant (shaderFeatures), not a branch in it.
-			{ uniform: false, hint: 'Picks the kind of damage: stone or wood' }
-		),
 		P.enum(
 			'output',
 			'Operate on',
@@ -66,7 +41,7 @@ export const chipsLayer: LayerDef = {
 				[
 					'carve',
 					'Height below (carve it)',
-					'carves the damage out of the relief of the layers below: Height › Subtract sinks it by how deep the damage goes (0 = untouched … 1 = cut down to the shape’s edge) and Diffuse › Multiply darkens it. Give this layer the same Bevel, Profile and Bevel aspect as the layer that drew the shape, and Height › Amount the same as its height, and the carve follows its bevel into every chip and crack. Stone’s flake scars and faults sink the surface, so they need this'
+					'carves the damage out of the relief of the layers below: Height › Subtract sinks it by how deep the damage goes (0 = untouched … 1 = cut down to the shape’s edge) and Diffuse › Multiply darkens it. Give this layer the same Bevel, Profile and Bevel aspect as the layer that drew the shape, and Height › Amount the same as its height, and the carve follows its bevel into every break and crack. Flake scars and faults sink the surface, so they need this'
 				],
 				[
 					'shape',
@@ -78,37 +53,14 @@ export const chipsLayer: LayerDef = {
 				hint: 'Picks what the damage applies to: the height of the layers below, or the shape in the mask. Either way the chipped shape goes into the mask this layer writes (Mask › Write to), so later layers can be limited to it'
 			}
 		),
-		P.float('chips', 'Chips', 0.35, 0, 1, {
-			step: 0.001,
-			section: 'Chips',
-			showIf: wood,
-			hint: 'How likely a chip is at each spot along the mask’s edges'
-		}),
-		P.float('corners', 'Corner chips', 0.5, 0, 1, {
-			step: 0.001,
-			section: 'Chips',
-			showIf: wood,
-			hint: 'Makes chips more likely where an edge turns a corner'
-		}),
-		P.float('chip_size', 'Chip size', 5, 0.5, 256, {
-			softMax: 24,
-			unit: 'px',
-			step: 0.05,
-			section: 'Chips',
-			showIf: chipsOn,
-			hint: 'Sets the chip radius (chip spots are about 2.5 × this apart)'
-		}),
-		P.float('chip_var', 'Chip size variation', 0.6, 0, 1, { step: 0.001, section: 'Chips', showIf: chipsOn }),
 		P.float('stone_chips', 'Breaks', 0.25, 0, 1, {
 			step: 0.001,
 			section: 'Chips',
-			showIf: stone,
 			hint: 'How likely each chunk along the edges is to break off (1 = every chunk). The edge splits into jagged chunks about the Break size across, and each broken one leaves flat break faces'
 		}),
 		P.float('stone_corners', 'Corner breaks', 0.6, 0, 1, {
 			step: 0.001,
 			section: 'Chips',
-			showIf: stone,
 			hint: 'Makes the corners break more often'
 		}),
 		P.float('stone_size', 'Break size', 32, 1, 1024, {
@@ -122,7 +74,6 @@ export const chipsLayer: LayerDef = {
 		P.float('stone_wear', 'Edge wear', 0.4, 0, 1, {
 			step: 0.001,
 			section: 'Chips',
-			showIf: stone,
 			hint: 'Adds small, shallow chips (a quarter of the Break size) along every edge, so the edges between the big breaks look worn too'
 		}),
 		P.float('stone_rough', 'Break roughness', 0.5, 0, 32, {
@@ -151,122 +102,9 @@ export const chipsLayer: LayerDef = {
 			showIf: breaksOn,
 			hint: 'How much of the Break depth a break drops straight down at its rim, as a crisp step, before its face slopes down to the edge'
 		}),
-		P.float('chip_depth', 'Chip depth', 0.8, 0, 1, {
-			step: 0.001,
-			section: 'Chips',
-			showIf: chipsOn,
-			hint: 'How deep the chips go (1 = right down to the level of the shape’s edge, less = a shallow flake with a floor)'
-		}),
-		P.enum(
-			'grain',
-			'Grain',
-			'vertical',
-			[
-				['vertical', 'Vertical'],
-				['horizontal', 'Horizontal']
-			],
-			{ group: 'splits', showIf: wood, hint: 'Picks which way the grain runs: splits run along it and nicks across it' }
-		),
-		P.float('splits', 'Splits from edges', 0.5, 0, 1, {
-			step: 0.001,
-			group: 'splits',
-			showIf: wood,
-			hint: 'How likely a split is in each lane where an edge crosses the grain (board ends). A split opens at the edge and tapers as it runs in'
-		}),
-		P.float('interior', 'Splits in the open', 0.1, 0, 1, {
-			step: 0.001,
-			group: 'splits',
-			showIf: wood,
-			hint: 'How likely a split is away from the edges, tapered at both ends'
-		}),
-		P.float('split_len', 'Split length', 48, 2, 2048, {
-			softMax: 192,
-			unit: 'px',
-			axis: grainAlong,
-			step: 0.1,
-			group: 'splits',
-			showIf: splitsOn,
-			hint: 'Sets the length of the longest split (Length variation shortens each one)'
-		}),
-		P.float('split_width', 'Split width', 1.5, 0.1, 32, {
-			softMax: 6,
-			unit: 'px',
-			axis: grainAcross,
-			step: 0.05,
-			group: 'splits',
-			showIf: splitsOn,
-			hint: 'Sets how wide a split is where it opens, on average; it narrows to nothing along its length'
-		}),
-		P.float('split_width_var', 'Width variation', 0.3, 0, 1, {
-			step: 0.001,
-			group: 'splits',
-			showIf: (p) => splitsOn(p) || nicksOn(p),
-			hint: 'Varies the width of each split and nick around the Split width or Nick width (0 = all the same, 0.3 = 0.7× to 1.3×, 1 = anywhere from a hairline to twice as wide)'
-		}),
-		P.float('split_len_var', 'Length variation', 0.55, 0, 1, {
-			step: 0.001,
-			group: 'splits',
-			showIf: (p) => splitsOn(p) || nicksOn(p),
-			hint: 'Makes each split (or nick) up to this much shorter than the Split length or Nick length (0 = all full length, 1 = anywhere from nothing to full)'
-		}),
-		P.float('split_bevel', 'Split bevel', 1, 0, 64, {
-			softMax: 8,
-			unit: 'px',
-			step: 0.05,
-			group: 'splits',
-			showIf: (p) => splitsOn(p) || nicksOn(p),
-			hint: 'Rounds the shoulder either side of a split or nick over this width, shaped by Shaping › Profile (0 = a hard-edged crack, more = a soft groove)'
-		}),
-		P.float('split_space', 'Split spacing', 10, 1, 512, {
-			softMax: 48,
-			unit: 'px',
-			axis: grainAcross,
-			step: 0.1,
-			group: 'splits',
-			showIf: splitsOn,
-			hint: 'Sets the distance between neighbouring split lanes across the grain'
-		}),
-		P.float('split_wobble', 'Split wobble', 0.75, 0, 32, {
-			softMax: 4,
-			unit: 'px',
-			axis: grainAcross,
-			step: 0.05,
-			group: 'splits',
-			showIf: (p) => splitsOn(p) || nicksOn(p),
-			hint: 'Bends splits across the grain by up to this much. They run straight between a few points and bend gently at each (nicks zigzag by this much too)'
-		}),
-		P.float('merge', 'Split merging', 0.3, 0, 1, {
-			step: 0.001,
-			group: 'splits',
-			showIf: splitsOn,
-			hint: 'How likely a split from an edge is to veer into the split beside it and join it'
-		}),
-		P.float('nicks', 'Nicks', 0, 0, 1, {
-			step: 0.001,
-			group: 'splits',
-			showIf: wood,
-			hint: 'How likely a short crack across the grain is at each spot (spots are 1.5 nick lengths apart)'
-		}),
-		P.float('nick_len', 'Nick length', 14, 1, 512, {
-			softMax: 64,
-			unit: 'px',
-			axis: grainAcross,
-			step: 0.1,
-			group: 'splits',
-			showIf: nicksOn
-		}),
-		P.float('nick_width', 'Nick width', 1.5, 0.1, 32, {
-			softMax: 6,
-			unit: 'px',
-			axis: grainAlong,
-			step: 0.05,
-			group: 'splits',
-			showIf: nicksOn
-		}),
 		P.float('flakes', 'Flake scars', 0.85, 0, 1, {
 			step: 0.001,
 			group: 'flakes',
-			showIf: stone,
 			hint: 'How much of the surface near the edges is knocked off in flake scars: shallow bowls whose rims meet in crisp ridges, between patches of the untouched face'
 		}),
 		P.float('flake_edge', 'Scars from edges', 0.9, 0, 1, {
@@ -311,7 +149,6 @@ export const chipsLayer: LayerDef = {
 		P.float('cracks', 'Cracks', 0.35, 0, 1, {
 			step: 0.001,
 			group: 'cracks',
-			showIf: stone,
 			hint: 'How likely a crack is at each spot along the edges (spots are about a Crack length apart). Each one runs in from the edge, jagged and tapering, and sometimes branches'
 		}),
 		P.float('crack_len', 'Crack length', 64, 4, 2048, {
@@ -371,7 +208,6 @@ export const chipsLayer: LayerDef = {
 		P.float('faults', 'Faults', 0.12, 0, 1, {
 			step: 0.001,
 			group: 'faults',
-			showIf: stone,
 			hint: 'How likely a fault is at each spot along the edges: a straight break running in from the edge, with the slab between it and the edge dropped down'
 		}),
 		P.float('fault_len', 'Fault length', 64, 4, 2048, {
@@ -399,7 +235,6 @@ export const chipsLayer: LayerDef = {
 		P.seed()
 	],
 	groups: [
-		{ id: 'splits', label: 'Splits' },
 		{ id: 'flakes', label: 'Flake scars' },
 		{ id: 'cracks', label: 'Cracks' },
 		{ id: 'faults', label: 'Faults' }
@@ -429,8 +264,6 @@ export const chipsLayer: LayerDef = {
 			crack_bevel: r1(Math.sqrt(k))
 		};
 	},
-	// Stone and Wood never meet in one layer: each compiles only its own code (D3D's cold compile).
-	shaderFeatures: (p) => (stone(p) ? ['CH_STONE'] : []),
 	// Carve sinks what is beneath (by the shape layers' usual height); a chipped shape is drawn like any other shape.
 	linkedDefaults: (p) =>
 		p.output === 'shape'
@@ -440,7 +273,7 @@ export const chipsLayer: LayerDef = {
 // The wrapper's offset and domain warp (gl_FragCoord − p): the mask is read where the pattern's point lies on screen,
 // so the damage moves with them and stays on the mask's edges.
 vec2 chDl;
-// How much of the surface Stone's flake scars leave (1 = none there): Height only.
+// How much of the surface the flake scars leave (1 = none there): Height only.
 float chScar = 1.0;
 
 // The distance of the mask it damages (the one it writes, or Shape) at a pixel; with nothing written yet the whole
@@ -471,72 +304,17 @@ vec2 ch_grid(vec2 ext, vec2 size, out ivec2 per) {
   return vec2(cx.x, cy.x);
 }
 
-// A split in grain-frame px (x along the grain, y across): it opens at start and runs dir · len (open: tapered at both
-// ends, centred on its spot); y is its lane position before any bend.
-struct ChSplit { bool ok; bool open; float start; float dir; float len; float y; float w; float rnd; };
-
-// The split lane cell c (cw: wrapped) holds, if any. A spot whose nearest edge crosses the grain starts one where that
-// edge crosses the lane, running inward; a spot inside, away from such edges, may hold one in the open.
-ChSplit ch_split(ivec2 c, ivec2 cw, vec2 cs, bool vert) {
-  ChSplit S = ChSplit(false, false, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0);
-  vec4 h = vec4(hash3I(cw, uSeed + 201.0), hashI(cw, uSeed + 203.0));
-  if (h.z >= max(u_splits, u_interior)) return S;
-  vec2 s = (vec2(c) + vec2(h.x, 0.15 + 0.7 * h.y)) * cs;
-  vec3 dn = ch_regN(vert ? s.yx : s);
-  float ng = vert ? dn.z : dn.y;
-  S.len = cs.x * (1.0 - u_split_len_var * h.w);
-  if (abs(dn.x) < cs.x && abs(ng) > 0.75) {
-    if (h.z >= u_splits) return S;
-    // Where the lane meets that edge: step along the grain by the distance (sphere tracing) until on it. Exact on bent
-    // and wobbly ends, where dividing by the normal's grain component overshot — into the next board.
-    float u = s.x, dd = dn.x, toward = dd < 0.0 ? sign(ng) : -sign(ng);
-    for (int k = 0; k < 8 * UNI_1; k++) {
-      if (abs(dd) < 0.35) break;
-      u += toward * abs(dd);
-      float nd = ch_reg(vert ? vec2(s.y, u) : vec2(u, s.y));
-      if (sign(nd) != sign(dd)) toward = -toward;
-      dd = nd;
-    }
-    if (abs(dd) > 1.5 || abs(u - s.x) > 1.5 * cs.x) return S;
-    S.start = u;
-    S.dir = -sign(ng);
-  } else {
-    if (dn.x > -2.0 || h.z >= u_interior) return S;
-    S.start = s.x - 0.5 * S.len;
-    S.open = true;
-  }
-  S.ok = true;
-  S.y = s.y;
-  S.w = u_split_width * (1.0 + u_split_width_var * (2.0 * fract(h.w * 13.7) - 1.0));
-  S.rnd = h.y;
-  return S;
-}
-
-// A split's bend across the grain at u px along it: straight runs between knots kn.x px apart (kn.y per texture), each
-// knot offset by up to the Split wobble — wood splits run straight with gentle deflections.
-float ch_defl(ivec2 cw, float u, vec2 kn) {
-  float i = floor(u / kn.x);
-  int i0 = wrapCell(int(i), int(kn.y)), i1 = wrapCell(int(i) + 1, int(kn.y));
-  int key = cw.x * 4099 + cw.y;
-  return u_split_wobble * (2.0 * mix(hashI(ivec2(i0, key), uSeed + 221.0), hashI(ivec2(i1, key), uSeed + 221.0), u / kn.x - i) - 1.0);
-}
-
-// A crack (split, nick or stone crack) at x px across it, of width w, taper tau, depth f, ends px from its nearer end
-// (r: its random): the distance from its side scaled so the layer's bevel spans the crack's bevel bev (narrowing with the
-// crack, so tips stay sharp) — Bevel aspect's × kSide across it and kEnd along it — and, for hairlines, its thin-line
-// coverage (a pixel box filter, ≤ the width).
-void ch_crack(float x, float w, float tau, float f, float ends, float kSide, float kEnd, float K, float r, float bev,
-              inout float cut, inout float cutB, inout float keep, inout float rnd) {
+// A crack at x px across it, of width w, taper tau and depth f (r: its random): the distance from its side scaled so the
+// layer's bevel spans the crack's bevel bev (narrowing with the crack, so tips stay sharp) and, for hairlines, its
+// thin-line coverage (a pixel box filter, ≤ the width).
+void ch_crack(float x, float w, float tau, float f, float K, float r, float bev, inout float cut, inout float cutB,
+              inout float keep, inout float rnd) {
   float ax = abs(x) - 0.5 * w;
-  float sx = -ax * K / max(bev * sqrt(tau), 0.25);
-  float cc = min(sx, ends) - (1.0 - f) * K;
+  float cc = -ax * K / max(bev * sqrt(tau), 0.25) - (1.0 - f) * K;
   if (cc > cut) { cut = cc; rnd = r; }
-  cutB = max(cutB, min(sx * kSide, ends * kEnd) - (1.0 - f) * K);
-  keep = min(keep, 1.0 - f * clamp(0.5 - ax, 0.0, min(w, 1.0)) * clamp(ends + 0.5, 0.0, 1.0));
+  cutB = max(cutB, cc);
+  keep = min(keep, 1.0 - f * clamp(0.5 - ax, 0.0, min(w, 1.0)));
 }
-
-#ifdef CH_STONE
-// ---- Stone (Material › Stone): the CH_STONE variant (shaderFeatures).
 
 // Plates: a Worley partition (x in cells). Returns the distances to the nearest two borders (cells); the nearest cell
 // (c0; r0 from x to its point) and the ones across those borders (c1, r1; c2, r2) — near a corner where three cells meet,
@@ -827,153 +605,27 @@ void ch_stone(vec2 p, float reg0, float K, float fid, inout float cut, inout flo
     }
     // (The shoulder keeps at least 0.4 of its width at the tip, where the depth fades instead: a shoulder narrower than a
     // pixel aliases into dots.)
-    if (bw > 0.0) ch_crack(bx, bw, max(btau, 0.4), bf, 1e3, 1.0, 1.0, K, bRnd, u_crack_bevel, cut, cutB, keep, rnd);
+    if (bw > 0.0) ch_crack(bx, bw, max(btau, 0.4), bf, K, bRnd, u_crack_bevel, cut, cutB, keep, rnd);
   }
 }
-#endif
 
 GenOut gen(vec2 p) {
   chDl = gl_FragCoord.xy - p;
   float reg0 = ch_reg(p);
   // The piece of the mask it damages (its feature random; −1: none there). The pieces keep their randoms in the mask it
-  // writes, and Stone's flake scars keep to the piece they lie on.
+  // writes, and the flake scars keep to the piece they lie on.
   vec2 mf = maskInFeat(ivec2(gl_FragCoord.xy));
   float fid = mf.y > 0.5 ? mf.x : -1.0;
   float K = max(u_bevel, 1.0);
   float cut = -1e9;    // the furthest-reaching cut, depth applied (Chipped shape)
   float keep = 1.0;    // how much of the surface is left (Carve)
   float rnd = 0.5;
-  bool vert = u_grain == 0;
-  // Grain frame: x along the grain, y across (px).
-  vec2 q = vert ? p.yx : p;
-  vec2 ext = vert ? uRes.yx : uRes;
-  // Bevel aspect: the cuts measured in the space the aspect stretches (px of Bevel), feature by feature — a chip's facets
-  // by their own normals (the flake's corners mitre without the step the distance's direction makes there), a split's
-  // and a nick's sides across them and their tips along them — and the furthest-reaching taken, as cut. Their floors
-  // ((1 − f) × bevel) stay in bevels. Off at aspect 1: the bevel from the distance's direction, unchanged.
+  // Bevel aspect: the cuts measured in the space the aspect stretches (px of Bevel) — cutB, the furthest-reaching. Off
+  // at aspect 1: the bevel from the distance's direction, unchanged.
   bool asp = bevelAspectOn();
   float cutB = -1e9;
-  // × across the grain and along it (splits run along it, nicks across).
-  float kAcr = asp ? u_bevel / bevelWidth(vert ? vec2(1.0, 0.0) : vec2(0.0, 1.0)) : 1.0;
-  float kAlg = asp ? u_bevel / bevelWidth(vert ? vec2(0.0, 1.0) : vec2(1.0, 0.0)) : 1.0;
   // (No continue in the loops: ANGLE / D3D11 can miscompile it.)
-#ifdef CH_STONE
   ch_stone(p, reg0, K, fid, cut, cutB, keep, rnd);
-#else
-  // ---- Chips: one spot per cell near the edge, moved onto it along the field's normal, a flake cut around it.
-  if (u_chips > 0.0 || u_corners > 0.0) {
-    ivec2 per;
-    vec2 cs = ch_grid(uRes, vec2(2.5 * u_chip_size), per);
-    ivec2 ip = ivec2(floor(p / cs));
-    for (int e = 0; e < 9 * UNI_1; e++) {
-      ivec2 c = ip + ivec2(e % 3 - 1, e / 3 - 1);
-      ivec2 cw = imod(c, per);
-      vec4 h = vec4(hash3I(cw, uSeed + 101.0), hashI(cw, uSeed + 103.0));
-      if (h.z < u_chips + u_corners) {
-        vec2 s = (vec2(c) + h.xy) * cs;
-        float R = u_chip_size * (1.0 - u_chip_var * h.w);
-        vec3 dn = ch_regN(s);
-        if (abs(dn.x) <= R && dn.yz != vec2(0.0)) {
-          // Corner: how far the distance bends beside the spot — 0 along a straight edge, ~0.4 at a right angle.
-          float corner = 0.0;
-          if (u_corners > 0.0) {
-            vec2 tg = vec2(-dn.z, dn.y) * max(abs(dn.x), 0.4 * R);
-            corner = smoothstep(0.08, 0.3, (0.5 * (ch_reg(s + tg) + ch_reg(s - tg)) - dn.x) / length(tg));
-          }
-          vec3 g = hash3I(cw, uSeed + 107.0);
-          // Centre on the edge (a little in or out), then an angular flake: five half-planes at uneven angles, in a frame
-          // stretched along the edge (flakes come off wider than they are deep).
-          float off = R * (g.x - 0.35) * 0.7;
-          vec2 d = p - (s - dn.x * dn.yz + dn.yz * off);
-          if (h.z < u_chips + u_corners * corner && dot(d, d) <= 4.0 * R * R) {
-            vec2 tg = vec2(-dn.z, dn.y);
-            float st = 1.0 + 0.6 * fract(g.x * 5.3);
-            d = vec2(dot(d, tg) / st, dot(d, dn.yz));
-            float a0 = g.y * 6.2832;
-            // Only this side of the edge: a chip doesn't reach across a gap into the neighbouring piece.
-            float dc = d.y + off - 0.5;
-            float dcB = asp ? bevelLine(dc, dn.yz) : dc;
-            for (int k = 0; k < 5; k++) {
-              float jit = fract(g.z * float(17 * k + 5));
-              float a = a0 + float(k) * 1.2566 + (jit - 0.5) * 0.7;
-              vec2 fn = vec2(cos(a), sin(a));
-              float pl = dot(d, fn) - R * (0.6 + 0.4 * fract(jit * 7.31));
-              dc = max(dc, pl);
-              // (The facet's normal on screen: the stretched frame's axes back.)
-              if (asp) dcB = max(dcB, bevelLine(pl, tg * (fn.x / st) + dn.yz * fn.y));
-            }
-            float f = u_chip_depth * (0.6 + 0.4 * fract(g.z * 31.7));
-            float cc = -dc - (1.0 - f) * K;
-            if (cc > cut) { cut = cc; rnd = g.x; }
-            cutB = max(cutB, -dcB - (1.0 - f) * K);
-          }
-        }
-      }
-    }
-  }
-
-  // ---- Splits: lanes across the grain, one spot per lane cell (ch_split). Each runs straight between knots along the
-  // grain with a gentle bend at each; some veer into the split in the next lane and end there, the two merging into one.
-  if (u_splits > 0.0 || u_interior > 0.0) {
-    ivec2 per;
-    vec2 cs = ch_grid(ext, vec2(u_split_len, u_split_space), per);
-    vec2 kn = ch_cells(ext.x, max(0.4 * u_split_len, 8.0));
-    ivec2 ip = ivec2(floor(q / cs));
-    for (int e = 0; e < 15 * UNI_1; e++) {
-      ivec2 c = ip + ivec2(e / 3 - 2, e % 3 - 1);
-      ivec2 cw = imod(c, per);
-      ChSplit A = ch_split(c, cw, cs, vert);
-      float t = (q.x - A.start) * A.dir;
-      if (A.ok && t >= -3.0 && t <= A.len) {
-        float y = A.y + ch_defl(cw, q.x, kn);
-        // Split merging: the split ends on its neighbour's line if that split is there where this one ends and runs close by.
-        bool merged = false;
-        float hm = hashI(cw, uSeed + 231.0);
-        if (!A.open && hm < u_merge) {
-          ivec2 cb = c + ivec2(0, hm < 0.5 * u_merge ? -1 : 1);
-          ivec2 cwb = imod(cb, per);
-          ChSplit B = ch_split(cb, cwb, cs, vert);
-          float um = A.start + A.dir * A.len;
-          float tb = (um - B.start) * B.dir;
-          float gap = B.y + ch_defl(cwb, um, kn) - A.y - ch_defl(cw, um, kn);
-          if (B.ok && tb > 2.0 && tb < B.len - 2.0 && abs(gap) < 0.8 * cs.y) {
-            merged = true;
-            y = mix(y, B.y + ch_defl(cwb, q.x, kn), smoothstep(0.3, 1.0, t / A.len));
-          }
-        }
-        // A thin line that narrows late (a merging one only halfway: it joins the other at width), flared where it opens.
-        float tau = A.open ? 1.0 - abs(2.0 * t / A.len - 1.0) : 1.0 - (merged ? 0.5 : 1.0) * max(t, 0.0) / A.len;
-        float w = A.w * pow(tau, 0.3) * (A.open ? 1.0 : 1.0 + 0.6 * exp(-max(t, 0.0) / max(A.w, 1.0)));
-        float ends = min(t + 3.0, A.len - t + (merged ? 2.0 : 0.0));
-        ch_crack(q.y - y, w, tau, pow(tau, 0.35), ends, kAcr, kAlg, K, A.rnd, u_split_bevel, cut, cutB, keep, rnd);
-      }
-    }
-  }
-
-  // ---- Nicks: short cracks across the grain, inside the shape.
-  if (u_nicks > 0.0) {
-    ivec2 per;
-    vec2 cs = ch_grid(uRes, vec2(1.5 * u_nick_len), per);
-    ivec2 ip = ivec2(floor(p / cs));
-    for (int e = 0; e < 9 * UNI_1; e++) {
-      ivec2 c = ip + ivec2(e % 3 - 1, e / 3 - 1);
-      ivec2 cw = imod(c, per);
-      vec4 h = vec4(hash3I(cw, uSeed + 301.0), hashI(cw, uSeed + 303.0));
-      vec2 s = (vec2(c) + h.xy) * cs;
-      if (h.z < u_nicks && ch_reg(s) <= -2.0) {
-        vec2 sq = vert ? s.yx : s;
-        float L = u_nick_len * (1.0 - u_split_len_var * h.w);
-        float t = q.y - sq.y + 0.5 * L;
-        if (t >= 0.0 && t <= L) {
-          float tau = 1.0 - abs(2.0 * t / L - 1.0);
-          float x = q.x - sq.x - (0.3 * u_nick_width + 0.6 * u_split_wobble) * (2.0 * valueNoise1(t / 6.0 + h.w * 37.0, uSeed + 311.0) - 1.0);
-          float w = u_nick_width * (1.0 + u_split_width_var * (2.0 * fract(h.w * 9.1) - 1.0)) * pow(tau, 0.3);
-          ch_crack(x, w, tau, pow(tau, 0.3), min(t, L - t), kAlg, kAcr, K, h.x, u_split_bevel, cut, cutB, keep, rnd);
-        }
-      }
-    }
-  }
-#endif
 
   float d = max(reg0, cut);
   // Screen-space gradients for Bevel aspect, taken in uniform control flow.

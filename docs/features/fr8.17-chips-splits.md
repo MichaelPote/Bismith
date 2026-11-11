@@ -9,7 +9,11 @@ from the ends inward; slabs crazed with long cracks, short breaks across the gra
 strips. The damage had to be reusable — the same chips knock the corners off stone setts or panels — so it is a
 generator of its own that works on a **mask** (the Shape mask by default), not a feature of the wood.
 
-## Cracks (`chips`, `generators/chips.ts`)
+## Cracks (`chips`, `generators/cracks.ts`)
+
+> **Since FR8.29 Cracks is stone damage only.** Its Wood material (chips, splits, nicks, below) is gone: splits along
+> wood grain are the **Splits** filter's (docs/features/fr8.29-splits.md), which finds the lines in the layers below and
+> pulls them apart. See _Follow-up: Wood moved to Splits_ at the end. The Wood sections below record what it was.
 
 Named _Chips & splits_ until the follow-up below; the type id stays `chips`, so saved projects load. An SDF generator,
 listed with the filters in the add menu (category `filter`: it damages what the layers before it drew), that reads the
@@ -283,3 +287,17 @@ like a clear coat. Projects that set it keep it; files without it now get tinted
 - [x] Specular tint default 1
 - [x] Smoke (D3D11) and cold compile times
 - [x] Hand-authored recreations of a hand-painted plank floor and a crazed slab (kept in `private/`)
+
+## Follow-up: Wood moved to Splits
+
+- Cracks lost its **Material** dropdown and every Wood control (Chips, Corner chips, Chip size / variation / depth, Grain,
+  Splits from edges, Splits in the open, the split and nick sizes, Split merging, Nicks). It is the stone damage alone,
+  compiled without a variant (`CH_STONE` is gone); `ch_crack` lost the along / across scaling only splits and nicks used.
+  A saved layer set to Wood loads as Stone damage (pre-release: no migration).
+- Wood's splits are the new **Splits** filter (FR8.29): instead of drawing lanes of straight splits, it finds the dark
+  lines of the colour below (a ring's latewood) and opens them, pushing the material on both sides apart.
+- The file is `generators/cracks.ts` (was `chips.ts`); the type id stays `chips` (`cracks` is Cracked crust's, whose
+  export is now `crackedCrustLayer`).
+- Presets: _Wood planks_ keeps its old layer as a plain _Plank relief_ (its stone damage off) and splits the stack with a
+  Splits layer at the end; _Split timber slab_ and the _Wood_ group swap their Cracks layer for Splits. The stone presets
+  lost only the Wood keys, so they render as before.
