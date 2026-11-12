@@ -29,6 +29,7 @@
 	} from '@/match/metrics';
 	import { analyzeTarget } from '@/match/analyze';
 	import { rgbaImage } from '@/ui/rgbaImage';
+	import { dragGutter, useStoredNumber } from '@/ui/gutters';
 	import { availableTemplates } from '@/match/templates';
 	import { fitColours } from '@/match/colourFit';
 	import { attachTexture } from '@/match/evaluate';
@@ -488,25 +489,7 @@
 	}
 
 	// ---------------------------------------------------------------- resizable settings panel
-	const LOWER_KEY = 'cf-match-lower';
-
-	function readLower(): number {
-		try {
-			const v = Number(localStorage.getItem(LOWER_KEY));
-			return v > 0 ? v : 190;
-		} catch {
-			return 190;
-		}
-	}
-
-	const lowerH = ref(readLower());
-	watch(lowerH, (h) => {
-		try {
-			localStorage.setItem(LOWER_KEY, String(h));
-		} catch {
-			/* storage unavailable */
-		}
-	});
+	const [lowerH, saveLowerH] = useStoredNumber('cf-match-lower', 190);
 	const rows = computed(() => `36px minmax(0, 1fr) 4px ${lowerH.value}px`);
 
 	function startResize(e: PointerEvent): void {
@@ -515,16 +498,10 @@
 		const el = e.currentTarget as HTMLElement;
 		// Keep at least 120 px for the reference / render panes above.
 		const max = Math.max(120, (el.parentElement?.clientHeight ?? 600) - 36 - 4 - 120);
-		el.setPointerCapture(e.pointerId);
 		const move = (ev: PointerEvent) => {
 			lowerH.value = Math.round(Math.max(120, Math.min(max, start - (ev.clientY - startY))));
 		};
-		const up = () => {
-			el.removeEventListener('pointermove', move);
-			el.removeEventListener('pointerup', up);
-		};
-		el.addEventListener('pointermove', move);
-		el.addEventListener('pointerup', up);
+		dragGutter(e, move, saveLowerH);
 	}
 
 	/** Run the optimiser (a new one, or on from where it is); `resume` carries on a checkpointed press's limits. */

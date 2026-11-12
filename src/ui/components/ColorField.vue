@@ -62,6 +62,7 @@
 	import { clamp01, hexToRgb, hsvToRgb, maxSrgbChroma, rgbToHsv, srgbToOklch } from '@/core/color';
 	import { vTip, type TipValue } from '@/ui/tooltip';
 	import { startPick, vPick } from '@/ui/eyedropper';
+	import { inViewport, usePopover } from '@/ui/popover';
 
 	const props = defineProps<{ modelValue: string; label?: string }>();
 	const emit = defineEmits<{
@@ -261,31 +262,27 @@
 		const el = pop.value;
 		if (!r || !el) return;
 		const m = 8;
-		const left = Math.max(m, Math.min(r.left, innerWidth - m - el.offsetWidth));
+		const left = inViewport(r.left, el.offsetWidth, 'x', m);
 		const below = r.bottom + 4;
 		const top = below + el.offsetHeight + m <= innerHeight ? below : Math.max(m, r.top - 4 - el.offsetHeight);
 		pos.value = { left: `${left}px`, top: `${top}px` };
 	}
 
-	function onDocDown(e: PointerEvent): void {
-		const t = e.target as Node;
-		if (!root.value?.contains(t) && !pop.value?.contains(t)) close();
-	}
-	/** Scrolling anything but the popover (a sidebar, to reach a colour to pick) moves it back to its swatch. */
-	function onScroll(e: Event): void {
-		if (!pop.value?.contains(e.target as Node)) place();
-	}
-	function onResize(): void {
-		close();
-	}
+	// A press outside or a resize closes it; scrolling anything but the popover (a sidebar, to reach a colour to pick)
+	// moves it back to its swatch. Esc: onPopKey.
+	const popover = usePopover({
+		popover: pop,
+		keep: root,
+		onOutside: () => close(),
+		onResize: () => close(),
+		onScroll: place
+	});
 
 	async function toggle(): Promise<void> {
 		if (open.value) return close();
 		original.value = normalize(props.modelValue) ?? props.modelValue;
 		open.value = true;
-		document.addEventListener('pointerdown', onDocDown, true);
-		window.addEventListener('resize', onResize);
-		window.addEventListener('scroll', onScroll, true);
+		popover.listen();
 		await nextTick();
 		place();
 		if (open.value && root.value && pop.value) stopPick = startPick([root.value, pop.value], apply);
@@ -303,9 +300,7 @@
 		open.value = false;
 		pos.value = null;
 		drag = null;
-		document.removeEventListener('pointerdown', onDocDown, true);
-		window.removeEventListener('resize', onResize);
-		window.removeEventListener('scroll', onScroll, true);
+		popover.unlisten();
 		if (refocus) swatch.value?.focus();
 	}
 

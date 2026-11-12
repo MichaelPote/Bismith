@@ -28,6 +28,7 @@
 	import { offerResume } from '@/ui/resumeRuns';
 	import { modalOpen } from '@/ui/modals';
 	import { isTyping } from '@/ui/keys';
+	import { dragGutter, useStoredNumber } from '@/ui/gutters';
 
 	// Dev server only: a build leaves out the dialog and its chunk.
 	const ExportPresetDialog = import.meta.env.DEV
@@ -39,31 +40,13 @@
 	const act = useActions();
 
 	// ---------------------------------------------------------------- resizable side panels
-	function readWidth(key: string, def: number): number {
-		try {
-			const v = Number(localStorage.getItem(key));
-			return v > 0 ? v : def;
-		} catch {
-			return def;
-		}
-	}
-	const leftW = ref(readWidth('cf-left', 250));
-	const rightW = ref(readWidth('cf-right', 340));
-	watch([leftW, rightW], ([l, r]) => {
-		try {
-			localStorage.setItem('cf-left', String(l));
-			localStorage.setItem('cf-right', String(r));
-		} catch {
-			/* storage unavailable */
-		}
-	});
+	const [leftW, saveLeftW] = useStoredNumber('cf-left', 250);
+	const [rightW, saveRightW] = useStoredNumber('cf-right', 340);
 	const cols = computed(() => `${leftW.value}px 4px minmax(0, 1fr) 4px ${rightW.value}px`);
 
 	function startResize(e: PointerEvent, side: 'left' | 'right'): void {
 		const startX = e.clientX;
 		const start = side === 'left' ? leftW.value : rightW.value;
-		const el = e.currentTarget as HTMLElement;
-		el.setPointerCapture(e.pointerId);
 		const move = (ev: PointerEvent) => {
 			const d = ev.clientX - startX;
 			// The properties sidebar may grow twice as wide as the outliner (wide graphs and ramps).
@@ -71,24 +54,15 @@
 			if (side === 'left') leftW.value = w;
 			else rightW.value = w;
 		};
-		const up = () => {
-			el.removeEventListener('pointermove', move);
-			el.removeEventListener('pointerup', up);
-		};
-		el.addEventListener('pointermove', move);
-		el.addEventListener('pointerup', up);
+		dragGutter(e, move, side === 'left' ? saveLeftW : saveRightW);
 	}
 
 	// The Variants panel's height over the Outliner; 0 = its natural height (up to seven rows).
-	const variantsH = ref(readWidth('cf-variants', 0));
-	watch(variantsH, (h) => {
-		try {
-			if (h) localStorage.setItem('cf-variants', String(h));
-			else localStorage.removeItem('cf-variants');
-		} catch {
-			/* storage unavailable */
-		}
-	});
+	const [variantsH, saveVariantsH] = useStoredNumber('cf-variants', 0);
+	function resetVariantsH(): void {
+		variantsH.value = 0;
+		saveVariantsH();
+	}
 	/** The Outliner keeps at least this much of the column (its `min-height` below); a short window shrinks the panel. */
 	const OUTLINER_MIN = 160;
 	const variantsStyle = computed(() => (variantsH.value ? { height: `${variantsH.value}px` } : undefined));
@@ -100,17 +74,11 @@
 		const startY = e.clientY;
 		const start = panel.offsetHeight;
 		const max = start + outliner.offsetHeight - OUTLINER_MIN;
-		el.setPointerCapture(e.pointerId);
 		const move = (ev: PointerEvent) => {
 			// The head and one row at least.
 			variantsH.value = Math.round(Math.max(68, Math.min(max, start + ev.clientY - startY)));
 		};
-		const up = () => {
-			el.removeEventListener('pointermove', move);
-			el.removeEventListener('pointerup', up);
-		};
-		el.addEventListener('pointermove', move);
-		el.addEventListener('pointerup', up);
+		dragGutter(e, move, saveVariantsH);
 	}
 
 	// ---------------------------------------------------------------- shortcuts
@@ -266,7 +234,7 @@
 					aria-orientation="horizontal"
 					aria-label="Resize variants"
 					@pointerdown="startVariantsResize"
-					@dblclick="variantsH = 0" />
+					@dblclick="resetVariantsH" />
 				<Outliner />
 			</div>
 			<div

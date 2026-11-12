@@ -8,6 +8,7 @@
 	import { computed, nextTick, onBeforeUnmount, ref, watch, type Component } from 'vue';
 	import { IconSquareRotated } from '@tabler/icons-vue';
 	import { vTip } from '@/ui/tooltip';
+	import { inViewport, usePopover } from '@/ui/popover';
 
 	export interface MenuItem {
 		label?: string;
@@ -87,17 +88,16 @@
 		return out;
 	});
 
-	function onDocDown(e: PointerEvent): void {
-		const t = e.target as Node;
-		if (!root.value?.contains(t) && !list.value?.contains(t)) close();
-	}
-	function onKey(e: KeyboardEvent): void {
-		if (e.key === 'Escape') close();
-	}
-	/** The pinned popover would drift from its trigger, so scrolling anything but the popover itself closes it. */
-	function onScroll(e: Event): void {
-		if (!list.value?.contains(e.target as Node)) close();
-	}
+	// A press outside or Esc closes it; floating, so do a resize and a scroll of anything but the menu (it would drift
+	// from its trigger).
+	const popover = usePopover({
+		popover: list,
+		keep: root,
+		onOutside: () => close(),
+		onEscape: () => close(),
+		onResize: () => floating.value && close(),
+		onScroll: () => floating.value && close()
+	});
 
 	/**
 	 * Pin the popover just right of the trigger, top-aligned (under it, right-aligned, for "under"; or at the pointer),
@@ -114,21 +114,15 @@
 					? t && { x: t.right - el.offsetWidth, y: t.bottom + 2 }
 					: t && { x: t.right + 6, y: t.top };
 		if (!anchor) return;
-		const m = 8;
-		const left = Math.max(m, Math.min(anchor.x, innerWidth - m - el.offsetWidth));
-		const top = Math.max(m, Math.min(anchor.y, innerHeight - m - el.offsetHeight));
+		const left = inViewport(anchor.x, el.offsetWidth, 'x');
+		const top = inViewport(anchor.y, el.offsetHeight, 'y');
 		pos.value = { left: `${left}px`, top: `${top}px` };
 	}
 
 	async function show(): Promise<void> {
 		tab.value = 0;
 		open.value = true;
-		document.addEventListener('pointerdown', onDocDown, true);
-		document.addEventListener('keydown', onKey);
-		if (floating.value) {
-			window.addEventListener('resize', close);
-			window.addEventListener('scroll', onScroll, true);
-		}
+		popover.listen();
 		await nextTick();
 		if (floating.value) {
 			place();
@@ -152,10 +146,7 @@
 	function close(): void {
 		open.value = false;
 		pos.value = null;
-		document.removeEventListener('pointerdown', onDocDown, true);
-		document.removeEventListener('keydown', onKey);
-		window.removeEventListener('resize', close);
-		window.removeEventListener('scroll', onScroll, true);
+		popover.unlisten();
 	}
 
 	function run(item: MenuItem): void {
