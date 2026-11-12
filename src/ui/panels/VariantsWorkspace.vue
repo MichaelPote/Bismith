@@ -8,22 +8,25 @@
 	import type { ProjectVariant } from '@/core/variants';
 	import { mapPixels } from '@/render/export';
 	import { encodePreview, PROJECT_PREVIEW } from '@/render/preview';
-	import { useEditorStore, type Question } from '@/stores/editor';
+	import { useEditorStore } from '@/stores/editor';
 	import { useProjectStore } from '@/stores/project';
 	import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue';
 	import AnchoredAsk from '@/ui/components/AnchoredAsk.vue';
 	import { useVariantThumbs } from '@/ui/variantThumbs';
-	import { variantMenuItems } from '@/ui/variantMenu';
+	import {
+		changeCount as count,
+		deleteVariantQuestion,
+		useAnchoredAsk,
+		useVariantList,
+		variantMenuItems
+	} from '@/ui/variantMenu';
 	import { vTip } from '@/ui/tooltip';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
 	const thumbs = useVariantThumbs();
 
-	const list = computed(() => store.variants.list);
-	const baseId = computed(() => store.variants.baseId);
-	const activeId = computed(() => store.variants.activeId);
-	const count = (v: ProjectVariant) => Object.keys(v.changes).length;
+	const { list, baseId, activeId } = useVariantList();
 
 	// ---------------------------------------------------------------- what the cards show
 	type View = 'final' | 'diffuse' | 'height';
@@ -101,33 +104,12 @@
 	const cardsEl = ref<HTMLElement | null>(null);
 	const cardEl = (id: string) => cardsEl.value?.querySelector<HTMLElement>(`[data-variant="${id}"]`) ?? null;
 
-	const asking = ref<{ question: Question; anchor: HTMLElement; answer: (id: string | null) => void } | null>(null);
+	const { asking, ask } = useAnchoredAsk();
 	async function confirmDelete(id: string): Promise<void> {
 		const v = list.value.find((x) => x.id === id);
 		const anchor = cardEl(id)?.querySelector<HTMLElement>('.info');
 		if (!v || !anchor || list.value.length < 2) return;
-		const question: Question =
-			id === baseId.value
-				? {
-						title: `${v.name} is the base`,
-						detail: 'Make another variant the base first. The others keep their looks.',
-						choices: []
-					}
-				: {
-						title: `Delete ${v.name}?`,
-						detail: 'Its changed settings go. The layers stay. Undo brings it back.',
-						choices: [{ id: 'delete', label: 'Delete', primary: true }]
-					};
-		const choice = await new Promise<string | null>((resolve) => {
-			asking.value = {
-				question,
-				anchor,
-				answer: (c) => {
-					asking.value = null;
-					resolve(c);
-				}
-			};
-		});
+		const choice = await ask(anchor, deleteVariantQuestion(v, baseId.value));
 		if (choice === 'delete') store.deleteVariant(id);
 	}
 

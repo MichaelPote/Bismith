@@ -16,7 +16,8 @@
 	import type { Project } from '@/core/project';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
-	import { heatOverlay, toRgba8, type MatchImage } from '@/match/image';
+	import { heatOverlay } from '@/match/image';
+	import { rgbaImage } from '@/ui/rgbaImage';
 	import {
 		TILING_TERMS,
 		analyzeTiling,
@@ -209,16 +210,14 @@
 	let seen = '';
 	let runStart = '';
 
-	type Px = { pixels: Uint8ClampedArray; width: number; height: number };
-	/** An image's pixels, for a pane that shows it repeated 3 × 3 (ImageCanvas tiles it). */
-	const tiled = (img: MatchImage): Px => ({ pixels: toRgba8(img), width: img.width, height: img.height });
 	const overlayOf = ({ frame: f, analysis }: Shot) => heatOverlay(f.L, analysis.maps.hotspot, f.width, f.height);
 
-	const currentPx = computed(() => (current.value ? tiled(current.value.frame.image) : null));
-	const fixedPx = computed(() => (best.value ? tiled(best.value.frame.image) : null));
+	// The panes show them repeated 3 × 3 (ImageCanvas tiles them).
+	const currentPx = computed(() => (current.value ? rgbaImage(current.value.frame.image) : null));
+	const fixedPx = computed(() => (best.value ? rgbaImage(best.value.frame.image) : null));
 	const hotspotPx = computed(() => {
 		const s = hotspotOf.value === 'fixed' && best.value ? best.value : current.value;
-		return s ? tiled(overlayOf(s)) : null;
+		return s ? rgbaImage(overlayOf(s)) : null;
 	});
 
 	// ---------------------------------------------------------------- analysis of the current project
@@ -806,6 +805,8 @@
 	</section>
 </template>
 
+<style scoped src="./workspace.css"></style>
+
 <style scoped>
 	.tiling {
 		display: grid;
@@ -830,49 +831,10 @@
 		white-space: nowrap;
 	}
 
-	.grow {
-		flex: 1;
-	}
-
-	.panes {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: 6px;
-		padding: 6px;
-		min-height: 0;
-	}
-
-	figure {
-		margin: 0;
-		display: grid;
-		grid-template-rows: 20px minmax(0, 1fr);
-		min-height: 0;
-	}
-
-	.cap {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		min-width: 0;
-	}
-
 	.cap .score,
 	.cap .drift {
 		letter-spacing: 0;
 		color: var(--text-mid);
-	}
-
-	.pick {
-		display: flex;
-		gap: 4px;
-	}
-
-	.pick .cf-toggle {
-		height: 18px;
-		padding: 0 6px;
-		font: inherit;
-		letter-spacing: inherit;
-		text-transform: inherit;
 	}
 
 	.lower {
@@ -884,60 +846,8 @@
 		min-height: 0;
 	}
 
-	.settings {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-height: 0;
-		overflow-y: auto;
-	}
-
 	.settings > * {
 		flex-shrink: 0;
-	}
-
-	.row {
-		display: grid;
-		grid-template-columns: 70px minmax(0, 1fr);
-		gap: 8px;
-		align-items: center;
-		min-height: 24px;
-	}
-
-	.lbl {
-		font-size: 12px;
-		color: var(--text-lo);
-		text-align: right;
-		cursor: help;
-	}
-
-	.progress {
-		display: grid;
-		grid-template-rows: 22px minmax(0, 1fr);
-		gap: 4px;
-		min-height: 0;
-	}
-
-	.stats {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0 14px;
-		white-space: nowrap;
-		font-size: 11px;
-		color: var(--text-lo);
-		align-items: center;
-	}
-
-	.stats b {
-		color: var(--pill);
-		font-weight: 400;
-	}
-
-	.terms {
-		display: flex;
-		flex-direction: column;
-		gap: 3px;
-		min-height: 0;
 	}
 
 	.term {
@@ -948,43 +858,9 @@
 		font-size: 11px;
 	}
 
-	.tl {
-		color: var(--text-lo);
-		text-align: right;
-	}
-
-	.tb {
-		height: 6px;
-		background: var(--hairline);
-	}
-
-	.tb > div {
-		height: 100%;
-		background: var(--sigil);
-	}
-
-	.tv {
-		color: var(--text);
-		text-align: right;
-	}
-
 	.log .hint {
 		margin: 0;
 		font-family: var(--font-sans);
 		color: var(--text-lo);
-	}
-
-	.log {
-		flex: 1;
-		min-height: 0;
-		overflow-y: auto;
-		margin-top: 4px;
-		padding: 4px 6px;
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-field);
-		background: var(--sunken);
-		font-size: 10px;
-		color: var(--text-lo);
-		line-height: 1.5;
 	}
 </style>

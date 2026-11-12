@@ -21,8 +21,6 @@
 		IconChevronDown,
 		IconChevronRight,
 		IconDroplet,
-		IconEye,
-		IconEyeOff,
 		IconMountain,
 		IconPlus,
 		IconSparkles,
@@ -35,6 +33,9 @@
 	import { LIGHT_DEFS } from '@/core/lights';
 	import { vTip, type Tip } from '@/ui/tooltip';
 	import { vPick } from '@/ui/eyedropper';
+	import RenameInput from '@/ui/components/RenameInput.vue';
+	import EyeToggle from '@/ui/components/EyeToggle.vue';
+	import ChangedMark from '@/ui/components/ChangedMark.vue';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
@@ -394,15 +395,10 @@
 	// ---------------------------------------------------------------- rename
 	const renaming = ref<string | null>(null);
 	const renameText = ref('');
-	const renameInput = ref<HTMLInputElement[] | null>(null);
-	/** The project's own name renames in the root row; its input isn't in a v-for, so it has its own ref. */
-	async function startRename(id: string, name: string): Promise<void> {
+	/** Its RenameInput takes the focus as it appears. */
+	function startRename(id: string, name: string): void {
 		renaming.value = id;
 		renameText.value = name;
-		await nextTick();
-		const input = renameInput.value?.[0];
-		input?.focus();
-		input?.select();
 	}
 
 	function finishRename(kind: 'layer' | 'light' | 'group', apply: boolean): void {
@@ -512,7 +508,7 @@
 			<div class="row root" :class="{ sel: isSel('project') }" @click="editor.select('project')">
 				<IconBox :size="15" :color="isSel('project') ? 'var(--accent-hi)' : 'var(--text-lo)'" />
 				<span v-tip:right="'The canvas and the path tracer'" class="name">Project settings</span>
-				<span v-if="store.changedItems.has('project')" class="dia" role="img" aria-label="Changed in this variant" />
+				<ChangedMark v-if="store.changedItems.has('project')" />
 			</div>
 
 			<!-- Layers -->
@@ -561,7 +557,7 @@
 						class="name"
 						>Base</span
 					>
-					<span v-if="store.changedItems.has('base')" class="dia" role="img" aria-label="Changed in this variant" />
+					<ChangedMark v-if="store.changedItems.has('base')" />
 					<span class="cells">
 						<span
 							v-tip:right="{
@@ -618,25 +614,13 @@
 							<component :is="expanded.has(u.group.id) ? IconChevronDown : IconChevronRight" :size="12" />
 						</button>
 						<IconSquareRotated :size="15" :color="isSel('group', u.group.id) ? 'var(--accent-hi)' : GROUP_HUE" />
-						<input
-							autocomplete="off"
-							data-1p-ignore
+						<RenameInput
 							v-if="renaming === u.group.id"
-							ref="renameInput"
 							v-model="renameText"
-							class="rename"
-							aria-label="Group name"
-							@click.stop
-							@contextmenu.stop
-							@keydown.enter.prevent="finishRename('group', true)"
-							@keydown.esc.prevent="finishRename('group', false)"
-							@blur="finishRename('group', true)" />
+							label="Group name"
+							@finish="finishRename('group', $event)" />
 						<span v-else class="name" @dblclick.stop="startRename(u.group.id, u.group.name)">{{ u.group.name }}</span>
-						<span
-							v-if="groupChanged(u.group.id, u.layers)"
-							class="dia"
-							role="img"
-							aria-label="Changed in this variant" />
+						<ChangedMark v-if="groupChanged(u.group.id, u.layers)" />
 						<span
 							v-if="unwritten.get(`group:${u.group.id}`)"
 							v-tip:right="emptyTip(unwritten.get(`group:${u.group.id}`)!)"
@@ -658,14 +642,11 @@
 								class="ch fixed">
 								<component :is="CHANNEL_ICON[ch]" v-if="groupChannel(u, ch)" :size="14" />
 							</span>
-							<button
-								v-tip:right="groupShown(u.group) ? 'Hide the group' : 'Show the group'"
-								type="button"
-								class="mini"
-								:aria-label="groupShown(u.group) ? 'Hide group' : 'Show group'"
-								@click.stop="store.setGroupEnabled(u.group.id, !groupShown(u.group))">
-								<component :is="groupShown(u.group) ? IconEye : IconEyeOff" :size="14" />
-							</button>
+							<EyeToggle
+								:on="groupShown(u.group)"
+								:tip="groupShown(u.group) ? 'Hide the group' : 'Show the group'"
+								:label="groupShown(u.group) ? 'Hide group' : 'Show group'"
+								@toggle="store.setGroupEnabled(u.group.id, !groupShown(u.group))" />
 						</span>
 					</div>
 
@@ -697,28 +678,16 @@
 							:is="layerIcon(layer.type)"
 							:size="15"
 							:color="isSel('layer', layer.id) ? 'var(--accent-hi)' : layerHue(layer.type)" />
-						<input
-							autocomplete="off"
-							data-1p-ignore
+						<RenameInput
 							v-if="renaming === layer.id"
-							ref="renameInput"
 							v-model="renameText"
-							class="rename"
-							aria-label="Layer name"
-							@click.stop
-							@contextmenu.stop
-							@keydown.enter.prevent="finishRename('layer', true)"
-							@keydown.esc.prevent="finishRename('layer', false)"
-							@blur="finishRename('layer', true)" />
+							label="Layer name"
+							@finish="finishRename('layer', $event)" />
 						<template v-else>
 							<span class="name fit" @dblclick.stop="startRename(layer.id, layer.name)">{{ layer.name }}</span>
 							<span class="kind">{{ layerKind(layer) }}</span>
 						</template>
-						<span
-							v-if="store.changedItems.has(`layer.${layer.id}`)"
-							class="dia"
-							role="img"
-							aria-label="Changed in this variant" />
+						<ChangedMark v-if="store.changedItems.has(`layer.${layer.id}`)" />
 						<span
 							v-if="unwritten.get(layer.id)"
 							v-tip:right="emptyTip(unwritten.get(layer.id)!)"
@@ -749,14 +718,11 @@
 								/></span>
 								<span v-else class="ch" />
 							</template>
-							<button
-								v-tip:right="layer.enabled ? 'Hide' : 'Show'"
-								type="button"
-								class="mini"
-								:aria-label="layer.enabled ? 'Hide layer' : 'Show layer'"
-								@click.stop="store.updateLayer(layer.id, { enabled: !layer.enabled })">
-								<component :is="layer.enabled ? IconEye : IconEyeOff" :size="14" />
-							</button>
+							<EyeToggle
+								:on="layer.enabled"
+								:tip="layer.enabled ? 'Hide' : 'Show'"
+								:label="layer.enabled ? 'Hide layer' : 'Show layer'"
+								@toggle="store.updateLayer(layer.id, { enabled: !layer.enabled })" />
 						</span>
 					</div>
 				</div>
@@ -782,11 +748,7 @@
 				<div class="row env" :class="{ sel: isSel('environment') }" @click="editor.select('environment')">
 					<IconWorld :size="15" :color="isSel('environment') ? 'var(--accent-hi)' : LIGHT_HUE" />
 					<span v-tip:right="'Lighting presets, sky light and ambient'" class="name">Environment</span>
-					<span
-						v-if="store.changedItems.has('environment')"
-						class="dia"
-						role="img"
-						aria-label="Changed in this variant" />
+					<ChangedMark v-if="store.changedItems.has('environment')" />
 				</div>
 				<div
 					v-for="light in store.project.lighting.lights"
@@ -799,40 +761,25 @@
 						:is="light.type === 'point' ? IconBulb : IconSun"
 						:size="15"
 						:color="isSel('light', light.id) ? 'var(--accent-hi)' : LIGHT_HUE" />
-					<input
-						autocomplete="off"
-						data-1p-ignore
+					<RenameInput
 						v-if="renaming === light.id"
-						ref="renameInput"
 						v-model="renameText"
-						class="rename"
-						aria-label="Light name"
-						@click.stop
-						@contextmenu.stop
-						@keydown.enter.prevent="finishRename('light', true)"
-						@keydown.esc.prevent="finishRename('light', false)"
-						@blur="finishRename('light', true)" />
+						label="Light name"
+						@finish="finishRename('light', $event)" />
 					<template v-else>
 						<span class="name fit" @dblclick.stop="startRename(light.id, light.name)">{{ light.name }}</span>
 						<span class="kind">{{ lightKind(light.name, light.type) }}</span>
 					</template>
-					<span
-						v-if="store.changedItems.has(`light.${light.id}`)"
-						class="dia"
-						role="img"
-						aria-label="Changed in this variant" />
+					<ChangedMark v-if="store.changedItems.has(`light.${light.id}`)" />
 					<span
 						v-pick="() => String(light.params.color)"
 						class="chip"
 						:style="{ background: String(light.params.color) }" />
-					<button
-						v-tip:right="light.enabled ? 'Turn off' : 'Turn on'"
-						type="button"
-						class="mini"
-						:aria-label="light.enabled ? 'Disable light' : 'Enable light'"
-						@click.stop="store.updateLight(light.id, { enabled: !light.enabled })">
-						<component :is="light.enabled ? IconEye : IconEyeOff" :size="14" />
-					</button>
+					<EyeToggle
+						:on="light.enabled"
+						:tip="light.enabled ? 'Turn off' : 'Turn on'"
+						:label="light.enabled ? 'Disable light' : 'Enable light'"
+						@toggle="store.updateLight(light.id, { enabled: !light.enabled })" />
 				</div>
 				<div v-if="!store.project.lighting.lights.length" class="empty">No lights: the environment only.</div>
 			</div>
@@ -871,20 +818,13 @@
 					@contextmenu.prevent="onRowMenu($event, 'post', f.id)">
 					<IconSparkles :size="15" :color="isSel('post', f.id) ? 'var(--accent-hi)' : POST_HUE" />
 					<span class="name">{{ allPostDefs().find((d) => d.type === f.type)?.label ?? f.type }}</span>
-					<span
-						v-if="store.changedItems.has(`post.${f.id}`)"
-						class="dia"
-						role="img"
-						aria-label="Changed in this variant" />
+					<ChangedMark v-if="store.changedItems.has(`post.${f.id}`)" />
 					<span v-if="errors[f.id]" v-tip:right="errors[f.id]" class="err">!</span>
-					<button
-						v-tip:right="f.enabled ? 'Turn off' : 'Turn on'"
-						type="button"
-						class="mini"
-						:aria-label="f.enabled ? 'Disable filter' : 'Enable filter'"
-						@click.stop="store.updatePost(f.id, { enabled: !f.enabled })">
-						<component :is="f.enabled ? IconEye : IconEyeOff" :size="14" />
-					</button>
+					<EyeToggle
+						:on="f.enabled"
+						:tip="f.enabled ? 'Turn off' : 'Turn on'"
+						:label="f.enabled ? 'Disable filter' : 'Enable filter'"
+						@toggle="store.updatePost(f.id, { enabled: !f.enabled })" />
 				</div>
 				<div v-if="!store.project.post.length" class="empty">No post filters. The render is clamped to 0–1.</div>
 			</div>
@@ -892,6 +832,8 @@
 		<DropMenu ref="rowMenu" :items="rowMenuItems" placement="pointer" />
 	</aside>
 </template>
+
+<style scoped src="./rows.css"></style>
 
 <style scoped>
 	.outliner {
@@ -1003,16 +945,6 @@
 	}
 	.row:hover {
 		background: var(--raised);
-	}
-	/* The selection: an ember-tinted row with an Ember 500 bar, unmistakable against hover. */
-	.row.sel,
-	.row.sel:hover {
-		background: linear-gradient(rgba(246, 110, 16, 0.15), rgba(246, 110, 16, 0.15)), var(--raised);
-		box-shadow:
-			inset 2px 0 0 var(--e500),
-			inset 0 1px 0 rgba(255, 144, 25, 0.12),
-			inset 0 -1px 0 rgba(255, 144, 25, 0.12);
-		color: var(--text-hi);
 	}
 	.row.sel .name {
 		color: var(--text-hi);
@@ -1134,20 +1066,6 @@
 		font-size: 11px;
 		color: var(--text-lo);
 		flex: none;
-	}
-	.rename {
-		flex: 1;
-		min-width: 0;
-		height: 24px;
-		border: 1px solid var(--accent);
-		border-radius: var(--r-field);
-		background: var(--sunken);
-		color: var(--text-hi);
-		font-size: 12px;
-		padding: 0 4px;
-		outline: none;
-		user-select: text;
-		-webkit-user-select: text;
 	}
 	/* Diffuse / Height cells: studs — a bright mark when on, a faint one when off (click to switch), a quiet fixed mark
    when the filter always affects the channel. */

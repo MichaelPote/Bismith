@@ -2,52 +2,49 @@
 	// A question (the editor's Question) opened under the row it is about, rather than as a modal: Cancel and its
 	// choices, the primary one focused so Enter picks it. Esc or a click outside cancels. With no choices it is a note
 	// with OK.
-	import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+	import { nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue';
 	import type { Question } from '@/stores/editor';
 	import { closeModal, isTopModal, openModal } from '@/ui/modals';
+	import { inViewport, usePopover } from '@/ui/popover';
 
 	const props = defineProps<{ question: Question; anchor: HTMLElement }>();
 	const emit = defineEmits<{ (e: 'answer', id: string | null): void }>();
 
 	const card = ref<HTMLElement | null>(null);
 	const pos = ref({ left: '0px', top: '0px', width: '240px' });
+	const titleId = useId();
+	const detailId = useId();
 
 	function place(): void {
 		const r = props.anchor.getBoundingClientRect();
 		const width = Math.max(240, r.width - 16);
-		const left = Math.min(r.left + 8, window.innerWidth - width - 8);
+		const left = inViewport(r.left + 8, width, 'x');
 		pos.value = { left: `${left}px`, top: `${r.bottom + 6}px`, width: `${width}px` };
 	}
 
 	// Modal while open: the editor's shortcuts wait (App's onKey).
 	let self: object = {};
 
-	function onKey(e: KeyboardEvent): void {
-		if (e.key !== 'Escape' || !isTopModal(self)) return;
-		e.preventDefault();
-		e.stopPropagation();
-		emit('answer', null);
-	}
-
-	function onPointer(e: PointerEvent): void {
-		if (!card.value?.contains(e.target as Node)) emit('answer', null);
-	}
+	const popover = usePopover({
+		popover: card,
+		onOutside: () => emit('answer', null),
+		onEscape(e) {
+			if (!isTopModal(self)) return;
+			e.preventDefault();
+			e.stopPropagation();
+			emit('answer', null);
+		},
+		onResize: place
+	});
 
 	onMounted(async () => {
 		self = openModal();
 		place();
-		window.addEventListener('keydown', onKey, true);
-		window.addEventListener('pointerdown', onPointer, true);
-		window.addEventListener('resize', place);
+		popover.listen();
 		await nextTick();
 		(card.value?.querySelector<HTMLElement>('.primary') ?? card.value?.querySelector<HTMLElement>('button'))?.focus();
 	});
-	onBeforeUnmount(() => {
-		closeModal(self);
-		window.removeEventListener('keydown', onKey, true);
-		window.removeEventListener('pointerdown', onPointer, true);
-		window.removeEventListener('resize', place);
-	});
+	onBeforeUnmount(() => closeModal(self));
 </script>
 
 <template>
@@ -56,12 +53,12 @@
 			ref="card"
 			class="anchored"
 			role="alertdialog"
-			aria-labelledby="anchored-title"
-			:aria-describedby="question.detail ? 'anchored-detail' : undefined"
+			:aria-labelledby="titleId"
+			:aria-describedby="question.detail ? detailId : undefined"
 			:style="pos">
 			<span class="notch" aria-hidden="true" />
-			<div id="anchored-title" class="title">{{ question.title }}</div>
-			<p v-if="question.detail" id="anchored-detail" class="detail">{{ question.detail }}</p>
+			<div :id="titleId" class="title">{{ question.title }}</div>
+			<p v-if="question.detail" :id="detailId" class="detail">{{ question.detail }}</p>
 			<div class="choices">
 				<template v-if="question.choices.length">
 					<button type="button" class="fk" @click="emit('answer', null)">

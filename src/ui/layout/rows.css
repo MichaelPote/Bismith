@@ -1,0 +1,11 @@
+/* The selected row of the Outliner and the Variants panel (scoped in each): ember-tinted, with an Ember 500 bar,
+   unmistakable against hover. */
+.row.sel,
+.row.sel:hover {
+	background: linear-gradient(rgba(246, 110, 16, 0.15), rgba(246, 110, 16, 0.15)), var(--raised);
+	box-shadow:
+		inset 2px 0 0 var(--e500),
+		inset 0 1px 0 rgba(255, 144, 25, 0.12),
+		inset 0 -1px 0 rgba(255, 144, 25, 0.12);
+	color: var(--text-hi);
+}

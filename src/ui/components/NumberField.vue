@@ -23,14 +23,13 @@
 			step?: number;
 			unit?: string;
 			int?: boolean;
-			disabled?: boolean;
 			label?: string;
 			/** Double-click target when the field has no previous value yet. */
 			defaultValue?: number;
 			/** Where to remember the previous value (e.g. owner + param key); without one it lives in the component. */
 			memoryKey?: string;
 		}>(),
-		{ unit: '', int: false, disabled: false }
+		{ unit: '', int: false }
 	);
 
 	const emit = defineEmits<{
@@ -112,7 +111,6 @@
 	}
 
 	function restorePrevious(): void {
-		if (props.disabled) return;
 		if (editing.value) {
 			editing.value = false;
 			before = null;
@@ -124,7 +122,6 @@
 	}
 
 	function nudge(dir: number, e?: MouseEvent | KeyboardEvent): void {
-		if (props.disabled) return;
 		begin();
 		const v = props.modelValue;
 		// Ctrl: to the next division in that direction.
@@ -138,7 +135,7 @@
 	let moved = false;
 
 	function onDown(e: PointerEvent): void {
-		if (props.disabled || editing.value || e.button !== 0) return;
+		if (editing.value || e.button !== 0) return;
 		startX = e.clientX;
 		startValue = props.modelValue;
 		moved = false;
@@ -193,7 +190,6 @@
 	}
 
 	async function startEdit(): Promise<void> {
-		if (props.disabled) return;
 		begin();
 		editing.value = true;
 		draft.value = props.int
@@ -243,7 +239,7 @@
 </script>
 
 <template>
-	<div class="nf" :class="{ dragging, editing, disabled }">
+	<div class="nf" :class="{ dragging, editing }">
 		<button
 			type="button"
 			class="arrow"
@@ -308,10 +304,6 @@
 	.nf:focus-within {
 		border-color: var(--accent);
 		box-shadow: var(--halo);
-	}
-	.nf.disabled {
-		opacity: 0.45;
-		pointer-events: none;
 	}
 	.arrow {
 		width: 16px;

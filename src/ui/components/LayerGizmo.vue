@@ -5,7 +5,7 @@
 	import { computed, onBeforeUnmount } from 'vue';
 	import type { Layer, Project } from '@/core/project';
 	import { useProjectStore } from '@/stores/project';
-	import { endTo, layerGizmo, moveTo, turnTo, type ParamPatch, type Pt } from '@/ui/gizmos';
+	import { beginGizmoDrag, endTo, layerGizmo, moveTo, turnTo, type ParamPatch, type Pt } from '@/ui/gizmos';
 
 	const props = defineProps<{
 		layer: Layer;
@@ -68,15 +68,13 @@
 	type Part = 'move' | 'turn' | 'end0' | 'end1';
 	let drag: { part: Part; id: number; grab: Pt; fixed?: Pt; pivot?: Pt; svg: DOMRect } | null = null;
 	let last: { x: number; y: number; ctrl: boolean } = { x: 0, y: 0, ctrl: false };
+	let stopDrag: (() => void) | null = null;
 
 	function onDown(e: PointerEvent, part: Part): void {
 		if (e.button !== 0 || !g.value) return;
 		e.stopPropagation();
 		e.preventDefault();
-		// preventDefault keeps the focus where it is: a field still being typed in would keep Ctrl+Z from reaching the
-		// editor. Finished first, its value is an undo step of its own.
-		(document.activeElement as HTMLElement | null)?.blur();
-		store.commitNow();
+		stopDrag = beginGizmoDrag(e, onKey);
 		const svg = (e.currentTarget as SVGElement).ownerSVGElement!.getBoundingClientRect();
 		// Grab offset: the handle stays where it was taken rather than jumping to the pointer.
 		const at: Pt = [e.clientX - svg.left, e.clientY - svg.top];
@@ -85,9 +83,6 @@
 		if (part === 'end0' || part === 'end1') drag.fixed = g.value.ends![part === 'end0' ? 1 : 0];
 		// Turning: about the move dot where it is now (a cable's dot would otherwise move as it turns).
 		if (part === 'turn') drag.pivot = g.value.move;
-		(e.currentTarget as Element).setPointerCapture(e.pointerId);
-		window.addEventListener('keydown', onKey);
-		window.addEventListener('keyup', onKey);
 	}
 
 	function apply(): void {
@@ -118,7 +113,7 @@
 	}
 	/** Pressing or releasing Ctrl mid-drag re-applies without a move. */
 	function onKey(e: KeyboardEvent): void {
-		if (!drag || (e.key !== 'Control' && e.key !== 'Meta') || e.repeat) return;
+		if (!drag) return;
 		last = { ...last, ctrl: e.ctrlKey || e.metaKey };
 		apply();
 	}
@@ -128,8 +123,8 @@
 	}
 	function end(): void {
 		drag = null;
-		window.removeEventListener('keydown', onKey);
-		window.removeEventListener('keyup', onKey);
+		stopDrag?.();
+		stopDrag = null;
 	}
 	onBeforeUnmount(end);
 </script>

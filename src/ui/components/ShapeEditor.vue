@@ -25,7 +25,8 @@
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore, type ShapeTool } from '@/stores/editor';
 	import { useActions } from '@/ui/actions';
-	import { polygonCentroid, snapVertex } from '@/ui/gizmos';
+	import { finishTyping, polygonCentroid, snapVertex } from '@/ui/gizmos';
+	import { isTyping } from '@/ui/keys';
 	import {
 		IconKeyboard,
 		IconHandGrab,
@@ -295,8 +296,7 @@
 	function takePress(e: PointerEvent): void {
 		e.stopPropagation();
 		e.preventDefault();
-		(document.activeElement as HTMLElement | null)?.blur();
-		store.commitNow();
+		finishTyping();
 	}
 
 	/**
@@ -684,8 +684,7 @@
 	}
 
 	function onKey(e: KeyboardEvent): void {
-		const t = e.target as HTMLElement | null;
-		if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+		if (isTyping(e.target)) return;
 		if (e.key === 'Enter' && drawing.value && draft.value.length) {
 			e.preventDefault();
 			commit();

@@ -31,12 +31,13 @@ tippy.setDefaultProps({
 	offset: [0, 8],
 	maxWidth: 300,
 	appendTo: () => document.body,
-	onTrigger: (instance, event) => void lastTrigger.set(instance, event.type),
-	// Focus shows a tip only when it is keyboard focus, not when a click or a script moves focus (a menu focusing its
-	// first item would otherwise pop that item's tip up unasked).
-	onShow: (instance) =>
-		lastTrigger.get(instance) === 'focus' && !instance.reference.matches(':focus-visible') ? false : undefined
+	onTrigger: (instance, event) => void lastTrigger.set(instance, event.type)
 });
+
+// Focus shows a tip only when it is keyboard focus, not when a click or a script moves focus (a menu focusing its first
+// item would otherwise pop that item's tip up unasked).
+const unaskedFocus = (instance: Instance) =>
+	lastTrigger.get(instance) === 'focus' && !instance.reference.matches(':focus-visible');
 
 function el(tag: string, cls: string, text?: string): HTMLElement {
 	const e = document.createElement(tag);
@@ -69,23 +70,35 @@ function render(v: TipValue): HTMLElement | null {
 	return root;
 }
 
-type TipEl = HTMLElement & { _tip?: Instance; _tipKey?: string };
+type TipEl = HTMLElement & { _tip?: Instance; _tipValue?: TipValue };
 
+// The tip's content is built when it shows, from the value last bound: the directive only stores it, so a parent's
+// re-render (ParamList builds a fresh Tip per row) costs nothing until a tip is shown.
 function apply(node: TipEl, value: TipValue, placement: Placement): void {
-	const key = JSON.stringify(value ?? null) + placement;
-	if (node._tipKey === key) return;
-	node._tipKey = key;
-	const content = render(value);
-	if (!content) {
+	node._tipValue = value;
+	if (!value) {
 		node._tip?.destroy();
 		node._tip = undefined;
 		return;
 	}
-	if (node._tip) {
-		node._tip.setContent(content);
-		node._tip.setProps({ placement });
-	} else {
-		node._tip = tippy(node, { content, placement });
+	if (!node._tip) {
+		node._tip = tippy(node, {
+			content: '',
+			placement,
+			onShow(instance) {
+				if (unaskedFocus(instance)) return false;
+				const content = render(node._tipValue);
+				if (!content) return false;
+				instance.setContent(content);
+			}
+		});
+		return;
+	}
+	if (node._tip.props.placement !== placement) node._tip.setProps({ placement });
+	// A tip on screen follows the value at once.
+	if (node._tip.state.isVisible) {
+		const content = render(value);
+		if (content) node._tip.setContent(content);
 	}
 }
 

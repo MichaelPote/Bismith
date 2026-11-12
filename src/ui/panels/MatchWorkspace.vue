@@ -23,12 +23,13 @@
 		fromLinear,
 		fromRgba8,
 		resample,
-		toRgba8,
 		type MatchImage,
 		type MetricPreset,
 		type MetricResult
 	} from '@/match/metrics';
 	import { analyzeTarget } from '@/match/analyze';
+	import { rgbaImage } from '@/ui/rgbaImage';
+	import { dragGutter, useStoredNumber } from '@/ui/gutters';
 	import { availableTemplates } from '@/match/templates';
 	import { fitColours } from '@/match/colourFit';
 	import { attachTexture } from '@/match/evaluate';
@@ -286,15 +287,7 @@
 		{ value: '4', label: 'Coarse (1/4)' }
 	];
 
-	const refPx = computed(() =>
-		reference.value
-			? {
-					pixels: toRgba8(reference.value),
-					width: reference.value.width,
-					height: reference.value.height
-				}
-			: null
-	);
+	const refPx = computed(() => (reference.value ? rgbaImage(reference.value) : null));
 	const entryCount = computed(() => extractParams(store.project, { ...space.value }).entries.length);
 
 	// ---------------------------------------------------------------- reference loading
@@ -396,11 +389,11 @@
 	}
 
 	function show(img: MatchImage, matcher: Matcher): void {
-		renderPx.value = { pixels: toRgba8(img), width: img.width, height: img.height };
+		renderPx.value = rgbaImage(img);
 		// The Windows metric doesn't compare pixels in place: show where the render's windows have no look-alike instead.
 		const d = matcher.windowMap(img) ?? absDiff(matcher.fit(img), matcher.target, 3);
 		diffMode.value = matcher.windowTarget ? 'windows' : 'pixels';
-		diffPx.value = { pixels: toRgba8(d), width: d.width, height: d.height };
+		diffPx.value = rgbaImage(d);
 	}
 
 	/** The panes' matcher: kept while the reference, metric and tiling stay the same, since edits rescore often. */
@@ -496,25 +489,7 @@
 	}
 
 	// ---------------------------------------------------------------- resizable settings panel
-	const LOWER_KEY = 'cf-match-lower';
-
-	function readLower(): number {
-		try {
-			const v = Number(localStorage.getItem(LOWER_KEY));
-			return v > 0 ? v : 190;
-		} catch {
-			return 190;
-		}
-	}
-
-	const lowerH = ref(readLower());
-	watch(lowerH, (h) => {
-		try {
-			localStorage.setItem(LOWER_KEY, String(h));
-		} catch {
-			/* storage unavailable */
-		}
-	});
+	const [lowerH, saveLowerH] = useStoredNumber('cf-match-lower', 190);
 	const rows = computed(() => `36px minmax(0, 1fr) 4px ${lowerH.value}px`);
 
 	function startResize(e: PointerEvent): void {
@@ -523,16 +498,10 @@
 		const el = e.currentTarget as HTMLElement;
 		// Keep at least 120 px for the reference / render panes above.
 		const max = Math.max(120, (el.parentElement?.clientHeight ?? 600) - 36 - 4 - 120);
-		el.setPointerCapture(e.pointerId);
 		const move = (ev: PointerEvent) => {
 			lowerH.value = Math.round(Math.max(120, Math.min(max, start - (ev.clientY - startY))));
 		};
-		const up = () => {
-			el.removeEventListener('pointermove', move);
-			el.removeEventListener('pointerup', up);
-		};
-		el.addEventListener('pointermove', move);
-		el.addEventListener('pointerup', up);
+		dragGutter(e, move, saveLowerH);
 	}
 
 	/** Run the optimiser (a new one, or on from where it is); `resume` carries on a checkpointed press's limits. */
@@ -764,8 +733,6 @@
 		return { ...p, post: p.post.map((f) => (f.type === 'palette' ? { ...f, enabled: on } : f)) };
 	}
 
-	const thumb = (img: MatchImage) => ({ pixels: toRgba8(img), width: img.width, height: img.height });
-
 	/**
 	 * Every template built for the reference (colours from its palette, counts from its periods), colour-fitted, scored
 	 * with the texture-aware metric and shown ranked — you pick the family.
@@ -800,7 +767,7 @@
 						label: t.label,
 						project,
 						loss: fit.after,
-						px: thumb(renderImage(project))
+						px: rgbaImage(renderImage(project))
 					}
 				].sort((a, b) => (a.loss ?? 0) - (b.loss ?? 0));
 			}
@@ -1277,6 +1244,8 @@
 	</section>
 </template>
 
+<style scoped src="./workspace.css"></style>
+
 <style scoped>
 	.overlay {
 		display: grid;
@@ -1369,45 +1338,6 @@
 		color: var(--text-lo);
 	}
 
-	.grow {
-		flex: 1;
-	}
-
-	.panes {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: 6px;
-		padding: 6px;
-		min-height: 0;
-	}
-
-	figure {
-		margin: 0;
-		display: grid;
-		grid-template-rows: 20px minmax(0, 1fr);
-		min-height: 0;
-	}
-
-	.cap {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		min-width: 0;
-	}
-
-	.pick {
-		display: flex;
-		gap: 4px;
-	}
-
-	.pick .cf-toggle {
-		height: 18px;
-		padding: 0 6px;
-		font: inherit;
-		letter-spacing: inherit;
-		text-transform: inherit;
-	}
-
 	.cap .loss {
 		margin-left: 4px;
 		letter-spacing: 0;
@@ -1423,33 +1353,10 @@
 		min-height: 0;
 	}
 
-	.settings {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-height: 0;
-		overflow-y: auto;
-	}
-
 	.settings > * {
 		/* Rows keep their content height (wrapped checkboxes included) and the column scrolls, instead of rows being
 		 squashed to their min-height and overlapping the next. */
 		flex-shrink: 0;
-	}
-
-	.row {
-		display: grid;
-		grid-template-columns: 70px minmax(0, 1fr);
-		gap: 8px;
-		align-items: center;
-		min-height: 24px;
-	}
-
-	.lbl {
-		font-size: 12px;
-		color: var(--text-lo);
-		text-align: right;
-		cursor: help;
 	}
 
 	.checks {
@@ -1464,74 +1371,11 @@
 		color: var(--text-lo);
 	}
 
-	.progress {
-		display: grid;
-		grid-template-rows: 22px minmax(0, 1fr);
-		gap: 4px;
-		min-height: 0;
-	}
-
-	.stats {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0 14px;
-		white-space: nowrap;
-		font-size: 11px;
-		color: var(--text-lo);
-		align-items: center;
-	}
-
-	.stats b {
-		color: var(--pill);
-		font-weight: 400;
-	}
-
-	.terms {
-		display: flex;
-		flex-direction: column;
-		gap: 3px;
-		min-height: 0;
-	}
-
 	.term {
 		display: grid;
 		grid-template-columns: 82px minmax(0, 1fr) 44px;
 		gap: 6px;
 		align-items: center;
 		font-size: 11px;
-	}
-
-	.tl {
-		color: var(--text-lo);
-		text-align: right;
-	}
-
-	.tb {
-		height: 6px;
-		background: var(--hairline);
-	}
-
-	.tb > div {
-		height: 100%;
-		background: var(--sigil);
-	}
-
-	.tv {
-		color: var(--text);
-		text-align: right;
-	}
-
-	.log {
-		flex: 1;
-		min-height: 0;
-		overflow-y: auto;
-		margin-top: 4px;
-		padding: 4px 6px;
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-field);
-		background: var(--sunken);
-		font-size: 10px;
-		color: var(--text-lo);
-		line-height: 1.5;
 	}
 </style>
