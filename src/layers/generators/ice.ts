@@ -28,12 +28,41 @@
 
 import type { Texture } from 'three';
 import { P, gradient, halfPx, round1, type ParamValues } from '@/core/params';
-import { LEDGE_GLSL, ledgeCells, ledgeParams } from '../ledges';
+import { LEDGE_GLSL, LEDGE_GRID_GLSL, ledgeCellGlsl, ledgeCells, ledgeGrid, ledgeParams } from '../ledges';
 import type { LayerDef } from '../types';
 
 const icicles = (p: ParamValues) => p.icicles_on === true;
-/** Ledge cells along a side of the canvas for Icicle spacing gap (whole numbers, so they tile; the shader mirrors it). */
-const iceCells = (side: number, gap: number) => Math.max(1, Math.floor(side / gap + 0.5));
+
+/**
+ * The icicle cells pass: per ledge cell (tLedges: its strongest ledge pixel, user px, and drop), whether it grows an
+ * icicle — by the chance Icicles × how much its drop counts as a ledge × the clustering, unless a sheet that fills the
+ * hollows fills the overhang in (as Fill hollows does, from four taps Fill width round it, against the overhang's
+ * drop). Worked out once per cell, not at every pixel an icicle might reach: (pos, drop, 1 if it grows one).
+ */
+const ICICLE_CELLS_GLSL =
+	LEDGE_GLSL +
+	/* glsl */ `
+uniform sampler2D tLedges;
+void main() {
+  ivec2 lw = ivec2(floor(gl_FragCoord.xy));
+  vec4 b = texelFetch(tLedges, lw, 0);
+  vec2 icl = cellsFor(4.0, 1.0);
+  float cl = mix(1.0, 2.0 * smoothstep(0.4, 0.7, valueNoise(b.xy / uRes * icl, periodOf(icl), uSeed + 69.0)), u_ice_cluster);
+  float hx = hashI(lw, uSeed + 63.0), chance = u_icicles * ledgeOk(b.z) * cl;
+  float gate = 1.0;
+  if (hx < chance && u_sheet && u_fill > 0.0) {
+    vec2 gb = vec2(b.x, uRes.y - b.y - u_ledge_reach);
+    float hb0 = sampleT(tSurface, gb).r, mx = hb0, mn = 0.0;
+    for (int t = 0; t < 4; t++) {
+      float hh = sampleT(tSurface, gb + u_fill_w * vec2(t == 0 ? 1.0 : t == 1 ? -1.0 : 0.0, t == 2 ? 1.0 : t == 3 ? -1.0 : 0.0)).r;
+      mx = max(mx, hh);
+      mn += 0.25 * hh;
+    }
+    gate = 1.0 - smoothstep(0.3, 1.0, max(mix(mn, mx, u_fill) - hb0, 0.0) / max(b.z, 1e-3));
+  }
+  oColor = vec4(b.xyz, hx < chance * gate ? 1.0 : 0.0);
+}
+`;
 
 export const iceLayer: LayerDef = {
 	type: 'ice',
@@ -348,12 +377,16 @@ export const iceLayer: LayerDef = {
 		...ledgeParams({ section: 'Icicles' }, icicles),
 		P.seed()
 	],
-	// The ledges' cells (layers/ledges.ts): each one's strongest ledge pixel, for the icicles to hang from.
+	// The ledges' cells (layers/ledges.ts): each one's strongest ledge pixel, and whether an icicle hangs from it.
 	prepare(ctx, layer): Record<string, Texture> {
 		const p = layer.params;
 		if (!icicles(p)) return {};
-		const gap = Math.max(Number(p.ice_gap), 1);
-		return { ledges: ledgeCells(ctx, 'ice-ledges', [iceCells(ctx.width, gap), iceCells(ctx.height, gap)]) };
+		const cells = ledgeGrid(ctx.width, ctx.height, Math.max(Number(p.ice_gap), 1));
+		const mat = ctx.material('ice:icicle-cells', ICICLE_CELLS_GLSL, { tLedges: { value: null } });
+		mat.uniforms.tLedges.value = ledgeCells(ctx, 'ice-ledges', cells);
+		const target = ctx.scratch('ice-icicles', cells[0] + 1, cells[1] + 1);
+		ctx.run(mat, target);
+		return { ledges: target.texture };
 	},
 	textures: ['ledges'],
 	// Clear ice glossy, frost and haze matte (Roughness and Specular › Parts).
@@ -392,7 +425,8 @@ export const iceLayer: LayerDef = {
 		};
 	},
 	glsl:
-		LEDGE_GLSL +
+		LEDGE_GRID_GLSL +
+		ledgeCellGlsl('t_ledges') +
 		/* glsl */ `
 // Long cracks' laps when tiling: (a, b) widths and heights per lap, and (c, d) with a·c + b·d = 1.
 const vec4 ICE_LAPS[12] = vec4[12](vec4(1, 0, 1, 0), vec4(0, 1, 0, 1), vec4(1, 1, 1, 0), vec4(1, -1, 1, 0), vec4(2, 1, 1, -1),
@@ -455,79 +489,61 @@ GenOut gen(vec2 p) {
   float hz = u_haze * smoothstep(0.3, 0.75, body.y) * (0.4 + 0.6 * tn) + (whole ? 0.0 : 0.5 * exp(-max(tn - thr, 0.0) / 0.04));
 
   // Icicles hang from the ledges in the relief below, as Drips' trails do: the ledge cells (prepare: each Icicle
-  // spacing cell's strongest ledge pixel, user px) each grow one by the chance Icicles × how much its drop counts as a
-  // ledge × the clustering. Per pixel the cells round its column, from its own row up as far as an icicle reaches. The
-  // front one (the highest dome) gives the shape; the coverage is all of them.
+  // spacing cell's strongest ledge pixel, user px, and whether it grows one — by the chance Icicles × how much its drop
+  // counts as a ledge × the clustering). Per pixel the cells round its column, from its own row up as far as an icicle
+  // reaches. The front one (the highest dome) gives the shape; the coverage is all of them.
   // (iH: the front icicle's height, px — round in section, half as tall as it is wide.)
   float iCov = 0.0, iDome = 0.0, iBest = 0.0, iCore = 0.0, iH = 0.0;
   vec2 iG = vec2(0.0);
 #ifdef ICE_ICICLES
   if (u_icicles > 0.0) {
-    vec2 cellsL = max(vec2(1.0), floor(uRes / max(u_ice_gap, 1.0) + 0.5));
+    vec2 cellsL = ledgeGrid(max(u_ice_gap, 1.0));
     vec2 csL = uRes / cellsL;
     vec2 pu = vec2(p.x, uRes.y - p.y);
     ivec2 lc = ivec2(floor(pu / csL));
     int rx = clamp(int(ceil(0.8 * u_ice_w / csL.x)), 1, 3);
     int nxc = 2 * rx + 1;
     int up = clamp(int(ceil((u_ice_len + u_ice_w) / csL.y)), 1, 40);
-    vec2 icl = cellsFor(4.0, 1.0);
     for (int e = 0; e < nxc * (up + 1) * UNI_1; e++) {
       ivec2 l = lc + ivec2(e % nxc - rx, -(e / nxc));
-      ivec2 lw = wrapCell(l, ivec2(cellsL));
-      bool inside = uTile || (l.x >= 0 && l.y >= 0 && float(l.x) < cellsL.x && float(l.y) < cellsL.y);
-      vec4 b = texelFetch(t_ledges, lw, 0);
-      vec2 src = b.xy + vec2(l - lw) * csL;
+      ivec2 lw;
+      vec4 b = ledgeCell(l, cellsL, lw);
+      vec2 src = b.xy;
       vec4 h = vec4(hash3I(lw, uSeed + 61.0), hashI(lw, uSeed + 67.0));
       float len = u_ice_len * (1.0 - u_ice_len_var * (1.0 - h.x));
       // (Shorter ones are thinner.)
       float wid = u_ice_w * (0.55 + 0.45 * h.y) * mix(0.6, 1.0, h.x);
       // px below its root (user y is down).
       float q = pu.y - src.y;
-      if (inside && len > 1.0 && q > -0.5 * wid && q < len + wid) {
-        float cl = mix(1.0, 2.0 * smoothstep(0.4, 0.7, valueNoise(src / uRes * icl, periodOf(icl), uSeed + 69.0)), u_ice_cluster);
-        float hx = hashI(lw, uSeed + 63.0), chance = u_icicles * ledgeOk(b.z) * cl;
-        // A sheet that fills the hollows fills an overhang in by as much as it raises the ground just below it (as
-        // Fill hollows does, from four taps Fill width round it) against the overhang's drop: no icicle hangs there.
-        float gate = 1.0;
-        if (hx < chance && u_sheet && u_fill > 0.0) {
-          vec2 gb = vec2(src.x, uRes.y - src.y - u_ledge_reach);
-          float hb0 = sampleT(tSurface, gb).r, mx = hb0, mn = 0.0;
-          for (int t = 0; t < 4; t++) {
-            float hh = sampleT(tSurface, gb + u_fill_w * vec2(t == 0 ? 1.0 : t == 1 ? -1.0 : 0.0, t == 2 ? 1.0 : t == 3 ? -1.0 : 0.0)).r;
-            mx = max(mx, hh);
-            mn += 0.25 * hh;
-          }
-          gate = 1.0 - smoothstep(0.3, 1.0, max(mix(mn, mx, u_fill) - hb0, 0.0) / max(b.z, 1e-3));
+      // (w: whether it grows one; 0 outside an untiled texture.)
+      if (b.w > 0.5 && len > 1.0 && q > -0.5 * wid && q < len + wid) {
+        float f = clamp(q / len, 0.0, 1.0);
+        float dx = pu.x - src.x - (h.w - 0.5) * 0.8 * wid * f * f;
+        // Tapering to a drop at its tip, with rings of bulges down it; rounded over at its root.
+        float rb = max(0.08 * wid, 0.6);
+        float qt = max(len - rb, 0.0);
+        float rT = max(rb, 0.5 * wid * pow(1.0 - qt / len, 0.65));
+        // (The rings' spacing its own, and growing out of a smooth root.)
+        float ring = (0.6 + 0.8 * fract(h.z * 7.3)) * (0.8 * wid + 3.0);
+        float hw = 0.5 * wid * pow(1.0 - f, 0.65)
+                 * (1.0 + u_ice_ripple * 0.45 * smoothstep(0.0, 0.25, f) * sin(q * TAU / ring + 6.0 * h.w) * (0.7 + 0.3 * sin(q * 1.7 / ring + h.y * 9.0)));
+        float r = q < qt ? max(hw, rb) : rT;
+        vec2 rel = vec2(dx, q < 0.0 ? 2.0 * q : max(q - qt, 0.0)) / max(r, 0.5);
+        // (Above its root it fades into the overhang instead of ending in a cap.)
+        float c = clamp(0.5 - (length(rel) - 1.0) * r, 0.0, 1.0) * smoothstep(-0.5 * wid, 0.0, q);
+        float dm = sqrt(max(1.0 - dot(rel, rel), 0.0));
+        // Thinner icicles are lower domes.
+        float ws = clamp(r / (0.5 * u_ice_w), 0.25, 1.0);
+        if (c * dm * ws > iBest) {
+          iBest = c * dm * ws;
+          iDome = dm * ws;
+          // The round section's slope (height px per px; down the screen is −y), steep at the rims.
+          iG = vec2(-rel.x, rel.y) / max(dm, 0.25);
+          iCore = exp(-rel.x * rel.x / 0.04) * (1.0 - 0.6 * f) + 0.5 * exp(-q / max(0.3 * wid, 1.0)) * (q > 0.0 ? 1.0 : 0.0);
+          // (Rising from nothing above its root, so it merges into the ledge instead of standing on it as a cap.)
+          iH = 0.5 * r * dm * c * smoothstep(-0.2 * wid, 0.4 * wid, q);
         }
-        if (hx < chance * gate) {
-          float f = clamp(q / len, 0.0, 1.0);
-          float dx = pu.x - src.x - (h.w - 0.5) * 0.8 * wid * f * f;
-          // Tapering to a drop at its tip, with rings of bulges down it; rounded over at its root.
-          float rb = max(0.08 * wid, 0.6);
-          float qt = max(len - rb, 0.0);
-          float rT = max(rb, 0.5 * wid * pow(1.0 - qt / len, 0.65));
-          // (The rings' spacing its own, and growing out of a smooth root.)
-          float ring = (0.6 + 0.8 * fract(h.z * 7.3)) * (0.8 * wid + 3.0);
-          float hw = 0.5 * wid * pow(1.0 - f, 0.65)
-                   * (1.0 + u_ice_ripple * 0.45 * smoothstep(0.0, 0.25, f) * sin(q * TAU / ring + 6.0 * h.w) * (0.7 + 0.3 * sin(q * 1.7 / ring + h.y * 9.0)));
-          float r = q < qt ? max(hw, rb) : rT;
-          vec2 rel = vec2(dx, q < 0.0 ? 2.0 * q : max(q - qt, 0.0)) / max(r, 0.5);
-          // (Above its root it fades into the overhang instead of ending in a cap.)
-          float c = clamp(0.5 - (length(rel) - 1.0) * r, 0.0, 1.0) * smoothstep(-0.5 * wid, 0.0, q);
-          float dm = sqrt(max(1.0 - dot(rel, rel), 0.0));
-          // Thinner icicles are lower domes.
-          float ws = clamp(r / (0.5 * u_ice_w), 0.25, 1.0);
-          if (c * dm * ws > iBest) {
-            iBest = c * dm * ws;
-            iDome = dm * ws;
-            // The round section's slope (height px per px; down the screen is −y), steep at the rims.
-            iG = vec2(-rel.x, rel.y) / max(dm, 0.25);
-            iCore = exp(-rel.x * rel.x / 0.04) * (1.0 - 0.6 * f) + 0.5 * exp(-q / max(0.3 * wid, 1.0)) * (q > 0.0 ? 1.0 : 0.0);
-            // (Rising from nothing above its root, so it merges into the ledge instead of standing on it as a cap.)
-            iH = 0.5 * r * dm * c * smoothstep(-0.2 * wid, 0.4 * wid, q);
-          }
-          iCov = max(iCov, c);
-        }
+        iCov = max(iCov, c);
       }
     }
   }

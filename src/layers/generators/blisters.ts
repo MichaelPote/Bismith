@@ -12,9 +12,17 @@
 import type { Texture } from 'three';
 import { P, round1 as r1, type ParamValues } from '@/core/params';
 import { DISTANCE_SOURCE, jumpFlood } from '@/gpu/jfa';
+import { f32 } from '../derivedMath';
 import type { LayerDef } from '../types';
 import { LEDGE_GLSL } from '../ledges';
-import { SOURCE_READ_GLSL, placementParams, sourceCells, sourceGridGlsl, type SourceSpacing } from '../dripSources';
+import {
+	SOURCE_READ_GLSL,
+	placementFresh,
+	placementParams,
+	sourceCells,
+	sourceGridGlsl,
+	type SourceSpacing
+} from '../dripSources';
 
 /** Set B's spacing: Ledge spacing, but blisters at least half a radius apart. */
 const GAP: SourceSpacing = {
@@ -23,23 +31,31 @@ const GAP: SourceSpacing = {
 };
 
 /**
- * How far from a ledge its blisters reach (px): the ledge flood's range. Mirrors gen and bl_peel — the band's growth
- * along the ledge (up to 2.2 × radius × Ledge bands with Raggedness) and sat, where the peel's lift and ramp are spent
- * (the lobes' and tear's depths, the lift's widest flaps, the smooth union) — plus a px for float rounding.
+ * The blisters' raggedness, the same at every pixel (derived uniforms, and blisterReach): the lobes' octaves nL from
+ * lam0 (half a grid cell) down to ~4 px (at least one), each as deep as the radius allows (lobeAmp in all), the tear's
+ * depth, and sat — past sat px the peel draws nothing (its lift, hole and ramp are spent, whatever the lobes, tear and
+ * the smooth union add).
+ */
+function blisterShape(p: ParamValues, w: number, h: number) {
+	const r = Number(p.blister);
+	const ragged = Number(p.ragged);
+	const lam0 = f32(0.5 * Math.min(f32(w / Number(p.cols)), f32(h / Number(p.rows))));
+	const nL = Math.min(6, Math.max(1, Math.floor(Math.log2(Math.max(lam0, 1) / 4)) + 1));
+	const ks = Math.max(0.35 * r, 0.25);
+	const lobeAmp = ragged * Math.min(r * nL, 1.6 * lam0);
+	const tearAmp = 2.4 * ragged * Math.min(1, r / 2.5);
+	const sat = lobeAmp + tearAmp + Math.max(1.6 * Number(p.lift_width), 1.5) + 1 + 1.5 * ks;
+	return { lam0, nL, lobeAmp, tearAmp, sat };
+}
+
+/**
+ * How far from a ledge its blisters reach (px): the ledge flood's range — the band's growth along the ledge (up to
+ * 2.2 × radius × Ledge bands with Raggedness, as bl_peel grows it) and sat, plus a px for float rounding.
  */
 function blisterReach(p: ParamValues, w: number, h: number) {
 	const r = Number(p.blister);
 	const ragged = Number(p.ragged);
-	const lam0 = 0.5 * Math.min(w / Number(p.cols), h / Number(p.rows));
-	const nL = Math.min(6, Math.max(1, Math.floor(Math.log2(Math.max(lam0, 1) / 4)) + 1));
-	const ks = Math.max(0.35 * r, 0.25);
-	const sat =
-		ragged * Math.min(r * nL, 1.6 * lam0) +
-		2.4 * ragged * Math.min(1, r / 2.5) +
-		Math.max(1.6 * Number(p.lift_width), 1.5) +
-		1 +
-		1.5 * ks;
-	return sat + r * Number(p.ledge_mix) * (1 + 1.2 * Math.min(1, 2 * ragged)) + 1;
+	return blisterShape(p, w, h).sat + r * Number(p.ledge_mix) * (1 + 1.2 * Math.min(1, 2 * ragged)) + 1;
 }
 
 /** The ledge flood's source (gpu/jfa.ts, custom): inside where the drop counts as a ledge. */
@@ -124,13 +140,9 @@ export const blistersLayer: LayerDef = {
 	// texture; below 128 px crisp.
 	fresh: ({ width }): ParamValues => {
 		const k = Math.max(0.5, width / 128);
-		if (width < 128) return { density: 0.3, ledge_density: 0.15 };
+		if (width < 128) return placementFresh(width);
 		return {
-			cols: 7,
-			rows: 3,
-			density: 0.4,
-			ledge_density: 0.3,
-			ledge_gap: r1(14 * k),
+			...placementFresh(width),
 			aa: true,
 			blister: r1(1.5 * k),
 			lift_width: r1(1.2 * k)
@@ -152,6 +164,13 @@ export const blistersLayer: LayerDef = {
 		mt_on: true,
 		mt_src: 'flat',
 		mt_b: 0
+	},
+	derivedUniforms: {
+		decl: { shape: 'vec4', octaves: 'int' },
+		compute: (p, c) => {
+			const s = blisterShape(p, c.width, c.height);
+			return { shape: [s.lam0, s.lobeAmp, s.tearAmp, s.sat], octaves: s.nL };
+		}
 	},
 	glsl: /* glsl */ `
 ${sourceGridGlsl(GAP)}
@@ -225,11 +244,9 @@ GenOut gen(vec2 p) {
   vec2 cellsB = dr_cellsB();
   vec2 csB = uRes / cellsB;
   float R = u_blister, ks = max(0.35 * R, 0.25);
-  // The lobes: octaves from half a grid cell down to ~4 px (at least one), as deep as the radius allows.
-  float lam0 = 0.5 * min(csA.x, csA.y);
-  int nL = clamp(int(floor(log2(max(lam0, 1.0) / 4.0))) + 1, 1, 6);
-  float lobeAmp = u_ragged * min(R * float(nL), 1.6 * lam0);
-  float tearAmp = 2.4 * u_ragged * min(1.0, R / 2.5);
+  // The lobes (nL octaves from lam0 px down) and the tear, as deep as the radius allows; sat (blisterShape).
+  float lam0 = d_shape.x, lobeAmp = d_shape.y, tearAmp = d_shape.z, sat = d_shape.w;
+  int nL = d_octaves;
   float reach = R + lobeAmp + tearAmp + 1.6 * u_lift_width + 1.0;
   int most = u_ledge_density > 0.0 ? 5 : 8;
   int crA = clamp(int(ceil(reach / csA.x)), 1, most);
@@ -241,36 +258,25 @@ GenOut gen(vec2 p) {
   int nrA = R > 0.0 ? 2 * ryA + 1 : 0;
   int nrB = R > 0.0 ? 2 * ryB + 1 + upB : 0;
   int rsA = -ryA, rsB = -ryB - upB;
-  // Past sat px the peel draws nothing (its lift, hole and ramp are spent, whatever the lobes, tear and smoothing add),
-  // so its distance — the mask's — can saturate there instead of jumping where the search or the ledge flood ends. The
-  // spots' is exact out to the search window (less a radius; set B's spots sit up to 2 px below their cells).
-  // blisterReach (TS) mirrors sat for the flood's range.
-  float sat = lobeAmp + tearAmp + max(1.6 * u_lift_width, 1.5) + 1.0 + 1.5 * ks;
+  // Past sat px the peel draws nothing, so its distance — the mask's — can saturate there instead of jumping where the
+  // search or the ledge flood ends (the flood reaches past it, blisterReach). The spots' is exact out to the search
+  // window (less a radius; set B's spots sit up to 2 px below their cells).
   float win = min(u_density > 0.0 ? min(float(crA) * csA.x, float(ryA) * csA.y) : 1e4,
                   u_ledge_density > 0.0 ? min(float(crB) * csB.x, float(ryB) * csB.y - 2.0) : 1e4);
   float bdCap = max(win - R - ks, sat);
   int ncA = 2 * crA + 1, ncB = 2 * crB + 1;
   int totA = u_density > 0.0 ? ncA * nrA : 0;
   int totB = u_ledge_density > 0.0 ? ncB * nrB : 0;
-  int rowB0 = dr_rowB0();
   float bestRnd = 0.0, bd = 1e4, nearest = 1e4;
   // One flat loop over the cells of both sets, with a uniform-derived count and the arguments picked per iteration:
   // nested or constant loops make D3D's compiler unroll, and each call site is inlined. (No continue: ANGLE can
   // miscompile it.)
   for (int n = 0; n < totA + totB; n++) {
-    bool isB = n >= totA;
-    int m = isB ? n - totA : n;
-    int nc = isB ? ncB : ncA;
-    int cr = isB ? crB : crA;
-    vec2 cellsX = isB ? cellsB : cellsA;
-    vec2 csX = isB ? csB : csA;
-    float cseed = uSeed + (isB ? 7919.0 : 0.0);
-    int jj = m / nc;
-    ivec2 c = ivec2(floor(q / csX)) + ivec2(m - jj * nc - cr, (isB ? rsB : rsA) + jj);
+    bool isB;
     ivec2 cw;
     vec2 src;
-    float rnd, drop, lcov;
-    if (dr_cell(c, cellsX, csX, isB ? rowB0 : 0, cseed, cw, src, rnd, drop, lcov)) {
+    float cseed, rnd, drop, lcov;
+    if (dr_visit(n, totA, q, ivec2(ncA, ncB), ivec2(crA, crB), ivec2(rsA, rsB), 1, cellsA, cellsB, isB, cseed, cw, src, rnd, drop, lcov)) {
       // (Blisters that Size variation leaves under 2 px — or half the radius — are dropped: they read as specks.)
       float rr = R * (1.0 - u_blister_var * hashI(cw, cseed + 19.0));
       if (rr >= min(2.0, 0.5 * R)) {

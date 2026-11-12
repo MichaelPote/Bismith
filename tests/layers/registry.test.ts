@@ -29,8 +29,12 @@ const READ_ELSEWHERE = new Set([
 	'hammered',
 	'pipework'
 ]);
-/** Filter params read only by their prepare passes (the edge filters' jump flood, Cavity's mask pass). */
+/** Params read only by prepare passes (the edge filters' jump flood, Cavity's mask pass, Ice's icicle cells). */
 const READ_IN_PREPARE = new Set([
+	'ice.ice_cluster',
+	'ice.ledge',
+	'ice.ledge_reach',
+	'ice.ledge_soft',
 	'bevel.threshold',
 	'bevel.smooth',
 	'etch.threshold',

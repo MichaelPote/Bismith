@@ -24,7 +24,14 @@
 import type { Texture } from 'three';
 import { P, round1 as r1, type Gradient } from '@/core/params';
 import type { LayerDef } from '../types';
-import { SOURCE_READ_GLSL, placementParams, sourceCells, sourceGridGlsl, type SourceSpacing } from '../dripSources';
+import {
+	SOURCE_READ_GLSL,
+	placementFresh,
+	placementParams,
+	sourceCells,
+	sourceGridGlsl,
+	type SourceSpacing
+} from '../dripSources';
 
 const isRunnels = (p: Record<string, unknown>) => p.style === 'runnels';
 
@@ -291,14 +298,12 @@ export const dripsLayer: LayerDef = {
 		// (Lengths down the texture follow its height.)
 		const k = Math.max(0.5, width / 128);
 		const ky = Math.max(0.5, height / 128);
-		// Scattered drips and drips along the ledges beneath.
-		const stain = { dif_blend: 'multiply', dif_grad: FRESH_STAIN };
+		// Scattered drips and drips along the ledges beneath, placed as a new Blisters layer's blisters (so the two line up).
+		const stain = { dif_blend: 'multiply', dif_grad: FRESH_STAIN, ...placementFresh(width) };
 		if (width < 128)
 			return {
 				...stain,
 				style: 'streak',
-				density: 0.3,
-				ledge_density: 0.15,
 				len_min: r1(height / 8),
 				len_max: r1(height / 2.5),
 				start: 0.8,
@@ -308,11 +313,6 @@ export const dripsLayer: LayerDef = {
 		return {
 			...stain,
 			style: 'runnels',
-			cols: 7,
-			rows: 3,
-			density: 0.4,
-			ledge_density: 0.3,
-			ledge_gap: r1(14 * k),
 			len_min: r1(14 * ky),
 			len_max: r1(80 * ky),
 			width: r1(10 * k),
@@ -562,7 +562,6 @@ GenOut gen(vec2 p) {
   int ncA = 2 * crA + 1, ncB = 2 * crB + 1;
   int totA = u_density > 0.0 ? ncA * nrA : 0;
   int totB = u_ledge_density > 0.0 ? ncB * nrB : 0;
-  int rowB0 = dr_rowB0();
   float best = 0.0, bestCov = 0.0, bestRnd = 0.0, acc = 0.0;
   // Streaks: they sway once per Wobble length (two octaves: a third of it and about all of it), slower still for a
   // wide wobble, so the trail meanders instead of zig-zagging (0.7 and 0.23 rad per px at 28 px and a small wobble).
@@ -571,19 +570,11 @@ GenOut gen(vec2 p) {
   // per iteration: nested or constant loops make D3D's compiler unroll, and each call site is inlined. (No continue:
   // ANGLE can miscompile it.)
   for (int n = 0; n < totA + totB; n++) {
-    bool isB = n >= totA;
-    int m = isB ? n - totA : n;
-    int nc = isB ? ncB : ncA;
-    int cr = isB ? crB : crA;
-    vec2 cellsX = isB ? cellsB : cellsA;
-    vec2 csX = isB ? csB : csA;
-    float cseed = uSeed + (isB ? 7919.0 : 0.0);
-    int jj = m / nc;
-    ivec2 c = ivec2(floor(q / csX)) + ivec2(m - jj * nc - cr, 1 - jj);
+    bool isB;
     ivec2 cw;
     vec2 src;
-    float rnd, drop, lcov;
-    if (dr_cell(c, cellsX, csX, isB ? rowB0 : 0, cseed, cw, src, rnd, drop, lcov)) {
+    float cseed, rnd, drop, lcov;
+    if (dr_visit(n, totA, q, ivec2(ncA, ncB), ivec2(crA, crB), ivec2(1), -1, cellsA, cellsB, isB, cseed, cw, src, rnd, drop, lcov)) {
       vec2 d = q - src;
       float cap = isB ? capB : capA;
       // (Fine ledge grids visit hundreds of cells: rule out the stains that can't reach this pixel before hashing.)

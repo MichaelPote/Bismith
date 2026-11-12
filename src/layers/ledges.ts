@@ -20,6 +20,31 @@ float ledgeOk(float drop) {
 }
 `;
 
+/** The ledge cells' grid for a spacing of gap px (GLSL; ledgeGrid mirrors it). */
+export const LEDGE_GRID_GLSL = /* glsl */ `
+// Ledge cells across and down for a spacing of gap px (whole numbers, so they tile).
+vec2 ledgeGrid(float gap) { return max(vec2(1.0), floor(uRes / gap + 0.5)); }
+`;
+
+/** Ledge cells across and down for a spacing of gap px, as the shader works them out (GLSL ledgeGrid). */
+export function ledgeGrid(width: number, height: number, gap: number): [number, number] {
+	return [Math.max(1, Math.floor(width / gap + 0.5)), Math.max(1, Math.floor(height / gap + 0.5))];
+}
+
+/**
+ * Reading a grid's ledge cells (ledgeCells' texture, as `sampler`) in a shader: ledgeCell(l, cellsL, out lw) is cell l
+ * (unwrapped, so it lies near the caller; lw: wrapped) — its strongest ledge pixel moved next to l, its drop (z; −1 for
+ * a cell outside an untiled texture) and the texel's w (0 outside).
+ */
+export const ledgeCellGlsl = (sampler: string) => /* glsl */ `
+vec4 ledgeCell(ivec2 l, vec2 cellsL, out ivec2 lw) {
+  lw = wrapCell(l, ivec2(cellsL));
+  if (!uTile && (l.x < 0 || l.y < 0 || l.x >= int(cellsL.x) || l.y >= int(cellsL.y))) return vec4(0.0, 0.0, -1.0, 0.0);
+  vec4 s = texelFetch(${sampler}, lw, 0);
+  return vec4(s.xy + vec2(l - lw) * (uRes / cellsL), s.zw);
+}
+`;
+
 /** The cells pass: one texel per cell of a uLedgeCells grid — its strongest ledge pixel (user px) and its drop. */
 const LEDGE_CELLS_GLSL =
 	LEDGE_GLSL +
