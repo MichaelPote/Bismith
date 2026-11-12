@@ -15,7 +15,6 @@
 	import { useProjectStore } from '@/stores/project';
 	import { usePresetsStore } from '@/stores/presets';
 	import { buildPreset, buildTemplate, presetItemOf } from '@/presets/apply';
-	import { renderThumbnail } from '@/presets/thumbnail';
 	import { PROJECT_PREVIEW, renderPreview, TILE_PREVIEW } from '@/render/preview';
 	import { downloadBlob } from '@/render/export';
 	import { IconDownload, IconTrash, IconUpload } from '@tabler/icons-vue';
@@ -125,7 +124,7 @@
 		rendering.value = true;
 		try {
 			const size = draft.value.preset?.kind === 'project' ? PROJECT_PREVIEW : TILE_PREVIEW;
-			thumb.value = await renderThumbnail(engine, draft.value, size);
+			thumb.value = await renderPreview(engine, size, draft.value);
 		} catch (e) {
 			editor.notify(`Thumbnail failed: ${e instanceof Error ? e.message : e}`, 'error');
 		} finally {

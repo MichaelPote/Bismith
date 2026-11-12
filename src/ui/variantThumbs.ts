@@ -7,6 +7,7 @@
 
 import { reactive, toRaw, watch } from 'vue';
 import { hashText } from '@/core/hash';
+import { deepCopy } from '@/core/params';
 import * as V from '@/core/variants';
 import type { Project } from '@/core/project';
 import { renderThumbnails, THUMBNAIL_SAMPLES } from '@/presets/thumbnail';
@@ -89,7 +90,7 @@ function start(): void {
 		const st = editor.stats;
 		const at = stage(st);
 		if (!st || at === 0) return;
-		const p = JSON.parse(JSON.stringify(toRaw(store.project))) as Project;
+		const p = deepCopy(toRaw(store.project));
 		V.syncVariants(p);
 		const vs = V.variantsOf(p);
 		for (const id of [...thumbs.keys()])

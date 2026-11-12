@@ -6,7 +6,7 @@ import { MASK_HUES, sanitizeLimit } from '@/layers/masks';
 import { createPostFilter as registryCreatePost, getPostDef, sanitizePostFilter } from '@/render/post/registry';
 import { LIGHT_DEFS, createLight } from './lights';
 import { GALLERY_ID } from '@/gallery/ids';
-import { defaultParams, sanitizeParams } from './params';
+import { deepCopy, defaultParams, sanitizeParams } from './params';
 import { AMBIENT_DEFS, BASE_DEFS, PROJECT_DEFS, RENDER_DEFS, SKY_DEFS } from './settingsDefs';
 import { newId } from './ids';
 import {
@@ -176,7 +176,7 @@ function withVariants(base: Project, rv: unknown): Project {
 		if (!v || typeof v !== 'object') continue;
 		const m = meta(v, 'Variant');
 		if (base.variants.list.some((x) => x.id === m.id)) continue;
-		const copy: Project = JSON.parse(JSON.stringify({ ...base, variants: undefined }));
+		const copy: Project = deepCopy({ ...base, variants: undefined });
 		if (v.changes && typeof v.changes === 'object') applySettings(copy, v.changes as Settings);
 		const changes = diffSettings(extractSettings(normalizeBase(copy as unknown as Record<string, any>)), baseValues);
 		base.variants.list.push({ ...m, name: uniqueVariantName(base, m.name), changes });

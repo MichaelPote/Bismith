@@ -4,7 +4,7 @@
 	// other's value. Edits apply at once (each an undo step).
 	import { computed, ref, watch } from 'vue';
 	import { IconArrowBackUp } from '@tabler/icons-vue';
-	import type { ParamDef, ParamValue } from '@/core/params';
+	import { deepCopy, type ParamDef, type ParamValue } from '@/core/params';
 	import type { Project } from '@/core/project';
 	import { LIGHT_DEFS } from '@/core/lights';
 	import { AMBIENT_DEFS, BASE_DEFS, PROJECT_DEFS, RENDER_DEFS, SKY_DEFS } from '@/core/settingsDefs';
@@ -40,7 +40,7 @@
 	// ---------------------------------------------------------------- the changes
 	/** A copy of the project with its variants synced (reading it deeply, so the list follows every edit). */
 	const synced = computed<Project>(() => {
-		const p = JSON.parse(JSON.stringify(store.project)) as Project;
+		const p = deepCopy(store.project);
 		V.syncVariants(p);
 		return p;
 	});

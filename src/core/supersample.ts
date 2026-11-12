@@ -6,6 +6,7 @@
 // height depth, per-area counts …), so the pattern keeps its size in texture pixels. Post filters run after the
 // downsample, at the real size, and are left alone.
 
+import { deepCopy } from './params';
 import type { Project } from './project';
 import { scalePixels } from './pixelScale';
 
@@ -19,7 +20,7 @@ export function supersampleFactor(p: Project): number {
 /** The project at k× resolution (a copy; k = 1 returns the input). */
 export function scaleProject(p: Project, k: number): Project {
 	if (k <= 1) return p;
-	const q: Project = JSON.parse(JSON.stringify(p));
+	const q = deepCopy(p);
 	q.width *= k;
 	q.height *= k;
 	q.render.supersample = 1;

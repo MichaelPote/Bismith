@@ -28,7 +28,7 @@ import { decodePng, writePng, type Rgba8 } from './png';
 import { createLayer, createProject } from '../src/core/serialize';
 import { freshParams, getLayerDef, layerParamDefs } from '../src/layers/registry';
 import { ensureBuiltins } from '../src/render/builtins';
-import type { ParamValues } from '../src/core/params';
+import { sameValue as same, type ParamValues } from '../src/core/params';
 
 interface LayerSpec {
 	type: string;
@@ -198,7 +198,6 @@ async function main() {
 	// starts from its fresh values instead, and column 1 is that plus the spec's own params.
 	const first = project(spec.variants[0]).layers[(spec.variants[0].below ?? spec.below ?? []).length].params;
 	const fresh = createLayer(spec.type, freshParams(spec.type, { width: size, height: size })).params;
-	const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 	lines.push(
 		'',
 		`## ${def.label} params (plain default, new-layer value and column 1 value where they differ · range · slider range)`,

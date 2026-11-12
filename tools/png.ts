@@ -19,7 +19,7 @@ export function decodePng(buf: Buffer): Rgba8 {
 	return { width: png.width, height: png.height, data: new Uint8Array(png.data) };
 }
 
-export function encodePng(img: Rgba8): Buffer {
+function encodePng(img: Rgba8): Buffer {
 	const png = new PNG({ width: img.width, height: img.height });
 	png.data = Buffer.from(img.data);
 	return PNG.sync.write(png);

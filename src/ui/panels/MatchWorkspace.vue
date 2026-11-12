@@ -13,6 +13,7 @@
 		watch,
 		type WatchStopHandle
 	} from 'vue';
+	import { deepCopy } from '@/core/params';
 	import type { Project } from '@/core/project';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
@@ -142,7 +143,7 @@
 	 * A plain deep copy of the project. Not structuredClone: store edits that rebuild a list from items read through the
 	 * reactive project (moving a layer, material helpers) leave proxies inside the raw object, which it can't clone.
 	 */
-	const copyProject = (): Project => JSON.parse(snapshot());
+	const copyProject = (): Project => deepCopy(toRaw(store.project));
 
 	// ---------------------------------------------------------------- run checkpoints
 	// A run is checkpointed while it goes (stores/runCheckpoint.ts): every ~10 s and whenever the page is hidden, so a

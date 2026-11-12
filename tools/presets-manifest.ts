@@ -15,7 +15,7 @@ import type { PresetManifest, PresetManifestEntry } from '../src/presets/manifes
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const PRESET_DIR = join(ROOT, 'public', 'presets');
-export const MANIFEST_FILE = join(PRESET_DIR, 'manifest.json');
+const MANIFEST_FILE = join(PRESET_DIR, 'manifest.json');
 
 const IMAGE_TYPES: Record<string, string> = {
 	'.webp': 'image/webp',
@@ -71,7 +71,7 @@ export function buildManifest(): PresetManifest {
 }
 
 /** The manifest's text as written (one preset per line). */
-export function manifestText(m = buildManifest()): string {
+function manifestText(m = buildManifest()): string {
 	return `{\n\t"version": ${m.version},\n\t"presets": [\n${m.presets.map((e) => `\t\t${JSON.stringify(e)}`).join(',\n')}\n\t]\n}\n`;
 }
 
