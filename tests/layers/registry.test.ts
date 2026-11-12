@@ -12,9 +12,10 @@ const defs = allLayerDefs();
 const noUniform = (d: ParamDef) => d.key === 'seed' || d.uniform === false;
 
 /**
- * Layers that read some params outside their gen() shader — on the CPU (cpuData: layouts, routing, text, wave tables) or
- * in their prepare passes (Drips) — so a param missing from `glsl` is not necessarily unused: skipped here (their own
- * tests cover their CPU side). A new layer of this kind must be added deliberately.
+ * Layers that read some params outside their gen() shader — on the CPU (cpuData, derivedUniforms: layouts, routing,
+ * text, wave tables, hammering centres) or in their prepare passes (Drips) — so a param missing from `glsl` is not
+ * necessarily unused: skipped here (their own tests cover their CPU side). A new layer of this kind must be added
+ * deliberately.
  */
 const READ_ELSEWHERE = new Set([
 	'stamp',
@@ -25,10 +26,15 @@ const READ_ELSEWHERE = new Set([
 	'splats',
 	'traces',
 	'causticlight',
+	'hammered',
 	'pipework'
 ]);
-/** Filter params read only by their prepare passes (the edge filters' jump flood, Cavity's mask pass). */
+/** Params read only by prepare passes (the edge filters' jump flood, Cavity's mask pass, Ice's icicle cells). */
 const READ_IN_PREPARE = new Set([
+	'ice.ice_cluster',
+	'ice.ledge',
+	'ice.ledge_reach',
+	'ice.ledge_soft',
 	'bevel.threshold',
 	'bevel.smooth',
 	'etch.threshold',

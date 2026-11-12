@@ -675,9 +675,7 @@ float nz_field(vec2 p, float seed, out float rnd) {
         // F1 dimples: the distance to the point (soft-min'd with the next one, 0.12 cells, so the crest where two
         // cells meet is rounded, not a knife line) over the cell's reach in this direction (to the point plus to the
         // border): every dimple runs from its point to its own border, big or small.
-        float kf = 0.12;
-        float hf = max(kf - abs(w.y - w.x), 0.0) / kf;
-        float fs = min(w.x, w.y) - hf * hf * kf * 0.25;
+        float fs = smin(w.x, w.y, 0.12);
         b = 1.0 - clamp(fs / max(w.x + w.w, 0.15), 0.0, 1.0);
         // Even F1's profiles are dish shapes over u (0 at the point, 1 at the rim): Linear a cone, Smooth a parabolic
         // dish (round bottom, the rim rounded by the soft-min — dimples packed edge to edge), Round a spherical dish

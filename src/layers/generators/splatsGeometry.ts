@@ -450,7 +450,7 @@ export interface SplatGrid {
  * direction u, k0 = s·A, k1 = s·B at s px out) grows more slowly than s off its axes, so its reach is the most of
  * (t·B + A) / A² over the directions.
  */
-export function splatReach(p: SplatPrim, t: number): number {
+function splatReach(p: SplatPrim, t: number): number {
 	if (p.kind === SPLAT_CAPSULE) return Math.hypot(p.dx, p.dy) + Math.max(p.r0, p.r1) + t;
 	const a = Math.max(p.r0, 0.05);
 	const b = Math.max(p.r1, 0.05);

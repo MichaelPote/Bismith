@@ -11,7 +11,28 @@
 
 import { P, round1 as r1, type ParamValues } from '@/core/params';
 import { PX_SCALE_PARAM } from '../commonParams';
-import type { LayerDef } from '../types';
+import { hash2I, hashI } from '@/core/hash';
+import { f32 } from '../derivedMath';
+import type { LayerCanvas, LayerDef } from '../types';
+
+/** The most hammering centres (Hammer centres' maximum). */
+const HM_MAX = 64;
+
+/**
+ * Per centre, the same at every pixel (the searches visit every centre per dent): its position (px), its weight
+ * 1 / (1 + 2v·h) — positive at any Region arcs v — and its rank, the order the regions were hammered in (a later pass
+ * runs on over an earlier one's edge). Float32 steps, as the shader would take them.
+ */
+function hammeredCentres(p: ParamValues, c: LayerCanvas) {
+	const cen = new Float32Array(4 * HM_MAX);
+	const n = Math.min(Math.max(Math.round(Number(p.centres)), 1), HM_MAX);
+	const v2 = f32(2 * f32(Number(p.weight_var)));
+	for (let i = 0; i < n; i++) {
+		const [x, y] = hash2I(i, 3, c.seed);
+		cen.set([x * c.width, y * c.height, 1 / f32(1 + f32(v2 * hashI(i, 5, c.seed))), hashI(i, 6, c.seed)], 4 * i);
+	}
+	return { cen };
+}
 
 /** Whether the dents' discs go to a mask (else the layer leaves the masks alone). */
 const writesShape = (p: ParamValues) => String(p.mk_target ?? '').trim() !== '';
@@ -158,20 +179,12 @@ export const hammeredLayer: LayerDef = {
 			h_amount: r1(1.4 * Math.max(Math.pow(512 / side, 0.25), Math.sqrt(side / 512)))
 		};
 	},
+	derivedUniforms: { decl: { cen: `vec4[${HM_MAX}]` }, compute: hammeredCentres },
 	glsl: /* glsl */ `
-// Per centre (filled once per pixel by hmInit, as the searches visit every centre per dent): its position, its weight
-// 1 / (1 + 2v·h) — positive at any Region arcs v — and its rank, the order the regions were hammered in (a later
-// pass runs on over an earlier one's edge).
-vec2 hmC[64];
-float hmW[64];
-float hmR[64];
-void hmInit() {
-  for (int i = 0; i < u_centres; i++) {
-    hmC[i] = hash2I(ivec2(i, 3), uSeed) * uRes;
-    hmW[i] = 1.0 / (1.0 + 2.0 * u_weight_var * hashI(ivec2(i, 5), uSeed));
-    hmR[i] = hashI(ivec2(i, 6), uSeed);
-  }
-}
+// Per centre (d_cen, hammeredCentres): its position (xy), weight (z) and rank (w).
+#define hmC(i) d_cen[i].xy
+#define hmW(i) d_cen[i].z
+#define hmR(i) d_cen[i].w
 
 // Distance from a point to the edge between two centres' regions {|x − A| / wA = |x − B| / wB} — an Apollonius circle,
 // the bisector for equal weights; rA, rB = the point minus each centre. The point is on A's side.
@@ -187,15 +200,15 @@ float hmEdge(vec2 rA, float wA, vec2 rB, float wB) {
 // within "near" (else own).
 float hmPast(vec2 at, vec2 c, float w, int own, float reach, float near, out int jv) {
   float s = length(c) / w * 0.9999;
-  float r = hmR[own];
+  float r = hmR(own);
   float past = 0.0;
   float inEdge = near;
   int jIn = own;
   jv = own;
   for (int i = 0; i < u_centres; i++) {
-    vec2 d = wrapDelta(at - hmC[i]);
-    float wi = hmW[i];
-    bool earlier = i != own && hmR[i] < r;
+    vec2 d = wrapDelta(at - hmC(i));
+    float wi = hmW(i);
+    bool earlier = i != own && hmR(i) < r;
     if (length(d) / wi < s) {
       float e = hmEdge(d, wi, c, w);
       if (e >= reach) return 1e9;
@@ -258,9 +271,9 @@ vec2 hmDent(int own, int k, float th, int aa, float ringW, float sp, float jit, 
 // its side of the edge with region own) on the three courses and three dents around: the later pass running on over
 // the edge skips a blow there instead of doubling it.
 bool hmStruck(vec2 at, int jv, int own, float near) {
-  vec2 rel = wrapDelta(at - hmC[jv]);
-  vec2 relO = wrapDelta(at - hmC[own]);
-  float wJ = hmW[jv], wO = hmW[own];
+  vec2 rel = wrapDelta(at - hmC(jv));
+  vec2 relO = wrapDelta(at - hmC(own));
+  float wJ = hmW(jv), wO = hmW(own);
   float sc = exp2(u_region_var * (hash2I(ivec2(jv, 7), uSeed).x - 0.5));
   float ringW = max(u_ring, 0.5) * sc;
   float sp = max(u_spacing, 0.5) * sc;
@@ -283,13 +296,6 @@ bool hmStruck(vec2 at, int jv, int own, float near) {
   return hit;
 }
 
-// The dents' discs for the mask it writes, joined with a 2 px fillet so pinholes between nearly touching discs close
-// (continuous, so the mask's distance stays usable past its edge).
-float hmSmin(float a, float b) {
-  float h = max(2.0 - abs(a - b), 0.0) * 0.5;
-  return min(a, b) - h * h * 0.5;
-}
-
 // Online smooth maximum (log-sum-exp) of non-negative depths, each counted from 0 so untouched metal stays at 0:
 // m = the largest so far, S = Σ exp((d − m) / k).
 void hmSmax(inout float m, inout float S, float d, float k) {
@@ -297,7 +303,6 @@ void hmSmax(inout float m, inout float S, float d, float k) {
 }
 
 GenOut gen(vec2 p) {
-  hmInit();
   float ringW0 = max(u_ring, 0.5);
   float sp0 = max(u_spacing, 0.5);
   // The dents' distance: for the mask, and for Edge › Bevel (rounding each dent's rim).
@@ -332,8 +337,8 @@ GenOut gen(vec2 p) {
   int oA = 0;
   vec2 rA = vec2(0.0);
   for (int i = 0; i < u_centres; i++) {
-    vec2 d = wrapDelta(p - hmC[i]);
-    float w = hmW[i];
+    vec2 d = wrapDelta(p - hmC(i));
+    float w = hmW(i);
     if (length(d) / w < sA) { sA = length(d) / w; wA = w; oA = i; rA = d; }
   }
   // The regions whose dents can reach here: those whose edge with A (an Apollonius circle, the bisector for equal
@@ -352,10 +357,10 @@ GenOut gen(vec2 p) {
     int i = e / nimg;
     int im = e - i * nimg;
     if (im != 0 || i != oA) {
-      vec2 d = wrapDelta(p - hmC[i]);
+      vec2 d = wrapDelta(p - hmC(i));
       if ((im & 1) != 0) d.x -= d.x < 0.0 ? -uRes.x : uRes.x;
       if ((im & 2) != 0) d.y -= d.y < 0.0 ? -uRes.y : uRes.y;
-      float w = hmW[i];
+      float w = hmW(i);
       // First the edge with A alone; then against every centre (hmPast): the region lies beyond each edge with a
       // centre nearer here, so far images and centres whose circle with A only passes by, owned by others, drop out.
       float inc = reachD + over + 1.0;
@@ -440,7 +445,7 @@ GenOut gen(vec2 p) {
       if (q >= ext + 2.0 / R) {
         // Too far to touch this pixel: only the nearest such dent's random (for untouched metal) and its disc.
         if (1.0 + q < score) { score = 1.0 + q; dentRnd = rnd; shade = shR[reg]; }
-        if (wantSdf) sd = hmSmin(sd, dDisc);
+        if (wantSdf) sd = smin(sd, dDisc, 2.0);
       } else {
         // Each region's dents cross its edges whole, and run on past them (Region overlap, both ways), thinning out by
         // count — each dent its own random cut-off over the band, so the regions' last dents don't end along a line of
@@ -482,7 +487,7 @@ GenOut gen(vec2 p) {
           rimH = max(rimH, bump * hv);
           float key = q < 1.0 ? 1.0 - dep : 1.0 + q;
           if (key < score) { score = key; dentRnd = rnd; shade = shR[reg]; }
-          if (wantSdf) sd = hmSmin(sd, dDisc);
+          if (wantSdf) sd = smin(sd, dDisc, 2.0);
         }
       }
     }

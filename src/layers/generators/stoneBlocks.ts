@@ -9,7 +9,14 @@
 import { P, gradient, round1, type ParamValues } from '@/core/params';
 import { MAX_WRITE_ROWS, PX_SCALE_PARAM, roughnessParams, rowKey } from '../commonParams';
 import type { LayerDef } from '../types';
+import { flakeScarParams, flakeScarsGlsl } from './flakeScars';
 import { ORG_GLSL } from './organicShared';
+
+const scarP = flakeScarParams(
+	'scar',
+	{ edge: 0.8, size: [68, 512, 96], where: 'faces', edgeOf: 'the stone’s' },
+	{ section: 'Relief', showIf: (p) => Number(p.scars) > 0 }
+);
 
 // The relief's colour ramp (its default, and what switching back to it restores).
 const reliefGrad = () => gradient('#a48a68', '#b8a07c', '#c6ae8a');
@@ -173,14 +180,7 @@ export const stoneBlocksLayer: LayerDef = {
 			section: 'Relief',
 			hint: 'How much of the face is knocked off in flake scars: shallow bowls whose rims meet in crisp ridges, between flat patches of the original face'
 		}),
-		P.float('scar_size', 'Scar size', 68, 2, 512, {
-			softMax: 96,
-			unit: 'px',
-			step: 0.1,
-			section: 'Relief',
-			showIf: (p) => Number(p.scars) > 0,
-			hint: 'Sets the spacing of the big scars (each one 0.55–0.95 of this across, stretched up to 1.6×)'
-		}),
+		scarP.size,
 		P.float('scar_depth', 'Scar depth', 3.2, 0, 8, {
 			softMax: 4,
 			step: 0.001,
@@ -188,24 +188,9 @@ export const stoneBlocksLayer: LayerDef = {
 			showIf: (p) => Number(p.scars) > 0,
 			hint: 'How deep the scars cut, in proportion to their size, so bigger scars cut deeper at the same slopes'
 		}),
-		P.float('scar_stretch', 'Scar stretch', 1, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.scars) > 0,
-			hint: 'Stretches the scars along the direction they were struck (up to 2.4×)'
-		}),
-		P.float('scar_edge', 'Scars from edges', 0.8, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.scars) > 0,
-			hint: 'How many of the scars are struck from the stone’s nearest edge (deep at the edge and running inward, the way a mason pitches a rock face) rather than lying any which way'
-		}),
-		P.float('scar_detail', 'Small scars', 0.5, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.scars) > 0,
-			hint: 'Adds a second, finer set of scars (under half the size) chipped into the faces and the big scars'
-		}),
+		scarP.stretch,
+		scarP.edge,
+		scarP.detail,
 		...roughnessParams(0.06, 3),
 		P.float('joint_depth', 'Joint depth', 0.3, 0, 2, {
 			softMax: 1,
@@ -296,6 +281,27 @@ export const stoneBlocksLayer: LayerDef = {
 					: { h_on: true, dif_src: 'random', dif_blend: 'normal', dif_grad: reliefGrad() },
 	glsl:
 		ORG_GLSL +
+		// Flake scars struck from the stone's nearest side (lo, hi: its box) — none from a shut stone's own edges.
+		flakeScarsGlsl({
+			name: 'sb_scars',
+			args: ', vec2 lo, vec2 hi, bool shut',
+			prefix: 'scar',
+			amount: 'u_scars',
+			seeds: [
+				[19, 23],
+				[31, 29],
+				[41, 37],
+				[67, 59],
+				[73, 71]
+			],
+			wall: 4,
+			edge: /* glsl */ `
+    vec4 de = vec4(sp.x - lo.x, hi.x - sp.x, sp.y - lo.y, hi.y - sp.y);
+    edgeD = min(min(de.x, de.y), min(de.z, de.w));
+    on = true;
+    canStrike = !shut;`,
+			angle: 'edgeD == de.x ? 0.0 : edgeD == de.y ? PI : edgeD == de.z ? 0.5 * PI : -0.5 * PI'
+		}) +
 		/* glsl */ `
 float sb_px(float x, float s) { return floor(x / s + 0.5) * s; }
 float sb_h(uint h, uint k) { return u2f(pcg(h + k * 0x9E3779B9u)); }
@@ -465,51 +471,10 @@ GenOut gen(vec2 p) {
   // reaching it — at most 1.45 cells — as sites stay 0.1 cells inside theirs). Each stone reads the field at its own
   // offset, so scars never run on across a joint.
   vec2 so = shut ? vec2(0.0) : vec2(sb_h(pid, 9u), sb_h(pid, 10u)) * uRes;
-  float s1 = 0.0, s2 = 0.0;
-  if (u_scars > 0.0 && (u_output == 0 || u_output == 2)) {
-    // Ragged rims: the field is warped by up to ~0.1 of a big scar (in px, both sizes).
-    vec2 wp = 0.2 * scs * (wn - 0.5);
-    vec2 cellsB = cellsFor(uRes.x / scs, 1.0), cellsF = cellsFor(uRes.x / (0.42 * scs), 1.0);
-    for (int e = 0; e < 32 * UNI_1; e++) {
-      bool fine = e >= 16;
-      int k = e & 15;
-      vec2 cells = fine ? cellsF : cellsB;
-      vec2 fo = fine ? vec2(0.37, 0.71) * uRes : vec2(0.0);
-      vec2 x = (p + wp + so + fo) / uRes * cells;
-      ivec2 cc = ivec2(floor(x - 0.5)) - 1 + ivec2(k & 3, k >> 2);
-      ivec2 cw = imod(cc, periodOf(cells));
-      vec4 h = vec4(hash2I(cw, uSeed + (fine ? 23.0 : 19.0)), hash2I(cw, uSeed + (fine ? 29.0 : 31.0)));
-      vec4 h2 = vec4(hash2I(cw, uSeed + (fine ? 37.0 : 41.0)), hash2I(cw, uSeed + (fine ? 59.0 : 67.0)));
-      vec2 site = vec2(cc) + 0.5 + 0.8 * (h.xy - 0.5);
-      vec2 lq = x - site;
-      // Struck from the stone's nearest edge (the deep end at the edge, running inward), or any which way. (The site in
-      // px, unwarped: one edge and direction for the whole scar.)
-      vec2 sp = site / cells * uRes - so - fo;
-      vec4 de = vec4(sp.x - lo.x, hi.x - sp.x, sp.y - lo.y, hi.y - sp.y);
-      float m = min(min(de.x, de.y), min(de.z, de.w));
-      float ae = m == de.x ? 0.0 : m == de.y ? PI : m == de.z ? 0.5 * PI : -0.5 * PI;
-      bool struck = h2.w < u_scar_edge && !shut;
-      lq = lq * rot2(struck ? ae + 0.9 * (h.z - 0.5) : h.z * TAU);
-      // Wider along the edge than inward (a scallop), up to 2.4×, shrunk to stay within reach of the 4 × 4 window
-      // (1.5 cells).
-      float st = 1.0 + 1.4 * u_scar_stretch * h.w;
-      float R = min(0.55 + 0.4 * h2.x, 1.45 / st);
-      vec2 e2 = vec2(lq.x * st, lq.y / st) / R;
-      float d2 = dot(e2, e2);
-      float depth = h2.z < u_scars ? 0.4 + 0.6 * h2.y : 0.0;
-      // An edge flake starts at the edge: one whose struck end falls short of it fades out, leaving the middle of a big
-      // stone its original face.
-      if (struck) depth *= 1.0 - smoothstep(0.9, 1.4, m / (R / st * uRes.x / cells.x));
-      // A flake's scar: a tilted plane, deepest at the struck end (−x) and running out at a grazing angle at the other,
-      // walled in by the bowl wherever that is shallower — a steep, crisp wall round the struck end, curving up at the
-      // sides. (Only inside the rim; outside it the plane would keep falling.)
-      float plane = -0.5 * (1.0 - e2.x) * (0.7 + 1.0 * h2.x) + 0.4 * (hashI(cw, uSeed + (fine ? 71.0 : 73.0)) - 0.5) * e2.y;
-      float s = d2 < 1.0 ? depth * max(d2 * d2 - 1.0, plane) : 0.0;
-      if (fine) s2 = min(s2, s); else s1 = min(s1, s);
-    }
-  }
+  float scar = 0.0;
+  // (Ragged rims: the field is warped by up to ~0.1 of a big scar, in px.)
+  if (u_scars > 0.0 && (u_output == 0 || u_output == 2)) scar = sb_scars(p, 0.2 * scs * (wn - 0.5), so, scs, lo, hi, shut);
   // Depth in proportion to the scar's size (relative to a course), so resizing the scars keeps their slopes.
-  float scar = s1 + u_scar_detail * 0.42 * s2;
   v += u_scar_depth * scar * scs / course;
   if (u_rough > 0.0 && u_output == 0) v += 2.0 * u_rough * (rn - 0.5);
 

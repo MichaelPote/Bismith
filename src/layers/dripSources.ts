@@ -11,9 +11,9 @@
 // A — and the layer's gen() reads it (`SOURCE_READ_GLSL`).
 
 import type { Texture } from 'three';
-import { P, type ParamDef, type ParamValues } from '@/core/params';
+import { P, round1 as r1, type ParamDef, type ParamValues } from '@/core/params';
 import type { FilterContext } from '@/render/materialPipeline';
-import { LEDGE_GLSL, ledgeCells, ledgeParams } from './ledges';
+import { LEDGE_GLSL, LEDGE_GRID_GLSL, ledgeCellGlsl, ledgeCells, ledgeGrid, ledgeParams } from './ledges';
 
 /**
  * Margins of the per-cell source texture: DR_MX columns either side and rows below, DR_ROWS rows above (the most a
@@ -29,11 +29,13 @@ export interface SourceSpacing {
 }
 
 /** The two sets' layout in the source texture, shared by the source pass and gen(). */
-export const sourceGridGlsl = (gap: SourceSpacing) => /* glsl */ `
+export const sourceGridGlsl = (gap: SourceSpacing) =>
+	LEDGE_GRID_GLSL +
+	/* glsl */ `
 const int DR_MX = ${DR_MX};
 const int DR_MY = ${DR_ROWS};
-// Set B's cells across and down (whole numbers, so they tile). (ledgeGrid mirrors it.)
-vec2 dr_cellsB() { return max(vec2(1.0), floor(uRes / (${gap.glsl}) + 0.5)); }
+// Set B's cells across and down.
+vec2 dr_cellsB() { return ledgeGrid(${gap.glsl}); }
 // Set B's first texel row in the source texture (set A's cells and margins come first).
 int dr_rowB0() { return u_rows + DR_MY + DR_MX; }
 // How far below its lip a ledge source may sit (Start at: its foot, dr_foot), at most — the searches reach that much
@@ -52,6 +54,9 @@ const sourceCellsGlsl = (gap: SourceSpacing, span?: string) =>
 	LEDGE_GLSL +
 	/* glsl */ `
 uniform sampler2D tLedgeB;  // set B's ledge cells
+` +
+	ledgeCellGlsl('tLedgeB') +
+	/* glsl */ `
 // Clustering: the chance at pos (user px) swells and fades over patches a few grid cells (cs; at least 1/8 of the
 // texture) across — the same patches for the grid and the ledges; at 1 about half the area is bare.
 float dr_cluster(vec2 pos, vec2 cs) {
@@ -60,13 +65,6 @@ float dr_cluster(vec2 pos, vec2 cs) {
   vec2 per = max(vec2(1.0), floor(uRes / lc + 0.5));
   float n = valueNoise(pos / uRes * per, periodOf(per), uSeed + 43.0);
   return mix(1.0, 2.0 * smoothstep(0.45, 0.7, n), u_cluster);
-}
-// Ledge cell l (unwrapped) of set B: its strongest ledge pixel and its drop (z; -1 outside an untiled texture).
-vec4 dr_ledgeCell(ivec2 l, vec2 cellsL) {
-  ivec2 lw = wrapCell(l, ivec2(cellsL));
-  if (!uTile && (l.x < 0 || l.y < 0 || l.x >= int(cellsL.x) || l.y >= int(cellsL.y))) return vec4(0.0, 0.0, -1.0, 0.0);
-  vec4 s = texelFetch(tLedgeB, lw, 0);
-  return vec4(s.xy + vec2(l - lw) * (uRes / cellsL), s.zw);
 }
 // The foot of the ledge at lp (user px; its drop over the Ledge reach): how far below lp the height stops falling —
 // past the steep part, where the fall per px drops under a fifth of the ledge's average. Under a hard step that is
@@ -124,8 +122,7 @@ bool dr_source(ivec2 c, vec2 cells, vec2 cs, out ivec2 cw, out vec2 src, out flo
 // px or two lower now and then so the sources along a lip don't all sit on one line; csA: the grid's cells (for the
 // clustering's scale). Its own hashes (seed + 7919), so it is independent of the grid.
 bool dr_ledgeSource(ivec2 c, vec2 cellsB, vec2 csA, out ivec2 cw, out vec2 src, out float drop, out bool onLedge, out vec2 lpos) {
-  cw = wrapCell(c, ivec2(cellsB));
-  vec4 b = dr_ledgeCell(c, cellsB);
+  vec4 b = ledgeCell(c, cellsB, cw);
   drop = max(b.z, 0.0);
   onLedge = b.z >= 0.0;
   lpos = b.xy;
@@ -170,16 +167,27 @@ bool dr_cell(ivec2 c, vec2 cells, vec2 cs, int row0, float cseed, out ivec2 cw, 
   cov = clamp(2.0 * s.a - 1.0, 0.0, 1.0);
   return ok && s.a > 0.25;
 }
+
+// Cell n of one flat loop over the cells of both sets round q (set A's totA first, then set B's), with dr_cell's
+// outputs: per set (x: A, y: B) nc columns centred on q's own (cr either side), and rows from q's row + rs on, a row
+// further each nc cells in direction dir. isB: the cell is set B's; cseed: its set's seed (set B's its own, so it is
+// independent of the grid).
+bool dr_visit(int n, int totA, vec2 q, ivec2 nc, ivec2 cr, ivec2 rs, int dir, vec2 cellsA, vec2 cellsB, out bool isB,
+              out float cseed, out ivec2 cw, out vec2 src, out float rnd, out float drop, out float cov) {
+  isB = n >= totA;
+  int m = isB ? n - totA : n;
+  int ncX = isB ? nc.y : nc.x;
+  vec2 cellsX = isB ? cellsB : cellsA;
+  vec2 csX = uRes / cellsX;
+  cseed = uSeed + (isB ? 7919.0 : 0.0);
+  int jj = m / ncX;
+  ivec2 c = ivec2(floor(q / csX)) + ivec2(m - jj * ncX - (isB ? cr.y : cr.x), (isB ? rs.y : rs.x) + dir * jj);
+  return dr_cell(c, cellsX, csX, isB ? dr_rowB0() : 0, cseed, cw, src, rnd, drop, cov);
+}
 `;
 
 /** Whether a layer has ledge sources (set B). */
 const ledgeSources = (p: ParamValues) => Number(p.ledge_density) > 0;
-
-/** Set B's ledge cells across and down, as the shader works them out (dr_cellsB). */
-function ledgeGrid(p: ParamValues, w: number, h: number, gap: SourceSpacing) {
-	const g = gap.px(p);
-	return [w, h].map((r) => Math.max(1, Math.floor(r / g + 0.5))) as [number, number];
-}
 
 /**
  * Runs the ledge cells and the source pass (a layer's prepare) and returns the source texture, its `cells`. Every
@@ -190,7 +198,7 @@ function ledgeGrid(p: ParamValues, w: number, h: number, gap: SourceSpacing) {
 export function sourceCells(ctx: FilterContext, p: ParamValues, gap: SourceSpacing, span?: string): Texture {
 	const type = ctx.layer.type;
 	const ledges = ledgeSources(p);
-	const cellsB = ledgeGrid(p, ctx.width, ctx.height, gap);
+	const cellsB = ledgeGrid(ctx.width, ctx.height, gap.px(p));
 	const [bx, by] = ledges ? [cellsB[0] + 1, cellsB[1] + 1] : [0, 0];
 	const cells = ctx.scratch(
 		`${type}-cells`,
@@ -203,6 +211,15 @@ export function sourceCells(ctx: FilterContext, p: ParamValues, gap: SourceSpaci
 	mat.uniforms.tLedgeB.value = lb;
 	ctx.run(mat, cells);
 	return cells.texture;
+}
+
+/**
+ * A new layer's placement (LayerDef.fresh), the same for Drips and Blisters so a new pair lines up: below 128 px a
+ * sparse scatter, else a coarse grid and ledge spots about 14 px per 128 px apart.
+ */
+export function placementFresh(width: number): ParamValues {
+	if (width < 128) return { density: 0.3, ledge_density: 0.15 };
+	return { cols: 7, rows: 3, density: 0.4, ledge_density: 0.3, ledge_gap: r1(14 * Math.max(0.5, width / 128)) };
 }
 
 /**

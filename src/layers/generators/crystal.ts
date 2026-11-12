@@ -382,25 +382,20 @@ GenOut gen(vec2 p) {
       bd = 1e20;
       g1 = 1e4; g2 = 1e4; de = 1e4;
     }
+    // The nearest site, from the 3 × 3 cells round the pixel; then the faces, one per neighbour in the 5 × 5 round it.
+    ivec2 c = vorCell(k, ivec2(floor(p / cpx)), nc);
+    ivec2 key = wrapCell(c, ncl);
+    vec2 sj = vorSite(c, hash2I(key, sg), jit) * cpx;
     if (k < 9) {
-      // The nearest site, from the 3 × 3 cells round the pixel.
-      ivec2 c = ivec2(floor(p / cpx)) + ivec2(k % 3, k / 3) - 1;
-      ivec2 key = wrapCell(c, ncl);
-      vec2 s = (vec2(c) + 0.5 + (hash2I(key, sg) - 0.5) * jit) * cpx;
-      float d2 = dot(p - s, p - s);
-      if (d2 < bd) { bd = d2; nc = c; nk = key; si = s; }
+      float d2 = dot(p - sj, p - sj);
+      if (d2 < bd) { bd = d2; nc = c; nk = key; si = sj; }
     } else {
       if (k == 9) {
         vec2 ho = hash2I(nk, sg + 3.0);
         off = u_tip * 0.5 * min(cpx.x, cpx.y) * sqrt(ho.x) * vec2(cos(TAU * ho.y), sin(TAU * ho.y));
       }
-      // The faces: one per neighbour in the 5 × 5 round the nearest cell, each a plane 0 on the edge (the bisector, less
-      // half the gap) and 1 at the tip, over its own slope.
-      int o = k - 9;
-      ivec2 c = nc + ivec2(o % 5, o / 5) - 2;
+      // A face: a plane 0 on the edge (the bisector, less half the gap) and 1 at the tip, over its own slope.
       if (c != nc) {
-        ivec2 key = wrapCell(c, ncl);
-        vec2 sj = (vec2(c) + 0.5 + (hash2I(key, sg) - 0.5) * jit) * cpx;
         vec2 dv = si - sj;
         float L = max(length(dv), 1e-4);
         vec2 n = dv / L;
@@ -507,8 +502,8 @@ GenOut gen(vec2 p) {
   // face's slope more; the creases between layers were filled above). The slope capped at a large crystal's steepest, so
   // a sliver of a face doesn't spike.
   vec2 c0 = cellsFor(u_scale, 1.0);
-  float smax = 4.0 / (hmax * min(uRes.x / c0.x, uRes.y / c0.y));
-  if (vw > 0.0 && DE < vw) H += min(length(dH), smax) * (vw - DE) * (vw - DE) / (2.0 * vw);
+  float sCap = 4.0 / (hmax * min(uRes.x / c0.x, uRes.y / c0.y));
+  if (vw > 0.0 && DE < vw) H += min(length(dH), sCap) * (vw - DE) * (vw - DE) / (2.0 * vw);
   // The mask: the front crystal (its outline) or its facet (its ridges and edges too), with its random.
   GenOut g = genOut(BV * clamp(cyEdges(V, DR, MR, DV, MV), 0.0, 1.0), u_ground ? 1.0 : C, RN, facets ? max(SD, -DR) : SD);
   // (The bevel is done: the wrapper's, by the mask's distance, would dip along the creases between layers.)

@@ -261,12 +261,6 @@ float crk_scale(vec2 n, mat2 J) {
   return max(length(n * J), 1e-3);
 }
 
-// Order-independent key of a cell pair (wrapped ids), so both cells agree on the pair's randoms; aLo: a sorts first.
-ivec2 crk_pairKey(ivec2 a, ivec2 b, out bool aLo) {
-  aLo = a.x < b.x || (a.x == b.x && a.y < b.y);
-  return aLo ? a * 7919 + b : b * 7919 + a;
-}
-
 // A crack band's offset from its half width h (px): under a pixel wide the band shrinks below zero, so its darkest
 // pixel goes as its width (it fades instead of staying a half-dark 1 px line).
 float crk_band(float h) { return h < 0.5 ? 2.0 * h - 0.5 : h; }
@@ -349,7 +343,7 @@ vec4 crk_plates(vec2 p, vec2 cells, float jitter, float sizeVar, float halfW, fl
         // This border's width and bow: hashes of the cell pair, so both plates agree. The bow's sign says which plate
         // it bulges into.
         bool aLo;
-        vec2 r = hash2I(crk_pairKey(bwc, imod(c, per), aLo), seed + 61.0);
+        vec2 r = hash2I(pairKey(bwc, imod(c, per), aLo), seed + 61.0);
         float hh = halfW * mix(1.0, 0.55 + 0.9 * r.x * r.x, wVar);
         // The corner's radius: the plate share, × 0.5–1.5 with the two cracks' widths against the mean (thin cracks
         // meet in tight corners, wide ones in broad wedges).
@@ -407,7 +401,7 @@ float crk_reach(float y, float plate) { return plate * (0.12 + 0.75 * y * y); }
 // agree), x < keep; y = the segment's taper reach (random). A plate key (not 0) gives each main plate its own segments.
 vec2 crk_segment(ivec2 a, ivec2 b, int key, float seed) {
   bool aLo;
-  return hash2I(crk_pairKey(a, b, aLo) + ivec2(key, 0), seed + 53.0);
+  return hash2I(pairKey(a, b, aLo) + ivec2(key, 0), seed + 53.0);
 }
 
 // Fine cracks: Voronoi borders where each border segment (cell pair) is present with probability \`keep\`, so partial

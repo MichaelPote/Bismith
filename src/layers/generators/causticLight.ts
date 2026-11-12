@@ -23,23 +23,17 @@
 import { hashI } from '@/core/hash';
 import { P, type ParamValues } from '@/core/params';
 import { PHASE_PARAM } from '../commonParams';
-import { GLSL_PRIMTEX } from '../primTexture';
-import type { CpuTexture, LayerDef } from '../types';
+import type { LayerCanvas, LayerDef } from '../types';
 
 const LC_MAX = 32; // waves in all octaves
 const LC_OCT = 4;
-const LC_ROWS = LC_MAX + 5;
 
 /**
- * The wave table, from the params, seed and canvas size (the same for every pixel, so worked out here once): float32s
- * as the bits of RGBA8 texels, 8 a row — rows 0…LC_MAX−1 the waves, octave by octave (k.x, k.y, φ, a, q, w = a·|k|),
- * the next four the meander waves (k.x, k.y, φ, a), the last Gerstner's largest shift Σ q, the height normaliser
- * Σ w (1 + c) and the wave count.
+ * The wave table, from the params, seed and canvas size (the same for every pixel, so worked out here once; derived
+ * uniforms): per wave, octave by octave, `wave` (k.x, k.y, φ, a) and `qw` (q, w = a·|k|); `mw` the four meander waves
+ * (k.x, k.y, φ, a); `misc` Gerstner's largest shift Σ q, the height normaliser Σ w (1 + c) and c; `n` the wave count.
  */
-function waveTable(
-	p: ParamValues,
-	ctx: { width: number; height: number; tileable: boolean; seed: number }
-): CpuTexture {
+function waveTable(p: ParamValues, ctx: LayerCanvas) {
 	const W = ctx.width,
 		H = ctx.height,
 		seed = ctx.seed;
@@ -58,7 +52,9 @@ function waveTable(
 	const ger = p.model === 'gerstner';
 	// c = 1/16 keeps the trough curvature at its maximum (1 − 4c) mid-trough — the sharpest crest without splitting cells.
 	const c = ger ? 0 : 0.0625 * num('harmonic', 1);
-	const f = new Float32Array(8 * LC_ROWS);
+	const wave = new Float32Array(4 * LC_MAX);
+	const qw = new Float32Array(2 * LC_MAX);
+	const mw = new Float32Array(4 * 4);
 	const K: [number, number][] = [];
 	const A: number[] = [];
 	let norm = 0;
@@ -135,7 +131,7 @@ function waveTable(
 		K.push(k);
 		// Each wave its own height too (Wave variation), so no two weigh the same and a few waves don't read as an even grid.
 		A.push((detail ** o * (1 - 0.7 * spread * hashI(i, 4, seed))) / kl);
-		f.set([k[0], k[1], 2 * Math.PI * (h3 + travel * phase)], i * 8);
+		wave.set([k[0], k[1], 2 * Math.PI * (h3 + travel * phase)], i * 4);
 		// A wave's steepest slope is |k| (1 + 2c): normalise so the whole surface's slope stays ≤ 1.
 		norm += A[i] * kl * (1 + 2 * c);
 	}
@@ -157,15 +153,15 @@ function waveTable(
 		mxy += w * kx * ky;
 		myy += w * ky * ky;
 		hn += w * (1 + c);
-		f.set([A[i]], i * 8 + 3);
-		f.set([w], i * 8 + 5);
+		wave[i * 4 + 3] = A[i];
+		qw[i * 2 + 1] = w;
 	}
 	if (ger) {
 		const hd = 0.5 * (mxx - myy);
 		const lam = 0.5 * (mxx + myy) + Math.sqrt(hd * hd + mxy * mxy);
 		for (let i = 0; i < n; i++) {
 			const q = (num('steepness', 0.7) * A[i]) / Math.max(lam, 1e-6);
-			f[i * 8 + 4] = q;
+			qw[i * 2] = q;
 			dmax += q;
 		}
 	}
@@ -185,10 +181,9 @@ function waveTable(
 		const k = [(2 * Math.PI * v[0]) / W, (2 * Math.PI * v[1]) / H];
 		const a = (0.35 * num('meander', 0.5)) / Math.max(Math.hypot(k[0], k[1]), 1e-6);
 		const travel = hashI(j, 14, seed) < 0.5 ? -1 : 1;
-		f.set([k[0], k[1], 2 * Math.PI * (hashI(j, 13, seed) + travel * phase), a], (LC_MAX + j) * 8);
+		mw.set([k[0], k[1], 2 * Math.PI * (hashI(j, 13, seed) + travel * phase), a], j * 4);
 	}
-	f.set([dmax, hn, n], (LC_MAX + 4) * 8);
-	return { width: 8, height: LC_ROWS, data: new Uint8Array(f.buffer) };
+	return { wave, qw, mw, misc: [dmax, hn, c], n };
 }
 
 export const causticLightLayer: LayerDef = {
@@ -295,44 +290,26 @@ export const causticLightLayer: LayerDef = {
 			]
 		}
 	},
-	textures: ['waves'],
-	cpuData: (p, ctx) => ({ waves: waveTable(p, ctx) }),
+	derivedUniforms: {
+		decl: { wave: `vec4[${LC_MAX}]`, qw: `vec2[${LC_MAX}]`, mw: 'vec4[4]', misc: 'vec3', n: 'int' },
+		compute: waveTable
+	},
 	glsl: /* glsl */ `
-${GLSL_PRIMTEX}
-// The wave table (waveTable, cpuData): float32 bits in RGBA8 texels.
-float lc_f(int x, int y) { return texF32(t_waves, ivec2(x, y)); }
-const int LC_MAX = ${LC_MAX};
-vec2 lcK[LC_MAX];
-float lcPhi[LC_MAX];
-float lcA[LC_MAX];
-float lcW[LC_MAX]; // a |k|: the wave's share of the slope
-float lcQ[LC_MAX]; // Gerstner: each wave's horizontal amplitude (px)
-int lcN;
-float lcC; // second-harmonic amplitude (sines)
-float lcDmax; // Gerstner: the largest horizontal shift
-float lcHn; // the height's normaliser, Σ a |k| (1 + c)
-vec2 lcWk[4]; // meander: two slow sines per axis
-float lcWp[4];
-float lcWa[4];
-
-void lc_init() {
-  lcN = clamp(int(lc_f(2, LC_MAX + 4) + 0.5), 1, LC_MAX);
-  lcC = u_model == 1 ? 0.0 : 0.0625 * u_harmonic;
-  for (int i = 0; i < lcN; i++) {
-    lcK[i] = vec2(lc_f(0, i), lc_f(1, i));
-    lcPhi[i] = lc_f(2, i);
-    lcA[i] = lc_f(3, i);
-    lcQ[i] = lc_f(4, i);
-    lcW[i] = lc_f(5, i);
-  }
-  for (int j = 0; j < 4 * UNI_1; j++) {
-    lcWk[j] = vec2(lc_f(0, LC_MAX + j), lc_f(1, LC_MAX + j));
-    lcWp[j] = lc_f(2, LC_MAX + j);
-    lcWa[j] = lc_f(3, LC_MAX + j);
-  }
-  lcDmax = lc_f(0, LC_MAX + 4);
-  lcHn = lc_f(1, LC_MAX + 4);
-}
+// The wave table (waveTable, derived uniforms). Wave i: its wave vector k, phase φ, amplitude a; Gerstner's horizontal
+// amplitude q (px) and its share of the slope w = a |k|. The meander's waves j (two slow sines per axis): k, φ, a.
+#define lcK(i) d_wave[i].xy
+#define lcPhi(i) d_wave[i].z
+#define lcA(i) d_wave[i].w
+#define lcQ(i) d_qw[i].x
+#define lcW(i) d_qw[i].y
+#define lcWk(j) d_mw[j].xy
+#define lcWp(j) d_mw[j].z
+#define lcWa(j) d_mw[j].w
+#define lcN d_n
+// Gerstner's largest horizontal shift; the height's normaliser Σ a |k| (1 + c); c, the second harmonic (sines).
+#define lcDmax d_misc.x
+#define lcHn d_misc.y
+#define lcC d_misc.z
 
 // Meander: the surface is read at q = p + w(p); the slope at p is then (I + J)^T ∇h(q) (chain rule).
 vec2 lc_warp(vec2 p, out mat2 JT) {
@@ -340,9 +317,9 @@ vec2 lc_warp(vec2 p, out mat2 JT) {
   vec2 cx = vec2(0.0);
   vec2 cy = vec2(0.0);
   for (int j = 0; j < 4; j++) {
-    float ph = dot(lcWk[j], p) + lcWp[j];
-    float sw = lcWa[j] * sin(ph);
-    vec2 dk = lcWa[j] * cos(ph) * lcWk[j];
+    float ph = dot(lcWk(j), p) + lcWp(j);
+    float sw = lcWa(j) * sin(ph);
+    vec2 dk = lcWa(j) * cos(ph) * lcWk(j);
     if (j < 2) { w.x += sw; cx += dk; } else { w.y += sw; cy += dk; }
   }
   JT = mat2(cx, cy);
@@ -353,9 +330,9 @@ vec2 lc_warp(vec2 p, out mat2 JT) {
 vec2 lc_grad(vec2 p) {
   vec2 g = vec2(0.0);
   for (int i = 0; i < lcN; i++) {
-    float ph = dot(lcK[i], p) + lcPhi[i];
+    float ph = dot(lcK(i), p) + lcPhi(i);
     // h_i = a (cos φ + c · cos 2φ) → ∇h_i = −a k (sin φ + 2c · sin 2φ)
-    g -= lcA[i] * lcK[i] * (sin(ph) + 2.0 * lcC * sin(2.0 * ph));
+    g -= lcA(i) * lcK(i) * (sin(ph) + 2.0 * lcC * sin(2.0 * ph));
   }
   return g;
 }
@@ -372,8 +349,8 @@ float lc_height(vec2 p) {
   }
   float h = 0.0;
   for (int i = 0; i < lcN; i++) {
-    float ph = dot(lcK[i], p) + lcPhi[i];
-    h += lcW[i] * (cos(ph) + lcC * cos(2.0 * ph));
+    float ph = dot(lcK(i), p) + lcPhi(i);
+    h += lcW(i) * (cos(ph) + lcC * cos(2.0 * ph));
   }
   return h / max(lcHn, 1e-6);
 }
@@ -392,14 +369,14 @@ float lc_gerstner(vec2 u, out vec2 x, out vec2 slope) {
   mat2 C = mat2(0.0);
   mat2 M = mat2(0.0);
   for (int i = 0; i < lcN; i++) {
-    vec2 kap = lcK[i] + JT * lcK[i];
+    vec2 kap = lcK(i) + JT * lcK(i);
     float kl = max(length(kap), 1e-6);
     vec2 kh = kap / kl;
-    float th = dot(lcK[i], q) + lcPhi[i];
+    float th = dot(lcK(i), q) + lcPhi(i);
     float sn = sin(th);
-    mat2 P = (lcQ[i] * kl) * outerProduct(kh, kh);
-    shift += lcQ[i] * sn * kh;
-    gz -= lcA[i] * sn * kap;
+    mat2 P = (lcQ(i) * kl) * outerProduct(kh, kh);
+    shift += lcQ(i) * sn * kh;
+    gz -= lcA(i) * sn * kap;
     C += cos(th) * P;
     M += P;
   }
@@ -469,7 +446,6 @@ float lc_gather(vec2 p, float s, float dmax) {
 
 // A smooth pattern without features: its "random" is the value itself.
 GenOut gen(vec2 p) {
-  lc_init();
   if (u_output == 1) {
     float v = 0.5 + 0.5 * (u_model == 1 ? lc_gerstner_height(p) : lc_height(p));
     return genOutSmooth(v, 1.0, v, NO_SDF);

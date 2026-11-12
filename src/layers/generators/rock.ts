@@ -10,14 +10,13 @@
 import { P, gradient, type ParamValues } from '@/core/params';
 import { PX_SCALE_PARAM, roughnessParams } from '../commonParams';
 import { noiseCalib, noiseControlsAs, noiseFieldGlsl, NZ_SHARED_GLSL, quantileTexture } from './noise';
-import { cellsFor, f32, imod } from '../derivedMath';
+import { cellsFor, extGcd, f32, imod, radians as rad } from '../derivedMath';
 import type { LayerCanvas, LayerDef } from '../types';
 import { ORG_GLSL } from './organicShared';
 
 // The relief's colour ramp (its default, and what switching back to it restores).
 const reliefGrad = () => gradient('#3b3631', '#7d746a', '#a69c90');
 
-const rad = (deg: number) => f32(deg * f32(Math.PI / 180));
 const clamp = (x: number, lo: number, hi: number) => Math.min(Math.max(x, lo), hi);
 // To the nearest whole number, ties down: snapped counts are often exact halves (ratios of whole numbers). (Worked out
 // here, a tie rounds one way on every backend; in the shader it went by the GPU's last bit, differently on D3D and GL.)
@@ -29,12 +28,7 @@ const rkRound = (x: number) => Math.floor(f32(x + f32(0.499)));
  */
 function rockBasis(a: number, ks: number, kU: number, nv: number): number[] {
 	if (kU === 0) return [a, ks, nv];
-	let [r0, r1, s0, s1, t0, t1] = [a, -kU, 1, 0, 0, 1];
-	while (r1 !== 0) {
-		const q = Math.trunc(r0 / r1);
-		[r0, r1, s0, s1, t0, t1] = [r1, r0 - q * r1, s1, s0 - q * s1, t1, t0 - q * t1];
-	}
-	if (r0 < 0) [r0, s0, t0] = [-r0, -s0, -t0];
+	const [r0, s0, t0] = extGcd(a, -kU);
 	// s0 a + t0 (−kU) = g: (g, s0 ks + t0 nv) is in the lattice; so is (0, (a nv + ks kU) / g).
 	const C = Math.max(Math.abs(Math.trunc((a * nv + ks * kU) / r0)), 1);
 	return [r0, imod(s0 * ks + t0 * nv, C), C];
@@ -83,11 +77,7 @@ export function rockDerived(p: ParamValues, c: LayerCanvas) {
 			const n2 = nv + (i % 5) - 2;
 			const k2 = ks + Math.floor(i / 5) - 1;
 			if (n2 < 1 || k2 === 0 || Math.sign(k2) !== Math.sign(ks)) continue;
-			let [ga, gb, sa, sb] = [Math.abs(k2), n2, 1, 0];
-			while (gb !== 0) {
-				const q = Math.trunc(ga / gb);
-				[ga, gb, sa, sb] = [gb, ga - q * gb, sb, sa - q * sb];
-			}
+			const [ga, sa] = extGcd(Math.abs(k2), n2);
 			const sc = f32(
 				f32(f32(Math.min(Math.max(ga, 1), 6) - f32(0.4 * Math.abs(n2 - nv))) - 1.5 * Math.abs(k2 - ks)) +
 					(n('stagger') > 0 && ga % 2 === 0 ? 2 : 0)
@@ -723,9 +713,8 @@ ivec2 rk_wrap(ivec2 c, ivec2 n, int k) {
 // to choose). Without cracks (width 0) every crease outlines its blocks.
 vec3 rk_joint(float d, ivec2 a, ivec2 b, float width, float keep, float seed) {
   if (width <= 0.0) return vec3(0.0, -d, 1.0);
-  ivec2 lo = (a.x < b.x || (a.x == b.x && a.y < b.y)) ? a : b;
-  ivec2 hi = lo == a ? b : a;
-  vec2 hp = hash2I(lo * 7919 + hi, seed);
+  bool aLo;
+  vec2 hp = hash2I(pairKey(a, b, aLo), seed);
   if (hp.y >= keep) return vec3(0.0, -d, 0.0);
   float jw = width * (1.0 - u_joint_var * hp.x);
   // Under a pixel wide, a crack stays one pixel wide and fades with its width (a box filter): no dotted lines.
