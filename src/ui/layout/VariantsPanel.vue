@@ -5,23 +5,26 @@
 	import { computed, nextTick, ref, watch } from 'vue';
 	import { IconPlus, IconTrash } from '@tabler/icons-vue';
 	import { useProjectStore } from '@/stores/project';
-	import { useEditorStore, type Question } from '@/stores/editor';
+	import { useEditorStore } from '@/stores/editor';
 	import type { ProjectVariant } from '@/core/variants';
 	import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue';
 	import AnchoredAsk from '@/ui/components/AnchoredAsk.vue';
 	import { useVariantThumbs } from '@/ui/variantThumbs';
-	import { variantMenuItems } from '@/ui/variantMenu';
+	import {
+		changeCount as count,
+		deleteVariantQuestion,
+		useAnchoredAsk,
+		useVariantList,
+		variantMenuItems
+	} from '@/ui/variantMenu';
 	import { vTip } from '@/ui/tooltip';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
 	const thumbs = useVariantThumbs();
 
-	const list = computed(() => store.variants.list);
-	const baseId = computed(() => store.variants.baseId);
-	const activeId = computed(() => store.variants.activeId);
+	const { list, baseId, activeId } = useVariantList();
 	const baseName = computed(() => list.value.find((v) => v.id === baseId.value)?.name ?? 'the base');
-	const count = (v: ProjectVariant) => Object.keys(v.changes).length;
 
 	const listEl = ref<HTMLElement | null>(null);
 	const rowEl = (id: string) => listEl.value?.querySelector<HTMLElement>(`[data-variant="${id}"]`) ?? null;
@@ -91,40 +94,13 @@
 	}
 
 	// ---------------------------------------------------------------- delete
-	const asking = ref<{ question: Question; anchor: HTMLElement; answer: (id: string | null) => void } | null>(null);
-
-	function ask(id: string, question: Question): Promise<string | null> {
-		const anchor = rowEl(id);
-		if (!anchor) return Promise.resolve(null);
-		return new Promise((resolve) => {
-			asking.value = {
-				question,
-				anchor,
-				answer: (choice) => {
-					asking.value = null;
-					resolve(choice);
-				}
-			};
-		});
-	}
+	const { asking, ask } = useAnchoredAsk();
 
 	async function confirmDelete(id: string): Promise<void> {
 		const v = list.value.find((x) => x.id === id);
-		if (!v || list.value.length < 2) return;
-		if (id === baseId.value) {
-			await ask(id, {
-				title: `${v.name} is the base`,
-				detail: 'Make another variant the base first. The others keep their looks.',
-				choices: []
-			});
-			return;
-		}
-		const n = count(v);
-		const choice = await ask(id, {
-			title: `Delete ${v.name}?`,
-			detail: `${n ? `Its ${n} changed setting${n === 1 ? '' : 's'} go. ` : ''}The layers stay. Undo brings it back.`,
-			choices: [{ id: 'delete', label: 'Delete', primary: true }]
-		});
+		const anchor = rowEl(id);
+		if (!v || !anchor || list.value.length < 2) return;
+		const choice = await ask(anchor, deleteVariantQuestion(v, baseId.value));
 		if (choice === 'delete') store.deleteVariant(id);
 	}
 
