@@ -61,8 +61,8 @@ _Results_) — until a metric is picked by hand. The
 third pane shows the **window mismatch** map instead of the pixel difference: the render dimmed to grey under a heat
 overlay of how far the windows covering each pixel are from their closest reference windows (clear = well matched,
 red → yellow = the worst-matched windows of this render; relative to its own best and worst, so it shows where, not
-how much). Changing the metric rescores the panes. `Matcher.windows(render)` / `windowMap(render)` give the
-per-window result and the map. On the plank project the gaps and joints come out clear — matched — and the noisy grain
+how much). Changing the metric rescores the panes. A score's detail (`Matcher.scoreDetailed`) carries the
+per-window result; `windowMap(detail.windows)` makes the map from it. On the plank project the gaps and joints come out clear — matched — and the noisy grain
 inside the planks is what lights up.
 
 **Cost.** ≈85 ms per evaluation at 512 px (a 768 px render: one conversion to linear light shared by both comparison

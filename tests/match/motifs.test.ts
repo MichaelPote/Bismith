@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Matcher, compareImages, toOklab, type MatchImage } from '@/match/metrics';
+import { Matcher, toOklab, type MatchImage } from '@/match/metrics';
 import { motifPlane, motifTarget } from '@/match/motifs';
 import { colourise, noiseField, testTexture } from './testUtils';
 
@@ -29,7 +29,7 @@ function riveted(o: { seed?: number; gain?: number; x0?: number; y0?: number; pe
 }
 
 const motifs = (render: MatchImage, ref: MatchImage) =>
-	compareImages(render, ref, { preset: 'tilemotif', wrap: true }).raw.motifs;
+	new Matcher(ref, { preset: 'tilemotif', wrap: true }).score(render).raw.motifs;
 
 const layoutOf = (img: MatchImage) => motifTarget(motifPlane(toOklab(img).L, img.width, img.height, true)).layout;
 
@@ -63,7 +63,7 @@ describe('motifs term', () => {
 		expect(m.targetFeatures.motif).toBeNull();
 		expect(m.score(riveted({ gain: 0 })).weights.motifs).toBe(0);
 		const noisy = testTexture(64, 64, 3);
-		const r = compareImages(testTexture(64, 64, 4), noisy, { preset: 'tilemotif', wrap: true });
+		const r = new Matcher(noisy, { preset: 'tilemotif', wrap: true }).score(testTexture(64, 64, 4));
 		expect(r.weights.motifs).toBe(0);
 	});
 });

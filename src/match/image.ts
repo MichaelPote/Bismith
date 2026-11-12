@@ -335,15 +335,16 @@ export interface LabPlanes {
 
 /**
  * Convert to OKLab planes. Semi-transparent pixels are composited (in linear light) over `background`
- * (sRGB 0..1, default mid grey) so transparency reads as a colour; alpha is kept separately.
+ * (sRGB 0..1, default mid grey) so transparency reads as a colour — or, with `null`, keep their own colour; alpha is
+ * kept separately.
  */
-export function toOklab(img: MatchImage, background: [number, number, number] = [0.5, 0.5, 0.5]): LabPlanes {
+export function toOklab(img: MatchImage, background: [number, number, number] | null = [0.5, 0.5, 0.5]): LabPlanes {
 	const n = img.width * img.height;
 	const L = new Float32Array(n);
 	const A = new Float32Array(n);
 	const B = new Float32Array(n);
 	const alpha = new Float32Array(n);
-	const bg = background.map(srgbToLinear1);
+	const bg = background?.map(srgbToLinear1);
 	const d = img.data;
 	for (let p = 0; p < n; p++) {
 		const i = p * 4;
@@ -351,13 +352,28 @@ export function toOklab(img: MatchImage, background: [number, number, number] = 
 		let r = srgbToLinear1(clamp01(d[i]));
 		let g = srgbToLinear1(clamp01(d[i + 1]));
 		let b = srgbToLinear1(clamp01(d[i + 2]));
-		if (al < 1) {
+		if (bg && al < 1) {
 			r = r * al + bg[0] * (1 - al);
 			g = g * al + bg[1] * (1 - al);
 			b = b * al + bg[2] * (1 - al);
 		}
 		oklabInto(r, g, b, p, L, A, B);
 		alpha[p] = al;
+	}
+	return { width: img.width, height: img.height, L, A, B, alpha };
+}
+
+/** OKLab planes of an image in linear light with straight alpha, as it is (no compositing; alpha kept separately). */
+export function linearToOklabPlanes(img: LinearImage): LabPlanes {
+	const n = img.width * img.height;
+	const L = new Float32Array(n);
+	const A = new Float32Array(n);
+	const B = new Float32Array(n);
+	const alpha = new Float32Array(n);
+	const d = img.data;
+	for (let p = 0; p < n; p++) {
+		oklabInto(d[p * 4], d[p * 4 + 1], d[p * 4 + 2], p, L, A, B);
+		alpha[p] = d[p * 4 + 3];
 	}
 	return { width: img.width, height: img.height, L, A, B, alpha };
 }

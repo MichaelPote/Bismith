@@ -54,10 +54,12 @@ describe('lowBand', () => {
 				const y = Math.floor(i / w);
 				return 0.5 + 0.2 * Math.cos((2 * Math.PI * 2 * x) / w + 1) + 0.1 * Math.sin((2 * Math.PI * 9 * y) / h);
 			});
-			const lp = lowBand(w, h, 3).lowpass(v);
+			const band = lowBand(w, h, 3);
+			const lp = band.synth(band.coefficients([v])[0]);
+			const mean = v.reduce((a, x) => a + x, 0) / v.length;
 			for (let i = 0; i < w * h; i += 37) {
 				const x = i % w;
-				expect(lp[i]).toBeCloseTo(0.5 + 0.2 * Math.cos((2 * Math.PI * 2 * x) / w + 1), 4);
+				expect(lp[i] + mean).toBeCloseTo(0.5 + 0.2 * Math.cos((2 * Math.PI * 2 * x) / w + 1), 4);
 			}
 		}
 	});

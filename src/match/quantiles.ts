@@ -1,4 +1,4 @@
-// Sorting and quantiles of float samples, shared by the metric terms (metrics.ts, windows.ts).
+// Sorting and quantiles of float samples, shared by the metric terms, the colour fit and the tiling analysis.
 
 /**
  * Ascending sort of float32 values, exactly as Float32Array#sort orders them (−0 before +0, NaN last), by an LSD radix
@@ -77,18 +77,66 @@ export function argsortFloat32(values: Float32Array): Uint32Array {
 	return o;
 }
 
-/** Sorted quantiles (Q evenly spaced, linear interpolation) of `values`. */
-export function quantiles(values: ArrayLike<number>, q = 128): Float32Array {
+/**
+ * Sorted quantiles (q evenly spaced, linear interpolation) of `values`: the midpoints of q equal parts, or with `ends`
+ * from the minimum to the maximum (a quantile map then reaches the whole range).
+ */
+export function quantiles(values: ArrayLike<number>, q = 128, ends = false): Float32Array {
 	const n = values.length;
 	const out = new Float32Array(q);
 	if (n === 0) return out;
 	const sorted = sortFloat32(values instanceof Float32Array ? values : Float32Array.from(values as ArrayLike<number>));
 	for (let k = 0; k < q; k++) {
-		const pos = ((k + 0.5) / q) * n - 0.5;
+		const pos = ends ? (k / (q - 1)) * (n - 1) : ((k + 0.5) / q) * n - 0.5;
 		const i0 = Math.max(0, Math.min(n - 1, Math.floor(pos)));
 		const i1 = Math.min(n - 1, i0 + 1);
 		const f = Math.max(0, Math.min(1, pos - i0));
 		out[k] = sorted[i0] * (1 - f) + sorted[i1] * f;
 	}
 	return out;
+}
+
+/** The q-quantile (0..1) of values already sorted ascending: the value at index ⌊n·q⌋ (0 when empty). */
+export function quantileOfSorted(sorted: ArrayLike<number>, q: number): number {
+	const n = sorted.length;
+	return n ? sorted[Math.min(n - 1, Math.max(0, Math.floor(n * q)))] : 0;
+}
+
+/**
+ * quantileOfSorted(sortFloat32(values), q) without sorting: a selection of that index on a copy, O(n) — for reading one
+ * quantile of a large array. Not for NaNs.
+ */
+export function quantileOf(values: Float32Array, q: number): number {
+	const n = values.length;
+	return n ? selectFloat32(Float32Array.from(values), Math.min(n - 1, Math.max(0, Math.floor(n * q)))) : 0;
+}
+
+/**
+ * The k-th smallest of `a` (0-based), which it reorders: a quickselect, Hoare partitions around a median of three.
+ * Not for NaNs.
+ */
+export function selectFloat32(a: Float32Array, k: number): number {
+	let lo = 0;
+	let hi = a.length - 1;
+	while (hi > lo) {
+		const p = a[lo];
+		const m = a[(lo + hi) >> 1];
+		const r = a[hi];
+		const x = p < m ? (m < r ? m : p < r ? r : p) : p < r ? p : m < r ? r : m;
+		let i = lo;
+		let j = hi;
+		while (i <= j) {
+			while (a[i] < x) i++;
+			while (x < a[j]) j--;
+			if (i <= j) {
+				const t = a[i];
+				a[i++] = a[j];
+				a[j--] = t;
+			}
+		}
+		if (k <= j) hi = j;
+		else if (k >= i) lo = i;
+		else break;
+	}
+	return a[k];
 }

@@ -15,7 +15,16 @@
 // All randomness comes from a seeded RNG, so runs are reproducible as long as `evaluate` is deterministic (fixed
 // sample count; the path tracer is seeded by sample index).
 
-import { linearToOklab, oklabToLinear, linearToSrgb1, srgbToLinear1, rgbToHex, hexToRgb, type RGB } from '@/core/color';
+import {
+	clamp01,
+	hexToRgb,
+	linearToOklab,
+	oklabToLinear,
+	oklabToSrgb,
+	rgbToHex,
+	srgbToOklab,
+	type RGB
+} from '@/core/color';
 import { isOptimizable, gradient, type Gradient, type ParamDef, type ParamValues } from '@/core/params';
 import type { Layer, Project } from '@/core/project';
 import { LIGHT_DEFS } from '@/core/lights';
@@ -27,6 +36,7 @@ import { patternKeys } from '@/core/links';
 import { applyColourMap, colourMap } from './colourFit';
 import { colourRange, constrainLab, type ColourRange } from './colourRange';
 import { resample, type MatchImage } from './image';
+import { quantileOf } from './quantiles';
 
 // ------------------------------------------------------------------------------------------------ RNG
 
@@ -152,24 +162,23 @@ export interface ParamSpace {
 const AB = 0.4;
 
 function colorToVec(hex: string): RGB {
-	const lab = linearToOklab(hexToRgb(hex).map(srgbToLinear1) as RGB);
+	const lab = srgbToOklab(hexToRgb(hex));
 	return [lab[0], (lab[1] + AB) / (2 * AB), (lab[2] + AB) / (2 * AB)];
 }
 
-/** Normalised OKLab → linear RGB, clipped to gamut (returns the clipped linear colour). */
-function vecToLinear(v: ArrayLike<number>, o: number): RGB {
-	const lin = oklabToLinear([v[o], v[o + 1] * 2 * AB - AB, v[o + 2] * 2 * AB - AB]);
-	return [Math.min(1, Math.max(0, lin[0])), Math.min(1, Math.max(0, lin[1])), Math.min(1, Math.max(0, lin[2]))];
+/** The OKLab colour of a normalised vector entry. */
+function vecToLab(v: ArrayLike<number>, o: number): RGB {
+	return [v[o], v[o + 1] * 2 * AB - AB, v[o + 2] * 2 * AB - AB];
 }
 
 function vecToColor(v: ArrayLike<number>, o: number): string {
-	return rgbToHex(vecToLinear(v, o).map(linearToSrgb1) as RGB);
+	return rgbToHex(oklabToSrgb(vecToLab(v, o)));
 }
 
 /** Pull an out-of-gamut colour back onto the gamut (in place) so the vector matches what renders. */
 function clipColorInPlace(v: Float64Array, o: number): void {
 	v[o] = Math.min(1, Math.max(0, v[o]));
-	const lab = linearToOklab(vecToLinear(v, o));
+	const lab = linearToOklab(oklabToLinear(vecToLab(v, o)).map(clamp01) as RGB);
 	v[o] = lab[0];
 	v[o + 1] = (lab[1] + AB) / (2 * AB);
 	v[o + 2] = (lab[2] + AB) / (2 * AB);
@@ -820,7 +829,10 @@ export interface EvalResult {
 	loss: number;
 	/** Anything the caller wants to keep with the best candidate (e.g. the MetricResult breakdown). */
 	detail?: unknown;
-	/** The render the loss was measured on: with `target` set, colour-fit candidates are mapped from it. */
+	/**
+	 * The render the loss was measured on, at the comparison size (the score's `fit`): with `target` set, colour-fit
+	 * candidates are mapped from it.
+	 */
 	image?: MatchImage;
 }
 
@@ -1035,7 +1047,7 @@ export function residualColours(render: MatchImage, target: MatchImage, count: n
 			Math.abs(render.data[o + 1] - target.data[o + 1]) +
 			Math.abs(render.data[o + 2] - target.data[o + 2]);
 	}
-	const cut = Float32Array.from(err).sort()[Math.floor(n * 0.9)];
+	const cut = quantileOf(err, 0.9);
 	const worst: number[] = [];
 	for (let i = 0; i < n; i++) if (err[i] >= cut) worst.push(i);
 	const picks = Array.from({ length: count }, () => rng.pick(worst));
@@ -1053,6 +1065,8 @@ export interface OptimizerBest {
 	project: Project;
 	loss: number;
 	detail?: unknown;
+	/** Its render, as the evaluation returned it (shared: don't modify). */
+	image?: MatchImage;
 	/** Step at which it was found (0 = initial project). */
 	step: number;
 }
@@ -1242,7 +1256,18 @@ export class Optimizer {
 	/** Best project found so far (the initial project until something beats it). A copy — safe to keep / edit. */
 	get best(): OptimizerBest {
 		const c = this.bestC ?? this.parent;
-		return { project: JSON.parse(JSON.stringify(c.project)), loss: c.loss, detail: c.detail, step: this.bestStep };
+		return {
+			project: JSON.parse(JSON.stringify(c.project)),
+			loss: c.loss,
+			detail: c.detail,
+			image: c.image,
+			step: this.bestStep
+		};
+	}
+
+	/** The best loss so far (best.loss without copying the project). */
+	get bestLoss(): number {
+		return (this.bestC ?? this.parent).loss;
 	}
 
 	/** Current parent of the active island (differs from best after a restart). A copy. */
@@ -1577,8 +1602,8 @@ export class Optimizer {
 			evaluations: this.evaluations,
 			candidateLoss: winner?.loss ?? Infinity,
 			parentLoss: this.parent.loss,
-			bestLoss: this.best.loss,
-			improved: improved || this.cmp(this.best.loss, bestBefore) < 0,
+			bestLoss: this.bestLoss,
+			improved: improved || this.cmp(this.bestLoss, bestBefore) < 0,
 			accepted,
 			restarted,
 			structural: reshaped?.structural ?? (accepted ? (winner!.structural ?? null) : null),
@@ -1634,9 +1659,9 @@ export class Optimizer {
 		opts: { onStep?: (info: StepInfo) => void; signal?: AbortSignal } = {}
 	): Promise<RunOutcome> {
 		await this.init();
-		const limits = new RunLimits(stop, this.best.loss);
+		const limits = new RunLimits(stop, this.bestLoss);
 		const steps: StepInfo[] = [];
-		let reason = limits.check(this.best.loss, this.evaluations);
+		let reason = limits.check(this.bestLoss, this.evaluations);
 		while (!reason) {
 			if (opts.signal?.aborted) {
 				reason = 'aborted';
@@ -1645,7 +1670,7 @@ export class Optimizer {
 			const info = await this.step();
 			steps.push(info);
 			opts.onStep?.(info);
-			reason = limits.after(this.best.loss, this.evaluations);
+			reason = limits.after(this.bestLoss, this.evaluations);
 		}
 		return { reason, steps, ms: limits.elapsed() };
 	}
@@ -1709,7 +1734,7 @@ export class Optimizer {
 			if (!isEntryActive(c.project, e)) continue;
 			const o = e.offset;
 			const v = c.vector;
-			const lab: RGB = [v[o], v[o + 1] * 2 * AB - AB, v[o + 2] * 2 * AB - AB];
+			const lab = vecToLab(v, o);
 			const q = constrainLab(lab, this.range);
 			if (q === lab) continue;
 			v[o] = q[0];

@@ -17,7 +17,7 @@ import { defaultRender, type Layer, type MaterialBase, type Project, type Render
 import { createLayer, createLight, createPostFilter, createProject, reliefOnly } from '@/core/serialize';
 import { freshParams, getLayerDef } from '@/layers/registry';
 import { DEFAULT_BEVEL_CURVE } from '@/layers/commonParams';
-import { METAL_LIFT, hexToRgb, linearToOklab, metalColour, rgbToHex, srgbToLinear1, type RGB } from '@/core/color';
+import { METAL_LIFT, hexToRgb, metalColour, rgbToHex, srgbToOklab, type RGB } from '@/core/color';
 import type { Analysis } from './analyze';
 import { BRICKS_PLAIN, VORONOI_PLAIN } from '@/layers/generators/patterns';
 import { SHAPE_MASK, fromMask, limitTo } from '@/layers/masks';
@@ -75,7 +75,7 @@ function paletteRamp(a: Analysis, lo = 0, hi = 1) {
 	return ramp(...Array.from({ length: n }, (_, i) => pick(a, lo + ((hi - lo) * i) / (n - 1))));
 }
 
-const oklab = (hex: string) => linearToOklab(hexToRgb(hex).map(srgbToLinear1) as RGB);
+const oklab = (hex: string) => srgbToOklab(hexToRgb(hex));
 
 /**
  * The palette entries between lightness fractions lo..hi ordered by hue: noise or per-stone colour through it

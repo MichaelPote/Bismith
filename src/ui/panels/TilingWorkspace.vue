@@ -262,10 +262,10 @@
 	): Promise<TilingAttribution> {
 		return attributeTiling(
 			project,
-			async (q) => {
+			async (q, { lazy }) => {
 				if (abort) throw new Stopped();
 				await yieldStep();
-				return renderFrame(engine, q, samples.value, gpu);
+				return renderFrame(engine, q, samples.value, gpu, lazy);
 			},
 			{ gpu, onProgress: (done, total) => (progress.value = `Finding the culprits · layer ${done} of ${total}`) }
 		);

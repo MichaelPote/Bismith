@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
 	Matcher,
 	circularShift,
-	compareImages,
 	resample,
 	resampleLinear,
 	resampleLinearToOklab,
@@ -93,14 +92,14 @@ describe('windows term', () => {
 		const big = planks(640, 4, 9);
 		const m = new Matcher(big, { preset: 'windows', wrap: true });
 		expect(m.windowTarget?.width).toBe(512);
-		const r = m.score(planks(640, 5, 10));
+		const { result: r, windows } = m.scoreDetailed(planks(640, 5, 10));
 		expect(r.weights.windows).toBeGreaterThan(0);
 		expect(r.terms.windows).toBeGreaterThan(0);
 		expect(r.weights.structure).toBe(0);
-		const map = m.windowMap(big)!;
+		const map = m.windowMap(windows!);
 		expect([map.width, map.height]).toEqual([512, 512]);
 		// Other presets leave it out (and don't pay for it).
-		const t = compareImages(big, big, { preset: 'tile', wrap: true });
+		const t = new Matcher(big, { preset: 'tile', wrap: true }).score(big);
 		expect(t.weights.windows).toBe(0);
 		// Tile + windows keeps Tile's structure term and adds the windows.
 		const tw = new Matcher(big, { preset: 'tilewin', wrap: true }).score(planks(640, 5, 10));

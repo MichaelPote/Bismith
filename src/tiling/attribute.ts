@@ -16,8 +16,8 @@ import {
 	TILING_TERMS,
 	TilingFrame,
 	analyzeTiling,
+	frameLab,
 	upsample,
-	workLab,
 	type TilingAnalysis,
 	type TilingKernelSource,
 	type TilingOptions,
@@ -69,7 +69,11 @@ export interface AttributeOptions extends TilingOptions {
 	onProgress?: (done: number, total: number) => void;
 }
 
-type Render = (p: Project) => TilingFrame | MatchImage | Promise<TilingFrame | MatchImage>;
+/**
+ * Renders a project. `lazy`: only the analysis' kernels read the frame, so a GPU frame may stay unread (renderFrame's
+ * `lazy`) — it is done with before the next render.
+ */
+type Render = (p: Project, opts: { lazy: boolean }) => TilingFrame | MatchImage | Promise<TilingFrame | MatchImage>;
 
 const asFrame = (r: TilingFrame | MatchImage) => (r instanceof TilingFrame ? r : TilingFrame.of(r));
 
@@ -98,10 +102,10 @@ export async function attributeTiling(
 	render: Render,
 	opts: AttributeOptions = {}
 ): Promise<TilingAttribution> {
-	const frame = asFrame(await render(project));
+	const frame = asFrame(await render(project, { lazy: false }));
 	const analysis = analyzeTiling(frame, opts, opts.gpu);
 	const { width: w, height: h } = analysis.work;
-	const full = workLab(frame.lin, w, h);
+	const full = analysis.lab;
 	const n = w * h;
 
 	// Per term, the hotspot weight of each pixel: the term's map relative to its peak; and the weights' sums in and out.
@@ -127,10 +131,11 @@ export async function attributeTiling(
 	const layers: LayerBlame[] = [];
 	for (let u = 0; u < units.length; u++) {
 		const ids = units[u];
-		const off = asFrame(await render(without(project, ids)));
+		const off = asFrame(await render(without(project, ids), { lazy: true }));
 		if (off.width !== frame.width || off.height !== frame.height)
 			throw new Error('attributeTiling: render size changed');
-		const img = workLab(off.lin, w, h);
+		const a = opts.without ? analyzeTiling(off, opts, opts.gpu) : null;
+		const img = a?.lab ?? frameLab(off, w, h, opts.gpu);
 		const c = new Float32Array(n);
 		let total = 0;
 		for (let i = 0; i < n; i++) {
@@ -147,7 +152,6 @@ export async function attributeTiling(
 			}
 			blame[t] = wi > 0 && wo > 0 ? si / wi - so / wo : 0;
 		}
-		const a = opts.without ? analyzeTiling(off, opts, opts.gpu) : null;
 		const first = byId.get(ids[0])!;
 		layers.push({
 			ids,

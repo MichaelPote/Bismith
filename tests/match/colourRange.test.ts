@@ -3,13 +3,14 @@ import { hexToRgb, linearToOklab, srgbToLinear1, type RGB } from '@/core/color';
 import { normalizeProject } from '@/core/serialize';
 import type { Gradient } from '@/core/params';
 import { createImage, type MatchImage } from '@/match/image';
-import { LIGHTNESS_WEIGHT, colourRange, constrainLab } from '@/match/colourRange';
+import { colourRange, constrainLab } from '@/match/colourRange';
 import { Optimizer } from '@/match/optimizer';
 
 const lab = (hex: string): RGB => linearToOklab(hexToRgb(hex).map(srgbToLinear1) as RGB);
 
 /** Range distance between two OKLab colours (lightness weighted as in the range). */
-const dist = (a: RGB, b: RGB) => Math.hypot(LIGHTNESS_WEIGHT * (a[0] - b[0]), a[1] - b[1], a[2] - b[2]);
+/** The range's distance: lightness counts half (colourRange.ts). */
+const dist = (a: RGB, b: RGB) => Math.hypot(0.5 * (a[0] - b[0]), a[1] - b[1], a[2] - b[2]);
 
 /** A grassy reference: greens from dark to light, plus one stray magenta pixel (under the bin minimum). */
 function greens(): MatchImage {
