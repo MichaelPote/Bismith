@@ -2,13 +2,22 @@
 // Clouds and gradients are value generators (no SDF); scratches also hand their outline to a mask
 // (sdf: 'mask'). See patterns.ts for the cell-based SDF patterns.
 
-import { pcg3, u2d } from '@/core/hash';
+import { hashD } from '@/core/hash';
 import { memoReads } from '@/core/memo';
 import { P, gradient, round1 as r1, type ParamValues } from '@/core/params';
 import { PX_SCALE_PARAM } from '../commonParams';
-import { f32, gcd } from '../derivedMath';
+import { cellsFor, f32, gcd, imod, periodOf, radians } from '../derivedMath';
 import type { LayerCanvas, LayerDef } from '../types';
-import { NZ_SHARED_GLSL, quantileTexture, quantilesOf } from './noise';
+import {
+	NZ_SHARED_GLSL,
+	fractalParams,
+	latticeNoise,
+	octaveStep,
+	quantileTexture,
+	quantilesOf,
+	type OctaveState,
+	type OctaveStyle
+} from './noise';
 
 // ------------------------------------------------------------------------------------------------ clouds
 
@@ -17,37 +26,8 @@ import { NZ_SHARED_GLSL, quantileTexture, quantilesOf } from './noise';
 // across holds few lumps, and its share above any level strays from the population's by several percent. Not ported:
 // the animation phase and the layer's own domain warp / offset (they move the pattern; its statistics barely change).
 
-/** The shaders' hashI (core/hash.ts), unrounded: the quantiles need only its distribution. */
-const hashI = (x: number, y: number, s: number) => u2d(pcg3(x, y, s));
-const imod = (a: number, m: number) => ((a % m) + m) % m;
-const quint = (f: number) => f * f * f * (f * (f * 6 - 15) + 10);
-const NO_PER = 1 << 20;
-
-// Value (basis 0) or Perlin noise on a lattice whose corner k is hashed as cell(kx, ky) (0..1): the shader's valueNoise /
-// perlinNoise, the period or the turned lattice's reduction in cell.
-function latticeNoise(basis: number, x: number, y: number, cell: (kx: number, ky: number) => number): number {
-	const ix = Math.floor(x),
-		iy = Math.floor(y),
-		fx = x - ix,
-		fy = y - iy;
-	const corner = (ox: number, oy: number) => {
-		const h = cell(ix + ox, iy + oy);
-		if (basis === 0) return h;
-		const a = h * Math.PI * 2;
-		return Math.cos(a) * (fx - ox) + Math.sin(a) * (fy - oy);
-	};
-	const ux = quint(fx),
-		uy = quint(fy);
-	const a = corner(0, 0),
-		b = corner(1, 0),
-		c = corner(0, 1),
-		d = corner(1, 1);
-	const v = (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy;
-	return basis === 0 ? v : Math.min(1, Math.max(0, v * 1.2 + 0.5));
-}
-
 const cvNoise = (basis: number, x: number, y: number, px: number, py: number, s: number) =>
-	latticeNoise(basis, x, y, (kx, ky) => hashI(imod(kx, px), imod(ky, py), s));
+	latticeNoise(basis, x, y, (kx, ky) => hashD(imod(kx, px), imod(ky, py), s));
 
 // rl_noise / rl_reduce / rl_lattice (NZ_SHARED_GLSL).
 function rlNoise(basis: number, y0: number, y1: number, c1: number[], c2: number[], s: number): number {
@@ -55,7 +35,7 @@ function rlNoise(basis: number, y0: number, y1: number, c1: number[], c2: number
 	return latticeNoise(basis, y0, y1, (kx, ky) => {
 		const a = Math.floor((c2[1] * kx - c2[0] * ky) / D),
 			b = Math.floor((c1[0] * ky - c1[1] * kx) / D);
-		return hashI(kx - a * c1[0] - b * c2[0], ky - a * c1[1] - b * c2[1], s);
+		return hashD(kx - a * c1[0] - b * c2[0], ky - a * c1[1] - b * c2[1], s);
 	});
 }
 
@@ -68,33 +48,19 @@ export function cloudsSamples(
 		H = ctx.height,
 		tile = ctx.tileable,
 		seed = ctx.seed;
-	const scale = Number(p.scale),
-		stretch = Math.max(Number(p.stretch ?? 1), 1e-3);
-	let cx = scale / stretch,
-		cy = (scale * H) / W;
-	if (tile) {
-		cx = Math.max(1, Math.floor(cx + 0.5));
-		cy = Math.max(1, Math.floor(cy + 0.5));
-	} else {
-		cx = Math.max(cx, 1e-3);
-		cy = Math.max(cy, 1e-3);
-	}
-	const per0x = tile ? cx : NO_PER,
-		per0y = tile ? cy : NO_PER;
+	const [cx, cy] = cellsFor(Number(p.scale), Number(p.stretch), ctx);
+	const [per0x, per0y] = periodOf([cx, cy], tile);
 	const basis = p.basis === 'value' ? 0 : 1;
-	const style = ({ fbm: 0, billow: 1, ridged: 2, cumulus: 3 } as Record<string, number>)[String(p.style)] ?? 0;
+	const style = CLOUD_STYLES.indexOf(String(p.style));
 	const oct = Math.max(1, Math.min(12, Math.round(Number(p.octaves))));
 	const gain = Number(p.gain),
-		lac = Number(p.lacunarity ?? 2),
+		lac = Number(p.lacunarity),
 		ilac = Math.floor(lac + 0.5);
-	const crease = Number(p.crease ?? 0),
-		hier = Number(p.hier ?? 0),
-		ridge = Number(p.ridge ?? 0);
-	const warp = Number(p.warp ?? 0),
-		wdetail = Number(p.wdetail ?? 1);
+	const warp = Number(p.warp),
+		wdetail = Number(p.wdetail);
 	const turned = tile && per0x === per0y;
-	const ro = 1 + ridge;
 	const lm = tile ? ilac : lac;
+	const ost = cloudOctaveStyle(style, Number(p.crease), Number(p.hier), Number(p.ridge));
 	// warpOffset(x, per, seed + 7): Perlin fbm (3 octaves, lacunarity 2, gain 0.5), twice.
 	const fbm3 = (x: number, y: number, sd: number) => {
 		let sum = 0,
@@ -139,10 +105,8 @@ export function cloudsSamples(
 			}
 			let sum = 0,
 				amp = 1,
-				norm = 0,
-				weight = 1,
-				f0 = 1,
-				cut = 1;
+				norm = 0;
+			const st: OctaveState = { weight: 1, f0: 1, cut: 1 };
 			let px = per0x,
 				py = per0y,
 				fc = Math.max(cx, cy);
@@ -150,8 +114,8 @@ export function cloudsSamples(
 				const s = seed + o * 31;
 				let xo = x + offx,
 					yo = y + offy;
-				const shx = hashI(o, 3, seed) + 0.37 * o,
-					shy = hashI(o, 5, seed) + 0.37 * o;
+				const shx = hashD(o, 3, seed) + 0.37 * o,
+					shy = hashD(o, 5, seed) + 0.37 * o;
 				if (o > 0) {
 					xo += shx;
 					yo += shy;
@@ -206,40 +170,8 @@ export function cloudsSamples(
 					}
 				}
 				if (dual) n = Math.min(1, Math.max(0, 0.5 + (n - 1) * 0.70711));
-				const ce =
-					0.25 * crease * (style === 1 ? 1 + 0.5 * o : 1 + o) * (style === 2 ? 2 : 1) +
-					(style === 2 ? 0.15 * hier * Math.max(o - 1, 0) : 0);
-				const ha = style !== 2 || o === 0 ? 1 : o === 1 ? 1 + 0.6 * hier : Math.pow(1 - 0.35 * hier, o - 1);
-				const t = 2 * n - 1;
-				const fold = ce > 0 ? (Math.sqrt(t * t + ce * ce) - ce) / (Math.sqrt(1 + ce * ce) - ce) : Math.abs(t);
-				let wn = 1;
-				if (style === 2) {
-					const c = (ro - fold) / ro;
-					const hp = o === 0 ? RIDGE_SHARP(hier) : 0,
-						hg = o === 0 ? -hier : 2 * hier;
-					let r = c * c * (hp > 0 ? Math.pow(Math.max(c, 1e-6), hp) : 1);
-					const gt = c * c * (hg !== 0 ? Math.pow(Math.max(c, 1e-6), hg) : 1);
-					wn = 1 + (weight - 1) * hier;
-					r *= weight;
-					weight = Math.max(Math.min(1, Math.max(0, 2 * gt * weight)), Math.min(ridge, 1));
-					n = r;
-				} else if (style === 1 || (style === 3 && o > 0)) {
-					n =
-						style === 1 ? (crease > 0 ? Math.pow(fold, 1 - 0.5 * crease) : fold) : fold + (n - fold) * (o >= 3 ? 1 : 0);
-				}
-				let bg = 1;
-				if (style === 1 && crease > 0) {
-					if (o === 0) f0 = fold;
-					else {
-						const e = Math.min(1, Math.max(0, f0 / 0.6));
-						bg = 1 + (e * e * (3 - 2 * e) - 1) * crease;
-					}
-					if (o === 1 || o === 2) {
-						const e = Math.min(1, Math.max(0, fold / 0.6));
-						cut *= 1 + (0.45 + 0.55 * e * e * (3 - 2 * e) - 1) * crease * (o === 1 ? 1 : 0.3);
-					}
-				}
-				sum += n * amp * ha * bg;
+				const [nv, ha, bg, wn] = octaveStep(n, o, ost, st);
+				sum += nv * amp * ha * bg;
 				norm += amp * ha * wn;
 				amp *= gain;
 				if (tile) {
@@ -254,19 +186,43 @@ export function cloudsSamples(
 				offx *= lm * wdetail;
 				offy *= lm * wdetail;
 			}
-			out.push((sum / Math.max(norm, 1e-6)) * cut);
+			out.push((sum / Math.max(norm, 1e-6)) * st.cut);
 		}
 	return out;
 }
 
+/** Clouds' styles, in the shader's order (u_style: nz_octave's kind). */
+const CLOUD_STYLES = ['fbm', 'billow', 'ridged', 'cumulus'];
 /** Ridge hierarchy: the main crest's extra sharpening exponent, RIDGE_SHARP_K · h² (the shader's from the same constant). */
 const RIDGE_SHARP_K = 6;
-const RIDGE_SHARP = (h: number) => RIDGE_SHARP_K * h * h;
+
+/**
+ * Clouds' octave style (as Noise's, but Billow's creases soften half as fast per octave and dome its lumps, the second
+ * and third octaves split them, Ridged's crests round twice as much and its main crest sharpens by 6h²).
+ */
+const cloudOctaveStyle = (kind: number, crease: number, hier: number, ridge: number): OctaveStyle => ({
+	kind,
+	crease,
+	hier,
+	ridge,
+	grow: kind === 1 ? 0.5 : 1,
+	mul: kind === 2 ? 2 : 1,
+	sharp: RIDGE_SHARP_K * hier * hier,
+	dome: 0.5,
+	split: true
+});
 /**
  * The finest octave's cells across (the larger cell count): octaves past it are far below a pixel and only alias, and
  * their tiling periods would overflow the shader's ints at high lacunarity. Shader and port both stop there.
  */
 const OCT_CELLS = 1 << 20;
+
+/** Clouds' fractal controls: Noise's, with Clouds' defaults. */
+const CF = fractalParams(
+	{ stretch: 1, octaves: 6, lacunarity: 2, gain: 0.45, crease: 0.6, ridge: 0.35, hier: 0.7, warp: 0.1 },
+	{ ridged: (p) => p.style === 'ridged', creased: (p) => p.style !== 'fbm' },
+	{ crease: 'On Billow it also domes the lumps and lets the second octave’s creases split them into sub-lumps' }
+);
 
 export const cloudsLayer: LayerDef = {
 	type: 'clouds',
@@ -296,44 +252,14 @@ export const cloudsLayer: LayerDef = {
 			step: 0.01,
 			hint: 'How many base cells fit across the texture width (rounded when tiling)'
 		}),
-		P.float('stretch', 'Stretch', 1, 0.02, 100, {
-			softMin: 0.1,
-			softMax: 16,
-			step: 0.01,
-			hint: 'Stretches the features sideways (above 1: streaks, strata) or upwards (below 1: rain marks)'
-		}),
-		P.int('octaves', 'Octaves', 6, 1, 12),
-		P.float('lacunarity', 'Lacunarity', 2, 1, 8, {
-			softMin: 1.5,
-			softMax: 6,
-			step: 0.01,
-			hint: 'How much finer each octave gets than the last (rounded to a whole number when tiling: 2, 3, 4 …)'
-		}),
-		P.float('gain', 'Gain', 0.45, 0, 1, {
-			step: 0.001,
-			hint: 'How much of its strength each octave keeps (higher = rougher)'
-		}),
-		P.float('crease', 'Crease softness', 0.6, 0, 1, {
-			step: 0.001,
-			showIf: (p) => p.style !== 'fbm',
-			hint: 'Rounds off the sharp folds of Billow, Cumulus and Ridged, their dark creases and bright crests (0 = knife-sharp, the fine ones turn into hairlines; 1 = soft). On Billow it also domes the lumps and lets the second octave’s creases split them into sub-lumps'
-		}),
-		P.float('ridge', 'Ridge offset', 0.35, 0, 2, {
-			softMax: 1,
-			step: 0.001,
-			showIf: (p) => p.style === 'ridged',
-			hint: 'Lifts the valleys between the ridges and lets the finer octaves into them (0 = classic ridged, the basins fall to flat black; 0.5 = shallower basins with half the fine detail; 1 = detail everywhere)'
-		}),
-		P.float('hier', 'Ridge hierarchy', 0.7, 0, 1, {
-			step: 0.001,
-			showIf: (p) => p.style === 'ridged',
-			hint: 'Grows smaller ridges branching off the main ridgelines: the finer octaves only show (wider) near the crests of the coarser ones and leave the flanks between smooth (0 = every scale at once, the classic ridged multifractal)'
-		}),
-		P.float('warp', 'Warp', 0.1, 0, 16, {
-			softMax: 3,
-			step: 0.001,
-			hint: 'Swirls the pattern with a domain warp (how far, in base cells)'
-		}),
+		CF.stretch,
+		CF.octaves,
+		CF.lacunarity,
+		CF.gain,
+		CF.crease,
+		CF.ridge,
+		CF.hier,
+		CF.warp,
 		P.float('wdetail', 'Warp detail', 0.4, 0, 1, {
 			step: 0.001,
 			showIf: (p) => Number(p.warp) > 0,
@@ -365,9 +291,6 @@ export const cloudsLayer: LayerDef = {
 	},
 	glsl: /* glsl */ `
 ${NZ_SHARED_GLSL}
-// The integral of clamp(x, 0, 1): differences of it give the clamp box-filtered over a width (soft shoulders).
-float cl_clampInt(float x) { return x < 0.0 ? 0.0 : x < 1.0 ? 0.5 * x * x : x - 0.5; }
-
 GenOut gen(vec2 p) {
   vec2 cells = cellsFor(u_scale, u_stretch);
   ivec2 per = periodOf(cells);
@@ -382,7 +305,9 @@ GenOut gen(vec2 p) {
   // The octaves in one flat loop with a runtime bound and only value / Perlin in it, so the shader stays small.
   // (Ported to the CPU line for line: cloudsSamples.)
   float sum = 0.0, amp = 1.0, norm = 0.0, weight = 1.0, f0 = 1.0, cut = 1.0;
-  float ro = 1.0 + u_ridge;   // ridged: the offset the crest is measured from (1 = classic)
+  // The octave style (nz_octave, cloudOctaveStyle): Billow's creases soften half as fast per octave and its lumps dome,
+  // Ridged's crests round twice as much and its main crest sharpens by RIDGE_SHARP_K · h².
+  vec4 sty = vec4(u_style == 1 ? 0.5 : 1.0, u_style == 2 ? 2.0 : 1.0, ${RIDGE_SHARP_K.toFixed(1)} * u_hier * u_hier, 0.5);
   int ilac = int(u_lacunarity + 0.5);
   // Tiling, on a square grid of cells: value / Perlin on the turned tileable lattice (rl_noise), each octave its own.
   bool turned = uTile && per.x == per.y;
@@ -416,51 +341,9 @@ GenOut gen(vec2 p) {
       n += nj;
     }
     if (dual) n = clamp(0.5 + (n - 1.0) * 0.70711, 0.0, 1.0);
-    // Billow's |2n - 1| (and Ridged's crest) with the fold rounded over Crease softness, more on each finer octave
-    // (whose thin creases are what reads as hair), still 0..1.
-    // (Billow: the same rounding on every octave, so the finer octaves crease too, their creases as much narrower as
-    // they are finer.)
-    float ce = 0.25 * u_crease * (u_style == 1 ? 1.0 + 0.5 * float(o) : float(1 + o)) * (u_style == 2 ? 2.0 : 1.0) + (u_style == 2 ? 0.15 * u_hier * float(max(o - 1, 0)) : 0.0);
-    // Ridge hierarchy's octave amplitudes (as Noise's): the second octave louder, the finer ones quieter.
-    float ha = u_style != 2 || o == 0 ? 1.0 : o == 1 ? 1.0 + 0.6 * u_hier : pow(1.0 - 0.35 * u_hier, float(o - 1));
-
-    float fold = ce > 0.0 ? (sqrt((2.0 * n - 1.0) * (2.0 * n - 1.0) + ce * ce) - ce) / (sqrt(1.0 + ce * ce) - ce) : abs(2.0 * n - 1.0);
-    float wn = 1.0;   // this octave's share of the normalisation
-    if (u_style == 2) {
-      // Ridge hierarchy (as Noise's, sharper): the main crest (first octave) sharpened to a ridgeline (c^(2 + 6h²)) and gating the second
-      // octave wide (c^(2 - h): its ridgelets reach down the flanks, attached to the main crest), the finer octaves
-      // gated only near the crests of the one before (c^(2 + 2h)) — main ridgelines, ridgelets branching off them,
-      // fine detail along those — and an octave counts in the normalisation only as far as it's weighted. At 0 the
-      // classic ridged multifractal (c², weight 2r).
-      float c = (ro - fold) / ro;
-      float hp = o == 0 ? ${RIDGE_SHARP_K.toFixed(1)} * u_hier * u_hier : 0.0;   // RIDGE_SHARP
-      float hg = o == 0 ? -u_hier : 2.0 * u_hier;
-      float r = c * c * (hp > 0.0 ? pow(max(c, 1e-6), hp) : 1.0);
-      float gt = c * c * (hg != 0.0 ? pow(max(c, 1e-6), hg) : 1.0);
-      wn = mix(1.0, weight, u_hier);
-      r *= weight;
-      weight = clamp(2.0 * gt * weight, 0.0, 1.0);
-      // Ridge offset: the basins keep this share of every octave's detail too.
-      weight = max(weight, min(u_ridge, 1.0));
-      n = r;
-    } else if (u_style == 1 || (u_style == 3 && o > 0)) {
-      // Billow: every octave folds (lumps at every scale), domed with Crease softness (fold^(1 - 0.5 crease):
-      // rounded tops, the crease a clean V). Cumulus: the first octave stays smooth (the masses), the next two fold
-      // into sub-lumps, the finer ones stay plain noise (texture on the lumps, no hairline creases).
-      n = u_style == 1 ? (u_crease > 0.0 ? pow(fold, 1.0 - 0.5 * u_crease) : fold) : mix(fold, n, o >= 3 ? 1.0 : 0.0);
-    }
-    // Billow with Crease softness: the finer octaves fade out inside the first octave's creases (by its fold), so the
-    // creases stay clean folds while the lumps carry the detail (cauliflower), instead of grainy bands.
-    float bg = 1.0;
-    if (u_style == 1 && u_crease > 0.0) {
-      if (o == 0) f0 = fold;
-      else bg = mix(1.0, smoothstep(0.0, 0.6, f0), u_crease);
-      // The second octave's creases (and faintly the third's) also cut into the lumps, multiplied in: each lump split
-      // into sub-lumps — creases at two scales, not one maze.
-      if (o == 1 || o == 2) cut *= mix(1.0, 0.45 + 0.55 * smoothstep(0.0, 0.6, fold), u_crease * (o == 1 ? 1.0 : 0.3));
-    }
-    sum += n * amp * ha * bg;
-    norm += amp * ha * wn;
+    vec3 wt = nz_octave(u_style, o, u_crease, u_hier, u_ridge, sty, true, n, weight, f0, cut);
+    sum += n * amp * wt.x * wt.y;
+    norm += amp * wt.x * wt.z;
     amp *= u_gain;
     if (uTile) { x *= float(ilac); per *= ilac; } else { x *= u_lacunarity; }
     off *= lm * u_wdetail;
@@ -476,7 +359,7 @@ GenOut gen(vec2 p) {
   // 1 blended into a sigmoid (0.5 + tanh(2 (v - 0.5)) / 2) that never flattens — domes, not plateaus. The mid-tone
   // slope is kept throughout (0 = the plain clamp).
   float sw = min(2.0 * u_soft, 1.0);
-  float vb = sw > 0.0 ? (cl_clampInt(v + 0.5 * sw) - cl_clampInt(v - 0.5 * sw)) / sw : clamp(v, 0.0, 1.0);
+  float vb = sw > 0.0 ? (nz_clampInt(v + 0.5 * sw) - nz_clampInt(v - 0.5 * sw)) / sw : clamp(v, 0.0, 1.0);
   v = mix(vb, 0.5 + 0.5 * tanh(2.0 * (v - 0.5)), clamp(2.0 * u_soft - 1.0, 0.0, 1.0));
   return genOutSmooth(clamp(v, 0.0, 1.0), 1.0, n, 0.0);
 }
@@ -494,7 +377,7 @@ const repeating = (p: Record<string, unknown>) => p.repeat !== 'clamp';
  * tile when they tile (bands > 0; else 0). In float32 steps, as the shader did.
  */
 export function gradientDerived(p: ParamValues, c: LayerCanvas): { cyc: number[]; bands: number } {
-	const a = f32(f32(Number(p.angle)) * f32(Math.PI / 180));
+	const a = radians(f32(Number(p.angle)));
 	const cs = f32(Math.cos(a));
 	const sn = f32(Math.sin(a));
 	const span = f32(Math.abs(f32(c.width * cs)) + Math.abs(f32(c.height * sn)));

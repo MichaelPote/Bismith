@@ -8,9 +8,42 @@
 // with a little hand-laid irregularity (size, position). Exact radial distances, near-exact tangential ones: crisp
 // joints, working bevels.
 
-import { P, gradient } from '@/core/params';
-import type { LayerDef } from '../types';
-import { GEO_DERIVED, GEO_FRAME_GLSL, rndModeParam } from './geometricCommon';
+import { P, gradient, type ParamValues } from '@/core/params';
+import { f32 } from '../derivedMath';
+import type { LayerCanvas, LayerDef } from '../types';
+import { GEO_FRAME_GLSL, geoAB, geoCount, geoSpan, rndModeParam } from './geometricCommon';
+
+/** Fan direction (option index × 90° turns the frame). */
+const DIRS: [string, string][] = [
+	['up', 'Up'],
+	['right', 'Right'],
+	['down', 'Down'],
+	['left', 'Left']
+];
+
+/**
+ * Setts' uniform-only work (its derived uniforms): the cells across (fans or rosettes; whole when tiling) and down (rows
+ * Row height × half a fan width apart, in pairs when tiling, or rosettes Row height × their width tall). In float32
+ * steps, as the shader had them.
+ */
+export function settsDerived(p: ParamValues, c: LayerCanvas): { k: number[]; geo_AB: number[] } {
+	const span = geoSpan(
+		2 *
+			Math.max(
+				DIRS.findIndex(([v]) => v === p.dir),
+				0
+			),
+		c
+	);
+	const kx = geoCount(f32(f32(f32(Number(p.scale)) * span[0]) / c.width), 1, c.tileable);
+	const W0 = f32(span[0] / kx);
+	const a = Math.max(f32(Number(p.aspect)), 0.05);
+	const ky =
+		p.layout === 'rings'
+			? geoCount(f32(span[1] / f32(W0 * a)), 1, c.tileable)
+			: geoCount(f32(span[1] / f32(f32(0.5 * W0) * a)), 2, c.tileable);
+	return { k: [kx, ky], geo_AB: geoAB(c) };
+}
 
 export const settsLayer: LayerDef = {
 	type: 'setts',
@@ -26,11 +59,13 @@ export const settsLayer: LayerDef = {
 			['rings', 'Rings (rosettes)']
 		]),
 		P.float('scale', 'Fans across', 2, 0.5, 32, {
+			uniform: false,
 			softMax: 8,
 			step: 0.01,
 			hint: 'How many fans (or rosettes) fit across the width (whole counts when tiling)'
 		}),
 		P.float('aspect', 'Row height', 1, 0.5, 2, {
+			uniform: false,
 			step: 0.01,
 			hint: 'Fans: spaces the rows this many half fan widths apart (1 = the classic fan). Rings: makes each cell taller or wider (height ÷ width)'
 		}),
@@ -51,18 +86,7 @@ export const settsLayer: LayerDef = {
 			step: 0.001,
 			hint: 'Gives a hand-laid look: the setts vary in size and sit a bit out of place'
 		}),
-		P.enum(
-			'dir',
-			'Fan direction',
-			'up',
-			[
-				['up', 'Up'],
-				['right', 'Right'],
-				['down', 'Down'],
-				['left', 'Left']
-			],
-			{ hint: 'Picks which way the fans open (where their round rims face)' }
-		),
+		P.enum('dir', 'Fan direction', 'up', DIRS, { hint: 'Picks which way the fans open (where their round rims face)' }),
 		P.float('gap', 'Joint width', 1, 0, 32, {
 			softMax: 4,
 			unit: 'px',
@@ -85,7 +109,8 @@ export const settsLayer: LayerDef = {
 		dif_src: 'random',
 		dif_grad: gradient('#3c3a36', '#5a5650', '#76716a')
 	},
-	derivedUniforms: GEO_DERIVED,
+	// Uniform-only work on the CPU (settsDerived); the params only it reads are `uniform: false`.
+	derivedUniforms: { decl: { k: 'vec2', geo_AB: 'ivec2' }, compute: settsDerived },
 	glsl:
 		GEO_FRAME_GLSL +
 		/* glsl */ `
@@ -103,11 +128,7 @@ GenOut gen(vec2 p) {
   // care).
   float sh = fract(0.5 * u_gap);
   geo_frame(p - sh, 2 * clamp(u_dir, 0, 3));
-  float kx = geo_count(u_scale * geo_span.x / uRes.x, 1);
-  float W0 = geo_span.x / kx;
-  float a = max(u_aspect, 0.05);
-  float ky = rings ? geo_count(geo_span.y / (W0 * a), 1) : geo_count(geo_span.y / (0.5 * W0 * a), 2);
-  geo_periods(vec2(kx, ky));
+  geo_periods(d_k);
   float W = geo_cs.x, H = geo_cs.y;
   vec2 f = geo_f;
 

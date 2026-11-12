@@ -5,7 +5,7 @@
 import { MAX_PATH_POINTS, parsePolygons, parsePolylines, takePolygons } from '@/core/bitmap';
 import { memoReads } from '@/core/memo';
 import { P, type ParamValues } from '@/core/params';
-import { GLSL_PRIMTEX } from '../primTexture';
+import { GLSL_PRIMTEX, floatTexture } from '../primTexture';
 import type { CpuTexture, LayerCanvas, LayerDef } from '../types';
 
 type V2 = [number, number];
@@ -36,15 +36,6 @@ export function fillet(a: V2, v: V2, b: V2, R: number): [number, number, number,
 	const r = t * tn;
 	const s = Math.sqrt(t * t + r * r) / bl;
 	return [t, v[0] + bis[0] * s, v[1] + bis[1] * s, r];
-}
-
-/** Floats as an RGBA8 texture `width` texels across, one per texel (its bits, little-endian): texF32 reads them back. */
-function floatTexture(f: Float32Array, width: number): CpuTexture {
-	const height = Math.max(1, Math.ceil(f.length / width));
-	const data = new Uint8Array(width * height * 4);
-	const dv = new DataView(data.buffer);
-	f.forEach((x, i) => dv.setFloat32(i * 4, x, true));
-	return { width, height, data };
 }
 
 /**

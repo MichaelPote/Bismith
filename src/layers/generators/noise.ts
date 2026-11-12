@@ -1,4 +1,4 @@
-import { pcg3, u2d } from '@/core/hash';
+import { hashD } from '@/core/hash';
 import { memoize } from '@/core/memo';
 import { P, type ParamDef, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
@@ -50,31 +50,112 @@ export interface FractalStats {
 	hier: number;
 }
 
-/** The shaders' hashI, unrounded: the quantiles need only its distribution. */
-const fsHash = (x: number, y: number, s: number) => u2d(pcg3(x, y, s));
+const quint = (f: number) => f * f * f * (f * (f * 6 - 15) + 10);
 
-function fsNoise(basis: number, x: number, y: number, s: number): number {
+/**
+ * Value (basis 0) or Perlin noise on a lattice whose corner k is hashed as cell(kx, ky) (0..1): the shaders'
+ * valueNoise / perlinNoise for the CPU statistics, the period (or the turned lattice's reduction) in `cell`.
+ */
+export function latticeNoise(basis: number, x: number, y: number, cell: (kx: number, ky: number) => number): number {
 	const ix = Math.floor(x),
 		iy = Math.floor(y),
 		fx = x - ix,
 		fy = y - iy;
-	const fade = (f: number) => f * f * f * (f * (f * 6 - 15) + 10);
-	const ux = fade(fx),
-		uy = fade(fy);
-	const c = (cx: number, cy: number, dx: number, dy: number) => {
-		if (basis === 0) return fsHash(cx, cy, s);
-		const a = fsHash(cx, cy, s) * Math.PI * 2;
-		return Math.cos(a) * dx + Math.sin(a) * dy;
+	const corner = (ox: number, oy: number) => {
+		const h = cell(ix + ox, iy + oy);
+		if (basis === 0) return h;
+		const a = h * Math.PI * 2;
+		return Math.cos(a) * (fx - ox) + Math.sin(a) * (fy - oy);
 	};
-	const a = c(ix, iy, fx, fy),
-		b = c(ix + 1, iy, fx - 1, fy),
-		cc = c(ix, iy + 1, fx, fy - 1),
-		d = c(ix + 1, iy + 1, fx - 1, fy - 1);
-	const v = (a + (b - a) * ux) * (1 - uy) + (cc + (d - cc) * ux) * uy;
+	const ux = quint(fx),
+		uy = quint(fy);
+	const a = corner(0, 0),
+		b = corner(1, 0),
+		c = corner(0, 1),
+		d = corner(1, 1);
+	const v = (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy;
 	return basis === 0 ? v : Math.min(1, Math.max(0, v * 1.2 + 0.5));
 }
 
+/** A fractal style's octave step (nz_octave): which fold, and how Noise or Clouds tune it. */
+export interface OctaveStyle {
+	/** 0 plain (fBm, turbulence), 1 Billow, 2 Ridged, 3 Cumulus. */
+	kind: number;
+	crease: number;
+	hier: number;
+	/** Ridge offset (0 = classic ridged). */
+	ridge: number;
+	/** The fold's rounding per octave: 0.25 · crease · (1 + grow · o) · mul. */
+	grow: number;
+	mul: number;
+	/** Ridged: the main crest's extra sharpening exponent. */
+	sharp: number;
+	/** Billow: fold^(1 − dome · crease) (0 = the plain fold). */
+	dome: number;
+	/** Billow: the second and third octaves' creases also cut into the lumps (Clouds). */
+	split: boolean;
+}
+
+/** What carries from octave to octave (start each at 1). */
+export interface OctaveState {
+	weight: number;
+	f0: number;
+	cut: number;
+}
+
+/**
+ * The shaders' nz_octave on the CPU: octave o's noise n folded, gated and reweighted by the style. Returns its value
+ * and amplitude factors [n, ha, bg, wn] (sum += n · amp · ha · bg, norm += amp · ha · wn).
+ */
+export function octaveStep(n: number, o: number, y: OctaveStyle, st: OctaveState): [number, number, number, number] {
+	const ridged = y.kind === 2;
+	const ce = 0.25 * y.crease * (1 + y.grow * o) * y.mul + (ridged ? 0.15 * y.hier * Math.max(o - 1, 0) : 0);
+	const ha = !ridged || o === 0 ? 1 : o === 1 ? 1 + 0.6 * y.hier : Math.pow(1 - 0.35 * y.hier, o - 1);
+	const t = 2 * n - 1;
+	const fold = ce > 0 ? (Math.sqrt(t * t + ce * ce) - ce) / (Math.sqrt(1 + ce * ce) - ce) : Math.abs(t);
+	let wn = 1;
+	if (ridged) {
+		const ro = 1 + y.ridge;
+		const c = (ro - fold) / ro;
+		const hp = o === 0 ? y.sharp : 0,
+			hg = o === 0 ? -y.hier : 2 * y.hier;
+		const r = c * c * (hp > 0 ? Math.pow(Math.max(c, 1e-6), hp) : 1);
+		const gt = c * c * (hg !== 0 ? Math.pow(Math.max(c, 1e-6), hg) : 1);
+		wn = 1 + (st.weight - 1) * y.hier;
+		n = r * st.weight;
+		st.weight = Math.max(Math.min(1, Math.max(0, 2 * gt * st.weight)), Math.min(y.ridge, 1));
+	} else if (y.kind === 1) {
+		n = y.dome > 0 && y.crease > 0 ? Math.pow(fold, 1 - y.dome * y.crease) : fold;
+	} else if (y.kind === 3 && o > 0) {
+		n = o >= 3 ? n : fold;
+	}
+	let bg = 1;
+	if (y.kind === 1 && y.crease > 0) {
+		const ss = (v: number) => {
+			const e = Math.min(1, Math.max(0, v / 0.6));
+			return e * e * (3 - 2 * e);
+		};
+		if (o === 0) st.f0 = fold;
+		else bg = 1 + (ss(st.f0) - 1) * y.crease;
+		if (y.split && (o === 1 || o === 2)) st.cut *= 1 + (0.45 + 0.55 * ss(fold) - 1) * y.crease * (o === 1 ? 1 : 0.3);
+	}
+	return [n, ha, bg, wn];
+}
+
 const STATS_N = 8192;
+
+/** Noise's octave style (nz_field's) for a FRACTAL_MODES index. */
+const noiseOctaveStyle = (mode: number, crease: number, hier: number, ridge: number): OctaveStyle => ({
+	kind: mode === 2 ? 2 : mode === 3 ? 1 : 0,
+	crease,
+	hier,
+	ridge,
+	grow: 1,
+	mul: 1,
+	sharp: 3 * hier,
+	dome: 0,
+	split: false
+});
 
 /** measureQuantiles' recent results, by their settings: cpuData runs on every param change (Levels, colours, …). */
 const measured = memoize(measureQuantiles, 16);
@@ -89,44 +170,20 @@ function measureQuantiles(o: FractalStats): number[] {
 	let rs = 12345;
 	const rnd = () => (rs = (Math.imul(rs, 1103515245) + 12345) >>> 0) / 4294967296;
 	const vals = new Float64Array(STATS_N);
+	const style = noiseOctaveStyle(o.mode, o.crease, o.hier, o.ridgeOffset - 1);
 	for (let i = 0; i < STATS_N; i++) {
 		let x = rnd() * 256,
 			y = rnd() * 256;
 		let sum = 0,
 			amp = 1,
-			norm = 0,
-			weight = 1,
-			f0 = 1;
+			norm = 0;
+		const st: OctaveState = { weight: 1, f0: 1, cut: 1 };
 		for (let k = 0; k < oct; k++) {
-			let n = fsNoise(o.basis, x, y, 1 + (i % 7) * 977 + k * 31);
-			const ce = 0.25 * o.crease * (1 + k) + (o.mode === 2 ? 0.15 * o.hier * Math.max(k - 1, 0) : 0);
-			const ha = o.mode !== 2 || k === 0 ? 1 : k === 1 ? 1 + 0.6 * o.hier : Math.pow(1 - 0.35 * o.hier, k - 1);
-			const t = 2 * n - 1;
-			const fold = ce > 0 ? (Math.sqrt(t * t + ce * ce) - ce) / (Math.sqrt(1 + ce * ce) - ce) : Math.abs(t);
-			let wn = 1;
-			if (o.mode === 2) {
-				const c = (o.ridgeOffset - fold) / o.ridgeOffset;
-				const hp = k === 0 ? 3 * o.hier : 0,
-					hg = k === 0 ? -o.hier : 2 * o.hier;
-				let r = c * c * (hp > 0 ? Math.pow(Math.max(c, 1e-6), hp) : 1);
-				const gt = c * c * (hg !== 0 ? Math.pow(Math.max(c, 1e-6), hg) : 1);
-				wn = 1 + (weight - 1) * o.hier;
-				r *= weight;
-				weight = Math.max(Math.min(1, Math.max(0, 2 * gt * weight)), Math.min(o.ridgeOffset - 1, 1));
-				n = r;
-			} else if (o.mode === 3) {
-				n = fold;
-			} else if (o.mode === 4) {
+			const n0 = latticeNoise(o.basis, x, y, (kx, ky) => hashD(kx, ky, 1 + (i % 7) * 977 + k * 31));
+			const [n, ha, bg, wn] = octaveStep(n0, k, style, st);
+			if (o.mode === 4) {
 				x += (n - 0.5) * 0.6;
 				y += (n - 0.5) * 0.6;
-			}
-			let bg = 1;
-			if (o.mode === 3 && o.crease > 0) {
-				if (k === 0) f0 = fold;
-				else {
-					const e = Math.min(1, Math.max(0, f0 / 0.6));
-					bg = 1 + (e * e * (3 - 2 * e) - 1) * o.crease;
-				}
 			}
 			sum += n * amp * ha * bg;
 			norm += amp * ha * wn;
@@ -205,6 +262,58 @@ float eq_value(float n) {
   if (x > dh) return 0.5 + Y + (qa + 2.0 * qb * dh) * (x - dh);
   return 0.5 + qa * x + qb * x * x;
 }
+// The integral of clamp(x, 0, 1): differences of it give the clamp box-filtered over a width (soft shoulders).
+float nz_clampInt(float x) { return x < 0.0 ? 0.0 : x < 1.0 ? 0.5 * x * x : x - 0.5; }
+// One octave of a fractal sum (nz_field's and Clouds' loops; octaveStep on the CPU): octave o's noise n (0..1) folded,
+// gated and reweighted by the style — kind 0 plain, 1 Billow, 2 Ridged, 3 Cumulus. sty: (grow, mul) the fold's rounding
+// per octave, 0.25 · crease · (1 + grow · o) · mul; the main crest's extra sharpening (Ridged); Billow's doming per
+// Crease softness. split: Billow's second and third octaves also cut into the lumps. n becomes the octave's value;
+// weight, f0 and cut carry from octave to octave (each starts at 1). Returns its amplitude factors (ha, bg, wn):
+// sum += n · amp · ha · bg, norm += amp · ha · wn.
+vec3 nz_octave(int kind, int o, float crease, float hier, float ridge, vec4 sty, bool split, inout float n, inout float weight, inout float f0, inout float cut) {
+  // Ridged's crest and Billow's crease, |2n - 1|, rounded over Crease softness — more on each finer octave (whose thin
+  // creases are what reads as hair).
+  float ce = 0.25 * crease * (1.0 + sty.x * float(o)) * sty.y + (kind == 2 ? 0.15 * hier * float(max(o - 1, 0)) : 0.0);
+  // Ridge hierarchy's octave amplitudes: the second octave louder (its ridgelets read), the finer ones quieter.
+  float ha = kind != 2 || o == 0 ? 1.0 : o == 1 ? 1.0 + 0.6 * hier : pow(1.0 - 0.35 * hier, float(o - 1));
+  float fold = ce > 0.0 ? (sqrt((2.0 * n - 1.0) * (2.0 * n - 1.0) + ce * ce) - ce) / (sqrt(1.0 + ce * ce) - ce) : abs(2.0 * n - 1.0);
+  float wn = 1.0;   // this octave's share of the normalisation
+  if (kind == 2) {
+    // Ridge hierarchy: the main crest (first octave) sharpened to a ridgeline (c^(2 + sharp)) and gating the second
+    // octave wide (c^(2 - h): its ridgelets reach down the flanks, attached to the main crest), the finer octaves
+    // gated only near the crests of the one before (c^(2 + 2h)) — main ridgelines, ridgelets branching off them,
+    // fine detail along those — and an octave counts in the normalisation only as far as it's weighted. At 0 the
+    // classic ridged multifractal (c², weight 2r).
+    float ro = 1.0 + ridge;   // the offset the crest is measured from (1 = classic)
+    float c = (ro - fold) / ro;
+    float hp = o == 0 ? sty.z : 0.0;
+    float hg = o == 0 ? -hier : 2.0 * hier;
+    float r = c * c * (hp > 0.0 ? pow(max(c, 1e-6), hp) : 1.0);
+    float gt = c * c * (hg != 0.0 ? pow(max(c, 1e-6), hg) : 1.0);
+    wn = mix(1.0, weight, hier);
+    r *= weight;
+    weight = clamp(2.0 * gt * weight, 0.0, 1.0);
+    // Ridge offset: the basins keep this share of every octave's detail too.
+    weight = max(weight, min(ridge, 1.0));
+    n = r;
+  } else if (kind == 1 || (kind == 3 && o > 0)) {
+    // Billow: every octave folds (lumps at every scale), domed with Crease softness (fold^(1 - dome · crease): rounded
+    // tops, the crease a clean V). Cumulus: the first octave stays smooth (the masses), the next two fold into
+    // sub-lumps, the finer ones stay plain noise (texture on the lumps, no hairline creases).
+    n = kind == 1 ? (sty.w > 0.0 && crease > 0.0 ? pow(fold, 1.0 - sty.w * crease) : fold) : mix(fold, n, o >= 3 ? 1.0 : 0.0);
+  }
+  // Billow with Crease softness: the finer octaves fade out inside the first octave's creases (by its fold), so the
+  // creases stay clean folds while the lumps carry the detail (cauliflower), instead of grainy bands.
+  float bg = 1.0;
+  if (kind == 1 && crease > 0.0) {
+    if (o == 0) f0 = fold;
+    else bg = mix(1.0, smoothstep(0.0, 0.6, f0), crease);
+    // Split: the second octave's creases (and faintly the third's) also cut into the lumps, multiplied in: each lump
+    // split into sub-lumps — creases at two scales, not one maze.
+    if (split && (o == 1 || o == 2)) cut *= mix(1.0, 0.45 + 0.55 * smoothstep(0.0, 0.6, fold), crease * (o == 1 ? 1.0 : 0.3));
+  }
+  return vec3(ha, bg, wn);
+}
 ivec2 rl_reduce(ivec2 k, ivec2 c1, ivec2 c2) {
   float D = float(c1.x * c2.y - c2.x * c1.y);
   float a = floor(float(c2.y * k.x - c2.x * k.y) / D);
@@ -236,8 +345,99 @@ void rl_lattice(int o, float cells, int ilac, out ivec2 c1, out ivec2 c2) {
 
 /** Every control but Pixel size: White hides them. */
 const notWhite = (p: Record<string, unknown>) => p.noise !== 'white';
-const isFractal = (p: Record<string, unknown>) => p.noise !== 'white' && p.fractal !== 'none';
 const isWorley = (p: Record<string, unknown>) => p.noise === 'worley' || p.noise === 'worley2' || p.noise === 'cells';
+
+type FractalKey = 'stretch' | 'octaves' | 'lacunarity' | 'gain' | 'crease' | 'ridge' | 'hier' | 'warp';
+type Shows = (p: ParamValues) => boolean;
+
+/**
+ * The fractal controls Noise and Clouds share, by key (each layer places them): their defaults, and when they show —
+ * at all, with octaves (layered), Ridged's (ridged), the folded styles' Crease softness (creased); a missing test shows
+ * them always. `notes` add to a hint.
+ */
+export function fractalParams(
+	d: Record<FractalKey, number>,
+	show: { shown?: Shows; layered?: Shows; ridged?: Shows; creased?: Shows },
+	notes: Partial<Record<FractalKey, string>> = {}
+): Record<FractalKey, ParamDef> {
+	const all = (...fs: (Shows | undefined)[]): Shows | undefined => {
+		const on = fs.filter((f): f is Shows => !!f);
+		return on.length ? (p) => on.every((f) => f(p)) : undefined;
+	};
+	const hint = (k: FractalKey, h: string) => (notes[k] ? `${h}. ${notes[k]}` : h);
+	return {
+		stretch: P.float('stretch', 'Stretch', d.stretch, 0.02, 100, {
+			softMin: 0.1,
+			softMax: 16,
+			step: 0.01,
+			showIf: show.shown,
+			hint: hint(
+				'stretch',
+				'Stretches the features sideways above 1 (streaks, strata, brushed metal, wood fibre: 8–30) and upwards below 1 (rain marks)'
+			)
+		}),
+		octaves: P.int('octaves', 'Octaves', d.octaves, 1, 12, { showIf: all(show.shown, show.layered) }),
+		lacunarity: P.float('lacunarity', 'Lacunarity', d.lacunarity, 1, 8, {
+			softMin: 1.5,
+			softMax: 6,
+			step: 0.01,
+			showIf: all(show.shown, show.layered),
+			hint: hint(
+				'lacunarity',
+				'Sets how much finer each octave is than the one before (rounded to a whole number when tiling: 2, 3, 4 …)'
+			)
+		}),
+		gain: P.float('gain', 'Gain', d.gain, 0, 1, {
+			step: 0.001,
+			showIf: all(show.shown, show.layered),
+			hint: hint(
+				'gain',
+				'Sets how much strength each octave keeps from the one before (low = smooth, high = rough and grainy)'
+			)
+		}),
+		crease: P.float('crease', 'Crease softness', d.crease, 0, 1, {
+			step: 0.001,
+			showIf: all(show.shown, show.creased),
+			hint: hint(
+				'crease',
+				'Rounds off the knife-sharp crests and creases of the folded styles, more so on the finer octaves, whose thin creases look like wiry hair (0 = sharp, 1 = soft)'
+			)
+		}),
+		ridge: P.float('ridge', 'Ridge offset', d.ridge, 0, 2, {
+			softMax: 1,
+			step: 0.001,
+			showIf: all(show.shown, show.ridged),
+			hint: hint(
+				'ridge',
+				'Lifts the valleys between the ridges and lets at least this share of the finer octaves into them (0 = classic ridged multifractal, with flat black basins and detail only on the crests; 0.5 = shallower basins with half the fine detail; 1 = detail everywhere)'
+			)
+		}),
+		hier: P.float('hier', 'Ridge hierarchy', d.hier, 0, 1, {
+			step: 0.001,
+			showIf: all(show.shown, show.ridged),
+			hint: hint(
+				'hier',
+				'Branches smaller ridges off the main ridgelines by keeping the finer octaves near (and a bit wider than) the crests of the coarser ones, leaving the flanks smooth (0 = every scale at once, a tangle of crests like the classic ridged multifractal)'
+			)
+		}),
+		warp: P.float('warp', 'Warp', d.warp, 0, 16, {
+			softMax: 3,
+			step: 0.001,
+			showIf: show.shown,
+			hint: hint('warp', 'Swirls the pattern with a domain warp this strong, in cells. Good for swirls and marbling')
+		})
+	};
+}
+
+const FRACTAL = fractalParams(
+	{ stretch: 1, octaves: 5, lacunarity: 2, gain: 0.5, crease: 0.5, ridge: 0.4, hier: 0.7, warp: 0 },
+	{
+		shown: notWhite,
+		layered: (p) => p.fractal !== 'none',
+		ridged: (p) => p.fractal === 'ridged',
+		creased: (p) => p.fractal === 'ridged' || p.fractal === 'billow'
+	}
+);
 
 /** The noise's controls, but for White's Pixel size. */
 const NOISE_CONTROLS: ParamDef[] = [
@@ -249,13 +449,7 @@ const NOISE_CONTROLS: ParamDef[] = [
 		showIf: notWhite,
 		hint: 'Sets how many cells fit across the texture width (rounded when tiling)'
 	}),
-	P.float('stretch', 'Stretch', 1, 0.02, 100, {
-		softMin: 0.1,
-		softMax: 16,
-		step: 0.01,
-		showIf: notWhite,
-		hint: 'Stretches the features horizontally above 1 (brushed metal, wood fibre: 8–30) and vertically below 1'
-	}),
+	FRACTAL.stretch,
 	P.float('jitter', 'Jitter', 1, 0, 1, {
 		step: 0.001,
 		showIf: isWorley,
@@ -294,41 +488,13 @@ const NOISE_CONTROLS: ParamDef[] = [
 		showIf: isWorley,
 		hint: 'Shapes the curve across each cell from its point to its border (F1 the other way up). Round and Smooth turn the cone at every point into a dimple'
 	}),
-	P.int('octaves', 'Octaves', 5, 1, 12, { showIf: isFractal }),
-	P.float('lacunarity', 'Lacunarity', 2, 1, 8, {
-		softMin: 1.5,
-		softMax: 6,
-		step: 0.01,
-		showIf: isFractal,
-		hint: 'Sets how much finer each octave is than the one before (rounded to a whole number when tiling: 2, 3, 4 …)'
-	}),
-	P.float('gain', 'Gain', 0.5, 0, 1, {
-		step: 0.001,
-		showIf: isFractal,
-		hint: 'Sets how much strength each octave keeps from the one before (low = smooth, high = rough and grainy)'
-	}),
-	P.float('ridge', 'Ridge offset', 0.4, 0, 2, {
-		softMax: 1,
-		step: 0.001,
-		showIf: (p) => notWhite(p) && p.fractal === 'ridged',
-		hint: 'Lifts the valleys between the ridges and lets at least this share of the finer octaves into them (0 = classic ridged multifractal, with flat black basins and detail only on the crests; 0.5 = shallower basins with half the fine detail; 1 = detail everywhere)'
-	}),
-	P.float('crease', 'Crease softness', 0.5, 0, 1, {
-		step: 0.001,
-		showIf: (p) => notWhite(p) && (p.fractal === 'ridged' || p.fractal === 'billow'),
-		hint: 'Rounds off the knife-sharp crests of Ridged and creases of Billow, more so on the finer octaves, whose thin crests look like wiry hair (0 = sharp)'
-	}),
-	P.float('hier', 'Ridge hierarchy', 0.7, 0, 1, {
-		step: 0.001,
-		showIf: (p) => notWhite(p) && p.fractal === 'ridged',
-		hint: 'Branches smaller ridges off the main ridgelines by keeping the finer octaves near (and a bit wider than) the crests of the coarser ones, leaving the flanks smooth (0 = every scale at once, a tangle of crests like the classic ridged multifractal)'
-	}),
-	P.float('warp', 'Warp', 0, 0, 16, {
-		softMax: 3,
-		step: 0.001,
-		showIf: notWhite,
-		hint: 'Swirls the noise around with a domain warp this strong, in cells. Good for swirls and marbling'
-	}),
+	FRACTAL.octaves,
+	FRACTAL.lacunarity,
+	FRACTAL.gain,
+	FRACTAL.ridge,
+	FRACTAL.crease,
+	FRACTAL.hier,
+	FRACTAL.warp,
 	P.float('warp_scale', 'Warp scale', 4, 0.25, 128, {
 		softMax: 32,
 		step: 0.01,
@@ -455,9 +621,6 @@ vec4 nz_worley(vec2 x, ivec2 period, float jitter, int metric, float seed) {
   return vec4(F1, F2, hashI(imod(mc, period), seed + 17.0), acc > 0.0 ? pow(acc, -1.0 / 3.0) : 1.0);
 }
 
-// The integral of clamp(x, 0, 1): differences of it give the clamp box-filtered over a width (soft shoulders).
-float nz_clampInt(float x) { return x < 0.0 ? 0.0 : x < 1.0 ? 0.5 * x * x : x - 0.5; }
-
 // The noise at p (px), by the layer's controls; rnd: a Worley noise's cell random (first octave).
 float nz_field(vec2 p, float seed, out float rnd) {
   vec2 cells = cellsFor(u_scale, u_stretch);
@@ -473,12 +636,14 @@ float nz_field(vec2 p, float seed, out float rnd) {
   // Worley's cell random (the per-feature rnd) comes from the first octave.
   bool worley = u_noise >= 3;
   int oct = u_fractal == 0 ? 1 : u_octaves;
-  float sum = 0.0, amp = 1.0, norm = 0.0, weight = 1.0, f0 = 1.0;
+  float sum = 0.0, amp = 1.0, norm = 0.0, weight = 1.0, f0 = 1.0, cut = 1.0;
   rnd = 0.0;
   vec2 q = x;
   ivec2 per = period;
   int ilac = int(u_lacunarity + 0.5);
-  float ro = 1.0 + u_ridge;   // ridged: the offset the crest is measured from (1 = classic)
+  // The octave style (nz_octave): Ridged, Billow or plain; Ridge hierarchy's main crest sharpened by 3h.
+  int kind = u_fractal == 2 ? 2 : u_fractal == 3 ? 1 : 0;
+  vec4 sty = vec4(1.0, 1.0, 3.0 * u_hier, 0.0);
   // Value / Perlin on the turned tileable lattice: tiling, on a square grid of cells.
   bool turned = uTile && !worley && period.x == period.y;
   for (int o = 0; o < 12 * UNI_1; o++) {
@@ -532,43 +697,10 @@ float nz_field(vec2 p, float seed, out float rnd) {
         n = u_noise == 0 ? valueNoise(qo, per, s) : (u_noise == 1 || uTile) ? perlinNoise(qo, per, s) : simplexNoise(qo, s);
       }
     }
-    // Ridged's crest and Billow's crease, |2n - 1|, rounded over Crease softness — more on each finer octave.
-    float ce = 0.25 * u_crease * float(1 + o) + (u_fractal == 2 ? 0.15 * u_hier * float(max(o - 1, 0)) : 0.0);
-    // Ridge hierarchy's octave amplitudes: the second octave louder (its ridgelets read), the finer ones quieter.
-    float ha = u_fractal != 2 || o == 0 ? 1.0 : o == 1 ? 1.0 + 0.6 * u_hier : pow(1.0 - 0.35 * u_hier, float(o - 1));
-    float fold = ce > 0.0 ? (sqrt((2.0 * n - 1.0) * (2.0 * n - 1.0) + ce * ce) - ce) / (sqrt(1.0 + ce * ce) - ce) : abs(2.0 * n - 1.0);
-    float wn = 1.0;   // this octave's share of the normalisation
-    if (u_fractal == 2) {
-      // Ridge hierarchy: the main crest (first octave) sharpened to a ridgeline (c^(2 + 3h)) and gating the second
-      // octave wide (c^(2 - h): its ridgelets reach down the flanks, attached to the main crest), the finer octaves
-      // gated only near the crests of the one before (c^(2 + 2h)) — main ridgelines, ridgelets branching off them,
-      // fine detail along those — and an octave counts in the normalisation only as far as it's weighted. At 0 the
-      // classic ridged multifractal (c², weight 2r).
-      float c = (ro - fold) / ro;
-      float hp = o == 0 ? 3.0 * u_hier : 0.0;
-      float hg = o == 0 ? -u_hier : 2.0 * u_hier;
-      float r = c * c * (hp > 0.0 ? pow(max(c, 1e-6), hp) : 1.0);
-      float gt = c * c * (hg != 0.0 ? pow(max(c, 1e-6), hg) : 1.0);
-      wn = mix(1.0, weight, u_hier);
-      r *= weight;
-      weight = clamp(2.0 * gt * weight, 0.0, 1.0);
-      // Ridge offset: the basins keep this share of every octave's detail too.
-      weight = max(weight, min(u_ridge, 1.0));
-      n = r;
-    } else if (u_fractal == 3) {
-      n = fold;
-    } else if (u_fractal == 4) {
-      q += (n - 0.5) * 0.6;
-    }
-    // Billow with Crease softness: the finer octaves fade out inside the first octave's creases (by its fold), so the
-    // creases stay clean folds while the lumps carry the detail (cauliflower), instead of grainy bands.
-    float bg = 1.0;
-    if (u_fractal == 3 && u_crease > 0.0) {
-      if (o == 0) f0 = fold;
-      else bg = mix(1.0, smoothstep(0.0, 0.6, f0), u_crease);
-    }
-    sum += n * amp * ha * bg;
-    norm += amp * ha * wn;
+    vec3 wt = nz_octave(kind, o, u_crease, u_hier, u_ridge, sty, false, n, weight, f0, cut);
+    if (u_fractal == 4) q += (n - 0.5) * 0.6;   // turbulence: each octave pushes the next
+    sum += n * amp * wt.x * wt.y;
+    norm += amp * wt.x * wt.z;
     amp *= u_gain;
     if (uTile) { q *= float(ilac); per *= ilac; } else { q *= u_lacunarity; }
   }

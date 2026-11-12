@@ -63,7 +63,9 @@ describe('traces layer', () => {
 	});
 
 	it('writes trace ids and crowded ends into the route texture', () => {
-		const t = tracesLayer.cpuData!(freshParams('traces', { width: 256, height: 256 }), {
+		// (Full params, as the pipeline hands them: cpuData doesn't fill in defaults.)
+		const p = { ...createLayer('traces').params, ...freshParams('traces', { width: 256, height: 256 }) };
+		const t = tracesLayer.cpuData!(p, {
 			width: 256,
 			height: 256,
 			tileable: true,

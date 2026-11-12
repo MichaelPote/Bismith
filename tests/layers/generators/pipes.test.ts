@@ -12,11 +12,11 @@ import {
 	randomRuns,
 	runLevel,
 	runPrims,
-	rng,
 	yAt,
 	type PipeOptions
 } from '@/layers/generators/pipesGeometry';
 import { pipeRuns } from '@/layers/generators/pipes';
+import { seededRng as rng } from '@/core/hash';
 
 /** A straight horizontal run. */
 const straight = (x0: number, x1: number, radius: number) => ({

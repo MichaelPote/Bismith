@@ -8,8 +8,42 @@
 // lower under-runs. In the mask's combine modes they hand the wrapper their exact distance (its plain bevel).
 
 import { P, gradient, type ParamValues } from '@/core/params';
-import type { LayerDef } from '../types';
-import { GEO_DERIVED, GEO_FRAME_GLSL, orientParam, rndModeParam } from './geometricCommon';
+import { f32 } from '../derivedMath';
+import type { DerivedUniforms, LayerCanvas, LayerDef } from '../types';
+import { GEO_FRAME_GLSL, geoAB, geoCount, geoSpan, orientParam, orientSteps, rndModeParam } from './geometricCommon';
+
+/**
+ * The cells across and down of a grid of Columns × Rows cells (derived uniforms; whole multiples of mx, my when tiling),
+ * each R strands, on the turned frame. In float32 steps, as the shader had them.
+ */
+function gridCounts(p: ParamValues, c: LayerCanvas, mx: number, my: number, R = 1): number[] {
+	const span = geoSpan(orientSteps(p.orient), c);
+	const k = (n: unknown, s: number, res: number) => f32(f32(f32(Number(n) * s) / res) / R);
+	return [
+		geoCount(k(p.count_x, span[0], c.width), mx, c.tileable),
+		geoCount(k(p.count_y, span[1], c.height), my, c.tileable)
+	];
+}
+
+/** Tread plate's Orientation (the option index is the shader's u_layout). */
+const TREAD_LAYOUTS: [string, string][] = [
+	['checker', 'Alternate (checker)'],
+	['rows', 'Alternate by row'],
+	['cols', 'Alternate by column'],
+	['same', 'All the same'],
+	['herringbone', 'Herringbone (rows alternate, offset)']
+];
+
+/** Tread plate's derived uniforms: alternation and offset rows need even counts to tile. */
+const TREAD_DERIVED: DerivedUniforms = {
+	decl: { k: 'vec2', geo_AB: 'ivec2' },
+	compute: (p, c) => {
+		const lay = TREAD_LAYOUTS.findIndex(([v]) => v === p.layout);
+		const ex = lay === 0 || lay === 2;
+		const ey = lay === 0 || lay === 1 || lay === 4 || p.stagger === true;
+		return { k: gridCounts(p, c, ex ? 2 : 1, ey ? 2 : 1), geo_AB: geoAB(c) };
+	}
+};
 
 // ------------------------------------------------------------------------------------------------ tread plate
 
@@ -47,29 +81,18 @@ export const treadplateLayer: LayerDef = {
 			['diamond', 'Diamond (rhombus)']
 		]),
 		P.int('count_x', 'Columns', 8, 1, 256, {
+			uniform: false,
 			softMax: 48,
 			hint: 'How many cells across (made even when tiling with alternating orientation)'
 		}),
-		P.int('count_y', 'Rows', 8, 1, 256, { softMax: 48, hint: 'How many cells down' }),
+		P.int('count_y', 'Rows', 8, 1, 256, { uniform: false, softMax: 48, hint: 'How many cells down' }),
 		orientParam(
 			'Turns the whole grid in 45° steps (Lug angle turns each lozenge within its cell). At 45° with Lug angle 0, 5-bar groups or capsules lie on the diagonal. 45° grids repeat over gcd(width, height)'
 		),
-		P.enum(
-			'layout',
-			'Orientation',
-			'herringbone',
-			[
-				['checker', 'Alternate (checker)'],
-				['rows', 'Alternate by row'],
-				['cols', 'Alternate by column'],
-				['same', 'All the same'],
-				['herringbone', 'Herringbone (rows alternate, offset)']
-			],
-			{
-				showIf: notStud,
-				hint: 'Turns alternate cells 90° from the Lug angle. Herringbone alternates the rows and offsets every other one by half a cell, so each lug points at the side of the next, like classic diamond plate'
-			}
-		),
+		P.enum('layout', 'Orientation', 'herringbone', TREAD_LAYOUTS, {
+			showIf: notStud,
+			hint: 'Turns alternate cells 90° from the Lug angle. Herringbone alternates the rows and offsets every other one by half a cell, so each lug points at the side of the next, like classic diamond plate'
+		}),
 		P.float('angle', 'Lug angle', 45, -180, 180, {
 			softMin: -90,
 			softMax: 90,
@@ -140,7 +163,7 @@ export const treadplateLayer: LayerDef = {
 	// In the editor, roughness follows the lug's relief, not its shape (the registry's default for shapes).
 	fresh: () => ({ r_src: 'value' }),
 	linkedDefaults: (p) => TREAD_LOOKS[String(p.style)] ?? TREAD_LOOKS.lozenge,
-	derivedUniforms: GEO_DERIVED,
+	derivedUniforms: TREAD_DERIVED,
 	glsl:
 		GEO_FRAME_GLSL +
 		/* glsl */ `
@@ -175,13 +198,9 @@ float tp_teardrop(vec2 q, float hl, float r1, float r2) {
 
 GenOut gen(vec2 p) {
   geo_frame(p, u_orient);
-  // Alternation and offset rows need even counts to tile (checker: both; rows / offset rows / herringbone: down;
-  // columns: across).
-  bool ex = u_layout == 0 || u_layout == 2;
-  bool ey = u_layout == 0 || u_layout == 1 || u_layout == 4 || u_stagger;
+  // The cells across and down: even where alternation and offset rows need it to tile (TREAD_DERIVED).
   bool offs = u_stagger || u_layout == 4;
-  vec2 k = vec2(float(u_count_x), float(u_count_y)) * geo_span / uRes;
-  geo_periods(vec2(geo_count(k.x, ex ? 2 : 1), geo_count(k.y, ey ? 2 : 1)));
+  geo_periods(d_k);
   vec2 cs = geo_cs;
   vec2 f = geo_f;
   float pitch = sqrt(cs.x * cs.y);           // non-square cells keep the lozenge proportions
@@ -275,6 +294,28 @@ function weaveTable(): string {
 	return [arr('WV_ROWS', rows), arr('WV_OFF', first), arr('WV_R', reps)].join('\n');
 }
 
+/** wv_repeat on the CPU: the weave's repeat in strands (Herringbone: 2 × Zig-zag width, 4 × when odd). */
+function weaveRepeat(p: ParamValues): number {
+	const m = WEAVE_PATTERNS.findIndex(([v]) => v === p.pattern);
+	if (m === 8) {
+		const hb = Math.min(Math.max(Math.round(Number(p.period)), 1), 64);
+		return hb % 2 === 0 ? 2 * hb : 4 * hb;
+	}
+	return WEAVES[Math.min(Math.max(m, 0), 7)][0];
+}
+/** The weaves (WEAVES' order, then Herringbone: the option index is the shader's u_pattern). */
+const WEAVE_PATTERNS: [string, string][] = [
+	['plain', 'Plain (1/1)'],
+	['twill', 'Twill 2/2'],
+	['twill21', 'Twill 2/1'],
+	['twill31', 'Twill 3/1'],
+	['basket', 'Basket 2×2'],
+	['satin', 'Satin 4/1'],
+	['lattice', 'Lattice (horizontal on top)'],
+	['basket3', 'Basket 3×3'],
+	['herringbone', 'Herringbone twill']
+];
+
 export const weaveLayer: LayerDef = {
 	type: 'weave',
 	label: 'Weave',
@@ -284,34 +325,23 @@ export const weaveLayer: LayerDef = {
 	description:
 		'Weave: Strands woven over and under each other, arching up between the crossings. Makes fabric, baskets, wire screen, lattices.',
 	params: [
-		P.enum(
-			'pattern',
-			'Weave',
-			'plain',
-			[
-				['plain', 'Plain (1/1)'],
-				['twill', 'Twill 2/2'],
-				['twill21', 'Twill 2/1'],
-				['twill31', 'Twill 3/1'],
-				['basket', 'Basket 2×2'],
-				['satin', 'Satin 4/1'],
-				['lattice', 'Lattice (horizontal on top)'],
-				['basket3', 'Basket 3×3'],
-				['herringbone', 'Herringbone twill']
-			],
-			{
-				hint: 'Lattice: no weaving, just one layer of strips lying over the other (trellis, strap grates). Herringbone: a 2/2 twill whose diagonal flips every few strands (zig-zag ribs)'
-			}
-		),
+		P.enum('pattern', 'Weave', 'plain', WEAVE_PATTERNS, {
+			hint: 'Lattice: no weaving, just one layer of strips lying over the other (trellis, strap grates). Herringbone: a 2/2 twill whose diagonal flips every few strands (zig-zag ribs)'
+		}),
 		P.int('period', 'Zig-zag width', 8, 2, 16, {
 			showIf: (p) => p.pattern === 'herringbone',
 			hint: 'How many strands each arm of the herringbone has (the weave repeats every 2 × this, 4 × when odd)'
 		}),
 		P.int('count_x', 'Strands across', 8, 1, 512, {
+			uniform: false,
 			softMax: 64,
 			hint: 'How many vertical strands across (a multiple of the weave repeat when tiling)'
 		}),
-		P.int('count_y', 'Strands down', 8, 1, 512, { softMax: 64, hint: 'How many horizontal strands down' }),
+		P.int('count_y', 'Strands down', 8, 1, 512, {
+			uniform: false,
+			softMax: 64,
+			hint: 'How many horizontal strands down'
+		}),
 		orientParam(
 			'Turns the weave in 45° steps; 45° gives a diagonal, chain-link style mesh. Diagonal angles repeat over gcd(width, height)'
 		),
@@ -383,7 +413,11 @@ export const weaveLayer: LayerDef = {
 		dif_jitter: 0.35,
 		dif_grad: gradient('#5b4632', '#7d6246', '#9a7d5a')
 	},
-	derivedUniforms: GEO_DERIVED,
+	// Uniform-only work on the CPU: the repeats across and down (each wv_repeat strands).
+	derivedUniforms: {
+		decl: { k: 'vec2', geo_AB: 'ivec2' },
+		compute: (p, c) => ({ k: gridCounts(p, c, 1, 1, weaveRepeat(p)), geo_AB: geoAB(c) })
+	},
 	glsl:
 		GEO_FRAME_GLSL +
 		weaveTable() +
@@ -423,8 +457,7 @@ float wv_hw(int dir, int idx, vec2 sp) {
 GenOut gen(vec2 p) {
   int R = wv_repeat();
   geo_frame(p, u_orient);
-  vec2 k = vec2(float(u_count_x), float(u_count_y)) * geo_span / uRes / float(R);
-  geo_periods(vec2(geo_count(k.x, 1), geo_count(k.y, 1)));
+  geo_periods(d_k);
   wv_nS = ivec2(geo_k + 0.5) * R;
   vec2 sp = geo_cs / float(R);           // strand pitch (px)
   ivec2 c = ivec2(floor(geo_f / sp));

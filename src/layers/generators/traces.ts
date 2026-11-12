@@ -39,8 +39,6 @@ const MODES: [string, string, string][] = [
 	]
 ];
 const isFill = modeIs('fill');
-/** A param's value; its declared default when missing. */
-const num = (q: ParamValues, key: string) => Number(q[key] ?? tracesLayer.params.find((d) => d.key === key)!.default);
 
 /** Combined search reach is capped at this many extra rings of nodes (features up to ~8 cells across). */
 const MAX_RINGS = 8;
@@ -51,35 +49,35 @@ const MAX_RINGS = 8;
  */
 const traceNet = memoReads(
 	(q: ParamValues, ctx: { width: number; height: number; tileable: boolean; seed: number }) => {
-		const nx = Math.min(1024, Math.max(1, Math.round(num(q, 'cells'))));
+		const nx = Math.min(1024, Math.max(1, Math.round(Number(q.cells))));
 		const cw = ctx.width / nx;
-		const ch = cw * Math.tan((Math.min(80, Math.max(10, num(q, 'angle'))) * Math.PI) / 180);
+		const ch = cw * Math.tan((Math.min(80, Math.max(10, Number(q.angle))) * Math.PI) / 180);
 		const ny = Math.min(4096, Math.max(1, Math.round(ctx.height / ch)));
 		const n = nx * ny;
-		const m = String(q.mode ?? 'fill');
+		const m = String(q.mode);
 		let links: Uint8Array;
 		let flags: Uint8Array;
 		if (m === 'fill') {
-			const dirs = num(q, 'directions');
+			const dirs = Number(q.directions);
 			const r = routeTraces({
 				nx,
 				ny,
 				wrap: ctx.tileable,
 				seed: Math.floor(ctx.seed * 7919) + 1,
-				seeds: Math.round(num(q, 'seeds')),
-				seedLength: Math.round(num(q, 'seed_length')),
-				minLength: Math.round(num(q, 'min_length')),
-				maxLength: Math.round(num(q, 'max_length')),
-				gap: Math.round(num(q, 'gap')),
-				straight: num(q, 'straight'),
+				seeds: Math.round(Number(q.seeds)),
+				seedLength: Math.round(Number(q.seed_length)),
+				minLength: Math.round(Number(q.min_length)),
+				maxLength: Math.round(Number(q.max_length)),
+				gap: Math.round(Number(q.gap)),
+				straight: Number(q.straight),
 				directions: dirs === 4 ? 4 : dirs === 6 ? 6 : 8,
-				hug: num(q, 'hug'),
-				fill: num(q, 'fill'),
-				vias: num(q, 'vias'),
-				pins: num(q, 'pins'),
-				bias: num(q, 'bias'),
-				open: num(q, 'open'),
-				openSize: num(q, 'open_size')
+				hug: Number(q.hug),
+				fill: Number(q.fill),
+				vias: Number(q.vias),
+				pins: Number(q.pins),
+				bias: Number(q.bias),
+				open: Number(q.open),
+				openSize: Number(q.open_size)
 			});
 			links = new Uint8Array(n);
 			for (let i = 0; i < n; i++) if (r.out[i] >= 0) links[i] = 1 << r.out[i];
@@ -91,19 +89,19 @@ const traceNet = memoReads(
 				ny,
 				wrap: ctx.tileable,
 				seed: ctx.seed,
-				density: num(q, 'density'),
-				diagonal: num(q, 'diagonal'),
-				bias: num(q, 'bias'),
-				straight: num(q, 'straight'),
-				grouping: num(q, 'grouping'),
-				block: num(q, 'block'),
-				vias: num(q, 'vias'),
-				branching: num(q, 'branching')
+				density: Number(q.density),
+				diagonal: Number(q.diagonal),
+				bias: Number(q.bias),
+				straight: Number(q.straight),
+				grouping: Number(q.grouping),
+				block: Number(q.block),
+				vias: Number(q.vias),
+				branching: Number(q.branching)
 			}));
 		}
 		const id =
 			m === 'route' || m === 'maze'
-				? dropShort(links, flags, nx, ny, Math.round(num(q, 'min_links')))
+				? dropShort(links, flags, nx, ny, Math.round(Number(q.min_links)))
 				: traceIds(links, nx, ny);
 		spaceVias(links, flags, nx, ny);
 		if (m === 'fill') markCrowdedEnds(links, flags, nx, ny);
@@ -368,8 +366,8 @@ export const tracesLayer: LayerDef = {
 		const n = nx * ny;
 		// Per trace and per end, drawn here rather than per pixel for every node in reach: which traces are wide, and which
 		// ends get their pad (bit for bit the shader's hashI, against the float uniforms it would have compared with).
-		const wide = Math.fround(num(q, 'wide'));
-		const pads = Math.fround(num(q, 'pads'));
+		const wide = Math.fround(Number(q.wide));
+		const pads = Math.fround(Number(q.pads));
 		const data = new Uint8Array(n * 4);
 		for (let i = 0; i < n; i++) {
 			const tid = id[i] & 0xffff;

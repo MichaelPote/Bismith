@@ -9,7 +9,7 @@
 // copied across it, so the texture wraps.
 
 import { parsePolylines } from '@/core/bitmap';
-import { mulberry32 } from '@/core/hash';
+import { seededRng } from '@/core/hash';
 import { POS_RANGE, PrimWriter, binByReach, fitUnit, sizeRange, type PrimTexture } from '../primTexture';
 
 export interface PipeRun {
@@ -100,9 +100,6 @@ function segDist(p: [number, number], a: [number, number], b: [number, number]):
 export function stackHeight(prims: PipePrim[]): number {
 	return prims.reduce((m, p) => Math.max(m, p.depth + (p.kind >= PRIM_COLLAR ? p.outer : p.radius)), 0);
 }
-
-/** The layout's random stream (mulberry32), uniform in [0, 1). */
-export const rng = (seed: number) => mulberry32((Math.floor(seed) >>> 0) ^ 0x9e3779b9);
 
 /** Polylines from a points list ("x,y x,y …", one run per line or "|"); `fraction` scales 0..1 to the texture. */
 export function parseRuns(text: string, fraction: boolean, width: number, height: number): [number, number][][] {
@@ -329,7 +326,7 @@ function densify(
  * (so high run counts stack pipes rather than drop them).
  */
 export function randomRuns(o: PipeOptions, l: RandomLayout): PipeRun[] {
-	const rand = rng(o.seed * 7919 + 13);
+	const rand = seededRng(o.seed * 7919 + 13);
 	const { width: W, height: H } = o;
 	const radius = () => jitterRadius(l.radius, l.variety, rand());
 	// A run spanning the texture: exactly one period from a random start when tiling, else past both edges.
@@ -624,7 +621,7 @@ function reach(p: PipePrim): number {
 
 /** Every primitive, plus copies across the edges when tiling. */
 export function buildPrims(runs: PipeRun[], o: PipeOptions): PipePrim[] {
-	const rand = rng(o.seed * 31 + 7);
+	const rand = seededRng(o.seed * 31 + 7);
 	// A branch shares the liquid surface of the pipes it tees into (the lowest of them: liquid pools there).
 	const levels = runs.map((run) => runLevel(run, o));
 	const shared = runs.map((run, i) =>
