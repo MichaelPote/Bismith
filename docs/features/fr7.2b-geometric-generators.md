@@ -26,8 +26,8 @@ zig-zags, trapezoid panels). All are SDF generators (distance in px, negative in
   - **Frame** — the pixel is rotated by a multiple of 45° (`geo_frame`). Straight frames hold whole periods
     across W×H (or H×W). Diagonal frames repeat over `gcd(W,H)/√2`; period-cell indices are reduced on the
     diagonal torus (`geo_wrapCell`: canonical representative modulo the (A,A)/(−B,B) spans, A = W/g, B = H/g),
-    so per-tile random stays seamless too. (A, B) come from the CPU: every layer with the frame declares the derived
-    uniform `geo_AB` (`GEO_DERIVED`, or merged into its own).
+    so per-tile random stays seamless too. (A, B) come from the CPU: every layer with the frame has the derived
+    uniform `geo_AB` (`geoAB`), next to its period counts (`k`: `geoCount`, whole when tiling).
   - **Polygon tiles** — a mode builds its tile in pattern units (CCW), it is scaled to px (non-uniform stretch
     allowed: distances stay exact because the frame is an isometry), inset by `gap/2 + round` with mitred
     corners, and evaluated with an exact polygon SDF minus `round` → convex corners rounded, concave corners

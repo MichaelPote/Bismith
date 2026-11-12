@@ -6,6 +6,7 @@ import { MAX_PATH_POINTS, parsePolygons, parsePolylines, takePolygons } from '@/
 import { memoReads } from '@/core/memo';
 import { P, type ParamValues } from '@/core/params';
 import { GLSL_PRIMTEX, floatTexture } from '../primTexture';
+import { TAPER_GLSL, taperParams } from './shapes';
 import type { CpuTexture, LayerCanvas, LayerDef } from '../types';
 
 type V2 = [number, number];
@@ -467,15 +468,6 @@ const POLYLINE_GLSL = /* glsl */ `
 #define PLN_BROW ${MAX_PATH_POINTS + PLN_LINES}
 float pln_f(int x, int y) { return texF32(t_line, ivec2(x, y)); }
 
-// Width factor at x along a line of length L (0 = its start … 1 = its end) for the taper: s = 0 where the taper
-// starts … 1 at the tip, shaped by Taper shape.
-float pln_taper(float x, float L) {
-  float l = u_taper_px > 0.0 ? min(u_taper_px / max(L, 1e-3), u_taper_at == 2 ? 0.5 : 1.0) * (u_taper_at == 2 ? 2.0 : 1.0) : max(u_taper_len, 1e-3);
-  float s = clamp(u_taper_at == 1 ? (l - x) / l : u_taper_at == 2 ? max(0.5 * l - x, x - 1.0 + 0.5 * l) / (0.5 * l) : (x - 1.0 + l) / l, 0.0, 1.0);
-  float f = u_taper_curve == 1 ? s * s * (3.0 - 2.0 * s) : u_taper_curve == 2 ? 1.0 - sqrt(max(1.0 - s * s, 0.0)) : s;
-  return 1.0 - u_taper * f;
-}
-
 // Per line, over every copy (torus) evaluated: the distance to it (less half the width) and its nearest dash's index.
 float pln_best[PLN_LINES];
 float pln_bdash[PLN_LINES];
@@ -556,7 +548,7 @@ void lineSdf(vec2 q, vec2 k, float hw) {
         }
       }
       float lineLen = pln_f(0, PLN_LROW + li);
-      float hwk = u_taper > 0.0 ? hw * pln_taper(sl / max(lineLen, 1e-6), lineLen) : hw;
+      float hwk = u_taper > 0.0 ? hw * taperAt(sl / max(lineLen, 1e-6), lineLen, u_taper).x : hw;
       float dd;
       float ddS = 1e20;
       float dash = 0.0;
@@ -780,44 +772,7 @@ export const polylineLayer: LayerDef = {
 			step: 0.1,
 			hint: 'Bends the line round each corner, like cable and pipe runs. Sets the radius of the inner edge; the centre line bends on this plus half the width, using at most half of either segment (0 = sharp inner corners)'
 		}),
-		P.float('taper', 'Taper', 0, 0, 1, {
-			step: 0.001,
-			hint: 'Narrows each line towards its end or ends (0 = off, 1 = down to a point)'
-		}),
-		P.enum(
-			'taper_at',
-			'Taper to',
-			'end',
-			[
-				['end', 'End'],
-				['start', 'Start'],
-				['both', 'Both ends']
-			],
-			{ showIf: (p) => Number(p.taper) > 0 }
-		),
-		P.float('taper_len', 'Taper length', 1, 0.01, 1, {
-			step: 0.001,
-			showIf: (p) => Number(p.taper) > 0 && !(Number(p.taper_px) > 0),
-			hint: 'Sets how much of each line the taper covers (with both ends, half of it at each). Keep it short for brush strokes that end in a point'
-		}),
-		P.float('taper_px', 'Fixed taper length', 0, 0, 4096, {
-			softMax: 512,
-			unit: 'px',
-			step: 0.5,
-			showIf: (p) => Number(p.taper) > 0,
-			hint: "Sets the taper's length in px at each tapered end, so long and short lines get the same tips (0 = use Taper length instead)"
-		}),
-		P.enum(
-			'taper_curve',
-			'Taper shape',
-			'linear',
-			[
-				['linear', 'Straight', 'narrows evenly into a spike'],
-				['smooth', 'Smooth', 'eases in and out, with no corner where the taper starts'],
-				['round', 'Round', 'stays wide, then rounds off quickly, like a brush or bullet tip']
-			],
-			{ showIf: (p) => Number(p.taper) > 0 }
-		),
+		...taperParams({ at: 'end' }),
 		P.float('dash', 'Dash length', 0, 0, 4096, {
 			softMax: 64,
 			unit: 'px',
@@ -864,7 +819,7 @@ export const polylineLayer: LayerDef = {
 			0.5 * Number(q.width ?? 3)
 		)
 	})),
-	glsl: PATHS_GLSL + POLYLINE_GLSL
+	glsl: PATHS_GLSL + TAPER_GLSL + POLYLINE_GLSL
 };
 
 export const PATH_LAYERS: LayerDef[] = [pathLayer, polylineLayer];

@@ -6,6 +6,7 @@ import { hashD } from '@/core/hash';
 import { memoReads } from '@/core/memo';
 import { P, gradient, round1 as r1, type ParamValues } from '@/core/params';
 import { PX_SCALE_PARAM } from '../commonParams';
+import { TAPER_GLSL, taperParams } from './shapes';
 import { cellsFor, f32, gcd, imod, periodOf, radians } from '../derivedMath';
 import type { LayerCanvas, LayerDef } from '../types';
 import {
@@ -888,17 +889,11 @@ export const scratchesLayer: LayerDef = {
 			section: 'Shape',
 			hint: 'Gives each scratch a random strength (its value), so some are faint and some deep'
 		}),
-		P.float('taper', 'Taper', 0.8, 0, 1, { step: 0.001, section: 'Shape', hint: 'Thins the ends of each scratch' }),
-		P.float('taper_len', 'Taper length', 0.35, 0.02, 1, {
-			step: 0.001,
-			section: 'Shape',
-			showIf: (p) => Number(p.taper) > 0,
-			hint: 'How much of each half narrows (1 = the whole scratch, a spindle widest in the middle; 0.2 = only the last fifth at each end, a gouge)'
-		}),
+		...taperParams({ taper: 0.8, at: 'both', len: 0.35, curve: 'round' }, 'Shape'),
 		P.float('blunt', 'Blunt start', 0.5, 0, 1, {
 			step: 0.001,
 			section: 'Shape',
-			showIf: (p) => Number(p.taper) > 0,
+			showIf: (p) => Number(p.taper) > 0 && p.taper_at !== 'end',
 			hint: 'Tapers less where each scratch starts (the end the Angle points from), for a blunt entry and a sharp exit, like a tool dragged across'
 		}),
 		P.float('bend_bias', 'Bend bias', 0, 0, 1, {
@@ -996,7 +991,9 @@ export const scratchesLayer: LayerDef = {
 		h_mode: 'subtract',
 		h_amount: 0.2
 	},
-	glsl: /* glsl */ `
+	glsl:
+		TAPER_GLSL +
+		/* glsl */ `
 GenOut gen(vec2 p) {
   float lmax = max(u_len_max, u_len_min);
   float pxs = max(u_px_scale, 1.0);   // one texture pixel, in shader px (supersampling)
@@ -1101,12 +1098,9 @@ GenOut gen(vec2 p) {
         }
         float dy = dot(r, nrm) - yc;
         float dist = sqrt((x - xc) * (x - xc) + dy * dy / (1.0 + slope * slope));
-        // Taper over the last Taper length of each half (all of it: a spindle, widest in the middle), less at a blunt start.
-        float u = abs(2.0 * t - 1.0);
-        float tl = max(u_taper_len, 1e-3);
-        float sx = clamp((u - (1.0 - tl)) / tl, 0.0, 1.0);
+        // The taper (taperAt), less at a blunt start.
         float tap = t < 0.5 ? u_taper * (1.0 - u_blunt) : u_taper;
-        float th = thw * mix(1.0, sqrt(max(0.0, 1.0 - sx * sx)), tap);
+        float th = thw * taperAt(t, L, tap).x;
         // Breakup: a noise along the scratch varies its depth and width and opens gaps; the burr is broken by it too.
         // (its waves at least half the scratch long under ~25 px: a short stroke swells once at most, no peanuts)
         float nb = u_breakup > 0.0 || u_burr > 0.0 ? valueNoise1(xc / max(0.15 * len, min(0.5 * len, 12.0 * pxs)) + 13.0 * k4.z, nseed + 1.0) : 1.0;

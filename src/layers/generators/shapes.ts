@@ -150,19 +150,92 @@ bool gShapeNoOutline = false;   // (shapeSdf) Outline doesn't apply to this shap
 // A box's corners anticlockwise (GL y up) from the top-right, as signs of its half size.
 const vec2 SG4[4] = vec2[4](vec2(1.0), vec2(-1.0, 1.0), vec2(-1.0), vec2(1.0, -1.0));
 `;
-// Stroke shapes: how much of the width the taper has taken at t (0 = full width … 1 = the thin end), and its slope.
-// Taper curve c ≥ 1: t^c (wide for longer, rounded sides — leaves); c < 1: 1 − (1 − t)^(1/c) (narrowing early, hollow
-// sides ending in a fine point — needles). c = 1: straight sides.
-const TAPER_GLSL = /* glsl */ `
-vec2 taperShape(float t) {
-  float c = max(u_taper_curve, 0.05);
-  if (c >= 1.0) return vec2(pow(t, c), c * pow(max(t, 1e-3), c - 1.0));
-  float k = 1.0 / c;
-  return vec2(1.0 - pow(1.0 - t, k), k * pow(max(1.0 - t, 1e-3), k - 1.0));
+/** Taper towards (the option index is the shader's u_taper_at). */
+const TAPER_AT: [string, string, string][] = [
+	['end', 'End', 'full width at the start, narrowing to the end (a wedge, a comet, a claw)'],
+	['start', 'Start', 'narrow at the start, widening to full width at the end'],
+	['both', 'Both ends', 'full width in the middle, narrowing to both ends (a spindle, a leaf)']
+];
+/** Taper curve (the option index is the shader's u_taper_curve). */
+const TAPER_CURVES: [string, string, string][] = [
+	['linear', 'Straight', 'narrows evenly into a spike'],
+	['smooth', 'Smooth', 'eases in and out, with no corner where the taper starts'],
+	['round', 'Round', 'stays wide, then rounds off quickly, like a brush or bullet tip'],
+	['leaf', 'Leaf', 'stays wide for longer, then narrows late, with rounded sides (a leaf, a spindle)'],
+	['needle', 'Needle', 'narrows early into a long fine point, with hollow sides (a needle, a thorn)']
+];
+
+/**
+ * The taper of a stroke (Line, Curve, Path / Polyline lines, Scratches): how much, towards which end, over how much of
+ * it and in what curve; TAPER_GLSL draws it. `d` sets each layer's defaults; `section` files them under a heading.
+ */
+export function taperParams(
+	d: { taper?: number; at?: string; len?: number; curve?: string } = {},
+	section?: string
+): ParamDef[] {
+	const tapered = (p: ParamValues) => Number(p.taper) > 0;
+	return [
+		P.float('taper', 'Taper', d.taper ?? 0, 0, 1, {
+			step: 0.001,
+			section,
+			hint: 'Narrows the stroke towards its end or ends (0 = even, 1 = down to a point)'
+		}),
+		P.enum('taper_at', 'Taper towards', d.at ?? 'both', TAPER_AT, { section, showIf: tapered }),
+		P.float('taper_len', 'Taper length', d.len ?? 1, 0.01, 1, {
+			step: 0.001,
+			section,
+			showIf: (p) => tapered(p) && !(Number(p.taper_px) > 0),
+			hint: 'Sets how much of the stroke narrows, from each tapered end (towards both ends: of each half; 1 = all of it, a spindle widest in the middle). Keep it short for strokes that end in a point'
+		}),
+		P.float('taper_px', 'Fixed taper length', 0, 0, 4096, {
+			softMax: 512,
+			unit: 'px',
+			step: 0.5,
+			section,
+			showIf: tapered,
+			hint: "Sets the taper's length in px at each tapered end, so long and short strokes get the same tips (0 = use Taper length instead)"
+		}),
+		P.enum('taper_curve', 'Taper curve', d.curve ?? 'linear', TAPER_CURVES, { section, showIf: tapered }),
+		P.float('taper_k', 'Curve strength', 2, 1, 10, {
+			softMax: 4,
+			step: 0.01,
+			section,
+			showIf: (p) => tapered(p) && (p.taper_curve === 'leaf' || p.taper_curve === 'needle'),
+			hint: 'Sets how long Leaf stays wide and how early Needle narrows (1 = straight sides)'
+		})
+	];
 }
-// Half the stroke's width at taper position t (0 = full width … 1 = the thin end).
-float taperR(float t) { return u_thickness * 0.5 * (1.0 - clamp(u_taper, 0.0, 1.0) * taperShape(t).x); }
-// Length variation: the share of the length an instance keeps.
+
+/**
+ * GLSL of taperParams. taperAt(x, L, amount): at x along a stroke (0 = its start … 1 = its end) L px long, the share
+ * of its width the taper keeps (1 … 1 − amount at a thin end) and how fast that share falls per unit of x (for an SDF's
+ * slope correction). It narrows over Taper length (or Fixed taper length) of the run from full width to each thin end:
+ * the whole stroke, or each half towards both ends. amount: the Taper (a layer may vary it).
+ */
+export const TAPER_GLSL = /* glsl */ `
+vec2 taperAt(float x, float L, float amount) {
+  bool both = u_taper_at == 2;
+  float t = both ? abs(2.0 * x - 1.0) : u_taper_at == 1 ? 1.0 - x : x;   // along the run: 0 full width … 1 the thin end
+  float run = both ? 0.5 * L : L;
+  float l = u_taper_px > 0.0 ? min(u_taper_px / max(run, 1e-3), 1.0) : max(u_taper_len, 1e-3);
+  float s = clamp((t - (1.0 - l)) / l, 0.0, 1.0);
+  // The width the curve keeps at s (1 … 0) and how fast it falls: Straight, Smooth, Round, Leaf 1 − s^k, Needle (1 − s)^k.
+  float k = max(u_taper_k, 1.0);
+  int c = u_taper_curve;
+  vec2 w = c == 1 ? vec2(1.0 - s * s * (3.0 - 2.0 * s), 6.0 * s * (1.0 - s))
+         : c == 2 ? vec2(sqrt(max(0.0, 1.0 - s * s)), s * inversesqrt(max(1.0 - s * s, 1e-6)))
+         : c == 3 ? vec2(1.0 - (s > 0.0 ? pow(s, k) : 0.0), k * pow(max(s, 1e-3), k - 1.0))
+         : c == 4 ? vec2(pow(1.0 - s, k), k * pow(max(1.0 - s, 1e-3), k - 1.0))
+         : vec2(1.0 - s, 1.0);
+  float dsdx = s > 0.0 && s < 1.0 ? (both ? 2.0 : 1.0) / l : 0.0;
+  return vec2(mix(1.0, w.x, amount), amount * w.y * dsdx);
+}
+`;
+
+// Stroke shapes: Length variation, the share of the length an instance keeps.
+const STROKE_GLSL =
+	TAPER_GLSL +
+	/* glsl */ `
 float strokeLenK(float rnd) { return 1.0 - u_len_jitter * fract(rnd * 53.71 + 0.27); }
 `;
 
@@ -916,12 +989,6 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
 `
 });
 
-const TAPER_ENDS: [string, string, string][] = [
-	['both', 'Both ends', 'full width in the middle, narrowing to both ends (a spindle, a leaf)'],
-	['end', 'Towards the end', 'full width at the start, narrowing to the end (a wedge, a comet, a claw)']
-];
-const tapered = (p: ParamValues) => Number(p.taper) > 0;
-
 /** Stroke width, caps and taper of the stroke shapes (Line, Curve). */
 const strokeParams = (): ParamDef[] => [
 	P.float('thickness', 'Stroke width', 2, 0, 2048, { softMax: 256, unit: 'px', step: 0.1 }),
@@ -929,18 +996,7 @@ const strokeParams = (): ParamDef[] => [
 		['round', 'Round', 'a half disc past each end (reaching half the thickness beyond the length)'],
 		['flat', 'Flat', 'cut square at the ends']
 	]),
-	P.float('taper', 'Taper', 0, 0, 1, {
-		step: 0.001,
-		hint: 'Narrows the stroke towards its ends (0 = even, 1 = to a point)'
-	}),
-	P.enum('taper_ends', 'Taper towards', 'both', TAPER_ENDS, { showIf: tapered }),
-	P.float('taper_curve', 'Taper curve', 1, 0.1, 10, {
-		softMin: 0.25,
-		softMax: 4,
-		step: 0.01,
-		showIf: tapered,
-		hint: 'Changes how the width falls off (1 = straight sides; above 1 = stays wide, then narrows late, with rounded sides like a leaf or spindle; below 1 = narrows early into a long fine point, with hollow sides like a needle or thorn)'
-	}),
+	...taperParams(),
 	P.float('len_jitter', 'Length variation', 0, 0, 0.95, {
 		step: 0.001,
 		hint: 'Shortens each repeated instance randomly, by up to this fraction, keeping the thickness (Size variation shrinks both)'
@@ -968,21 +1024,24 @@ export const lineLayer = shape({
 		return { length: Math.round(short(t) * 0.6), thickness: th, bevel: halfPx(th / 2) };
 	},
 	sdfGlsl:
-		TAPER_GLSL +
+		STROKE_GLSL +
 		/* glsl */ `
 float shapeExtent(vec2 cell) { return (u_length + u_thickness) * 0.5; }
 float shapeInradius(vec2 cell) { return u_thickness * 0.5; }
-// An instance's stroke: its length; tapering to both ends or towards the end; half widths r0 where it is full (the
-// middle, for both ends; else the start) and r1 at h along from there, where it ends; the taper (0..1).
-struct LineGeo { float len, h, r0, r1, tp; bool both; };
+// An instance's stroke: its length; tapering to both ends or towards one (sg: -1 the start, mirrored along x); half
+// widths r0 where it is full (the middle, for both ends; else the start) and r1 at h along from there, where it ends;
+// the taper (0..1); curved: not straight sides over the whole run (taperAt draws those sides).
+struct LineGeo { float len, h, r0, r1, tp, sg; bool both, curved; };
 LineGeo lineGeom(float rnd) {
   LineGeo g;
   g.len = u_length * strokeLenK(rnd);
-  g.both = u_taper_ends == 0;
+  g.both = u_taper_at == 2;
+  g.sg = u_taper_at == 1 ? -1.0 : 1.0;
   g.h = g.both ? g.len * 0.5 : g.len;
   g.r0 = u_thickness * 0.5;
   g.tp = clamp(u_taper, 0.0, 1.0);
   g.r1 = g.r0 * (1.0 - g.tp);
+  g.curved = g.tp > 0.0 && (u_taper_curve != 0 || (u_taper_px > 0.0 ? u_taper_px < g.h : u_taper_len < 1.0));
   return g;
 }
 float shapeSdf(vec2 q, float rnd, vec2 cell) {
@@ -990,12 +1049,12 @@ float shapeSdf(vec2 q, float rnd, vec2 cell) {
   LineGeo lg = lineGeom(rnd);
   float len = lg.len, h = lg.h, r0 = lg.r0, r1 = lg.r1, tp = lg.tp;
   bool both = lg.both;
-  vec2 p = vec2(both ? abs(q.x) : q.x + len * 0.5, abs(q.y));
-  if (tp > 0.0 && abs(u_taper_curve - 1.0) > 1e-3 && h > 1e-3) {
-    // A curved taper (taperShape): the distance across, corrected for the slope of the side.
-    vec2 f = taperShape(clamp(p.x / h, 0.0, 1.0));
-    float r = r0 * (1.0 - tp * f.x);
-    float dr = r0 * tp * f.y / h;
+  vec2 p = vec2(both ? abs(q.x) : lg.sg * q.x + len * 0.5, abs(q.y));
+  if (lg.curved && h > 1e-3) {
+    // A curved taper (taperAt): the distance across, corrected for the slope of the side.
+    vec2 f = taperAt(clamp(q.x / len + 0.5, 0.0, 1.0), len, tp);
+    float r = r0 * f.x;
+    float dr = r0 * f.y / len;
     float side = (p.y - r) / sqrt(1.0 + min(dr * dr, 100.0));
     if (u_caps == 0) {
       if (p.x > h) return length(p - vec2(h, 0.0)) - r1;
@@ -1034,18 +1093,18 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   mat2 M = bevelFrame(ax, ay);
   vec2 ps = M * q;
   float d2 = 1e18;
-  if (tp > 0.0 && abs(u_taper_curve - 1.0) > 1e-3) {
+  if (lg.curved) {
     // A curved taper: each side sampled in 32 steps along the length, then the ends' caps (circles of the end widths, as
     // shapeSdf rounds them; or straight across).
     float x0 = -len * 0.5;
-    float rs = both ? r1 : r0;
-    float r = rs;
-    vec2 a1 = M * vec2(x0, r), a2 = M * vec2(x0, -r);
-    for (int i = 1; i <= 32 * UNI_1; i++) {
+    float rs = r0, r = r0;
+    vec2 a1 = vec2(0.0), a2 = vec2(0.0);
+    for (int i = 0; i <= 32 * UNI_1; i++) {
       float x = x0 + len * float(i) / 32.0;
-      r = taperR(clamp(both ? abs(x) / max(h, 1e-3) : (x - x0) / max(len, 1e-3), 0.0, 1.0));
+      r = r0 * taperAt(float(i) / 32.0, len, tp).x;
       vec2 b1 = M * vec2(x, r), b2 = M * vec2(x, -r);
-      d2 = min(d2, min(bevelSeg2(ps, a1, b1), bevelSeg2(ps, a2, b2)));
+      if (i > 0) d2 = min(d2, min(bevelSeg2(ps, a1, b1), bevelSeg2(ps, a2, b2)));
+      else rs = r;
       a1 = b1;
       a2 = b2;
     }
@@ -1062,8 +1121,8 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   float sl = clamp((r0 - r1) / max(h, 1e-4), -1.0, 1.0), cs = sqrt(1.0 - sl * sl);
   int halves = both ? 2 : 1;   // (a ?: in a loop's condition makes ANGLE rewrite the loop)
   for (int k = 0; k < halves; k++) {
-    vec2 dir = vec2(k == 0 ? 1.0 : -1.0, 0.0);
-    vec2 A = both ? vec2(0.0) : vec2(-len * 0.5, 0.0), B = A + dir * h;
+    vec2 dir = vec2(k == 0 ? lg.sg : -1.0, 0.0);
+    vec2 A = both ? vec2(0.0) : vec2(-lg.sg * len * 0.5, 0.0), B = A + dir * h;
     vec2 nrm = vec2(0.0, 1.0);
     vec2 u1 = u_caps == 0 ? sl * dir + cs * nrm : nrm, u2 = u_caps == 0 ? sl * dir - cs * nrm : -nrm;
     vec2 a1 = A + r0 * u1, a2 = A + r0 * u2, b1 = B + r1 * u1, b2 = B + r1 * u2;
@@ -1142,7 +1201,7 @@ export const curveLayer = shape({
 		};
 	},
 	sdfGlsl:
-		TAPER_GLSL +
+		STROKE_GLSL +
 		/* glsl */ `
 // The circle through (±L/2, 0) and (0, sag), sag > 0: its radius and the half angle of the arc (from the top).
 vec2 arcGeom(float L, float sag) {
@@ -1177,8 +1236,8 @@ float shapeExtent(vec2 cell) {
   return e + length(curvePivot(L, bend)) + u_thickness * 0.5;
 }
 float shapeInradius(vec2 cell) { return u_thickness * 0.5; }
-// Half the width at curve parameter t: narrowing from the middle to both ends, or from the start to the end.
-float curveR(float t) { return taperR(u_taper_ends == 0 ? abs(2.0 * t - 1.0) : t); }
+// Half the width at curve parameter t (0 = its start … 1 = its end) of a curve L px across.
+float curveR(float t, float L) { return u_thickness * 0.5 * taperAt(t, L, clamp(u_taper, 0.0, 1.0)).x; }
 float shapeSdf(vec2 q, float rnd, vec2 cell) {
   float f = strokeLenK(rnd);
   float L = u_length * f, bend = u_bend * f;
@@ -1204,14 +1263,14 @@ float shapeSdf(vec2 q, float rnd, vec2 cell) {
     tA = normalize(ta);
     tC = normalize(tc);
   }
-  float d = dt.x - curveR(dt.y);
+  float d = dt.x - curveR(dt.y, L);
   if (u_caps == 0) return d;
   // Flat caps, square to the curve at each end: past an end (the closest point is the end itself) the distance to the
   // cap; elsewhere the stroke, cut by the cap's line near its end.
   bool atEnd = dt.y >= 0.5;
   vec2 E = atEnd ? C : A;
   vec2 tg = atEnd ? tC : tA;
-  float rE = curveR(atEnd ? 1.0 : 0.0);
+  float rE = curveR(atEnd ? 1.0 : 0.0, L);
   float along = dot(q - E, tg);
   float across = abs(dot(q - E, vec2(-tg.y, tg.x))) - rE;
   if (dt.y <= 0.0 || dt.y >= 1.0) return length(max(vec2(along, across), 0.0)) + min(max(along, across), 0.0);
@@ -1244,7 +1303,7 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   vec2 g = arc ? arcGeom(L, abs(bend)) : vec2(0.0);
   vec2 t0;
   vec2 P0 = curveAt(0.0, L, bend, arc, g, t0);
-  float r = curveR(0.0), rs = r;
+  float r = curveR(0.0, L), rs = r;
   vec2 n0 = vec2(-t0.y, t0.x);
   vec2 l = M * (P0 + r * n0), rt = M * (P0 - r * n0), ls = l, rts = rt;
   float d2 = 1e18;
@@ -1252,7 +1311,7 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
   for (int i = 1; i <= 32 * UNI_1; i++) {
     float t = float(i) / 32.0;
     P1 = curveAt(t, L, bend, arc, g, t1);
-    r = curveR(t);
+    r = curveR(t, L);
     vec2 n1 = vec2(-t1.y, t1.x);
     vec2 l1 = M * (P1 + r * n1), r1 = M * (P1 - r * n1);
     d2 = min(d2, min(bevelSeg2(ps, l, l1), bevelSeg2(ps, rt, r1)));
