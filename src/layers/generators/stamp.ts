@@ -8,7 +8,7 @@
 // colour ramp paints multi-tone bitmaps; repeats can carry their own random instead.
 
 import { FONT, parseBitmap } from '@/core/bitmap';
-import { Lru } from '@/core/memo';
+import { Lru, memoReads } from '@/core/memo';
 import { P, type ParamDef, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
 import { getImage } from '@/core/images';
@@ -1630,6 +1630,18 @@ function imageTextures(q: ParamValues): Record<string, CpuTexture> {
 	return { ...t, img: img ? { width: img.width, height: img.height, data: img.data } : NO_IMAGE };
 }
 
+/**
+ * The typed pixels' textures, remembered by the params they read (a colour or Height slider doesn't rebuild them). An
+ * image's (imageTextures) aren't: the image may still be loading.
+ */
+const pixelTextures = memoReads(
+	(q: ParamValues): Record<string, CpuTexture> => ({
+		...layerTextures(mirrorCells(parseCells(String(q.pixels ?? '')), q.mirror), q, { levels: true }),
+		img: NO_IMAGE
+	}),
+	4
+);
+
 export const stampLayer: LayerDef = {
 	type: 'stamp',
 	label: 'Stamp',
@@ -1732,13 +1744,7 @@ export const stampLayer: LayerDef = {
 	paramPatch: { bevel: { note: (p) => wideBevelNote(p) } },
 	fresh: (t) => freshStamp(t, 22),
 	textures: ['stamp', 'lv', 'img'],
-	cpuData: (q) =>
-		fromImage(q)
-			? imageTextures(q)
-			: {
-					...layerTextures(mirrorCells(parseCells(String(q.pixels ?? '')), q.mirror), q, { levels: true }),
-					img: NO_IMAGE
-				},
+	cpuData: (q) => (fromImage(q) ? imageTextures(q) : pixelTextures(q)),
 	glsl: 'const bool u_bev_lim = false;\n#define STAMP_IMAGE\n#define STAMP_LEVELS\n' + STAMP_GLSL
 };
 
@@ -1810,7 +1816,8 @@ const labelLayer: LayerDef = {
 		return { ...f, ...(small ? { font: 'small', line_gap: 1 } : {}), ...(big ? {} : { smooth: 0, join: false }) };
 	},
 	textures: ['stamp'],
-	cpuData: (q) => {
+	// (Remembered by the params it reads, as Stamp's typed pixels.)
+	cpuData: memoReads((q: ParamValues) => {
 		// Join diagonals and Smooth outline ≥ 1: drawn as strokes. With Join diagonals, bold is applied after the join
 		// (only the advance is widened here).
 		const strokes = Boolean(q.join) && Number(q.smooth ?? 0) >= 1;
@@ -1824,7 +1831,7 @@ const labelLayer: LayerDef = {
 			strokeGlyphs: strokes
 		});
 		return layerTextures(c, q, { strokes, boldLate: Boolean(q.join) });
-	},
+	}, 4),
 	// Lettering is all one level: no level edges (STAMP_LEVELS).
 	glsl: STAMP_GLSL
 };
