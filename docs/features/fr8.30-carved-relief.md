@@ -1,7 +1,7 @@
 # FR8.30 — Carved relief: Panelling, Strapwork, Carving
 
-**Status:** in progress — Area, the grid gizmo and a first Panelling are built (checklist below); Strapwork and
-Carving are planned.
+**Status:** built — Area, the grid gizmo, Panelling, Strapwork and Carving (checklist below), each through three critic
+rounds; the open flaws are in the private hand-over.
 
 ## Goal
 
@@ -325,9 +325,27 @@ with them), and optionally a Wood layer on Multiply for the grain. One preset pe
       console capitals, default moulding legibility, leaf cleanup, a field-edge moulding) in the private critic folder.
 - [ ] Panelling, later: shared toolkit split out once Strapwork needs it; gensheet critic rounds and recreations P1–P8;
       carved ornament stays with Stamp / Glyph / Rosette over the Bosses output.
-- [ ] **Carving**: six layouts, bodies, seven motifs, per-kind settings, variation; recreations O1–O8.
-- [ ] **Strapwork**: tiling tables (shared with Tiles), arrangement + faces + parity on the CPU with tests, bucketed
-      data texture, straps, interlace, fields, outputs; recreations G1–G9.
+- [x] **Strapwork** (`strapwork.ts`; network in `strapNet.ts`, tested in `tests/layers/generators/strapNet.test.ts`):
+      seven tilings (squares, hexagons, triangles, octagons and squares, hexagons and triangles, dodecagons and
+      triangles, rhombille; square ones can turn 45°, _Diagonal_), built as their own CPU tables rather than shared
+      with Tiles (whose tables are shader-packed); lines from the tiling's edges, Hankin stars (_Star angle_, _Star
+      offset_ — negative starts the rays crossed —, _Rays through_ to the tile border) or rounded rings, or edges with
+      stars / rings (_Edge weight_ draws the frame heavier). Collinear pieces merge into lines, lines split at their
+      crossings; the weave is decided exactly by a checkerboard parity (a path to a fixed point), the period doubled
+      when one period can't carry it; tile edges crossing each other join, and points where more than two lines pass
+      through join. Fields come from a raster of one period: kinds by size and orientation, inradius. On the GPU:
+      pieces, a bucket grid, the field raster and a region table as data textures. Straps: flat / round / ridge /
+      hollow / stepped / moulded, 1–3 lines, under dip and gap; fields flat / pyramid / dome / dish with a flat top,
+      levels per kind, field variation, fills (slats turned per kind with jitter, terraced insets, diaper),
+      band-limited. Outputs: relief, straps, fields, field kinds. 0.3 s cold compile.
+- [x] **Carving** (`carving.ts`): layouts scales (round or pointed, rows lying over the ones below), ogee, wave bands
+      (per-wave variation), overlapping circles, diamonds, squares, discs (staggered or square); bodies flat /
+      pillowed / domed / tilted / chamfered, an outline groove or rib; motifs following the outline (with a line count),
+      parallel, fan (curl and S-bend), leaf, spiral, crescents, petals, following the free edge — grooves as isolines with
+      analytic gradients, band-limited, optionally reeded; a second kind of cell (gaps, lenses) with its own motif and
+      level; turned cells. 0.35 s cold compile.
+- [x] **Critic run**: three rounds each against the geometric (G1–G9) and organic (O1–O8) references; hand-over in the
+      private critic folder.
 - [ ] Each generator: tiling 2×2 at 45° frames and odd sizes, supersampling (px units), cold compile on the Windows
       backend (target < 2 s), gensheet + critic rounds (`docs/gensheet.md`, `docs/generator-critic.md`), presets,
       docs (this file's layer reference, architecture.md's generator list and feature index).

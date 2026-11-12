@@ -6,8 +6,18 @@ import { tilesLayer } from './geometricTiles';
 import { treadplateLayer, weaveLayer } from './geometricSurface';
 import { bandsLayer } from './geometricBands';
 import { panellingLayer } from './panelling';
+import { strapworkLayer } from './strapwork';
+import { carvingLayer } from './carving';
 
-export { tilesLayer, treadplateLayer, weaveLayer, bandsLayer, panellingLayer };
+export { tilesLayer, treadplateLayer, weaveLayer, bandsLayer, panellingLayer, strapworkLayer, carvingLayer };
 
 /** Geometric pattern layers, in add-menu order. */
-export const GEOMETRIC_LAYERS: LayerDef[] = [tilesLayer, treadplateLayer, weaveLayer, bandsLayer, panellingLayer];
+export const GEOMETRIC_LAYERS: LayerDef[] = [
+	tilesLayer,
+	treadplateLayer,
+	weaveLayer,
+	bandsLayer,
+	panellingLayer,
+	strapworkLayer,
+	carvingLayer
+];
