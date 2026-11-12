@@ -189,6 +189,12 @@ const STAR_MODES: [string, string][] = [
 const has = (key: string) => (p: Record<string, unknown>) => Number(p[key]) > 0;
 /** A star needs two points: 0 and 1 draw none. */
 const hasStar = (p: Record<string, unknown>) => Number(p.star) > 1;
+/** A sculpted-height slider: shown for the Shape output's sculpted relief, when its element is there. */
+const sculpted = (when: (p: Record<string, unknown>) => boolean) => (p: Record<string, unknown>) =>
+	p.relief === 'sculpted' && p.output === 'shape' && when(p);
+const heightHint = (what: string) =>
+	`Sets how high ${what} in the sculpted relief, against the other elements (e.g. a raised rim over a lower star, with beads below both)`;
+const isStrokes = (p: Record<string, unknown>) => p.style === 'strokes';
 
 /**
  * Rosette's linked bevel: half its narrowest line (rings, spokes, star lines, bead rings, petal outlines), so every
@@ -281,7 +287,7 @@ export const rosetteLayer: LayerDef = {
 		}),
 		P.float('hub_h', 'Hub height', 0.9, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && Number(p.hub) > 0,
+			showIf: sculpted((p) => Number(p.hub) > 0),
 			hint: 'Sets how high the hub stands in the sculpted relief (a domed boss)'
 		}),
 		P.int('rings', 'Rings', 2, 0, 32, { softMax: 8, group: 'rings' }),
@@ -301,8 +307,8 @@ export const rosetteLayer: LayerDef = {
 		P.float('ring_h', 'Ring height', 1, 0, 1, {
 			step: 0.001,
 			group: 'rings',
-			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('rings')(p),
-			hint: 'Sets how high the rings stand in the sculpted relief, against the other elements (e.g. a raised rim over a lower star, with beads below both)'
+			showIf: sculpted(has('rings')),
+			hint: heightHint('the rings stand')
 		}),
 		P.float('ring_w_in', 'Innermost ring width', 1, 0, 8, {
 			softMax: 3,
@@ -342,8 +348,8 @@ export const rosetteLayer: LayerDef = {
 		P.float('spoke_h', 'Spoke height', 0.55, 0, 1, {
 			step: 0.001,
 			group: 'spokes',
-			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('spokes')(p),
-			hint: 'Sets how high the spokes stand in the sculpted relief, against the other elements (e.g. a raised rim over a lower star, with beads below both)'
+			showIf: sculpted(has('spokes')),
+			hint: heightHint('the spokes stand')
 		}),
 		P.float('spoke_alt', 'Spoke alternation', 0, 0, 1, {
 			step: 0.001,
@@ -373,8 +379,8 @@ export const rosetteLayer: LayerDef = {
 		P.float('star_h', 'Star height', 0.65, 0, 1, {
 			step: 0.001,
 			group: 'star',
-			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && hasStar(p),
-			hint: 'Sets how high the star stands in the sculpted relief, against the other elements (e.g. a raised rim over a lower star, with beads below both)'
+			showIf: sculpted(hasStar),
+			hint: heightHint('the star stands')
 		}),
 		P.float('star_inner', 'Star inner radius', 0.45, 0.02, 1, {
 			step: 0.001,
@@ -440,8 +446,8 @@ export const rosetteLayer: LayerDef = {
 		P.float('petal_h', 'Petal height', 0.8, 0, 1, {
 			step: 0.001,
 			group: 'petals',
-			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('petals')(p),
-			hint: 'Sets how high the petals stand in the sculpted relief, against the other elements (e.g. a raised rim over a lower star, with beads below both)'
+			showIf: sculpted(has('petals')),
+			hint: heightHint('the petals stand')
 		}),
 		P.int('dots', 'Beads', 24, 0, 128, {
 			softMax: 48,
@@ -479,8 +485,8 @@ export const rosetteLayer: LayerDef = {
 		P.float('dot_h', 'Bead height', 0.8, 0, 1, {
 			step: 0.001,
 			group: 'dots',
-			showIf: (p) => p.relief === 'sculpted' && p.output === 'shape' && has('dots')(p),
-			hint: 'Sets how high the beads stand in the sculpted relief, against the other elements (e.g. a raised rim over a lower star, with beads below both)'
+			showIf: sculpted(has('dots')),
+			hint: heightHint('the beads stand')
 		}),
 		...REPEAT
 	],
@@ -849,23 +855,23 @@ export const glyphLayer: LayerDef = {
 		}),
 		P.float('jitter', 'Node jitter', 0, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'Moves each node randomly off the grid, up to half a node spacing at 1. Strokes that share a node still meet there'
 		}),
 		P.float('width', 'Stroke width', 2, 0, 256, {
 			softMax: 48,
 			unit: 'px',
 			step: 0.1,
-			showIf: (p) => p.style === 'strokes'
+			showIf: isStrokes
 		}),
 		P.float('width_var', 'Width variation', 0, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'Gives each stroke a random width, for bold main strokes and fine secondary ones (0 = all the same, 1 = anywhere from a tenth to full)'
 		}),
 		P.float('pen', 'Calligraphy', 0, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'Draws like a broad-nib pen: strokes along the nib thin out, strokes across it stay full width (1 = hairlines along the nib)'
 		}),
 		P.float('pen_angle', 'Nib angle', 30, -180, 180, {
@@ -873,12 +879,12 @@ export const glyphLayer: LayerDef = {
 			softMax: 90,
 			unit: '°',
 			step: 0.1,
-			showIf: (p) => p.style === 'strokes' && (Number(p.pen) > 0 || p.cap === 'pen'),
+			showIf: (p) => isStrokes(p) && (Number(p.pen) > 0 || p.cap === 'pen'),
 			hint: 'Turns the pen’s thin stroke, anticlockwise from horizontal (it stays the same on both sides of a mirror, as a real pen would draw it)'
 		}),
 		P.float('taper', 'Taper', 0, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'Thins each stroke towards its ends, keeping full width in the middle (0 = even, 1 = pointed tips)'
 		}),
 		P.enum(
@@ -896,7 +902,7 @@ export const glyphLayer: LayerDef = {
 				]
 			],
 			{
-				showIf: (p) => p.style === 'strokes',
+				showIf: isStrokes,
 				hint: 'Shapes the free stroke ends. Ends where strokes meet (or meet their mirror image) follow Joins'
 			}
 		),
@@ -913,36 +919,36 @@ export const glyphLayer: LayerDef = {
 				]
 			],
 			{
-				showIf: (p) => p.style === 'strokes' && p.line !== 'spline' && p.cap !== 'pen',
+				showIf: (p) => isStrokes(p) && p.line !== 'spline' && p.cap !== 'pen',
 				hint: 'Shapes the corners where segments meet at a node'
 			}
 		),
 		P.int('strokes', 'Strokes', 4, 1, 8, {
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'How many random strokes make up each glyph'
 		}),
 		P.int('steps', 'Steps', 3, 1, 8, {
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'How many segments each stroke has'
 		}),
 		P.float('diag', 'Diagonals', 0.4, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'Makes more of the turns go diagonal (0 = none at all: a boxed-in stroke stops rather than step diagonally)'
 		}),
 		P.float('straight', 'Straightness', 0.35, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'Makes the strokes keep going straight more often instead of turning'
 		}),
 		P.float('overlap', 'Overlaps', 0.3, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'Lets more steps land on a node that’s already drawn (by any stroke, or a mirror image). At 0 strokes never run back into the glyph, and stop early when boxed in. Splines never run back along a drawn line or turn back sharply'
 		}),
 		P.float('connect', 'Connected', 0.85, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'Starts more strokes on a node that’s already drawn, so the glyph hangs together instead of falling apart into separate marks (1 = one connected figure). Above 0 the first stroke starts at the centre node, which joins the halves with Mirror X and an odd column count'
 		}),
 		P.enum(
@@ -954,38 +960,38 @@ export const glyphLayer: LayerDef = {
 				['spline', 'Splines (hand-drawn)']
 			],
 			{
-				showIf: (p) => p.style === 'strokes',
+				showIf: isStrokes,
 				hint: 'Picks straight segments, or Splines, which draw each stroke as one smooth curve through its nodes'
 			}
 		),
 		P.float('curve', 'Curves', 0, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes' && p.line !== 'spline',
+			showIf: (p) => isStrokes(p) && p.line !== 'spline',
 			hint: 'Bows more of the segments into arcs (0 = all straight)'
 		}),
 		P.float('roundness', 'Roundness', 1, 0, 2, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes' && p.line === 'spline',
+			showIf: (p) => isStrokes(p) && p.line === 'spline',
 			hint: 'How far the splines swing through the nodes (0 = straight, 1 = natural, 2 = loopy)'
 		}),
 		P.float('dots', 'End dots', 0, 0, 256, {
 			softMax: 32,
 			unit: 'px',
 			step: 0.1,
-			showIf: (p) => p.style === 'strokes',
+			showIf: isStrokes,
 			hint: 'Puts a dot of this radius at each stroke end (0 = none)'
 		}),
 		P.float('dot_chance', 'Dot chance', 1, 0, 1, {
 			step: 0.001,
-			showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0,
+			showIf: (p) => isStrokes(p) && Number(p.dots) > 0,
 			hint: 'Gives only some stroke ends a dot or ring, leaving the rest plain (1 = all of them)'
 		}),
 		P.bool('dot_joins', 'Dots at joins', false, {
-			showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0,
+			showIf: (p) => isStrokes(p) && Number(p.dots) > 0,
 			hint: 'Also puts dots on stroke ends that meet another stroke (or their mirror image). Off: only free ends get them'
 		}),
 		P.bool('dot_ring', 'Ring dots', false, {
-			showIf: (p) => p.style === 'strokes' && Number(p.dots) > 0,
+			showIf: (p) => isStrokes(p) && Number(p.dots) > 0,
 			hint: 'Draws the end dots as open rings that the strokes stop at, sigil style. The ring line is the stroke width, thinned to half the radius on small dots'
 		}),
 		P.float('density', 'Fill', 0.5, 0, 1, {

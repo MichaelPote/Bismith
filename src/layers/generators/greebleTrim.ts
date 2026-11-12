@@ -108,11 +108,11 @@ export function trimFresh({ width, height }: { width: number; height: number }):
 // holes and seams (chip their edges, dirt in the cuts); Rivets / slots, a band or the dividers let one layer's colour or
 // roughness land on just those.
 const TRIM_PARTS = maskParts('mask_shape', 'strip', [
-	['strip', 'Strip material', 'the strips without their holes and seams'],
-	['blocks', 'Blocks'],
+	['blocks', 'Blocks between dividers'],
 	['dividers', 'Dividers'],
 	['elements', 'Rivets / slots'],
-	['band', 'One band']
+	['band', 'One band'],
+	['strip', 'Strip material', 'the strips without their holes and seams']
 ]);
 
 export const trimLayer: LayerDef = {
@@ -123,28 +123,15 @@ export const trimLayer: LayerDef = {
 	area: true,
 	sdf: true,
 	// The relief writes its shape to the mask only when it is given one (mask_shape); the shape outputs always do.
-	maskWrite: (p) => (p.output !== 'relief' || p.mask_shape !== 'none' ? 'shape' : false),
+	maskWrite: TRIM_PARTS.write,
 	// What of the relief goes to a mask (Write to › Source).
 	maskSources: TRIM_PARTS.sources,
 	description:
 		'Moulding / trim strip: Made from stacked profiled bands (bead, cove, ogee, groove, step…) with optional dividers and a row of rivets, bolts, screws, slots or holes. Makes trim textures, trim sheets and trim bands across walls.',
 	params: [
-		P.enum(
-			'output',
-			'Output',
-			'relief',
-			[
-				['relief', 'Relief (all, value)'],
-				['blocks', 'Blocks between dividers (shape)'],
-				['dividers', 'Dividers (shape)'],
-				['elements', 'Rivets / slots (shape)'],
-				['band', 'One band (shape)'],
-				['strip', 'Strip material (shape)']
-			],
-			{
-				hint: 'Relief combines the bands, dividers and elements into one height value. The shape outputs give you one kind of element as a shape. Strip material is the strips without their holes and seams'
-			}
-		),
+		P.enum('output', 'Output', 'relief', TRIM_PARTS.outputs('Relief (all, value)'), {
+			hint: 'Relief combines the bands, dividers and elements into one height value. The shape outputs give you one kind of element as a shape. Strip material is the strips without their holes and seams'
+		}),
 		TRIM_PARTS.param,
 
 		P.enum('orient', 'Direction', 'horizontal', ORIENT),
@@ -959,9 +946,11 @@ GenOut gen(vec2 p) {
   if (ek >= 3 && ek <= 6) dMat = max(dMat, -E.dE);
   dMat = max(dMat, -E.dMiss);
 
+  // The part's shape, for the shape output or the relief's mask (TRIM_PARTS: the same numbers).
+  int sel = u_output > 0 ? u_output : u_mask_shape;
+  float dm = sel == 1 ? D.dBlk : sel == 2 ? D.dDiv : sel == 3 ? E.dE : sel == 4 ? dBand : dMat;
   if (u_output == 0) {
     int m = u_mask_shape;
-    float dm = m == 1 ? dMat : m == 2 ? D.dBlk : m == 3 ? D.dDiv : m == 4 ? E.dE : dBand;
     float cov = grb_cov(dStrip);
     v = clamp(v, 0.0, 1.0);
     GenOut g;   // (no ternary on structs in WebGL)
@@ -972,8 +961,7 @@ GenOut gen(vec2 p) {
     if (nd > 0 && !u_div_return) g.feat *= clamp(1.0 + min(a - B.fLo, B.fHi - a) / max(2.0, 0.15 * (B.fHi - B.fLo)), 0.0, 1.0);
     return g;
   }
-  GenOut g = genOut(0.0, 1.0, u_output == 3 ? E.rnd : D.rnd,
-                    u_output == 1 ? D.dBlk : u_output == 2 ? D.dDiv : u_output == 3 ? E.dE : u_output == 4 ? dBand : dMat);
+  GenOut g = genOut(0.0, 1.0, u_output == 3 ? E.rnd : D.rnd, dm);
   if (bevelAspectOn()) g.bdist = trm_bdist(vert, s, dStrip, nd, ek, r, es, D, E, B, yA, yE, dBand);
   return g;
 }

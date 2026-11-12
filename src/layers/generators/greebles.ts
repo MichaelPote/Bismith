@@ -23,15 +23,10 @@ const hasLight = (p: Record<string, unknown>) => hasKinds(p) && Boolean(p.det_li
 const hasShapes = (p: Record<string, unknown>) => Number(p.shape_chance) > 0;
 const hasJogs = (p: Record<string, unknown>) => Number(p.jog) > 0;
 const hasChan = (p: Record<string, unknown>) => Number(p.chan_chance) > 0 || Number(p.routes) > 0;
-const isRelief = (p: Record<string, unknown>) => (p.output ?? 'relief') === 'relief';
 
 // What of the relief goes to a mask (Write to › Source): the parts its shader can hand over, Plate tops by default.
+// Plate tops (the default, sources list it first) is a mask part only: it goes last, after the ones Output offers.
 const PARTS = maskParts('mask', 'plates', [
-	[
-		'plates',
-		'Plate tops',
-		'the panels without anything sunk into them: slots, holes, recesses, light housings, groove lines and recessed centres'
-	],
 	['panels', 'Panels', 'the whole panels, with only the seams left out'],
 	['seams', 'Seams', 'the gaps between the panels'],
 	['frames', 'Inset frames', 'the frame lines, or the raised / recessed centres'],
@@ -39,7 +34,12 @@ const PARTS = maskParts('mask', 'plates', [
 	['details', 'Details', 'vent slots, holes, recesses and light housings'],
 	['lights', 'Lights', 'the lenses and pilot lamps'],
 	['pipes', 'Pipes', 'the tubes and hoses, their collars and bosses'],
-	['hardware', 'Hardware', 'switches, sockets, sliders, keypads and fans']
+	['hardware', 'Hardware', 'switches, sockets, sliders, keypads and fans'],
+	[
+		'plates',
+		'Plate tops',
+		'the panels without anything sunk into them: slots, holes, recesses, light housings, groove lines and recessed centres'
+	]
 ]);
 const hasStep = (p: Record<string, unknown>) =>
 	hasFrame(p) && ['recess', 'raise', 'mixed'].includes(String(p.frame_style));
@@ -47,26 +47,53 @@ const hasLine = (p: Record<string, unknown>) =>
 	hasFrame(p) && ['groove', 'ridge', 'mixed'].includes(String(p.frame_style));
 
 /**
- * The detail kinds' toggles by their GLSL kind: bit k of the shader's grb_kinds() (5, a small part's bolt, has none).
- * The kind-pick tables (GRB_KORDER) and masks (GRB_K_*) in the GLSL index the same kinds.
+ * The detail kinds' toggles, in the Details card's order: key, label, GLSL kind (bit k of the shader's grb_kinds(); 5, a
+ * small part's bolt, has no toggle) and hint. The kind-pick tables (GRB_KORDER) and masks (GRB_K_*) in the GLSL index
+ * the same kinds.
  */
-const DETAIL_KEYS = [
-	'det_vents',
-	'det_light',
-	'det_recess',
-	'det_holes',
-	'det_ribs',
-	'',
-	'det_pipes',
-	'det_switch',
-	'det_socket',
-	'det_slider',
-	'det_keypad',
-	'det_fan',
-	'det_mesh',
-	'det_circuit',
-	'det_fins'
+const DETAILS: [key: string, label: string, kind: number, hint?: string][] = [
+	['det_vents', 'Vent slots', 0],
+	['det_light', 'Lights', 1],
+	['det_recess', 'Recesses', 2],
+	['det_holes', 'Perforation', 3, 'Adds a grid of round holes (Slot pitch apart, Slot width across)'],
+	[
+		'det_ribs',
+		'Ribs',
+		4,
+		'Adds rounded bars standing up from the plate, Slot pitch apart and Slot width wide (raised by 0.8 × Inset depth)'
+	],
+	['det_switch', 'Switches', 7, 'Adds a row of toggle switches (hex nut, lever) or rocker switches'],
+	[
+		'det_socket',
+		'Plug sockets',
+		8,
+		'Adds a D-shell (rounded corners, like a VGA or serial port) or round connector: a raised rim, a sunk face, and pins on a raised insert or in a deeper well'
+	],
+	['det_slider', 'Sliders', 9, 'Adds a slot with tick marks and a ridged knob (on long areas)'],
+	['det_keypad', 'Keypads', 10, 'Adds rounded keys, three across, in a sunk bezel'],
+	[
+		'det_fan',
+		'Fans',
+		11,
+		'Adds curved blades around a domed hub in a sunk round housing (on squarish areas; also a hero part)'
+	],
+	['det_mesh', 'Mesh grilles', 12, 'Adds a sunk panel behind a fine wire grid (half the Slot pitch)'],
+	['det_circuit', 'Circuit pockets', 13, 'Adds a deep dark pocket with chips of a few sizes and their pins'],
+	[
+		'det_fins',
+		'Heatsink fins',
+		14,
+		'Adds bars across the area (Slot width thick, Slot pitch apart), like a comb; also used in edge strips'
+	],
+	[
+		'det_pipes',
+		'Pipes & handles',
+		6,
+		'Adds a pipe run (a bundle of parallel tubes turning through round elbows) or a grab handle, standing on the plate (raised by Inset depth) between two flange plates'
+	]
 ];
+/** The toggles by GLSL kind ('' for 5). */
+const DETAIL_KEYS = Array.from({ length: 15 }, (_, k) => DETAILS.find((d) => d[2] === k)?.[0] ?? '');
 /** The hardware kinds (7–11). */
 const HW_KEYS = DETAIL_KEYS.slice(7, 12);
 /** The kinds a hero part may be. */
@@ -124,29 +151,13 @@ export const greeblesLayer: LayerDef = {
 	parts:
 		'each part gets its own level: steel plates, pipes and bolts are metal, switches and sockets plastic, grommets rubber; for Emissive only the lights glow',
 	// The relief writes its shape to the mask unless Shape for the mask is None; the shape outputs always do.
-	maskWrite: (p) => (!isRelief(p) || (p.mask ?? 'plates') !== 'none' ? 'shape' : false),
+	maskWrite: PARTS.write,
 	description:
 		'Machine greebles: Made from panels split again and again into smaller plates, with seams that can step at 45°, bordered or edge-stripped pieces, and rivets, vents, lights, recesses, pipes and hardware on top. Makes sci-fi panelling, machinery and spaceship hulls.',
 	params: [
-		P.enum(
-			'output',
-			'Output',
-			'relief',
-			[
-				['relief', 'Relief (all, value)'],
-				['panels', 'Panels (shape)'],
-				['seams', 'Seams (shape)'],
-				['frames', 'Inset frames (shape)'],
-				['rivets', 'Rivets (shape)'],
-				['details', 'Details (shape)'],
-				['lights', 'Lights (shape)'],
-				['pipes', 'Pipes (shape)'],
-				['hardware', 'Hardware (shape)']
-			],
-			{
-				hint: 'Relief combines every element into one height value (using the Edge bevel), and can write its parts (lights, pipes, hardware, seams…) to masks of their own (Mask › Write to). The shape outputs give you one kind of element as a shape'
-			}
-		),
+		P.enum('output', 'Output', 'relief', PARTS.outputs('Relief (all, value)', 8), {
+			hint: 'Relief combines every element into one height value (using the Edge bevel), and can write its parts (lights, pipes, hardware, seams…) to masks of their own (Mask › Write to). The shape outputs give you one kind of element as a shape'
+		}),
 		PARTS.param,
 
 		P.enum(
@@ -681,74 +692,28 @@ export const greeblesLayer: LayerDef = {
 			showIf: hasDetails,
 			hint: MIN_HINT
 		}),
-		P.bool('det_vents', 'Vent slots', true, { group: 'details', showIf: hasKinds }),
-		P.bool('det_light', 'Lights', true, { group: 'details', showIf: hasKinds }),
-		P.bool('det_recess', 'Recesses', true, { group: 'details', showIf: hasKinds }),
-		P.bool('det_holes', 'Perforation', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds a grid of round holes (Slot pitch apart, Slot width across)'
-		}),
-		P.enum(
-			'hole_bond',
-			'Hole layout',
-			'grid',
-			[
-				['grid', 'Grid', 'holes in line both ways'],
-				['bond', 'Masonry bond', 'every second row shifted half the pitch, one hole fewer, like courses of bricks']
-			],
-			{ group: 'details', showIf: (p) => hasKinds(p) && p.det_holes !== false }
-		),
-		P.bool('det_ribs', 'Ribs', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds rounded bars standing up from the plate, Slot pitch apart and Slot width wide (raised by 0.8 × Inset depth)'
-		}),
-		P.bool('det_switch', 'Switches', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds a row of toggle switches (hex nut, lever) or rocker switches'
-		}),
-		P.bool('det_socket', 'Plug sockets', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds a D-shell (rounded corners, like a VGA or serial port) or round connector: a raised rim, a sunk face, and pins on a raised insert or in a deeper well'
-		}),
-		P.bool('det_slider', 'Sliders', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds a slot with tick marks and a ridged knob (on long areas)'
-		}),
-		P.bool('det_keypad', 'Keypads', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds rounded keys, three across, in a sunk bezel'
-		}),
-		P.bool('det_fan', 'Fans', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds curved blades around a domed hub in a sunk round housing (on squarish areas; also a hero part)'
-		}),
-		P.bool('det_mesh', 'Mesh grilles', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds a sunk panel behind a fine wire grid (half the Slot pitch)'
-		}),
-		P.bool('det_circuit', 'Circuit pockets', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds a deep dark pocket with chips of a few sizes and their pins'
-		}),
-		P.bool('det_fins', 'Heatsink fins', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds bars across the area (Slot width thick, Slot pitch apart), like a comb; also used in edge strips'
-		}),
-		P.bool('det_pipes', 'Pipes & handles', true, {
-			group: 'details',
-			showIf: hasKinds,
-			hint: 'Adds a pipe run (a bundle of parallel tubes turning through round elbows) or a grab handle, standing on the plate (raised by Inset depth) between two flange plates'
-		}),
+		...DETAILS.flatMap(([key, label, , hint]) => [
+			P.bool(key, label, true, { group: 'details', showIf: hasKinds, ...(hint ? { hint } : {}) }),
+			// Perforation's layout follows its toggle.
+			...(key === 'det_holes'
+				? [
+						P.enum(
+							'hole_bond',
+							'Hole layout',
+							'grid',
+							[
+								['grid', 'Grid', 'holes in line both ways'],
+								[
+									'bond',
+									'Masonry bond',
+									'every second row shifted half the pitch, one hole fewer, like courses of bricks'
+								]
+							],
+							{ group: 'details', showIf: (p) => hasKinds(p) && p.det_holes !== false }
+						)
+					]
+				: [])
+		]),
 		P.float('pipe_size', 'Pipe size', 0.15, 0.05, 0.4, {
 			step: 0.001,
 			group: 'details',
@@ -3123,12 +3088,12 @@ GenOut gen(vec2 p) {
   if (u_output == 0) {
     v = clamp(v / max(grb_peak(), 1.0), 0.0, 1.0);
     if (u_mask == 0) return genOut(v, 1.0, rnd, NO_SDF);
-    float dm = u_mask == 1 ? max(max(dP, -D.dHole), -D.dSunk) : u_mask == 2 ? dP : u_mask == 3 ? -dP : u_mask == 4 ? dF
-             : u_mask == 5 ? dR : u_mask == 6 ? D.dD : u_mask == 7 ? dLt : u_mask == 8 ? gPipeD : gHwD;
-    return genOutOwn(v, 1.0, rnd, dm);
   }
-  float d = u_output == 1 ? dP : u_output == 2 ? -dP : u_output == 3 ? dF : u_output == 4 ? dR : u_output == 5 ? D.dD : u_output == 6 ? dLt
-          : u_output == 7 ? gPipeD : gHwD;
+  // The part's shape, for the shape output or the relief's mask (PARTS: the same numbers).
+  int sel = u_output > 0 ? u_output : u_mask;
+  float d = sel == 1 ? dP : sel == 2 ? -dP : sel == 3 ? dF : sel == 4 ? dR : sel == 5 ? D.dD : sel == 6 ? dLt
+          : sel == 7 ? gPipeD : sel == 8 ? gHwD : max(max(dP, -D.dHole), -D.dSunk);
+  if (u_output == 0) return genOutOwn(v, 1.0, rnd, d);
   GenOut g = genOut(0.0, 1.0, rnd, d);
   if (bevelAspectOn() && u_output != 4 && u_output < 7) g.bdist = grb_bdist(q, d, cell, N, none, fs, D, bk, bkd);
   return g;

@@ -62,6 +62,8 @@ const isStyle =
 	(...s: string[]) =>
 	(p: Record<string, unknown>) =>
 		s.includes(String(p.style));
+/** Circuit chips are drawn. */
+const hasChips = (p: Record<string, unknown>) => p.style === 'circuit' && Number(p.chips) > 0;
 const isTone = (p: Record<string, unknown>) => p.style === 'arcs' && String(p.draw).startsWith('tone');
 
 // ---- CPU side (cpuData): the layouts that need the whole grid — the maze's, rooms' and labyrinth's walls with a
@@ -859,11 +861,11 @@ export const truchetLayer: LayerDef = {
 			hint: 'Places chips with pins, this likely in each block of chip size + 2 + scatter cells'
 		}),
 		P.int('chip_w', 'Chip width', 2, 1, 16, {
-			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+			showIf: hasChips,
 			hint: 'How many cells across each chip is, with a one-cell margin of traces round it'
 		}),
 		P.int('chip_h', 'Chip height', 2, 1, 16, {
-			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+			showIf: hasChips,
 			hint: 'How many cells down each chip is'
 		}),
 		P.enum(
@@ -875,13 +877,13 @@ export const truchetLayer: LayerDef = {
 				['ic', 'IC', 'square legs on every side for the traces to meet, and a notch at one end']
 			],
 			{
-				showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0
+				showIf: hasChips
 			}
 		),
 		P.int('chip_scatter', 'Chip scatter', 4, 0, 32, {
 			softMax: 8,
 			uniform: false,
-			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+			showIf: hasChips,
 			hint: 'Adds extra cells to each chip’s block and puts the chip at a random place in it, for sparser, irregular placement (0 = a regular grid)'
 		}),
 		P.seed()

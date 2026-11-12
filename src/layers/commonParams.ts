@@ -178,18 +178,36 @@ export const MASK_WRITE_PARAMS: ParamDef[] = Array.from({ length: MAX_WRITE_ROWS
 /**
  * A generator's parts for its masks (Greebles, Vents, Pipes, Trim): the enum `key` its shader reads to pick the shape that
  * goes to the mask (hidden — Write to › Source picks it; its 'none' kept for stored values), and one Source per part,
- * `main` (it rides in the layer's own pass), the default first.
+ * `main` (it rides in the layer's own pass), the default first. The option index (1…) is the part's number in the
+ * shader, shared with the Output enum `outputs` builds (Relief, then each part as a shape: the same index), so one
+ * `u_output > 0 ? u_output : u_mask` picks the part either way; parts the Output menu doesn't offer go last.
+ * `write` is the type's LayerDef.maskWrite: the shape outputs always write their shape, the relief only when given a part.
  */
 export function maskParts(
 	key: string,
 	def: string,
 	options: ([string, string] | [string, string, string])[]
-): { param: ParamDef; sources: MaskSourceDef[] } {
+): {
+	param: ParamDef;
+	sources: MaskSourceDef[];
+	outputs: (relief: string, count?: number) => ([string, string] | [string, string, string])[];
+	write: (p: Record<string, unknown>) => 'shape' | false;
+} {
 	const param = P.enum(key, 'Shape for the mask', def, [['none', 'None'], ...options], {
 		showIf: () => false,
 		optimize: false,
 		hint: 'Set by Mask › Write to › Source'
 	});
+	const outputs = (relief: string, count = options.length) => [
+		['relief', relief] as [string, string],
+		...options
+			.slice(0, count)
+			.map(([value, label, hint]): [string, string] | [string, string, string] =>
+				hint ? [value, `${label} (shape)`, hint] : [value, `${label} (shape)`]
+			)
+	];
+	const write = (p: Record<string, unknown>) =>
+		(p.output ?? 'relief') !== 'relief' || (p[key] ?? def) !== 'none' ? ('shape' as const) : false;
 	const ordered = [...options.filter((o) => o[0] === def), ...options.filter((o) => o[0] !== def)];
 	const sources = ordered.map(([value, label, hint]) => ({
 		value,
@@ -198,7 +216,7 @@ export function maskParts(
 		params: { [key]: value },
 		main: true
 	}));
-	return { param, sources };
+	return { param, sources, outputs, write };
 }
 
 /**
@@ -921,29 +939,29 @@ void main() {
   gPhase = u_phase;
 
   vec2 pp = gl_FragCoord.xy - vec2(u_ofs_x, -u_ofs_y);${
-	area
-		? /* glsl */ `
+		area
+			? /* glsl */ `
   // Area: the layer's canvas is the area (uRes is its size), its origin the area's bottom-left corner.
   pp -= uArea.xy;
   vec2 aq = vec2(gl_FragCoord.x - uArea.x, uArea.y + uArea.w - gl_FragCoord.y);
   float aDist = areaDist(aq);`
-		: ''
-}
+			: ''
+	}
   if (u_dw_amount > 0.0) {
     // Domain warp of the whole pattern: neighbouring features move together, so gaps keep their width.
     vec2 wc = cellsFor(u_dw_scale, 1.0);
     pp += warpOffset(gl_FragCoord.xy / uRes * wc, periodOf(wc), uSeed + 409.0) * 2.0 * u_dw_amount;
   }
   GenOut g = gen(pp);${
-	area
-		? /* glsl */ `
+		area
+			? /* glsl */ `
   // Nothing outside the area or in an off cell; a shape is cut there (its distance at least the area's).
   if (aDist > 0.0) g.mask = 0.0;
   if (g.sdf > NO_SDF) g.sdf = max(g.sdf, aDist);
   if (g.bdist > NO_SDF) g.bdist = max(g.bdist, aDist);
   if (aDist > 0.0) g.height = NO_SDF;`
-		: ''
-}
+			: ''
+	}
   float value = g.value;
   float cov = g.mask;
   float shapeV = 1.0;

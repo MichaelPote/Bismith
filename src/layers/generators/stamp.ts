@@ -23,10 +23,10 @@ export interface Cells {
 }
 
 /** Stamp bitmaps: up to 128 × 128 cells. */
-export const STAMP_MAX = 128;
+const STAMP_MAX = 128;
 /** Label bitmaps: up to 256 cells across, 128 down. */
-export const LABEL_MAX_W = 256;
-export const LABEL_MAX_H = 128;
+const LABEL_MAX_W = 256;
+const LABEL_MAX_H = 128;
 
 /** Rows of cell characters (one row per line; blank lines at either end dropped): core/bitmap's parser. */
 export function parseCells(src: string): Cells {
@@ -491,7 +491,7 @@ function guardCorners(l: Pt[], rho: number): Pt[] {
  * From 1 to 2 the uneven staircase runs between corners are fitted by straight segments (up to a cell off at 2), corners rounded within half
  * a cell; beyond 2 the fit loosens and the corner rounds grow (to 3½ cells at 4).
  */
-export function smoothLoops(c: Cells, a: number): Pt[][] {
+function smoothLoops(c: Cells, a: number): Pt[][] {
 	const k = Math.min(1, Math.max(0, a));
 	// Each edge's ends cut back toward its middle (one corner cut at ratio k/2: the same from either direction, so a
 	// symmetric drawing stays symmetric); at 1 only the midpoints are left.
@@ -859,7 +859,7 @@ function cellsKey(c: Cells): string {
 	return `${c.w}x${c.h}#${(h >>> 0).toString(36)}`;
 }
 
-export interface StampMap {
+interface StampMap {
 	/** Empty cells kept round the bitmap (bitmap cells). */
 	margin: number;
 	/** Smoothed outline (0 = the pixel outline, exact): its amount, 0..1. */
@@ -974,7 +974,7 @@ export function stampTexture(c: Cells, o: StampMap): CpuTexture {
  * square as the colours. Smoothed outline: one texel per cell, the signed centre distances (R, G: "≥ 2"; B, A: "≥ 3";
  * 16 bits, 1/16 cell), read bilinearly like the outline.
  */
-export function levelTexture(c: Cells, o: StampMap): CpuTexture {
+function levelTexture(c: Cells, o: StampMap): CpuTexture {
 	if (!hasCells(c)) return EMPTY_TEX;
 	const g = stampGrid(c, o);
 	const hit = lvCache.get(g);
@@ -1742,7 +1742,7 @@ export const stampLayer: LayerDef = {
 	glsl: 'const bool u_bev_lim = false;\n#define STAMP_IMAGE\n#define STAMP_LEVELS\n' + STAMP_GLSL
 };
 
-export const labelLayer: LayerDef = {
+const labelLayer: LayerDef = {
 	type: 'label',
 	label: 'Label',
 	category: 'shape',
