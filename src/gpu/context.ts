@@ -17,6 +17,9 @@ export interface TargetOptions {
 
 export class GpuError extends Error {}
 
+/** Copy targets readTexture keeps (one per size). */
+const READ_TARGETS = 3;
+
 export class Gpu {
 	readonly renderer: THREE.WebGLRenderer;
 	readonly canvas: HTMLCanvasElement;
@@ -24,7 +27,8 @@ export class Gpu {
 	private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 	private readonly mesh: THREE.Mesh;
 	private readonly copyMat: THREE.RawShaderMaterial;
-	private readTarget: THREE.WebGLRenderTarget | null = null;
+	/** Copy targets of readTexture by size, least recently used first. */
+	private readonly readTargets = new Map<string, THREE.WebGLRenderTarget>();
 	private readonly canvasSize = new THREE.Vector2();
 	private readonly clearColor = new THREE.Color();
 	/** The browser compiles shaders off the main thread (KHR_parallel_shader_compile): compile() doesn't stall. */
@@ -175,20 +179,63 @@ export class Gpu {
 		this.run(this.copyMat, target);
 	}
 
-	/** Read any texture back as RGBA float (rows bottom-up, GL order). */
+	/**
+	 * Read the bottom-left width × height texels of any texture back as RGBA float (rows bottom-up, GL order): straight
+	 * from its render target when it is a float RGBA attachment, else through a copy into a read target of that size.
+	 */
 	readTexture(texture: THREE.Texture, width: number, height: number): Float32Array {
-		if (!this.readTarget || this.readTarget.width !== width || this.readTarget.height !== height) {
-			this.readTarget?.dispose();
-			this.readTarget = this.target(width, height);
-		}
-		this.copy(texture, this.readTarget);
 		const out = new Float32Array(width * height * 4);
-		this.renderer.readRenderTargetPixels(this.readTarget, 0, 0, width, height, out);
+		const owner = (texture as THREE.Texture & { renderTarget?: THREE.WebGLRenderTarget | null }).renderTarget;
+		const direct =
+			owner?.isWebGLRenderTarget &&
+			texture.type === THREE.FloatType &&
+			texture.format === THREE.RGBAFormat &&
+			owner.width >= width &&
+			owner.height >= height &&
+			// Never rendered to: no framebuffer to read yet.
+			(this.renderer.properties.get(owner) as { __webglFramebuffer?: unknown }).__webglFramebuffer;
+		if (direct) {
+			this.renderer.readRenderTargetPixels(owner, 0, 0, width, height, out, undefined, owner.textures.indexOf(texture));
+		} else {
+			const t = this.readTargetFor(width, height);
+			this.copy(texture, t);
+			this.renderer.readRenderTargetPixels(t, 0, 0, width, height, out);
+		}
 		return out;
 	}
 
+	/** readTexture with the rows top-down (image order), flipped in place. */
+	readTopDown(texture: THREE.Texture, width: number, height: number): Float32Array {
+		const data = this.readTexture(texture, width, height);
+		const row = width * 4;
+		const tmp = new Float32Array(row);
+		for (let y = 0, z = height - 1; y < z; y++, z--) {
+			const a = data.subarray(y * row, (y + 1) * row);
+			const b = data.subarray(z * row, (z + 1) * row);
+			tmp.set(a);
+			a.set(b);
+			b.set(tmp);
+		}
+		return data;
+	}
+
+	/** A copy target for reads of this size, kept for the next (the few sizes in use — small and full — stay cached). */
+	private readTargetFor(width: number, height: number): THREE.WebGLRenderTarget {
+		const key = `${width}x${height}`;
+		let t = this.readTargets.get(key);
+		if (t) this.readTargets.delete(key);
+		else t = this.target(width, height);
+		this.readTargets.set(key, t);
+		while (this.readTargets.size > READ_TARGETS) {
+			const [k, old] = this.readTargets.entries().next().value!;
+			old.dispose();
+			this.readTargets.delete(k);
+		}
+		return t;
+	}
+
 	dispose(): void {
-		this.readTarget?.dispose();
+		for (const t of this.readTargets.values()) t.dispose();
 		this.copyMat.dispose();
 		this.mesh.geometry.dispose();
 		this.renderer.dispose();
