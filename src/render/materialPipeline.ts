@@ -913,6 +913,7 @@ ${fetches}
 					if (w && w.slot >= 0) this.gpu.copy(state.read.textures[3], this.slots[w.slot]);
 				} else if (def.run) {
 					// Multi-pass filters: limited, they run on the whole state and are blended back by the limit after.
+					if (def.idle?.(layer.params)) return;
 					const limited = Boolean(masks?.limit);
 					if (limited) this.snapshot(project);
 					def.run(this.filterContext(project, layer, seed), layer);
@@ -920,8 +921,13 @@ ${fetches}
 				} else if (def.filterGlsl) {
 					// One pass, limited in itself, after any pre-passes (LayerDef.prepare) it reads.
 					const ctx = this.filterContext(project, layer, seed);
-					const inputs = this.layerInputs(def);
-					const mat = ctx.mrtMaterial('main', inputs.glsl + def.filterGlsl + FILTER_MAIN, inputs.uniforms);
+					// Its shader text and input uniforms are only made the first time (the material is cached under this key).
+					const inputs = this.materials.has(`flt:${layer.type}:main`) ? null : this.layerInputs(def);
+					const mat = ctx.mrtMaterial(
+						'main',
+						inputs ? inputs.glsl + def.filterGlsl + FILTER_MAIN : '',
+						inputs?.uniforms
+					);
 					this.bindTextures(def, layer, project, seed, mat);
 					this.bindDerived(def, layer.id, layer.params, project, seed, mat);
 					ctx.runMRT(mat);

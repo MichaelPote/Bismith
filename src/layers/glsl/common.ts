@@ -6,6 +6,9 @@
 
 import { MAX_GRADIENT_STOPS } from '@/core/params';
 
+/** Taps a side past which a separable Gaussian (gaussSpan) takes every stride-th texel. */
+export const MAX_BLUR_TAPS = 192;
+
 export const GLSL_HEADER = /* glsl */ `
 precision highp float;
 precision highp int;
@@ -94,6 +97,20 @@ vec4 sampleT(sampler2D t, vec2 px) {
   vec4 b = fetchT(t, i + ivec2(1, 0));
   vec4 c = fetchT(t, i + ivec2(0, 1));
   vec4 d = fetchT(t, i + ivec2(1, 1));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+// fetchT and sampleT for a texture of size res instead of uRes (a pass reading a smaller or larger level).
+vec4 fetchTSized(sampler2D t, ivec2 res, ivec2 c) {
+  return texelFetch(t, uTile ? imod(c, res) : clamp(c, ivec2(0), res - 1), 0);
+}
+vec4 sampleTSized(sampler2D t, ivec2 res, vec2 px) {
+  vec2 q = px - 0.5;
+  vec2 f = fract(q);
+  ivec2 i = ivec2(floor(q));
+  vec4 a = fetchTSized(t, res, i);
+  vec4 b = fetchTSized(t, res, i + ivec2(1, 0));
+  vec4 c = fetchTSized(t, res, i + ivec2(0, 1));
+  vec4 d = fetchTSized(t, res, i + ivec2(1, 1));
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
@@ -286,8 +303,14 @@ float heightCombine(int mode, float h, float v) {
   return mode == 0 ? h + v : mode == 1 ? h - v : mode == 2 ? max(h, v) : mode == 3 ? min(h, v) : mode == 4 ? v : h * v;
 }
 
-// Separable Gaussian of σ px: taps either side (3σ, at most cap) and k, the tap at offset i weighing exp(i² k).
-int gaussTaps(float sigma, int cap) { return min(int(ceil(sigma * 3.0)), cap); }
+// Separable Gaussian of σ px, the tap at offset o weighing exp(o² k): out to 3σ either side, at offsets i · stride for
+// i in −n…n (n returned). Past ${MAX_BLUR_TAPS} taps a side it takes every stride-th texel (stride ≤ 4 up to σ 256, a
+// kernel far wider than its gaps), so a wide blur costs no more taps than a radius of 128.
+int gaussSpan(float sigma, out int stride) {
+  int R = int(ceil(sigma * 3.0));
+  stride = max(1, (R + ${MAX_BLUR_TAPS - 1}) / ${MAX_BLUR_TAPS});
+  return R / stride;
+}
 float gaussK(float sigma) { return -0.5 / max(sigma * sigma, 1e-6); }
 `;
 
@@ -295,4 +318,26 @@ float gaussK(float sigma) { return -0.5 / max(sigma * sigma, 1e-6); }
 export const FULLSCREEN_VERT = /* glsl */ `
 in vec3 position;
 void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
+`;
+
+/**
+ * GLSL (after GLSL_COMMON): one pass of a separable Gaussian of σ px over all four components of t along dir, wrap-
+ * aware. premul weights each texel's colour by its alpha (rgb · a, a), so transparent texels don't darken the edges.
+ */
+export const GLSL_GAUSS_BLUR = /* glsl */ `
+vec4 gaussBlur(sampler2D t, ivec2 c, ivec2 dir, float sigma, bool premul) {
+  int stride;
+  int n = gaussSpan(sigma, stride);
+  float k = gaussK(sigma);
+  vec4 sum = vec4(0.0);
+  float ws = 0.0;
+  for (int i = -n; i <= n; i++) {
+    int o = i * stride;
+    float w = exp(float(o * o) * k);
+    vec4 v = fetchT(t, c + dir * o);
+    sum += w * (premul ? vec4(v.rgb * v.a, v.a) : v);
+    ws += w;
+  }
+  return sum / ws;
+}
 `;
