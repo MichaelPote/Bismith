@@ -11,9 +11,9 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { PresetKind } from '../src/core/project';
-import type { PresetManifest, PresetManifestEntry } from '../src/presets/manifest';
-import { ROOT } from './args';
+import type { PresetKind } from '../src/core/project.ts';
+import type { PresetManifest, PresetManifestEntry } from '../src/presets/manifest.ts';
+import { ROOT } from './args.ts';
 
 export const PRESET_DIR = join(ROOT, 'public', 'presets');
 const MANIFEST_FILE = join(PRESET_DIR, 'manifest.json');

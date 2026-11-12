@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { Plugin } from 'vite';
-import { PRESET_DIR, presetFiles, writeManifest } from './presets-manifest';
+import { PRESET_DIR, presetFiles, writeManifest } from './presets-manifest.ts';
 
 const ROUTE = '/__dev/presets';
 const MAX_BODY = 64 * 1024 * 1024;
