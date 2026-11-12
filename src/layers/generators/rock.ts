@@ -35,8 +35,8 @@ function rockBasis(a: number, ks: number, kU: number, nv: number): number[] {
 }
 
 /**
- * Rock's uniform-only work (its derived uniforms): the strata frame and its lattice on the torus, the long fractures'
- * direction and lanes, and the noises' and details' counts — the same at every pixel, so the CPU works them out once.
+ * Rock's uniform-only work (its derived uniforms): the strata frame and its lattice on the torus, and the noises' and
+ * details' counts — the same at every pixel, so the CPU works them out once.
  */
 export function rockDerived(p: ParamValues, c: LayerCanvas) {
 	const tile = c.tileable;
@@ -130,51 +130,6 @@ export function rockDerived(p: ParamValues, c: LayerCanvas) {
 		if (mT) dimM = dT;
 	}
 
-	// Long fractures: when tiling, the direction is snapped to a primitive lattice vector v = (a W, b H) (a, b coprime) —
-	// the shortest, |a| ≤ 6, |b| ≤ 3, within a few degrees — and completed to a basis with u = (c W, d H), ad − bc = 1 (see
-	// rk_fractures).
-	const fa = rad(n('frac_angle'));
-	let fdir = [f32(Math.cos(fa)), -f32(Math.sin(fa))];
-	let lane = f32(2.2 * T);
-	let segL = f32(4.5 * T);
-	let nL = 1e6;
-	let nS = 1e6;
-	let slide = 0;
-	if (tile) {
-		let ab = [1, 0];
-		let bestE = 1e9;
-		for (let i = 0; i < 49; i++) {
-			const [ia, ib] = [i % 7, Math.floor(i / 7) - 3];
-			const bAbs = Math.abs(ib);
-			const skip =
-				(ia === 0 && ib <= 0) ||
-				(ia % 2 === 0 && bAbs % 2 === 0) ||
-				(ia % 3 === 0 && bAbs % 3 === 0) ||
-				(ia % 5 === 0 && ib === 0);
-			if (skip) continue;
-			const len = Math.hypot(ia * c.width, ib * c.height);
-			const e = 1 - Math.abs((ia * c.width * fdir[0] + ib * c.height * fdir[1]) / len) + (0.0004 * len) / c.width;
-			if (e < bestE) [bestE, ab] = [e, [ia, ib]];
-		}
-		const [ia, ib] = ab;
-		const v = [ia * c.width, ib * c.height];
-		const Lp = Math.hypot(v[0], v[1]);
-		fdir = [v[0] / Lp, v[1] / Lp];
-		// u = (c, d) with a d − b c = 1.
-		let cd = [-ib, 0];
-		for (let k = -6; k <= 6 && ia !== 0; k++)
-			if (imod(1 + ib * k, ia) === 0) {
-				cd = [k, (1 + ib * k) / ia];
-				break;
-			}
-		slide = cd[0] * c.width * fdir[0] + cd[1] * c.height * fdir[1];
-		const across = (c.width * c.height) / Lp;
-		nL = Math.max(1, rkRound(across / lane));
-		lane = across / nL;
-		nS = Math.max(1, rkRound(Lp / segL));
-		segL = Lp / nS;
-	}
-
 	// The noises' cell counts (cellsFor), by kind: the strata warp, the edge jaggies, the roughness, the rills' meander, a
 	// breakup (laminae, crevice patches, pit clusters) about two blocks across, the fracture zones (and the height swell),
 	// the folds, the facet cracks' breakup; then the pits' cells. (The folds' counts come from their scale itself, halves
@@ -183,11 +138,13 @@ export function rockDerived(p: ParamValues, c: LayerCanvas) {
 	const el1 = Math.max(elong, 1);
 	const cellPx = [
 		1.5 * T * el1,
-		Math.max(0.2 * T, 1.5 * pxs),
+		Math.max(n('jag_scale') * T, 1.5 * pxs),
 		Math.max(n('rough_scale'), 1),
 		Math.max(n('rill_len'), 2)
 	];
 	cellPx.push(2 * T * el1, 3 * T * el1, 0, 0.5 * T, 4 * Math.max(n('pit_size'), 0.5));
+	// Size variation's scale field: about two blocks across.
+	cellPx.push(2 * T * Math.sqrt(el1));
 	const fold = [n('fold_scale'), f32((c.height / c.width) * (1 - 0.75 * n('fold_sharp'))) * n('fold_scale')];
 	const nc = cellPx.flatMap((px, k) =>
 		k !== 6
@@ -205,8 +162,6 @@ export function rockDerived(p: ParamValues, c: LayerCanvas) {
 		wrap0,
 		wrapT,
 		dimM: [...dimM, mT ? 1 : 0],
-		frac: [fdir[0], fdir[1], lane, segL],
-		frac2: [nL, nS, slide],
 		nc,
 		rills: [count(c.width / Math.max(n('rill_space'), 0.5)), count(c.height / Math.max(n('rill_len'), 2))],
 		streaks: [nCol, count(nCol / 8)],
@@ -331,6 +286,19 @@ export const rockLayer: LayerDef = {
 			step: 0.001,
 			hint: 'Lines the blocks up in courses (0 = scattered any which way, 1 = straight courses)'
 		}),
+		P.float('bed_var', 'Bed variation', 0.5, 0, 1, {
+			step: 0.001,
+			hint: 'Varies how thick each bed (course, column) is by moving whole bedding joints across the strata (0 = even beds, 1 = from a fifth to nearly twice the Block size)'
+		}),
+		P.float('through', 'Through joints', 0.3, 0, 1, {
+			step: 0.001,
+			hint: 'Lines up this share of the joints with the joints in the bed next to them, so they run on through two beds as long cracks instead of every course being split on its own'
+		}),
+		P.float('jangle', 'Joint angles', 30, 0, 60, {
+			step: 0.1,
+			unit: '°',
+			hint: 'Turns each joint across the bedding by a random angle, up to about this much either way, so the blocks become uneven four-sided stones instead of rectangles'
+		}),
 		P.float('jitter', 'Jitter', 0.9, 0, 1, { step: 0.001, hint: 'Varies the blocks’ lengths and positions' }),
 		P.float('stagger', 'Stagger', 0, 0, 1, {
 			step: 0.001,
@@ -340,9 +308,9 @@ export const rockLayer: LayerDef = {
 			step: 0.001,
 			hint: 'How often a 2 × 2 group of blocks fuses into one big block with a single face and no joints inside, for big blocks among small ones (not for ridges and prisms)'
 		}),
-		P.float('size_var', 'Size variation', 0.6, 0, 1, {
+		P.float('size_var', 'Size variation', 0.6, 0, 2, {
 			step: 0.001,
-			hint: 'Makes some blocks bigger and their neighbours smaller'
+			hint: 'Makes some blocks bigger and their neighbours smaller, and spreads the blocks out in some places and packs them together in others (at 2, big stones about three times as wide as the small ones between them)'
 		}),
 		P.float('warp', 'Warp', 0.15, 0, 2, { softMax: 1, step: 0.001, hint: 'Bends the strata (in block sizes)' }),
 		P.float('fold', 'Folds', 0.5, 0, 16, {
@@ -366,7 +334,18 @@ export const rockLayer: LayerDef = {
 			softMax: 3,
 			unit: 'px',
 			step: 0.01,
-			hint: 'Makes the block edges ragged, with wiggles about a fifth of a block across'
+			hint: 'Makes the block edges wiggle by up to this much: ragged edges, or with a bigger Jaggedness scale long sweeping curves'
+		}),
+		P.float('jag_scale', 'Jaggedness scale', 0.2, 0.05, 4, {
+			uniform: false,
+			softMax: 2,
+			step: 0.01,
+			showIf: (p) => Number(p.jag) > 0,
+			hint: 'Sets how big the wiggles are, in block sizes (0.2 = small ragged teeth, 1–2 = joints that sweep in long curves)'
+		}),
+		P.int('jag_oct', 'Jaggedness octaves', 3, 1, 5, {
+			showIf: (p) => Number(p.jag) > 0,
+			hint: 'How many layers of smaller wiggles ride on the biggest ones (1 = smooth curves only, more = rough, ragged edges along them)'
 		}),
 
 		P.float('heights', 'Height variation', 1, 0, 4, {
@@ -433,6 +412,11 @@ export const rockLayer: LayerDef = {
 					'hex',
 					'Hexagonal prism',
 					'a hexagonal column lying along the bedding, each turned randomly (two or three faces showing); its ends break off in a sloping plane that follows the hexagon’s outline'
+				],
+				[
+					'facet',
+					'Faceted',
+					'flat planes rising from each side of the block to a peak somewhere inside it, like split, angular stone'
 				]
 			],
 			{
@@ -576,8 +560,7 @@ export const rockLayer: LayerDef = {
 		P.float('joint_open', 'Open joints', 0.35, 0, 1, {
 			step: 0.001,
 			section: 'Joints',
-			showIf: (p) => Number(p.joint) > 0,
-			hint: 'How many of the joints open into cracks, each along its whole length. The rest stay closed (just a step or a crease, no bevel), and the blocks either side count as one piece in the mask'
+			hint: 'How many of the joints open, each along its whole length: into cracks with a Joint width, or (at width 0) as borders that part the blocks in the mask. The rest stay closed (just a step or a crease, no bevel), and the blocks either side blend into one piece. Defaults to 0 at Joint width 0'
 		}),
 		P.float('joint_cross', 'Cross-joint width', 1.6, 0, 2, {
 			step: 0.001,
@@ -606,21 +589,8 @@ export const rockLayer: LayerDef = {
 		P.float('joint_depth', 'Joint depth', 0.25, 0, 1, {
 			step: 0.001,
 			section: 'Joints',
-			showIf: (p) => Number(p.joint) > 0 || Number(p.fractures) > 0,
-			hint: 'How deep the cracks (and the long fractures) sink below the faces'
-		}),
-		P.float('fractures', 'Long fractures', 0, 0, 1, {
-			step: 0.001,
-			section: 'Joints',
-			hint: 'Adds long, straight cracks (tectonic joints) that cut across many blocks at the Fracture angle, each a few blocks long'
-		}),
-		P.float('frac_angle', 'Fracture angle', 70, -90, 90, {
-			uniform: false,
-			step: 0.1,
-			unit: '°',
-			section: 'Joints',
-			showIf: (p) => Number(p.fractures) > 0,
-			hint: 'Sets the direction of the long fractures, clockwise from horizontal (each one wanders a little)'
+			showIf: (p) => Number(p.joint) > 0,
+			hint: 'How deep the cracks sink below the faces'
 		}),
 		// Not a control: 1 px of the texture in shader px. Supersampling scales every px param by k, so this tells the shader
 		// how big a texture pixel is (the facets' pixel-scale fade, streak columns, the thinnest cracks).
@@ -658,7 +628,8 @@ export const rockLayer: LayerDef = {
 		dif_grad: reliefGrad()
 	},
 	// Noise facets' code compiles only for the layers that pick them (a dropdown, so no slider recompiles).
-	shaderFeatures: (p) => (facetNoise(p) ? ['RK_FACET_NOISE'] : []),
+	// So does Faceted rounding's (Rounding shape, a dropdown too).
+	shaderFeatures: (p) => [...(facetNoise(p) ? ['RK_FACET_NOISE'] : []), ...(p.crest === 'facet' ? ['RK_FACETED'] : [])],
 	textures: ['calib'],
 	cpuData: (p, ctx) => (facetNoise(p) ? noiseCalib(p, ctx.tileable, 'fn_') : quantileTexture(null)),
 	// Added in the editor: blocks a little over a tenth of the texture's mean side, the relief deepening with them.
@@ -668,14 +639,17 @@ export const rockLayer: LayerDef = {
 	},
 	// Relief is the height; scarps and crevices are masks for paint (their coverage is their value, so a colour lands only
 	// on them): scarps darken the faces they cover, crevices fill with moss.
-	linkedDefaults: (p) =>
-		p.output === 'scarps'
+	// Without cracks (Joint width 0) the joints start closed, so the blocks blend into one piece.
+	linkedDefaults: (p) => ({
+		...(p.output === 'scarps'
 			? { h_on: false, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#7a6a58') }
 			: p.output === 'crevices'
 				? { h_on: false, dif_blend: 'normal', dif_grad: gradient('#3a3a1c', '#4e5226') }
 				: p.output === 'streaks'
 					? { h_on: false, dif_blend: 'multiply', dif_grad: gradient('#ffffff', '#6a5e50') }
-					: { h_on: true, dif_blend: 'normal', dif_grad: reliefGrad() },
+					: { h_on: true, dif_blend: 'normal', dif_grad: reliefGrad() }),
+		joint_open: Number(p.joint) > 0 ? 0.35 : 0
+	}),
 	// Uniform-only work on the CPU (rockDerived); the params only it reads are `uniform: false`.
 	derivedUniforms: {
 		decl: {
@@ -685,9 +659,7 @@ export const rockLayer: LayerDef = {
 			wrap0: 'ivec3',
 			wrapT: 'ivec3',
 			dimM: 'ivec3',
-			frac: 'vec4',
-			frac2: 'vec3',
-			nc: 'vec2[9]',
+			nc: 'vec2[10]',
 			rills: 'vec2',
 			streaks: 'vec2',
 			split: 'vec2'
@@ -710,32 +682,37 @@ ivec2 rk_wrap(ivec2 c, ivec2 n, int k) {
 // A joint between the two highest blocks a and b, d px from their crease: (crack coverage, signed distance — negative
 // on the blocks, 1 if it is open). Each joint (pair of blocks) is open with probability keep, by its own share of the
 // width; a closed one doesn't part the blocks (no crack, no bevel, one piece in the mask: its distance is the caller's
-// to choose). Without cracks (width 0) every crease outlines its blocks.
+// to choose). Without cracks (width 0) an open joint still outlines its blocks (in the mask), a closed one blends them.
 vec3 rk_joint(float d, ivec2 a, ivec2 b, float width, float keep, float seed) {
-  if (width <= 0.0) return vec3(0.0, -d, 1.0);
   bool aLo;
   vec2 hp = hash2I(pairKey(a, b, aLo), seed);
   if (hp.y >= keep) return vec3(0.0, -d, 0.0);
+  if (width <= 0.0) return vec3(0.0, -d, 1.0);
   float jw = width * (1.0 - u_joint_var * hp.x);
   // Under a pixel wide, a crack stays one pixel wide and fades with its width (a box filter): no dotted lines.
   float cut = u_aa ? org_line(d, max(jw, 1.0), 0.0) * min(jw, 1.0) : (d < 0.5 * jw ? 1.0 : 0.0);
   return vec3(cut, 0.5 * jw - d, 1.0);
 }
 
-// Distance from a point to a convex corner, from its signed distances a, b to the corner's two lines (> 0 outside) and
-// the cosine c between their normals: the nearer edge where the point projects onto it, else the vertex — exact at any
-// angle (|(a, b)| holds only at right angles: 22 % too far at 120°).
-float rk_corner(float a, float b, float c) {
-  if (a <= 0.0 && b <= 0.0) return max(a, b);
-  if (a > 0.0 && b <= c * a) return a;
-  if (b > 0.0 && a <= c * b) return b;
-  return sqrt(max((a * a + b * b - 2.0 * c * a * b) / max(1.0 - c * c, 1e-4), 0.0));
+// Corner rounding over k px: a smooth maximum of the signed distances a, b to a block's two nearest borders (> 0 outside).
+// The corner sinks by k / 4 whatever its angle, and the outline curves over about k along each side: stones that don't
+// meet at points. (An exact rounded corner of radius r sinks by r (1 / sin(φ/2) − 1): 0.41 r at a right angle but 0.15 r
+// at the 120° corners of scattered blocks, which still met at points.) One formula inside and out, so a skirt meets the
+// rounded shoulder across the border without a lip. It fades in only where the borders really turn (rk_turn: normals
+// > ~20° apart; at a T-junction the edge runs straight on).
+float rk_cornerK(float a, float b, float k) {
+  float h = max(k - abs(a - b), 0.0) / max(k, 1e-4);
+  return max(a, b) + 0.25 * k * h * h;
 }
-
-// A corner rounded by kC: rk_corner of the borders moved out by kC, less kC. It fades in only where the borders really
-// turn (rk_turn: normals > ~20° apart; at a T-junction the edge runs straight on).
-float rk_cornerK(float a, float b, float cn, float kC) { return rk_corner(a + kC, b + kC, max(cn, 0.0)) - kC; }
 float rk_turn(float cn) { return 1.0 - smoothstep(0.82, 0.96, cn); }
+
+// A block's rounded distance from its three nearest borders a ≥ b ≥ c (signed, > 0 outside; na, nb, nc their unit
+// normals): the larger of its rounding with the second and with the third, each as far as that border turns away from the
+// first. Symmetric in the two, so it doesn't jump where they swap (rounding with the second alone did: feathered tears
+// at the junctions).
+float rk_round3(float a, float b, float c, vec2 na, vec2 nb, vec2 nc, float k) {
+  return max(mix(a, rk_cornerK(a, b, k), rk_turn(dot(na, nb))), mix(a, rk_cornerK(a, c, k), rk_turn(dot(na, nc))));
+}
 
 // valueNoise without the animation (its Phase code costs compile time here); the same values at Phase 0.
 float rk_vnoise(vec2 x, ivec2 per, float seed) {
@@ -747,6 +724,18 @@ float rk_vnoise(vec2 x, ivec2 per, float seed) {
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
+// The gradient of rk_vnoise (per cell), analytically: the quintic's derivative times the corners' differences.
+vec2 rk_vgrad(vec2 x, ivec2 per, float seed) {
+  ivec2 i = ivec2(floor(x));
+  vec2 f = fract(x);
+  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  vec2 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+  float a = hashI(imod(i, per), seed), b = hashI(imod(i + ivec2(1, 0), per), seed);
+  float c = hashI(imod(i + ivec2(0, 1), per), seed), d = hashI(imod(i + ivec2(1, 1), per), seed);
+  float k = a - b - c + d;
+  return du * vec2(b - a + k * u.y, c - a + k * u.x);
+}
+
 // Weathered shoulder: the drop below a block's face at signed px distance s from its border (> 0 outside), rounded over
 // ±r px (C¹; r = 0 gives max(s, 0), a sharp break).
 float rk_shoulder(float s, float r) {
@@ -754,8 +743,6 @@ float rk_shoulder(float s, float r) {
   return s >= r ? s : s <= -r ? 0.0 : (s + r) * (s + r) / (4.0 * r);
 }
 
-// Row y's offset across the bedding (generation o): hashed by the row on the torus, so it repeats every gR rows.
-float rk_rowOff(int y, int o, int gR) { return hashI(ivec2(imod(y, gR * (1 << o)), o), uSeed + 71.0) - 0.5; }
 
 // Rills: parallel channels down the screen, rill_space apart (whole counts when tiling), meandering a little (rl: the
 // meander noise). Each is a parabolic bowl — round-bottomed, meeting its neighbours in sharp crests — cut into segments
@@ -793,50 +780,16 @@ float rk_pits(vec2 p, float lb, float scarpsAll, float dCrease, float pxs) {
   return face * max(1.0 - d * d, 0.0) * 0.5 * rr / max(abs(u_h_amount) * uDepth, 0.5);
 }
 
-// Laminae: k grooves per bed (whole, so beds hold them seamlessly; fy: the position across the beds), each with its own
-// depth (hashed by its index, which repeats where the beds do), fading in and out with the breakup noise lb about two
-// blocks across. How deep the relief sinks.
-float rk_laminae(float fy, float lb, float T, int gR, float pxs) {
+// Laminae: k grooves per bed (whole, so beds hold them seamlessly; fy: the position across the beds, the bed's own row
+// plus how far across it, th its thickness in rows), each with its own depth (hashed by its index, which repeats where
+// the beds do), fading in and out with the breakup noise lb about two blocks across. How deep the relief sinks.
+float rk_laminae(float fy, float th, float lb, float T, int gR, float pxs) {
   float k = d_split.x;
   float L = fy * k;
   float li = floor(L + 0.5);
-  float dpx = abs(L - li) * T / k;
+  float dpx = abs(L - li) * T * th / k;
   float depth = 0.35 + 0.65 * hashI(ivec2(imod(int(li), int(k) * gR), 3), uSeed + 91.0);
   return 0.2 * u_laminae * depth * smoothstep(0.25, 0.75, lb) * (1.0 - smoothstep(0.25 * pxs, pxs, dpx));
-}
-
-// Long fractures' crack coverage at pw: lanes about two blocks apart across the fracture direction; each lane holds
-// segments ~4.5 blocks long, present with the fractures' chance, a little off the lane's centre and turned a few degrees,
-// fading out over the last fifth of each end; 0.6 × the joints' width (at least 0.6 px). When tiling, the direction is
-// snapped to a primitive lattice vector v = (a W, b H) (a, b coprime) and completed to a basis with u = (c W, d H),
-// ad − bc = 1 (on the CPU: rockDerived): a step along v moves Lp = |v| along the lanes (a whole number of segments), a
-// step along u moves one tile-period across them (a whole number of lanes) and slide along, which each lane's segments
-// are shifted back by — so the fractures repeat under both, hence under the tile's (W, 0) and (0, H).
-float rk_fractures(vec2 pw, float pxs) {
-  vec2 fdir = d_frac.xy;
-  float lane = d_frac.z, segL = d_frac.w, nL = d_frac2.x, nS = d_frac2.y, slide = d_frac2.z;
-  vec2 fn = vec2(-fdir.y, fdir.x);
-  vec2 pr = vec2(dot(pw, fdir), dot(pw, fn));
-  float li = floor(pr.y / lane - 0.5);
-  float best = 0.0;
-  for (int k = 0; k < 2 * UNI_1; k++) {
-    float lk = li + float(k);
-    int lwi = imod(int(lk), int(nL));
-    float rep = float((int(lk) - lwi) / int(nL));
-    vec2 hl = hash2I(ivec2(lwi, 0), uSeed + 151.0);
-    float off = (lk + 0.5 + 0.3 * (hl.x - 0.5)) * lane;
-    float sp = (pr.x - rep * slide) / segL + hl.y * 7.0;
-    float si = floor(sp);
-    vec2 hs = hash2I(ivec2(lwi, imod(int(si), int(nS)) + 1), uSeed + 163.0);
-    if (hs.x < u_fractures) {
-      float uu = sp - si;
-      float ang = (hs.y - 0.5) * 0.12;
-      float d = abs(pr.y - off - (uu - 0.5) * segL * ang) - 0.5 * max(u_joint, pxs) * 0.6;
-      float fadeE = smoothstep(0.0, 0.2, uu) * (1.0 - smoothstep(0.8, 1.0, uu));
-      best = max(best, fadeE * coverage(d, u_aa));
-    }
-  }
-  return best;
 }
 
 // Streaks: narrow columns (~1.5 px, whole counts when tiling), each with a streak at the density's chance — clustered:
@@ -869,12 +822,18 @@ const float RK_NOISE_RELIEF = 2.0;
 #else
 const bool rkBlockFacets = true;
 #endif
+// Faceted rounding: compiled only into the layers that pick it.
+#ifdef RK_FACETED
+const bool rkFaceted = true;
+#else
+const bool rkFaceted = false;
+#endif
 
 GenOut gen(vec2 p) {
   // The strata frame (rockDerived: the same at every pixel, so it comes from the CPU): steeper than 45° it turns 90°;
   // u = (q.x − s q.y) / W along the bedding, v = (q.y + t q.x) / H across it. Rows (courses, columns) get their own
-  // thickness: a row's offset repeats every gR rows, which keeps it seamless where the shear carries a row across the
-  // tile edge.
+  // thickness: each bedding joint's offset repeats every gR rows, which keeps it seamless where the shear carries a row
+  // across the tile edge.
   bool vert = d_vert != 0;
   float T = max(u_size, 1.0), H = d_frame.x, W = d_frame.y, s = d_frame.z, t = d_frame.w;
   int gR = d_gR;
@@ -898,7 +857,9 @@ GenOut gen(vec2 p) {
       vec2 nc = d_nc[kind];
       vec2 x = p / uRes * nc + (e % 2 == 1 ? 17.3 : 0.0);
       // Perlin for the smooth fields (warp, roughness, meander); value noise for the pixel jaggies and the breakups.
-      float n = org_noiseFbm(kind == 0 || kind == 2 || kind == 3 ? 1 : 0, false, x, periodOf(nc), kind == 0 || kind == 3 ? 2 : 3, 0.5, uSeed + 11.0 + float(e) * 13.0);
+      // (The jaggies take their octaves from Jaggedness octaves.)
+      int oct = kind == 1 ? clamp(u_jag_oct, 1, 5) : kind == 0 || kind == 3 ? 2 : 3;
+      float n = org_noiseFbm(kind == 0 || kind == 2 || kind == 3 ? 1 : 0, false, x, periodOf(nc), oct, 0.5, uSeed + 11.0 + float(e) * 13.0);
       if (e == 0) wv.x = n;
       else if (e == 1) wv.y = n;
       else if (e == 2) jv.x = n;
@@ -914,6 +875,14 @@ GenOut gen(vec2 p) {
   // Fracture zones: a multiplier on the facets and roughness, 0 in the whole zones and 2 in the shattered ones (mean 1).
   float zf = mix(1.0, 2.0 * smoothstep(0.38, 0.62, zn), u_zones);
   vec2 pw = p + (wv - 0.5) * 2.0 * u_warp * T + (jv - 0.5) * 2.0 * u_jag;
+  // Size variation's scale field: the pixel moves along the gradient of a smooth value noise about two blocks across,
+  // A λ ∇n (λ: its cell in px). The map's Jacobian is I + A Hₙ, so the blocks spread out by up to 1 / (1 − A |Hₙ|) where
+  // the noise peaks and pack together where it dips — whole patches of bigger and smaller blocks, on top of the power
+  // weights' neighbour-to-neighbour variety. A ≤ 0.1: below the noise's greatest curvature (~9), so the map never folds.
+  if (u_size_var > 0.0) {
+    vec2 sz = d_nc[9];
+    pw += 0.05 * u_size_var * rk_vgrad(p / uRes * sz, periodOf(sz), uSeed + 307.0) * uRes / sz;
+  }
   vec2 q = vert ? vec2(pw.y, -pw.x) : pw;
   vec2 f = vec2((q.x - s * q.y) / W, (q.y + t * q.x) / H);
   // Folds: a broad, smooth shift across the bedding (in beds). Sharpness folds the noise about its mean (≈ 0.5 ± 0.25):
@@ -928,9 +897,16 @@ GenOut gen(vec2 p) {
   // Sites wander across their row by less as kb grows (the metric magnifies it kb²×: joints within a course would lean);
   // whole rows shift instead, so courses and columns differ in thickness but keep straight sides.
   vec2 jit = vec2(u_jitter, u_jitter * (1.0 - u_bedding) * 0.9 / (kb * kb));
-  float jRow = u_jitter * u_bedding * 0.8;
+  float jRow = u_jitter * u_bedding * 0.8, bA = 0.0;
+  // (Up to Size variation 2: bigger weights let a block's cell reach past the 3 × 3 search now and then — a rare sliver
+  // at 2, checked up to Bedding 0.85 with stagger.)
   float wsc = u_size_var * 0.5 * kb;
   float scarp = max(u_scarp, 0.05);
+  // Each generation's scarp run (px per unit of height; facets twice the blocks'), levelling off smoothly towards cap — a
+  // cell's thickness for blocks, 0.6 of one for facets — as run · cap / (run + cap): a skirt that ran on past the cells
+  // around its block (the 5 × 5 window, the three nearest sites' borders) was cut off or jumped there — jagged shards over
+  // its neighbours at wide scarps, at once in the small facet cells. scG converts relief steps back to px (the crease).
+  float runG = scarp, scG = scarp;
   // Height coherence: block heights partly follow a smooth swell (value noise in px, ~3 block lengths across: the
   // fracture zones' cells).
   vec2 swc = d_nc[5];
@@ -959,14 +935,29 @@ GenOut gen(vec2 p) {
   // The block the pixel is in: its face and crest (its drop needs the distance to its nearest border: after the loop).
   float ownFace = 0.0, ownCrest = 0.0, din = 1e4, dinRun = 1.0, dinEnd = 0.0, ownRnd = 0.0;
   ivec2 dinC = ivec2(0);
+  // With Corner rounding, the joints' crack follows the pixel's block outline (rounded): its rounded distance in from its
+  // nearest border, that border's neighbour, its end share, and the block itself (the first generation's).
+  float dGeo = 1e4, gEnd = 0.0;
+  ivec2 gC = ivec2(0), gO = ivec2(0);
   ivec2 ownC = ivec2(0), ownRow = ivec2(0);
+  // The pixel's bed (laminae): its row plus how far across it, and its thickness in rows.
+  float bedY = f.y, bedTh = 1.0;
   vec2 ownS = vec2(0.0);
   // Weathering rounds facets by their share of the relief: at full radius every facet border would become a groove.
   float wr = max(u_weather, 0.0);
-  float kC = max(u_corner, 0.0), din2 = 1e4, dcR = 0.0, dTop = 1e4;
-  vec2 dinN = vec2(1.0, 0.0), dinN2 = vec2(0.0, 1.0);
+  // Corner rounding: kR, the smooth maximum's width, is twice the radius (a right angle sinks about as far as with a
+  // round corner of that radius).
+  float kC = max(u_corner, 0.0), kR = 2.0 * kC, din2 = 1e4, din3 = 1e4, dcR = 0.0, dTop = 1e4;
+  vec2 dinN = vec2(1.0, 0.0), dinN2 = vec2(0.0, 1.0), dinN3 = vec2(0.0, 1.0);
   // Ridges and hexagonal prisms (a crest across the row).
-  bool crested = u_crest > 0 && u_bulge > 0.0;
+  bool crested = (u_crest == 1 || u_crest == 2) && u_bulge > 0.0;
+  // Faceted (blocks): a plane rises from each of the block's borders to a peak Pa inside it (frame coordinates): the
+  // height is the least, over the borders, of the pixel's distance from the border over the peak's — 0 on every border,
+  // 1 at the peak, and each border's share exactly the plane through it and the peak. Both distances come from the
+  // border's own equation (their ratio needs no normalising). pyr: that least ratio so far.
+  bool pyrOn = rkFaceted && u_crest == 3 && u_bulge != 0.0;
+  float pyr = 1.0;
+  vec2 Pa = vec2(0.0), bH = vec2(0.5);
   // Merged blocks: the nearest block's 2 × 2 group and whether it is fused (blocks only).
   ivec2 bg0 = ivec2(0);
   // A fused group's four sites (xy) and weights (z).
@@ -995,19 +986,34 @@ GenOut gen(vec2 p) {
       K = vec2(1.0, kb);
       jit = vec2(u_jitter, u_jitter * (1.0 - bed) * 0.9 / (kb * kb));
       jRow = u_jitter * bed * 0.8;
+      // Bed variation: each bedding joint moves by up to ±bA/2 rows (the facets' rows by about as much as their old
+      // offsets); a site's wander across its row shrinks to keep it in its cell (the 3 × 3 search).
+      bA = o == 0 ? 0.8 * u_bed_var : 0.5 * jRow;
+      // Joint angles (blocks): a joint across the bedding leans by kb² × its sites' offset across the row (in rows) ×
+      // W / H ÷ their distance along it (in cells), so a tiny offset turns it a long way while the bedding joints (moved
+      // by half the offset) stay put. Offsets up to ±J/2 lean a joint up to the angle.
+      if (o == 0) jit.y += tan(radians(clamp(u_jangle, 0.0, 60.0))) / (kb * kb * W / H);
+      jit.y = min(jit.y, 1.0 - bA);
       wsc = u_size_var * 0.5 * kb;
       // Finer generations are offset from the blocks (a translation keeps them seamless): nested exactly, their rows
       // would fall on the block rows and stack their scarps along every course joint.
       fo = f * vec2(mx, m) + vec2(0.37, 0.5) * float(o);
+      float rr = o == 0 ? scarp : 2.0 * scarp, capR = (o == 0 ? 1.0 : 0.6) * T / m;
+      runG = rr * capR / (rr + capR);
+      scG = o == 0 ? runG : 0.5 * runG;
       // This generation's lattice is the blocks' scaled by (mx, m) per axis, so its basis is theirs scaled.
       ivec2 sc = ivec2(int(mx + 0.5), 1 << o);
       wrapB = ivec3(wrap0.x * sc.x, wrap0.y * sc.y, wrap0.z * sc.y);
       Fo = fo * K;
       ip = ivec2(floor(fo));
-      best = 1e20; best2 = 1e20; best3 = 1e20; pb1 = -1e9; pb2 = -1e9; pb3 = -1e9; wd = -1.0; din = 1e4; din2 = 1e4;
+      pyr = 1.0;
+      best = 1e20; best2 = 1e20; best3 = 1e20; pb1 = -1e9; pb2 = -1e9; pb3 = -1e9; wd = -1.0; din = 1e4; din2 = 1e4; din3 = 1e4;
     }
     // Then, around a fused block, its group's four sites (for the skirts' distance, below).
     bool near = g < 9, mate = g >= 9 && g < 13;
+    // The peak, once the nearest site is known: off the site by up to a quarter cell each way (the block's own seeded
+    // randoms — from the site's position they changed with every nudge of a slider), or a fused group's centre.
+    if (g == 9) Pa = bmg ? (vec2(bg0) + 1.0) * K : Sb + (bH - 0.5) * 0.5 * K;
     ivec2 c = near ? ip + ivec2(g % 3 - 1, g / 3 - 1) : mate ? bg0 + ivec2((g - 9) % 2, (g - 9) / 2)
             : bc + ivec2((g - 13) % 5 - 2, (g - 13) / 5 - 2);
     ivec2 cw = rk_wrap(c, wrapB.xz, wrapB.y);
@@ -1025,13 +1031,72 @@ GenOut gen(vec2 p) {
     ivec2 gid = ivec2(grp.x - (1 << 20), grp.y);
     vec3 hf = mg ? hash3I(grp, sd + 141.0) : h;
     vec3 hf2 = mg ? hash3I(grp, sd + 178.0) : h2;
-    float hr = rk_rowOff(c.y, o, gR);
+    // Through joints (blocks): a cell takes its position along the bedding, its size and its stagger from the cell before
+    // it across the bedding, so their joints line up and run on through both beds. Always in a fused group's second row,
+    // for the group's cells and the ones either side: the group's sides then run straight through both its rows (each row
+    // kept its own joints before, and the outline stepped in a right-angled notch where they met).
+    // Only the odd rows of the merge pairing link (to the even row before them), so a link never leads to another: a
+    // group's second row then lines up with the first row's own joints.
+    ivec2 cs = c;
+    float stg = o == 0 ? u_stagger : 0.0, sh = 1.0 - 0.5 * stg;
+    // The other cell of this cell's column pair (2k − 1, 2k): their joint is the one a link keeps straight.
+    ivec2 cN = c + ivec2(imod(cg.x, 2) == 0 ? -1 : 1, 0);
+    bool odd = imod(cg.y, 2) == 1, lk = false;
+    if (o == 0 && (u_through > 0.0 || merging) && odd) {
+      // (The link's chance from the cell's own hashes: no hash call of its own.)
+      lk = fract(h.z * 53.17 + h2.y * 7.31) < u_through;
+      if (merging) {
+        // The group across this cell's nearer group edge (a cell beside a fused group lines up with it too).
+        // (One rk_wrap call, its arguments picked first: D3D inlines each call.)
+        ivec3 wq = mT ? wrapT : wrapB;
+        ivec2 cq = rk_wrap(mT ? cN.yx : cN, wq.xz, wq.y);
+        ivec2 cgN = mT ? cq.yx : cq;
+        ivec2 grpN = (cgN - imod(cgN, ivec2(2))) / 2;
+        lk = lk || mg || (hashI(grpN, sd + 131.0) < u_merge
+                          && (!uTile || (grpN.x * 2 + 1 < dimM.x && grpN.y * 2 + 1 < dimM.y)));
+      }
+      if (lk) cs = c - ivec2(0, 1);
+    }
+    // The hashes, through one copy of rk_wrap and of the hash (D3D inlines each call; a loop bounded by a uniform keeps one
+    // copy of its body): k = 0, 1 the bedding joints below and above the row (each joint's offset hashed by the joint on
+    // the torus, so it repeats every gR rows); linked or fused, k = 2 one more — the joint before the row (a link's row
+    // distance, a group's lower joint) or, in a group's first row, the group's upper one. Then the site's source cell (the
+    // cell itself, or the cell before it when linked) and, linked, its pair's in that row.
+    int nb = lk || mg ? 3 : 2, nh = nb + (lk ? 2 : 1);
+    float b0 = 0.0, b1 = 0.0, bE = 0.0;
+    vec3 hs = vec3(0.5), hB = vec3(0.5);
+    for (int k = 0; k < nh * UNI_1; k++) {
+      bool bed = k < nb;
+      int y = k == 0 ? c.y : k == 1 ? c.y + 1 : odd ? c.y - 1 : c.y + 2;
+      ivec2 ck = bed ? ivec2(imod(y, gR * (1 << o)), o) : rk_wrap(k == nb ? cs : cN - ivec2(0, 1), wrapB.xz, wrapB.y);
+      vec3 hk = hash3I(ck, bed ? uSeed + 71.0 : sd + 61.0);
+      float bk = (hk.x - 0.5) * bA;
+      if (k == 0) b0 = bk;
+      else if (k == 1) b1 = bk;
+      else if (bed) bE = bk;
+      else if (k == nb) hs = hk;
+      else hB = hk;
+    }
+    // The row's half thickness.
+    float hh = 0.5 + 0.5 * (b1 - b0);
+    float du = 0.0;
+    if (lk) {
+      // A leaning joint runs on straight only if the pair slides along it as it moves to the next row: by the rows'
+      // distance Dr times its lean (du / dv = −kb² Δv / Δu), from the pair's sites in the first row.
+      float dU = float(c.x - cN.x) + (hs.x - hB.x) * jit.x * sh;
+      float Dr = 1.0 + 0.5 * (b1 - bE);
+      du = -Dr * kb * kb * (hs.z - hB.z) * jit.y / (sign(dU) * max(abs(dU), 0.25));
+    }
     // Stagger (blocks): every other row shifts half a cell along the bedding (a running bond), its wander shrinking to fit
-    // the 3 × 3 search. Its parity repeats every gR rows like the row offsets (an odd gR leaves one fault per gR rows).
-    float stg = o == 0 ? u_stagger : 0.0;
-    vec2 S = (vec2(c) + 0.5 + (h.xy - 0.5) * jit * vec2(1.0 - 0.5 * stg, 1.0)
-              + vec2(0.5 * stg * (float(imod(imod(c.y, gR), 2)) - 0.5), hr * jRow)) * K;
-    float w = (h2.z - 0.5) * wsc;
+    // the 3 × 3 search. Its parity repeats every gR rows like the bedding joints (an odd gR leaves one fault per gR rows).
+    // (The slide stays within reach of the 3 × 3 search: a little past the cell at most, where the neighbours' sites are
+    // still further off.)
+    float ox = clamp((hs.x - 0.5) * jit.x * sh + 0.5 * stg * (float(imod(imod(cs.y, gR), 2)) - 0.5) + du, -0.62, 0.62);
+    vec2 S = (vec2(c) + 0.5 + vec2(ox, (hs.z - 0.5) * jit.y + 0.5 * (b0 + b1))) * K;
+    float hw = hs.y;
+    // Power weights: size variation, plus the row's half thickness squared — with it the border between two rows' sites
+    // lies on their bedding joint (exactly, for sites square across it), whatever the rows' thicknesses.
+    float w = (hw - 0.5) * wsc + kb * kb * hh * hh;
     // The mesa to put among the highest (a skirt; at g == 38 the pixel's own block): its signed px distance from its
     // border (> 0 outside), run, face, crest, end share, identity, site, skirt width (−1: none), facing, random, row.
     bool ins = false;
@@ -1048,6 +1113,7 @@ GenOut gen(vec2 p) {
         best3 = best2; S3 = S2; w3 = w2; c3n = c2n;
         best2 = best; S2 = Sb; w2 = bw; c2n = bc;
         best = dd; Sb = S; bw = w; bc = c; bmg = mg; bg0 = c - imod(cg, ivec2(2));
+        if (rkFaceted) bH = fract(h2.xy * 7.13 + h.zy * 3.71);
       } else if (dd < best2) {
         best3 = best2; S3 = S2; w3 = w2; c3n = c2n;
         best2 = dd; S2 = S; w2 = w; c2n = c;
@@ -1057,13 +1123,18 @@ GenOut gen(vec2 p) {
       // (In the frame: comparing the reduced groups misfires in tiny tiles, where a wrapped copy lies in the window.)
       bool inner = bmg && all(greaterThanEqual(c - bg0, ivec2(0))) && all(lessThan(c - bg0, ivec2(2)));
       // The face's origin: the site, or the group's centre (in c's frame: cg plus the wrap offset c − cg).
-      vec2 So = mg ? (vec2(grp * 2 + (c - cg)) + 1.0) * K : S;
+      // (A group spans two rows: centred between its outer bedding joints.)
+      vec2 So = S;
+      if (mg) {
+        int r1 = c.y - imod(cg.y, 2);
+        So = vec2(float(c.x - imod(cg.x, 2)) + 1.0, float(r1) + 1.0 + 0.5 * (odd ? bE + b1 : b0 + bE)) * K;
+      }
       // Power bisectors (g < 0 on the near site's side) and their px distances through the frame's transpose
       // (F = K (mx (q.x − s q.y) / W, m (q.y + t q.x) / H)). Fb: the nearest point of this cell's border.
       vec2 Fb = Fo;
       // Facets' scarps run out twice as far (soft creases rather than one-pixel cracks) and don't lean: lean is the
       // bedding's ledges.
-      float run0 = o == 0 ? scarp : 2.0 * scarp, lean = o == 0 ? u_lean : 0.0;
+      float run0 = runG, lean = o == 0 ? u_lean : 0.0;
       float dout = 0.0, dB = 0.0, run = run0, endK = 0.0, up = 0.0;
       if (c != bc) {
         // The skirt's distance: from the pixel to this cell, as the farthest of its borders with the pixel's three nearest
@@ -1080,8 +1151,8 @@ GenOut gen(vec2 p) {
         // the skirt away from the block where an inner border meets the group's outline). They still bound the distance.
         ivec2 cg0 = c - imod(cg, ivec2(2));
         vec2 N = vec2(1.0, 0.0), nPx = vec2(1.0, 0.0), N0 = N, nPx0 = nPx, nPx2 = vec2(0.0, 1.0);
-        float gb = 0.0, sgn = -1e9, sgnR = -1e9, sgn2 = -1e9, sgn0 = 0.0;
-        vec2 nPxR = nPx;
+        float g0 = 0.0, wf = 0.0, gb = 0.0, sgn = -1e9, sgnR = -1e9, sgn2 = -1e9, sgn3 = -1e9, sgn0 = 0.0;
+        vec2 nPxR = nPx, nPx3 = nPx2, Sf = Sb;
         for (int k = 0; k < 4 * UNI_1; k++) {
           vec2 Sk = k == 0 ? Sb : k == 1 ? S2 : k == 2 ? S3 : Mk.xy;
           float wk = k == 0 ? bw : k == 1 ? w2 : k == 2 ? w3 : Mk.z;
@@ -1094,23 +1165,22 @@ GenOut gen(vec2 p) {
           float gk = dot(Fo - 0.5 * (S + Sk), Nk) + 0.5 * (w - wk);
           vec2 nk = vec2(mx * Nk.x / W + t * kb * m * Nk.y / H, kb * m * Nk.y / H - s * mx * Nk.x / W);
           float sk = skip ? -1e9 : -gk / max(length(nk), 1e-6);
-          if (k == 0) { sgn0 = sk; N0 = Nk; nPx0 = nk; }
-          if (sk > sgn) { sgn = sk; gb = gk; N = Nk; nPx = nk; }
+          if (k == 0) { sgn0 = sk; N0 = Nk; nPx0 = nk; g0 = gk; }
+          if (sk > sgn) { sgn = sk; gb = gk; N = Nk; nPx = nk; Sf = Sk; wf = wk; }
           // The two farthest borders other than mates' (the corner rounding's).
           float skR = mateK ? -1e9 : sk;
-          if (skR > sgnR) { sgn2 = sgnR; nPx2 = nPxR; sgnR = skR; nPxR = nk; }
-          else if (skR > sgn2) { sgn2 = skR; nPx2 = nk; }
+          if (skR > sgnR) { sgn3 = sgn2; nPx3 = nPx2; sgn2 = sgnR; nPx2 = nPxR; sgnR = skR; nPxR = nk; }
+          else if (skR > sgn2) { sgn3 = sgn2; nPx3 = nPx2; sgn2 = skR; nPx2 = nk; }
+          else if (skR > sgn3) { sgn3 = skR; nPx3 = nk; }
         }
         dout = max(sgn, 0.0);
         dB = dout;
-        // Rounded corners (blocks), outside: within kC of two of this cell's borders, the distance to its corner rounded
-        // by kC — the exterior of the rounded box the pixel's own block uses inside (at g == 38), so a skirt meets the
-        // rounded shoulder across the border without a lip. The borders' normals point into this cell, the own block's out
-        // of it: the same angle between them.
-        if (o == 0 && kC > 0.0 && sgn2 > -kC) {
-          float cn = dot(nPxR, nPx2) / max(length(nPxR) * length(nPx2), 1e-6);
-          // (Acute corners keep the right-angle form: exact, they'd jump where the second border comes within kC.)
-          dout = mix(dout, max(dout, rk_cornerK(sgnR, sgn2, cn, kC)), rk_turn(cn));
+        // Rounded corners (blocks), outside: near two of this cell's borders, the rounded distance the pixel's own block
+        // uses inside (at g == 38), so a skirt meets the rounded shoulder across the border without a lip. The borders'
+        // normals point into this cell, the own block's out of it: the same angle between them.
+        if (o == 0 && kC > 0.0 && sgnR - sgn2 < kR) {
+          vec2 uR = nPxR / max(length(nPxR), 1e-6), u2 = nPx2 / max(length(nPx2), 1e-6), u3 = nPx3 / max(length(nPx3), 1e-6);
+          dout = max(dout, rk_round3(sgnR, sgn2, sgn3, uR, u2, u3, kR));
         }
         Fb = Fo - min(gb, 0.0) / max(dot(N, N), 1e-6) * N;
         // 1 where this border is one of the block's ends (across the bedding), 0 along its sides.
@@ -1125,13 +1195,21 @@ GenOut gen(vec2 p) {
         // In a fused group the nearest site's bisectors cut through the group (its mates' cells are the block too): there
         // the farthest of the three borders, as for the skirts.
         if (bmg) { sgn0 = sgn; N0 = N; nPx0 = nPx; }
+        // Faceted: this border's plane (the own block's border with this cell; the farthest, in a fused group).
+        if (pyrOn && o == 0 && !inner) {
+          vec2 Sk = bmg ? Sf : Sb;
+          vec2 Nn = S - Sk;
+          float gP = dot(Pa - 0.5 * (S + Sk), Nn) + 0.5 * (w - (bmg ? wf : bw));
+          pyr = min(pyr, max(-(bmg ? gb : g0), 0.0) / max(-gP, 0.1 * length(Nn)));
+        }
         float up0 = (vert ? nPx0.x : nPx0.y) / max(length(nPx0), 1e-6);
         if (!inner) {
           // The two nearest borders (corner rounding needs both).
           vec2 nn = nPx0 / max(length(nPx0), 1e-6);
           float endK0 = abs(N0.x) / max(length(N0), 1e-6);
-          if (sgn0 < din) { din2 = din; dinN2 = dinN; din = sgn0; dinN = nn; dinRun = run0 * max(1.0 - lean * up0, 0.25); dinEnd = endK0; dinC = cw; }
-          else if (sgn0 < din2) { din2 = sgn0; dinN2 = nn; }
+          if (sgn0 < din) { din3 = din2; dinN3 = dinN2; din2 = din; dinN2 = dinN; din = sgn0; dinN = nn; dinRun = run0 * max(1.0 - lean * up0, 0.25); dinEnd = endK0; dinC = mg ? gid : cw; }
+          else if (sgn0 < din2) { din3 = din2; dinN3 = dinN2; din2 = sgn0; dinN2 = nn; }
+          else if (sgn0 < din3) { din3 = sgn0; dinN3 = nn; }
           // The block's top edge (its neighbour lies above on screen): where streaks start.
           if (o == 0 && up0 > 0.4) dTop = min(dTop, max(sgn0, 0.0));
         }
@@ -1139,10 +1217,12 @@ GenOut gen(vec2 p) {
       vec2 df = (Fb - So) / K;
       float ta = hf2.x * TAU;
       float dome = 1.0 - (mg ? 1.0 : 4.0) * dot(df, df), domeMax = 1.0;
+      // Faceted: a neighbour's face at its border is its planes' foot (0); the pixel's own block takes its planes after
+      // the loop (all its borders seen), from 0.5 here.
+      if (pyrOn && o == 0) dome = c == bc ? 0.5 : 0.0;
       if (crested) {
-        // Ridges and prisms span their own row, between the midpoints to the rows either side (rows shift by jRow).
-        float hm = rk_rowOff(c.y - 1, o, gR), hp = rk_rowOff(c.y + 1, o, gR);
-        float lo = float(c.y) + 0.5 * (hm + hr) * jRow, hi = float(c.y) + 1.0 + 0.5 * (hr + hp) * jRow;
+        // Ridges and prisms span their own row, between its bedding joints.
+        float lo = float(c.y) + b0, hi = float(c.y) + 1.0 + b1;
         float y = (Fb.y / kb - 0.5 * (lo + hi)) / max(hi - lo, 0.05);
         if (u_crest == 1) dome = 1.0 - 2.0 * abs(y);
         else {
@@ -1174,6 +1254,10 @@ GenOut gen(vec2 p) {
       if (c == bc) {
         ownFace = amp * face; ownCrest = amp * crest; ownC = mg ? gid : cw; ownS = S; ownRnd = fract(hf2.z * 7.13 + hf.z);
         ownRow = ivec2(imod(rowC, gR), 0);
+        if (o == 0) {
+          bedTh = 2.0 * hh;
+          bedY = float(c.y) + clamp((f.y - float(c.y) - b0) / max(bedTh, 0.05), 0.0, 1.0);
+        }
       } else if (!inner) {
         // (A fused group's other cells share its face, which the pixel's own block already carries: left out, so they
         // can't stand second-highest at the group's outer border and hide the crease there.)
@@ -1195,15 +1279,17 @@ GenOut gen(vec2 p) {
       }
     } else {
       // The pixel's own block, its shoulder rounded inside its nearest border (no drop at all when Weathering is 0).
-      // Rounded corners (blocks): within kC px of two borders, the distance to a corner rounded by kC (rk_corner, the
-      // rounded-box form at any angle) — the corner sinks away in a curve beyond the arc — and the crease moves out by the
-      // same amount, so the cracks open up where blocks meet. Elsewhere (one border near, or none) nothing changes.
+      // Rounded corners (blocks): near two borders, the rounded distance (rk_cornerK) — the corner sinks away in a curve —
+      // and the crease moves out by the same amount, so the cracks open up where blocks meet. Elsewhere (one border near,
+      // or none) nothing changes.
       float dinS = din;
-      if (o == 0 && kC > 0.0 && din2 < kC) {
-        float cn = dot(dinN, dinN2);
-        dinS = mix(din, -rk_cornerK(-din, -din2, cn, kC), rk_turn(cn));
+      if (o == 0 && kC > 0.0 && din2 - din < kR) {
+        dinS = -rk_round3(-din, -din2, -din3, dinN, dinN2, dinN3, kR);
         dcR = din - dinS;
       }
+      if (o == 0) { dGeo = dinS; gC = dinC; gEnd = dinEnd; gO = ownC; }
+      // Faceted: the own block's planes, now that all its borders are in.
+      if (pyrOn && o == 0) ownFace += amp * u_bulge * (min(pyr, 1.0) - 0.5);
       ins = true; dS = -dinS; runI = dinRun; faceI = ownFace; crestI = ownCrest; endI = dinEnd; idI = ownC; SI = ownS;
       rndI = ownRnd; rowI = ownRow;
     }
@@ -1228,7 +1314,7 @@ GenOut gen(vec2 p) {
     }
     if (g == 38) {
       relief += pb1;
-      float d = (pb1 - pb2) * scarp;
+      float d = (pb1 - pb2) * scG;
       // On a skirt from its top edge (the border it falls from) to its foot (the crease), anti-aliased at both.
       // Facets' skirts count by their strength squared: at full weight every little facet step paints a dark fleck.
       // Scarp facing: up > 0 when the skirt's block lies above the pixel on screen (the skirt runs down: an underside).
@@ -1236,9 +1322,9 @@ GenOut gen(vec2 p) {
       float sk = wd >= 0.0 ? min(amp * amp, 1.0) * clamp(wd + 0.5, 0.0, 1.0) * clamp(d + 0.5, 0.0, 1.0) : 0.0;
       scarps = max(scarps, fk * sk);
       scarpsAll = max(scarpsAll, sk);
-      if (o == 0) { dc.x = d; dc.z = (pb1 - pb3) * scarp; c1 = o1; c2 = o2; c5 = o3; s1 = x1; s2 = x2; s5 = x3; }
+      if (o == 0) { dc.x = d; dc.z = (pb1 - pb3) * scG; c1 = o1; c2 = o2; c5 = o3; s1 = x1; s2 = x2; s5 = x3; }
       // How deep the crease lies below the higher block's face: a step reaches further than a flat joint.
-      if (o == 0) stepH = max(wd >= 0.0 ? wd / max(scarp, 0.05) : 0.0, 0.0);
+      if (o == 0) stepH = max(wd >= 0.0 ? wd / max(scG, 0.05) : 0.0, 0.0);
       // Facet joints follow the facet's own cell border (straight): its crease, where a tilted face meets a neighbour's
       // skirt, curves, and cracked it curled into worms.
       if (o == 1) { dc.y = max(din, 0.0); c3 = ownC; c4 = dinC; }
@@ -1260,13 +1346,18 @@ GenOut gen(vec2 p) {
   float v = 0.5 + 0.5 * tanh(relief) + u_rough * zf * (rn - 0.5);
   if (u_rills > 0.0 && reliefOut) v -= rk_rills(p, rl);
   if (u_pits > 0.0 && reliefOut) v -= rk_pits(p, lb, scarpsAll, dc.x, pxs);
-  if (u_laminae > 0.0 && reliefOut) v -= rk_laminae(f.y, lb, T, gR, pxs);
+  if (u_laminae > 0.0 && reliefOut) v -= rk_laminae(bedY, bedTh, lb, T, gR, pxs);
   // Joints: cracks along the creases of the blocks (and, thinner, along some of the first facets' creases), sunk below
   // the faces; the blocks between them are the shape.
   // A joint across the bedding (its blocks lie end to end) takes the cross-joint share of the width; along its length a
   // crack pinches and swells with the (smooth, block-sized) warp noise, by the width variation.
   float swell = max(1.0 + 1.6 * u_joint_var * (wv.x - 0.5), 0.0);
-  dc.xz -= dcR;
+  dc.z -= dcR;
+  // With Corner rounding the main crack is the blocks' rounded outline itself (each side's own block, and the joint across
+  // its nearest border): the crease, measured from the relief, wandered with the skirts' steps and lean and tore into
+  // bristles across the wide gaps at the junctions. (dcR is 0 without rounding: the crease, as before.)
+  bool geo = kC > 0.0;
+  if (geo) { dc.x = dGeo; c1 = gO; c2 = gC; }
   // One loop over the joints, so rk_joint's code exists once (D3D inlines every call): the blocks' crease (k = 0); where
   // that joint is closed, the crease with the third highest block (k = 1: for the mask's distance alone, the nearest
   // open crease past the closed one); the first facets' crease (k = 2).
@@ -1276,7 +1367,7 @@ GenOut gen(vec2 p) {
     bool facet = k == 2;
     if (k == 0 || (k == 1 ? !mainOpen && dc.z < 1e6 : rkBlockFacets && u_joint_facets > 0.0 && u_joint > 0.0 && u_detail >= 2)) {
       vec2 sN = (k == 1 ? s5 : s2) - s1;
-      float crossK = abs(sN.x) / max(length(sN), 1e-6);
+      float crossK = k == 0 && geo ? gEnd : abs(sN.x) / max(length(sN), 1e-6);
       // Facet cracks: 0.6 × the width, at most a twelfth of a facet (half a block); see below for their depth.
       vec3 jk = rk_joint(k == 0 ? dc.x : k == 1 ? dc.z : dc.y, facet ? c3 : c1, k == 0 ? c2 : k == 1 ? c5 : c4,
                          facet ? min(0.6 * u_joint, T / 24.0) : u_joint * mix(1.0, u_joint_cross, crossK * crossK) * swell,
@@ -1296,7 +1387,6 @@ GenOut gen(vec2 p) {
       else { jFacetD = jk.y; facetOpen = jk.z > 0.5; }
     }
   }
-  if (u_fractures > 0.0) jx = max(jx, rk_fractures(pw, pxs));
   v -= u_joint_depth * jx;
   // The blocks' distance to their joints (the mask's): to the crease if it is open, else to the third highest block's
   // (it takes over there, past the junction) if that is open, else at least a block's thickness in. (Past a closed joint

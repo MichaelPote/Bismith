@@ -33,16 +33,40 @@ by default).
   determinant.
 - **Blocks.** One jittered site per lattice cell, nearest site by a power distance in the metric `(u, kb·v)`, `kb = 1 +
   2·bedding`: distances across the bedding count more, so course joints lie flat while joints within a course stand
-  across it. _Bedding_ also trades per-site wander across the row (scaled by 1/kb², or the metric would tilt the joints
-  within a course) for a per-row offset, so courses and columns differ in thickness but keep straight sides. A row's
-  offset repeats every gcd(shear, rows) rows — seamless where the shear carries row j over the tile edge into row j +
-  shear. That gcd is the number of distinct beds on the torus, and at 1 a single bed spirals through the whole tile:
+  across it. _Bedding_ cuts the sites' wander across the row (scaled by 1/kb², or the metric would tilt the joints
+  within a course).
+- **Bed variation.** Each bedding joint j moves across the bedding by `b_j` (up to ±0.4 rows at 1), so beds run from a
+  fifth to nearly twice the _Block size_ — whole joints moving, not single blocks. A row's site sits at its centre with
+  the power weight `kb² h²` (h: half its thickness): two rows' sites square across a joint then meet exactly on it, as
+  circles tangent to a line, whatever the thicknesses (the weight cancels between sites of one row, so the joints within
+  a course don't move). Sites' wander across the row shrinks to `1 − bA` so they stay in their cells (the 3 × 3
+  search). Joint j's offset repeats every gcd(shear, rows) rows — seamless where the shear carries row j over the tile
+  edge into row j + shear. The finer generations keep a small variation of their own (half the old row offsets').
+- **Joint angles.** A joint across the bedding leans by `kb² Δv · W/H / Δu` (its sites' offset across the row in
+  rows, over their distance along it in cells): at high Bedding a tiny offset turns it a long way while the bedding
+  joints, moved by half the offset, stay put. Sites get offsets up to `±tan(angle) / (2 kb² W/H)`, so joints lean up to
+  about the angle — uneven four-sided stones instead of rectangles. (Without it the joints stood square to every bed:
+  the old wander across the row was cut by 1/kb² for the bedding's sake.)
+- **Through joints.** With this chance a cell takes its place along the bedding, its size and its offset across the row
+  from the cell before it across the bedding, so their joints line up and run on through both beds. Only the odd rows of
+  the merge pairing link, to the even row before them, so a link never leads to another. A leaning joint runs on
+  straight only if its two sites slide along it as they move to the next row — by the rows' distance times its lean —
+  so a link works on column pairs (2k − 1, 2k): both cells slide by their pair joint's lean, which runs on straight; the
+  other joints of a linked row step a little at the bed, as T-junctions. (The slide may carry a site up to 0.62 of a
+  cell from its centre.) That gcd is the number of distinct beds on the torus, and at 1 a single bed spirals through the whole tile:
   per-bed colour, bed relief and row thickness vanished at many angles (the defaults, the template). When tiling, the
   bed count (±2) and the shear (±1) are nudged to the nearby pair with the most distinct beds (up to 6), preferring to
-  change the thickness — the angle moves a few degrees at most. _Size variation_ is the power weight: some blocks grow
-  over their neighbours.
-- **Merged blocks.** A 2 × 2 group of blocks fuses with this chance: one face (the group's values, centred on the group), no
-  joints, crevices or weathering inside — big blocks among small ones. Blocks only (not ridges and prisms). The group's
+  change the thickness — the angle moves a few degrees at most. _Size variation_ (0–2) is the power weight: some blocks grow
+  over their neighbours (up to 2: past about one cell² of weight a block's cell sometimes outruns the 3 × 3 search,
+  a rare sliver, accepted for the variety). It also drives a scale field: the pixel moves along the gradient of a value
+  noise about two blocks across (`A λ ∇n`, analytic, `rk_vgrad`), whose Jacobian `I + A Hₙ` spreads the blocks out where
+  the noise peaks and packs them where it dips — patches of bigger and smaller stones. `A ≤ 0.1` keeps it below the
+  noise's greatest curvature (~9), so the map never folds; that limits it to about ±25 % in size, so the weights do most
+  of the work.
+- **Merged blocks.** A 2 × 2 group of blocks fuses with this chance: one face (the group's values, centred on the group
+  between its outer bedding joints), no joints, crevices or weathering inside — big blocks among small ones. The group's
+  second row always links (as a through joint) for the group's cells and the cells either side, so its sides run
+  straight through both rows: with each row's own joints, the outline stepped in a right-angled notch at the inner bed. Blocks only (not ridges and prisms). The group's
   other cells are left out of the ranking of the highest mesas altogether: they share the pixel's own face, and counted,
   they stood second-highest along the group's outer border and hid the crease (and its crack) there. Likewise the
   second-highest must be another block than the highest: two cells of one group draping over a neighbour drew a false
@@ -61,6 +85,10 @@ by default).
   bedding) between two slanted shoulders; rounding and corner rounding make lens-shaped stones of them. The parity
   repeats every gR rows like the row offsets, and with a stagger the bed count is nudged towards an even number of
   distinct beds (an odd one leaves a fault every gR rows).
+- **Jaggedness.** The block edges wiggle by up to _Jaggedness_ px (a value-noise offset of the pixel before the frame),
+  _Jaggedness scale_ blocks across (0.2 = ragged teeth; 1–2 = joints that sweep in long curves), with _Jaggedness
+  octaves_ layers of finer wiggles on the biggest (1 = smooth curves only). Strong, fine jaggedness folds space over on
+  itself (the offset turns faster than the pixel moves) and tears the edges; Warp is the bending of whole strata.
 - **Folds.** A broad smooth shift across the bedding (value-noise fBm, _Folds across_ the width), in beds: strata
   that bend across the rock. _Fold sharpness_ folds the noise about its mean, `2 (⅛ − |n − ½|)` (about the same
   amplitude): a V-shaped hinge wherever the noise crosses its mean — chevron folds, as in folded shale. Sharp folds get
@@ -75,6 +103,11 @@ by default).
   highest mesa, so a high block drapes over lower neighbours: plateaus and shelves, with scarps whose run grows with the
   height they fall. Evaluating a neighbour's face at its border (not extrapolating its tilted plane to the pixel) keeps
   a tilted block from slicing diagonal wedges across its neighbours. _Face rounding_ below 0 scoops the faces out.
+- **Scarp run.** A skirt falls by one unit of height per _Scarp width_ px (facets twice that), levelling off smoothly
+  towards a cell's thickness for blocks and 0.6 of one for facets (`run · cap / (run + cap)`): a skirt that reached past
+  the cells around its block (the 5 × 5 window, the three nearest sites' borders) was cut off or jumped there — jagged
+  shards over its neighbours at wide scarps, at once in the small facet cells. The crease distances convert relief back
+  to px with the same run.
 - **Skirt distances.** A neighbour's skirt needs the px distance from the pixel to that neighbour's cell. Its border
   with the pixel's nearest site is exact only for cells next to the pixel's; for cells further away it underestimates,
   and it jumps wherever the nearest site changes — visible steps in the skirts (46 height jumps in a 256 × 128 test at
@@ -91,22 +124,34 @@ by default).
   own shoulder (its nearest border, tracked through the loop) and its neighbours' skirts. Facets round by their share of
   the relief, or every facet border becomes a groove. Sheer one-pixel steps light as harsh white and black lines under a
   low key light; 1–2 px of weathering softens them into the gentle shading the references have.
-- **Corner rounding.** Within _Corner rounding_ px of two of its borders, a block's inside distance becomes the distance
-  to a corner of that radius — the rounded-box form over the two nearest borders, exact at any angle (`rk_corner`: the
-  nearer edge where the point projects onto it, else the vertex, from the two distances and the cosine between the
-  normals; `|(r − d₁, r − d₂)|` holds only at right angles and put skirts 22 % too far at 120° corners; acute corners
-  keep it, or the exact form jumps where the second border comes within reach) — so the corner sinks away beyond the
-  arc, and the crease moves out by the same amount, opening the cracks where blocks meet: rubble, pillows, worn cobbles.
-  Only where the two borders really turn (normals more than ~20° apart): at a T-junction of courses the edge runs
-  straight on and is left alone. (A first version used a log-sum-exp soft minimum over all the borders; in small blocks
-  every border is within reach, so whole blocks sank into holes.) Neighbours' skirts use the same rounded box from
-  outside — `rk_corner(d₁ + r, d₂ + r, cos) − r`, gated by the same turn — over a cell's two farthest borders other than
-  a fused group's inner ones (taken for corners, they pulled a group's skirt away from it where an inner border meets
-  the outline; they still bound the distance): rounded on the inside only, a corner sank inside its border but its skirt
-  stood sharp outside — a lip at the scarp's top. Known limit: the cosine belongs to the second border, so where the
-  second and third swap (a cell with three borders within reach: wide scarps with rounding, or blocks under about twice
-  the radius) the rounded distance steps; at the usual sizes it doesn't show (cobbles and rubble at 8 px blocks, radius
-  3, checked).
+- **Corner rounding.** A block's distance from its borders becomes a smooth maximum of the two nearest (`rk_cornerK`,
+  width `k` = 2 × _Corner rounding_ px): `max(a, b) + k h² / 4`, `h = max(k − |a − b|, 0) / k`. A corner sinks by `k / 4`
+  whatever its angle and the outline curves over about `k` along each side, so stones round off and **don't meet at
+  points**: every junction opens into a small void, as in rubble and drystone walls. (The first version took the exact
+  distance to a corner of radius r: it sinks a corner by `r (1 / sin(φ/2) − 1)`, 0.41 r at a right angle but 0.15 r at
+  the 120° corners a scattered layout mostly has, so stones still met at points.) Only where the borders really turn
+  (normals more than ~20° apart): at a T-junction of courses the edge runs straight on. The rounding is taken with the
+  second nearest border and with the third, each gated by its own turn, and the larger kept (`rk_round3`): symmetric in
+  the two, so it doesn't jump where they swap — gating by the second's turn alone tore the voids into feathers. The
+  crease moves out with it. Neighbours' skirts use the same form from outside over a cell's three farthest borders other
+  than a fused group's inner ones: rounded on the inside only, a corner sank inside its border but its skirt stood
+  sharp outside — a lit lip around the voids. (A log-sum-exp soft minimum over all the borders was tried first; in small
+  blocks every border is within reach, so whole blocks sank into holes.)
+- **Rounded cracks.** With _Corner rounding_ on, the main crack (and the Shape mask's distance, and the crevices) follows
+  the blocks' rounded outlines themselves: each pixel's own block's rounded distance from its nearest border, with the
+  joint across that border (open or closed, its cross-joint share from that border's direction). The crease, measured
+  from the relief, wanders with the skirts' steps and lean, and the wide voids at the junctions showed it as torn
+  bristles. Without rounding the crack stays on the crease (at the foot of a step), as before.
+- **Faceted.** _Rounding shape_ Faceted turns each block's face into flat planes, one rising from each of its borders to
+  a peak inside it (off the site by up to a quarter cell, a fused group's at the group's centre): split, angular stone.
+  The height is the least, over the block's borders, of the pixel's distance from the border over the peak's — 0 on every
+  border, 1 at the peak, and each border's region exactly the plane through it and the peak. Both distances come from the
+  border's own power-bisector equation, so their ratio needs no normalising; the peak's is floored at a tenth of a cell
+  (a power diagram's site can lie outside its own cell). The own block takes its planes after the 5 × 5 loop, once all its
+  borders are in; a neighbour's face at its border is its planes' foot (0). Blocks only (finer facets keep the dome). The
+  code compiles only into layers that pick it (`RK_FACETED`, a `shaderFeatures` variant, chosen by the dropdown): ~0.25 s
+  of cold D3D compile otherwise paid by every Rock layer. Strong _Face rounding_ (> ~1.2) bows the planes a little, as
+  all relief goes through the final tanh.
 - **Prisms.** _Rounding shape_ Ridge or Hexagonal prism gives each block a profile across its own row (between the
   midpoints to the rows either side, so it spans the course or column whatever its width): a ridge, or the upper hull of
   a hexagon (circumradius half the row) turned 0–60° per block, so two or three flat faces show, its steepest faces'
@@ -172,8 +217,9 @@ by default).
   each a parabolic bowl, round-bottomed and meeting its neighbours in sharp crests, cut into segments about _Rill
   length_ long with their own depth, fading in and out along each — the fluting water wears into limestone. (A first
   version used billowed Perlin noise stretched down the screen; it read as cross-hatching, not flutes.)
-- **Laminae.** Fine grooves along the bedding, a whole number per bed, each with its own depth (by its index, which
-  repeats where the beds do), fading in and out with a breakup noise.
+- **Laminae.** Fine grooves along the bedding, a whole number per bed (spaced across the pixel's own bed, so thin beds
+  have finer laminae), each with its own depth (by its index, which repeats where the beds do), fading in and out with a
+  breakup noise.
 
 ### Joints
 
@@ -181,7 +227,9 @@ The two highest mesas give the crease distance `(P₁ − P₂) × scarp` px —
 blocks. _Joint width_ opens it into a crack, each joint (block pair, hashed order-free) by its own share (_Joint
 variation_), pinching and swelling along its length with the block-sized warp noise. _Open joints_ keeps only a share of
 them, each along its whole length; a closed joint doesn't part its blocks (no crack, no bevel, one piece in the Shape
-Mask — with no cracks at all, every crease outlines its blocks). _Cross-joint width_ scales the joints across the
+Mask). At _Joint width_ 0 it still decides which joints part the blocks in the mask (and so where a Bevel rounds them
+apart); it then defaults to 0 (`linkedDefaults`), so the blocks blend into one piece unless asked otherwise. (Before,
+width 0 opened every joint: each stone bevelled apart from its neighbours.) _Cross-joint width_ scales the joints across the
 bedding (blocks end to end, from the two sites' offset): wide bedding cracks and thin cross cracks for slate, the
 reverse for limestone's vertical cracks. _Facet joints_ cracks a share of the first facet level's borders too, at 0.6×
 the width (at most a twelfth of a facet) — along the facet cell's straight border, not its crease: where a tilted face
@@ -190,13 +238,9 @@ the joints, and the Shape card's bevel rounds the blocks into the main joints on
 turned them into wide grooves (L-shaped gouges across rubble stones). _Facet joint breakup_ fades them in and out along
 their length (value noise about half a block across; the crack's distance shrinks with it, so its crevice glow and Shape
 Mask taper to a point — switched off at half, they ended in a hard line): partial hairline cracks inside the stones —
-whole and straight, they read as cracked plaster. _Long fractures_ are straight cracks that cut across many blocks at
-their own angle (tectonic joints): lanes about two blocks apart across the fracture direction, each holding segments
-~4.5 blocks long with the fractures' chance, a little off the lane's centre and turned a few degrees, fading out at
-their ends. When tiling, the direction is snapped to a primitive lattice vector `v = (a W, b H)` and completed to a
-basis with `u = (c W, d H)`, `ad − bc = 1`; lanes and segments are counted in whole numbers along `v` and across it, and
-each tile-step across the lanes shifts the segments back by its slide along them — checked numerically (every key
-invariant under both tile periods) and in the seam test. Under a pixel wide a crack stays one pixel wide and fades with
+whole and straight, they read as cracked plaster. (_Long fractures_, straight cracks cutting across many blocks at an
+angle of their own, were removed: Through joints and Joint angles carry joints across the beds instead.) Under a pixel
+wide a crack stays one pixel wide and fades with
 its width (box filter), or diagonal hairlines break into dots.
 
 ### Outputs and randoms
@@ -219,7 +263,7 @@ its width (box filter), or diagonal hairlines break into dots.
 - _Random value_ (Diffuse › Random / jitter): per block, per bed (a row's value repeats where its thickness does), per
   bed varied a little per block, or per facet (patchwork colour).
 
-Every snapped count (beds, blocks, the cross-joint shear, rills, streak columns, fracture lanes, the noises' cell counts)
+Every snapped count (beds, blocks, the cross-joint shear, rills, streak columns, the noises' cell counts)
 is worked out once on the CPU (`rockDerived`, in float32 steps), so it comes out the same on every backend. On the GPU
 these counts — ratios of whole numbers, often exact halves — were rounded by the GPU's last-bit error, differently on
 D3D11 and OpenGL: a slate at −20° got another lattice on Windows (PSNR 21 between the backends). Snapped counts still
@@ -290,7 +334,7 @@ rubble and Cobbles (Brown cobbles) — generated from the recreations, not retyp
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Layered ledges               | size 24, elongation 1.4, bedding 0.3, merge 0.6, coherence 0.2, bed relief 0.8, lean −0.6 (sheer undersides), scarp 2, weathering 2, 3 facet levels at 0.8; 0.5 px joints, 12 % open, cross-joint width 2; Height 8, key light 22° |
 | Crumpled dark rock           | angle −10°, size 16, bedding 0.45, tilt 1.6, lean −0.4, 3 levels at 0.5, zones 0.7; crevices multiplied dark, blue-black / brown grain                                                                                             |
-| Slate plates                 | angle −20°, size 18, elongation 2, heights 0.5, tilt 0.4, folds 1.5, grain 0.25, 2 levels; 2.5 px joints all open, cross-joint width 0.3, facet joints 0.2, long fractures 0.5 at −60°; 0.5 px bevel; mottle overlay               |
+| Slate plates                 | angle −20°, size 18, elongation 2, heights 0.5, tilt 0.4, folds 1.5, grain 0.25, 2 levels; 2.5 px joints all open, cross-joint width 0.3, facet joints 0.2; 0.5 px bevel; mottle overlay                                           |
 | Columns                      | angle 90°, cross-joint angle 20°, size 13, elongation 2.5, bedding 0.7, heights 0.8, bed relief 1.5, pitch 1 (lit caps); hexagonal prism 1, scarp 0.8, lean −0.3; Height 6; vertical streak noise (stretch 0.15) multiplied        |
 | Coursed rubble               | size 30, bedding 0.9, dome 0.3, weathering 3, corner rounding 2, grain 0.1, 1.5 px joints + facet joints 0.3 with breakup 0.6, proud 0.4, facets 0.3, 2 px round bevel; Height 2                                                   |
 | Sandstone flakes             | angle −25°, size 10, elongation 2.5, bedding 0.3, folds 1.5, bed relief 0.8, heights 1.2, tilt 0.8, lean −0.3, scarp 5 stepped every 2 px (steps 1), 3 levels, zones 0.6; scarps painted olive, bed colour overlay; Height 4       |
@@ -324,7 +368,7 @@ light cast them best. Colour comes as much from geometry as from paint: dark rec
 - [x] Facet levels (square, offset, less bedded, soft, faded under 8 px), fracture zones, roughness, tanh relief
 - [x] Rills, laminae, pits
 - [x] Joints with width variation (per joint and along it), open share, cross-joint width, facet joints along the facet
-      borders (with breakup), long fractures on a lattice basis, sub-pixel fade; Shape mask
+      borders (with breakup), sub-pixel fade; Shape mask
 - [x] Corner rounding (rounded-box form), bed relief, pitch, stagger (running bond), scarp steps
 - [x] Proud blocks; editor defaults that read as rock (recreations keep every param explicit); layer presets of the proven looks
 - [x] Outputs: Relief, Scarps (facing), Crevices (reach, patches), Streaks; per-bed / per-facet randoms
