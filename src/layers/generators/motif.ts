@@ -62,6 +62,8 @@ const isStyle =
 	(...s: string[]) =>
 	(p: Record<string, unknown>) =>
 		s.includes(String(p.style));
+/** Circuit chips are drawn. */
+const hasChips = (p: Record<string, unknown>) => p.style === 'circuit' && Number(p.chips) > 0;
 const isTone = (p: Record<string, unknown>) => p.style === 'arcs' && String(p.draw).startsWith('tone');
 
 // ---- CPU side (cpuData): the layouts that need the whole grid — the maze's, rooms' and labyrinth's walls with a
@@ -133,10 +135,13 @@ function bigPieces(segs: [number, number][], nNodes: number, min = 5, glue: [num
 	return roots.map((r) => r === keep || size.get(r)! >= min);
 }
 
-/** A random 0..1 as 16 bits: the two bytes of the texel's R, G (mot_rnd16 reads them back). */
-function rnd16(v: number): [number, number] {
+/** A cell's texel at byte o: a random 0..1 as 16 bits in R, G (mot_rnd16 reads them back), then B and A. */
+function putTexel(data: Uint8Array, o: number, v: number, b: number, a: number): void {
 	const r = Math.min(65535, Math.floor(v * 65536));
-	return [r >> 8, r & 255];
+	data[o] = r >> 8;
+	data[o + 1] = r & 255;
+	data[o + 2] = b;
+	data[o + 3] = a;
 }
 
 /**
@@ -648,7 +653,10 @@ function circuitTiles(p: ParamValues, nx: number, ny: number, tile: boolean, see
 	if (wide > 0) {
 		const pick = new Map<number, boolean>();
 		const tiles = new Map<number, number>();
-		for (let i = 0; i < W * H; i++) tiles.set(uf.find(i), (tiles.get(uf.find(i)) ?? 0) + 1);
+		for (let i = 0; i < W * H; i++) {
+			const r = uf.find(i);
+			tiles.set(r, (tiles.get(r) ?? 0) + 1);
+		}
 		for (const [r, k] of tiles) if (k < 6) pick.set(r, false);
 		for (let i = 0; i < W * H; i++) if (chip[i] >= 0) pick.set(uf.find(i), false);
 		for (let y = lo; y <= hiY; y++)
@@ -661,9 +669,12 @@ function circuitTiles(p: ParamValues, nx: number, ny: number, tile: boolean, see
 	}
 	const data = new Uint8Array(W * H * 4);
 	for (let i = 0; i < W * H; i++)
-		data.set(
-			[...rnd16(u2f(pcg3(uf.find(i), 5, seed))), out[i] | ((dir[i] + 1) << 4) | (chip[i] >= 0 ? 128 : 0), place[i]],
-			i * 4
+		putTexel(
+			data,
+			i * 4,
+			u2f(pcg3(uf.find(i), 5, seed)),
+			out[i] | ((dir[i] + 1) << 4) | (chip[i] >= 0 ? 128 : 0),
+			place[i]
 		);
 	return data;
 }
@@ -688,8 +699,7 @@ export function truchetCells(
 		: style === 'maze'
 			? mazeWalls(p, nx, ny, ctx.tileable, seed)
 			: labyrinthWalls(p, nx, ny, ctx.tileable, seed);
-	for (let i = 0; i < W * H; i++)
-		data.set([...rnd16(room ? room.rnd[i] : u2f(pcg3(i, 11, seed))), walls[i], 255], i * 4);
+	for (let i = 0; i < W * H; i++) putTexel(data, i * 4, room ? room.rnd[i] : u2f(pcg3(i, 11, seed)), walls[i], 255);
 	return { cells: { width: W, height: H, data } };
 }
 
@@ -859,11 +869,11 @@ export const truchetLayer: LayerDef = {
 			hint: 'Places chips with pins, this likely in each block of chip size + 2 + scatter cells'
 		}),
 		P.int('chip_w', 'Chip width', 2, 1, 16, {
-			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+			showIf: hasChips,
 			hint: 'How many cells across each chip is, with a one-cell margin of traces round it'
 		}),
 		P.int('chip_h', 'Chip height', 2, 1, 16, {
-			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+			showIf: hasChips,
 			hint: 'How many cells down each chip is'
 		}),
 		P.enum(
@@ -875,13 +885,13 @@ export const truchetLayer: LayerDef = {
 				['ic', 'IC', 'square legs on every side for the traces to meet, and a notch at one end']
 			],
 			{
-				showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0
+				showIf: hasChips
 			}
 		),
 		P.int('chip_scatter', 'Chip scatter', 4, 0, 32, {
 			softMax: 8,
 			uniform: false,
-			showIf: (p) => p.style === 'circuit' && Number(p.chips) > 0,
+			showIf: hasChips,
 			hint: 'Adds extra cells to each chip’s block and puts the chip at a random place in it, for sparser, irregular placement (0 = a regular grid)'
 		}),
 		P.seed()
@@ -911,7 +921,7 @@ vec4 mot_cellData(ivec2 c, ivec2 n) {
 // Loop bounds below read a uniform (UNI_1, 1 at run time): D3D's compiler can't unroll such loops, so each body is
 // compiled once instead of once per iteration — the style loops took seconds to compile unrolled.
 
-// A texel's byte, and the 16-bit random of a cell's R, G (rnd16 on the CPU).
+// A texel's byte, and the 16-bit random of a cell's R, G (putTexel on the CPU).
 int mot_byte(float v) { return int(v * 255.0 + 0.5); }
 float mot_rnd16(vec4 t) { return (float(mot_byte(t.r)) * 256.0 + float(mot_byte(t.g)) + 0.5) / 65536.0; }
 

@@ -7,6 +7,7 @@
 import { P, gradient, halfPx, type ParamDef, type ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
 import { maskParts } from '../commonParams';
+import { GLSL_MOULD } from '../glsl/mould';
 import { GRB_GLSL, ORIENT, ORIENT_ACROSS, ORIENT_ALONG } from './greebleCommon';
 
 // Option order is the uniform's index (the GLSL tests it): only append.
@@ -108,11 +109,11 @@ export function trimFresh({ width, height }: { width: number; height: number }):
 // holes and seams (chip their edges, dirt in the cuts); Rivets / slots, a band or the dividers let one layer's colour or
 // roughness land on just those.
 const TRIM_PARTS = maskParts('mask_shape', 'strip', [
-	['strip', 'Strip material', 'the strips without their holes and seams'],
-	['blocks', 'Blocks'],
+	['blocks', 'Blocks between dividers'],
 	['dividers', 'Dividers'],
 	['elements', 'Rivets / slots'],
-	['band', 'One band']
+	['band', 'One band'],
+	['strip', 'Strip material', 'the strips without their holes and seams']
 ]);
 
 export const trimLayer: LayerDef = {
@@ -123,28 +124,15 @@ export const trimLayer: LayerDef = {
 	area: true,
 	sdf: true,
 	// The relief writes its shape to the mask only when it is given one (mask_shape); the shape outputs always do.
-	maskWrite: (p) => (p.output !== 'relief' || p.mask_shape !== 'none' ? 'shape' : false),
+	maskWrite: TRIM_PARTS.write,
 	// What of the relief goes to a mask (Write to › Source).
 	maskSources: TRIM_PARTS.sources,
 	description:
 		'Moulding / trim strip: Made from stacked profiled bands (bead, cove, ogee, groove, step…) with optional dividers and a row of rivets, bolts, screws, slots or holes. Makes trim textures, trim sheets and trim bands across walls.',
 	params: [
-		P.enum(
-			'output',
-			'Output',
-			'relief',
-			[
-				['relief', 'Relief (all, value)'],
-				['blocks', 'Blocks between dividers (shape)'],
-				['dividers', 'Dividers (shape)'],
-				['elements', 'Rivets / slots (shape)'],
-				['band', 'One band (shape)'],
-				['strip', 'Strip material (shape)']
-			],
-			{
-				hint: 'Relief combines the bands, dividers and elements into one height value. The shape outputs give you one kind of element as a shape. Strip material is the strips without their holes and seams'
-			}
-		),
+		P.enum('output', 'Output', 'relief', TRIM_PARTS.outputs('Relief (all, value)'), {
+			hint: 'Relief combines the bands, dividers and elements into one height value. The shape outputs give you one kind of element as a shape. Strip material is the strips without their holes and seams'
+		}),
 		TRIM_PARTS.param,
 
 		P.enum('orient', 'Direction', 'horizontal', ORIENT),
@@ -480,22 +468,19 @@ export const trimLayer: LayerDef = {
 	fresh: trimFresh,
 	glsl:
 		GRB_GLSL +
+		GLSL_MOULD +
 		/* glsl */ `
 // Band shape 0..1 at t (0 = outer edge, 1 = inner edge); y = px from the band's outer edge, h = band px.
 float grb_bandShape(int prof, float t, float y, float h) {
-  float x = 2.0 * t - 1.0;
   if (prof == 0) return 1.0;
-  if (prof == 1) return sqrt(max(1.0 - x * x, 0.0));
-  if (prof == 2) return 1.0 - sqrt(max(1.0 - x * x, 0.0));
-  if (prof == 3) return 1.0 - abs(x);
-  if (prof == 4) return min(abs(x) * 2.0, 1.0);
+  if (prof == 1) return mouldBead(t);
+  if (prof == 2) return 1.0 - mouldBead(t);
+  if (prof == 3) return mouldRidge(t);
+  if (prof == 4) return min(abs(2.0 * t - 1.0) * 2.0, 1.0);
   if (prof == 5) return grb_rise(-min(y, h - y), u_bevel);
-  if (prof == 6) return t;
-  if (prof == 7) return 1.0 - t;
-  // Quarter rounds (8, 9), ogees (10, 11) and coves (12, 13: concave quarter rounds), rising (even) or falling (odd)
-  // inward.
+  // Chamfers (6, 7), quarter rounds (8, 9), ogees (10, 11) and coves (12, 13), rising (even) or falling (odd) inward.
   float r = (prof & 1) == 0 ? t : 1.0 - t;
-  return prof < 10 ? sqrt(max(1.0 - (1.0 - r) * (1.0 - r), 0.0)) : prof < 12 ? r * r * (3.0 - 2.0 * r) : 1.0 - sqrt(max(1.0 - r * r, 0.0));
+  return mouldEase(prof < 8 ? 1 : prof < 10 ? 2 : prof < 12 ? 4 : 3, r, true);
 }
 
 // Join bands: bit p set where profile p starts at its level (flute, groove, the falling ones), and where it ends there.
@@ -959,9 +944,11 @@ GenOut gen(vec2 p) {
   if (ek >= 3 && ek <= 6) dMat = max(dMat, -E.dE);
   dMat = max(dMat, -E.dMiss);
 
+  // The part's shape, for the shape output or the relief's mask (TRIM_PARTS: the same numbers).
+  int sel = u_output > 0 ? u_output : u_mask_shape;
+  float dm = sel == 1 ? D.dBlk : sel == 2 ? D.dDiv : sel == 3 ? E.dE : sel == 4 ? dBand : dMat;
   if (u_output == 0) {
     int m = u_mask_shape;
-    float dm = m == 1 ? dMat : m == 2 ? D.dBlk : m == 3 ? D.dDiv : m == 4 ? E.dE : dBand;
     float cov = grb_cov(dStrip);
     v = clamp(v, 0.0, 1.0);
     GenOut g;   // (no ternary on structs in WebGL)
@@ -972,8 +959,7 @@ GenOut gen(vec2 p) {
     if (nd > 0 && !u_div_return) g.feat *= clamp(1.0 + min(a - B.fLo, B.fHi - a) / max(2.0, 0.15 * (B.fHi - B.fLo)), 0.0, 1.0);
     return g;
   }
-  GenOut g = genOut(0.0, 1.0, u_output == 3 ? E.rnd : D.rnd,
-                    u_output == 1 ? D.dBlk : u_output == 2 ? D.dDiv : u_output == 3 ? E.dE : u_output == 4 ? dBand : dMat);
+  GenOut g = genOut(0.0, 1.0, u_output == 3 ? E.rnd : D.rnd, dm);
   if (bevelAspectOn()) g.bdist = trm_bdist(vert, s, dStrip, nd, ek, r, es, D, E, B, yA, yE, dBand);
   return g;
 }

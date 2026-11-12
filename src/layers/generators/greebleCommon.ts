@@ -10,6 +10,25 @@
 
 import { orientAxis } from '@/core/params';
 
+/**
+ * The fastener heads' kinds and slots (GLSL), for the layers that draw heads without the rest of the greeble toolkit
+ * (Bolts / Rivets); GRB_GLSL includes it.
+ */
+export const GRB_HEADS_GLSL = /* glsl */ `
+// The round counterbore a sunk fastener head stands in: this × the head's radius.
+#define GRB_SINK_R 1.55
+// grb_fastener's own kinds (0 dome, 1 Allen, 2 hex, 3 slotted, 4 cross, 5 hole) for FASTENER_HEADS': a sunk kind is its
+// plain head (in a counterbore).
+const int GRB_FK[8] = int[8](0, 1, 1, 2, 2, 3, 4, 5);
+// A screw's slot across a pan head of radius r, or two crossed: 1 in the slot, stopping short of the rim.
+float grb_slots(bool crossed, vec2 d, float r) {
+  float gw = max(0.5, 0.11 * r);
+  float g = 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.y));
+  if (crossed) g = max(g, 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.x)));
+  return g * (1.0 - smoothstep(0.75 * r, 0.8 * r, length(d)));
+}
+`;
+
 /** GLSL helpers (prefixed `grb_`). Needs the SDF-layer uniforms u_aa / u_profile. */
 export const GRB_GLSL = /* glsl */ `
 float grb_cov(float d) { return coverage(d, u_aa); }
@@ -41,32 +60,11 @@ float grb_dome(float d, float r) {
   return sqrt(max(1.0 - x * x, 0.0));
 }
 
-// Hexagon of inradius r (flat top and bottom).
-float grb_hexagon(vec2 p, float r) {
-  const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
-  p = abs(p);
-  p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
-  p -= vec2(clamp(p.x, -k.z * r, k.z * r), r);
-  return length(p) * sign(p.y);
-}
-
-// The round counterbore a sunk fastener head stands in: this × the head's radius.
-#define GRB_SINK_R 1.55
-// grb_fastener's own kinds (0 dome, 1 Allen, 2 hex, 3 slotted, 4 cross, 5 hole) for FASTENER_HEADS': a sunk kind is its
-// plain head (in a counterbore).
-const int GRB_FK[8] = int[8](0, 1, 1, 2, 2, 3, 4, 5);
+${GRB_HEADS_GLSL}
 // How far a fastener's footprint reaches from its centre: the head, or a sunk kind's counterbore.
 float grb_fastenerReach(int kind, float r) { return (kind == 2 || kind == 4 ? GRB_SINK_R : 1.0) * r; }
 // A pan head's height (0..0.85) at x = distance ÷ radius: flat over most of it, rounding over at its rim.
 float grb_pan(float x) { return 0.85 * sqrt(max(1.0 - x * x * x * x, 0.0)); }
-// A screw's slot across a pan head of radius r, or two crossed: 1 in the slot, stopping short of the rim.
-float grb_slots(bool crossed, vec2 d, float r) {
-  float gw = max(0.5, 0.11 * r);
-  float g = 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.y));
-  if (crossed) g = max(g, 1.0 - smoothstep(gw - 0.5, gw + 0.5, abs(d.x)));
-  return g * (1.0 - smoothstep(0.75 * r, 0.8 * r, length(d)));
-}
-
 // A fastener head (FASTENER_HEADS: 0 dome, 1 Allen bolt, 2 Allen bolt sunk, 3 hex head, 4 hex head sunk, 5 slotted
 // screw, 6 cross screw, 7 screw hole) at d from its centre — d already turned to the head's own angle — head radius r;
 // the sunk kinds stand in a round counterbore pk deep (in head heights; the caller's choice). Returns x: height relative
@@ -87,7 +85,7 @@ vec3 grb_fastener(int kind, vec2 d, float r, float pk) {
   float pr = GRB_SINK_R * r;
   float pocket = pk > 0.0 ? 1.0 - smoothstep(pr - 1.0, pr, l) : 0.0;
   // (One hexagon: a hex head's flats, or an Allen bolt's socket.)
-  float hx = grb_hexagon(d, kind == 2 ? 0.87 * r : max(0.5 * r, 1.0));
+  float hx = sdHexagon(d, kind == 2 ? 0.87 * r : max(0.5 * r, 1.0));
   float head, dark = 0.0;
   if (kind == 2) {
     // A hex head: steep flats, its corners chamfered towards a flat top.

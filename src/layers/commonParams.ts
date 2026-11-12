@@ -178,18 +178,36 @@ export const MASK_WRITE_PARAMS: ParamDef[] = Array.from({ length: MAX_WRITE_ROWS
 /**
  * A generator's parts for its masks (Greebles, Vents, Pipes, Trim): the enum `key` its shader reads to pick the shape that
  * goes to the mask (hidden — Write to › Source picks it; its 'none' kept for stored values), and one Source per part,
- * `main` (it rides in the layer's own pass), the default first.
+ * `main` (it rides in the layer's own pass), the default first. The option index (1…) is the part's number in the
+ * shader, shared with the Output enum `outputs` builds (Relief, then each part as a shape: the same index), so one
+ * `u_output > 0 ? u_output : u_mask` picks the part either way; parts the Output menu doesn't offer go last.
+ * `write` is the type's LayerDef.maskWrite: the shape outputs always write their shape, the relief only when given a part.
  */
 export function maskParts(
 	key: string,
 	def: string,
 	options: ([string, string] | [string, string, string])[]
-): { param: ParamDef; sources: MaskSourceDef[] } {
+): {
+	param: ParamDef;
+	sources: MaskSourceDef[];
+	outputs: (relief: string, count?: number) => ([string, string] | [string, string, string])[];
+	write: (p: Record<string, unknown>) => 'shape' | false;
+} {
 	const param = P.enum(key, 'Shape for the mask', def, [['none', 'None'], ...options], {
 		showIf: () => false,
 		optimize: false,
 		hint: 'Set by Mask › Write to › Source'
 	});
+	const outputs = (relief: string, count = options.length) => [
+		['relief', relief] as [string, string],
+		...options
+			.slice(0, count)
+			.map(([value, label, hint]): [string, string] | [string, string, string] =>
+				hint ? [value, `${label} (shape)`, hint] : [value, `${label} (shape)`]
+			)
+	];
+	const write = (p: Record<string, unknown>) =>
+		(p.output ?? 'relief') !== 'relief' || (p[key] ?? def) !== 'none' ? ('shape' as const) : false;
 	const ordered = [...options.filter((o) => o[0] === def), ...options.filter((o) => o[0] !== def)];
 	const sources = ordered.map(([value, label, hint]) => ({
 		value,
@@ -198,7 +216,7 @@ export function maskParts(
 		params: { [key]: value },
 		main: true
 	}));
-	return { param, sources };
+	return { param, sources, outputs, write };
 }
 
 /**
@@ -601,6 +619,78 @@ export const spacingParams = (extra: Pick<ParamDef, 'group' | 'showIf'> = {}): P
 		hint: 'Pushes the rows apart (or, below 0, pulls them together) by this share of the texture height (1 = a whole height more between neighbours). The grid stays centred, and when tiling, rows pushed past an edge come round the other side'
 	})
 ];
+
+/** Where a shape or motif sits: its centre (X, Y within each repeat cell) and its Rotation. */
+export const placementParams = (): ParamDef[] => [
+	P.float('x', 'X', 0.5, -2, 3, {
+		softMin: 0,
+		softMax: 1,
+		step: 0.001,
+		hint: 'Moves the centre across (0…1, within each repeat cell)'
+	}),
+	P.float('y', 'Y', 0.5, -2, 3, {
+		softMin: 0,
+		softMax: 1,
+		step: 0.001,
+		hint: 'Moves the centre down (0…1, within each repeat cell)'
+	}),
+	P.float('rotation', 'Rotation', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1 })
+];
+
+/**
+ * A repeat grid of instances (the Repeat card of shapes and motifs): Columns, Rows (sliders up to `softMax`), spacing,
+ * Row offset, Position jitter, Rotation and Size variation, Drop out, then the seed. Jitter is `rep_jitter` in px
+ * (shapes) or `rep_jit`, a share of the cell (motifs: half a cell at 1). `after` puts a type's own params after one of
+ * these (by key).
+ */
+export function repeatParams(o: {
+	softMax: number;
+	jitter: 'px' | 'cell';
+	scaleHint?: string;
+	after?: Record<string, ParamDef[]>;
+}): ParamDef[] {
+	const group = 'repeat';
+	const list = [
+		P.int('rep_x', 'Columns', 1, 1, 256, { softMax: o.softMax, group }),
+		P.int('rep_y', 'Rows', 1, 1, 256, { softMax: o.softMax, group }),
+		...spacingParams({ group }),
+		P.float('rep_stagger', 'Row offset', 0, 0, 1, {
+			step: 0.001,
+			group,
+			hint: 'Shifts every other row sideways (use an even row count to tile)'
+		}),
+		o.jitter === 'px'
+			? P.float('rep_jitter', 'Position jitter', 0, 0, 1024, {
+					softMax: 64,
+					unit: 'px',
+					step: 0.1,
+					group,
+					hint: 'Moves each instance randomly, up to this far from its place on each axis'
+				})
+			: P.float('rep_jit', 'Position jitter', 0, 0, 1, {
+					step: 0.001,
+					group,
+					hint: 'Moves each instance randomly off its cell centre, up to half a cell at 1, for scattered medallions or uneven rune text'
+				}),
+		P.float('rep_rot', 'Rotation variation', 0, 0, 180, {
+			unit: '°',
+			step: 0.1,
+			group,
+			hint: 'Turns each instance randomly, up to this much either way'
+		}),
+		P.float('rep_scale', 'Size variation', 0, 0, 0.95, {
+			step: 0.001,
+			group,
+			hint: o.scaleHint ?? 'Shrinks each instance randomly, by up to this fraction'
+		}),
+		P.float('rep_drop', 'Drop out', 0, 0, 1, {
+			step: 0.001,
+			group,
+			hint: 'Removes this fraction of the instances at random'
+		})
+	];
+	return [...list.flatMap((p) => [p, ...(o.after?.[p.key] ?? [])]), P.seed()];
+}
 
 const PHASE_HINT =
 	'Animates the noise: 0 → 1 is one seamless loop (render frames at even steps), and it repeats beyond 1';

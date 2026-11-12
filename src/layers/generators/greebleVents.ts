@@ -32,9 +32,9 @@ const VENT_PARTS = maskParts('mask', 'plate', [
 	['frame', 'Frame', 'the border frame (needs a Frame width)']
 ]);
 const PIPE_PARTS = maskParts('mask', 'all', [
-	['all', 'Pipes + clamps', 'the pipes with their joints, and the clamps'],
 	['pipes', 'Pipes', 'the pipes with their joints'],
-	['clamps', 'Clamps']
+	['clamps', 'Clamps'],
+	['all', 'Pipes + clamps', 'the pipes with their joints, and the clamps']
 ]);
 
 export const ventsLayer: LayerDef = {
@@ -240,7 +240,7 @@ export const ventsLayer: LayerDef = {
 		{ id: 'frame', label: 'Frame' },
 		{ id: 'wear', label: 'Wear' }
 	],
-	maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'plate') !== 'none' ? 'shape' : false),
+	maskWrite: VENT_PARTS.write,
 	// What of the relief goes to a mask (Write to › Source).
 	maskSources: VENT_PARTS.sources,
 	defaults: {
@@ -568,20 +568,9 @@ export const pipesLayer: LayerDef = {
 	description:
 		'Pipes & conduits: Made from runs of parallel round pipes or flat conduits, optionally bundled, with couplings, flanges or welds and clamp straps. Makes pipework, cable trunking and industrial walls.',
 	params: [
-		P.enum(
-			'output',
-			'Output',
-			'relief',
-			[
-				['relief', 'Relief (all, value)'],
-				['pipes', 'Pipes (shape)'],
-				['clamps', 'Clamps (shape)'],
-				['both', 'Pipes + clamps (shape)']
-			],
-			{
-				hint: 'Relief gives true half-cylinder heights for round pipes, or bevelled conduits, with their joints and clamps. For pipes as a shape (joints included), use the Round profile with a bevel about the radius'
-			}
-		),
+		P.enum('output', 'Output', 'relief', PIPE_PARTS.outputs('Relief (all, value)'), {
+			hint: 'Relief gives true half-cylinder heights for round pipes, or bevelled conduits, with their joints and clamps. For pipes as a shape (joints included), use the Round profile with a bevel about the radius'
+		}),
 		P.enum('orient', 'Direction', 'horizontal', ORIENT),
 		P.enum('shape', 'Pipe shape', 'round', [
 			['round', 'Round pipe'],
@@ -748,7 +737,7 @@ export const pipesLayer: LayerDef = {
 		{ id: 'joints', label: 'Joints' },
 		{ id: 'clamps', label: 'Clamps' }
 	],
-	maskWrite: (p) => ((p.output ?? 'relief') !== 'relief' || (p.mask ?? 'all') !== 'none' ? 'shape' : false),
+	maskWrite: PIPE_PARTS.write,
 	// What of the relief goes to a mask (Write to › Source).
 	maskSources: PIPE_PARTS.sources,
 	defaults: {
@@ -1019,8 +1008,11 @@ GenOut gen(vec2 p) {
   }
 
   float dPJ = min(dP, dJ);
+  // The part's shape, for the shape output or the relief's mask (PIPE_PARTS: the same numbers).
+  int sel = u_output > 0 ? u_output : u_mask;
+  float dSh = sel == 1 ? dPJ : sel == 2 ? dC : min(dPJ, dC);
   if (u_output > 0) {
-    GenOut g = genOut(0.0, 1.0, rnd, u_output == 1 ? dPJ : u_output == 2 ? dC : min(dPJ, dC));
+    GenOut g = genOut(0.0, 1.0, rnd, dSh);
     float dPJk = min(dPk, dJk);
     if (bevelAspectOn()) g.bdist = u_output == 1 ? dPJk : u_output == 2 ? dCk : min(dPJk, dCk);
     return g;
@@ -1029,7 +1021,7 @@ GenOut gen(vec2 p) {
   float v = clamp(pBest / Rmax, 0.0, 1.0);
   GenOut o;
   if (u_mask == 0) o = genOut(v, 1.0, rnd, NO_SDF);
-  else o = genOutOwn(v, 1.0, rnd, u_mask == 1 ? min(dPJ, dC) : u_mask == 2 ? dPJ : dC);
+  else o = genOutOwn(v, 1.0, rnd, dSh);
   o.hval = clamp(hBest / Rmax, 0.0, 1.0);   // Height follows the height where the paint doesn't (feet, conduit straps)
   // True to size: the px heights in Height-depth units (never exactly 0, so the layer still covers the wall between).
   if (u_scale == 1) o.height = max(hBest, 1e-4) / max(uDepth, 1e-3);

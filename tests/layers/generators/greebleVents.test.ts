@@ -100,9 +100,25 @@ describe('vents & pipes', () => {
 		expect(opts('pipes', 'joint_style')).toEqual(['coupling', 'flange', 'weld']);
 		expect(opts('vents', 'output')).toEqual(['relief', 'slots', 'plate', 'frame']);
 		expect(opts('vents', 'mask')).toEqual(['none', 'plate', 'slots', 'frame']);
-		expect(opts('pipes', 'output')).toEqual(['relief', 'pipes', 'clamps', 'both']);
-		expect(opts('pipes', 'mask')).toEqual(['none', 'all', 'pipes', 'clamps']);
+		expect(opts('pipes', 'output')).toEqual(['relief', 'pipes', 'clamps', 'all']);
+		// The mask's parts share the output's numbers (maskParts).
+		expect(opts('pipes', 'mask')).toEqual(['none', 'pipes', 'clamps', 'all']);
 		expect(opts('pipes', 'scale')).toEqual(['unit', 'true']);
+	});
+
+	it('numbers each part the same in Output and the relief’s mask (one part pick in the shader)', () => {
+		const opts = (type: string, key: string) =>
+			layerParamDefs(type)
+				.find((d) => d.key === key)!
+				.options!.map((o) => o.value);
+		for (const [type, mask] of [
+			['greebles', 'mask'],
+			['trim', 'mask_shape'],
+			['pipes', 'mask']
+		]) {
+			const out = opts(type, 'output');
+			expect(opts(type, mask).slice(1, out.length), type).toEqual(out.slice(1));
+		}
 	});
 
 	it('only sets known params in the editor defaults, and marks lengths as px', () => {

@@ -426,16 +426,6 @@ export const bismuthLayer: LayerDef = {
 		)
 	}),
 	glsl: /* glsl */ `
-// Pointy-topped hexagon of circumradius r (IQ's hexagon, x and y swapped so it stands on a point).
-float bsHex(vec2 p, float r) {
-  const vec3 k = vec3(-0.8660254, 0.5, 0.5773503);
-  p = abs(p.yx);
-  p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
-  float ap = 0.8660254 * r;
-  p -= vec2(clamp(p.x, -k.z * ap, k.z * ap), ap);
-  return length(p) * sign(p.y);
-}
-
 // A crystal's outline at q, radius R: x the distance (px, < 0 inside) to a square or a pointy-topped hexagon with its
 // corners rounded (Corner rounding), its sides stepped in and out along their length (Edge noise: 1D value noise along
 // the nearest side, held flat over a terrace's length and stepping between, so the edge jogs square instead of
@@ -445,7 +435,7 @@ float bsHex(vec2 p, float r) {
 vec2 bsOutline(vec2 q, float R, bool cube, int ns, ivec2 key, float sg, float tpx, float dl) {
   float ap = cube ? 0.8660254 * R : R;
   float rr = clamp(u_round, 0.0, 0.5) * ap;
-  float ds = cube ? bsHex(q, R - rr / 0.8660254) - rr : sdBox(q, vec2(R - rr)) - rr;
+  float ds = cube ? sdHexagon(q.yx, 0.8660254 * (R - rr / 0.8660254)) - rr : sdBox(q, vec2(R - rr)) - rr;
   float sa = TAU / float(ns);
   float j = mod(floor(atan(q.y, q.x) / sa + 0.5), float(ns));
   vec2 n = vec2(cos(j * sa), sin(j * sa));

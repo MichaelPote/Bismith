@@ -8,7 +8,7 @@
 // colour ramp paints multi-tone bitmaps; repeats can carry their own random instead.
 
 import { FONT, parseBitmap } from '@/core/bitmap';
-import { Lru } from '@/core/memo';
+import { Lru, memoReads } from '@/core/memo';
 import { P, type ParamDef, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
 import { getImage } from '@/core/images';
@@ -23,10 +23,10 @@ export interface Cells {
 }
 
 /** Stamp bitmaps: up to 128 × 128 cells. */
-export const STAMP_MAX = 128;
+const STAMP_MAX = 128;
 /** Label bitmaps: up to 256 cells across, 128 down. */
-export const LABEL_MAX_W = 256;
-export const LABEL_MAX_H = 128;
+const LABEL_MAX_W = 256;
+const LABEL_MAX_H = 128;
 
 /** Rows of cell characters (one row per line; blank lines at either end dropped): core/bitmap's parser. */
 export function parseCells(src: string): Cells {
@@ -491,7 +491,7 @@ function guardCorners(l: Pt[], rho: number): Pt[] {
  * From 1 to 2 the uneven staircase runs between corners are fitted by straight segments (up to a cell off at 2), corners rounded within half
  * a cell; beyond 2 the fit loosens and the corner rounds grow (to 3½ cells at 4).
  */
-export function smoothLoops(c: Cells, a: number): Pt[][] {
+function smoothLoops(c: Cells, a: number): Pt[][] {
 	const k = Math.min(1, Math.max(0, a));
 	// Each edge's ends cut back toward its middle (one corner cut at ratio k/2: the same from either direction, so a
 	// symmetric drawing stays symmetric); at 1 only the midpoints are left.
@@ -859,7 +859,7 @@ function cellsKey(c: Cells): string {
 	return `${c.w}x${c.h}#${(h >>> 0).toString(36)}`;
 }
 
-export interface StampMap {
+interface StampMap {
 	/** Empty cells kept round the bitmap (bitmap cells). */
 	margin: number;
 	/** Smoothed outline (0 = the pixel outline, exact): its amount, 0..1. */
@@ -974,7 +974,7 @@ export function stampTexture(c: Cells, o: StampMap): CpuTexture {
  * square as the colours. Smoothed outline: one texel per cell, the signed centre distances (R, G: "≥ 2"; B, A: "≥ 3";
  * 16 bits, 1/16 cell), read bilinearly like the outline.
  */
-export function levelTexture(c: Cells, o: StampMap): CpuTexture {
+function levelTexture(c: Cells, o: StampMap): CpuTexture {
 	if (!hasCells(c)) return EMPTY_TEX;
 	const g = stampGrid(c, o);
 	const hit = lvCache.get(g);
@@ -1630,6 +1630,18 @@ function imageTextures(q: ParamValues): Record<string, CpuTexture> {
 	return { ...t, img: img ? { width: img.width, height: img.height, data: img.data } : NO_IMAGE };
 }
 
+/**
+ * The typed pixels' textures, remembered by the params they read (a colour or Height slider doesn't rebuild them). An
+ * image's (imageTextures) aren't: the image may still be loading.
+ */
+const pixelTextures = memoReads(
+	(q: ParamValues): Record<string, CpuTexture> => ({
+		...layerTextures(mirrorCells(parseCells(String(q.pixels ?? '')), q.mirror), q, { levels: true }),
+		img: NO_IMAGE
+	}),
+	4
+);
+
 export const stampLayer: LayerDef = {
 	type: 'stamp',
 	label: 'Stamp',
@@ -1732,17 +1744,11 @@ export const stampLayer: LayerDef = {
 	paramPatch: { bevel: { note: (p) => wideBevelNote(p) } },
 	fresh: (t) => freshStamp(t, 22),
 	textures: ['stamp', 'lv', 'img'],
-	cpuData: (q) =>
-		fromImage(q)
-			? imageTextures(q)
-			: {
-					...layerTextures(mirrorCells(parseCells(String(q.pixels ?? '')), q.mirror), q, { levels: true }),
-					img: NO_IMAGE
-				},
+	cpuData: (q) => (fromImage(q) ? imageTextures(q) : pixelTextures(q)),
 	glsl: 'const bool u_bev_lim = false;\n#define STAMP_IMAGE\n#define STAMP_LEVELS\n' + STAMP_GLSL
 };
 
-export const labelLayer: LayerDef = {
+const labelLayer: LayerDef = {
 	type: 'label',
 	label: 'Label',
 	category: 'shape',
@@ -1810,7 +1816,8 @@ export const labelLayer: LayerDef = {
 		return { ...f, ...(small ? { font: 'small', line_gap: 1 } : {}), ...(big ? {} : { smooth: 0, join: false }) };
 	},
 	textures: ['stamp'],
-	cpuData: (q) => {
+	// (Remembered by the params it reads, as Stamp's typed pixels.)
+	cpuData: memoReads((q: ParamValues) => {
 		// Join diagonals and Smooth outline ≥ 1: drawn as strokes. With Join diagonals, bold is applied after the join
 		// (only the advance is widened here).
 		const strokes = Boolean(q.join) && Number(q.smooth ?? 0) >= 1;
@@ -1824,7 +1831,7 @@ export const labelLayer: LayerDef = {
 			strokeGlyphs: strokes
 		});
 		return layerTextures(c, q, { strokes, boldLate: Boolean(q.join) });
-	},
+	}, 4),
 	// Lettering is all one level: no level edges (STAMP_LEVELS).
 	glsl: STAMP_GLSL
 };
