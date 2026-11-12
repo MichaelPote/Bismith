@@ -15,10 +15,16 @@
 
 import { P, gradient } from '@/core/params';
 import type { LayerDef } from '../types';
+import { flakeScarParams, flakeScarsGlsl } from './flakeScars';
 
 type P_ = Record<string, unknown>;
 const breaksOn = (p: P_) => Number(p.stone_chips) > 0 || Number(p.stone_corners) > 0 || Number(p.stone_wear) > 0;
 const scarsOn = (p: P_) => Number(p.flakes) > 0;
+const scarP = flakeScarParams(
+	'flake',
+	{ edge: 0.9, size: [40, 1024, 160], where: 'edges', edgeOf: 'the' },
+	{ group: 'flakes', showIf: scarsOn }
+);
 const cracksOn = (p: P_) => Number(p.cracks) > 0;
 const faultsOn = (p: P_) => Number(p.faults) > 0;
 
@@ -107,20 +113,8 @@ export const cracksLayer: LayerDef = {
 			group: 'flakes',
 			hint: 'How much of the surface near the edges is knocked off in flake scars: shallow bowls whose rims meet in crisp ridges, between patches of the untouched face'
 		}),
-		P.float('flake_edge', 'Scars from edges', 0.9, 0, 1, {
-			step: 0.001,
-			group: 'flakes',
-			showIf: scarsOn,
-			hint: 'How many of the scars are struck from the nearest edge — deep at the edge and running inward, the way a mason pitches a rock face — rather than lying any which way across the face'
-		}),
-		P.float('flake_size', 'Scar size', 40, 2, 1024, {
-			softMax: 160,
-			unit: 'px',
-			step: 0.1,
-			group: 'flakes',
-			showIf: scarsOn,
-			hint: 'Sets the spacing of the big scars (each one 0.55–0.95 of this across, stretched up to 2.4×)'
-		}),
+		scarP.edge,
+		scarP.size,
 		P.float('flake_depth', 'Scar depth', 1, 0, 2, {
 			softMax: 1,
 			step: 0.001,
@@ -128,18 +122,8 @@ export const cracksLayer: LayerDef = {
 			showIf: scarsOn,
 			hint: 'How deep the deepest scars cut, as a share of the height below. They only sink the surface; the light shows them, not the Diffuse colour'
 		}),
-		P.float('flake_stretch', 'Scar stretch', 1, 0, 1, {
-			step: 0.001,
-			group: 'flakes',
-			showIf: scarsOn,
-			hint: 'Stretches the scars along the edge they were struck from, into scallops (up to 2.4×)'
-		}),
-		P.float('flake_detail', 'Small scars', 0.5, 0, 1, {
-			step: 0.001,
-			group: 'flakes',
-			showIf: scarsOn,
-			hint: 'Adds a second, finer set of scars (under half the size) chipped into the edges and the big scars'
-		}),
+		scarP.stretch,
+		scarP.detail,
 		P.float('flake_jag', 'Scar raggedness', 0.5, 0, 1, {
 			step: 0.001,
 			group: 'flakes',
@@ -354,16 +338,31 @@ float ch_cell(int set, ivec2 cw, vec2 r, vec2 cpx, vec2 p, out vec3 dn) {
   return h < u_stone_chips + u_stone_corners * corner ? 1.0 + corner : 0.0;
 }
 
-// Flake scars, struck the way Stone blocks pitches its faces: each a hollow below the surface, 0 at its rim and about
-// −1 at its deepest; the lowest wins, so rims meet in crisp ridges and the face between them stays whole. One scar is a
-// tilted plane — deepest at its struck end, running out at a grazing angle at the other — walled in by the bowl d⁸ − 1
-// wherever that is shallower: a steep, crisp wall round the struck end, the sides curving up to the rim. (Stone blocks'
-// d⁴ read soft here: a share of a shape's height is shallower than its scars, so the walls are steeper.) Most are struck
-// from the mask's nearest edge (Scars from edges: the struck end at the edge, the scar running inward, wider along the
-// edge than inward); one whose struck end falls short of the edge fades out, so a big piece keeps its face in the middle.
-// Two sizes in one flat loop (the 4 × 4 cells round p, which hold every scar reaching it: a scar reaches at most 1.45
-// cells, its site 0.1 cells inside its own). Each piece of the mask (fid ≥ 0: its feature random) reads the field at an
-// offset of its own and keeps only the scars whose site lies on it, so scars never run on across a joint.
+// Flake scars (flakeScars.ts), struck from the mask's nearest edge along its outward normal (with no edge in reach,
+// dn.x is −1e4: no struck scar). Steeper walls than Stone blocks' (d⁸ − 1: its d⁴ read soft here, as a share of a
+// shape's height is shallower than its scars). Each piece of the mask (fid ≥ 0: its feature random) reads the field at
+// an offset of its own and keeps only the scars whose site lies on it, so scars never run on across a joint.
+${flakeScarsGlsl({
+	name: 'ch_scarField',
+	args: ', bool pieces, float fid',
+	prefix: 'flake',
+	amount: 'u_flakes',
+	seeds: [
+		[493, 491],
+		[499, 497],
+		[509, 503],
+		[523, 521],
+		[547, 541]
+	],
+	wall: 8,
+	edge: /* glsl */ `
+    vec3 dn = ch_regN(sp);
+    vec2 mf = maskInFeat(ivec2(floor(sp + chDl)));
+    on = dn.x < 0.0 && (!pieces || (mf.y > 0.5 && abs(mf.x - fid) < 1e-6));
+    canStrike = true;
+    edgeD = -dn.x;`,
+	angle: 'atan(-dn.z, -dn.y)'
+})}
 float ch_scars(vec2 p, float fid) {
   float scs = max(u_flake_size, 2.0);
   bool pieces = fid >= 0.0;
@@ -372,44 +371,7 @@ float ch_scars(vec2 p, float fid) {
   vec2 nw = cellsFor(uRes.x / (0.5 * scs), 1.0);
   vec2 xw = p / uRes * nw;
   vec2 wp = 0.4 * u_flake_jag * scs * (fbmPair(xw, xw + 17.3, periodOf(nw), 2, uSeed + 481.0, uSeed + 483.0, 2) - 0.5);
-  vec2 cellsB = cellsFor(uRes.x / scs, 1.0), cellsF = cellsFor(uRes.x / (0.42 * scs), 1.0);
-  float s1 = 0.0, s2 = 0.0;
-  for (int e = 0; e < 32 * UNI_1; e++) {
-    bool fine = e >= 16;
-    int k = e & 15;
-    vec2 cells = fine ? cellsF : cellsB;
-    vec2 fo = fine ? vec2(0.37, 0.71) * uRes : vec2(0.0);
-    vec2 x = (p + wp + so + fo) / uRes * cells;
-    ivec2 cc = ivec2(floor(x - 0.5)) - 1 + ivec2(k & 3, k >> 2);
-    ivec2 cw = imod(cc, periodOf(cells));
-    vec4 h = vec4(hash2I(cw, uSeed + (fine ? 491.0 : 493.0)), hash2I(cw, uSeed + (fine ? 497.0 : 499.0)));
-    vec4 h2 = vec4(hash2I(cw, uSeed + (fine ? 503.0 : 509.0)), hash2I(cw, uSeed + (fine ? 521.0 : 523.0)));
-    vec2 site = vec2(cc) + 0.5 + 0.8 * (h.xy - 0.5);
-    // The site on screen (unwarped): one edge and direction for the whole scar, and the piece it lies on.
-    vec2 sp = site / cells * uRes - so - fo;
-    vec3 dn = ch_regN(sp);
-    vec2 mf = maskInFeat(ivec2(floor(sp + chDl)));
-    bool on = dn.x < 0.0 && (!pieces || (mf.y > 0.5 && abs(mf.x - fid) < 1e-6));
-    // Struck from the nearest edge — the scar's −x towards it, along the outward normal — or any which way.
-    bool struck = h2.w < u_flake_edge;
-    float a = struck ? atan(-dn.z, -dn.y) + 0.9 * (h.z - 0.5) : h.z * TAU;
-    vec2 ax = vec2(cos(a), sin(a));
-    vec2 lq = x - site;
-    lq = vec2(dot(lq, ax), dot(lq, vec2(-ax.y, ax.x)));
-    // Wider along the edge than inward (a scallop), up to 2.4×, shrunk to stay within the 4 × 4 window (1.45 cells).
-    float st = 1.0 + 1.4 * u_flake_stretch * h.w;
-    float R = min(0.55 + 0.4 * h2.x, 1.45 / st);
-    vec2 e2 = vec2(lq.x * st, lq.y / st) / R;
-    float d2 = dot(e2, e2);
-    float depth = on && h2.z < u_flakes ? 0.4 + 0.6 * h2.y : 0.0;
-    // (With no edge in reach, dn.x is −1e4: no struck scar.)
-    if (struck) depth *= 1.0 - smoothstep(0.9, 1.4, -dn.x / (R / st * uRes.x / cells.x));
-    float plane = -0.5 * (1.0 - e2.x) * (0.7 + h2.x) + 0.4 * (hashI(cw, uSeed + (fine ? 541.0 : 547.0)) - 0.5) * e2.y;
-    float d4 = d2 * d2;
-    float s = d2 < 1.0 ? depth * max(d4 * d4 - 1.0, plane) : 0.0;
-    if (fine) s2 = min(s2, s); else s1 = min(s1, s);
-  }
-  return s1 + u_flake_detail * 0.42 * s2;
+  return ch_scarField(p, wp, so, scs, pieces, fid);
 }
 
 // Breaks, flake scars, cracks and faults. Breaks are cuts (into cut / cutB: their surface as a distance the bevel
