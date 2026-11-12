@@ -20,9 +20,10 @@
 // differences tell them apart.
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { num, parseArgs, str } from './args';
 import { openSession, type BackendKind } from './backend';
-import { contactSheet, decodePng, readPng, writePng, type Rgba8 } from './png';
+import { gridSheet, pngFromDataUrl as png, targetInput as target, writePng } from './png';
 import type {
 	HeadlessCompareResult,
 	HeadlessOptimizeOptions,
@@ -53,7 +54,7 @@ interface Scores {
 	windows?: number;
 }
 
-const args = process.argv.slice(2);
+const argv = process.argv.slice(2);
 
 interface Row {
 	label: string;
@@ -102,49 +103,35 @@ function report(rows: Row[], baseline: string, labels: string[]): void {
 	}
 }
 
-if (args[0] === '--report') {
-	const rows: Row[] = readFileSync(resolve(args[1]), 'utf8')
+if (argv[0] === '--report') {
+	const rows: Row[] = readFileSync(resolve(argv[1]), 'utf8')
 		.trim()
 		.split('\n')
 		.map((l) => JSON.parse(l));
-	report(rows, args[2], args.slice(3));
+	report(rows, argv[2], argv.slice(3));
 	process.exit(0);
 }
-const flag = (n: string) => {
-	const i = args.indexOf(`--${n}`);
-	return i >= 0 ? args[i + 1] : undefined;
-};
-const specFile = resolve(args[0] ?? '');
+const args = parseArgs(argv);
+const [pairsFile = '', strategyFile] = args.positional;
+const specFile = resolve(pairsFile);
 const spec: Spec = JSON.parse(readFileSync(specFile, 'utf8'));
-const strategy: Strategy = JSON.parse(readFileSync(resolve(args[1] ?? ''), 'utf8'));
+const strategy: Strategy = JSON.parse(readFileSync(resolve(strategyFile ?? ''), 'utf8'));
 const base = dirname(specFile);
-const label = flag('label') ?? basename(args[1] ?? 'run', '.json');
-const outDir = resolve(flag('out') ?? join(base, 'bench'));
-const only = flag('only') ? new RegExp(flag('only')!) : null;
+const label = str(args, 'label') ?? basename(strategyFile ?? 'run', '.json');
+const outDir = resolve(str(args, 'out') ?? join(base, 'bench'));
+const onlyFlag = str(args, 'only');
+const only = onlyFlag ? new RegExp(onlyFlag) : null;
 const pairs = spec.pairs.filter((p) => !only || only.test(p.name));
 const samples = strategy.samples ?? 16;
-const seeds = Number(flag('seeds') ?? 1);
-
-/** PNGs are decoded here (exact 8-bit); other formats (JPEG, WebP) go to the page as data URLs, decoded there. */
-function target(file: string): TargetInput {
-	const ext = extname(file).toLowerCase();
-	if (ext !== '.png') {
-		const type =
-			ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : `image/${ext.slice(1)}`;
-		return `data:${type};base64,${readFileSync(file).toString('base64')}`;
-	}
-	const img = readPng(file);
-	return { width: img.width, height: img.height, rgba: Buffer.from(img.data).toString('base64') };
-}
-const png = (url: string): Rgba8 => decodePng(Buffer.from(url.split(',')[1], 'base64'));
+const seeds = num(args, 'seeds', 1);
 const enabledLayers = (p: unknown) =>
 	(p as { layers: { enabled?: boolean }[] }).layers.filter((l) => l.enabled !== false).length;
 
 async function main() {
 	mkdirSync(join(outDir, label), { recursive: true });
 	const s = await openSession({
-		backend: flag('backend') as BackendKind | undefined,
-		workers: Number(flag('workers') ?? pairs.length)
+		backend: str(args, 'backend') as BackendKind | undefined,
+		workers: num(args, 'workers', pairs.length)
 	});
 	console.error(`[backend ${s.backend}] ${s.renderer} · ${s.workers} workers · ${pairs.length} pairs · label ${label}`);
 	try {
@@ -198,7 +185,7 @@ async function main() {
 				t.improved += v.improved;
 				t.gain += v.gain;
 			}
-		const compare = flag('compare');
+		const compare = str(args, 'compare');
 		if (compare) {
 			const rows: Row[] = readFileSync(join(outDir, 'results.jsonl'), 'utf8')
 				.trim()
@@ -290,14 +277,16 @@ async function runPair(
 	writeFileSync(join(dir, `${pair.name}-s${seed}.json`), JSON.stringify(project, null, 2));
 	writePng(
 		join(dir, `${pair.name}-s${seed}.png`),
-		contactSheet(
+		gridSheet(
 			[
-				png(s1.tileResult.targetPng),
-				png(s0.tileResult.renderPng),
-				png(s1.tileResult.renderPng),
-				png(s1.tileResult.diffPng)
+				[
+					png(s1.tileResult.targetPng),
+					png(s0.tileResult.renderPng),
+					png(s1.tileResult.renderPng),
+					png(s1.tileResult.diffPng)
+				]
 			],
-			3
+			{ scale: 3 }
 		)
 	);
 	const row = {

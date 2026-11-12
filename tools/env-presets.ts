@@ -12,15 +12,14 @@
 // Then render their thumbnails: npx tsx tools/previews.ts --only lighting/studio,lighting/overcast,…
 
 import { writeFileSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { ROOT } from './args';
 import jpegJs from 'jpeg-js';
 import { bytesToDataUrl, encodeUltraHdr, type JpegCodec } from '../src/core/environment';
 import type { Lighting } from '../src/core/project';
 import { createLight, projectToJSON } from '../src/core/serialize';
 import { presetBase, presetProject } from '../src/presets/stage';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const W = 512;
 const H = 256;
 

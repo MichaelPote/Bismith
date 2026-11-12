@@ -9,17 +9,14 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { num, parseArgs, str } from './args';
 import { openSession, type BackendKind } from './backend';
-import { PRESET_DIR, presetFiles, writeManifest } from './presets-manifest';
+import { PRESET_DIR, selectPresets, writeManifest } from './presets-manifest';
 
-const args = process.argv.slice(2);
-const flag = (n: string, d?: string) => {
-	const i = args.indexOf(`--${n}`);
-	return i >= 0 ? args[i + 1] : d;
-};
-const samples = Number(flag('samples', '256'));
-const only = (flag('only', '') ?? '').split(',').filter(Boolean);
-const missing = args.includes('--missing');
+const args = parseArgs(process.argv.slice(2), ['missing']);
+const samples = num(args, 'samples', 256);
+const only = str(args, 'only', '').split(',').filter(Boolean);
+const missing = 'missing' in args.flags;
 
 /** The file's project with `preview` set, keeping its key order (preview before the preset header, as saved). */
 function withPreview(raw: Record<string, unknown>, preview: string): Record<string, unknown> {
@@ -28,17 +25,15 @@ function withPreview(raw: Record<string, unknown>, preview: string): Record<stri
 }
 
 async function main() {
-	const wanted = presetFiles().filter((k) => {
-		if (only.length && !only.some((o) => o === k || o === k.split('/').pop())) return false;
-		if (missing)
-			return !(JSON.parse(readFileSync(join(PRESET_DIR, `${k}.json`), 'utf8')) as { preview?: string }).preview;
-		return true;
-	});
+	const wanted = selectPresets(only).filter(
+		(k) =>
+			!missing || !(JSON.parse(readFileSync(join(PRESET_DIR, `${k}.json`), 'utf8')) as { preview?: string }).preview
+	);
 	if (!wanted.length) {
 		writeManifest();
 		return console.log('[previews] nothing to render');
 	}
-	const s = await openSession({ backend: flag('backend') as BackendKind | undefined, workers: 1, logPage: false });
+	const s = await openSession({ backend: str(args, 'backend') as BackendKind | undefined, logPage: false });
 	console.log(`[previews] ${s.backend}: ${s.renderer}`);
 	try {
 		for (const k of wanted) {

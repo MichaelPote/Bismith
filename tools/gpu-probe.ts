@@ -1,17 +1,10 @@
 // Probe which Chromium launch mode gives a hardware WebGL2 context (WSL2: Mesa d3d12 → host GPU).
 //   npx tsx tools/gpu-probe.ts
 import { chromium } from 'playwright';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+import { chromiumEnv } from './backend';
 
 async function main() {
-	const lib = join(ROOT, '.cache/chromium-libs/usr/lib/x86_64-linux-gnu');
-	const env: Record<string, string> = {};
-	for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
-	if (existsSync(lib)) env.LD_LIBRARY_PATH = [lib, lib + '/nss', env.LD_LIBRARY_PATH].filter(Boolean).join(':');
+	const env = chromiumEnv();
 	env.GALLIUM_DRIVER = 'd3d12';
 	env.MESA_D3D12_DEFAULT_ADAPTER_NAME = 'NVIDIA';
 	const configs: [string, string[]][] = [

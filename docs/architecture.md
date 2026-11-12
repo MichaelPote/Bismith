@@ -501,13 +501,14 @@ src/
   headless.ts        window.__bismith API used by the harness
 tools/
   harness.ts         Playwright CLI (render / compare / optimize / sheet)
-  smoke.ts           renders every layer + post type, reports shader errors, writes contact sheets
+  smoke.ts           renders every layer + post type (GPU when there is one), reports shader errors, writes contact sheets
   presets.ts         renders every preset to a contact sheet
   previews.ts        renders preset thumbnails into the files in public/presets/ (--missing, --only)
   presets-manifest.ts writes public/presets/manifest.json (npm run presets:manifest; build runs it)
   shot.ts            screenshots the editor UI (optionally after scripted clicks)
   tiling.ts          tiling analysis + per-layer blame of projects / presets, tiled hotspot sheets; --fix (FR9)
-  png.ts             Node PNG helpers (read/write, contact sheets)
+  png.ts             Node PNG helpers (read/write, data URLs, Match targets, contact sheets)
+  args.ts            ROOT, flag parsing, directory inputs for the tools
 docs/
   architecture.md    this file
   features/          one plan + checklist per feature

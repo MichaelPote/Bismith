@@ -15,11 +15,12 @@
 // Writes per target: <name>.json (project), <name>.png (render), <name>.sheet.png (target | render | diff),
 // <name>.result.json (scores, template ranking, analysis); plus index.json and gallery.html for the set.
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import { expandInputs, num, parseArgs, str } from './args';
 import { openSession, type BackendKind } from './backend';
-import { contactSheet, decodePng, readPng, writePng } from './png';
+import { gridSheet, pngFromDataUrl as png, readPng, rgbaTarget, writePng } from './png';
 import type { HeadlessEmulateResult } from '../src/headless';
 import type { EmulateOptions } from '../src/match/emulate';
 import { DOOM_PALETTE, QUAKE_PALETTE } from '../src/render/post/palettes';
@@ -27,39 +28,6 @@ import { analyzeTarget, type Analysis } from '../src/match/analyze';
 import { fromRgba8 } from '../src/match/image';
 import { hexToRgb, srgbToOklab } from '../src/core/color';
 import type { Project } from '../src/core/project';
-
-interface Args {
-	positional: string[];
-	flags: Record<string, string | boolean>;
-}
-
-function parseArgs(argv: string[]): Args {
-	const positional: string[] = [];
-	const flags: Record<string, string | boolean> = {};
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i];
-		if (a.startsWith('--')) {
-			const next = argv[i + 1];
-			if (next !== undefined && !next.startsWith('--')) {
-				flags[a.slice(2)] = next;
-				i++;
-			} else flags[a.slice(2)] = true;
-		} else positional.push(a);
-	}
-	return { positional, flags };
-}
-
-const num = (v: string | boolean | undefined, d: number) => (typeof v === 'string' ? Number(v) : d);
-
-function collect(inputs: string[]): string[] {
-	const out: string[] = [];
-	for (const p of inputs) {
-		if (existsSync(p) && statSync(p).isDirectory()) {
-			for (const f of readdirSync(p).sort()) if (extname(f).toLowerCase() === '.png') out.push(join(p, f));
-		} else if (existsSync(p)) out.push(p);
-	}
-	return out;
-}
 
 function plte(file: string): string[] {
 	const b = readFileSync(file);
@@ -203,40 +171,39 @@ ${sections}
 }
 
 async function main() {
-	const args = parseArgs(process.argv.slice(2));
-	let files = collect(args.positional);
-	if (typeof args.flags.only === 'string') {
-		const re = new RegExp(args.flags.only, 'i');
+	const args = parseArgs(process.argv.slice(2), ['resume', 'no-memory', 'no-colour-fit', 'no-texture']);
+	let files = expandInputs(args.positional, (f) => extname(f).toLowerCase() === '.png');
+	const only = str(args, 'only');
+	if (only !== undefined) {
+		const re = new RegExp(only, 'i');
 		files = files.filter((f) => re.test(basename(f)));
 	}
-	if (typeof args.flags.limit === 'string') files = files.slice(0, Number(args.flags.limit));
+	const limit = num(args, 'limit');
+	if (limit !== undefined) files = files.slice(0, limit);
 	if (!args.flags['no-memory'])
 		files = [...files].sort(
 			(a, b) => variantRank(basename(a, '.png')) - variantRank(basename(b, '.png')) || a.localeCompare(b)
 		);
 	if (!files.length) throw new Error('no input PNGs');
-	const set = typeof args.flags.out === 'string' ? basename(args.flags.out) : basename(resolve(args.positional[0]));
-	const out = resolve(typeof args.flags.out === 'string' ? args.flags.out : join('harness-out/emulate', set));
+	const outFlag = str(args, 'out');
+	const set = outFlag !== undefined ? basename(outFlag) : basename(resolve(args.positional[0]));
+	const out = resolve(outFlag ?? join('harness-out/emulate', set));
 	mkdirSync(join(out, 'targets'), { recursive: true });
-	const paletteFlag = typeof args.flags.palette === 'string' ? args.flags.palette : 'auto';
+	const paletteFlag = str(args, 'palette', 'auto');
 	const palette = paletteFlag === 'auto' ? detectPalette(files[0]) : paletteFlag === 'none' ? '' : paletteFlag;
+	const seconds = num(args, 'time');
 	const opts: EmulateOptions = {
 		palette,
-		samples: num(args.flags.samples, 8),
-		finalSamples: num(args.flags.final, 128),
-		screenEvals: num(args.flags.screen, 24),
-		raceTop: num(args.flags.top, 3),
-		raceEvals: num(args.flags.race, 120),
-		evals:
-			typeof args.flags.evals === 'string'
-				? Number(args.flags.evals)
-				: args.flags.until || args.flags.time
-					? undefined
-					: 600,
-		targetLoss: typeof args.flags.until === 'string' ? Number(args.flags.until) : undefined,
-		timeMs: typeof args.flags.time === 'string' ? Number(args.flags.time) * 1000 : undefined,
-		patience: typeof args.flags.patience === 'string' ? Number(args.flags.patience) : undefined,
-		seed: num(args.flags.seed, 1),
+		samples: num(args, 'samples', 8),
+		finalSamples: num(args, 'final', 128),
+		screenEvals: num(args, 'screen', 24),
+		raceTop: num(args, 'top', 3),
+		raceEvals: num(args, 'race', 120),
+		evals: num(args, 'evals') ?? (args.flags.until || args.flags.time ? undefined : 600),
+		targetLoss: num(args, 'until'),
+		timeMs: seconds !== undefined ? seconds * 1000 : undefined,
+		patience: num(args, 'patience'),
+		seed: num(args, 'seed', 1),
 		fitColours: !args.flags['no-colour-fit'],
 		// --no-texture: the pre-FR8 metric (no VGG texture term, structure weighted as before).
 		metric: args.flags['no-texture']
@@ -253,10 +220,10 @@ async function main() {
 					}
 				}
 			: undefined,
-		templates: typeof args.flags.templates === 'string' ? args.flags.templates.split(',') : undefined
+		templates: str(args, 'templates')?.split(',')
 	};
-	const workers = Math.max(1, Math.min(files.length, num(args.flags.workers, 4)));
-	const s = await openSession({ backend: args.flags.backend as BackendKind | undefined, workers, logPage: true });
+	const workers = Math.max(1, Math.min(files.length, num(args, 'workers', 4)));
+	const s = await openSession({ backend: str(args, 'backend') as BackendKind | undefined, workers, logPage: true });
 	console.log(
 		`[${s.backend}] ${s.renderer} · ${workers} workers · ${files.length} targets · palette ${palette || 'none'} → ${out}`
 	);
@@ -291,7 +258,7 @@ async function main() {
 	};
 	if (useMemory) {
 		remember(out);
-		if (typeof args.flags.memory === 'string') for (const d of args.flags.memory.split(',')) remember(resolve(d));
+		for (const d of str(args, 'memory')?.split(',') ?? []) remember(resolve(d));
 		if (memory.length) console.log(`memory: ${memory.length} past results`);
 	}
 
@@ -311,7 +278,7 @@ async function main() {
 			try {
 				const img = readPng(file);
 				copyFileSync(file, join(out, 'targets', `${name}.png`));
-				const target = { width: img.width, height: img.height, rgba: Buffer.from(img.data).toString('base64') };
+				const target = rgbaTarget(img);
 				const seed = opts.seed! + (parseInt(createHash('md5').update(name).digest('hex').slice(0, 6), 16) % 1000);
 				let jobOpts: EmulateOptions = { ...opts, seed };
 				let note = '';
@@ -344,19 +311,12 @@ async function main() {
 				}
 				const r = await s.callOn<HeadlessEmulateResult>(w, 'emulate', target, jobOpts);
 				writeFileSync(join(out, `${name}.json`), JSON.stringify(r.bestProject, null, 2));
-				const render = decodePng(Buffer.from(r.renderPng.split(',')[1], 'base64'));
+				const render = png(r.renderPng);
 				writePng(join(out, `${name}.png`), render);
 				const sheetScale = Math.max(1, Math.min(4, Math.floor(256 / Math.max(img.width, img.height))));
 				writePng(
 					join(out, `${name}.sheet.png`),
-					contactSheet(
-						[
-							decodePng(Buffer.from(r.targetPng.split(',')[1], 'base64')),
-							render,
-							decodePng(Buffer.from(r.diffPng.split(',')[1], 'base64'))
-						],
-						sheetScale
-					)
+					gridSheet([[png(r.targetPng), render, png(r.diffPng)]], { scale: sheetScale })
 				);
 				const { bestProject: _p, renderPng: _r, targetPng: _t, diffPng: _d, ...rest } = r;
 				writeFileSync(join(out, `${name}.result.json`), JSON.stringify(rest, null, 1));

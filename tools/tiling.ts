@@ -23,64 +23,52 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import { has, num, parseArgs, str } from './args';
 import { openSession, type BackendKind } from './backend';
-import { contactSheet, decodePng, writePng, type Rgba8 } from './png';
+import { gridSheet, pngFromDataUrl as png, writePng, type Rgba8 } from './png';
 import { setPresetSource, starterPresets } from '../src/presets';
 import { fsPresetSource } from './preset-source';
+import { selectPresets } from './presets-manifest';
 import { tileImage } from '../src/match/image';
 import type { HeadlessTilingFixResult, HeadlessTilingResult } from '../src/headless';
 
-const args = process.argv.slice(2);
-const flag = (n: string, d?: string) => {
-	const i = args.indexOf(`--${n}`);
-	if (i < 0) return d;
-	const v = args[i + 1];
-	args.splice(i, v === undefined || v.startsWith('--') ? 1 : 2);
-	return v === undefined || v.startsWith('--') ? '' : v;
-};
-const has = (n: string) => {
-	const i = args.indexOf(`--${n}`);
-	if (i >= 0) args.splice(i, 1);
-	return i >= 0;
-};
-const out = resolve(flag('out', 'harness-out/tiling')!);
-const samples = Number(flag('samples', '32'));
-const top = Number(flag('top', '3'));
-const workers = Number(flag('workers', '1'));
-const backend = flag('backend') as BackendKind | undefined;
-const presets = flag('presets');
-const asJson = has('json');
-const fix = has('fix');
-const seeds = Number(flag('seeds', '24'));
-const culpritCount = Number(flag('culprits', '2'));
-const scale = has('scale');
-const withoutIt = has('without');
-const cpu = has('cpu');
-const check = has('check');
+const args = parseArgs(process.argv.slice(2), ['json', 'fix', 'scale', 'without', 'cpu', 'check']);
+const out = resolve(str(args, 'out', 'harness-out/tiling'));
+const samples = num(args, 'samples', 32);
+const top = num(args, 'top', 3);
+const workers = num(args, 'workers', 1);
+const backend = str(args, 'backend') as BackendKind | undefined;
+const presets = has(args, 'presets') ? str(args, 'presets', '') : undefined;
+const asJson = has(args, 'json');
+const fix = has(args, 'fix');
+const seeds = num(args, 'seeds', 24);
+const culpritCount = num(args, 'culprits', 2);
+const scale = has(args, 'scale');
+const withoutIt = has(args, 'without');
+const cpu = has(args, 'cpu');
+const check = has(args, 'check');
 
 interface Job {
 	name: string;
 	project: unknown;
 }
 
-const jobs: Job[] = args.map((f) => ({
+const jobs: Job[] = args.positional.map((f) => ({
 	name: basename(f).replace(/(\.bismith)?(\(\d+\))?\.json$/, ''),
 	project: JSON.parse(readFileSync(f, 'utf8'))
 }));
 if (presets !== undefined) {
-	const ids = presets.split(',').filter(Boolean);
+	// An id ("retro/bricks") or the file name alone ("bricks"); the outputs are named by the id, flattened.
+	const ids = new Set(selectPresets(presets.split(',').filter(Boolean), 'project'));
 	setPresetSource(fsPresetSource());
 	for (const p of await starterPresets())
-		// An id ("retro/bricks") or the file name alone ("bricks"); the outputs are named by the id, flattened.
-		if (!ids.length || ids.some((i) => i === p.id || i === p.id.split('/').pop()))
+		if (ids.has(p.id))
 			jobs.push({ name: p.id.replace(/\//g, '-'), project: { ...(await p.build()), preview: undefined } });
 }
 if (!jobs.length) {
 	console.error('usage: npx tsx tools/tiling.ts <project.json…> [--presets [ids]] [--out DIR] [--samples N]');
 	process.exit(1);
 }
-
-const png = (url: string): Rgba8 => decodePng(Buffer.from(url.split(',')[1], 'base64'));
 
 /** The image repeated n × n. */
 const tiled = (img: Rgba8, n = 3): Rgba8 => ({
@@ -199,10 +187,9 @@ async function main() {
 							cpu
 						});
 						reportFix(job.name, r);
-						const sheet = contactSheet(
-							[r.beforePng, r.afterPng, r.hotspotBeforePng, r.hotspotAfterPng].map((u) => tiled(png(u))),
-							1
-						);
+						const sheet = gridSheet([
+							[r.beforePng, r.afterPng, r.hotspotBeforePng, r.hotspotAfterPng].map((u) => tiled(png(u)))
+						]);
 						writePng(join(out, `${job.name}.fix.png`), sheet);
 						writeFileSync(join(out, `${job.name}.fixed.json`), JSON.stringify(r.project, null, '\t'));
 						continue;
@@ -215,7 +202,7 @@ async function main() {
 					});
 					report(job.name, r);
 					const culprits = [...new Set(r.findings.map((f) => f.layer))].slice(0, top);
-					const sheet = contactSheet(
+					const sheet = gridSheet([
 						[
 							png(r.renderPng),
 							png(r.hotspotPng),
@@ -223,9 +210,8 @@ async function main() {
 								.map((i) => r.layers[i].mapPng)
 								.filter((u): u is string => !!u)
 								.map(png)
-						].map((im) => tiled(im)),
-						1
-					);
+						].map((im) => tiled(im))
+					]);
 					writePng(join(out, `${job.name}.png`), sheet);
 					writePng(join(out, `${job.name}.render.png`), png(r.renderPng));
 					writeFileSync(

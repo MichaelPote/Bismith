@@ -5,27 +5,24 @@
 // --cut prints a two-level mask ('#' where luminance is below the cut, or above with --invert) ready for a Stamp.
 // --mean prints only the region's mean colour and its dark / light quartile means (for picking layer colours).
 
+import { has, num, parseArgs, str } from './args';
 import { readPng } from './png';
 
-const args = process.argv.slice(2);
-const flag = (n: string, d?: string) => {
-	const i = args.indexOf(`--${n}`);
-	return i >= 0 ? args[i + 1] : d;
-};
-const img = readPng(args[0]);
-const x0 = Number(flag('x', '0'));
-const y0 = Number(flag('y', '0'));
-const w = Number(flag('w', String(img.width - x0)));
-const h = Number(flag('h', String(img.height - y0)));
-const ramp = flag('levels', ' .:-=+*#%@')!;
-const cut = flag('cut');
-const invert = args.includes('--invert');
+const args = parseArgs(process.argv.slice(2), ['invert', 'mean']);
+const img = readPng(args.positional[0]);
+const x0 = num(args, 'x', 0);
+const y0 = num(args, 'y', 0);
+const w = num(args, 'w', img.width - x0);
+const h = num(args, 'h', img.height - y0);
+const ramp = str(args, 'levels', ' .:-=+*#%@');
+const cut = num(args, 'cut');
+const invert = has(args, 'invert');
 const lum = (x: number, y: number) => {
 	const i = (y * img.width + x) * 4;
 	return (0.2126 * img.data[i] + 0.7152 * img.data[i + 1] + 0.0722 * img.data[i + 2]) / 255;
 };
 const hex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
-if (args.includes('--mean')) {
+if (has(args, 'mean')) {
 	const px: { l: number; c: number[] }[] = [];
 	for (let y = y0; y < y0 + h; y++)
 		for (let x = x0; x < x0 + w; x++) {
@@ -52,7 +49,7 @@ for (let y = y0; y < y0 + h; y++) {
 	let row = '';
 	for (let x = x0; x < x0 + w; x++) {
 		const l = lum(x, y);
-		if (cut !== undefined) row += (invert ? l > Number(cut) : l < Number(cut)) ? '#' : '.';
+		if (cut !== undefined) row += (invert ? l > cut : l < cut) ? '#' : '.';
 		else row += ramp[Math.min(ramp.length - 1, Math.floor(((l - lo) / Math.max(hi - lo, 1e-6)) * ramp.length))];
 	}
 	console.log(String(y).padStart(3) + ' ' + row);

@@ -23,8 +23,9 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import { num, parseArgs, str } from './args';
 import { openSession, type BackendKind } from './backend';
-import { decodePng, writePng, type Rgba8 } from './png';
+import { gridSheet, pngFromDataUrl as png, writePng, type Rgba8 } from './png';
 import { createLayer, createProject } from '../src/core/serialize';
 import { freshParams, getLayerDef, layerParamDefs } from '../src/layers/registry';
 import { ensureBuiltins } from '../src/render/builtins';
@@ -51,16 +52,12 @@ interface Spec {
 	}[];
 }
 
-const args = process.argv.slice(2);
-const flag = (n: string, d?: string) => {
-	const i = args.indexOf(`--${n}`);
-	return i >= 0 ? args[i + 1] : d;
-};
-const specFile = resolve(args[0] ?? '');
+const args = parseArgs();
+const specFile = resolve(args.positional[0] ?? '');
 const spec: Spec = JSON.parse(readFileSync(specFile, 'utf8'));
 const name = spec.name ?? spec.type ?? basename(specFile, '.json');
-const out = resolve(flag('out', 'harness-out/gensheet')!);
-const samples = Number(flag('samples', '64'));
+const out = resolve(str(args, 'out', 'harness-out/gensheet'));
+const samples = num(args, 'samples', 64);
 const size = spec.size ?? 512;
 
 function layer(l: LayerSpec, tex: { width: number; height: number }, extra: ParamValues = {}) {
@@ -92,27 +89,6 @@ function project(v: Spec['variants'][number]) {
 	} as Parameters<typeof createProject>[0]);
 }
 
-function grid(rows: Rgba8[][], gap = 8): Rgba8 {
-	const cw = Math.max(...rows.flat().map((im) => im.width));
-	const ch = Math.max(...rows.flat().map((im) => im.height));
-	const cols = Math.max(...rows.map((r) => r.length));
-	const W = cols * (cw + gap) + gap;
-	const H = rows.length * (ch + gap) + gap;
-	const data = new Uint8Array(W * H * 4);
-	for (let i = 0; i < W * H; i++) data.set([30, 33, 36, 255], i * 4);
-	rows.forEach((row, r) =>
-		row.forEach((im, c) => {
-			for (let y = 0; y < im.height; y++)
-				for (let x = 0; x < im.width; x++) {
-					const si = (y * im.width + x) * 4;
-					const di = ((gap + r * (ch + gap) + y) * W + gap + c * (cw + gap) + x) * 4;
-					data.set([im.data[si], im.data[si + 1], im.data[si + 2], 255], di);
-				}
-		})
-	);
-	return { width: W, height: H, data };
-}
-
 /** Shared params listed in the settings (the shape and channel controls a reviewer should know exist). */
 const SHARED_SHOWN = [
 	'mk_target',
@@ -137,14 +113,13 @@ const SHARED_SHOWN = [
 	'dw_scale'
 ];
 
-const png = (url: string) => decodePng(Buffer.from(url.split(',')[1], 'base64'));
 const fmt = (v: unknown) => (typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : JSON.stringify(v));
 
 async function main() {
 	ensureBuiltins();
 	if (!getLayerDef(spec.type)) throw new Error(`unknown layer type ${spec.type}`);
 	mkdirSync(join(out, name), { recursive: true });
-	const s = await openSession({ backend: flag('backend') as BackendKind | undefined, workers: 1 });
+	const s = await openSession({ backend: str(args, 'backend') as BackendKind | undefined });
 	const finals: Rgba8[] = [];
 	const heights: Rgba8[] = [];
 	const errors: string[] = [];
@@ -164,7 +139,7 @@ async function main() {
 	} finally {
 		await s.close();
 	}
-	writePng(join(out, `${name}.png`), grid([finals, heights]));
+	writePng(join(out, `${name}.png`), gridSheet([finals, heights]));
 
 	// Settings: per column, the subject params set by the spec (over the fresh layer); then the generator's own params.
 	const def = getLayerDef(spec.type)!;

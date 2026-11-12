@@ -3,7 +3,7 @@
 // Starts Vite in-process, opens the app with ?headless in a browser and drives window.__bismith
 // (src/headless.ts) through tools/backend.ts. Default backend: headless Chrome on the Windows host with GPU
 // WebGL (`--backend windows`); fallback: CPU SwiftShader in WSL (`--backend swiftshader`).
-// Outputs default to harness-out/ (git-ignored). All commands accept --backend and --workers.
+// Outputs default to harness-out/ (git-ignored). All commands accept --backend.
 //
 //   npm run harness -- render  <project.json> [--out file.png] [--samples N] [--maps]
 //   npm run harness -- sheet   <out.png> <a.png> [b.png …] [--scale N]
@@ -32,66 +32,41 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { num, parseArgs, ROOT, str, type Args } from './args';
 import { openSession, type BackendKind, type Session } from './backend';
-import { contactSheet, decodePng, readPng, writePng, type Rgba8 } from './png';
+import { dataUrlBytes, gridSheet, pngFromDataUrl as png, readPng, targetInput, writePng } from './png';
 import type {
 	CompareOptions,
 	HeadlessCompareResult,
 	HeadlessOptimizeOptions,
 	HeadlessOptimizeResult,
 	HeadlessOptimizeStart,
-	HeadlessRenderResult,
-	TargetInput
+	HeadlessRenderResult
 } from '../src/headless';
 import { RunLimits, STOP_LABELS, type StepInfo, type StopCriteria } from '../src/match/optimizer';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = join(ROOT, 'harness-out');
 
-/** Open a rendering session; `--backend windows|swiftshader` and `--workers N` are honoured. */
-function session(args: { flags: Record<string, string | boolean> }): Promise<Session> {
-	const backend = typeof args.flags.backend === 'string' ? (args.flags.backend as BackendKind) : undefined;
-	const workers = typeof args.flags.workers === 'string' ? Number(args.flags.workers) : 1;
-	return openSession({ backend, workers }).then((s) => {
-		console.error(`[backend ${s.backend}] ${s.renderer}${s.workers > 1 ? ` · ${s.workers} workers` : ''}`);
-		return s;
-	});
+/** Open a rendering session (one page; `--backend windows|swiftshader` is honoured). */
+async function session(args: Args): Promise<Session> {
+	const s = await openSession({ backend: str(args, 'backend') as BackendKind | undefined });
+	console.error(`[backend ${s.backend}] ${s.renderer}`);
+	return s;
 }
 
-export function dataUrlToBuffer(url: string): Buffer {
-	return Buffer.from(url.split(',')[1], 'base64');
-}
-
-function parseArgs(argv: string[]) {
-	const positional: string[] = [];
-	const flags: Record<string, string | boolean> = {};
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i];
-		if (a.startsWith('--')) {
-			const key = a.slice(2);
-			const next = argv[i + 1];
-			if (next !== undefined && !next.startsWith('--')) {
-				flags[key] = next;
-				i++;
-			} else flags[key] = true;
-		} else positional.push(a);
-	}
-	return { positional, flags };
-}
-
-async function cmdRender(args: ReturnType<typeof parseArgs>) {
+async function cmdRender(args: Args) {
 	const file = args.positional[0];
 	if (!file) throw new Error('usage: render <project.json> [--out file.png] [--samples N] [--maps]');
 	const project = JSON.parse(readFileSync(file, 'utf8'));
-	const out = String(args.flags.out ?? join(OUT_DIR, basename(file).replace(/\.json$/, '') + '.png'));
-	const samples = args.flags.samples ? Number(args.flags.samples) : undefined;
+	const out = str(args, 'out', join(OUT_DIR, basename(file).replace(/\.json$/, '') + '.png'));
+	const samples = num(args, 'samples');
 	mkdirSync(dirname(out), { recursive: true });
 	const s = await session(args);
 	try {
 		await s.callOn(0, 'loadProject', project);
 		await s.callOn(0, 'settle');
 		const result = await s.callOn<HeadlessRenderResult>(0, 'render', { samples });
-		writeFileSync(out, dataUrlToBuffer(result.png));
+		writeFileSync(out, dataUrlBytes(result.png));
 		console.log(
 			`rendered ${result.width}×${result.height}, ${result.samples} spp in ${result.ms.toFixed(0)} ms → ${out}`
 		);
@@ -100,7 +75,7 @@ async function cmdRender(args: ReturnType<typeof parseArgs>) {
 			const maps = await s.callOn<Record<string, string>>(0, 'renderMaps');
 			for (const [k, url] of Object.entries(maps)) {
 				const p = out.replace(/\.png$/, `.${k}.png`);
-				writeFileSync(p, dataUrlToBuffer(String(url)));
+				writeFileSync(p, dataUrlBytes(String(url)));
 				console.log(`  map ${k} → ${p}`);
 			}
 		}
@@ -109,15 +84,12 @@ async function cmdRender(args: ReturnType<typeof parseArgs>) {
 	}
 }
 
-async function cmdSheet(args: ReturnType<typeof parseArgs>) {
+async function cmdSheet(args: Args) {
 	const [out, ...inputs] = args.positional;
 	if (!out || inputs.length === 0) throw new Error('usage: sheet <out.png> <a.png> [b.png …] [--scale N]');
-	const scale = args.flags.scale ? Number(args.flags.scale) : 3;
-	writePng(out, contactSheet(inputs.map(readPng), scale));
+	writePng(out, gridSheet([inputs.map(readPng)], { scale: num(args, 'scale', 3) }));
 	console.log(`sheet → ${out}`);
 }
-
-type Args = ReturnType<typeof parseArgs>;
 
 const TERMS = [
 	'colour',
@@ -130,18 +102,6 @@ const TERMS = [
 	'windows',
 	'alpha'
 ] as const;
-
-function targetInput(file: string): TargetInput {
-	const img = readPng(file);
-	return { width: img.width, height: img.height, rgba: Buffer.from(img.data).toString('base64') };
-}
-
-function num(v: string | boolean | undefined): number | undefined {
-	if (v === undefined || v === true || v === false) return undefined;
-	const n = Number(v);
-	if (!Number.isFinite(n)) throw new Error(`not a number: ${v}`);
-	return n;
-}
 
 /** --preset, --weights colour=2,aligned=1, --max-size, --wrap, --window */
 function metricOptions(args: Args): CompareOptions {
@@ -161,7 +121,7 @@ function metricOptions(args: Args): CompareOptions {
 		}
 		opts.weights = w as CompareOptions['weights'];
 	}
-	const maxSize = num(args.flags['max-size']);
+	const maxSize = num(args, 'max-size');
 	if (maxSize) opts.maxSize = maxSize;
 	if (args.flags.wrap) opts.wrap = true;
 	if (args.flags.window) opts.window = true;
@@ -179,10 +139,6 @@ function printMetrics(r: HeadlessCompareResult) {
 	console.log(`${'total'.padEnd(11)} ${''.padStart(6)}   ${''.padStart(7)}   ${r.total.toFixed(4)}`);
 }
 
-function png(url: string): Rgba8 {
-	return decodePng(dataUrlToBuffer(url));
-}
-
 async function cmdCompare(args: Args) {
 	const [file, targetFile] = args.positional;
 	if (!file || !targetFile) {
@@ -191,8 +147,8 @@ async function cmdCompare(args: Args) {
 		);
 	}
 	const project = JSON.parse(readFileSync(file, 'utf8'));
-	const out = String(args.flags.out ?? join(OUT_DIR, basename(file).replace(/\.json$/, '') + '.compare.png'));
-	const opts: CompareOptions = { ...metricOptions(args), samples: num(args.flags.samples) };
+	const out = str(args, 'out', join(OUT_DIR, basename(file).replace(/\.json$/, '') + '.compare.png'));
+	const opts: CompareOptions = { ...metricOptions(args), samples: num(args, 'samples') };
 	const target = targetInput(targetFile);
 	mkdirSync(dirname(out), { recursive: true });
 	const s = await session(args);
@@ -209,7 +165,10 @@ async function cmdCompare(args: Args) {
 			);
 			printMetrics(r);
 		}
-		writePng(out, contactSheet([png(r.targetPng), png(r.renderPng), png(r.diffPng)], sheetScale(r.width, args)));
+		writePng(
+			out,
+			gridSheet([[png(r.targetPng), png(r.renderPng), png(r.diffPng)]], { scale: sheetScale(r.width, args) })
+		);
 		console.log(`sheet [target | render | diff×2] → ${out}`);
 	} finally {
 		await s.close();
@@ -217,7 +176,7 @@ async function cmdCompare(args: Args) {
 }
 
 function sheetScale(width: number, args: Args): number {
-	return num(args.flags.scale) ?? Math.max(1, Math.min(4, Math.floor(256 / width)));
+	return num(args, 'scale') ?? Math.max(1, Math.min(4, Math.floor(256 / width)));
 }
 
 async function cmdOptimize(args: Args) {
@@ -228,24 +187,25 @@ async function cmdOptimize(args: Args) {
 		);
 	}
 	const project = JSON.parse(readFileSync(file, 'utf8'));
-	const out = String(args.flags.out ?? join(OUT_DIR, basename(file).replace(/\.json$/, '') + '.best.json'));
+	const out = str(args, 'out', join(OUT_DIR, basename(file).replace(/\.json$/, '') + '.best.json'));
 	const sheetOut = out.replace(/\.json$/, '') + '.png';
+	const seconds = num(args, 'time');
 	const stop: StopCriteria = {
-		targetLoss: num(args.flags.until),
-		timeMs: args.flags.time !== undefined ? Number(args.flags.time) * 1000 : undefined,
-		patience: num(args.flags.patience)
+		targetLoss: num(args, 'until'),
+		timeMs: seconds !== undefined ? seconds * 1000 : undefined,
+		patience: num(args, 'patience')
 	};
 	const open = stop.targetLoss !== undefined || stop.timeMs !== undefined || stop.patience !== undefined;
-	stop.steps = num(args.flags.iters) ?? (open ? undefined : 100);
+	stop.steps = num(args, 'iters') ?? (open ? undefined : 100);
 	const iters = stop.steps;
 	const opts: HeadlessOptimizeOptions = {
-		samples: num(args.flags.samples) ?? 16,
-		finalSamples: num(args.flags['final-samples']) ?? 64,
-		lambda: num(args.flags.lambda),
-		colourRange: num(args.flags['colour-range']),
-		islands: num(args.flags.islands),
-		seed: num(args.flags.seed),
-		sigma: num(args.flags.sigma),
+		samples: num(args, 'samples', 16),
+		finalSamples: num(args, 'final-samples', 64),
+		lambda: num(args, 'lambda'),
+		colourRange: num(args, 'colour-range'),
+		islands: num(args, 'islands'),
+		seed: num(args, 'seed'),
+		sigma: num(args, 'sigma'),
 		structural: Boolean(args.flags.structural),
 		metric: metricOptions(args),
 		space: {
@@ -310,7 +270,7 @@ async function cmdOptimize(args: Args) {
 		printMetrics(r);
 		writePng(
 			sheetOut,
-			contactSheet([png(r.targetPng), startPng, png(r.renderPng), png(r.diffPng)], sheetScale(r.width, args))
+			gridSheet([[png(r.targetPng), startPng, png(r.renderPng), png(r.diffPng)]], { scale: sheetScale(r.width, args) })
 		);
 		console.log(`best project → ${out}`);
 		console.log(`sheet [target | start | best | diff×2] → ${sheetOut}`);
@@ -318,6 +278,9 @@ async function cmdOptimize(args: Args) {
 		await s.close();
 	}
 }
+
+/** Flags that never take a value. */
+const BOOLS = ['maps', 'wrap', 'window', 'json', 'lights', 'post', 'base', 'shading', 'enums', 'seeds', 'structural'];
 
 const COMMANDS: Record<string, (a: Args) => Promise<void>> = {
 	render: cmdRender,
@@ -333,7 +296,7 @@ async function main() {
 		console.log(`usage: npm run harness -- <${Object.keys(COMMANDS).join('|')}> …`);
 		process.exit(1);
 	}
-	await fn(parseArgs(rest));
+	await fn(parseArgs(rest, BOOLS));
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

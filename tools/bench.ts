@@ -1,16 +1,13 @@
 // Benchmark a backend: npx tsx tools/bench.ts <project.json> [--backend windows|swiftshader] [--target t.png]
 import { readFileSync } from 'node:fs';
+import { parseArgs, str } from './args';
 import { openSession, type BackendKind } from './backend';
-import { readPng } from './png';
+import { targetInput } from './png';
 
 async function main() {
-	const args = process.argv.slice(2);
-	const flag = (n: string) => {
-		const i = args.indexOf(`--${n}`);
-		return i >= 0 ? args[i + 1] : undefined;
-	};
-	const project = JSON.parse(readFileSync(args[0], 'utf8'));
-	const s = await openSession({ backend: flag('backend') as BackendKind | undefined, logPage: false });
+	const args = parseArgs();
+	const project = JSON.parse(readFileSync(args.positional[0], 'utf8'));
+	const s = await openSession({ backend: str(args, 'backend') as BackendKind | undefined, logPage: false });
 	console.log(`backend ${s.backend}: ${s.renderer}`);
 	try {
 		await s.callOn(0, 'loadProject', project);
@@ -19,10 +16,9 @@ async function main() {
 			const r = await s.callOn<{ ms: number }>(0, 'render', { samples: spp });
 			console.log(`render ${spp} spp: in-page ${r.ms.toFixed(0)} ms, round-trip ${Date.now() - t0} ms`);
 		}
-		const tf = flag('target');
+		const tf = str(args, 'target');
 		if (tf) {
-			const img = readPng(tf);
-			const target = { width: img.width, height: img.height, rgba: Buffer.from(img.data).toString('base64') };
+			const target = targetInput(tf);
 			const t0 = Date.now();
 			await s.callOn(0, 'optimizeStart', target, { samples: 16 });
 			const steps = await s.callOn<{ ms: number }[]>(0, 'optimizeStep', 20);

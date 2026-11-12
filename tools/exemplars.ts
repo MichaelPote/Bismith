@@ -8,10 +8,11 @@
 // reference's analysis — in the same layout tools/emulate.ts writes, so `emulate --memory private/exemplars` seeds
 // matching targets with it. Names are prefixed `ex_` so an exemplar is also used for its own reference.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
+import { expandInputs, parseArgs, str } from './args';
 import { openSession, type BackendKind } from './backend';
-import { readPng } from './png';
+import { readPng, rgbaTarget } from './png';
 import { analyzeTarget } from '../src/match/analyze';
 import { fromRgba8 } from '../src/match/image';
 import type { HeadlessCompareResult } from '../src/headless';
@@ -28,37 +29,10 @@ interface Entry {
 	ms: number;
 }
 
-function flagsOf(argv: string[]) {
-	const positional: string[] = [];
-	const flags: Record<string, string | boolean> = {};
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i];
-		if (a.startsWith('--')) {
-			const next = argv[i + 1];
-			if (next !== undefined && !next.startsWith('--')) {
-				flags[a.slice(2)] = next;
-				i++;
-			} else flags[a.slice(2)] = true;
-		} else positional.push(a);
-	}
-	return { positional, flags };
-}
-
-function jsonFiles(inputs: string[]): string[] {
-	const out: string[] = [];
-	for (const p of inputs) {
-		if (existsSync(p) && statSync(p).isDirectory()) {
-			for (const f of readdirSync(p).sort())
-				if (f.endsWith('.json') && !f.endsWith('.result.json')) out.push(join(p, f));
-		} else if (existsSync(p)) out.push(p);
-	}
-	return out;
-}
-
 async function main() {
 	const [cmd, ...rest] = process.argv.slice(2);
-	const { positional, flags } = flagsOf(rest);
-	const lib = resolve(typeof flags.lib === 'string' ? flags.lib : 'private/exemplars');
+	const args = parseArgs(rest);
+	const lib = resolve(str(args, 'lib', 'private/exemplars'));
 	mkdirSync(lib, { recursive: true });
 	const indexFile = join(lib, 'index.json');
 	const index = new Map<string, Entry>();
@@ -72,15 +46,16 @@ async function main() {
 	}
 	if (cmd !== 'add') throw new Error('usage: exemplars.ts add <project.json|dir …> | list');
 
-	const files = jsonFiles(positional);
-	const s = await openSession({ backend: flags.backend as BackendKind | undefined, logPage: false });
+	const files = expandInputs(args.positional, (f) => f.endsWith('.json') && !f.endsWith('.result.json'));
+	const refdirs = str(args, 'refdirs');
+	const s = await openSession({ backend: str(args, 'backend') as BackendKind | undefined, logPage: false });
 	try {
 		for (const f of files) {
 			const project = JSON.parse(readFileSync(f, 'utf8')) as Record<string, unknown>;
 			let ref = project._ref as string | undefined;
-			if (!ref && typeof flags.refdirs === 'string') {
+			if (!ref && refdirs) {
 				// Fall back to a reference named like the project file in one of --refdirs.
-				for (const d of flags.refdirs.split(',')) {
+				for (const d of refdirs.split(',')) {
 					const cand = join(d, `${basename(f, '.json')}.png`);
 					if (existsSync(cand)) {
 						ref = cand;
@@ -96,8 +71,7 @@ async function main() {
 			const img = readPng(ref);
 			const analysis = analyzeTarget(fromRgba8(img.data, img.width, img.height));
 			await s.callOn(0, 'loadProject', project);
-			const target = { width: img.width, height: img.height, rgba: Buffer.from(img.data).toString('base64') };
-			const r = await s.callOn<HeadlessCompareResult>(0, 'compare', target, {
+			const r = await s.callOn<HeadlessCompareResult>(0, 'compare', rgbaTarget(img), {
 				preset: 'tile',
 				samples: 64,
 				wrap: analysis.tileable

@@ -12,23 +12,20 @@
 
 import { writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
+import { num, parseArgs, str } from './args';
 import { readPng } from './png';
 
-const args = process.argv.slice(2);
-const flag = (n: string, d?: string) => {
-	const i = args.indexOf(`--${n}`);
-	return i >= 0 ? args[i + 1] : d;
-};
-const file = args[0];
+const args = parseArgs();
+const file = args.positional[0];
 const img = readPng(file);
 const W = img.width;
 const H = img.height;
-const tiers = Number(flag('tiers', '3'));
-const minPx = Number(flag('min', '3'));
-const depth = Number(flag('depth', '2'));
-const step = Number(flag('step', '0.3'));
+const tiers = num(args, 'tiers', 3);
+const minPx = num(args, 'min', 3);
+const depth = num(args, 'depth', 2);
+const step = num(args, 'step', 0.3);
 const name = basename(file, extname(file));
-const out = resolve(flag('out', `harness-out/studio/${name}.json`)!);
+const out = resolve(str(args, 'out', `harness-out/studio/${name}.json`));
 
 const lum = new Float32Array(W * H);
 for (let i = 0; i < W * H; i++)
@@ -60,7 +57,7 @@ for (let i = 0; i < W * H; i++) {
 let asym = 0;
 for (let y = 0; y < H; y++) for (let x = 0; x < W / 2; x++) asym += Math.abs(lum[y * W + x] - lum[y * W + (W - 1 - x)]);
 asym /= (W / 2) * H;
-const mirrorFlag = flag('mirror', 'auto');
+const mirrorFlag = str(args, 'mirror', 'auto');
 const mirror = mirrorFlag === 'x' || (mirrorFlag === 'auto' && asym < 0.06);
 
 // Mean colour per tier.
@@ -169,7 +166,7 @@ for (let t = 1; t < K; t++) {
 
 // Colour pass: saturated pixels (screens, lamps, warning stripes) grouped into six hue sectors, each stamped at full
 // width (never mirrored — screen content is rarely symmetric) in its mean colour with a little emission.
-const minChroma = Number(flag('chroma', '45'));
+const minChroma = num(args, 'chroma', 45);
 const sectors: number[][] = Array.from({ length: 6 }, () => []);
 for (let i = 0; i < W * H; i++) {
 	const r = img.data[i * 4],

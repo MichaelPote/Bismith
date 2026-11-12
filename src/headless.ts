@@ -622,18 +622,21 @@ export async function workerLoop(api: { rendererInfo(): string }, worker: string
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify(body)
 		});
+	// Messages reach the server before the result of the job that logged them (smoke.ts pins errors on the job).
+	let logged: Promise<unknown> = Promise.resolve();
+	const log = (level: string, text: string) => {
+		logged = Promise.all([logged, post('log', { level, text }).catch(() => {})]);
+	};
 	const forward = (level: string) => {
 		const orig = console[level as 'error'];
 		console[level as 'error'] = (...a: unknown[]) => {
 			orig.apply(console, a);
-			void post('log', { level, text: a.map((x) => (x instanceof Error ? x.message : String(x))).join(' ') }).catch(
-				() => {}
-			);
+			log(level, a.map((x) => (x instanceof Error ? x.message : String(x))).join(' '));
 		};
 	};
 	forward('error');
 	forward('warn');
-	window.addEventListener('error', (e) => void post('log', { level: 'pageerror', text: e.message }).catch(() => {}));
+	window.addEventListener('error', (e) => log('pageerror', e.message));
 	await post('hello', { renderer: api.rendererInfo() });
 	const methods = api as unknown as Record<string, (...a: unknown[]) => unknown>;
 	for (;;) {
@@ -650,8 +653,10 @@ export async function workerLoop(api: { rendererInfo(): string }, worker: string
 		try {
 			if (typeof methods[job.method] !== 'function') throw new Error(`unknown method ${job.method}`);
 			const result = await methods[job.method](...job.args);
+			await logged;
 			await post('result', { id: job.id, ok: true, result: result === undefined ? null : result });
 		} catch (e) {
+			await logged;
 			await post('result', { id: job.id, ok: false, error: e instanceof Error ? e.message : String(e) });
 		}
 	}
