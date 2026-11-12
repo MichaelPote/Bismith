@@ -106,6 +106,16 @@ ivec2 pairKey(ivec2 a, ivec2 b, out bool aLo) {
   return aLo ? a * 7919 + b : b * 7919 + a;
 }
 
+// ---------------------------------------------------------------- Voronoi search
+// A Voronoi diagram's cells, visited in one flat loop of 9 + 25 (e: the iteration): first the 3 × 3 cells round ip (the
+// pixel's) for the nearest site, then the 5 × 5 round that nearest cell, which hold every neighbour it shares an edge
+// with. vorCell is the cell to visit at e; vorSite a cell's site in cells, jittered from its middle by jit × (h − 0.5),
+// h its random point (0..1).
+ivec2 vorCell(int e, ivec2 ip, ivec2 nearest) {
+  return e < 9 ? ip + ivec2(e % 3, e / 3) - 1 : nearest + ivec2((e - 9) % 5, (e - 9) / 5) - 2;
+}
+vec2 vorSite(ivec2 c, vec2 h, float jit) { return vec2(c) + 0.5 + (h - 0.5) * jit; }
+
 // ---------------------------------------------------------------- coordinates
 // User positions are fractions 0..1 with y DOWN; convert to GL pixel space.
 vec2 userPx(vec2 u) { return vec2(u.x * uRes.x, (1.0 - u.y) * uRes.y); }

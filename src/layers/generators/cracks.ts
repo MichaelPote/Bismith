@@ -299,18 +299,17 @@ vec2 ch_plates(vec2 x, ivec2 period, float seed, out ivec2 c0, out vec2 r0, out 
   c0 = ip; c1 = ip; c2 = ip; r0 = vec2(0.0); r1 = vec2(1.0, 0.0); r2 = vec2(0.0, 1.0);
   for (int e = 0; e < 34 * UNI_1; e++) {
     bool near = e < 9;
-    int f = near ? e : e - 9;
-    ivec2 g = near ? ivec2(f % 3 - 1, f / 3 - 1) : c0 - ip + ivec2(f % 5 - 2, f / 5 - 2);
-    vec2 r = vec2(g) + 0.5 + (cellPoint(imod(ip + g, period), seed) - 0.5) * 0.9 - fp;
+    ivec2 c = vorCell(e, ip, c0);
+    vec2 r = vorSite(c - ip, cellPoint(imod(c, period), seed), 0.9) - fp;
     if (near) {
       float d = dot(r, r);
-      if (d < F1) { F1 = d; r0 = r; c0 = ip + g; }
+      if (d < F1) { F1 = d; r0 = r; c0 = c; }
     } else {
       vec2 dr = r - r0;
       if (dot(dr, dr) > 1e-6) {
         float b = dot(0.5 * (r0 + r), normalize(dr));
-        if (b < md) { md2 = md; c2 = c1; r2 = r1; md = b; c1 = ip + g; r1 = r; }
-        else if (b < md2) { md2 = b; c2 = ip + g; r2 = r; }
+        if (b < md) { md2 = md; c2 = c1; r2 = r1; md = b; c1 = c; r1 = r; }
+        else if (b < md2) { md2 = b; c2 = c; r2 = r; }
       }
     }
   }

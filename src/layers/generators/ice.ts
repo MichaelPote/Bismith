@@ -584,12 +584,12 @@ GenOut gen(vec2 p) {
     // A star's rays: lines, and their veils (faded the same way after the loop).
     float rL = 0.0, rV = 0.0;
     for (int e = 0; e < 34 * UNI_1; e++) {
+      ivec2 c = vorCell(e, c0, nc);
+      ivec2 key = wrapCell(c, ncl);
+      vec2 sj = vorSite(c, hash2I(key, uSeed + 81.0), 0.9) * cpx;
       if (e < 9) {
-        ivec2 c = c0 + ivec2(e % 3, e / 3) - 1;
-        ivec2 key = wrapCell(c, ncl);
-        vec2 sc = (vec2(c) + 0.5 + (hash2I(key, uSeed + 81.0) - 0.5) * 0.9) * cpx;
-        float dd = dot(pw - sc, pw - sc);
-        if (dd < bd) { bd = dd; nc = c; nk = key; si = sc; }
+        float dd = dot(pw - sj, pw - sj);
+        if (dd < bd) { bd = dd; nc = c; nk = key; si = sj; }
         if (e == 8) {
           star = hashI(nk, uSeed + 87.0) < u_crack_star;
           // Each star its own size.
@@ -597,10 +597,7 @@ GenOut gen(vec2 p) {
         }
       } else {
         int o = e - 9;
-        ivec2 c = nc + ivec2(o % 5, o / 5) - 2;
         if (c != nc) {
-          ivec2 key = wrapCell(c, ncl);
-          vec2 sj = (vec2(c) + 0.5 + (hash2I(key, uSeed + 81.0) - 0.5) * 0.9) * cpx;
           float Ld = max(length(si - sj), 1e-4);
           vec2 n = (si - sj) / Ld;
           vec2 mid = 0.5 * (si + sj);
