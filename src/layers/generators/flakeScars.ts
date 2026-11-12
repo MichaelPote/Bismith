@@ -56,7 +56,7 @@ float ${o.name}(vec2 p, vec2 wp, vec2 so, float scs${o.args}) {
     ${o.edge.trim()}
     // Struck from the nearest edge, or any which way.
     bool struck = h2.w < u_${o.prefix}_edge && canStrike;
-    float a = struck ? ${o.angle} + 0.9 * (h.z - 0.5) : h.z * TAU;
+    float a = struck ? (${o.angle}) + 0.9 * (h.z - 0.5) : h.z * TAU;
     vec2 ax = vec2(cos(a), sin(a));
     vec2 lq = x - site;
     lq = vec2(dot(lq, ax), dot(lq, vec2(-ax.y, ax.x)));
