@@ -2,7 +2,7 @@
 // or a post filter of the open project — and build the preset project a card is saved as.
 
 import type { Layer, LayerGroup, LimitExpr, Light, PostFilter, Project } from '@/core/project';
-import type { ParamValues } from '@/core/params';
+import { deepCopy as clone, type ParamValues } from '@/core/params';
 import { newId } from '@/core/ids';
 import { resizeProject } from '@/core/pixelScale';
 import { putImage, imageUrl } from '@/core/images';
@@ -13,11 +13,13 @@ import { builtinProject, STARTER } from './index';
 /** Mask wiring (FR8.23) belongs to the project, not the look: a preset keeps the layer's own. */
 const isMaskKey = (k: string) => k.startsWith('mk_') || k.startsWith('lim_');
 
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-
-/** The preset's project at the open project's size: pixel-measured values rescaled, as a canvas resize would. */
+/**
+ * The preset's stack and lighting at the open project's size: pixel-measured values rescaled, as a canvas resize would.
+ * Without its preview, preset header (its images' data URLs) and variants, which the copy would only carry along.
+ */
 function fitted(preset: Project, project: Project): Project {
-	return resizeProject(preset, project.width, project.height);
+	const { preview: _p, preset: _h, variants: _v, ...stack } = preset;
+	return resizeProject(stack, project.width, project.height);
 }
 
 /** The images a preset carries, stored in this browser first so its Stamp layers and its sky find them. */

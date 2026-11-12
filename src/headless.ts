@@ -3,8 +3,10 @@
 import type { Project } from '@/core/project';
 import { normalizeProject } from '@/core/serialize';
 import { getHdrImage, getImage, putImage } from '@/core/images';
+import { base64ToBytes, decodeImageBlob } from '@/core/environment';
 import '@/presets';
 import { Engine } from '@/render/engine';
+import { glRenderer } from '@/gpu/info';
 import { mapPixels, pixelsToDataURL, type MapKind } from '@/render/export';
 import { capturePreview, PROJECT_PREVIEW, TILE_PREVIEW } from '@/render/preview';
 import {
@@ -228,29 +230,14 @@ declare global {
 	}
 }
 
-function base64ToBytes(b64: string): Uint8Array {
-	const bin = atob(b64);
-	const out = new Uint8Array(bin.length);
-	for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-	return out;
-}
-
 /** Decode a reference image to a MatchImage (sRGB 0..1). */
-export async function decodeTarget(t: TargetInput): Promise<MatchImage> {
+async function decodeTarget(t: TargetInput): Promise<MatchImage> {
 	if (typeof t !== 'string') {
 		const bytes = typeof t.rgba === 'string' ? base64ToBytes(t.rgba) : Uint8Array.from(t.rgba);
 		return fromRgba8(bytes, t.width, t.height);
 	}
-	const blob = await (await fetch(t)).blob();
-	const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-	const canvas = document.createElement('canvas');
-	canvas.width = bmp.width;
-	canvas.height = bmp.height;
-	const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-	ctx.drawImage(bmp, 0, 0);
-	const data = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
-	bmp.close();
-	return fromRgba8(data, canvas.width, canvas.height);
+	const { width, height, data } = await decodeImageBlob(await (await fetch(t)).blob());
+	return fromRgba8(data, width, height);
 }
 
 function imagePng(img: MatchImage): string {
@@ -275,7 +262,7 @@ function compareResult(
 	};
 }
 
-export function installHeadless(engine: Engine): BismithHeadless {
+function installHeadless(engine: Engine): BismithHeadless {
 	let project: Project | null = null;
 	let session: { optimizer: Optimizer; matcher: Matcher; opts: HeadlessOptimizeOptions } | null = null;
 
@@ -416,7 +403,7 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			return api.optimizeFinish();
 		},
 
-		rendererInfo: () => rendererString(engine),
+		rendererInfo: () => glRenderer(engine.gpu.gl),
 		preview: (opts = {}) => capturePreview(engine, opts.project ? PROJECT_PREVIEW : TILE_PREVIEW),
 		memoryInfo: () => ({ ...engine.gpu.renderer.info.memory }),
 		async precompile(types, opts = {}) {
@@ -606,12 +593,6 @@ export function installHeadless(engine: Engine): BismithHeadless {
 	return api;
 }
 
-export function rendererString(engine: Engine): string {
-	const gl = engine.gpu.gl;
-	const ext = gl.getExtension('WEBGL_debug_renderer_info');
-	return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
-}
-
 /** Minimal page for ?headless: a hidden canvas and the API (plus the job loop in worker mode). */
 export function bootHeadless(root: HTMLElement): void {
 	const canvas = document.createElement('canvas');
@@ -638,18 +619,21 @@ export async function workerLoop(api: { rendererInfo(): string }, worker: string
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify(body)
 		});
+	// Messages reach the server before the result of the job that logged them (smoke.ts pins errors on the job).
+	let logged: Promise<unknown> = Promise.resolve();
+	const log = (level: string, text: string) => {
+		logged = Promise.all([logged, post('log', { level, text }).catch(() => {})]);
+	};
 	const forward = (level: string) => {
 		const orig = console[level as 'error'];
 		console[level as 'error'] = (...a: unknown[]) => {
 			orig.apply(console, a);
-			void post('log', { level, text: a.map((x) => (x instanceof Error ? x.message : String(x))).join(' ') }).catch(
-				() => {}
-			);
+			log(level, a.map((x) => (x instanceof Error ? x.message : String(x))).join(' '));
 		};
 	};
 	forward('error');
 	forward('warn');
-	window.addEventListener('error', (e) => void post('log', { level: 'pageerror', text: e.message }).catch(() => {}));
+	window.addEventListener('error', (e) => log('pageerror', e.message));
 	await post('hello', { renderer: api.rendererInfo() });
 	const methods = api as unknown as Record<string, (...a: unknown[]) => unknown>;
 	for (;;) {
@@ -666,8 +650,10 @@ export async function workerLoop(api: { rendererInfo(): string }, worker: string
 		try {
 			if (typeof methods[job.method] !== 'function') throw new Error(`unknown method ${job.method}`);
 			const result = await methods[job.method](...job.args);
+			await logged;
 			await post('result', { id: job.id, ok: true, result: result === undefined ? null : result });
 		} catch (e) {
+			await logged;
 			await post('result', { id: job.id, ok: false, error: e instanceof Error ? e.message : String(e) });
 		}
 	}

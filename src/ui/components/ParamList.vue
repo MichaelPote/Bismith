@@ -5,7 +5,14 @@
 	// `section` slot draws extras under a section heading (the Shaping › Value graph); the sections named in `slotted` are
 	// drawn by that slot alone (Mask › Write to's send slots), their heading still shown while any of their rows is.
 	import { computed, ref } from 'vue';
-	import type { Curve, Gradient, ParamDef, ParamValue, ParamValues } from '@/core/params';
+	import {
+		cloneValue,
+		type Curve,
+		type Gradient,
+		type ParamDef,
+		type ParamValue,
+		type ParamValues
+	} from '@/core/params';
 	import NumberField from './NumberField.vue';
 	import ColorField from './ColorField.vue';
 	import SelectField from './SelectField.vue';
@@ -78,7 +85,6 @@
 
 	const menu = ref<InstanceType<typeof DropMenu> | null>(null);
 	const menuItems = ref<MenuItem[]>([]);
-	const copyOf = <T>(v: T): T => (typeof v === 'object' && v !== null ? (JSON.parse(JSON.stringify(v)) as T) : v);
 
 	/** Right-click on a row: copy / paste its value, reset it to the base variant's or to its default. */
 	function onMenu(e: MouseEvent, r: Row): void {
@@ -99,12 +105,12 @@
 		// Name what is copied where it isn't a plain value (paste stays off unless the clipboard holds the same type).
 		const what = d.type === 'gradient' ? 'gradient' : 'value';
 		menuItems.value = [
-			{ label: `Copy ${what}`, action: () => (editor.paramClipboard = { type: d.type, value: copyOf(value(d)) }) },
+			{ label: `Copy ${what}`, action: () => (editor.paramClipboard = { type: d.type, value: cloneValue(value(d)) }) },
 			{
 				label: `Paste ${what}`,
 				disabled: !fits,
 				action: () => {
-					set(d.key, copyOf(clip!.value));
+					set(d.key, cloneValue(clip!.value));
 				}
 			},
 			...(variants
@@ -124,7 +130,7 @@
 				label: 'Reset to default',
 				disabled: JSON.stringify(value(d)) === JSON.stringify(d.default),
 				action: () => {
-					set(d.key, copyOf(d.default));
+					set(d.key, cloneValue(d.default));
 				}
 			}
 		];

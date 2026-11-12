@@ -13,14 +13,12 @@
 
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer, type Plugin, type ViteDevServer } from 'vite';
 import { chromium, type Browser, type Page } from 'playwright';
 import type {} from '../src/headless';
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+import { ROOT } from './args';
 
 export type BackendKind = 'windows' | 'swiftshader';
 
@@ -30,9 +28,17 @@ export interface SessionOptions {
 	workers?: number;
 	/** Print page console errors (default true). */
 	logPage?: boolean;
+	/**
+	 * Every console error and warning of the pages, and their uncaught errors (level 'pageerror'), whether printed or
+	 * not. A page's messages arrive before the result of the call that made them.
+	 */
+	onPageLog?: (level: PageLogLevel, text: string, worker: number) => void;
 	/** ANGLE backend for the windows browser: d3d11 (default), gl or vulkan (env BISMITH_ANGLE). */
 	angle?: 'd3d11' | 'gl' | 'vulkan';
 }
+
+/** A page's console.error, console.warn, or an uncaught error. */
+export type PageLogLevel = 'error' | 'warn' | 'pageerror';
 
 export interface Session {
 	backend: BackendKind;
@@ -70,6 +76,61 @@ export function chromiumEnv(): Record<string, string> {
 
 export function quietLog(text: string): boolean {
 	return /GPU stall due to ReadPixels|GL Driver Message|warning X[0-9]+:|potentially uninitialized/.test(text);
+}
+
+/** Print a page message the way every tool does: errors and warnings that aren't driver noise, and uncaught errors. */
+export function printPageLog(level: PageLogLevel, text: string): void {
+	if (level === 'pageerror') console.error('[page error]', text);
+	else if (!quietLog(text)) console.error(`[page ${level === 'warn' ? 'warning' : level}]`, text);
+}
+
+export interface SwiftShader {
+	/** The app's URL on the Vite server. */
+	url: string;
+	browser: Browser;
+	/** A new page (not navigated), its console errors, warnings and uncaught errors passed to `onLog`. */
+	newPage(onLog?: (level: PageLogLevel, text: string) => void): Promise<Page>;
+	close(): Promise<void>;
+}
+
+/**
+ * Vite (no HMR, no file watching) and Playwright's Chromium with CPU SwiftShader WebGL, inside WSL: the portable
+ * fallback of the sessions here and of tools/editor.ts. `port` is the first port to try.
+ */
+export async function launchSwiftShader(opts: {
+	port: number;
+	viewport?: { width: number; height: number };
+}): Promise<SwiftShader> {
+	const server = await createServer({
+		root: ROOT,
+		configFile: join(ROOT, 'vite.config.ts'),
+		logLevel: 'error',
+		server: { port: opts.port, strictPort: false, host: '127.0.0.1', hmr: false, watch: null }
+	});
+	await server.listen();
+	const browser = await chromium.launch({
+		args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+		env: chromiumEnv()
+	});
+	return {
+		url: server.resolvedUrls?.local[0] ?? `http://127.0.0.1:${opts.port}/`,
+		browser,
+		async newPage(onLog) {
+			const page = await browser.newPage(opts.viewport ? { viewport: opts.viewport } : {});
+			if (onLog) {
+				page.on('console', (m) => {
+					const t = m.type();
+					if (t === 'error' || t === 'warning') onLog(t === 'error' ? 'error' : 'warn', m.text());
+				});
+				page.on('pageerror', (e) => onLog('pageerror', e.message));
+			}
+			return page;
+		},
+		async close() {
+			await browser.close();
+			await server.close();
+		}
+	};
 }
 
 // ------------------------------------------------------------------------------------------------ windows
@@ -146,6 +207,7 @@ class JobQueue {
 	readonly ready = new Map<number, string>();
 	private readyWaiters: (() => void)[] = [];
 	logPage = true;
+	onLog?: SessionOptions['onPageLog'];
 
 	enqueue<T>(worker: number, method: string, args: unknown[]): Promise<T> {
 		const job: Job = { id: this.nextId++, method, args };
@@ -242,8 +304,9 @@ class JobQueue {
 								return this.send(res, 204);
 							}
 							case '/__bismith/log': {
-								const b = (await this.body(req)) as { level: string; text: string };
+								const b = (await this.body(req)) as { level: PageLogLevel; text: string };
 								if (this.logPage && !quietLog(b.text)) console.error(`[worker ${worker} ${b.level}]`, b.text);
+								this.onLog?.(b.level, b.text, worker);
 								return this.send(res, 204);
 							}
 						}
@@ -278,6 +341,7 @@ async function openWindowsSession(
 	const workers = editor ? 1 : Math.max(1, opts.workers ?? 1);
 	const queue = new JobQueue();
 	queue.logPage = opts.logPage ?? true;
+	queue.onLog = opts.onPageLog;
 	const server: ViteDevServer = await createServer({
 		root: ROOT,
 		configFile: join(ROOT, 'vite.config.ts'),
@@ -299,9 +363,14 @@ async function openWindowsSession(
 	const port = (server.httpServer?.address() as { port: number }).port;
 	const tag = `bismith-gpu${editor ? '-editor' : ''}-${port}`;
 	const temp = windowsTemp();
-	// Chrome writes its DevTools port here; the profile itself is kept, with its shader cache.
+	// Chrome writes its DevTools port here (editor only); the profile itself is kept, with its shader cache.
+	let devtoolsPortFile: string | undefined;
 	const portFile = () =>
-		join(execFileSync('wslpath', ['-u', temp], { encoding: 'utf8' }).trim(), `${tag}-0`, 'DevToolsActivePort');
+		(devtoolsPortFile ??= join(
+			execFileSync('wslpath', ['-u', temp], { encoding: 'utf8' }).trim(),
+			`${tag}-0`,
+			'DevToolsActivePort'
+		));
 	const launch = (w: number) => {
 		const args = [
 			'--headless=new',
@@ -405,28 +474,14 @@ async function openWindowsSession(
 
 async function openSwiftShaderSession(opts: SessionOptions): Promise<Session> {
 	const workers = Math.max(1, opts.workers ?? 1);
-	const server = await createServer({
-		root: ROOT,
-		configFile: join(ROOT, 'vite.config.ts'),
-		logLevel: 'error',
-		server: { port: 5190, strictPort: false, host: '127.0.0.1', hmr: false, watch: null }
-	});
-	await server.listen();
-	const url = server.resolvedUrls?.local[0] ?? 'http://127.0.0.1:5190/';
-	const browser: Browser = await chromium.launch({
-		args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-		env: chromiumEnv()
-	});
+	const ss = await launchSwiftShader({ port: 5190 });
 	const pages: Page[] = [];
 	for (let w = 0; w < workers; w++) {
-		const page = await browser.newPage();
-		page.on('console', (msg) => {
-			if ((opts.logPage ?? true) && (msg.type() === 'error' || msg.type() === 'warning') && !quietLog(msg.text())) {
-				console.error(`[page ${msg.type()}]`, msg.text());
-			}
+		const page = await ss.newPage((level, text) => {
+			if (level === 'pageerror' || (opts.logPage ?? true)) printPageLog(level, text);
+			opts.onPageLog?.(level, text, w);
 		});
-		page.on('pageerror', (err) => console.error('[page error]', err.message));
-		await page.goto(url + '?headless');
+		await page.goto(ss.url + '?headless');
 		await page.waitForFunction(() => window.__bismith?.ready === true, null, { timeout: 60_000 });
 		pages.push(page);
 	}
@@ -444,10 +499,7 @@ async function openSwiftShaderSession(opts: SessionOptions): Promise<Session> {
 		workers,
 		callOn,
 		call: <T>(method: string, ...args: unknown[]) => callOn<T>(rr++ % workers, method, ...args),
-		async close() {
-			await browser.close();
-			await server.close();
-		}
+		close: () => ss.close()
 	};
 }
 

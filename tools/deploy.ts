@@ -13,10 +13,8 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+import { join } from 'node:path';
+import { ROOT } from './args';
 
 /** KEY=value lines of .env.local (# comments, optional quotes); the environment wins over the file. */
 function loadEnvFile(file: string): void {

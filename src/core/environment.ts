@@ -320,14 +320,27 @@ export function bytesToDataUrl(bytes: Uint8Array, mime = 'image/jpeg'): string {
 	return `data:${mime};base64,${btoa(s)}`;
 }
 
-export function dataUrlToBytes(url: string): Uint8Array {
-	const b = atob(url.slice(url.indexOf(',') + 1));
+export function base64ToBytes(b64: string): Uint8Array {
+	const b = atob(b64);
 	const out = new Uint8Array(b.length);
 	for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
 	return out;
 }
 
+export const dataUrlToBytes = (url: string): Uint8Array => base64ToBytes(url.slice(url.indexOf(',') + 1));
+
 // ------------------------------------------------------------------------------------------------- in the browser
+
+/** An image file (PNG, JPEG, WebP …) decoded by the browser to sRGB RGBA8, its values as stored (no colour management). */
+export async function decodeImageBlob(blob: Blob): Promise<{ width: number; height: number; data: Uint8ClampedArray }> {
+	const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+	const c = new OffscreenCanvas(bmp.width, bmp.height);
+	const ctx = c.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true })!;
+	ctx.drawImage(bmp, 0, 0);
+	bmp.close();
+	const d = ctx.getImageData(0, 0, c.width, c.height);
+	return { width: d.width, height: d.height, data: d.data };
+}
 
 /** JPEG through the browser's canvas (decode sniffs the format, so PNG and WebP decode too). */
 export const canvasJpeg: JpegCodec = {
@@ -337,18 +350,7 @@ export const canvasJpeg: JpegCodec = {
 		const blob = await c.convertToBlob({ type: 'image/jpeg', quality });
 		return new Uint8Array(await blob.arrayBuffer());
 	},
-	async decode(bytes) {
-		const bmp = await createImageBitmap(new Blob([new Uint8Array(bytes)]), {
-			colorSpaceConversion: 'none',
-			premultiplyAlpha: 'none'
-		});
-		const c = new OffscreenCanvas(bmp.width, bmp.height);
-		const ctx = c.getContext('2d', { colorSpace: 'srgb' })!;
-		ctx.drawImage(bmp, 0, 0);
-		bmp.close();
-		const d = ctx.getImageData(0, 0, c.width, c.height);
-		return { width: d.width, height: d.height, data: d.data };
-	}
+	decode: (bytes) => decodeImageBlob(new Blob([new Uint8Array(bytes)]))
 };
 
 /** A loader's float pixels (RGBA, or fewer channels) as RGBA, rows top-down. */

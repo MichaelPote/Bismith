@@ -6,6 +6,8 @@
 // remembered, so a monitor swap or a browser update doesn't make someone a new visitor. It isn't a security boundary:
 // the server pairs it with per-IP limits.
 
+import { glRenderer, glVendor } from '@/gpu/info';
+
 const STORE_KEY = 'bismith:visitor';
 
 function canvasSignal(): string {
@@ -36,10 +38,9 @@ function webglSignal(): string[] {
 	try {
 		const gl = document.createElement('canvas').getContext('webgl');
 		if (!gl) return [];
-		const info = gl.getExtension('WEBGL_debug_renderer_info');
 		return [
-			String(info ? gl.getParameter(info.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR)),
-			String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)),
+			glVendor(gl),
+			glRenderer(gl),
 			String(gl.getParameter(gl.MAX_TEXTURE_SIZE)),
 			String(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE))
 		];

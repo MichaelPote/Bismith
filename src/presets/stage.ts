@@ -10,10 +10,10 @@ import { gradient } from '@/core/params';
 import { metalColour } from '@/core/color';
 
 /** Size of the built-in presets' projects (the user's are saved at their project's size). */
-export const BUILTIN_PRESET_SIZE = 128;
+const BUILTIN_PRESET_SIZE = 128;
 
 /** The standard rig: a sun from the top left, sky and AO — flat ambient light would hide relief. */
-export function presetLighting(): Lighting {
+function presetLighting(): Lighting {
 	return {
 		sky: { enabled: true, zenith: '#a9bccd', horizon: '#c9c4bb', intensity: 0.35 },
 		ambient: { color: '#ffffff', intensity: 0.02 },
@@ -43,7 +43,7 @@ export function presetBase(width = BUILTIN_PRESET_SIZE, height = width, tileable
 }
 
 /** A layer that makes relief of its own: a generator with its Height output on. */
-export function makesRelief(layer: Pick<Layer, 'type' | 'params'>): boolean {
+function makesRelief(layer: Pick<Layer, 'type' | 'params'>): boolean {
 	return getLayerDef(layer.type)?.kind === 'generator' && layer.params.h_on === true;
 }
 
@@ -51,7 +51,7 @@ export function makesRelief(layer: Pick<Layer, 'type' | 'params'>): boolean {
  * The stage for items without relief of their own: large bevelled bricks (writing the Shape mask) over soft noise,
  * relief only, sized to the texture.
  */
-export function presetStage(width: number): Layer[] {
+function presetStage(width: number): Layer[] {
 	const u = width / BUILTIN_PRESET_SIZE;
 	const noise = { noise: 'perlin', fractal: 'fbm', scale: 3, octaves: 4, h_on: true, h_amount: 0.12 };
 	const bricks = { columns: 2, rows: 4, mortar: 3 * u, bevel: 3 * u, chips: 0, h_on: true, h_amount: 0.5 };
@@ -65,7 +65,7 @@ export function presetStage(width: number): Layer[] {
  * The stage for lights and lighting: presetStage's matte bricks with a polished steel dome in the middle, which shows
  * the light's highlight and what metals reflect (the sky, or its environment image) from every direction.
  */
-export function presetLightStage(width: number): Layer[] {
+function presetLightStage(width: number): Layer[] {
 	const r = 0.22 * width;
 	const dome = createLayer(
 		'circle',

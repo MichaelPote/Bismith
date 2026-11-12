@@ -5,7 +5,7 @@
 // In memory the project is the active variant, materialised; `variants.baseValues` holds the base's settings while
 // another variant is active. In a file the top level is the base and `variants` lists the others' changes.
 
-import type { ParamValue } from './params';
+import { deepCopy as clone, sameValue as same, type ParamValue } from './params';
 import type { Project } from './project';
 import { newId } from './ids';
 
@@ -45,11 +45,11 @@ export interface VariantFile {
 }
 
 /** The name of a project's first variant when the project has none (its only variant otherwise goes by the project's). */
-export const FIRST_VARIANT = 'Variant 1';
+const FIRST_VARIANT = 'Variant 1';
 const FIRST_ID = 'v1';
 
 /** Path tracer settings that change the image; sample counts and supersampling are shared by every variant. */
-export const RENDER_LOOK_KEYS = [
+const RENDER_LOOK_KEYS = [
 	'bounces',
 	'specular',
 	'specularTint',
@@ -59,10 +59,6 @@ export const RENDER_LOOK_KEYS = [
 	'shadows',
 	'jitter'
 ] as const;
-
-const clone = <T>(v: T): T => (typeof v === 'object' && v !== null ? (JSON.parse(JSON.stringify(v)) as T) : v);
-const same = (a: unknown, b: unknown): boolean =>
-	a === b || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
 
 type Rec = Record<string, unknown>;
 
@@ -134,7 +130,7 @@ export function variantsOf(p: Project): VariantSet {
 }
 
 /** The project's variants, attaching the block when it has none. */
-export function ensureVariants(p: Project): VariantSet {
+function ensureVariants(p: Project): VariantSet {
 	return (p.variants ??= variantsOf(p));
 }
 
@@ -144,7 +140,7 @@ export function activeVariant(p: Project): ProjectVariant {
 }
 
 /** The base's settings (call syncVariants first when the active variant's changes may be stale). */
-export function baseSettings(p: Project): Settings {
+function baseSettings(p: Project): Settings {
 	const vs = p.variants;
 	return vs && vs.activeId !== vs.baseId && vs.baseValues ? vs.baseValues : extractSettings(p);
 }

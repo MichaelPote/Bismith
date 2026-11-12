@@ -19,7 +19,8 @@ ANGLE/D3D11 on the RTX 5080) — without a visible window and without exposing a
   WSL → Windows connections are blocked by the firewall, so traffic only flows Windows → WSL. Browsers are
   killed by tag on close / Ctrl-C.
 - **swiftshader** backend: the previous Playwright path, kept as a portable fallback.
-- `--backend windows|swiftshader`, `--workers N` on every harness command; `BISMITH_BACKEND` env var.
+- `--backend windows|swiftshader` on every harness command (`--workers N` on the batch tools that spread work over
+  pages: emulate, matchbench, tiling); `BISMITH_BACKEND` env var.
 - **The editor on the GPU** (`tools/editor.ts`, `openEditor()`; `tools/shot.ts` uses it): for checks that go through the
   UI. Windows Chrome opens `/?editor&worker=0`, the normal app plus `src/editorDriver.ts` (dev server only; the build
   drops it), which pulls `eval` and `cdp` jobs from the same queue. Since nothing in WSL can reach the browser's DevTools

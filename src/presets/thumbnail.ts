@@ -1,22 +1,14 @@
-// A preset's thumbnail, rendered off-screen (docs/features/fr5.4-presets.md): the viewport is suspended, the preset
-// project rendered and captured, and the user's project put back — nothing in it changes and no undo step is added.
+// In-memory thumbnails rendered off-screen (docs/features/fr5.4-presets.md): the viewport is suspended, the projects
+// rendered and captured, and the user's project put back — nothing in it changes and no undo step is added. A preset's
+// stored thumbnail is render/preview.ts renderPreview.
 
 import type { Project } from '@/core/project';
 import type { Engine } from '@/render/engine';
 import { shaderKey } from '@/render/materialPipeline';
-import { capturePreview, renderPreview, TILE_PREVIEW, type PreviewSize } from '@/render/preview';
+import { capturePreview, type PreviewSize } from '@/render/preview';
 
 /** Samples of a thumbnail kept in memory only (renderThumbnails): enough for soft shadows at card size, and quick. */
 export const THUMBNAIL_SAMPLES = 64;
-
-/** A preset's stored thumbnail: rendered off-screen at PREVIEW_SAMPLES, the page responsive meanwhile. */
-export function renderThumbnail(
-	engine: Engine,
-	preset: Project,
-	size: PreviewSize = TILE_PREVIEW
-): Promise<string | undefined> {
-	return renderPreview(engine, size, preset);
-}
 
 /**
  * In-memory thumbnails of several projects (the variant cards) in one pass, at THUMBNAIL_SAMPLES (the viewport resumes

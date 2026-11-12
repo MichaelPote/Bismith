@@ -7,7 +7,7 @@
 // later.) Decoding is asynchronous: until an image is ready its layer draws nothing, and onImageReady listeners (the
 // engine) re-render when it is; pendingImages() resolves once every image asked for is decoded (headless renders).
 
-import { canvasJpeg, dataUrlToBytes, decodeUltraHdr, type HdrImage } from './environment';
+import { canvasJpeg, dataUrlToBytes, decodeImageBlob, decodeUltraHdr, type HdrImage } from './environment';
 
 export interface DecodedImage {
 	width: number;
@@ -130,13 +130,7 @@ function decode(name: string): void {
 	if (!url || typeof createImageBitmap !== 'function') return;
 	const job = (async () => {
 		try {
-			const blob = await (await fetch(url)).blob();
-			const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
-			const c = new OffscreenCanvas(bmp.width, bmp.height);
-			const ctx = c.getContext('2d', { colorSpace: 'srgb' })!;
-			ctx.drawImage(bmp, 0, 0);
-			const px = ctx.getImageData(0, 0, bmp.width, bmp.height);
-			bmp.close();
+			const px = await decodeImageBlob(await (await fetch(url)).blob());
 			// Replaced meanwhile: the newer one decodes on its own.
 			if (urls.get(name) !== url) return;
 			decoded.set(name, { width: px.width, height: px.height, data: new Uint8Array(px.data.buffer.slice(0)) });

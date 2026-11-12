@@ -3,10 +3,10 @@
 import { readPng } from './png';
 import { fromRgba8 } from '../src/match/image';
 import { analyzeTarget } from '../src/match/analyze';
-const args = process.argv.slice(2);
-const ki = args.indexOf('--k');
-const k = ki >= 0 ? Number(args[ki + 1]) : 6;
-for (const f of args.filter((a, i) => !a.startsWith('--') && (ki < 0 || i !== ki + 1))) {
+import { num, parseArgs } from './args';
+const args = parseArgs();
+const k = num(args, 'k', 6);
+for (const f of args.positional) {
 	const img = readPng(f);
 	const a = analyzeTarget(fromRgba8(img.data, img.width, img.height), k);
 	console.log(

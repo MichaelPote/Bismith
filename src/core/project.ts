@@ -1,6 +1,7 @@
 // Project data model. A Project is plain JSON and fully describes a texture (see docs/architecture.md §5).
 
-import type { ParamValues } from './params';
+import { defaultParams, type ParamValues } from './params';
+import { AMBIENT_DEFS, BASE_DEFS, RENDER_DEFS, SKY_DEFS } from './settingsDefs';
 import type { VariantSet } from './variants';
 
 export const PROJECT_VERSION = 2;
@@ -231,43 +232,18 @@ export const SIZE_PRESETS = [16, 32, 64, 128, 256, 512, 1024];
 export const MAX_SIZE = 2048;
 export const MAX_LIGHTS = 8;
 
+// Defaults and ranges live in the settings' ParamDefs (settingsDefs.ts); serialize.ts normalises files through them.
 export function defaultLighting(): Lighting {
 	return {
-		sky: {
-			enabled: true,
-			zenith: '#9fb4c8',
-			horizon: '#c8c2b8',
-			intensity: 0.35,
-			image: '',
-			rotation: 0,
-			plane: 'floor'
-		},
-		ambient: { color: '#ffffff', intensity: 0.02 },
+		sky: defaultParams(SKY_DEFS) as unknown as Lighting['sky'],
+		ambient: defaultParams(AMBIENT_DEFS) as unknown as Lighting['ambient'],
 		lights: []
 	};
 }
 
-export function defaultRender(): RenderSettings {
-	return {
-		samplesPerFrame: 4,
-		maxSamples: 256,
-		bounces: 2,
-		specular: 1,
-		specularTint: 1,
-		ao: 0,
-		aoRadius: 4,
-		jitter: true,
-		clamp: 8,
-		shadows: true,
-		supersample: 1,
-		exportSamples: 1024,
-		exportSupersample: 2
-	};
-}
+export const defaultRender = (): RenderSettings => defaultParams(RENDER_DEFS) as unknown as RenderSettings;
 
-export function defaultBase(): MaterialBase {
-	return { color: '#7a7570', roughness: 0.75, specular: 0.5, metalness: 0, height: 0, opacity: 1 };
-}
+export const defaultBase = (): MaterialBase => defaultParams(BASE_DEFS) as unknown as MaterialBase;
 
 /** One top-level entry of the layer list: a free layer, or a group's block of member layers. */
 export type LayerUnit = { layer: Layer; group?: undefined } | { group: LayerGroup; layers: Layer[]; layer?: undefined };

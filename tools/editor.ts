@@ -12,13 +12,8 @@
 // The browser's profile is its own: the user's autosave and presets are never touched.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createServer } from 'vite';
-import { chromium } from 'playwright';
-import { chromiumEnv, openWindowsEditor, quietLog, resolveBackend, type BackendKind } from './backend';
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+import { dirname, resolve } from 'node:path';
+import { launchSwiftShader, openWindowsEditor, printPageLog, resolveBackend, type BackendKind } from './backend';
 /** The editor's autosave (stores/project.ts): what a page opens with. */
 const AUTOSAVE_KEY = 'bismith:project';
 
@@ -184,26 +179,9 @@ async function gpuEditor(width: number, height: number, logPage: boolean): Promi
 }
 
 async function swiftShaderEditor(width: number, height: number, logPage: boolean): Promise<EditorPage> {
-	const server = await createServer({
-		root: ROOT,
-		configFile: join(ROOT, 'vite.config.ts'),
-		logLevel: 'error',
-		server: { port: 5191, strictPort: false, host: '127.0.0.1', hmr: false, watch: null }
-	});
-	await server.listen();
-	const url = server.resolvedUrls?.local[0] ?? 'http://127.0.0.1:5191/';
-	const browser = await chromium.launch({
-		args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-		env: chromiumEnv()
-	});
-	const page = await browser.newPage({ viewport: { width, height } });
-	if (logPage) {
-		page.on('console', (m) => {
-			if ((m.type() === 'error' || m.type() === 'warning') && !quietLog(m.text()))
-				console.error(`[page ${m.type()}]`, m.text());
-		});
-		page.on('pageerror', (e) => console.error('[page error]', e.message));
-	}
+	const ss = await launchSwiftShader({ port: 5191, viewport: { width, height } });
+	const { url } = ss;
+	const page = await ss.newPage(logPage ? printPageLog : undefined);
 	await page.goto(url);
 	await page.evaluate(CLEAR_STORAGE);
 	await page.goto(url);
@@ -244,10 +222,7 @@ async function swiftShaderEditor(width: number, height: number, logPage: boolean
 		async screenshot(file, clip) {
 			writeShot(file, await page.screenshot(clip ? { clip } : {}));
 		},
-		async close() {
-			await browser.close();
-			await server.close();
-		}
+		close: () => ss.close()
 	};
 }
 

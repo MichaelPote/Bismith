@@ -1,5 +1,6 @@
 import {
 	defaultParams,
+	sameValue,
 	sanitizeParams,
 	type GroupDef,
 	type ParamDef,
@@ -221,9 +222,8 @@ export function linkedChanges(type: string, params: ParamValues, key: string, va
 	const before = link(params);
 	const after = link({ ...params, [key]: value });
 	// By value: a linked gradient is a new object on every call (and a loaded one never the same object).
-	const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 	for (const [k, v] of Object.entries(after))
-		if (k !== key && same(params[k], before[k]) && !same(v, before[k])) changes[k] = v;
+		if (k !== key && sameValue(params[k], before[k]) && !sameValue(v, before[k])) changes[k] = v;
 	return changes;
 }
 

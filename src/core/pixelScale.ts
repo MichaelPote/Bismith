@@ -10,7 +10,7 @@
 // kx / ky, and vertex lists ("x,y x,y …" in px) per coordinate. Counts per texture or per cell ("cells
 // across"), fractions, angles and height amounts (height units × height depth) need nothing.
 
-import type { ParamDef, ParamValues } from './params';
+import { deepCopy, type ParamDef, type ParamValues } from './params';
 import type { Light, Project } from './project';
 import { layerParamDefs } from '@/layers/registry';
 import { getPostDef } from '@/render/post/registry';
@@ -39,7 +39,7 @@ function axisOf(d: ParamDef, params: ParamValues): 'x' | 'y' | null {
 }
 
 /** The factor a param's value is multiplied by (1 = not pixel-measured); `params` = its layer's, for orientation. */
-export function pixelFactor(d: ParamDef, { kx, ky, supersample }: PixelScale, params: ParamValues = {}): number {
+function pixelFactor(d: ParamDef, { kx, ky, supersample }: PixelScale, params: ParamValues = {}): number {
 	const s = Math.sqrt(kx * ky);
 	if (d.outputPx && !supersample) return 1;
 	if (d.unit === 'px') {
@@ -52,7 +52,7 @@ export function pixelFactor(d: ParamDef, { kx, ky, supersample }: PixelScale, pa
 }
 
 /** Scale the pixel-measured values of `params` in place. `units` = the layer's units param ('fraction' vertex lists stay). */
-export function scaleParams(defs: ParamDef[], params: ParamValues, scale: PixelScale): void {
+function scaleParams(defs: ParamDef[], params: ParamValues, scale: PixelScale): void {
 	const before = { ...params };
 	for (const d of defs) {
 		const v = params[d.key];
@@ -123,7 +123,7 @@ export function fitLight(light: Light, { width, height }: { width: number; heigh
  * store keeps it across a run of resizes).
  */
 export function resizeProject(p: Project, width: number, height: number): Project {
-	const q: Project = JSON.parse(JSON.stringify(p));
+	const q = deepCopy(p);
 	q.width = width;
 	q.height = height;
 	if (width === p.width && height === p.height) return q;

@@ -2,7 +2,7 @@
 
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
-import type { ParamValue } from '@/core/params';
+import { deepCopy as clone, type ParamValue } from '@/core/params';
 import type { Layer, LayerGroup, LayerUnit, LimitExpr, Light, LightType, PostFilter, Project } from '@/core/project';
 import { flattenUnits, layerUnits } from '@/core/project';
 import {
@@ -53,10 +53,6 @@ function saveAutosave(json: string): void {
 	} catch {
 		/* storage unavailable or full */
 	}
-}
-
-function clone<T>(v: T): T {
-	return JSON.parse(JSON.stringify(v)) as T;
 }
 
 export const useProjectStore = defineStore('project', () => {

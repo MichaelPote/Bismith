@@ -170,6 +170,14 @@ export function cloneValue<T extends ParamValue>(v: T): T {
 	return v;
 }
 
+/** A deep copy of plain JSON data (projects, layers, settings, param values); other values as they are. */
+export const deepCopy = <T>(v: T): T =>
+	typeof v === 'object' && v !== null ? (JSON.parse(JSON.stringify(v)) as T) : v;
+
+/** Equal as JSON data: objects (gradients, curves, limits) by value. */
+export const sameValue = (a: unknown, b: unknown): boolean =>
+	a === b || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
+
 export function defaultParams(defs: ParamDef[]): ParamValues {
 	const out: ParamValues = {};
 	for (const d of defs) out[d.key] = cloneValue(d.default);

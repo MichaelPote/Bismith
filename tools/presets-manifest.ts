@@ -9,13 +9,14 @@
 // `npm run build` runs it first, and tools/previews.ts after rendering; presets.test.ts fails while it is out of date.
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { PresetKind } from '../src/core/project';
 import type { PresetManifest, PresetManifestEntry } from '../src/presets/manifest';
+import { ROOT } from './args';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const PRESET_DIR = join(ROOT, 'public', 'presets');
-export const MANIFEST_FILE = join(PRESET_DIR, 'manifest.json');
+const MANIFEST_FILE = join(PRESET_DIR, 'manifest.json');
 
 const IMAGE_TYPES: Record<string, string> = {
 	'.webp': 'image/webp',
@@ -37,6 +38,19 @@ export function presetFiles(dir = PRESET_DIR): string[] {
 	};
 	walk(dir);
 	return out;
+}
+
+/**
+ * The preset files a tool's `--only` list picks (all when it is empty): an entry names a file by its path
+ * ("project/retro/bricks"), its path within its kind ("retro/bricks") or its file name alone ("bricks"). Given a
+ * `kind`, only that kind's files, by their path within it.
+ */
+export function selectPresets(only: string[], kind?: PresetKind): string[] {
+	const within = (p: string) => p.slice(p.indexOf('/') + 1);
+	return presetFiles()
+		.filter((p) => !kind || p.startsWith(`${kind}/`))
+		.filter((p) => !only.length || only.some((o) => o === p || o === within(p) || o === p.split('/').pop()))
+		.map((p) => (kind ? within(p) : p));
 }
 
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
@@ -71,7 +85,7 @@ export function buildManifest(): PresetManifest {
 }
 
 /** The manifest's text as written (one preset per line). */
-export function manifestText(m = buildManifest()): string {
+function manifestText(m = buildManifest()): string {
 	return `{\n\t"version": ${m.version},\n\t"presets": [\n${m.presets.map((e) => `\t\t${JSON.stringify(e)}`).join(',\n')}\n\t]\n}\n`;
 }
 

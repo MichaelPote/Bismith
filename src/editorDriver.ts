@@ -3,6 +3,7 @@
 // browser can do — trusted input, screenshots — this page opens the browser's DevTools socket on itself: both are on the
 // Windows side.
 
+import { glRenderer } from './gpu/info';
 import { workerLoop } from './headless';
 
 /** A connection to the browser's DevTools, attached to this page. */
@@ -54,8 +55,7 @@ class SelfDevtools {
 
 function rendererInfo(): string {
 	const gl = document.createElement('canvas').getContext('webgl2');
-	const ext = gl?.getExtension('WEBGL_debug_renderer_info');
-	return gl && ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : 'unknown';
+	return gl ? glRenderer(gl) : 'unknown';
 }
 
 export function startEditorDriver(worker: string): void {

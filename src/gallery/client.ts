@@ -10,8 +10,7 @@ export const GALLERY_URL = (
 	(import.meta.env.VITE_GALLERY_URL as string | undefined) || 'https://gallery.bismith.dev'
 ).replace(/\/+$/, '');
 
-/** Gallery ids: 10 characters of a lowercase alphabet without look-alikes. */
-export const GALLERY_ID = /^[a-z2-9]{10}$/;
+export { GALLERY_ID } from './ids';
 
 export const MAX_NAME = 80;
 export const MAX_DESCRIPTION = 2000;
