@@ -1244,6 +1244,8 @@
 	</section>
 </template>
 
+<style scoped src="./workspace.css"></style>
+
 <style scoped>
 	.overlay {
 		display: grid;
@@ -1336,45 +1338,6 @@
 		color: var(--text-lo);
 	}
 
-	.grow {
-		flex: 1;
-	}
-
-	.panes {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: 6px;
-		padding: 6px;
-		min-height: 0;
-	}
-
-	figure {
-		margin: 0;
-		display: grid;
-		grid-template-rows: 20px minmax(0, 1fr);
-		min-height: 0;
-	}
-
-	.cap {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		min-width: 0;
-	}
-
-	.pick {
-		display: flex;
-		gap: 4px;
-	}
-
-	.pick .cf-toggle {
-		height: 18px;
-		padding: 0 6px;
-		font: inherit;
-		letter-spacing: inherit;
-		text-transform: inherit;
-	}
-
 	.cap .loss {
 		margin-left: 4px;
 		letter-spacing: 0;
@@ -1390,33 +1353,10 @@
 		min-height: 0;
 	}
 
-	.settings {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-height: 0;
-		overflow-y: auto;
-	}
-
 	.settings > * {
 		/* Rows keep their content height (wrapped checkboxes included) and the column scrolls, instead of rows being
 		 squashed to their min-height and overlapping the next. */
 		flex-shrink: 0;
-	}
-
-	.row {
-		display: grid;
-		grid-template-columns: 70px minmax(0, 1fr);
-		gap: 8px;
-		align-items: center;
-		min-height: 24px;
-	}
-
-	.lbl {
-		font-size: 12px;
-		color: var(--text-lo);
-		text-align: right;
-		cursor: help;
 	}
 
 	.checks {
@@ -1431,74 +1371,11 @@
 		color: var(--text-lo);
 	}
 
-	.progress {
-		display: grid;
-		grid-template-rows: 22px minmax(0, 1fr);
-		gap: 4px;
-		min-height: 0;
-	}
-
-	.stats {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0 14px;
-		white-space: nowrap;
-		font-size: 11px;
-		color: var(--text-lo);
-		align-items: center;
-	}
-
-	.stats b {
-		color: var(--pill);
-		font-weight: 400;
-	}
-
-	.terms {
-		display: flex;
-		flex-direction: column;
-		gap: 3px;
-		min-height: 0;
-	}
-
 	.term {
 		display: grid;
 		grid-template-columns: 82px minmax(0, 1fr) 44px;
 		gap: 6px;
 		align-items: center;
 		font-size: 11px;
-	}
-
-	.tl {
-		color: var(--text-lo);
-		text-align: right;
-	}
-
-	.tb {
-		height: 6px;
-		background: var(--hairline);
-	}
-
-	.tb > div {
-		height: 100%;
-		background: var(--sigil);
-	}
-
-	.tv {
-		color: var(--text);
-		text-align: right;
-	}
-
-	.log {
-		flex: 1;
-		min-height: 0;
-		overflow-y: auto;
-		margin-top: 4px;
-		padding: 4px 6px;
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-field);
-		background: var(--sunken);
-		font-size: 10px;
-		color: var(--text-lo);
-		line-height: 1.5;
 	}
 </style>
