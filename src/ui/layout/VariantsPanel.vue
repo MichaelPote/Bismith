@@ -2,13 +2,14 @@
 	// The Variants panel above the Outliner (docs/features/fr10-variants.md): the project's variants with their
 	// thumbnails; click one to show it, right-click for the rest. Rename in place (double-click or F2); deleting asks
 	// under the row.
-	import { computed, nextTick, ref, watch } from 'vue';
+	import { computed, ref, watch } from 'vue';
 	import { IconPlus, IconTrash } from '@tabler/icons-vue';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
 	import type { ProjectVariant } from '@/core/variants';
 	import DropMenu, { type MenuItem } from '@/ui/components/DropMenu.vue';
 	import AnchoredAsk from '@/ui/components/AnchoredAsk.vue';
+	import RenameInput from '@/ui/components/RenameInput.vue';
 	import { useVariantThumbs } from '@/ui/variantThumbs';
 	import {
 		changeCount as count,
@@ -67,14 +68,11 @@
 	// ---------------------------------------------------------------- rename
 	const renaming = ref<string | null>(null);
 	const renameText = ref('');
-	const renameInput = ref<HTMLInputElement[] | null>(null);
 
-	async function startRename(v: ProjectVariant): Promise<void> {
+	/** Its RenameInput takes the focus as it appears. */
+	function startRename(v: ProjectVariant): void {
 		renaming.value = v.id;
 		renameText.value = v.name;
-		await nextTick();
-		renameInput.value?.[0]?.focus();
-		renameInput.value?.[0]?.select();
 	}
 
 	watch(
@@ -82,7 +80,7 @@
 		(id) => {
 			const v = id && list.value.find((x) => x.id === id);
 			editor.variantRename = null;
-			if (v) void startRename(v);
+			if (v) startRename(v);
 		}
 	);
 
@@ -110,7 +108,7 @@
 
 	function onMenu(e: MouseEvent, v: ProjectVariant): void {
 		menuItems.value = variantMenuItems(v, {
-			rename: () => void startRename(v),
+			rename: () => startRename(v),
 			remove: () => void confirmDelete(v.id)
 		});
 		menu.value?.openAt(e.clientX, e.clientY);
@@ -123,7 +121,7 @@
 		if (!v) return;
 		if (e.key === 'F2') {
 			e.preventDefault();
-			void startRename(v);
+			startRename(v);
 		} else if (e.key === 'Delete' || e.key === 'Backspace') {
 			// The panel's own: the selection in the outliner stays.
 			e.preventDefault();
@@ -191,19 +189,7 @@
 				@dragend="onDragEnd">
 				<img v-if="thumbs.crop(v.id)" class="thumb" :src="thumbs.crop(v.id)" alt="" />
 				<span v-else class="thumb empty" />
-				<input
-					autocomplete="off"
-					data-1p-ignore
-					v-if="renaming === v.id"
-					ref="renameInput"
-					v-model="renameText"
-					class="rename"
-					aria-label="Variant name"
-					@click.stop
-					@contextmenu.stop
-					@keydown.stop.enter="finishRename(true)"
-					@keydown.stop.esc="finishRename(false)"
-					@blur="finishRename(true)" />
+				<RenameInput v-if="renaming === v.id" v-model="renameText" label="Variant name" @finish="finishRename" />
 				<span v-else class="name" @dblclick.stop="startRename(v)">{{ v.name }}</span>
 				<span v-if="list.length > 1 && v.id === baseId" class="badge">Base</span>
 				<span v-else-if="count(v)" v-tip:right="`Changes ${count(v)} settings from ${baseName}`" class="changes cf-mono"
@@ -215,6 +201,8 @@
 		<AnchoredAsk v-if="asking" :question="asking.question" :anchor="asking.anchor" @answer="asking.answer" />
 	</section>
 </template>
+
+<style scoped src="./rows.css"></style>
 
 <style scoped>
 	.variants {
@@ -304,16 +292,6 @@
 	.row.rebase::before {
 		background: var(--gold);
 	}
-	/* The variant shown: the outliner's selection. */
-	.row.sel,
-	.row.sel:hover {
-		background: linear-gradient(rgba(246, 110, 16, 0.15), rgba(246, 110, 16, 0.15)), var(--raised);
-		box-shadow:
-			inset 2px 0 0 var(--e500),
-			inset 0 1px 0 rgba(255, 144, 25, 0.12),
-			inset 0 -1px 0 rgba(255, 144, 25, 0.12);
-		color: var(--text-hi);
-	}
 	.thumb {
 		width: 40px;
 		height: 24px;
@@ -333,20 +311,6 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-	.rename {
-		flex: 1;
-		min-width: 0;
-		height: 24px;
-		border: 1px solid var(--accent);
-		border-radius: var(--r-field);
-		background: var(--sunken);
-		color: var(--text-hi);
-		font-size: 12px;
-		padding: 0 4px;
-		outline: none;
-		user-select: text;
-		-webkit-user-select: text;
 	}
 	.badge {
 		flex: none;

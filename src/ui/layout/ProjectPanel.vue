@@ -8,20 +8,18 @@
 	import { useEditorStore } from '@/stores/editor';
 	import { supersampleFactor } from '@/core/supersample';
 	import { vTip } from '@/ui/tooltip';
+	import RenameInput from '@/ui/components/RenameInput.vue';
 
 	const store = useProjectStore();
 	const editor = useEditorStore();
 
 	const renaming = ref(false);
 	const renameText = ref('');
-	const input = ref<HTMLInputElement | null>(null);
 
-	async function startRename(): Promise<void> {
+	/** Its RenameInput takes the focus as it appears. */
+	function startRename(): void {
 		renaming.value = true;
 		renameText.value = store.project.name;
-		await nextTick();
-		input.value?.focus();
-		input.value?.select();
 	}
 
 	function finishRename(apply: boolean): void {
@@ -56,17 +54,7 @@
 	<section class="project cf-panel" aria-label="Project">
 		<div class="head">
 			<IconBox class="ident" :size="15" color="var(--accent-hi)" @click="editor.select('project')" />
-			<input
-				autocomplete="off"
-				data-1p-ignore
-				v-if="renaming"
-				ref="input"
-				v-model="renameText"
-				class="rename"
-				aria-label="Project name"
-				@keydown.enter.prevent="finishRename(true)"
-				@keydown.esc.prevent="finishRename(false)"
-				@blur="finishRename(true)" />
+			<RenameInput v-if="renaming" v-model="renameText" label="Project name" @finish="finishRename" />
 			<h2
 				v-else
 				v-tip:right="'Project settings · double-click to rename'"
@@ -140,18 +128,6 @@
 		flex: none;
 		font-size: 11px;
 		color: var(--readout);
-	}
-	.rename {
-		flex: 1;
-		min-width: 0;
-		height: 24px;
-		border: 1px solid var(--accent);
-		border-radius: var(--r-field);
-		background: var(--sunken);
-		color: var(--text-hi);
-		font-size: 12px;
-		padding: 0 4px;
-		outline: none;
 	}
 	.desc {
 		display: block;

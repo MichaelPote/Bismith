@@ -20,8 +20,7 @@
 	import { IconBox, IconBulb, IconSparkles, IconSquareRotated, IconSun, IconWorld } from '@tabler/icons-vue';
 	import PostExtras from '@/ui/panels/PostExtras.vue';
 	import LightingPresets from '@/ui/panels/LightingPresets.vue';
-	import PresetMenu from '@/ui/components/PresetMenu.vue';
-	import ItemStuds from '@/ui/components/ItemStuds.vue';
+	import ItemHeader from '@/ui/components/ItemHeader.vue';
 	import { vTip } from '@/ui/tooltip';
 
 	const store = useProjectStore();
@@ -29,15 +28,6 @@
 
 	const sel = computed(() => editor.selection);
 
-	/**
-	 * A name field's edit: the store may keep another name than the one typed (an empty one goes back to the type's),
-	 * so the field shows what was kept even when that didn't change.
-	 */
-	function rename(e: Event, set: (name: string) => void, kept: () => string): void {
-		const input = e.target as HTMLInputElement;
-		set(input.value);
-		input.value = kept();
-	}
 	const layer = computed(() => (sel.value.kind === 'layer' && sel.value.id ? store.getLayer(sel.value.id) : undefined));
 	const layerDef = computed(() => (layer.value ? getLayerDef(layer.value.type) : undefined));
 	const layerDefs = computed(() => (layer.value ? layerParamDefs(layer.value.type) : []));
@@ -163,47 +153,30 @@
 	<aside class="props cf-panel">
 		<!-- Layer -->
 		<template v-if="layer && layerDef">
-			<div class="title">
-				<component :is="layerIcon(layer.type)" :size="15" :color="layerHue(layer.type)" />
-				<input
-					autocomplete="off"
-					data-1p-ignore
-					class="name"
-					:value="layer.name"
-					aria-label="Layer name"
-					@change="
-						rename(
-							$event,
-							(name) => store.updateLayer(layer!.id, { name }),
-							() => layer!.name
-						)
-					" />
-				<label class="en" title="Enabled">
-					<input
-						type="checkbox"
-						:checked="layer.enabled"
-						aria-label="Layer enabled"
-						@change="store.updateLayer(layer.id, { enabled: ($event.target as HTMLInputElement).checked })" />
-				</label>
-			</div>
-			<div class="sub">
-				<span class="type">{{ layerDef.label }}</span>
-				<span
-					v-tip="
-						layerGroup
-							? `Position within ${layerGroup.name} (top = applied first)`
-							: 'Position in the layer list (top = applied first)'
-					"
-					class="cf-mono lo"
-					>{{ layerIndexLabel() }}</span
-				>
-				<span class="grow" />
-				<ItemStuds kind="layer" :id="layer.id" />
-			</div>
-			<div class="desc-row">
-				<p class="desc">{{ layerDef.description }}</p>
-				<PresetMenu kind="layer" :target="layer.type" :source="{ kind: 'layer', id: layer.id }" />
-			</div>
+			<ItemHeader
+				:name="layer.name"
+				name-label="Layer name"
+				:icon="layerIcon(layer.type)"
+				:icon-color="layerHue(layer.type)"
+				:toggle="{ on: layer.enabled, label: 'Layer enabled' }"
+				:item="{ kind: 'layer', id: layer.id }"
+				:preset-target="layer.type"
+				:description="layerDef.description"
+				@rename="(name) => store.updateLayer(layer!.id, { name })"
+				@toggle="(on) => store.updateLayer(layer!.id, { enabled: on })">
+				<template #sub>
+					<span class="type">{{ layerDef.label }}</span>
+					<span
+						v-tip="
+							layerGroup
+								? `Position within ${layerGroup.name} (top = applied first)`
+								: 'Position in the layer list (top = applied first)'
+						"
+						class="cf-mono lo"
+						>{{ layerIndexLabel() }}</span
+					>
+				</template>
+			</ItemHeader>
 			<div v-if="layerGroup" class="links">
 				<button
 					v-tip="`Part of the group ${layerGroup.name} — select it`"
@@ -259,42 +232,21 @@
 
 		<!-- Group -->
 		<template v-else-if="group">
-			<div class="title">
-				<IconSquareRotated :size="15" color="var(--accent-hi)" />
-				<input
-					autocomplete="off"
-					data-1p-ignore
-					class="name"
-					:value="group.name"
-					aria-label="Group name"
-					@change="
-						rename(
-							$event,
-							(name) => store.renameGroup(group!.id, name),
-							() => group!.name
-						)
-					" />
-				<label v-tip="'Shown'" class="en">
-					<input
-						type="checkbox"
-						:checked="group.enabled !== false"
-						aria-label="Group shown"
-						@change="store.setGroupEnabled(group.id, ($event.target as HTMLInputElement).checked)" />
-				</label>
-			</div>
-			<div class="sub">
-				<span class="type">Group</span>
-				<span class="cf-mono lo">{{ group.members.length }} layers</span>
-				<span class="grow" />
-				<ItemStuds kind="group" :id="group.id" />
-			</div>
-			<div class="desc-row">
-				<p class="desc">
-					Ordinary layers kept together — open the group in the outliner to edit one. Hide, move or limit them as one,
-					or save them as a preset from the presets menu.
-				</p>
-				<PresetMenu kind="group" :source="{ kind: 'group', id: group.id }" />
-			</div>
+			<ItemHeader
+				:name="group.name"
+				name-label="Group name"
+				:icon="IconSquareRotated"
+				icon-color="var(--accent-hi)"
+				:toggle="{ on: group.enabled !== false, label: 'Group shown', tip: 'Shown' }"
+				:item="{ kind: 'group', id: group.id }"
+				description="Ordinary layers kept together — open the group in the outliner to edit one. Hide, move or limit them as one, or save them as a preset from the presets menu."
+				@rename="(name) => store.renameGroup(group!.id, name)"
+				@toggle="(on) => store.setGroupEnabled(group!.id, on)">
+				<template #sub>
+					<span class="type">Group</span>
+					<span class="cf-mono lo">{{ group.members.length }} layers</span>
+				</template>
+			</ItemHeader>
 			<div class="scroll">
 				<PanelCard title="Mask" :icon="cardIcon('Mask')" storage-key="group:mask">
 					<p class="hint">
@@ -309,44 +261,25 @@
 
 		<!-- Light -->
 		<template v-else-if="light">
-			<div class="title">
-				<component :is="light.type === 'point' ? IconBulb : IconSun" :size="15" :color="LIGHT_HUE" />
-				<input
-					autocomplete="off"
-					data-1p-ignore
-					class="name"
-					:value="light.name"
-					aria-label="Light name"
-					@change="
-						rename(
-							$event,
-							(name) => store.updateLight(light!.id, { name }),
-							() => light!.name
-						)
-					" />
-				<label class="en" title="Enabled">
-					<input
-						type="checkbox"
-						:checked="light.enabled"
-						aria-label="Light enabled"
-						@change="store.updateLight(light.id, { enabled: ($event.target as HTMLInputElement).checked })" />
-				</label>
-			</div>
-			<div class="sub">
-				<span class="type">{{ LIGHT_DEFS[light.type].label }} light</span>
-				<span class="grow" />
-				<ItemStuds kind="light" :id="light.id" />
-			</div>
-			<div class="desc-row">
-				<p class="desc">
-					{{
-						light.type === 'point'
-							? `Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at ${Number((light.refDist ?? POINT_LIGHT_REF_DIST).toPrecision(4))} px.`
-							: 'Drag the sun gizmo around the texture to set the azimuth. Hold Shift to place it under the cursor, setting the elevation too (the centre is overhead, the dashed ring the horizon); hold Ctrl to snap to 15° steps.'
-					}}
-				</p>
-				<PresetMenu kind="light" :target="light.type" :source="{ kind: 'light', id: light.id }" />
-			</div>
+			<ItemHeader
+				:name="light.name"
+				name-label="Light name"
+				:icon="light.type === 'point' ? IconBulb : IconSun"
+				:icon-color="LIGHT_HUE"
+				:toggle="{ on: light.enabled, label: 'Light enabled' }"
+				:item="{ kind: 'light', id: light.id }"
+				:preset-target="light.type"
+				:description="
+					light.type === 'point'
+						? `Drag the gizmo in the viewport to move it. Intensity 1 lights a white surface to 1.0 at ${Number((light.refDist ?? POINT_LIGHT_REF_DIST).toPrecision(4))} px.`
+						: 'Drag the sun gizmo around the texture to set the azimuth. Hold Shift to place it under the cursor, setting the elevation too (the centre is overhead, the dashed ring the horizon); hold Ctrl to snap to 15° steps.'
+				"
+				@rename="(name) => store.updateLight(light!.id, { name })"
+				@toggle="(on) => store.updateLight(light!.id, { enabled: on })">
+				<template #sub>
+					<span class="type">{{ LIGHT_DEFS[light.type].label }} light</span>
+				</template>
+			</ItemHeader>
 			<div class="scroll">
 				<PanelCard title="Light" :icon="light.type === 'point' ? IconBulb : IconSun" :icon-color="LIGHT_HUE">
 					<ParamList
@@ -360,29 +293,22 @@
 
 		<!-- Post filter -->
 		<template v-else-if="post && postDef">
-			<div class="title">
-				<IconSparkles :size="15" :color="POST_HUE" />
-				<span class="name static">{{ postDef.label }}</span>
-				<label class="en" title="Enabled">
-					<input
-						type="checkbox"
-						:checked="post.enabled"
-						aria-label="Filter enabled"
-						@change="store.updatePost(post.id, { enabled: ($event.target as HTMLInputElement).checked })" />
-				</label>
-			</div>
-			<div class="sub">
-				<span class="type"
-					>Post filter · {{ store.project.post.findIndex((f) => f.id === post!.id) + 1 }} of
-					{{ store.project.post.length }}</span
-				>
-				<span class="grow" />
-				<ItemStuds kind="post" :id="post.id" />
-			</div>
-			<div class="desc-row">
-				<p class="desc">{{ postDef.description }}</p>
-				<PresetMenu kind="post" :target="post.type" :source="{ kind: 'post', id: post.id }" />
-			</div>
+			<ItemHeader
+				:name="postDef.label"
+				:icon="IconSparkles"
+				:icon-color="POST_HUE"
+				:toggle="{ on: post.enabled, label: 'Filter enabled' }"
+				:item="{ kind: 'post', id: post.id }"
+				:preset-target="post.type"
+				:description="postDef.description"
+				@toggle="(on) => store.updatePost(post!.id, { enabled: on })">
+				<template #sub>
+					<span class="type"
+						>Post filter · {{ store.project.post.findIndex((f) => f.id === post!.id) + 1 }} of
+						{{ store.project.post.length }}</span
+					>
+				</template>
+			</ItemHeader>
 			<div class="scroll">
 				<PanelCard :title="postDef.label" :icon="IconSparkles" :icon-color="POST_HUE">
 					<ParamList
@@ -397,11 +323,9 @@
 
 		<!-- Base material: the Base row of the layer list -->
 		<template v-else-if="sel.kind === 'base'">
-			<div class="title">
-				<span class="swatch" :style="{ background: store.project.base.color }" />
-				<span class="name static">Base material</span>
-			</div>
-			<p class="desc">The material under every layer.</p>
+			<ItemHeader name="Base material" description="The material under every layer.">
+				<template #icon><span class="swatch" :style="{ background: store.project.base.color }" /></template>
+			</ItemHeader>
 			<div class="scroll">
 				<PanelCard title="Base material" :icon="cardIcon('Base material')">
 					<ParamList
@@ -415,11 +339,11 @@
 
 		<!-- Environment: the first row of the lights -->
 		<template v-else-if="sel.kind === 'environment'">
-			<div class="title">
-				<IconWorld :size="15" :color="LIGHT_HUE" />
-				<span class="name static">Environment</span>
-			</div>
-			<p class="desc">The sky and ambient light around the lights.</p>
+			<ItemHeader
+				name="Environment"
+				:icon="IconWorld"
+				:icon-color="LIGHT_HUE"
+				description="The sky and ambient light around the lights." />
 			<div class="scroll">
 				<PanelCard title="Lighting presets" :icon="cardIcon('Lighting presets')" storage-key="world:presets">
 					<LightingPresets />
@@ -443,11 +367,11 @@
 
 		<!-- Project settings -->
 		<template v-else>
-			<div class="title">
-				<IconBox :size="15" color="var(--text-lo)" />
-				<span class="name static">Project settings</span>
-			</div>
-			<p class="desc">The canvas and the renderer.</p>
+			<ItemHeader
+				name="Project settings"
+				:icon="IconBox"
+				icon-color="var(--text-lo)"
+				description="The canvas and the renderer." />
 			<div class="scroll">
 				<PanelCard title="Canvas" :icon="cardIcon('Canvas')">
 					<div class="sizes">
@@ -517,59 +441,12 @@
 		margin-bottom: 4px;
 		border-bottom: 1px solid var(--hairline);
 	}
-	.title {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		height: 34px;
-		padding: 0 8px 0 10px;
-		border-bottom: 1px solid var(--hairline);
-		flex: none;
-	}
 	/* The base material's colour, as on its Outliner row. */
 	.swatch {
 		width: 15px;
 		height: 15px;
 		border: 1px solid var(--line);
 		border-radius: 2px;
-		flex: none;
-	}
-	.name {
-		flex: 1;
-		min-width: 0;
-		height: 24px;
-		border: 1px solid var(--hairline);
-		border-radius: var(--r-field);
-		background: var(--sunken);
-		color: var(--text-hi);
-		padding: 0 8px;
-		font-size: 13px;
-		font-weight: 500;
-	}
-	.name:focus {
-		outline: none;
-		border-color: var(--accent);
-		box-shadow: var(--halo);
-	}
-	.name.static {
-		border-color: transparent;
-		background: transparent;
-		display: flex;
-		align-items: center;
-	}
-	.en input {
-		width: 14px;
-		height: 14px;
-		margin: 0;
-		accent-color: var(--accent);
-		cursor: pointer;
-	}
-	.sub {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		height: 32px;
-		padding: 0 6px 0 10px;
 		flex: none;
 	}
 	.type {
@@ -587,33 +464,6 @@
 		font-size: 11px;
 		color: var(--line-strong);
 		white-space: nowrap;
-	}
-	.grow {
-		flex: 1;
-	}
-	.desc {
-		margin: 0;
-		padding: 0 10px 8px;
-		font-size: 12px;
-		color: var(--text-lo);
-		line-height: 1.4;
-		flex: none;
-	}
-	.title + .desc {
-		padding-top: 8px;
-	}
-	/* The description, with the item's Presets key at its bottom right. */
-	.desc-row {
-		display: flex;
-		align-items: flex-end;
-		gap: 12px;
-		padding: 0 10px 8px;
-		flex: none;
-	}
-	.desc-row .desc {
-		flex: 1;
-		min-width: 0;
-		padding: 0;
 	}
 	.scroll {
 		flex: 1;
