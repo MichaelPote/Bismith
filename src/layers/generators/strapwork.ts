@@ -32,7 +32,10 @@ const optsOf = (p: ParamValues): BuildOpts => ({
 	ringRound: Number(p.ring_round) || 0,
 	diagonal: Boolean(p.diagonal) && SQUARE_PERIOD.includes(String(p.tiling)),
 	through: Boolean(p.through),
-	starInset: Number(p.star_inset) || 1
+	starInset: Number(p.star_inset) || 1,
+	edgeGap: Boolean(p.edge_gap),
+	linkN: Number(p.link_n) || 2,
+	linkW: Number(p.link_w) || 0.25
 });
 
 /** Periods across and down (whole when tiling), the net's period aspect kept × Aspect. */
@@ -132,6 +135,8 @@ const pack = memoReads((p: ParamValues, c: LayerCanvas) => {
 const isRings = (p: ParamValues) => String(p.construct).includes('rings');
 const isFramed = (p: ParamValues) => String(p.construct).startsWith('edges_');
 const isStars = (p: ParamValues) => String(p.construct).includes('stars');
+const isLinks = (p: ParamValues) => p.construct === 'links';
+const hasEdges = (p: ParamValues) => isFramed(p) || p.construct === 'edges';
 const hasFill = (p: ParamValues) => p.fill !== 'none';
 
 const STRAP_RAMP = gradient('#22150c', '#6e4527', '#c8955f');
@@ -192,6 +197,7 @@ export const strapworkLayer: LayerDef = {
 				['rings', 'Rings', 'Each tile’s outline grown and rounded so neighbours overlap: chain links, circles'],
 				['edges_stars', 'Edges and stars'],
 				['edges_rings', 'Edges and rings'],
+				['links', 'Links', 'Chained beads along the tile edges, each with an eye: chain links, beaded lattices'],
 				[
 					'rings_spokes',
 					'Rings and spokes',
@@ -223,6 +229,22 @@ export const strapworkLayer: LayerDef = {
 			step: 0.001,
 			showIf: isStars,
 			hint: 'Starts the two rays apart along the edge (a share of it), so each line becomes a pair: wider, open stars. Below 0 they start crossed, each heading over the other’s side — with Rays through, long crossing bars'
+		}),
+		P.int('link_n', 'Beads per edge', 2, 1, 4, {
+			uniform: false,
+			showIf: isLinks,
+			hint: 'Sets how many beads chain along each tile edge'
+		}),
+		P.float('link_w', 'Bead width', 0.25, 0.05, 0.6, {
+			uniform: false,
+			step: 0.001,
+			showIf: isLinks,
+			hint: 'Sets how far each bead swells either side of its edge, a share of its length: wider beads, bigger eyes'
+		}),
+		P.bool('edge_gap', 'Open edges', false, {
+			uniform: false,
+			showIf: (p) => p.construct === 'edges_stars' && Math.abs(Number(p.offset) || 0) > 0,
+			hint: 'Leaves each tile edge open between the starts of its ray pair, so the diamond the pair makes there stays whole'
 		}),
 		P.float('ring_scale', 'Ring size', 1.3, 0.5, 2, {
 			uniform: false,
@@ -350,6 +372,11 @@ export const strapworkLayer: LayerDef = {
 			group: 'straps',
 			showIf: (p) => Number(p.joint_w) > 0,
 			hint: 'Sets how deep the joint lines cut'
+		}),
+		P.bool('frame_j', 'Frame joints', false, {
+			group: 'straps',
+			showIf: (p) => hasEdges(p) && Number(p.joint_w) > 0,
+			hint: 'Cuts a joint down the middle of each tile edge’s strap and mitres at its corners, so each tile has its own frame of four boards'
 		}),
 		P.bool('weave', 'Weave', true, {
 			group: 'straps',
@@ -584,6 +611,11 @@ GenOut gen(vec2 p) {
   float nhw = hw;
   float nperp = 0.0;
   vec2 ndir = vec2(1.0, 0.0);
+  // Away from the nearest strap (the fields' distance grows along it).
+  vec2 nav = vec2(0.0, 1.0);
+  // Frame joints: the nearest tile edge, and the nearest one not parallel to it (their equal distance is the mitre).
+  float ed1 = 1e4, ed2 = 1e4;
+  vec2 edir = vec2(1.0, 0.0);
   for (int i = 0; i < ${MAX_PER_BUCKET} * UNI_1; i++) {
     if (i < count) {
       int e = start + i;
@@ -603,6 +635,14 @@ GenOut gen(vec2 p) {
       float la = -dot(a, dir);
       float lb = L - la;
       float d = length(a + ab * clamp(la / L, 0.0, 1.0));
+      if (fl.w == 1) {
+        bool skew = abs(dir.x * edir.y - dir.y * edir.x) > 0.2;
+        if (d < ed1) {
+          if (skew) ed2 = ed1;
+          ed1 = d;
+          edir = dir;
+        } else if (skew) ed2 = min(ed2, d);
+      }
       bool edge = fl.w == 1 && mixd;
       float hwi = edge ? hwE : hw;
       if (d - hwi < dmin) {
@@ -610,6 +650,7 @@ GenOut gen(vec2 p) {
         nhw = hwi;
         ndir = dir;
         nperp = abs(a.x * dir.y - a.y * dir.x);
+        nav = -(a + ab * clamp(la / L, 0.0, 1.0)) / max(d, 1e-4);
       }
       // The nearer end decides (a short piece can pass under at one end and over at the other); a plain end (a join, a
       // star tip) never does, so a short tip past an under crossing stays under, not a bright knob.
@@ -709,11 +750,24 @@ GenOut gen(vec2 p) {
       g = floor(k) + clamp(fract(k) * sp - (sp - 1.0), 0.0, 1.0);
       g /= max(float(u_inset_n), 1.0);
     } else {
-      // Diaper: faceted pyramids standing up from the field; Cut diaper: sunk ones (checks). Along the straps the grid
-      // lines up with the nearest strap, a row starting at its edge.
+      // Diaper: faceted pyramids standing up from the field. Cut diaper: a checkerboard of flat-bottomed sunk squares
+      // with crisp 1 px walls, inside a plain border a spacing wide. Along the straps the grid lines up with the nearest
+      // strap, a row starting at its edge.
       vec2 r = along ? vec2(dot(q, ndir) / sp, (nperp - nhw) / sp) : vec2(dot(q, n), dot(q, vec2(-n.y, n.x))) / sp;
       vec2 cc = abs(fract(r) - 0.5) * 2.0;
-      g = u_fill == 4 ? 1.0 - max(cc.x, cc.y) : max(cc.x, cc.y) - 1.0;
+      if (u_fill == 4) {
+        vec2 ci = floor(r);
+        float on = mod(ci.x + ci.y, 2.0) < 0.5 ? 1.0 : 0.0;
+        // Whole checks only: the field's distance at the check's centre (from the pixel's, along the way away from the
+        // nearest strap) must clear the border by the check's half diagonal, so no broken checks line the border.
+        vec2 dr = (ci + 0.5 - r) * sp;
+        vec2 bx = along ? ndir : n;
+        vec2 by = along ? nav : vec2(-n.y, n.x);
+        float fdc = fd + dot(dr.x * bx + dr.y * by, nav);
+        g = on * clamp((1.0 - max(cc.x, cc.y)) * 0.5 * sp, 0.0, 1.0) * clamp(fdc - 1.2 * sp + 0.5, 0.0, 1.0);
+      } else {
+        g = max(cc.x, cc.y) - 1.0;
+      }
     }
     // Fills finer than ~2.5 px fade out instead of aliasing into noise.
     float room = u_fill == 2 ? 1.0 : clamp((sp - 2.5) / 1.5, 0.0, 1.0);
@@ -725,7 +779,11 @@ GenOut gen(vec2 p) {
   float h = max(max(fh, mix(fh, lvls[0], hs[0])), mix(fh, lvls[1], hs[1]));
   h = max(h, max(mix(fh, lvls[2] - u_dip * uDip, sUnder), mix(fh, lvls[3], sTee)));
   // Joint lines: a fine groove along every strap's visible outline (flush boards, frames against their fields).
-  if (u_joint_w > 0.0) h -= u_joint_d * clamp(1.0 - abs(sv) / (0.5 * u_joint_w + 0.35), 0.0, 1.0);
+  // Frame joints: one down the middle of each tile edge's strap and the mitres at its corners (where the nearest edge
+  // gives way to the next), so each tile has its own frame.
+  float jd = abs(sv);
+  if (u_frame_j && ed1 < hwE) jd = min(jd, min(ed1, abs(ed1 - ed2) * 0.70710678));
+  if (u_joint_w > 0.0) h -= u_joint_d * clamp(1.0 - jd / (0.5 * u_joint_w + 0.35), 0.0, 1.0);
 
   if (u_output == 1) return genOut(1.0, 1.0, rnd, sv);
   if (u_output == 2) return genOut(1.0, 1.0, rnd, -sv);

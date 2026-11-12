@@ -66,7 +66,12 @@ const RAIL_PROFILES: ([string, string] | [string, string, string])[] = [
 	['none', 'None'],
 	...STEP_PROFILES.slice(0, 5),
 	['cornice', 'Cornice (members)', 'A bead and fillet off the panels, a cove, a fillet and an ogee out to the edge'],
-	['skirting', 'Skirting (members)', 'An ogee and a bead off the panels, then a tall plain plinth']
+	['skirting', 'Skirting (members)', 'An ogee and a bead off the panels, then a tall plain plinth'],
+	[
+		'dado',
+		'Dado (stepped cap)',
+		'A dado cap off the panels — a lip, a torus bead, a cove stepping down to a fillet — a plain band, then a round base at the edge'
+	]
 ];
 
 const hasFill = (p: ParamValues) => p.fill !== 'none' || (p.fill_alt !== 'none' && p.fill2 !== 'none');
@@ -349,7 +354,8 @@ export const panellingLayer: LayerDef = {
 				['none', 'None'],
 				['disc', 'Domed discs'],
 				['square', 'Square blocks'],
-				['rosette', 'Rosettes']
+				['rosette', 'Rosettes', 'Two rings of cupped, pointed petals round a button'],
+				['scroll', 'Scrolls', 'A disc with a spiral rolled in to an eye']
 			],
 			{
 				group: 'ornament',
@@ -745,22 +751,32 @@ float pnl_ell(vec2 p, vec2 r) {
 }
 
 // Running ornament, one unit: p from the unit's centre (x along, y across, + inward), hh its half length and half
-// width; 0..1 of the carving's height. 1 bead and reel, 2 egg and dart, 3 rope, 4 nailheads, 5 leaf tips.
+// width; 0..1 of the carving's height. 1 bead and reel, 2 egg and dart, 3 rope, 4 nailheads, 5 leaf tips, 6 the unit
+// at a mitre.
 float pnl_run(int k, vec2 p, vec2 hh) {
   vec2 n = p / hh;
   if (k == 1) return max(pnl_ell(p, vec2(0.62, 0.95) * hh), 0.85 * pnl_ell(vec2(abs(p.x) - 0.86 * hh.x, p.y), vec2(0.1, 0.72) * hh));
   if (k == 2) {
-    // An egg in an open shell, a dart between eggs pointing inward.
-    // An egg, its long axis across the moulding, in a shell open toward the outer edge (−y), kept clear of it by a sunk
-    // gap; between eggs a dart, a thin shaft ending in an arrowhead pointing inward.
-    float egg = pnl_ell(p - vec2(0.0, 0.08 * hh.y), vec2(0.38, 0.72) * hh);
-    float ring = length((p - vec2(0.0, 0.04 * hh.y)) / (vec2(0.64, 0.98) * hh));
-    float shell = n.y > -0.35 ? pnl_ell(vec2(ring - 0.92, 0.0), vec2(0.08)) * 0.75 : 0.0;
+    // An egg, its long axis across the moulding, ringed by a sunk channel 1 px wide, then a shell rim open toward the
+    // outer edge (−y); between shells a dart, a thin shaft ending in an arrowhead pointing inward.
+    vec2 eh = vec2(0.34, 0.6) * hh;
+    vec2 ep = p - vec2(0.0, 0.12 * hh.y);
+    float er = length(ep / eh);
+    // Distance out from the egg in px (its outline's normal scale).
+    float de = (er - 1.0) * min(eh.x, eh.y);
+    float egg = er < 1.0 ? (0.55 + 0.45 * sqrt(1.0 - er * er)) * mouldRound(clamp(-de / 1.0, 0.0, 1.0)) : 0.0;
+    float chan = de > 0.0 && de < 1.0 && n.y > -0.75 ? -0.3 : 0.0;
+    float shell = de >= 1.0 && de < 2.4 && n.y > -0.45 ? 0.7 * mouldBead((de - 1.0) / 1.4) : 0.0;
     float dx = abs(abs(p.x) - hh.x);
     float head = n.y > 0.25 && n.y < 0.95 ? 0.32 * hh.x * (0.95 - n.y) / 0.7 : 0.0;
     float wd = max(max(0.07 * hh.x, 0.5), head);
     float dart = dx < wd && n.y > -0.9 ? (1.0 - dx / wd) * 0.85 : 0.0;
-    return max(max(egg, shell), dart);
+    return egg + chan + max(shell, dart);
+  }
+  if (k == 6) {
+    // The unit at a mitre: a button in a sunk ring (p from the corner of the step's centre line, hh its half width).
+    float r = length(p) / hh.y;
+    return r < 0.62 ? 0.95 * mouldRound(clamp((0.62 - r) * hh.y / 1.0, 0.0, 1.0)) * (0.6 + 0.4 * sqrt(max(1.0 - r * r / 0.38, 0.0))) : r < 0.82 ? -0.25 : 0.0;
   }
   if (k == 3) {
     // Strands twisting round a round bead.
@@ -779,7 +795,7 @@ float pnl_run(int k, vec2 p, vec2 hh) {
 }
 
 // A corner piece: o from its anchor near the field's corner (the field's centre toward −x, −y), S its size; 0..1.
-// 1 leaf spray (a leaf along the diagonal and one curling out to each side, from a bud), 2 fan, 3 rosette.
+// 1 leaf spray (a flower, leaves along both rails ending in scrolls, a leaf along the diagonal), 2 fan, 3 rosette.
 float pnl_corner(int k, vec2 o, float S) {
   float u = -(o.x + o.y) * 0.70710678;
   float v = (o.x - o.y) * 0.70710678;
@@ -806,40 +822,52 @@ float pnl_corner(int k, vec2 o, float S) {
     float hp = r < R ? sqrt(1.0 - (r / R) * (r / R)) * (0.6 + 0.4 * pet) : 0.0;
     return max(hp, 1.1 * pnl_ell(c, vec2(0.2 * S)));
   }
-  float best = 0.0;
+  // Leaf spray: a flower in the corner (two rings of cupped petals round a button), an acanthus leaf running from it
+  // along each rail and curling into a scroll at its end, and a short leaf along the diagonal. a: into the field.
+  vec2 a = -o;
+  // Edges round over rw px (1.5–3, with the size).
+  float rw = clamp(0.06 * S, 1.5, 3.0);
+  // Every element's edge is rounded over 1.5 px, its crown rising toward its middle (petals cupped toward their rim).
+  vec2 fc = a - vec2(0.31 * S);
+  float fr = length(fc);
+  float fth = atan(fc.y, fc.x);
+  float Ro = 0.3 * S * (0.78 + 0.22 * pow(abs(cos(2.5 * fth)), 0.5));
+  float Ri = 0.16 * S * (0.75 + 0.25 * pow(abs(sin(2.5 * fth)), 0.5));
+  float best = fr < Ro ? (0.6 + 0.25 * (fr / Ro) * (fr / Ro)) * mouldRound(clamp((Ro - fr) / rw, 0.0, 1.0)) : 0.0;
+  if (fr < Ri) best = max(0.55, (0.8 + 0.15 * (fr / Ri) * (fr / Ri)) * mouldRound(clamp((Ri - fr) / 1.0, 0.0, 1.0)));
+  best = max(best, pnl_ell(fc, vec2(max(0.08 * S, 1.2))));
+  // Lobes along a leaf's edge only where each is 6 px long or more (smaller ones mottle it).
   for (int i = 0; i < 3 * UNI_1; i++) {
-    // Three leaves fanning out of the corner with gaps between them, the side ones curling out a little; lobed edges.
-    float a = float(i - 1) * 0.66;
-    float ca = cos(a), sa = sin(a);
-    vec2 l = vec2(ca * u + sa * v, ca * v - sa * u);
-    float len = S * (i == 1 ? 1.0 : 0.78);
-    float x = l.x / len;
-    float y = l.y + float(i - 1) * 0.2 * len * x * x;
-    // Lobed edges only where a lobe is at least ~10 px long (smaller ones mottle the leaf), as smooth scallops.
-    float nl = floor(len / 10.0);
-    float lobe = nl >= 2.0 ? 0.88 + 0.12 * cos(6.2831853 * min(nl, 5.0) * x) : 1.0;
-    float w = 0.2 * len * pow(max(sin(3.1415927 * clamp(x, 0.0, 1.0)), 0.0), 0.7) * lobe;
-    if (x > 0.0 && x < 1.0 && abs(y) < w) {
-      float s = abs(y) / w;
+    bool diag = i == 2;
+    vec2 l = diag ? vec2(a.x + a.y, a.x - a.y) * 0.70710678 : i == 0 ? a : a.yx;
+    float x0 = diag ? 0.56 * S : 0.3 * S;
+    float Ln = diag ? 0.46 * S : 0.66 * S;
+    float s = (l.x - x0) / Ln;
+    float yc = diag ? 0.0 : 0.21 * S + 0.05 * S * sin(3.1415927 * clamp(s, 0.0, 1.0));
+    float nl = floor(Ln / 6.0);
+    float lobe = nl >= 2.0 ? 0.68 + 0.32 * pow(abs(cos(3.1415927 * min(nl, 6.0) * s)), 0.5) : 1.0;
+    float sc = clamp(s, 0.0, 1.0);
+    float w = (diag ? 0.17 * S * pow(max(sin(3.1415927 * sc), 0.0), 0.6) : 0.2 * S * (1.0 - 0.45 * sc)) * lobe;
+    float dy = abs(l.y - yc);
+    if (s > (diag ? 0.0 : -0.2) && s < 1.0 && dy < w) {
+      float c = 1.0 - (dy / w) * (dy / w);
       // A midrib groove where the leaf is wide enough to hold one.
-      float hl = sqrt(1.0 - s * s) * (0.65 + 0.35 * (1.0 - x)) - 0.22 * max(1.0 - abs(y) / 0.9, 0.0) * clamp(w / 2.0 - 1.0, 0.0, 1.0);
-      // Veins slanting toward the tip, only on big leaves (below ~40 px they come out as 1-px speckle).
-      if (len > 40.0) hl -= 0.1 * max(0.0, 1.0 - abs(fract(x * 5.0 - s * 0.8) - 0.5) * 4.0) * step(0.3, s);
+      float hl = (0.5 + 0.35 * c) * mouldRound(clamp((w - dy) / rw, 0.0, 1.0)) - 0.15 * max(1.0 - dy / 0.8, 0.0) * clamp(w / 2.5 - 1.0, 0.0, 1.0);
       best = max(best, hl);
     }
-    // The side leaves end in a scroll curling back toward the middle one.
-    if (i != 1) {
-      vec2 cc = vec2(l.x - 1.02 * len, y - float(i - 1) * 0.16 * len);
-      float rc = 0.2 * len;
+    // The rail leaves end in a scroll curling into the field.
+    if (!diag) {
+      float rc = 0.16 * S;
+      vec2 cc = l - vec2(x0 + Ln - 0.2 * rc, 0.21 * S + 0.9 * rc);
       float rr = length(cc);
       if (rr < rc) {
-        // Its spiral only where the turns are 3 px apart or more; a plain round curl below that.
-        float ridge = rc > 5.4 ? 1.0 - abs(fract(rr / (rc / 1.8) + float(i - 1) * atan(cc.y, cc.x) / 6.2831853) - 0.5) * 2.0 : 0.6;
-        best = max(best, (0.45 + 0.4 * ridge) * sqrt(1.0 - (rr / rc) * (rr / rc)));
+        // A spiral where its turns are 3 px apart or more; a curl with an eye below that.
+        float ridge = rc > 5.4 ? 1.0 - abs(fract(rr / (rc / 1.8) - atan(cc.y, cc.x) / 6.2831853) - 0.5) * 2.0 : 1.0 - 0.7 * max(1.0 - rr / max(0.4 * rc, 0.8), 0.0);
+        best = max(best, (0.45 + 0.4 * ridge) * mouldRound(clamp((rc - rr) / rw, 0.0, 1.0)));
       }
     }
   }
-  return max(best, 0.9 * pnl_ell(vec2(u - 0.06 * S, v), vec2(0.16 * S)));
+  return best;
 }
 
 // A medallion at the field's centre, half size m: 1 lozenge, 2 roundel, 3 quatrefoil — a bead round its rim and a
@@ -923,11 +951,11 @@ GenOut gen(vec2 p) {
     } else {
       // Members from the panels' side to the edge: where each ends (share of the rail), its profile and the share of
       // the way from the frame to the rail level it reaches (a bead goes there and back).
-      const float RT[12] = float[12](0.06, 0.16, 0.5, 0.56, 0.86, 1.0, 0.1, 0.22, 0.3, 0.36, 0.86, 1.0);
-      const int RK[12] = int[12](0, 5, 3, 0, 4, 0, 1, 4, 5, 0, 0, 2);
-      // Both end at the rail level at the edge, so a cornice meets a skirting without a step when the texture tiles.
-      const float RF[12] = float[12](0.2, 0.45, 0.75, 0.8, 0.92, 1.0, 0.35, 0.75, 0.9, 0.62, 0.62, 1.0);
-      int b0 = bk == 6 ? 0 : 6;
+      const float RT[18] = float[18](0.06, 0.16, 0.5, 0.56, 0.86, 1.0, 0.1, 0.22, 0.3, 0.36, 0.86, 1.0, 0.07, 0.16, 0.26, 0.32, 0.82, 1.0);
+      const int RK[18] = int[18](0, 5, 3, 0, 4, 0, 1, 4, 5, 0, 0, 2, 0, 5, 3, 0, 0, 2);
+      // All end at the rail level at the edge, so a cornice meets a skirting without a step when the texture tiles.
+      const float RF[18] = float[18](0.2, 0.45, 0.75, 0.8, 0.92, 1.0, 0.35, 0.75, 0.9, 0.62, 0.62, 1.0, 0.85, 1.0, 0.45, 0.4, 0.55, 1.0);
+      int b0 = bk == 6 ? 0 : bk == 7 ? 6 : 12;
       float t0 = 0.0, f0 = 0.0, f = 0.0;
       float qd = 1e4;
       for (int i = 0; i < 6 * UNI_1; i++) {
@@ -968,7 +996,7 @@ GenOut gen(vec2 p) {
     if (dp < 0.0) {
       h = mix(u_frame, u_pil_lvl, mouldEase(2, -dp / 1.5, u_pil_lvl > u_frame));
       // The capital and base blocks stand a little proud (a console stands on the shaft itself).
-      if (u_pil_cap > 0.0 && (u_pil_orn != 3 || lq.y > 0.0)) h += 0.06 * clamp(u_pil_cap - ey + 0.5, 0.0, 1.0) * clamp(-dp / 1.5, 0.0, 1.0);
+      if (u_pil_cap > 0.0 && u_pil_orn != 4 && (u_pil_orn != 3 || lq.y > 0.0)) h += 0.06 * clamp(u_pil_cap - ey + 0.5, 0.0, 1.0) * clamp(-dp / 1.5, 0.0, 1.0);
       float m = 2.0;
       if (u_pil_sunk) {
         // A sunk panel down the shaft, in from the sides and the blocks, its sides a 1.5 px chamfer; flutes run inside.
@@ -995,20 +1023,8 @@ GenOut gen(vec2 p) {
           h -= u_pil_fd * min(fw / 3.0, 1.0) * sqrt(max(1.0 - s * s, 0.0)) * clamp(ey - u_pil_cap - m, 0.0, 1.0);
         }
       }
-      // Carved blocks at both ends: a sunk square in each, a rosette in it.
-      if (u_pil_orn == 4 && u_pil_cap > 0.0 && ey < u_pil_cap) {
-        vec2 bq = vec2(lq.x, ey - 0.5 * u_pil_cap);
-        vec2 bb = vec2(hb.x, 0.5 * u_pil_cap);
-        float ins = max(1.5, 0.2 * min(bb.x, bb.y));
-        float sd = min(bb.x - ins - abs(bq.x), bb.y - ins - abs(bq.y));
-        h -= 0.1 * clamp(sd / 1.25, 0.0, 1.0);
-        float rr = min(bb.x, bb.y) - ins - 1.0;
-        float pet = pow(abs(cos(2.0 * atan(bq.y, bq.x))), 0.7);
-        float rl = length(bq) / max(rr * (0.7 + 0.3 * pet), 0.5);
-        if (rl < 1.0) h += 0.16 * max(sqrt(1.0 - rl * rl) * (0.7 + 0.3 * pet), 1.2 * pnl_ell(bq, vec2(0.3 * rr)));
-      }
-      // A leaf capital's drop: a leaf hanging from its middle down the shaft.
-      if (u_pil_orn == 1 && u_pil_cap > 0.0 && lq.y < 0.0 && ey >= u_pil_cap && ey < 1.7 * u_pil_cap) {
+      // A leaf capital's (or a console's) drop: a leaf hanging from its middle down the shaft.
+      if ((u_pil_orn == 1 || u_pil_orn == 3) && u_pil_cap > 0.0 && lq.y < 0.0 && ey >= u_pil_cap && ey < 1.7 * u_pil_cap) {
         float t = (ey - u_pil_cap) / (0.7 * u_pil_cap);
         float w = max(0.32 * hb.x * pow(1.0 - t, 0.7), 0.5);
         if (abs(lq.x) < w) h += 0.13 * sqrt(1.0 - (lq.x / w) * (lq.x / w)) * (1.0 - 0.5 * t);
@@ -1046,12 +1062,12 @@ GenOut gen(vec2 p) {
             float curl = 0.55 * pnl_ell(vec2(t - 0.91, 0.0), vec2(0.09, 1.0));
             float prof = max(max(roll, sweep), curl);
             // The roll's ends: volutes, a spiral groove winding in to an eye.
-            // Small ones (under 5 px) a boss with a sunk eye instead of a spiral that would break into dots.
+            // Small ones (under 5 px) a plain round end to the roll: a spiral would break into dots, and sunk eyes make a face.
             float R = max(min(0.26 * L, 0.5 * hw), min(1.5, 0.5 * hw));
             vec2 rel = vec2(abs(lq.x) - (hw - R), ey - ab - R);
             float rr = length(rel);
             if (rr < R) {
-              float ridge = R >= 5.0 ? 1.0 - abs(fract(rr / (R / 1.7) + atan(rel.y, rel.x) / 6.2831853) - 0.5) * 2.0 : 1.0 - 0.8 * max(1.0 - rr / max(0.35 * R, 0.6), 0.0);
+              float ridge = R >= 5.0 ? 1.0 - abs(fract(rr / (R / 1.7) + atan(rel.y, rel.x) / 6.2831853) - 0.5) * 2.0 : 0.75;
               prof = max(prof * 0.8, (0.35 + 0.75 * ridge) * sqrt(1.0 - (rr / R) * (rr / R)));
             }
             // The hanging leaf: tip down, a groove down its middle.
@@ -1073,8 +1089,41 @@ GenOut gen(vec2 p) {
         }
       }
     }
-    if (u_pil_cap > 0.0) bd = max(dp, ey - u_pil_cap);
     onFrame = dp >= 0.0;
+    if (u_pil_orn == 4 && u_pil_cap > 0.0 && ey > -0.5 && ey < u_pil_cap) {
+      // Carved blocks at both ends, projecting past the shaft (into the frame by up to 2 px): a moulded cap at the end (a
+      // slab with a quirk under it), the die with a sunk square holding a four-leaf rosette, a bead at the neck.
+      float proj = clamp(0.5 * u_stile - 0.5, 0.0, 2.0);
+      float cap = u_pil_cap;
+      float slab = max(0.2 * cap, 2.0);
+      float neck = max(0.1 * cap, 1.5);
+      bool inSlab = ey < slab;
+      bool inNeck = ey > cap - neck;
+      float wx = hb.x + (inSlab ? proj : inNeck ? 0.0 : 0.5 * proj);
+      float side = wx - abs(lq.x);
+      if (side > -0.5) {
+        float hk = u_pil_lvl + (inSlab ? 0.12 : 0.08);
+        if (inSlab) hk -= u_quirk * clamp(1.0 - abs(slab - 0.5 - ey), 0.0, 1.0);
+        if (inNeck) hk = u_pil_lvl + 0.03 + 0.05 * mouldBead((ey - cap + neck) / neck);
+        if (!inSlab && !inNeck) {
+          vec2 bq = vec2(lq.x, ey - 0.5 * (slab + cap - neck));
+          vec2 bb = vec2(wx, 0.5 * (cap - neck - slab));
+          float ins = max(1.5, 0.2 * min(bb.x, bb.y));
+          float sd = min(bb.x - ins - abs(bq.x), bb.y - ins - abs(bq.y));
+          hk -= 0.1 * clamp(sd / 1.25, 0.0, 1.0);
+          // Four leaves filling the sunk square, pointing at its corners, round a button.
+          float rr = min(bb.x, bb.y) - ins - 0.25;
+          float pet = pow(abs(sin(2.0 * atan(bq.y, bq.x))), 0.8);
+          float Rl = max(rr * (0.55 + 0.45 * pet), 0.5);
+          float rl = length(bq);
+          if (rl < Rl) hk += 0.15 * mouldRound(clamp((Rl - rl) / 1.0, 0.0, 1.0)) * (0.6 + 0.4 * rl / Rl);
+          hk = max(hk, u_pil_lvl + 0.1 * pnl_ell(bq, vec2(max(0.25 * rr, 1.0))) - 0.02);
+        }
+        h = mix(h, hk, mouldRound(clamp((side + 0.5) / 1.5, 0.0, 1.0)) * clamp(ey + 0.5, 0.0, 1.0));
+        onFrame = false;
+      }
+    }
+    if (u_pil_cap > 0.0) bd = max(dp, ey - u_pil_cap);
     rnd = hashI(ivec2(c0, -1), uSeed);
   } else {
     ivec4 P = ivec4(texelFetch(t_cells, ivec2(c, r), 0) * 255.0 + 0.5);
@@ -1177,12 +1226,21 @@ GenOut gen(vec2 p) {
       float inset = hitPos + 0.5 * hitW;
       vec2 a = abs(lq);
       bool side = hb.x - a.x < hb.y - a.y;
-      float L = max((side ? hb.y : hb.x) - inset, 0.5);
+      // Bead and reel, egg and dart and leaf tips keep a square at each mitre for a button, so no unit is folded round
+      // the corner; rope and nailheads run on into the mitre.
+      bool cornerUnit = u_orn == 1 || u_orn == 2 || u_orn == 5;
+      float L = max((side ? hb.y : hb.x) - inset - (cornerUnit ? 0.5 * hitW : 0.0), 0.5);
       float n = max(1.0, floor(2.0 * L / max(u_orn_len, 1.0) + 0.5));
       float per = 2.0 * L / n;
+      float along = side ? lq.y : lq.x;
       runK = u_orn;
-      runP = vec2(mod((side ? lq.y : lq.x) + L, per) - 0.5 * per, e - hitPos - 0.5 * hitW);
+      runP = vec2(mod(along + L, per) - 0.5 * per, e - hitPos - 0.5 * hitW);
       runH = vec2(0.5 * per, 0.5 * hitW);
+      if (cornerUnit && abs(along) > L) {
+        runK = 6;
+        runP = abs(lq) - (hb - inset);
+        runH = vec2(0.5 * hitW);
+      }
       runA = u_orn_d;
     }
 
@@ -1252,8 +1310,10 @@ GenOut gen(vec2 p) {
       // From the corner of the shaped outline (its step's inset with Shape from), so a boss can sit in the notch.
       vec2 bc = max(hb - sStart - u_boss_in, vec2(0.0));
       vec2 ba = abs(lq) - bc;
-      float pet = pow(abs(cos(3.0 * atan(ba.y, ba.x))), 0.7);
-      float db = u_boss == 2 ? sdBox(ba, vec2(u_boss_r)) : length(ba) - u_boss_r * (u_boss == 3 ? 0.72 + 0.28 * pet : 1.0);
+      float br = length(ba);
+      float bth = atan(ba.y, ba.x);
+      float pet = pow(abs(cos(3.0 * bth)), 0.7);
+      float db = u_boss == 2 ? sdBox(ba, vec2(u_boss_r)) : br - u_boss_r * (u_boss == 3 ? 0.72 + 0.28 * pet : 1.0);
       // Only where the corner is the panel's (an arch's top corners are frame): its centre inside the outline, or in a
       // notch.
       if (u_shape >= 4 && pnl_shape(sign(lq) * bc, hb, u_corner, u_shape) > 0.0) db = 1e4;
@@ -1261,8 +1321,20 @@ GenOut gen(vec2 p) {
       if (db < 0.5) {
         float t = clamp(-db / max(u_boss == 2 ? 1.5 : 0.8 * u_boss_r, 0.5), 0.0, 1.0);
         float prof = u_boss == 2 ? t : mouldRound(t);
-        // A rosette's petals rise toward their middles, round a button.
-        if (u_boss == 3) prof = max(prof * (0.7 + 0.3 * pet), pnl_ell(ba, vec2(0.3 * u_boss_r)));
+        // Rosettes and scrolls: their edges rounded over 1.5 px.
+        float rim = mouldRound(clamp(-db / 1.5, 0.0, 1.0));
+        if (u_boss == 3) {
+          // Outer petals cupped (rising toward their rim), an inner ring turned half a petal, a groove between, a button.
+          float Ro = u_boss_r * (0.72 + 0.28 * pet);
+          float Ri = 0.55 * u_boss_r * (0.75 + 0.25 * pow(abs(sin(3.0 * bth)), 0.7));
+          prof = rim * (0.62 + 0.3 * (br / Ro) * (br / Ro));
+          if (br < Ri) prof = max(0.55, (0.82 + 0.13 * (br / Ri) * (br / Ri)) * mouldRound(clamp((Ri - br) / 1.0, 0.0, 1.0)));
+          prof = max(prof, pnl_ell(ba, vec2(max(0.2 * u_boss_r, 1.0))));
+        } else if (u_boss == 4) {
+          // A spiral ridge rolled in to an eye (a ring and an eye when too small for turns 3 px apart).
+          float ridge = u_boss_r >= 5.0 ? 1.0 - abs(fract(br / (u_boss_r / 1.7) - bth / 6.2831853) - 0.5) * 2.0 : 1.0 - abs(br / u_boss_r - 0.6) * 2.5;
+          prof = max(rim * (0.5 + 0.45 * clamp(ridge, 0.0, 1.0)), pnl_ell(ba, vec2(max(0.24 * u_boss_r, 1.0))));
+        }
         h = mix(h, mix(h, u_boss_lvl, prof), clamp(0.5 - db, 0.0, 1.0));
       }
     }

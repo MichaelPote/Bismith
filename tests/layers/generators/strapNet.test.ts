@@ -14,7 +14,15 @@ const opts = (o: Partial<BuildOpts>): BuildOpts => ({
 describe('strapwork network', () => {
 	it('builds every tiling with every construction', () => {
 		for (const tiling of TILINGS)
-			for (const construct of ['edges', 'stars', 'rings', 'edges_stars', 'edges_rings', 'rings_spokes'] as const) {
+			for (const construct of [
+				'edges',
+				'stars',
+				'rings',
+				'edges_stars',
+				'edges_rings',
+				'rings_spokes',
+				'links'
+			] as const) {
 				const n = buildNet(opts({ tiling, construct, angle: 60 }), 64);
 				expect(n.pieces.length, `${tiling} ${construct}`).toBeGreaterThan(0);
 				expect(n.regions.length, `${tiling} ${construct}`).toBeGreaterThan(1);
@@ -61,6 +69,21 @@ describe('strapwork network', () => {
 		const n = buildNet(opts({ tiling: 'square', construct: 'rings_spokes', ringScale: 0.5, ringRound: 0 }));
 		// Squares and the elongated hexagons between them, lying across and down.
 		expect(new Set(n.regions.slice(1).map((r) => r.kind)).size).toBe(3);
+	});
+	it('chains beads along the edges, each with an eye', () => {
+		const n = buildNet(opts({ tiling: 'square', construct: 'links', linkN: 1, linkW: 0.2 }));
+		// The square field and the beads' eyes, lying across and down (one of each per tile).
+		const fields = n.regions.slice(1).filter((r) => r.area > 0.01);
+		expect(fields).toHaveLength(3);
+		expect(new Set(fields.map((r) => r.kind)).size).toBe(3);
+	});
+	it('leaves a tile edge open between its ray pair', () => {
+		const shut = buildNet(opts({ tiling: 'square', construct: 'edges_stars', angle: 45, offset: -0.3, through: true }));
+		const open = buildNet(
+			opts({ tiling: 'square', construct: 'edges_stars', angle: 45, offset: -0.3, through: true, edgeGap: true })
+		);
+		// The edge no longer cuts each pair's diamond in two: fewer fields.
+		expect(open.regions.length).toBeLessThan(shut.regions.length);
 	});
 	it('turns a square-period tiling 45° on a √2 period', () => {
 		const t = diagonal(makeTiling('square'));

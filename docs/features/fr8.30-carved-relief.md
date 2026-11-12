@@ -356,6 +356,14 @@ with them), and optionally a Wood layer on Multiply for the grain. One preset pe
       rings-and-spokes construct, edge level / lines / profile. Carving: blades, fans combed from one edge (Closing),
       Straighten for the free-edge chevrons, second petals, petal height and tips, node bosses, grooves and outline
       taking the deeper cut, wave bands that never cross. 1.1 / 0.4 / 0.6 s cold compile.
+- [x] **Third pass** (no critic round). Panelling: floral corner sprays (cupped flower, lobed leaves curling into
+      scrolls, edges rounded over), cupped rosette and scroll bosses, a projecting carved block capital and base, a
+      hanging leaf under the console, egg and dart sunk in its shell with buttons at the mitres, a dado rail profile.
+      Strapwork: a Links construct (chained chamfered beads with almond eyes), frame joints mitred per tile, open tile
+      edges between a ray pair, a crisp cut diaper of whole checks, tiny regions no longer a field kind. Carving: blades
+      fanning from a root (lean, jitter), onion ogee cells (_Onion_), veins spaced along the midrib, wave lines
+      wandering on their own with _Pinch_, lance petals, a fan _Hook_, cell ids wrapping with the texture. 1.2 / 0.45 /
+      0.7 s cold compile.
 - [ ] Each generator: tiling 2×2 at 45° frames and odd sizes, supersampling (px units), cold compile on the Windows
       backend (target < 2 s), gensheet + critic rounds (`docs/gensheet.md`, `docs/generator-critic.md`), presets,
       docs (this file's layer reference, architecture.md's generator list and feature index).

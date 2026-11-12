@@ -175,7 +175,7 @@ export function diagonal(t: Tiling): Tiling {
 	return { period: [P, P], polys };
 }
 
-export type Construction = 'edges' | 'stars' | 'rings' | 'edges_stars' | 'edges_rings' | 'rings_spokes';
+export type Construction = 'edges' | 'stars' | 'rings' | 'edges_stars' | 'edges_rings' | 'rings_spokes' | 'links';
 
 export interface BuildOpts {
 	tiling: TilingName;
@@ -197,6 +197,12 @@ export interface BuildOpts {
 	 * rosette inside its tile, tied to the tile's edges by a spoke from each ray pair's start.
 	 */
 	starInset?: number;
+	/** Edges and stars: leave each tile edge open between its ray pair's starts (the pair's diamond stays whole). */
+	edgeGap?: boolean;
+	/** Links: beads along each tile edge. */
+	linkN?: number;
+	/** Links: how far each bead swells either side of its edge, a share of the bead's length. */
+	linkW?: number;
 }
 
 /**
@@ -205,9 +211,51 @@ export interface BuildOpts {
  */
 type Seg = [V2, V2, number?];
 
-function edgesOf(polys: V2[][]): Seg[] {
+/** The tiles' edges; with `gap` > 0 each left open over that share of it round its midpoint. */
+function edgesOf(polys: V2[][], gap = 0): Seg[] {
 	const out: Seg[] = [];
-	for (const p of polys) for (let i = 0; i < p.length; i++) out.push([p[i], p[(i + 1) % p.length], 1]);
+	for (const p of polys)
+		for (let i = 0; i < p.length; i++) {
+			const v = p[i];
+			const w = p[(i + 1) % p.length];
+			if (gap <= 1e-6) {
+				out.push([v, w, 1]);
+			} else {
+				const m = mul(add(v, w), 0.5);
+				const h = mul(sub(w, v), 0.5 * gap);
+				out.push([v, sub(m, h), 1], [add(m, h), w, 1]);
+			}
+		}
+	return out;
+}
+
+/**
+ * Chained beads along each tile edge: `n` beads end to end, each two chamfered sides (an elongated hexagon) swelling
+ * `w` × its length either side of the edge, so a strap round it leaves an almond eye inside.
+ */
+function links(polys: V2[][], n: number, w: number): Seg[] {
+	const out: Seg[] = [];
+	const k = (v: V2) => `${Math.round(v[0] * 1e5)},${Math.round(v[1] * 1e5)}`;
+	for (const p of polys)
+		for (let i = 0; i < p.length; i++) {
+			// The same numbers from both tiles sharing the edge (so the copies dedupe).
+			let v = p[i];
+			let u = p[(i + 1) % p.length];
+			if (k(v) > k(u)) [v, u] = [u, v];
+			const d = sub(u, v);
+			const nrm: V2 = [-d[1], d[0]];
+			for (let j = 0; j < n; j++) {
+				const a = add(v, mul(d, j / n));
+				const b = add(v, mul(d, (j + 1) / n));
+				for (const sg of [1, -1]) {
+					// Chamfered: in at a quarter of the bead, straight along its middle half.
+					const off = mul(nrm, (sg * w) / n);
+					const c1 = add(add(a, mul(d, 0.25 / n)), off);
+					const c2 = add(add(a, mul(d, 0.75 / n)), off);
+					out.push([a, c1], [c1, c2], [c2, b]);
+				}
+			}
+		}
 	return out;
 }
 
@@ -439,7 +487,9 @@ export function lines(o: BuildOpts, rep: V2 = [1, 1]): { period: V2; segs: Seg[]
 	for (let j = -1; j <= 1; j++)
 		for (let i = -1; i <= 1; i++) for (const p of t.polys) polys.push(p.map((v) => add(v, [i * px, j * py])));
 	let segs: Seg[] = [];
-	if (o.construct === 'edges' || o.construct.startsWith('edges_')) segs.push(...edgesOf(polys));
+	if (o.construct === 'edges' || o.construct.startsWith('edges_'))
+		segs.push(...edgesOf(polys, o.construct === 'edges_stars' && o.edgeGap ? Math.abs(o.offset) : 0));
+	if (o.construct === 'links') segs.push(...links(polys, Math.max(1, Math.round(o.linkN ?? 2)), o.linkW ?? 0.25));
 	if (o.construct === 'stars' || o.construct === 'edges_stars')
 		segs.push(...stars(polys, o.angle, o.offset, o.through, o.starInset ?? 1, o.construct === 'edges_stars'));
 	if (o.construct === 'rings' || o.construct === 'edges_rings' || o.construct === 'rings_spokes')
@@ -667,14 +717,18 @@ function buildOnce(o: BuildOpts, res: number, rep: V2): Net {
 	const same = (a: { area: number; ang: number }, b: { area: number; ang: number }) =>
 		Math.abs(a.area - b.area) / Math.max(a.area, b.area) < 0.04 &&
 		Math.min(Math.abs(a.ang - b.ang), 180 - Math.abs(a.ang - b.ang)) < 10;
+	// Slivers of a few texels (where many lines converge) aren't fields: they take kind 0 and no kind of their own.
+	const tiny = (r: { area: number }) => r.area < 2e-3 * px * py;
 	const groups: { area: number; ang: number }[] = [];
 	for (const r of [...regions.slice(1)].sort((a, b) => b.area - a.area))
-		if (!groups.some((g) => same(g, r))) groups.push(r);
+		if (!tiny(r) && !groups.some((g) => same(g, r))) groups.push(r);
 	for (const r of regions.slice(1))
-		r.kind = Math.min(
-			7,
-			groups.findIndex((g) => same(g, r))
-		);
+		r.kind = tiny(r)
+			? 0
+			: Math.min(
+					7,
+					groups.findIndex((g) => same(g, r))
+				);
 	// Fill the walls with the nearest region, so every texel has one (lookups near a line stay inside a field).
 	{
 		let qh = 0;
