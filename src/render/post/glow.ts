@@ -16,22 +16,6 @@ import type { PostDef } from './types';
 const SAMPLING = /* glsl */ `
 uniform vec2 uSrcRes; // size of the texture being sampled (tInput unless stated)
 
-vec4 glowFetch(sampler2D t, ivec2 res, ivec2 c) {
-  c = uTile ? imod(c, res) : clamp(c, ivec2(0), res - 1);
-  return texelFetch(t, c, 0);
-}
-// Bilinear at a pixel-space position (centres at .5) of a texture of size res, wrap- or clamp-aware.
-vec4 glowBilin(sampler2D t, vec2 res, vec2 px) {
-  ivec2 r = ivec2(res);
-  vec2 q = px - 0.5;
-  vec2 f = fract(q);
-  ivec2 i = ivec2(floor(q));
-  vec4 a = glowFetch(t, r, i);
-  vec4 b = glowFetch(t, r, i + ivec2(1, 0));
-  vec4 c = glowFetch(t, r, i + ivec2(0, 1));
-  vec4 d = glowFetch(t, r, i + ivec2(1, 1));
-  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
 // 3×3 tent (1 2 1) of bilinear taps one source texel apart. They cover one 4×4 block of texels, so it is fetched
 // once with the combined weights per axis: (1 − f, 2 − f, 1 + f, f) / 4 at offsets −1 … 2 from the bilinear base.
 vec4 glowTent(sampler2D t, vec2 res, vec2 px) {
@@ -44,7 +28,7 @@ vec4 glowTent(sampler2D t, vec2 res, vec2 px) {
   vec4 s = vec4(0.0);
   for (int y = 0; y < 4; y++) {
     vec4 row = vec4(0.0);
-    for (int x = 0; x < 4; x++) row += glowFetch(t, r, i + ivec2(x, y)) * wx[x];
+    for (int x = 0; x < 4; x++) row += fetchTSized(t, r, i + ivec2(x, y)) * wx[x];
     s += row * wy[y];
   }
   return s;
@@ -71,11 +55,12 @@ const DOWN =
 	/* glsl */ `
 void main() {
   vec2 q = glowSrcPos(uSrcRes);
-  vec4 s = glowBilin(tInput, uSrcRes, q) * 4.0;
-  s += glowBilin(tInput, uSrcRes, q + vec2(-1.0, -1.0));
-  s += glowBilin(tInput, uSrcRes, q + vec2(1.0, -1.0));
-  s += glowBilin(tInput, uSrcRes, q + vec2(-1.0, 1.0));
-  s += glowBilin(tInput, uSrcRes, q + vec2(1.0, 1.0));
+  // The centre (weight 4), then the four diagonal neighbours, through one sampleTSized.
+  vec4 s = vec4(0.0);
+  for (int j = 0; j < 5 * UNI_1; j++) {
+    vec2 o = j == 0 ? vec2(0.0) : vec2((j & 1) == 1 ? -1.0 : 1.0, j < 3 ? -1.0 : 1.0);
+    s += sampleTSized(tInput, ivec2(uSrcRes), q + o) * (j == 0 ? 4.0 : 1.0);
+  }
   oColor = s / 8.0;
 }
 `;

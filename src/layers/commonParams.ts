@@ -25,7 +25,7 @@ const SRC_HINT = 'Picks what drives this output';
 // Masks (FR8.23): named, each a signed distance plus the random of the feature there. A layer writes one (Mask › Write
 // to, shape layers default to the Shape mask) and is limited by an expression of them (Limit to). The mode is how the
 // layer's shape or coverage combines with what the mask held. Option order matters: the index + 1 is sdfCombine's op.
-export const SDF_OPS: [string, string][] = [
+const SDF_OPS: [string, string][] = [
 	['replace', 'Normal'],
 	['union', 'Union'],
 	['subtract', 'Subtract'],
@@ -216,7 +216,7 @@ int maskOp() { return uMaskKind == 1 ? u_mk_op + 1 : 0; }
 /** Most masks a Limit to expression combines. */
 export const MAX_LIMIT_TERMS = 4;
 
-export const LIMIT_OPS: [string, string, string][] = [
+const LIMIT_OPS: [string, string, string][] = [
 	['and', 'And', 'keeps only where both are (intersection)'],
 	['or', 'Or', 'keeps where either is (union)'],
 	['minus', 'Except', 'leaves out where the next mask is, cutting it out of the ones before']
@@ -472,7 +472,7 @@ const AREA_GRID = 16;
  * (GL, y up), and the distance to where the layer may draw (negative inside an on cell; outside the area, or in an off
  * cell, positive). Across a cell's side the distance counts only where the neighbour there is off (or outside).
  */
-export const GLSL_AREA = /* glsl */ `
+const GLSL_AREA = /* glsl */ `
 uniform vec4 uArea;
 uniform float uAreaX[${AREA_GRID + 1}];
 uniform float uAreaY[${AREA_GRID + 1}];
@@ -921,29 +921,29 @@ void main() {
   gPhase = u_phase;
 
   vec2 pp = gl_FragCoord.xy - vec2(u_ofs_x, -u_ofs_y);${
-	area
-		? /* glsl */ `
+		area
+			? /* glsl */ `
   // Area: the layer's canvas is the area (uRes is its size), its origin the area's bottom-left corner.
   pp -= uArea.xy;
   vec2 aq = vec2(gl_FragCoord.x - uArea.x, uArea.y + uArea.w - gl_FragCoord.y);
   float aDist = areaDist(aq);`
-		: ''
-}
+			: ''
+	}
   if (u_dw_amount > 0.0) {
     // Domain warp of the whole pattern: neighbouring features move together, so gaps keep their width.
     vec2 wc = cellsFor(u_dw_scale, 1.0);
     pp += warpOffset(gl_FragCoord.xy / uRes * wc, periodOf(wc), uSeed + 409.0) * 2.0 * u_dw_amount;
   }
   GenOut g = gen(pp);${
-	area
-		? /* glsl */ `
+		area
+			? /* glsl */ `
   // Nothing outside the area or in an off cell; a shape is cut there (its distance at least the area's).
   if (aDist > 0.0) g.mask = 0.0;
   if (g.sdf > NO_SDF) g.sdf = max(g.sdf, aDist);
   if (g.bdist > NO_SDF) g.bdist = max(g.bdist, aDist);
   if (aDist > 0.0) g.height = NO_SDF;`
-		: ''
-}
+			: ''
+	}
   float value = g.value;
   float cov = g.mask;
   float shapeV = 1.0;
@@ -1076,29 +1076,31 @@ ${
     float h = S.r;
     S.r = mix(h, heightCombine(u_h_mode, h, v), own ? (g.height != 0.0 ? k : 0.0) : m);
   }
-  if (u_r_on) {
-    float v = srcLevel(u_r_src, value, g.rnd, shapeV, gGenLevel.x);
-    float r = mix(u_r_a, u_r_b, v);
-    float o = S.g;
-    S.g = clamp(mix(o, levelBlend(u_r_mode, o, r), m * u_r_opacity), 0.0, 1.0);
-  }
-  if (u_s_on) {
-    float v = srcLevel(u_s_src, value, g.rnd, shapeV, gGenLevel.y);
-    float sp = mix(u_s_a, u_s_b, v);
-    float o = E.a;
-    E.a = clamp(mix(o, levelBlend(u_s_mode, o, sp), m * u_s_opacity), 0.0, 1.0);
-  }
-  if (u_mt_on) {
-    float v = srcLevel(u_mt_src, value, g.rnd, shapeV, gGenLevel.z);
-    float mt = mix(u_mt_a, u_mt_b, v);
-    float o = S.b;
-    S.b = clamp(mix(o, levelBlend(u_mt_mode, o, mt), m * u_mt_opacity), 0.0, 1.0);
-  }
-  if (u_e_on) {
-    float v = srcLevel(u_e_src, value, g.rnd, shapeV, gGenLevel.w);
-    vec3 e = u_e_color * u_e_intensity * v;
-    vec3 ne = u_e_mode == 0 ? E.rgb + e : u_e_mode == 1 ? e : max(E.rgb, e);
-    E.rgb = mix(E.rgb, ne, m);
+  // The level outputs — Roughness (S.g), Specular (E.a), Metalness (S.b), Emissive (E.rgb) — in one loop, so D3D
+  // inlines srcLevel (and shapeValue in it) once rather than once per output (docs/shader-compilation.md).
+  for (int i = 0; i < 4 * UNI_1; i++) {
+    bool on = i == 0 ? u_r_on : i == 1 ? u_s_on : i == 2 ? u_mt_on : u_e_on;
+    if (on) {
+      int src = i == 0 ? u_r_src : i == 1 ? u_s_src : i == 2 ? u_mt_src : u_e_src;
+      float own = i == 0 ? gGenLevel.x : i == 1 ? gGenLevel.y : i == 2 ? gGenLevel.z : gGenLevel.w;
+      float v = srcLevel(src, value, g.rnd, shapeV, own);
+      if (i == 3) {
+        vec3 e = u_e_color * u_e_intensity * v;
+        vec3 ne = u_e_mode == 0 ? E.rgb + e : u_e_mode == 1 ? e : max(E.rgb, e);
+        E.rgb = mix(E.rgb, ne, m);
+      } else {
+        float lo = i == 0 ? u_r_a : i == 1 ? u_s_a : u_mt_a;
+        float hi = i == 0 ? u_r_b : i == 1 ? u_s_b : u_mt_b;
+        float x = mix(lo, hi, v);
+        int mode = i == 0 ? u_r_mode : i == 1 ? u_s_mode : u_mt_mode;
+        float opacity = i == 0 ? u_r_opacity : i == 1 ? u_s_opacity : u_mt_opacity;
+        float o = i == 0 ? S.g : i == 1 ? E.a : S.b;
+        float l = clamp(mix(o, levelBlend(mode, o, x), m * opacity), 0.0, 1.0);
+        if (i == 0) S.g = l;
+        else if (i == 1) E.a = l;
+        else S.b = l;
+      }
+    }
   }
 
   oAlbedo = A;

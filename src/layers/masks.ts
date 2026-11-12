@@ -26,7 +26,7 @@ export { SHAPE_MASK };
 const name = (v: unknown) => String(v ?? '').trim();
 
 /** The mask a layer's params name in Write to, or null (written or not: see maskWriteKind). */
-export function maskTarget(params: ParamValues): string | null {
+function maskTarget(params: ParamValues): string | null {
 	return name(params.mk_target) || null;
 }
 
@@ -228,9 +228,6 @@ export function maskChain(p: Project, layerId: string, mask: string): MaskWriter
 }
 
 /** The layers whose writes `mask` holds when `layerId` runs, in stack order (see maskChain). */
-export function maskWriters(p: Project, layerId: string, mask: string): Layer[] {
-	return writersHeld(writeLog(p), layerId, mask);
-}
 const writersHeld = (log: WriteLog, layerId: string, mask: string) => [
 	...new Set(writesHeld(log, layerId, mask).map((w) => w.layer))
 ];

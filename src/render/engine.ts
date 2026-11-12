@@ -762,16 +762,12 @@ export class Engine {
 	/** Read the final post-processed image (linear, display-referred), rows top-to-bottom. */
 	readFinal(): ImageData32 {
 		this.currentPost();
-		const p = this.project!;
-		const data = this.gpu.readTexture(this.post.output!, p.width, p.height);
-		return { width: p.width, height: p.height, data: flipRows(data, p.width, p.height) };
+		return this.readTopDown(this.post.output!);
 	}
 
 	/** Read the raw HDR path-traced image before post, rows top-to-bottom. */
 	readRender(): ImageData32 {
-		const p = this.project!;
-		const data = this.gpu.readTexture(this.traced()!, p.width, p.height);
-		return { width: p.width, height: p.height, data: flipRows(data, p.width, p.height) };
+		return this.readTopDown(this.traced()!);
 	}
 
 	/** Read the ambient-occlusion map (R = AO, 1 = open). */
@@ -787,13 +783,17 @@ export class Engine {
 
 	/** Read a k× material map at the texture size (box-filtered on the GPU when supersampling), rows top-to-bottom. */
 	private readAtTextureSize(tex: THREE.Texture): ImageData32 {
-		const p = this.project!;
 		if (this.ss > 1) {
 			this.mapDown = this.downsample(tex, this.mapDown);
 			tex = this.mapDown.texture;
 		}
-		const data = this.gpu.readTexture(tex, p.width, p.height);
-		return { width: p.width, height: p.height, data: flipRows(data, p.width, p.height) };
+		return this.readTopDown(tex);
+	}
+
+	/** Read a texture at the texture size (the project's width × height texels), rows top-to-bottom. */
+	private readTopDown(tex: THREE.Texture): ImageData32 {
+		const { width, height } = this.project!;
+		return { width, height, data: this.gpu.readTopDown(tex, width, height) };
 	}
 
 	/** Read a material map: 0 albedo, 1 surface (h, rough, metal, sdf), 2 emissive, 3 normal (xyz, h px). */
@@ -817,13 +817,4 @@ export class Engine {
 		this.display.dispose();
 		this.gpu.dispose();
 	}
-}
-
-export function flipRows(data: Float32Array, width: number, height: number): Float32Array {
-	const out = new Float32Array(data.length);
-	const row = width * 4;
-	for (let y = 0; y < height; y++) {
-		out.set(data.subarray((height - 1 - y) * row, (height - y) * row), y * row);
-	}
-	return out;
 }

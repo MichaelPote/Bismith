@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { P, type ParamDef, type ParamValues } from '@/core/params';
 import { SHAPE_MASK } from '@/core/project';
 import { DISTANCE_SOURCE, jumpFlood } from '@/gpu/jfa';
+import { GLSL_GAUSS_BLUR } from '@/layers/glsl/common';
 import type { FilterContext } from '@/render/materialPipeline';
 
 /** Sources for distance-based filters; their indices come from DISTANCE_SOURCE in gpu/jfa.ts. */
@@ -46,32 +47,13 @@ export const edgeMaskSource = (p: ParamValues): string | null =>
 
 /** Gaussian σ for a blur "radius" (the kernel reaches ~1.5 × radius, i.e. 3σ). */
 export const radiusToSigma = (radius: number) => Math.max(radius, 0) * 0.5;
-/** Hard cap on the taps either side of a separable blur pass. */
-export const MAX_BLUR_TAPS = 192;
 
-// Past MAX_BLUR_TAPS a side, every stride-th texel (stride ≤ 4 up to σ 256, a kernel far wider than its gaps), so a
-// wide blur costs no more taps than a radius of 128.
 const BLUR4 = /* glsl */ `
+${GLSL_GAUSS_BLUR}
 uniform sampler2D tSrc;
 uniform vec2 uDir;
 uniform float uSigma;
-void main() {
-  ivec2 c = ivec2(gl_FragCoord.xy);
-  ivec2 dir = ivec2(uDir);
-  int R = int(ceil(uSigma * 3.0));
-  int stride = max(1, (R + ${MAX_BLUR_TAPS - 1}) / ${MAX_BLUR_TAPS});
-  int n = R / stride;
-  float k = gaussK(uSigma);
-  vec4 sum = vec4(0.0);
-  float ws = 0.0;
-  for (int i = -n; i <= n; i++) {
-    int o = i * stride;
-    float w = exp(float(o * o) * k);
-    sum += w * fetchT(tSrc, c + dir * o);
-    ws += w;
-  }
-  oColor = sum / ws;
-}
+void main() { oColor = gaussBlur(tSrc, ivec2(gl_FragCoord.xy), ivec2(uDir), uSigma, false); }
 `;
 
 /**

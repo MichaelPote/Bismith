@@ -9,6 +9,7 @@
 // Where the table and lists start, the grid and the unit go to the shader as derived uniforms (PRIM_UNIFORMS).
 
 import type { CpuTexture, DerivedUniformType } from './types';
+import { imod } from './derivedMath';
 
 export const PRIM_ROW = 1024;
 
@@ -81,11 +82,11 @@ export function binByReach(
 		const [x0, x1, wx] = range(p.x, cw, gw);
 		const [y0, y1, wy] = range(p.y, ch, gh);
 		for (let yi = y0; yi <= y1; yi++) {
-			const cy = wy ? ((yi % gh) + gh) % gh : yi;
+			const cy = wy ? imod(yi, gh) : yi;
 			const dy = gap(p.y, cy, ch, gh, H);
 			if (dy > r) continue;
 			for (let xi = x0; xi <= x1; xi++) {
-				const cx = wx ? ((xi % gw) + gw) % gw : xi;
+				const cx = wx ? imod(xi, gw) : xi;
 				if (Math.hypot(gap(p.x, cx, cw, gw, W), dy) > r) continue;
 				const list = lists[cx + cy * gw];
 				// (A wide primitive can reach one cell from both sides round the torus.)
@@ -215,8 +216,8 @@ export class TexelReader {
 		const [gw, gh] = this.t.grid;
 		let cx = Math.floor(qx / (c.width / gw));
 		let cy = Math.floor(qy / (c.height / gh));
-		cx = c.tile ? ((cx % gw) + gw) % gw : Math.min(gw - 1, Math.max(0, cx));
-		cy = c.tile ? ((cy % gh) + gh) % gh : Math.min(gh - 1, Math.max(0, cy));
+		cx = c.tile ? imod(cx, gw) : Math.min(gw - 1, Math.max(0, cx));
+		cy = c.tile ? imod(cy, gh) : Math.min(gh - 1, Math.max(0, cy));
 		const k = this.t.table + cx + cy * gw;
 		const out: number[] = [];
 		for (let e = this.u32(k); e < this.u32(k + 1); e++) out.push(this.u16(this.t.list + (e >> 1), e & 1));

@@ -231,16 +231,18 @@ bool sampleBRDF(Mat m, vec3 n, vec3 v, out vec3 l, out vec3 weight, out float pd
 vec3 toSky(vec3 d) { return uSkyWall ? vec3(d.x, -d.z, d.y) : d; }
 vec3 fromSky(vec3 s) { return uSkyWall ? vec3(s.x, s.z, -s.y) : s; }
 
+// Where a direction in the sky's frame falls on the environment image. Latitude-longitude: across by azimuth, clockwise
+// from the top of the image as the lights' (turned clockwise by the rotation), down from the zenith. atan(0, 0) is
+// undefined: straight up, 0.
+vec2 envUV(vec3 d) {
+  float az = abs(d.x) + abs(d.y) > 1e-6 ? atan(d.x, d.y) / TAU : 0.0;
+  return vec2(fract(az - uEnvTurn), acos(clamp(d.z, -1.0, 1.0)) / PI);
+}
+
 vec3 sky(vec3 dir) {
   if (!uSkyOn) return vec3(0.0);
   vec3 d = toSky(dir);
-  if (uEnvOn) {
-    // Latitude-longitude: across by azimuth, clockwise from the top of the image as the lights' (turned clockwise by the
-    // rotation), down from the zenith. atan(0, 0) is undefined: straight up, 0.
-    float az = abs(d.x) + abs(d.y) > 1e-6 ? atan(d.x, d.y) / TAU : 0.0;
-    vec2 uv = vec2(fract(az - uEnvTurn), acos(clamp(d.z, -1.0, 1.0)) / PI);
-    return textureLod(tEnv, uv, 0.0).rgb * uSkyScale;
-  }
+  if (uEnvOn) return textureLod(tEnv, envUV(d), 0.0).rgb * uSkyScale;
   return mix(uSkyHorizon, uSkyZenith, sqrt(clamp(d.z, 0.0, 1.0)));
 }
 
@@ -255,9 +257,7 @@ float envPdf(vec3 dir) {
   // faces: the upper half from a floor, the hemisphere in front of a wall).
   if (!uEnvOn || !uSkyOn || dir.z <= 0.0) return 0.0;
   vec3 d = toSky(dir);
-  float az = abs(d.x) + abs(d.y) > 1e-6 ? atan(d.x, d.y) / TAU : 0.0;
-  vec2 uv = vec2(fract(az - uEnvTurn), acos(clamp(d.z, -1.0, 1.0)) / PI);
-  ivec2 px = min(ivec2(uv * vec2(float(uEnvW), float(uEnvH))), ivec2(uEnvW - 1, uEnvH - 1));
+  ivec2 px = min(ivec2(envUV(d) * vec2(float(uEnvW), float(uEnvH))), ivec2(uEnvW - 1, uEnvH - 1));
   return texelFetch(tEnvDist, px, 0).g * uEnvNorm / max(sqrt(1.0 - d.z * d.z), 1e-4);
 }
 
@@ -567,7 +567,9 @@ export class PathTracer {
           float horizon = 0.0;
           for (int s = 1; s <= S; s++) {
             float dist = uRadius * float(s) / float(S);
-            float dh = sampleT(tNormal, c + dir * dist).w - h0;
+            // tNormal filters linearly and repeats (as the tracer's normalHeight reads it): one hardware-filtered read.
+            vec2 p = c + dir * dist;
+            float dh = textureLod(tNormal, (uTile ? p : clamp(p, vec2(0.5), uRes - 0.5)) / uRes, 0.0).w - h0;
             // Sine of the elevation of this sample, fading with distance so far occluders count less.
             float f = 1.0 - float(s - 1) / float(S);
             horizon = max(horizon, f * dh / sqrt(dist * dist + dh * dh));
@@ -689,7 +691,7 @@ export class PathTracer {
 		u.uF0.value = 0.08 * r.specular;
 		u.uSpecTint.value = r.specularTint ?? 1;
 		u.uAO.value = r.ao ?? 0;
-		// Only when the trace uses it (512 fetches a pixel, after every edit); the AO view and export ask for it (aoFor).
+		// Only when the trace uses it (128 filtered reads a pixel, after every edit); the AO view and export ask for it (aoFor).
 		u.tAO.value = (r.ao ?? 0) > 0 ? this.aoFor(project, material) : null;
 		u.uJitter.value = r.jitter;
 		u.uClamp.value = r.clamp;

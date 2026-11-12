@@ -2,35 +2,20 @@
 // pixels don't darken edges; wraps across the edges when the project is tileable.
 
 import type * as THREE from 'three';
+import { GLSL_GAUSS_BLUR } from '@/layers/glsl/common';
 import type { PostContext } from './types';
 
 /** Smallest Gaussian sigma (px) used: smaller ones are raised to it (a near-identity blur). */
 const MIN_SIGMA = 0.2;
-/** Kernel half-width cap (taps each side). */
-const MAX_TAPS = 128;
 
 const BODY = /* glsl */ `
+${GLSL_GAUSS_BLUR}
 uniform ivec2 uDir;
 uniform float uSigma;
 uniform bool uFirst; // first pass: premultiply the input; second: un-premultiply the result
 
-vec4 gaussTap(ivec2 c) {
-  vec4 v = fetchT(tInput, c);
-  return uFirst ? vec4(v.rgb * v.a, v.a) : v;
-}
-
 void main() {
-  ivec2 ip = ivec2(gl_FragCoord.xy);
-  int r = gaussTaps(uSigma, ${MAX_TAPS});
-  float k = gaussK(uSigma);
-  vec4 s = vec4(0.0);
-  float wsum = 0.0;
-  for (int i = -r; i <= r; i++) {
-    float w = exp(float(i * i) * k);
-    s += gaussTap(ip + uDir * i) * w;
-    wsum += w;
-  }
-  s /= wsum;
+  vec4 s = gaussBlur(tInput, ivec2(gl_FragCoord.xy), uDir, uSigma, uFirst);
   if (!uFirst) s.rgb = s.a > 1e-6 ? s.rgb / s.a : vec3(0.0);
   oColor = s;
 }

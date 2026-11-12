@@ -90,6 +90,8 @@ export interface LayerDef {
 	 * filterGlsl with `prepare` avoids them.
 	 */
 	run?: (ctx: FilterContext, layer: Layer) => void;
+	/** Filters with `run`: true when these params change nothing (Blur of radius 0), so the layer is skipped, limit passes and all. */
+	idle?: (params: ParamValues) => boolean;
 	/**
 	 * Generators: data computed on the CPU from the params — global, sequential algorithms a pixel shader can't run (e.g.
 	 * routing). Returns RGBA8 textures by name, bound as `uniform sampler2D t_<name>` (declare the names in `textures`).

@@ -5,6 +5,7 @@
 import type { Project } from '@/core/project';
 import type { Engine } from './engine';
 import { mapPixels } from './export';
+import { imod } from '@/layers/derivedMath';
 
 /** A preview's longest side (px; smaller textures keep their size) and lossy quality. */
 export interface PreviewSize {
@@ -81,7 +82,7 @@ export function encodePreview(
  * `src` over the viewport's alpha checkerboard (display.ts: its two greys, 8 px cells, larger on big images), for formats
  * without alpha (the JPEG fallbacks): transparent texels show as the checkerboard instead of turning black. Browser only.
  */
-export function onChecker(src: HTMLCanvasElement): HTMLCanvasElement {
+function onChecker(src: HTMLCanvasElement): HTMLCanvasElement {
 	const c = document.createElement('canvas');
 	c.width = src.width;
 	c.height = src.height;
@@ -121,8 +122,8 @@ export function encodeCrop(
 			let sx = x0 + x;
 			let sy = y0 + y;
 			if (wrap) {
-				sx = ((sx % width) + width) % width;
-				sy = ((sy % height) + height) % height;
+				sx = imod(sx, width);
+				sy = imod(sy, height);
 			} else if (sx < 0 || sy < 0 || sx >= width || sy >= height) continue;
 			const s = (sy * width + sx) * 4;
 			texels.set(pixels.subarray(s, s + 4), (y * tw + x) * 4);
