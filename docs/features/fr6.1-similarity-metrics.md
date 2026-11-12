@@ -64,10 +64,11 @@ term compares every level at the true shift, FR8.27); **tilemotif** tilewin's we
 
 **API.**
 
-- `compareImages(render, target, opts?) → MetricResult` — one-shot.
 - `new Matcher(target, opts?)` caches the target's descriptors; `matcher.score(render)` resamples the render to
   the comparison size and compares (≈5 ms at 64², ≈50 ms at 256²); `matcher.fit(img)`, `matcher.target`. Pass
-  `score` the render at its own size, not `fit(render)`: the windows term compares at up to 512 px.
+  `score` the render at its own size, not `fit(render)`: the windows term compares at up to 512 px. Engine output
+  goes to `scoreLinear(linearPremul(engine.readFinal()))` (no sRGB round trip); `scoreDetailed` /
+  `scoreLinearDetailed` also return the render at the comparison size (`fit`) and the windows' detail.
 - `computeFeatures(img)` / `compareFeatures(a, b, weights)` — lower level.
 - `MetricResult = { total, terms, raw, weights, width, height }`; `TERM_NAMES`, `TERM_LABELS` for UIs.
 - Options: `preset`, `weights`, `size` (comparison size; default the target's), `maxSize` (long-side cap,

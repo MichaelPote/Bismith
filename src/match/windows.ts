@@ -14,6 +14,19 @@
 
 import type { LabPlanes, MatchImage } from './image';
 import { toOklab } from './image';
+import {
+	MAG_BINS,
+	ORI_BINS,
+	addOrientation,
+	boxDown,
+	circularEmd,
+	magBin,
+	neighbours,
+	norm,
+	sobel,
+	type Plane
+} from './imageOps';
+import { quantileOfSorted, sortFloat32 } from './quantiles';
 
 /** Cells per window side, the default step between windows in cells, and the most windows along an axis. */
 const CELLS = 4;
@@ -21,9 +34,6 @@ const STEP = 2;
 const MAX_ACROSS = 16;
 /** Colour histogram bins per channel. */
 const NB = 24;
-const MAG_BINS = 22; // < 1e-3, then half-octave bins from 1e-3 up to ~2 (as the global gradient term)
-const MAG_LO = Math.log2(1e-3);
-const ORI_BINS = 16;
 /** Oriented detail: 4 orientations per pyramid level, up to 4 levels. */
 const ORIENTS = 4;
 const MAX_LEVELS = 4;
@@ -33,7 +43,7 @@ const CHROMA = 2;
 /** Raw value per part that maps to 0.5 (as TERM_SCALES for the global terms). */
 export const WINDOW_SCALES = { colour: 0.06, edges: 0.25, detail: 0.15 };
 export type WindowPart = keyof typeof WINDOW_SCALES;
-export const WINDOW_PARTS = Object.keys(WINDOW_SCALES) as WindowPart[];
+const WINDOW_PARTS = Object.keys(WINDOW_SCALES) as WindowPart[];
 export type WindowWeights = Record<WindowPart, number>;
 /**
  * Fine edges tell textures apart best (planks: grain removed, re-seeded, reference ≈ +0.9…1.6 above the layout floor
@@ -94,40 +104,11 @@ export interface WindowBank {
 	levels: number;
 }
 
-interface Plane {
-	w: number;
-	h: number;
-	v: Float32Array;
-}
-
-function boxDown(p: Plane): Plane {
-	const W = Math.max(1, p.w >> 1);
-	const H = Math.max(1, p.h >> 1);
-	const v = new Float32Array(W * H);
-	for (let y = 0; y < H; y++) {
-		const y0 = Math.min(p.h - 1, y * 2);
-		const y1 = Math.min(p.h - 1, y * 2 + 1);
-		for (let x = 0; x < W; x++) {
-			const x0 = Math.min(p.w - 1, x * 2);
-			const x1 = Math.min(p.w - 1, x * 2 + 1);
-			v[y * W + x] = 0.25 * (p.v[y0 * p.w + x0] + p.v[y0 * p.w + x1] + p.v[y1 * p.w + x0] + p.v[y1 * p.w + x1]);
-		}
-	}
-	return { w: W, h: H, v };
-}
-
-/** Index of the neighbour at offset d of every i in 0…n−1 (wrapping, or clamped at the ends). */
-function neighbours(n: number, d: number, wrap: boolean): Int32Array {
-	const out = new Int32Array(n);
-	for (let i = 0; i < n; i++) out[i] = wrap ? (i + d + n) % n : Math.max(0, Math.min(n - 1, i + d));
-	return out;
-}
-
 /** Colour bin range of a channel: its 0.2 … 99.8 % span plus a margin (values outside land in the end bins). */
 function rangeOf(v: Float32Array): { lo: number; width: number } {
-	const s = Float32Array.from(v).sort();
-	const a = s[Math.floor(s.length * 0.002)];
-	const b = s[Math.min(s.length - 1, Math.floor(s.length * 0.998))];
+	const s = sortFloat32(v);
+	const a = quantileOfSorted(s, 0.002);
+	const b = quantileOfSorted(s, 0.998);
 	const pad = Math.max(0.02, (b - a) * 0.25);
 	return { lo: a - pad, width: (b - a + 2 * pad) / NB };
 }
@@ -153,9 +134,9 @@ export function windowBankOfLab(lab: LabPlanes, opts: Omit<WindowBankOptions, 'b
 	const ranges = opts.like?.ranges ?? [lab.L, A2, B2].map(rangeOf);
 
 	// Pyramid of L; a level counts while its cells are at least one pixel.
-	const pyr: Plane[] = [{ w: W, h: H, v: lab.L }];
-	while (pyr.length < MAX_LEVELS && cell >> pyr.length >= 1 && pyr[pyr.length - 1].w >= 8 && pyr[pyr.length - 1].h >= 8)
-		pyr.push(boxDown(pyr[pyr.length - 1]));
+	const pyr: Plane[] = [{ data: lab.L, width: W, height: H }];
+	for (let p = pyr[0]; pyr.length < MAX_LEVELS && cell >> pyr.length >= 1 && p.width >= 8 && p.height >= 8;)
+		pyr.push((p = boxDown(p.data, p.width, p.height)));
 	const levels = pyr.length;
 
 	const cx = Math.ceil(W / cell);
@@ -168,52 +149,34 @@ export function windowBankOfLab(lab: LabPlanes, opts: Omit<WindowBankOptions, 'b
 	const detS = new Float32Array(nCells * levels * ORIENTS);
 	const cnt = new Float32Array(nCells * levels);
 
-	// Full resolution: colour, Sobel magnitude and orientation.
+	// Full resolution: colour, Sobel magnitude and orientation (as the global gradient term).
 	{
-		const xl = neighbours(W, -1, wrap);
-		const xr = neighbours(W, 1, wrap);
-		const yu = neighbours(H, -1, wrap);
-		const yd = neighbours(H, 1, wrap);
 		const cellOf = Int32Array.from({ length: W }, (_, x) => Math.floor(x / cell));
 		const L = lab.L;
+		const { gx, gy } = sobel(L, W, H, wrap);
 		const [r0, r1, r2] = ranges;
 		const bin = (v: number, r: { lo: number; width: number }) => {
 			const b = Math.floor((v - r.lo) / r.width);
 			return b < 0 ? 0 : b >= NB ? NB - 1 : b;
 		};
 		for (let y = 0; y < H; y++) {
-			const t = yu[y] * W;
-			const m = y * W;
-			const b = yd[y] * W;
 			const crow = Math.floor(y / cell) * cx;
 			for (let x = 0; x < W; x++) {
 				const c = crow + cellOf[x];
-				const p = m + x;
+				const p = y * W + x;
 				const o = c * 3 * NB;
 				colH[o + bin(L[p], r0)]++;
 				colH[o + NB + bin(A2[p], r1)]++;
 				colH[o + 2 * NB + bin(B2[p], r2)]++;
-				const l = xl[x];
-				const rr = xr[x];
-				const gx = (L[t + rr] + 2 * L[m + rr] + L[b + rr] - L[t + l] - 2 * L[m + l] - L[b + l]) / 8;
-				// y up (orientation angles read like the light azimuth convention, as the global gradient term).
-				const gy = (L[t + l] + 2 * L[t + x] + L[t + rr] - L[b + l] - 2 * L[b + x] - L[b + rr]) / 8;
-				const mg = Math.hypot(gx, gy);
-				magH[c * MAG_BINS + (mg >= 1e-3 ? Math.min(MAG_BINS - 1, 1 + Math.floor((Math.log2(mg) - MAG_LO) * 2)) : 0)]++;
-				if (mg > 2e-3) {
-					const tt = ((Math.atan2(gy, gx) + Math.PI) / (2 * Math.PI)) * ORI_BINS - 0.5;
-					const i0 = Math.floor(tt);
-					const f = tt - i0;
-					oriH[c * ORI_BINS + ((i0 + ORI_BINS) % ORI_BINS)] += mg * (1 - f);
-					oriH[c * ORI_BINS + ((i0 + 1) % ORI_BINS)] += mg * f;
-					edgeS[c] += mg;
-				}
+				const mg = Math.hypot(gx[p], gy[p]);
+				magH[c * MAG_BINS + magBin(mg)]++;
+				edgeS[c] += addOrientation(oriH, c * ORI_BINS, gx[p], gy[p], mg);
 			}
 		}
 	}
 	// Every level: mean |central difference| along 0°, 45°, 90°, 135° — detail per scale and direction.
 	for (let l = 0; l < levels; l++) {
-		const { w, h, v } = pyr[l];
+		const { width: w, height: h, data: v } = pyr[l];
 		const xl = neighbours(w, -1, wrap);
 		const xr = neighbours(w, 1, wrap);
 		const yu = neighbours(h, -1, wrap);
@@ -325,14 +288,13 @@ export function windowBankOfLab(lab: LabPlanes, opts: Omit<WindowBankOptions, 'b
 	return bank;
 }
 
-const norm = (raw: number, scale: number) => (raw <= 0 ? 0 : raw / (raw + scale));
-
-/** Raw part distances between window i of a and window j of b. */
+/** Raw part distances between window i of a and window j of b (`diff`, `scratch`: ORI_BINS each). */
 function partDistances(
 	a: WindowBank,
 	i: number,
 	b: WindowBank,
 	j: number,
+	diff: Float64Array,
 	scratch: Float64Array,
 	out: Record<WindowPart, number>
 ): void {
@@ -350,22 +312,10 @@ function partDistances(
 	for (let q = 0, ia = i * MAG_BINS, ib = j * MAG_BINS; q < MAG_BINS - 1; q++)
 		s += Math.abs(a.mag[ia + q] - b.mag[ib + q]);
 	const magEmd = s * 0.5;
-	// Circular EMD: Σ|c − median c| of the cumulative difference (median by insertion sort into the scratch's top half).
-	for (let q = 0, ia = i * ORI_BINS, ib = j * ORI_BINS; q < ORI_BINS; q++) {
-		const v = a.ori[ia + q] - b.ori[ib + q];
-		scratch[q] = v;
-		let k = ORI_BINS + q;
-		while (k > ORI_BINS && scratch[k - 1] > v) {
-			scratch[k] = scratch[k - 1];
-			k--;
-		}
-		scratch[k] = v;
-	}
-	const med = scratch[ORI_BINS + (ORI_BINS >> 1)];
-	s = 0;
-	for (let q = 0; q < ORI_BINS; q++) s += Math.abs(scratch[q] - med);
+	// Circular EMD of the orientations, from the difference of the cumulative histograms.
+	for (let q = 0, ia = i * ORI_BINS, ib = j * ORI_BINS; q < ORI_BINS; q++) diff[q] = a.ori[ia + q] - b.ori[ib + q];
 	const edge = Math.min(1, Math.max(a.edge[i], b.edge[j]) / 0.01);
-	out.edges = 0.5 * magEmd + 0.5 * (s / ORI_BINS) * 4 * edge;
+	out.edges = 0.5 * magEmd + 0.5 * circularEmd(diff, ORI_BINS, scratch) * 4 * edge;
 	// Detail: mean |Δlog10| of the oriented amplitudes per level.
 	const lv = Math.min(a.levels, b.levels);
 	s = 0;
@@ -375,16 +325,13 @@ function partDistances(
 }
 
 export interface WindowResult {
-	/** ½ (coherence + completeness): mean nearest-neighbour distance of the windows, ≈0..1. */
+	/**
+	 * Mean nearest-neighbour distance of the windows, ≈0..1: ½ (coherence — over the render's windows, the distance to
+	 * the closest reference window — plus completeness, the same over the reference's windows to the render's).
+	 */
 	raw: number;
-	/** Mean over the render's windows of the distance to the closest reference window. */
-	coherence: number;
-	/** Mean over the reference's windows of the distance to the closest render window. */
-	completeness: number;
 	/** Per window of `render`: distance to its closest reference window (for a mismatch map). */
 	perWindow: Float32Array;
-	/** Mean raw part distances of the matched pairs (render → reference), for reporting. */
-	parts: Record<WindowPart, number>;
 }
 
 /**
@@ -401,24 +348,21 @@ export function compareWindows(
 	const M = target.count;
 	const colMin = new Float32Array(M).fill(Infinity);
 	const perWindow = new Float32Array(K);
-	const bestJ = new Int32Array(K);
-	const scratch = new Float64Array(2 * ORI_BINS);
+	const diff = new Float64Array(ORI_BINS);
+	const scratch = new Float64Array(ORI_BINS);
 	const pd = { colour: 0, edges: 0, detail: 0 };
 	const w = WINDOW_PARTS.map((p) => Math.max(0, weights[p]));
 	const wsum = w.reduce((a, b) => a + b, 0) || 1;
 	for (let i = 0; i < K; i++) {
 		let best = Infinity;
 		for (let j = 0; j < M; j++) {
-			partDistances(render, i, target, j, scratch, pd);
+			partDistances(render, i, target, j, diff, scratch, pd);
 			const d =
 				(w[0] * norm(pd.colour, WINDOW_SCALES.colour) +
 					w[1] * norm(pd.edges, WINDOW_SCALES.edges) +
 					w[2] * norm(pd.detail, WINDOW_SCALES.detail)) /
 				wsum;
-			if (d < best) {
-				best = d;
-				bestJ[i] = j;
-			}
+			if (d < best) best = d;
 			if (d < colMin[j]) colMin[j] = d;
 		}
 		perWindow[i] = best;
@@ -429,12 +373,7 @@ export function compareWindows(
 	let completeness = 0;
 	for (let j = 0; j < M; j++) completeness += colMin[j];
 	completeness /= M || 1;
-	const parts = { colour: 0, edges: 0, detail: 0 };
-	for (let i = 0; i < K; i++) {
-		partDistances(render, i, target, bestJ[i], scratch, pd);
-		for (const p of WINDOW_PARTS) parts[p] += pd[p] / (K || 1);
-	}
-	return { raw: 0.5 * (coherence + completeness), coherence, completeness, perWindow, parts };
+	return { raw: 0.5 * (coherence + completeness), perWindow };
 }
 
 /**

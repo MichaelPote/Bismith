@@ -9,8 +9,7 @@
 // can't push the hue anywhere.
 
 import type { RGB } from '@/core/color';
-import { linearToOklab, srgbToLinear1 } from '@/core/color';
-import type { MatchImage } from './image';
+import { toOklab, type MatchImage } from './image';
 
 export interface ColourRange {
 	/** The reference's colours, OKLab triples. */
@@ -20,25 +19,26 @@ export interface ColourRange {
 }
 
 /** How much a lightness difference counts against the range, relative to hue and chroma. */
-export const LIGHTNESS_WEIGHT = 0.5;
+const LIGHTNESS_WEIGHT = 0.5;
 const BIN = 0.02;
 
 /** The reference's colours for a range of `radius` (OKLab). */
 export function colourRange(img: MatchImage, radius: number): ColourRange {
 	const bins = new Map<string, { n: number; l: number; a: number; b: number }>();
 	let total = 0;
+	const { L, A, B } = toOklab(img, null);
 	const d = img.data;
 	for (let i = 0; i < img.width * img.height; i++) {
 		if (d[i * 4 + 3] < 0.5) continue;
-		const lab = linearToOklab([srgbToLinear1(d[i * 4]), srgbToLinear1(d[i * 4 + 1]), srgbToLinear1(d[i * 4 + 2])]);
-		const key = `${Math.round(lab[0] / BIN)},${Math.round(lab[1] / BIN)},${Math.round(lab[2] / BIN)}`;
+		const [l, a, b] = [L[i], A[i], B[i]];
+		const key = `${Math.round(l / BIN)},${Math.round(a / BIN)},${Math.round(b / BIN)}`;
 		const s = bins.get(key);
 		if (s) {
 			s.n++;
-			s.l += lab[0];
-			s.a += lab[1];
-			s.b += lab[2];
-		} else bins.set(key, { n: 1, l: lab[0], a: lab[1], b: lab[2] });
+			s.l += l;
+			s.a += a;
+			s.b += b;
+		} else bins.set(key, { n: 1, l, a, b });
 		total++;
 	}
 	// A bin needs 1 in 10 000 of the pixels (at least 2) to count.

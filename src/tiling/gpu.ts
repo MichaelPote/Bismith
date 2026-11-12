@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { ScratchPool, type Gpu } from '@/gpu/context';
 import { GLSL_COLOUR } from '@/layers/glsl/common';
-import { linearPremul, resamplePremul, type LinearPremul } from '@/match/image';
+import { linearPremul, resamplePremul, type LabPlanes, type LinearPremul } from '@/match/image';
 import {
 	TILING_TERMS,
 	TilingFrame,
@@ -296,6 +296,26 @@ class Kernels implements TilingGpu {
 		return f;
 	}
 
+	/** `frame` boxed down to w × h, ending in OKLab (L, a, b, alpha), in the pool's 'lab' target. */
+	private labTarget(frame: TilingFrame, w: number, h: number): THREE.WebGLRenderTarget {
+		// The frame where it is (the last one made), else uploaded (rows top-down: texel row y is image row y throughout).
+		let upload: THREE.DataTexture | null = null;
+		let src: THREE.Texture;
+		if (this.frames.get(frame) === this.generation) src = this.pool.get('frame', frame.width, frame.height).texture;
+		else src = upload = floatTexture(frame.lin.data, frame.width, frame.height);
+		const lab = this.pool.get('lab', w, h);
+		this.boxDown(src, frame.width, frame.height, lab, 'down', { lab: true });
+		upload?.dispose();
+		return lab;
+	}
+
+	lab(frame: TilingFrame, w: number, h: number): Omit<LabPlanes, 'alpha'> {
+		const px = new Float32Array(w * h * 4);
+		this.gpu.renderer.readRenderTargetPixels(this.labTarget(frame, w, h), 0, 0, w, h, px);
+		const plane = (c: number) => Float32Array.from({ length: w * h }, (_, i) => px[i * 4 + c]);
+		return { width: w, height: h, L: plane(0), A: plane(1), B: plane(2) };
+	}
+
 	kernels(frame: TilingFrame, w: number, h: number): TilingKernels {
 		const { gpu, pool } = this;
 		const geo = tilingGeometry(w, h);
@@ -306,16 +326,8 @@ class Kernels implements TilingGpu {
 			for (const [k, v] of Object.entries(values)) m.uniforms[k].value = v;
 		};
 
-		// The frame where it is (the last one made), else uploaded (rows top-down: texel row y is image row y throughout).
-		let upload: THREE.DataTexture | null = null;
-		let src: THREE.Texture;
-		if (this.frames.get(frame) === this.generation) src = pool.get('frame', frame.width, frame.height).texture;
-		else src = upload = floatTexture(frame.lin.data, frame.width, frame.height);
-
 		// Box down to the work size, x then y, ending in OKLab.
-		const lab = pool.get('lab', w, h);
-		this.boxDown(src, frame.width, frame.height, lab, 'down', { lab: true });
-		upload?.dispose();
+		const lab = this.labTarget(frame, w, h);
 
 		const grad = pool.get('grad', w, h);
 		set(this.sobel, { tLab: lab.texture, uSize: isize(w, h) });

@@ -28,7 +28,8 @@ import {
 	type LinearPremul,
 	type MatchImage
 } from '@/match/image';
-import { sortFloat32 } from '@/match/quantiles';
+import { norm, sobel } from '@/match/imageOps';
+import { quantileOf, quantileOfSorted, sortFloat32 } from '@/match/quantiles';
 
 export type TilingTerm = 'patches' | 'lines' | 'clumping' | 'tone';
 export const TILING_TERMS: TilingTerm[] = ['patches', 'lines', 'clumping', 'tone'];
@@ -137,6 +138,8 @@ export interface TilingAnalysis {
 	maps: TilingMaps;
 	/** The maps at the work size. */
 	work: TilingMaps;
+	/** The render in OKLab at the work size (box-filtered in linear light), as the kernels read it. */
+	lab: Omit<LabPlanes, 'alpha'>;
 }
 
 /** The per-pixel kernels of the analysis, at the work size: what the GPU computes (src/tiling/gpu.ts). */
@@ -154,9 +157,9 @@ export interface TilingKernels {
 /** Computes the kernels elsewhere (the GPU); null when it can't, and the CPU does. */
 export interface TilingKernelSource {
 	kernels(frame: TilingFrame, width: number, height: number): TilingKernels | null;
+	/** Only the kernels' `lab` (the render in OKLab at the work size). */
+	lab?(frame: TilingFrame, width: number, height: number): Omit<LabPlanes, 'alpha'> | null;
 }
-
-const norm = (raw: number, scale: number) => (raw <= 0 ? 0 : raw / (raw + scale));
 
 /** The size a render is analysed at: its short side scaled to WORK_SIZE (never up). */
 export function workSize(width: number, height: number): [number, number] {
@@ -181,6 +184,16 @@ export function workLab(lin: LinearPremul, w: number, h: number): LabPlanes {
 	return resampleLinearToOklab(lin, w, h, undefined, 'box');
 }
 
+/** A frame in OKLab at the work size, as the analysis' kernels have it: by `gpu` (reading the frame in place) or here. */
+export function frameLab(
+	frame: TilingFrame,
+	w: number,
+	h: number,
+	gpu?: TilingKernelSource | null
+): Omit<LabPlanes, 'alpha'> {
+	return gpu?.lab?.(frame, w, h) ?? workLab(frame.lin, w, h);
+}
+
 /** The analysis from its kernels; the maps come back at `width` × `height`. */
 export function finishAnalysis(
 	kernels: TilingKernels,
@@ -198,7 +211,7 @@ export function finishAnalysis(
 	// Patches: each radius' rarity above the tile's median, the larger.
 	const patches = new Float32Array(n);
 	for (const rare of kernels.rarity) {
-		const med = quantile(sortFloat32(rare), 0.5);
+		const med = quantileOf(rare, 0.5);
 		for (let i = 0; i < n; i++) patches[i] = Math.max(patches[i], rare[i] - med);
 	}
 	const dMean = mean(density) || 1e-6;
@@ -245,15 +258,16 @@ export function finishAnalysis(
 		for (const t of TILING_TERMS) {
 			const m = work[t];
 			const sorted = t === 'patches' ? sortedPatches : t === 'lines' ? sortedLines : sortFloat32(m);
-			const lo = quantile(sorted, 0.5);
-			const span = quantile(sorted, 0.995) - lo;
+			const lo = quantileOfSorted(sorted, 0.5);
+			const span = quantileOfSorted(sorted, 0.995) - lo;
 			if (!(span > 0)) continue;
 			const w = HOTSPOT_WEIGHTS[t];
 			for (let i = 0; i < n; i++) hotspot[i] = Math.max(hotspot[i], w * Math.min(1, Math.max(0, (m[i] - lo) / span)));
 		}
 		return hotspot;
 	});
-	return { score, raw, terms, maps: width === W && height === H ? work : upsampledMaps(work, width, height), work };
+	const maps = width === W && height === H ? work : upsampledMaps(work, width, height);
+	return { score, raw, terms, maps, work, lab };
 }
 
 /** Defines `obj[key]` as made by `make` when first read. */
@@ -327,8 +341,10 @@ export function tilingGeometry(W: number, H: number): TilingGeometry {
 export function tilingKernels(lab: Omit<LabPlanes, 'alpha'>): TilingKernels {
 	const { width: W, height: H } = lab;
 	const geo = tilingGeometry(W, H);
-	const { gx, gy, mag } = sobel(lab.L, W, H);
-	return { lab, density: mag, rarity: colourRarity(lab, geo), lineSums: lineSums(gx, gy, W, H, geo) };
+	const { gx, gy } = sobel(lab.L, W, H, true);
+	const density = new Float32Array(W * H);
+	for (let i = 0; i < density.length; i++) density[i] = Math.hypot(gx[i], gy[i]);
+	return { lab, density, rarity: colourRarity(lab, geo), lineSums: lineSums(gx, gy, W, H, geo) };
 }
 
 /** e^−u over the rarity kernel's support (u < 4.5, d² < its cut), linearly interpolated: ±1e-6. */
@@ -418,9 +434,10 @@ function colourRarity(lab: Omit<LabPlanes, 'alpha'>, geo: TilingGeometry): Float
 /**
  * Per direction, the signed gradient across the line (only edges of one polarity add up) summed along a line of half
  * the tile. The taps fall at the same sub-pixel offsets from every pixel, so each direction is one sparse kernel of
- * integer offsets (its bilinear weights merged) over a plane padded by the kernel's reach, so no tap wraps.
+ * integer offsets (its bilinear weights merged) over a plane padded by the kernel's reach, so no tap wraps. `gy` is
+ * y up (sobel); the directions are in image rows, y down.
  */
-function lineSums(gx: Float32Array, gy: Float32Array, W: number, H: number, geo: TilingGeometry): Float32Array[] {
+function lineSums(gx: Float64Array, gy: Float64Array, W: number, H: number, geo: TilingGeometry): Float32Array[] {
 	const { half } = geo;
 	return geo.dirs.map(([dx, dy]) => {
 		const kw = new Map<number, number>();
@@ -454,7 +471,7 @@ function lineSums(gx: Float32Array, gy: Float32Array, W: number, H: number, geo:
 			const sy = (((yy + oy0) % H) + H) % H;
 			for (let xx = 0; xx < PW; xx++) {
 				const i = sy * W + ((((xx + ox0) % W) + W) % W);
-				pad[yy * PW + xx] = gy[i] * dx - gx[i] * dy;
+				pad[yy * PW + xx] = -(gy[i] * dx + gx[i] * dy);
 			}
 		}
 		const kOff = new Int32Array(kw.size);
@@ -492,7 +509,7 @@ function uniqueLines(sums: Float32Array[], W: number, H: number, geo: TilingGeom
 	sums.forEach((sum, k) => {
 		const [dx, dy] = geo.dirs[k];
 		for (let i = 0; i < n; i++) strength[i] = Math.abs(sum[i]) / (2 * half + 1) / gm;
-		const equal = quantile(sortFloat32(strength), 1 - LINE_EQUALS);
+		const equal = quantileOf(strength, 1 - LINE_EQUALS);
 		for (let y = 0; y < H; y++)
 			for (let x = 0; x < W; x++) {
 				const i = y * W + x;
@@ -592,28 +609,6 @@ function boxFilter(f: Float32Array, W: number, H: number, r: number, k: number, 
 	return out;
 }
 
-/** Sobel gradient of a plane (gx, gy: per px, /8) and its magnitude, wrapping. */
-function sobel(v: Float32Array, W: number, H: number): { gx: Float32Array; gy: Float32Array; mag: Float32Array } {
-	const gx = new Float32Array(W * H);
-	const gy = new Float32Array(W * H);
-	const mag = new Float32Array(W * H);
-	for (let y = 0; y < H; y++) {
-		const yu = ((y - 1 + H) % H) * W;
-		const y0 = y * W;
-		const yd = ((y + 1) % H) * W;
-		for (let x = 0; x < W; x++) {
-			const xl = (x - 1 + W) % W;
-			const xr = (x + 1) % W;
-			const a = (v[yu + xr] + 2 * v[y0 + xr] + v[yd + xr] - v[yu + xl] - 2 * v[y0 + xl] - v[yd + xl]) / 8;
-			const b = (v[yd + xl] + 2 * v[yd + x] + v[yd + xr] - v[yu + xl] - 2 * v[yu + x] - v[yu + xr]) / 8;
-			gx[y0 + x] = a;
-			gy[y0 + x] = b;
-			mag[y0 + x] = Math.hypot(a, b);
-		}
-	}
-	return { gx, gy, mag };
-}
-
 /** The low band of a W × H periodic plane (`lowBand`). */
 export interface LowBand {
 	/** Per plane, the band's coefficients (re, im per bin): one pass over the pixels for all the planes. */
@@ -622,8 +617,6 @@ export interface LowBand {
 	energy(coef: Float64Array): number;
 	/** The band per pixel, the mean left out. */
 	synth(coef: Float64Array): Float32Array;
-	/** The plane low-passed: the band plus the mean. */
-	lowpass(v: Float32Array): Float32Array;
 }
 
 const lowBands = new Map<string, LowBand>();
@@ -726,12 +719,6 @@ function makeLowBand(W: number, H: number, cycles: number): LowBand {
 				}
 			});
 			return out;
-		},
-		lowpass(v) {
-			const out = band.synth(band.coefficients([v])[0]);
-			const m = mean(v);
-			for (let i = 0; i < n; i++) out[i] += m;
-			return out;
 		}
 	};
 	return band;
@@ -741,9 +728,4 @@ function mean(v: Float32Array): number {
 	let s = 0;
 	for (let i = 0; i < v.length; i++) s += v[i];
 	return s / (v.length || 1);
-}
-
-/** The q-quantile of values already sorted. */
-function quantile(sorted: Float32Array, q: number): number {
-	return sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] : 0;
 }

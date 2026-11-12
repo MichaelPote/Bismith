@@ -4,14 +4,15 @@
 // params) through the maps → re-render; a few rounds, keeping the best by the metric. Modulators (multiply,
 // overlay, screen … gradients — white means "no change" there) are left alone.
 //
-// Engine-agnostic: the caller supplies `render(project) → MatchImage` (palette snap off) and a Matcher.
+// Engine-agnostic: the caller supplies `render(project)` → the render in linear light (palette snap off) and a Matcher.
 
-import { linearToOklab, oklabToLinear, linearToSrgb1, srgbToLinear1, hexToRgb, rgbToHex, type RGB } from '@/core/color';
+import { hexToRgb, oklabToSrgb, rgbToHex, srgbToOklab, type RGB } from '@/core/color';
 import type { Gradient } from '@/core/params';
 import type { Project } from '@/core/project';
 import { getLayerDef, layerGroups, layerParamDefs } from '@/layers/registry';
-import { toOklab, type MatchImage } from './image';
+import { toOklab, type LinearPremul, type MatchImage } from './image';
 import type { Matcher } from './metrics';
+import { quantiles } from './quantiles';
 
 /** One colour in a project the fit may change. */
 export interface ColourSlot {
@@ -26,7 +27,7 @@ export interface ColourSlot {
 const NORMAL_BLENDS = new Set(['normal', undefined]);
 
 /** The absolute colours of `p` (mutable through the slots): the base colour and enabled paint layers' colours. */
-export function colourSlots(p: Project): ColourSlot[] {
+function colourSlots(p: Project): ColourSlot[] {
 	const out: ColourSlot[] = [{ label: 'base', get: () => p.base.color, set: (c) => (p.base.color = c) }];
 	// Relief layers' colours are discarded by the reset after the relief stack.
 	for (const layer of p.layers) {
@@ -59,27 +60,17 @@ export function colourSlots(p: Project): ColourSlot[] {
 	return out;
 }
 
+/** Quantiles per channel the maps are made of. */
 const Q = 256;
 
-function quantilesOf(v: Float32Array): Float32Array {
-	const s = Float32Array.from(v).sort();
-	const out = new Float32Array(Q);
-	for (let i = 0; i < Q; i++) {
-		const x = (i / (Q - 1)) * (s.length - 1);
-		const a = Math.floor(x);
-		const b = Math.min(s.length - 1, a + 1);
-		out[i] = s[a] + (s[b] - s[a]) * (x - a);
-	}
-	return out;
-}
-
-/** Monotone 1-D map taking the distribution with quantiles `src` onto the one with quantiles `dst`. */
-export function quantileMap(src: Float32Array, dst: Float32Array): (v: number) => number {
+/** Monotone 1-D map taking the distribution with quantiles `src` onto the one with quantiles `dst` (as many). */
+function quantileMap(src: Float32Array, dst: Float32Array): (v: number) => number {
+	const last = src.length - 1;
 	return (v) => {
 		if (v <= src[0]) return dst[0] + (v - src[0]);
-		if (v >= src[Q - 1]) return dst[Q - 1] + (v - src[Q - 1]);
+		if (v >= src[last]) return dst[last] + (v - src[last]);
 		let lo = 0;
-		let hi = Q - 1;
+		let hi = last;
 		while (hi - lo > 1) {
 			const mid = (lo + hi) >> 1;
 			if (src[mid] <= v) lo = mid;
@@ -103,19 +94,37 @@ function moments(v: Float32Array): [number, number] {
 }
 
 /** Mean / spread matching of one channel, the contrast stretch clamped to 0.5–2× (keeps structure intact). */
-function momentMap(src: Float32Array, dst: Float32Array): (v: number) => number {
-	const [ms, ss] = moments(src);
-	const [md, sd] = moments(dst);
+function momentMap([ms, ss]: [number, number], [md, sd]: [number, number]): (v: number) => number {
 	const k = Math.min(2, Math.max(0.5, ss > 1e-6 ? sd / ss : 1));
 	return (v) => md + (v - ms) * k;
 }
 
 export type ColourFitMode = 'quantile' | 'moments';
 
+/** A target's OKLab channels as the maps read them: quantiles and moments of L, a, b. */
+interface ChannelStats {
+	q: Float32Array[];
+	m: [number, number][];
+}
+
+/** Per target (a fixed reference: the matcher's): its channel statistics, made once. */
+const targetStats = new WeakMap<MatchImage, ChannelStats>();
+
+function statsOf(target: MatchImage): ChannelStats {
+	let s = targetStats.get(target);
+	if (!s) {
+		const t = toOklab(target);
+		const ch = [t.L, t.A, t.B];
+		targetStats.set(target, (s = { q: ch.map((v) => quantiles(v, Q, true)), m: ch.map(moments) }));
+	}
+	return s;
+}
+
 /**
  * Per-channel OKLab maps from `render`'s colours to `target`'s, as a hex → hex map. 'quantile' matches the whole
  * distribution (best for continuous references); 'moments' matches mean and spread only — gentler, and safe for
- * palettised references with large flat areas (a quantile map stretches their tails into blotches).
+ * palettised references with large flat areas (a quantile map stretches their tails into blotches). Pass the render
+ * at the comparison size (a score's `fit`); `target` must not change afterwards (its statistics are kept).
  */
 export function colourMap(
 	render: MatchImage,
@@ -124,16 +133,15 @@ export function colourMap(
 	mode: ColourFitMode = 'quantile'
 ): ColourMap {
 	const r = toOklab(render);
-	const t = toOklab(target);
-	const one = (a: Float32Array, b: Float32Array) =>
-		mode === 'moments' ? momentMap(a, b) : quantileMap(quantilesOf(a), quantilesOf(b));
-	const maps = [one(r.L, t.L), one(r.A, t.A), one(r.B, t.B)];
+	const t = statsOf(target);
+	const maps = [r.L, r.A, r.B].map((v, c) =>
+		mode === 'moments' ? momentMap(moments(v), t.m[c]) : quantileMap(quantiles(v, Q, true), t.q[c])
+	);
 	return (hex, lightnessOnly = false) => {
-		const lab = linearToOklab(hexToRgb(hex).map(srgbToLinear1) as RGB);
+		const lab = srgbToOklab(hexToRgb(hex));
 		const out = lab.map((v, i) => (lightnessOnly && i > 0 ? v : v + (maps[i](v) - v) * strength)) as RGB;
 		out[0] = Math.min(1, Math.max(0, out[0]));
-		const lin = oklabToLinear(out).map((v) => Math.min(1, Math.max(0, v)));
-		return rgbToHex(lin.map(linearToSrgb1) as RGB);
+		return rgbToHex(oklabToSrgb(out));
 	};
 }
 
@@ -144,7 +152,8 @@ export function applyColourMap(p: Project, map: ColourMap): number {
 	return slots.length;
 }
 
-type Render = (p: Project) => MatchImage | Promise<MatchImage>;
+/** Renders a project in linear light, premultiplied (evaluate.ts: renderLinear). */
+type Render = (p: Project) => LinearPremul | Promise<LinearPremul>;
 
 export interface ColourFitResult {
 	project: Project;
@@ -166,9 +175,9 @@ export async function fitColours(
 ): Promise<ColourFitResult> {
 	let best: Project = JSON.parse(JSON.stringify(project));
 	// Scored at the render's own size (the windows term compares finer than the fitted image); maps use the fitted one.
-	const first = await render(best);
-	let image = matcher.fit(first);
-	const before = matcher.score(first).total;
+	const first = matcher.scoreLinearDetailed(await render(best));
+	let image = first.fit;
+	const before = first.result.total;
 	let bestLoss = before;
 	let rounds = 0;
 	// 'auto' tries both kinds of map each round and keeps whichever scores better.
@@ -181,12 +190,11 @@ export async function fitColours(
 		for (const mode of modes) {
 			const cand: Project = JSON.parse(JSON.stringify(best));
 			applyColourMap(cand, colourMap(image, matcher.target, opts.strength ?? 1, mode));
-			const full = await render(cand);
-			const l = matcher.score(full).total;
-			if (l < loss) {
-				loss = l;
+			const d = matcher.scoreLinearDetailed(await render(cand));
+			if (d.result.total < loss) {
+				loss = d.result.total;
 				next = cand;
-				img = matcher.fit(full);
+				img = d.fit;
 			}
 		}
 		if (!next || !img || loss >= bestLoss - 1e-5) break;

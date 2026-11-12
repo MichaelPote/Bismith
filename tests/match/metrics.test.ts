@@ -4,7 +4,6 @@ import {
 	TERM_NAMES,
 	absDiff,
 	circularShift,
-	compareImages,
 	createImage,
 	fromLinear,
 	fromRgba8,
@@ -19,12 +18,13 @@ import {
 } from '@/match/metrics';
 import { dft } from '@/match/fft';
 import { matchHistogram } from '@/match/vgg';
+import { quantileOf, quantileOfSorted } from '@/match/quantiles';
 import { addNoise, colourise, gaussBlur, rng, shiftColour, testPanel, testTexture } from './testUtils';
 
 const tex = testTexture(64, 64, 1);
 
 function score(a: MatchImage, b: MatchImage, opts: MetricOptions = {}) {
-	return compareImages(a, b, opts);
+	return new Matcher(b, opts).score(a);
 }
 
 function expectIncreasing(values: number[], label: string) {
@@ -133,6 +133,20 @@ describe('sortFloat32', () => {
 	});
 });
 
+describe('quantileOf', () => {
+	it('selects the value a sort would put at ⌊n·q⌋, duplicates and all', () => {
+		const r = rng(11);
+		for (const n of [1, 2, 9, 1000, 20001])
+			for (const levels of [0, 3]) {
+				// levels 3: a few distinct values, many equal (flat images); 0: continuous.
+				const v = Float32Array.from({ length: n }, () => (levels ? Math.floor(r() * levels) : r() - 0.5));
+				const sorted = Float32Array.from(v).sort();
+				for (const q of [0, 0.002, 0.5, 0.9, 0.99, 1]) expect(quantileOf(v, q)).toBe(quantileOfSorted(sorted, q));
+			}
+		expect(quantileOf(new Float32Array(0), 0.5)).toBe(0);
+	});
+});
+
 describe('argsortFloat32', () => {
 	it('orders as a stable comparison sort by a − b', () => {
 		const r = rng(5);
@@ -169,7 +183,7 @@ describe('metrics', () => {
 	it('frees its texture scorer on dispose', () => {
 		const m = new Matcher(testTexture(16, 16, 1), { preset: 'tile' });
 		let disposed = 0;
-		m.texture = { distance: () => 0.1, submit: () => () => 0.1, dispose: () => disposed++ };
+		m.texture = { submit: () => () => 0.1, dispose: () => disposed++ };
 		m.dispose();
 		m.dispose();
 		expect(disposed).toBe(1);

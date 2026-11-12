@@ -23,15 +23,18 @@
 		fromLinear,
 		fromRgba8,
 		resample,
+		resampleLinear,
 		toRgba8,
+		type LinearPremul,
 		type MatchImage,
 		type MetricPreset,
-		type MetricResult
+		type MetricResult,
+		type ScoreDetail
 	} from '@/match/metrics';
 	import { analyzeTarget } from '@/match/analyze';
 	import { availableTemplates } from '@/match/templates';
 	import { fitColours } from '@/match/colourFit';
-	import { attachTexture } from '@/match/evaluate';
+	import { attachTexture, renderLinear } from '@/match/evaluate';
 	import {
 		Optimizer,
 		RunLimits,
@@ -357,14 +360,23 @@
 	/** The tiling the run's matcher compares with. */
 	let runWrap = false;
 
+	/**
+	 * The step's lowest-loss evaluation while it beats the best before the step (`stepBar`): what the panes show when the
+	 * step improves the best, without rendering it again. One render at most.
+	 */
+	let stepBest: { lin: LinearPremul; detail: ScoreDetail } | null = null;
+	let stepBar = Infinity;
+
 	/** The run's optimiser, scoring renders with `matcher` (the same options for a new run and a resumed one). */
 	function newOptimizer(start: Project, matcher: Matcher): Optimizer {
 		return new Optimizer(
 			start,
 			(p) => {
-				const image = renderImage(p);
-				const r = matcher.score(image);
-				return { loss: r.total, detail: r, image };
+				const lin = renderLin(p);
+				const d = matcher.scoreLinearDetailed(lin);
+				const loss = d.result.total;
+				if (loss < Math.min(stepBar, stepBest?.detail.result.total ?? Infinity)) stepBest = { lin, detail: d };
+				return { loss, detail: d.result, image: d.fit };
 			},
 			{
 				lambda: 4,
@@ -388,6 +400,12 @@
 		return m;
 	}
 
+	/** A render as the matcher scores it: linear, premultiplied. */
+	function renderLin(p: Project): LinearPremul {
+		return renderLinear(editor.engine!, p, samples.value);
+	}
+
+	/** A render at full size, sRGB (thumbnails). */
 	function renderImage(p: Project): MatchImage {
 		const engine = editor.engine!;
 		engine.setProject(p);
@@ -395,12 +413,27 @@
 		return fromLinear(engine.readFinal());
 	}
 
-	function show(img: MatchImage, matcher: Matcher): void {
-		renderPx.value = { pixels: toRgba8(img), width: img.width, height: img.height };
+	/** A render and its score's detail into the panes. */
+	function show(lin: LinearPremul, d: ScoreDetail, matcher: Matcher): void {
+		renderPx.value = {
+			pixels: toRgba8(resampleLinear(lin, lin.width, lin.height)),
+			width: lin.width,
+			height: lin.height
+		};
 		// The Windows metric doesn't compare pixels in place: show where the render's windows have no look-alike instead.
-		const d = matcher.windowMap(img) ?? absDiff(matcher.fit(img), matcher.target, 3);
-		diffMode.value = matcher.windowTarget ? 'windows' : 'pixels';
-		diffPx.value = { pixels: toRgba8(d), width: d.width, height: d.height };
+		const diff = d.windows ? matcher.windowMap(d.windows) : absDiff(d.fit, matcher.target, 3);
+		diffMode.value = d.windows ? 'windows' : 'pixels';
+		diffPx.value = { pixels: toRgba8(diff), width: diff.width, height: diff.height };
+	}
+
+	/** The optimiser's best into the panes: the render its evaluation made when it is still kept, else rendered again. */
+	function showBest(opt: Optimizer, matcher: Matcher): void {
+		const b = opt.best;
+		shownResult.value = (b.detail as MetricResult) ?? null;
+		const kept = stepBest && b.image && stepBest.detail.fit === b.image ? stepBest : null;
+		const lin = kept?.lin ?? renderLin(b.project);
+		show(lin, kept?.detail ?? matcher.scoreLinearDetailed(lin), matcher);
+		showing.value = 'best';
 	}
 
 	/** The panes' matcher: kept while the reference, metric and tiling stay the same, since edits rescore often. */
@@ -442,10 +475,11 @@
 			engine.suspend();
 			try {
 				if (which === 'current') seen = snapshot();
-				const img = renderImage(which === 'best' ? opt!.best.project : toRaw(store.project));
-				shownResult.value = matcher.score(img);
+				const lin = renderLin(which === 'best' ? opt!.best.project : toRaw(store.project));
+				const d = matcher.scoreLinearDetailed(lin);
+				shownResult.value = d.result;
 				showing.value = which;
-				show(img, matcher);
+				show(lin, d, matcher);
 			} finally {
 				engine.resume(toRaw(store.project));
 			}
@@ -479,7 +513,7 @@
 		engine.suspend();
 		try {
 			const { project, restore } = paletteOff(copyProject());
-			const r = await fitColours(project, matcher, (p) => renderImage(p));
+			const r = await fitColours(project, matcher, (p) => renderLin(p));
 			if (r.after < r.before - 1e-5) {
 				store.load(restore(r.project));
 				reset();
@@ -573,6 +607,8 @@
 		try {
 			if (!optimizer.value) {
 				runStart = snapshot();
+				stepBar = Infinity;
+				stepBest = null;
 				const opt = newOptimizer(JSON.parse(runStart) as Project, matcher);
 				startLoss.value = await opt.init();
 				optimizer.value = opt;
@@ -581,39 +617,36 @@
 			}
 			const opt = optimizer.value;
 			// The panes follow the best while the run goes on.
-			const showBest = () => {
-				shownResult.value = (opt.best.detail as MetricResult) ?? null;
-				show(renderImage(opt.best.project), matcher);
-				showing.value = 'best';
-			};
-			if (showing.value !== 'best') showBest();
+			if (showing.value !== 'best') showBest(opt, matcher);
 			// Every press runs afresh: up to Max steps more, a new time limit and stall count — so a run that stopped can
 			// always keep going. A target loss already reached no longer stops it (it keeps improving past it).
 			const stop: StopCriteria = {
 				...(maxSteps.value > 0 ? { steps: maxSteps.value } : {}),
-				...(targetLoss.value > 0 && opt.best.loss > targetLoss.value ? { targetLoss: targetLoss.value } : {}),
+				...(targetLoss.value > 0 && opt.bestLoss > targetLoss.value ? { targetLoss: targetLoss.value } : {}),
 				...(timeLimit.value > 0 ? { timeMs: timeLimit.value * 1000 } : {}),
 				...(stallSteps.value > 0 ? { patience: stallSteps.value } : {})
 			};
-			limits = resume ? RunLimits.restore(resume) : new RunLimits(stop, opt.best.loss);
+			limits = resume ? RunLimits.restore(resume) : new RunLimits(stop, opt.bestLoss);
 			const lim = limits;
 			stopped.value = null;
 			autosave = autosaveRun(
 				() => checkpointState(opt, lim),
 				(cp) => void checkpoints.save(cp)
 			);
-			let reason = lim.check(opt.best.loss, opt.evaluations);
+			let reason = lim.check(opt.bestLoss, opt.evaluations);
 			while (!reason) {
 				if (abort) {
 					reason = 'aborted';
 					break;
 				}
 				autosave.beforeStep();
+				stepBar = opt.bestLoss;
+				stepBest = null;
 				const info = await opt.step();
 				lastInfo.value = info;
 				curve.value = [...curve.value, info.bestLoss];
 				if (info.improved) {
-					showBest();
+					showBest(opt, matcher);
 					const what = info.structural ?? info.changed.slice(0, 3).join(', ');
 					log.value = [`#${info.step} ${info.bestLoss.toFixed(4)} ${what}`, ...log.value].slice(0, 40);
 				} else if (info.opened) {
@@ -628,13 +661,13 @@
 						40
 					);
 				}
-				reason = lim.after(opt.best.loss, opt.evaluations);
+				reason = lim.after(opt.bestLoss, opt.evaluations);
 				autosave.afterStep();
 				await nextFrame();
 			}
 			stopped.value = reason;
 			log.value = [
-				`stopped · ${STOP_LABELS[reason]} · best ${opt.best.loss.toFixed(4)} · ${(lim.elapsed() / 1000).toFixed(0)} s`,
+				`stopped · ${STOP_LABELS[reason]} · best ${opt.bestLoss.toFixed(4)} · ${(lim.elapsed() / 1000).toFixed(0)} s`,
 				...log.value
 			].slice(0, 40);
 		} catch (e) {
@@ -707,6 +740,8 @@
 		let opt: Optimizer;
 		engine.suspend();
 		try {
+			stepBar = Infinity;
+			stepBest = null;
 			opt = newOptimizer(JSON.parse(start) as Project, runMatcher);
 			// Makes the renders the parents carried again (colour fits read them).
 			await opt.restore(s.optimizer);
@@ -730,9 +765,7 @@
 			// reset() above cleared it: kept until the best is applied, like any stopped run.
 			void checkpoints.putAsset('reference', { name: asset.name, blob: asset.blob });
 			void checkpoints.save({ ...checkpointState(opt, RunLimits.restore(s.limits)), paused: true });
-			shownResult.value = (opt.best.detail as MetricResult) ?? null;
-			show(renderImage(opt.best.project), runMatcher);
-			showing.value = 'best';
+			showBest(opt, runMatcher);
 			editor.notify(`Reopened the Match run at step ${step}: its best isn't applied yet`);
 			return;
 		}
@@ -791,7 +824,7 @@
 				if (overlay.value !== 'suggest') break;
 				busy.value = `Trying ${t.label} (${i + 1}/${list.length})`;
 				await nextFrame();
-				const fit = await fitColours(withPalette(t.build(analysis, ctx), false), matcher!, (p) => renderImage(p));
+				const fit = await fitColours(withPalette(t.build(analysis, ctx), false), matcher!, (p) => renderLin(p));
 				const project = withPalette(fit.project, true);
 				cards.value = [
 					...cards.value,
@@ -835,6 +868,7 @@
 		abort = true;
 		stopped.value = null;
 		optimizer.value = null;
+		stepBest = null;
 		// A run in progress still scores with it; the run disposes it when it ends.
 		if (!running.value) {
 			runMatcher?.dispose();
@@ -873,8 +907,9 @@
 			});
 			if (choice !== 'apply' || optimizer.value !== opt || running.value) return;
 		}
-		store.load(opt.best.project);
-		editor.notify(`Applied best (loss ${opt.best.loss.toFixed(4)}) — undo with Ctrl+Z`);
+		const best = opt.best;
+		store.load(best.project);
+		editor.notify(`Applied best (loss ${best.loss.toFixed(4)}) — undo with Ctrl+Z`);
 		reset();
 		void view();
 	}

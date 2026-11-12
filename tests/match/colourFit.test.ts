@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createLayer, createProject } from '@/core/serialize';
-import { gradient } from '@/core/params';
-import { hexToRgb } from '@/core/color';
+import { gradient, type Gradient } from '@/core/params';
+import { hexToRgb, srgbToOklab } from '@/core/color';
 import type { Project } from '@/core/project';
-import { applyColourMap, colourMap, colourSlots, fitColours, quantileMap } from '@/match/colourFit';
-import { Matcher, fromRgba8, type MatchImage } from '@/match/metrics';
+import { applyColourMap, colourMap, fitColours } from '@/match/colourFit';
+import { Matcher, fromRgba8, toLinearPremul, type MatchImage } from '@/match/metrics';
 
 function flat(hex: string, w = 16, h = 16): MatchImage {
 	const [r, g, b] = hexToRgb(hex);
@@ -28,21 +28,34 @@ const proj = (): Project =>
 
 describe('colour fitting', () => {
 	it('fits absolute colours only: base, normal-blend stops, colour params — not modulators or disabled channels', () => {
-		const labels = colourSlots(proj()).map((s) => s.label);
-		expect(labels).toContain('base');
-		expect(labels).toContain('Paint › dif_grad #1');
-		expect(labels).toContain('Dirt › dirt_color');
-		expect(labels.some((l) => l.startsWith('Shade'))).toBe(false);
-		expect(labels.some((l) => l.startsWith('Off'))).toBe(false);
+		const p = proj();
+		const before = JSON.stringify(p.layers.map((l) => l.params));
+		expect(applyColourMap(p, () => '#123456')).toBe(5); // base, Paint's two stops, Dirt
+		expect(p.base.color).toBe('#123456');
+		const [paint, shade, off, dirt] = p.layers.map((l) => l.params);
+		expect((paint.dif_grad as Gradient).stops.map((s) => s.color)).toEqual(['#123456', '#123456']);
+		expect(dirt.dirt_color).toBe('#123456');
+		const was = JSON.parse(before) as Record<string, unknown>[];
+		expect(shade).toEqual(was[1]);
+		expect(off).toEqual(was[2]);
 	});
 
-	it('maps quantiles monotonically', () => {
-		const src = Float32Array.from({ length: 256 }, (_, i) => i / 255);
-		const dst = Float32Array.from({ length: 256 }, (_, i) => 0.2 + (0.5 * i) / 255);
-		const m = quantileMap(src, dst);
-		expect(m(0)).toBeCloseTo(0.2, 5);
-		expect(m(1)).toBeCloseTo(0.7, 5);
-		expect(m(0.5)).toBeCloseTo(0.45, 2);
+	it("maps the render's lightness distribution monotonically onto the target's", () => {
+		// Grey ramps: the render spans black to white, the target a darker, narrower band.
+		const ramp = (lo: number, hi: number) =>
+			fromRgba8(
+				Uint8ClampedArray.from({ length: 64 * 4 }, (_, i) =>
+					i % 4 === 3 ? 255 : Math.round(255 * (lo + ((hi - lo) * Math.floor(i / 4)) / 63))
+				),
+				64,
+				1
+			);
+		const map = colourMap(ramp(0, 1), ramp(0.2, 0.6));
+		const L = ['#000000', '#404040', '#808080', '#c0c0c0', '#ffffff'].map((h) => srgbToOklab(hexToRgb(map(h)))[0]);
+		for (let i = 1; i < L.length; i++) expect(L[i]).toBeGreaterThan(L[i - 1]);
+		const band = [0.2, 0.6].map((v) => srgbToOklab([v, v, v])[0]);
+		expect(L[2]).toBeGreaterThan(band[0]);
+		expect(L[2]).toBeLessThan(band[1]);
 	});
 
 	it('moves a flat render onto a flat target colour', () => {
@@ -57,7 +70,7 @@ describe('colour fitting', () => {
 		const matcher = new Matcher(target, { preset: 'texture' });
 		const p = proj();
 		p.layers = [];
-		const r = await fitColours(p, matcher, (q) => flat(q.base.color));
+		const r = await fitColours(p, matcher, (q) => toLinearPremul(flat(q.base.color)));
 		expect(r.after).toBeLessThan(r.before);
 		expect(r.project.base.color).toBe('#7a5030');
 		expect(p.base.color).toBe('#404040'); // input untouched

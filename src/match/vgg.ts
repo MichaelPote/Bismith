@@ -34,10 +34,9 @@ interface Manifest {
 
 /** Bound to a target: distance of a render's texture statistics to the target's (0 = identical). */
 export interface TextureScorer {
-	distance(render: MatchImage): number;
 	/**
-	 * distance() in two halves: runs the network on the GPU and returns a function that reads the result back (and
-	 * waits for the GPU only then), so the CPU can do other work meanwhile. Call the function before the next submit.
+	 * Runs the network on the GPU and returns a function that reads the distance back (and waits for the GPU only then),
+	 * so the CPU can do other work meanwhile. Call the function before the next submit.
 	 */
 	submit(render: MatchImage): () => number;
 	/** Free the GPU targets holding the reference's statistics (also done once the scorer is garbage-collected). */
@@ -194,6 +193,9 @@ interface Layer {
 interface Run {
 	width: number;
 	height: number;
+	/** The network's input and its pixels, refilled for each image (an upload, not a new texture per evaluation). */
+	input: THREE.DataTexture;
+	pixels: Float32Array;
 	outs: THREE.WebGLRenderTarget[];
 	pools: (THREE.WebGLRenderTarget | null)[];
 	grams: THREE.WebGLRenderTarget[];
@@ -310,7 +312,9 @@ export class TextureNet {
 			} else pools.push(null);
 		}
 		const maxC = Math.max(...this.layers.filter((l) => l.tap).map((l) => l.spec.cout));
-		r = { width, height, outs, pools, grams, reduce: gpu.target(maxC, this.taps) };
+		const pixels = new Float32Array(width * height * 4);
+		const input = floatTexture(pixels, width, height);
+		r = { width, height, input, pixels, outs, pools, grams, reduce: gpu.target(maxC, this.taps) };
 		this.runs.set(key, r);
 		return r;
 	}
@@ -319,16 +323,16 @@ export class TextureNet {
 	private gramsOf(img: MatchImage, wrap: boolean, into?: THREE.WebGLRenderTarget[]): THREE.WebGLRenderTarget[] {
 		const r = this.run(img.width, img.height);
 		const n = img.width * img.height;
-		const px = new Float32Array(n * 4);
+		const px = r.pixels;
 		for (let i = 0; i < n; i++) {
 			// sRGB 0..1 → BGR 0..255 minus the ImageNet mean (Caffe VGG preprocessing).
 			px[i * 4] = img.data[i * 4 + 2] * 255 - MEAN_BGR[0];
 			px[i * 4 + 1] = img.data[i * 4 + 1] * 255 - MEAN_BGR[1];
 			px[i * 4 + 2] = img.data[i * 4] * 255 - MEAN_BGR[2];
 		}
-		const tex = floatTexture(px, img.width, img.height);
+		r.input.needsUpdate = true;
 		const grams = into ?? r.grams;
-		let src: THREE.Texture = tex;
+		let src: THREE.Texture = r.input;
 		let w = img.width;
 		let h = img.height;
 		let g = 0;
@@ -355,7 +359,6 @@ export class TextureNet {
 				src = r.pools[i]!.texture;
 			}
 		});
-		tex.dispose();
 		return grams;
 	}
 
@@ -399,7 +402,6 @@ export class TextureNet {
 		this.gramsOf(target, wrap, own);
 		let alive = true;
 		const scorer: TextureScorer = {
-			distance: (render: MatchImage) => scorer.submit(render)(),
 			submit: (render: MatchImage) => {
 				if (!alive) throw new Error('TextureScorer: disposed');
 				if (render.width !== target.width || render.height !== target.height)

@@ -87,7 +87,7 @@ deterministic (the path tracer is seeded by sample index, so a fixed sample coun
 ```ts
 import { Matcher, fromRgba8, TERM_NAMES, TERM_LABELS } from '@/match/metrics';
 import { Optimizer, type StepInfo } from '@/match/optimizer';
-import { makeEvaluator, renderToMatchImage } from '@/match/evaluate';
+import { makeEvaluator } from '@/match/evaluate';
 
 const matcher = new Matcher(fromRgba8(imageData.data, w, h), {
 	preset: 'texture',
@@ -97,7 +97,7 @@ const matcher = new Matcher(fromRgba8(imageData.data, w, h), {
 const evaluate = makeEvaluator(evalEngine, matcher, {
 	samples: 16,
 	yieldBefore: () => new Promise(requestAnimationFrame), // keep the UI responsive
-	onEvaluate: (p, img, r) => {
+	onEvaluate: (p, detail, lin) => {
 		/* show latest candidate / terms */
 	}
 });
@@ -109,7 +109,8 @@ while (running) {
 	//   meanSigma, island, islands, ms }
 	plot(opt.lossCurve); // best loss per step (monotone)
 }
-opt.best; // { project (copy), loss, detail: MetricResult of the best, step }
+opt.best; // { project (copy), loss, detail: MetricResult of the best, image: its render at the comparison size, step }
+opt.bestLoss; // the best's loss, without copying the project
 opt.current; // the active chain's parent
 opt.entryStates(); // per-entry { id, label, sigma, success, fail, neutral, value } for a params table
 opt.space; // ParamSpace (entries with labels)

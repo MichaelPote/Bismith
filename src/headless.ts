@@ -13,6 +13,7 @@ import {
 	fromRgba8,
 	heatOverlay,
 	toRgba8,
+	type LinearPremul,
 	type MatchImage,
 	type MetricOptions,
 	type MetricResult
@@ -30,7 +31,7 @@ import {
 	type FixTrial
 } from '@/tiling/fix';
 import { renderFrame, tilingEvaluator } from '@/tiling/evaluate';
-import { attachTexture, makeEvaluator, renderToMatchImage } from '@/match/evaluate';
+import { attachTexture, makeEvaluator, renderLinear } from '@/match/evaluate';
 import { TextureNet, matchHistogram } from '@/match/vgg';
 import { fitColours as fitColoursImpl } from '@/match/colourFit';
 import { emulate as runEmulate, type EmulateOptions, type EmulateResult } from '@/match/emulate';
@@ -258,13 +259,12 @@ function imagePng(img: MatchImage): string {
 
 function compareResult(
 	matcher: Matcher,
-	render: MatchImage,
+	render: LinearPremul,
 	samples: number,
 	t0: number,
 	diffGain = 2
 ): HeadlessCompareResult {
-	const fitted = matcher.fit(render);
-	const r = matcher.score(render);
+	const { result: r, fit: fitted } = matcher.scoreLinearDetailed(render);
 	return {
 		...r,
 		renderPng: imagePng(fitted),
@@ -352,7 +352,7 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			await attachTexture(engine, matcher, opts.wrap ?? p.tileable);
 			const samples = opts.samples ?? p.render.maxSamples;
 			try {
-				return compareResult(matcher, renderToMatchImage(engine, p, samples), samples, t0, opts.diffGain);
+				return compareResult(matcher, renderLinear(engine, p, samples), samples, t0, opts.diffGain);
 			} finally {
 				matcher.dispose();
 			}
@@ -397,7 +397,7 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			const t0 = performance.now();
 			const finalSamples = opts.finalSamples ?? 64;
 			api.loadProject(best.project);
-			const compare = compareResult(matcher, renderToMatchImage(engine, project!, finalSamples), finalSamples, t0);
+			const compare = compareResult(matcher, renderLinear(engine, project!, finalSamples), finalSamples, t0);
 			matcher.dispose();
 			session = null;
 			return {
@@ -442,12 +442,9 @@ export function installHeadless(engine: Engine): BismithHeadless {
 				post: q.post.map((f) => (f.type === 'palette' ? { ...f, enabled: on && f.enabled } : f))
 			});
 			const palOn = new Map(p.post.map((f) => [f.id, f.enabled]));
-			const r = await fitColoursImpl(
-				snap(p, false),
-				matcher,
-				(q) => renderToMatchImage(engine, q, opts.samples ?? 16),
-				{ rounds: opts.rounds }
-			).finally(() => matcher.dispose());
+			const r = await fitColoursImpl(snap(p, false), matcher, (q) => renderLinear(engine, q, opts.samples ?? 16), {
+				rounds: opts.rounds
+			}).finally(() => matcher.dispose());
 			const fitted = {
 				...r.project,
 				post: r.project.post.map((f) => ({ ...f, enabled: palOn.get(f.id) ?? f.enabled }))
@@ -599,7 +596,7 @@ export function installHeadless(engine: Engine): BismithHeadless {
 			const result = await runEmulate(engine, img, opts);
 			api.loadProject(result.bestProject);
 			const matcher = new Matcher(img, { weights: result.final.weights, size: [img.width, img.height], maxSize: 4096 });
-			const render = renderToMatchImage(engine, project!, opts.finalSamples ?? 128);
+			const render = renderLinear(engine, project!, opts.finalSamples ?? 128);
 			const c = compareResult(matcher, render, opts.finalSamples ?? 128, performance.now(), 2);
 			matcher.dispose();
 			return { ...result, renderPng: c.renderPng, targetPng: c.targetPng, diffPng: c.diffPng };

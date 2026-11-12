@@ -17,6 +17,8 @@
 //   alike) scores ≈1; on stone, wood or grass the blobs fall at random, nothing repeats, and the term's weight goes
 //   to 0 — there it would only push towards blobs at random places, and the other terms already judge the material.
 
+import { quantileOf, selectFloat32 } from './quantiles';
+
 export interface MotifPlane {
 	width: number;
 	height: number;
@@ -90,8 +92,7 @@ export function motifPlane(L: Float32Array, width: number, height: number, wrap:
 	const a = blur(L, width, height, SIGMA_FINE, wrap);
 	const b = blur(L, width, height, SIGMA_COARSE, wrap);
 	for (let i = 0; i < a.length; i++) a[i] -= b[i];
-	const abs = Float32Array.from(a, Math.abs).sort();
-	return { width, height, wrap, dog: a, level: abs[abs.length >> 1] };
+	return { width, height, wrap, dog: a, level: selectFloat32(Float32Array.from(a, Math.abs), a.length >> 1) };
 }
 
 function index(p: MotifPlane, x: number, y: number): number {
@@ -154,8 +155,7 @@ function correlations(points: MotifPoint[], p: MotifPlane): Float32Array {
 
 /** The reference side of the term: its blobs and how laid out it is. */
 export function motifTarget(plane: MotifPlane): MotifTarget {
-	const abs = Float32Array.from(plane.dog, Math.abs).sort();
-	const threshold = Math.max(1e-4, abs[Math.min(abs.length - 1, Math.floor(abs.length * 0.99))]);
+	const threshold = Math.max(1e-4, quantileOf(Float32Array.from(plane.dog, Math.abs), 0.99));
 	const points = detect(plane, DETECT * threshold, threshold)
 		.sort((a, b) => b.amp - a.amp)
 		.slice(0, MAX_POINTS);

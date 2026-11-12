@@ -5,9 +5,16 @@
 import type { Project } from '@/core/project';
 import type { Engine } from '@/render/engine';
 import { analyzeTarget, type Analysis } from './analyze';
-import { attachTexture, makeEvaluator, renderToMatchImage } from './evaluate';
+import { attachTexture, makeEvaluator, renderLinear } from './evaluate';
 import { fitColours } from './colourFit';
-import { Matcher, type MatchImage, type MetricOptions, type MetricResult, type TermName } from './metrics';
+import {
+	METRIC_PRESETS,
+	Matcher,
+	type MatchImage,
+	type MetricOptions,
+	type MetricResult,
+	type TermName
+} from './metrics';
 import { Optimizer, type SpaceOptions, type StopCriteria, type StopReason } from './optimizer';
 import { availableTemplates, type Template } from './templates';
 
@@ -70,19 +77,11 @@ export interface EmulateResult {
 }
 
 /**
- * Default metric ('tile' preset): colour + texture statistics + structure compared at the best wrap shift + VGG
- * texture statistics (GPU; when the weights can't load the term drops out).
+ * Default metric, without a preset or weights in `metric`: the 'tile' preset — colour + texture statistics + structure
+ * compared at the best wrap shift + VGG texture statistics (GPU; when the weights can't load the term drops out) —
+ * with alpha left out.
  */
-export const EMULATE_WEIGHTS = {
-	colour: 1.25,
-	spectrum: 0.5,
-	gradients: 0.35,
-	contrast: 0.5,
-	aligned: 0,
-	structure: 2,
-	texture: 3,
-	alpha: 0
-};
+const EMULATE_WEIGHTS = { ...METRIC_PRESETS.tile, alpha: 0 };
 
 interface Runner {
 	id: string;
@@ -97,13 +96,14 @@ function withPalette(p: Project, on: boolean): Project {
 export async function emulate(engine: Engine, target: MatchImage, opts: EmulateOptions = {}): Promise<EmulateResult> {
 	const t0 = performance.now();
 	const analysis = analyzeTarget(target);
+	const metric = opts.metric ?? {};
 	const matcher = new Matcher(target, {
-		weights: opts.metric?.weights ?? EMULATE_WEIGHTS,
-		preset: opts.metric?.preset,
+		preset: metric.preset,
+		weights: metric.preset || metric.weights ? metric.weights : EMULATE_WEIGHTS,
 		size: [target.width, target.height],
-		maxSize: opts.metric?.maxSize ?? 128,
-		wrap: opts.metric?.wrap ?? analysis.tileable,
-		window: opts.metric?.window ?? !analysis.tileable
+		maxSize: metric.maxSize ?? 128,
+		wrap: metric.wrap ?? analysis.tileable,
+		window: metric.window ?? !analysis.tileable
 	});
 	await attachTexture(engine, matcher, analysis.tileable);
 	try {
@@ -143,7 +143,7 @@ async function emulateWith(
 	if (opts.fitColours !== false) {
 		const samples = opts.samples ?? 8;
 		for (const c of candidates)
-			c.project = (await fitColours(c.project, matcher, (p) => renderToMatchImage(engine, p, samples))).project;
+			c.project = (await fitColours(c.project, matcher, (p) => renderLinear(engine, p, samples))).project;
 	}
 
 	// Screen (always completes: the ranking needs every candidate).
@@ -153,8 +153,8 @@ async function emulateWith(
 		await opt.runUntil({ evaluations: screenEvals });
 		runners.push({ id: c.id, opt });
 	}
-	runners.sort((a, b) => a.opt.best.loss - b.opt.best.loss);
-	const ranking = runners.map((r) => ({ template: r.id, loss: r.opt.best.loss }));
+	runners.sort((a, b) => a.opt.bestLoss - b.opt.bestLoss);
+	const ranking = runners.map((r) => ({ template: r.id, loss: r.opt.bestLoss }));
 
 	// Race the best few.
 	const race = runners.slice(0, Math.max(1, opts.raceTop ?? 3));
@@ -162,7 +162,7 @@ async function emulateWith(
 		const { reason } = await r.opt.runUntil({ evaluations: screenEvals + (opts.raceEvals ?? 120), ...goal, ...left() });
 		if (reason === 'target' || reason === 'time') break;
 	}
-	race.sort((a, b) => a.opt.best.loss - b.opt.best.loss);
+	race.sort((a, b) => a.opt.bestLoss - b.opt.bestLoss);
 
 	// Optimise the winner; when it stalls with time (or a target) left, carry on with the next finalist.
 	const patience = opts.patience ?? (open ? 80 : undefined);
@@ -178,13 +178,12 @@ async function emulateWith(
 		stop = out.reason;
 		if (stop !== 'stalled') break;
 	}
-	race.sort((a, b) => a.opt.best.loss - b.opt.best.loss);
+	race.sort((a, b) => a.opt.bestLoss - b.opt.bestLoss);
 	const winner = race[0];
-	const finalists = race.map((r) => ({ template: r.id, loss: r.opt.best.loss, evaluations: r.opt.evaluations }));
+	const finalists = race.map((r) => ({ template: r.id, loss: r.opt.bestLoss, evaluations: r.opt.evaluations }));
 
 	const best = { ...winner.opt.best, project: withPalette(winner.opt.best.project, true) };
-	const finalImage = renderToMatchImage(engine, best.project, opts.finalSamples ?? 128);
-	const final = matcher.score(finalImage);
+	const final = matcher.scoreLinear(renderLinear(engine, best.project, opts.finalSamples ?? 128));
 	const evaluations = runners.reduce((s, r) => s + r.opt.evaluations, 0);
 	return {
 		template: winner.id,

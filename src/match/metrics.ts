@@ -38,6 +38,18 @@ import {
 	type MatchImage
 } from './image';
 import { powerSpectrum2d } from './fft';
+import {
+	MAG_BINS,
+	ORI_BINS,
+	addOrientation,
+	boxDown,
+	circularEmd,
+	magBin,
+	neighbours,
+	norm,
+	sobel,
+	type Plane
+} from './imageOps';
 import { quantiles } from './quantiles';
 import type { TextureScorer } from './vgg';
 import { motifDistance, motifPlane, motifTarget, type MotifPlane, type MotifTarget } from './motifs';
@@ -307,28 +319,6 @@ function w1(a: Float32Array, b: Float32Array): number {
 	return s / a.length;
 }
 
-function boxDown(src: Float32Array, w: number, h: number): { data: Float32Array; width: number; height: number } {
-	const W = Math.max(1, w >> 1);
-	const H = Math.max(1, h >> 1);
-	const out = new Float32Array(W * H);
-	for (let y = 0; y < H; y++) {
-		const y0 = Math.min(h - 1, y * 2);
-		const y1 = Math.min(h - 1, y * 2 + 1);
-		for (let x = 0; x < W; x++) {
-			const x0 = Math.min(w - 1, x * 2);
-			const x1 = Math.min(w - 1, x * 2 + 1);
-			out[y * W + x] = 0.25 * (src[y0 * w + x0] + src[y0 * w + x1] + src[y1 * w + x0] + src[y1 * w + x1]);
-		}
-	}
-	return { data: out, width: W, height: H };
-}
-
-function sampler(w: number, h: number, wrap: boolean) {
-	return wrap
-		? (x: number, y: number) => (((y % h) + h) % h) * w + (((x % w) + w) % w)
-		: (x: number, y: number) => (y < 0 ? 0 : y >= h ? h - 1 : y) * w + (x < 0 ? 0 : x >= w ? w - 1 : x);
-}
-
 // Spectrum ----------------------------------------------------------------------------------------------
 
 function spectrumProfile(
@@ -389,45 +379,17 @@ function spectrumProfile(
 
 const SPECTRUM_SECTORS = 4;
 
-const MAG_BINS = 22; // < 1e-3, then half-octave bins from 1e-3 up to ~2, then ≥
-const MAG_LO = Math.log2(1e-3);
-const ORI_BINS = 16;
-
 function gradientHistograms(L: Float32Array, w: number, h: number, wrap: boolean) {
-	const at = sampler(w, h, wrap);
+	const { gx, gy } = sobel(L, w, h, wrap);
 	const mag = new Float64Array(MAG_BINS);
 	const ori = new Float64Array(ORI_BINS);
 	let weight = 0;
-	for (let y = 0; y < h; y++) {
-		for (let x = 0; x < w; x++) {
-			const tl = L[at(x - 1, y - 1)],
-				tc = L[at(x, y - 1)],
-				tr = L[at(x + 1, y - 1)];
-			const ml = L[at(x - 1, y)],
-				mr = L[at(x + 1, y)];
-			const bl = L[at(x - 1, y + 1)],
-				bc = L[at(x, y + 1)],
-				br = L[at(x + 1, y + 1)];
-			const gx = (tr + 2 * mr + br - tl - 2 * ml - bl) / 8;
-			// y up (so orientation angles read like the light azimuth convention: counter-clockwise from +x).
-			const gy = (tl + 2 * tc + tr - bl - 2 * bc - br) / 8;
-			const m = Math.hypot(gx, gy);
-			let b = 0;
-			if (m >= 1e-3) b = Math.min(MAG_BINS - 1, 1 + Math.floor((Math.log2(m) - MAG_LO) * 2));
-			mag[b] += 1;
-			if (m > 2e-3) {
-				const a = Math.atan2(gy, gx) + Math.PI; // 0..2π
-				// Linear interpolation between the two nearest orientation bins (smooth histogram).
-				const t = (a / (2 * Math.PI)) * ORI_BINS - 0.5;
-				const i0 = Math.floor(t);
-				const f = t - i0;
-				ori[((i0 % ORI_BINS) + ORI_BINS) % ORI_BINS] += m * (1 - f);
-				ori[(((i0 + 1) % ORI_BINS) + ORI_BINS) % ORI_BINS] += m * f;
-				weight += m;
-			}
-		}
-	}
 	const n = w * h;
+	for (let i = 0; i < n; i++) {
+		const m = Math.hypot(gx[i], gy[i]);
+		mag[magBin(m)] += 1;
+		weight += addOrientation(ori, 0, gx[i], gy[i], m);
+	}
 	for (let i = 0; i < MAG_BINS; i++) mag[i] /= n;
 	if (weight > 1e-9) for (let i = 0; i < ORI_BINS; i++) ori[i] /= weight;
 	else ori.fill(1 / ORI_BINS);
@@ -454,24 +416,23 @@ function emdCircular(a: Float64Array, b: Float64Array): number {
 		acc += a[i] - b[i];
 		c[i] = acc;
 	}
-	const med = Float64Array.from(c).sort()[n >> 1];
-	let s = 0;
-	for (let i = 0; i < n; i++) s += Math.abs(c[i] - med);
-	return s / n;
+	return circularEmd(c, n, new Float64Array(n));
 }
 
 // Contrast ----------------------------------------------------------------------------------------------
 
 function localStd(L: Float32Array, w: number, h: number, wrap: boolean): Float32Array {
-	const at = sampler(w, h, wrap);
+	const xs = [-1, 0, 1].map((d) => neighbours(w, d, wrap));
+	const ys = [-1, 0, 1].map((d) => neighbours(h, d, wrap));
 	const out = new Float32Array(w * h);
 	for (let y = 0; y < h; y++) {
 		for (let x = 0; x < w; x++) {
 			let s = 0;
 			let s2 = 0;
-			for (let dy = -1; dy <= 1; dy++) {
-				for (let dx = -1; dx <= 1; dx++) {
-					const v = L[at(x + dx, y + dy)];
+			for (let dy = 0; dy < 3; dy++) {
+				const row = ys[dy][y] * w;
+				for (let dx = 0; dx < 3; dx++) {
+					const v = L[row + xs[dx][x]];
 					s += v;
 					s2 += v * v;
 				}
@@ -523,13 +484,23 @@ export function computeFeatures(
 		? gradientHistograms(L, w, h, wrap)
 		: { mag: new Float64Array(0), ori: new Float64Array(0), weight: 0 };
 
+	// L at 1, ½, ¼ scale, made once for the contrast and the aligned / structure pyramids.
+	const lPyramid: Plane[] = [{ data: L, width: w, height: h }];
+	const lLevel = (l: number) => {
+		while (lPyramid.length <= l) {
+			const p = lPyramid[lPyramid.length - 1];
+			lPyramid.push(boxDown(p.data, p.width, p.height));
+		}
+		return lPyramid[l];
+	};
+
 	const contrastQ: Float32Array[] = [];
-	let lv = { data: L, width: w, height: h };
 	for (let level = 0; level < 3 && need('contrast'); level++) {
 		if (level > 0) {
-			if (lv.width < 6 || lv.height < 6) break;
-			lv = boxDown(lv.data, lv.width, lv.height);
+			const prev = lLevel(level - 1);
+			if (prev.width < 6 || prev.height < 6) break;
 		}
+		const lv = lLevel(level);
 		contrastQ.push(quantiles(localStd(lv.data, lv.width, lv.height, wrap), 64));
 	}
 
@@ -538,7 +509,7 @@ export function computeFeatures(
 	for (let level = 1; level < 3 && pyramid.length; level++) {
 		const prev = pyramid[level - 1];
 		if (prev.width < 4 || prev.height < 4) break;
-		const planes = prev.planes.map((p) => boxDown(p, prev.width, prev.height).data);
+		const planes = [lLevel(level).data, ...prev.planes.slice(1).map((p) => boxDown(p, prev.width, prev.height).data)];
 		pyramid.push({ width: Math.max(1, prev.width >> 1), height: Math.max(1, prev.height >> 1), planes });
 	}
 
@@ -597,9 +568,6 @@ function spectrumDistance(a: Features, b: Features): number {
 	return s / wsum;
 }
 
-const norm = (raw: number, scale: number) => (raw <= 0 ? 0 : raw / (raw + scale));
-
-/** Compare two feature sets computed at the same size. */
 /** Contrast-normalised lightness: z-scores (the spread floored, so a flat image doesn't blow up). */
 function zScores(L: Float32Array): Float32Array {
 	let m = 0;
@@ -623,8 +591,12 @@ function motifTargetOf(b: Features): MotifTarget | null {
 	return t;
 }
 
-/** b's structure pyramids per circular shift: b is the reference, so the few shifts renders land on recur. */
+/**
+ * b's structure pyramids per circular shift: b is the reference, so the few shifts renders land on recur. Least recently
+ * used first, at most SHIFT_CACHE (a score refines over up to 25 shifts: the cache holds a few scores' worth).
+ */
 const shiftedZCache = new WeakMap<Features, Map<number, Float32Array[]>>();
+const SHIFT_CACHE = 64;
 
 /**
  * b's z pyramid with b circularly shifted by (dx, dy) px at full resolution, then reduced. Shifting a reduced level
@@ -641,7 +613,11 @@ function shiftedZPyramid(b: Features, dx: number, dy: number): Float32Array[] {
 	let cache = shiftedZCache.get(b);
 	if (!cache) shiftedZCache.set(b, (cache = new Map()));
 	const hit = cache.get(key);
-	if (hit) return hit;
+	if (hit) {
+		cache.delete(key);
+		cache.set(key, hit);
+		return hit;
+	}
 	const L = b.pyramid[0].planes[0];
 	let lv: { data: Float32Array; width: number; height: number } = {
 		data: new Float32Array(w * h),
@@ -657,7 +633,7 @@ function shiftedZPyramid(b: Features, dx: number, dy: number): Float32Array[] {
 		lv = boxDown(lv.data, lv.width, lv.height);
 		out.push(zScores(lv.data));
 	}
-	if (cache.size >= 64) cache.clear();
+	if (cache.size >= SHIFT_CACHE) cache.delete(cache.keys().next().value!);
 	cache.set(key, out);
 	return out;
 }
@@ -677,6 +653,19 @@ function shiftedZ(a: Features, b: Features, dx: number, dy: number): number {
 	return levels ? al / levels : 0;
 }
 
+/** b's z plane at `level` tiled 2 × 2, so a circular shift reads it without wrapping (made once per reference). */
+const coarseTiles = new WeakMap<Features, { level: number; z: Float32Array }>();
+
+function coarseTiled(b: Features, level: number): Float32Array {
+	const hit = coarseTiles.get(b);
+	if (hit?.level === level) return hit.z;
+	const { width: w, height: h, z } = b.zPyramid[level];
+	const t = new Float32Array(4 * w * h);
+	for (let y = 0; y < 2 * h; y++) for (let x = 0; x < 2 * w; x++) t[y * 2 * w + x] = z[(y % h) * w + (x % w)];
+	coarseTiles.set(b, { level, z: t });
+	return t;
+}
+
 /**
  * Structure: how well the *shapes* line up — mean |Δz| of contrast-normalised lightness (z-scores, so colour
  * and overall contrast are left to the other terms) at the circular shift that best aligns b to a (tileable
@@ -687,7 +676,8 @@ function structureDistance(a: Features, b: Features): number {
 	if (!a.wrap || !b.wrap) return shiftedZ(a, b, 0, 0);
 	const top = Math.min(a.zPyramid.length, b.zPyramid.length) - 1;
 	const { width: w, height: h, z: za } = a.zPyramid[top];
-	const zb = b.zPyramid[top].z;
+	const zb = coarseTiled(b, top);
+	const W2 = 2 * w;
 	let best = -Infinity;
 	let bx = 0;
 	let by = 0;
@@ -695,8 +685,8 @@ function structureDistance(a: Features, b: Features): number {
 		for (let sx = 0; sx < w; sx++) {
 			let c = 0;
 			for (let y = 0; y < h; y++) {
-				const yb = (y + sy) % h;
-				for (let x = 0; x < w; x++) c += za[y * w + x] * zb[yb * w + ((x + sx) % w)];
+				const row = (y + sy) * W2 + sx;
+				for (let x = 0; x < w; x++) c += za[y * w + x] * zb[row + x];
 			}
 			if (c > best) {
 				best = c;
@@ -802,14 +792,25 @@ export function comparisonSize(
 	return fitSize(w, h, opts.maxSize ?? 128);
 }
 
-/** One-shot comparison: resamples both images to the comparison size, then compares. */
-export function compareImages(render: MatchImage, target: MatchImage, opts: MetricOptions = {}): MetricResult {
-	return new Matcher(target, opts).score(render);
+/** The windows term of a render, with what a mismatch map needs (Matcher.windowMap). */
+export interface WindowsDetail extends WindowResult {
+	bank: WindowBank;
+	lab: LabPlanes;
+}
+
+/** A score with what it was computed from: the render at the comparison size and its windows. */
+export interface ScoreDetail {
+	result: MetricResult;
+	/** The render at the comparison size (sRGB, straight alpha): for display, the pixel diff and colour fits. */
+	fit: MatchImage;
+	/** The windows term's detail (null without the term). */
+	windows: WindowsDetail | null;
 }
 
 /**
- * A target with cached descriptors, for scoring many renders against the same reference (optimiser,
- * Match UI). `score()` resamples the render to the comparison size first.
+ * A target with cached descriptors, for scoring many renders against the same reference (optimiser, Match UI).
+ * Renders are resampled to the comparison size first; engine output goes in linear (scoreLinear), skipping the sRGB
+ * round trip.
  */
 export class Matcher {
 	readonly width: number;
@@ -843,19 +844,7 @@ export class Matcher {
 		}
 	}
 
-	/** The windows term of a render (null without the term): nearest-neighbour distances of its windows. */
-	windows(render: MatchImage, lin?: LinearPremul): (WindowResult & { bank: WindowBank; lab: LabPlanes }) | null {
-		const t = this.windowTarget;
-		if (!t) return null;
-		const bg = this.opts.background;
-		return this.windowsOfLab(
-			render.width === t.width && render.height === t.height
-				? toOklab(render, bg)
-				: resampleLinearToOklab(lin ?? toLinearPremul(render), t.width, t.height, bg)
-		);
-	}
-
-	private windowsOfLab(lab: LabPlanes): (WindowResult & { bank: WindowBank; lab: LabPlanes }) | null {
+	private windowsOfLab(lab: LabPlanes): WindowsDetail | null {
 		const t = this.windowTarget;
 		if (!t) return null;
 		const bank = windowBankOfLab(lab, { wrap: this.opts.wrap, like: t });
@@ -865,11 +854,9 @@ export class Matcher {
 	/**
 	 * Where the render's local texture is least like anything in the reference: the render dimmed to grey, with a heat
 	 * overlay (red → yellow) by how far the windows covering each pixel are from their closest reference windows —
-	 * relative to this render's best- and worst-matched windows, so it shows where, not how much.
+	 * relative to this render's best- and worst-matched windows, so it shows where, not how much. From a score's detail.
 	 */
-	windowMap(render: MatchImage): MatchImage | null {
-		const r = this.windows(render);
-		if (!r) return null;
+	windowMap(r: WindowsDetail): MatchImage {
 		const m = windowMismatch(r.bank, r.perWindow);
 		let lo = Infinity;
 		let hi = -Infinity;
@@ -898,34 +885,56 @@ export class Matcher {
 	}
 
 	score(render: MatchImage): MetricResult {
-		// With the windows term the render is compared at two sizes: one conversion to linear light serves both.
-		const lin =
-			this.windowTarget && (render.width !== this.width || render.height !== this.height)
-				? toLinearPremul(render)
-				: undefined;
-		const fit = lin ? resampleLinear(lin, this.width, this.height) : this.fit(render);
-		return this.scoreFit(fit, () => this.windows(render, lin)?.raw);
+		return this.scoreDetailed(render).result;
 	}
 
 	/** score() of a render already in linear light with premultiplied alpha (straight from the GPU: no sRGB round trip). */
 	scoreLinear(lin: LinearPremul): MetricResult {
+		return this.scoreLinearDetailed(lin).result;
+	}
+
+	/** score() with the fitted render and the windows' detail. */
+	scoreDetailed(render: MatchImage): ScoreDetail {
+		const t = this.windowTarget;
+		const bg = this.opts.background;
+		// With the windows term the render is compared at two sizes: one conversion to linear light serves both.
+		const lin = t && (render.width !== this.width || render.height !== this.height) ? toLinearPremul(render) : null;
+		const fit = lin ? resampleLinear(lin, this.width, this.height) : this.fit(render);
+		return this.scoreFit(
+			fit,
+			() =>
+				t &&
+				this.windowsOfLab(
+					render.width === t.width && render.height === t.height
+						? toOklab(render, bg)
+						: resampleLinearToOklab(lin ?? toLinearPremul(render), t.width, t.height, bg)
+				)
+		);
+	}
+
+	/** scoreLinear() with the fitted render and the windows' detail. */
+	scoreLinearDetailed(lin: LinearPremul): ScoreDetail {
 		const t = this.windowTarget;
 		const fit = resampleLinear(lin, this.width, this.height);
 		return this.scoreFit(
 			fit,
-			() => t && this.windowsOfLab(resampleLinearToOklab(lin, t.width, t.height, this.opts.background))?.raw
+			() => t && this.windowsOfLab(resampleLinearToOklab(lin, t.width, t.height, this.opts.background))
 		);
 	}
 
 	/** The total from the render at the comparison size; the VGG term runs on the GPU while the CPU does the rest. */
-	private scoreFit(fit: MatchImage, windows: () => number | null | undefined): MetricResult {
+	private scoreFit(fit: MatchImage, windows: () => WindowsDetail | null): ScoreDetail {
 		const texture = this.texture && (this.weights.texture ?? 0) > 0 ? this.texture.submit(fit) : undefined;
-		const w = windows() ?? undefined;
+		const w = windows();
 		const features = computeFeatures(
 			fit,
 			{ ...this.opts, motifs: (this.weights.motifs ?? 0) > 0 },
 			this.opts.weightedOnly ? this.weights : undefined
 		);
-		return compareFeatures(features, this.targetFeatures, this.weights, { texture: texture?.(), windows: w });
+		const result = compareFeatures(features, this.targetFeatures, this.weights, {
+			texture: texture?.(),
+			windows: w?.raw
+		});
+		return { result, fit, windows: w };
 	}
 }

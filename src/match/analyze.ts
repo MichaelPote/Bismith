@@ -2,9 +2,9 @@
 // templates use to seed a project — size, tileability, a dark→light colour ramp, contrast and dominant
 // orientation. Pure TypeScript (browser, headless page and Node).
 
-import { linearToOklab, srgbToLinear1 } from '@/core/color';
+import { hexToRgb, srgbToLinear1 } from '@/core/color';
 import { extractPalette } from '@/render/post/palettes';
-import type { MatchImage } from './image';
+import { linearToOklabPlanes, type MatchImage } from './image';
 
 export interface Analysis {
 	width: number;
@@ -110,20 +110,25 @@ function seamRatio(L: Float32Array, w: number, h: number, axis: 'x' | 'y'): numb
 export function analyzeTarget(img: MatchImage, paletteSize = 5): Analysis {
 	const { width: w, height: h, data: d } = img;
 	const n = w * h;
-	const L = new Float32Array(n);
+	// A linear copy, opaque (the palette works in linear light), and its OKLab.
+	const lin = new Float32Array(n * 4);
+	for (let i = 0; i < n * 4; i += 4) {
+		lin[i] = srgbToLinear1(d[i]);
+		lin[i + 1] = srgbToLinear1(d[i + 1]);
+		lin[i + 2] = srgbToLinear1(d[i + 2]);
+		lin[i + 3] = 1;
+	}
+	const { L, A, B } = linearToOklabPlanes({ width: w, height: h, data: lin });
 	let sumL = 0;
 	let sumL2 = 0;
 	let sumC = 0;
 	let glow = 0;
 	for (let p = 0; p < n; p++) {
-		const i = p * 4;
-		const lab = linearToOklab([srgbToLinear1(d[i]), srgbToLinear1(d[i + 1]), srgbToLinear1(d[i + 2])]);
-		L[p] = lab[0];
-		sumL += lab[0];
-		sumL2 += lab[0] * lab[0];
-		const c = Math.hypot(lab[1], lab[2]);
+		sumL += L[p];
+		sumL2 += L[p] * L[p];
+		const c = Math.hypot(A[p], B[p]);
 		sumC += c;
-		if (lab[0] > 0.75 && c > 0.08) glow++;
+		if (L[p] > 0.75 && c > 0.08) glow++;
 	}
 	const meanL = sumL / n;
 	const stdL = Math.sqrt(Math.max(0, sumL2 / n - meanL * meanL));
@@ -144,21 +149,9 @@ export function analyzeTarget(img: MatchImage, paletteSize = 5): Analysis {
 	const tileX = rx < 3.5;
 	const tileY = ry < 3.5;
 
-	// Palette from a linear copy (extractPalette works in linear light).
-	const lin = new Float32Array(n * 4);
-	for (let i = 0; i < n * 4; i += 4) {
-		lin[i] = srgbToLinear1(d[i]);
-		lin[i + 1] = srgbToLinear1(d[i + 1]);
-		lin[i + 2] = srgbToLinear1(d[i + 2]);
-		lin[i + 3] = 1;
-	}
 	const palette = extractPalette({ width: w, height: h, data: lin }, paletteSize);
 	// Weights: nearest palette entry per pixel (sRGB distance is fine for a weighting).
-	const pal = palette.map((hex) => [
-		parseInt(hex.slice(1, 3), 16) / 255,
-		parseInt(hex.slice(3, 5), 16) / 255,
-		parseInt(hex.slice(5, 7), 16) / 255
-	]);
+	const pal = palette.map(hexToRgb);
 	const counts = new Array(palette.length).fill(0);
 	for (let i = 0; i < n * 4; i += 4) {
 		let best = 0;
