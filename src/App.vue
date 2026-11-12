@@ -27,6 +27,7 @@
 	import { GALLERY_ID } from '@/gallery/client';
 	import { offerResume } from '@/ui/resumeRuns';
 	import { modalOpen } from '@/ui/modals';
+	import { isTyping } from '@/ui/keys';
 
 	// Dev server only: a build leaves out the dialog and its chunk.
 	const ExportPresetDialog = import.meta.env.DEV
@@ -113,13 +114,6 @@
 	}
 
 	// ---------------------------------------------------------------- shortcuts
-	function isTyping(t: EventTarget | null): boolean {
-		const el = t as HTMLElement | null;
-		if (!el) return false;
-		const tag = el.tagName;
-		return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
-	}
-
 	// One drag, one undo step, for every control. Captured on the window, so no control's handler can hide it; the release
 	// is handled after the event, once the control has made its last change.
 	const onPointerDown = () => store.beginGesture();

@@ -41,7 +41,14 @@
 		const c = canvas.value;
 		if (!c || !props.pixels || !props.width || !props.height) return;
 		const n = tiles();
-		const img = new ImageData(new Uint8ClampedArray(props.pixels), props.width, props.height);
+		// A view of the pixels, not a copy (ImageData takes w × h × 4 bytes of an unshared buffer).
+		const px = props.pixels;
+		const len = props.width * props.height * 4;
+		const data =
+			px.buffer instanceof ArrayBuffer && px.length >= len
+				? new Uint8ClampedArray(px.buffer, px.byteOffset, len)
+				: new Uint8ClampedArray(px);
+		const img = new ImageData(data, props.width, props.height);
 		c.width = props.width * n;
 		c.height = props.height * n;
 		const ctx = c.getContext('2d')!;

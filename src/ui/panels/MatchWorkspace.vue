@@ -23,12 +23,12 @@
 		fromLinear,
 		fromRgba8,
 		resample,
-		toRgba8,
 		type MatchImage,
 		type MetricPreset,
 		type MetricResult
 	} from '@/match/metrics';
 	import { analyzeTarget } from '@/match/analyze';
+	import { rgbaImage } from '@/ui/rgbaImage';
 	import { availableTemplates } from '@/match/templates';
 	import { fitColours } from '@/match/colourFit';
 	import { attachTexture } from '@/match/evaluate';
@@ -286,15 +286,7 @@
 		{ value: '4', label: 'Coarse (1/4)' }
 	];
 
-	const refPx = computed(() =>
-		reference.value
-			? {
-					pixels: toRgba8(reference.value),
-					width: reference.value.width,
-					height: reference.value.height
-				}
-			: null
-	);
+	const refPx = computed(() => (reference.value ? rgbaImage(reference.value) : null));
 	const entryCount = computed(() => extractParams(store.project, { ...space.value }).entries.length);
 
 	// ---------------------------------------------------------------- reference loading
@@ -396,11 +388,11 @@
 	}
 
 	function show(img: MatchImage, matcher: Matcher): void {
-		renderPx.value = { pixels: toRgba8(img), width: img.width, height: img.height };
+		renderPx.value = rgbaImage(img);
 		// The Windows metric doesn't compare pixels in place: show where the render's windows have no look-alike instead.
 		const d = matcher.windowMap(img) ?? absDiff(matcher.fit(img), matcher.target, 3);
 		diffMode.value = matcher.windowTarget ? 'windows' : 'pixels';
-		diffPx.value = { pixels: toRgba8(d), width: d.width, height: d.height };
+		diffPx.value = rgbaImage(d);
 	}
 
 	/** The panes' matcher: kept while the reference, metric and tiling stay the same, since edits rescore often. */
@@ -764,8 +756,6 @@
 		return { ...p, post: p.post.map((f) => (f.type === 'palette' ? { ...f, enabled: on } : f)) };
 	}
 
-	const thumb = (img: MatchImage) => ({ pixels: toRgba8(img), width: img.width, height: img.height });
-
 	/**
 	 * Every template built for the reference (colours from its palette, counts from its periods), colour-fitted, scored
 	 * with the texture-aware metric and shown ranked — you pick the family.
@@ -800,7 +790,7 @@
 						label: t.label,
 						project,
 						loss: fit.after,
-						px: thumb(renderImage(project))
+						px: rgbaImage(renderImage(project))
 					}
 				].sort((a, b) => (a.loss ?? 0) - (b.loss ?? 0));
 			}

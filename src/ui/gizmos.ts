@@ -1,10 +1,55 @@
 // Viewport gizmos for the selected layer (Create workspace): handles that drag a layer's placement sliders — move and
 // turn shapes, motifs and stamps, a line's or curve's two ends, a gradient's centre and direction, a symmetry's fold
 // centre and axis, a cable's centre line. Pure geometry here (texture px, y down), mirroring each generator's shader;
-// LayerGizmo.vue draws the handles and applies the changes.
+// LayerGizmo.vue draws the handles and applies the changes. Also how every viewport drag starts (beginGizmoDrag).
 
 import type { Layer, Project } from '@/core/project';
 import type { ParamValues } from '@/core/params';
+import { useProjectStore } from '@/stores/project';
+
+/**
+ * Finishes a field still being typed in before a viewport press changes the project: its value becomes an undo step of
+ * its own, and the focus leaves it so Ctrl+Z reaches the editor (a press that calls preventDefault keeps the focus).
+ */
+export function finishTyping(): void {
+	(document.activeElement as HTMLElement | null)?.blur();
+	useProjectStore().commitNow();
+}
+
+const MODIFIERS = ['Shift', 'Control', 'Meta', 'Alt'];
+
+/**
+ * Starts a gizmo drag from its pointerdown: finishes typing, captures the pointer on the pressed element, and calls
+ * `onModifier` whenever a modifier key is pressed or released mid-drag (to re-apply it without a move). Returns the
+ * function that ends the drag (on release, cancel or unmount); calling it again does nothing.
+ */
+export function beginGizmoDrag(e: PointerEvent, onModifier?: (e: KeyboardEvent) => void): () => void {
+	finishTyping();
+	const el = e.currentTarget as Element;
+	const id = e.pointerId;
+	try {
+		el.setPointerCapture(id);
+	} catch {
+		/* not an active pointer (e.g. synthetic events) */
+	}
+	const onKey = (k: KeyboardEvent) => {
+		if (!k.repeat && MODIFIERS.includes(k.key)) onModifier?.(k);
+	};
+	window.addEventListener('keydown', onKey);
+	window.addEventListener('keyup', onKey);
+	let done = false;
+	return () => {
+		if (done) return;
+		done = true;
+		window.removeEventListener('keydown', onKey);
+		window.removeEventListener('keyup', onKey);
+		try {
+			if (el.hasPointerCapture(id)) el.releasePointerCapture(id);
+		} catch {
+			/* the pointer is gone */
+		}
+	};
+}
 
 export type Pt = [number, number];
 
@@ -35,7 +80,7 @@ const num = (p: ParamValues, k: string, d = 0) => {
 const rad = (deg: number) => (deg * Math.PI) / 180;
 const deg = (r: number) => (r * 180) / Math.PI;
 /** An angle in degrees brought to (−180, 180]. */
-export const wrapDeg = (a: number) => {
+const wrapDeg = (a: number) => {
 	const w = ((((a + 180) % 360) + 360) % 360) - 180;
 	return w === -180 ? 180 : w;
 };

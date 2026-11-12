@@ -499,11 +499,6 @@
 		color: var(--text-lo);
 		cursor: default;
 	}
-	.cf-btn.small {
-		font-size: 11px;
-		padding: 1px 8px;
-		height: auto;
-	}
 	.hint {
 		margin: 0 0 6px;
 		font-size: 11px;

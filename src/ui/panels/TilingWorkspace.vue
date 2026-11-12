@@ -16,7 +16,8 @@
 	import type { Project } from '@/core/project';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
-	import { heatOverlay, toRgba8, type MatchImage } from '@/match/image';
+	import { heatOverlay } from '@/match/image';
+	import { rgbaImage } from '@/ui/rgbaImage';
 	import {
 		TILING_TERMS,
 		analyzeTiling,
@@ -209,16 +210,14 @@
 	let seen = '';
 	let runStart = '';
 
-	type Px = { pixels: Uint8ClampedArray; width: number; height: number };
-	/** An image's pixels, for a pane that shows it repeated 3 × 3 (ImageCanvas tiles it). */
-	const tiled = (img: MatchImage): Px => ({ pixels: toRgba8(img), width: img.width, height: img.height });
 	const overlayOf = ({ frame: f, analysis }: Shot) => heatOverlay(f.L, analysis.maps.hotspot, f.width, f.height);
 
-	const currentPx = computed(() => (current.value ? tiled(current.value.frame.image) : null));
-	const fixedPx = computed(() => (best.value ? tiled(best.value.frame.image) : null));
+	// The panes show them repeated 3 × 3 (ImageCanvas tiles them).
+	const currentPx = computed(() => (current.value ? rgbaImage(current.value.frame.image) : null));
+	const fixedPx = computed(() => (best.value ? rgbaImage(best.value.frame.image) : null));
 	const hotspotPx = computed(() => {
 		const s = hotspotOf.value === 'fixed' && best.value ? best.value : current.value;
-		return s ? tiled(overlayOf(s)) : null;
+		return s ? rgbaImage(overlayOf(s)) : null;
 	});
 
 	// ---------------------------------------------------------------- analysis of the current project

@@ -45,6 +45,7 @@
 	import { getLayerDef } from '@/layers/registry';
 	import { useProjectStore } from '@/stores/project';
 	import { vTip } from '@/ui/tooltip';
+	import { beginGizmoDrag, finishTyping } from '@/ui/gizmos';
 
 	type Pt = [number, number];
 	type Side = 'l' | 'r' | 't' | 'b';
@@ -383,6 +384,7 @@
 		| { kind: 'move'; id: number; grab: Pt };
 	const drag = ref<Drag | null>(null);
 	let mods = { shift: false, ctrl: false };
+	let stopDrag: (() => void) | null = null;
 
 	function onDown(e: PointerEvent, kind: 'line' | 'edge' | 'move' | 'add'): void {
 		if (e.button !== 0) return;
@@ -390,29 +392,25 @@
 		if (!p) return;
 		e.stopPropagation();
 		e.preventDefault();
-		(document.activeElement as HTMLElement | null)?.blur();
-		store.commitNow();
 		const h = hoverAt(p);
 		if (kind === 'add') {
+			finishTyping();
 			if (h?.kind === 'add') write(split(grid.value, h.axis, h.i, h.t));
 			hover.value = hoverAt(p);
 			return;
 		}
 		const a = area.value;
+		let d: Drag;
 		if (kind === 'move') {
-			drag.value = { kind: 'move', id: e.pointerId, grab: [tx(p[0]) - a.x, ty(p[1]) - a.y] };
+			d = { kind: 'move', id: e.pointerId, grab: [tx(p[0]) - a.x, ty(p[1]) - a.y] };
 		} else if (kind === 'edge' && h?.kind === 'edge') {
-			drag.value = {
-				kind: 'edge',
-				sides: h.sides,
-				id: e.pointerId,
-				from: { l: a.x, t: a.y, r: a.x + a.w, b: a.y + a.h }
-			};
+			d = { kind: 'edge', sides: h.sides, id: e.pointerId, from: { l: a.x, t: a.y, r: a.x + a.w, b: a.y + a.h } };
 		} else if (kind === 'line' && h?.kind === 'line') {
-			drag.value = { kind: 'line', axis: h.axis, k: h.k, id: e.pointerId };
+			d = { kind: 'line', axis: h.axis, k: h.k, id: e.pointerId };
 		} else return;
+		stopDrag = beginGizmoDrag(e, onKey);
+		drag.value = d;
 		mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
-		(e.currentTarget as Element).setPointerCapture(e.pointerId);
 	}
 
 	function onLineMenu(e: MouseEvent): void {
@@ -474,12 +472,17 @@
 		inside.value = false;
 		hover.value = null;
 	}
+	function endDrag(): void {
+		drag.value = null;
+		stopDrag?.();
+		stopDrag = null;
+	}
 	function onWindowUp(e: PointerEvent): void {
-		if (drag.value && e.pointerId === drag.value.id) drag.value = null;
+		if (drag.value && e.pointerId === drag.value.id) endDrag();
 	}
 	/** Pressing or releasing a modifier mid-drag applies at once. */
 	function onKey(e: KeyboardEvent): void {
-		if (!drag.value || e.repeat || !['Shift', 'Control', 'Meta'].includes(e.key)) return;
+		if (!drag.value) return;
 		mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
 		apply();
 	}
@@ -487,16 +490,13 @@
 		window.addEventListener('pointermove', onWindowMove);
 		window.addEventListener('pointerup', onWindowUp);
 		window.addEventListener('pointercancel', onWindowUp);
-		window.addEventListener('keydown', onKey);
-		window.addEventListener('keyup', onKey);
 		document.documentElement.addEventListener('pointerleave', onLeave);
 	});
 	onBeforeUnmount(() => {
 		window.removeEventListener('pointermove', onWindowMove);
 		window.removeEventListener('pointerup', onWindowUp);
 		window.removeEventListener('pointercancel', onWindowUp);
-		window.removeEventListener('keydown', onKey);
-		window.removeEventListener('keyup', onKey);
+		endDrag();
 		document.documentElement.removeEventListener('pointerleave', onLeave);
 	});
 

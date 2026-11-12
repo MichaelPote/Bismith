@@ -185,5 +185,5 @@ export function useItemActions() {
 		]);
 	}
 
-	return { actions, menuItems, canStep };
+	return { actions, menuItems };
 }

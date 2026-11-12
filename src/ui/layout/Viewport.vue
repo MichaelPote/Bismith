@@ -23,7 +23,7 @@
 	import ShapeEditor from '@/ui/components/ShapeEditor.vue';
 	import LayerGizmo from '@/ui/components/LayerGizmo.vue';
 	import GridGizmo from '@/ui/components/GridGizmo.vue';
-	import { hasGizmo } from '@/ui/gizmos';
+	import { beginGizmoDrag, hasGizmo } from '@/ui/gizmos';
 	import SelectField from '@/ui/components/SelectField.vue';
 	import { vTip } from '@/ui/tooltip';
 	import { vPick } from '@/ui/eyedropper';
@@ -358,6 +358,7 @@
 	/** Ctrl (⌘) while dragging a sun snaps its angles to this step. */
 	const ANGLE_SNAP = 15;
 	let gizmoDrag: { id: string; type: 'point' | 'directional' } | null = null;
+	let stopGizmoDrag: (() => void) | null = null;
 	/** The last pointer position of the drag (client px), so pressing or releasing a modifier re-applies without a move. */
 	let gizmoAt = { x: 0, y: 0 };
 	/** The sun being Shift-dragged (placed under the cursor): its horizon ring is shown. */
@@ -366,15 +367,11 @@
 	function onGizmoDown(e: PointerEvent, g: { id: string; type: 'point' | 'directional' }): void {
 		e.stopPropagation();
 		e.preventDefault();
-		// As the layer gizmos: a field still being typed in would keep Ctrl+Z from reaching the editor.
-		(document.activeElement as HTMLElement | null)?.blur();
-		store.commitNow();
+		// Pressing or releasing a modifier mid-drag re-applies without a move.
+		stopGizmoDrag = beginGizmoDrag(e, dragGizmo);
 		editor.select('light', g.id);
 		gizmoDrag = g;
 		gizmoAt = { x: e.clientX, y: e.clientY };
-		(e.currentTarget as Element).setPointerCapture(e.pointerId);
-		window.addEventListener('keydown', onGizmoKey);
-		window.addEventListener('keyup', onGizmoKey);
 	}
 
 	/**
@@ -412,21 +409,15 @@
 		dragGizmo(e);
 	}
 
-	function onGizmoKey(e: KeyboardEvent): void {
-		if ((e.key === 'Control' || e.key === 'Meta' || e.key === 'Shift') && !e.repeat) dragGizmo(e);
-	}
-
 	function endGizmoDrag(): void {
 		gizmoDrag = null;
 		sunPlacing.value = null;
-		window.removeEventListener('keydown', onGizmoKey);
-		window.removeEventListener('keyup', onGizmoKey);
+		stopGizmoDrag?.();
+		stopGizmoDrag = null;
 	}
 
-	function onGizmoUp(e: PointerEvent): void {
-		if (!gizmoDrag) return;
-		(e.currentTarget as Element).releasePointerCapture(e.pointerId);
-		endGizmoDrag();
+	function onGizmoUp(): void {
+		if (gizmoDrag) endGizmoDrag();
 	}
 
 	// ---------------------------------------------------------------- status
