@@ -61,8 +61,8 @@ export interface DistanceFieldOptions {
 	name?: string;
 }
 
-/** GLSL: the thresholded source value at a texel (> 0 inside). Shared with filters that need the mask. */
-export const GLSL_JFA_SOURCE = /* glsl */ `
+/** GLSL: the thresholded source value at a texel (> 0 inside), for the seed and relax passes. */
+const GLSL_JFA_SOURCE = /* glsl */ `
 uniform int uJfaSource;
 uniform float uJfaThreshold;
 uniform bool uJfaInvert;
