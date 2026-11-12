@@ -27,7 +27,12 @@ const MOTIFS: [string, string, string][] = [
 	['spiral', 'Spiral', 'A spiral from the centre'],
 	['crescents', 'Crescents', 'Arcs nested round a point below the centre'],
 	['petals', 'Petals', 'A flower: petals round a button'],
-	['edge', 'Following the free edge', 'Copies of a scale’s lower edge stacked upward: chevrons on pointed scales']
+	['edge', 'Following the free edge', 'Copies of a scale’s lower edge stacked upward: chevrons on pointed scales'],
+	[
+		'blades',
+		'Blades',
+		'Raised crescent blades in nested arcs, each tapering from one end and ending blunt at the other'
+	]
 ];
 
 /** Cells across and down: whole when tiling, the layout's natural height × Aspect. */
@@ -94,7 +99,7 @@ export const carvingLayer: LayerDef = {
 		P.float('aspect', 'Aspect', 1, 0.25, 4, {
 			step: 0.01,
 			uniform: false,
-			hint: 'Stretches the cells vertically'
+			hint: 'Stretches the cells vertically (for wave bands: their number down the texture, Cells across × Aspect sets it)'
 		}),
 		P.float('point', 'Pointed tips', 0, 0, 1, {
 			step: 0.001,
@@ -155,7 +160,7 @@ export const carvingLayer: LayerDef = {
 		P.float('body_lvl', 'Body level', 0.75, 0, 1, {
 			step: 0.001,
 			group: 'cell',
-			hint: 'Sets the height of the cells’ bodies'
+			hint: 'Sets the height of the cells’ bodies (Petals: the height of the flower’s edge)'
 		}),
 		P.float('floor_lvl', 'Floor level', 0.2, 0, 1, {
 			step: 0.001,
@@ -192,7 +197,7 @@ export const carvingLayer: LayerDef = {
 			step: 0.25,
 			group: 'motif',
 			showIf: hasMotif,
-			hint: 'Sets the distance between neighbouring grooves'
+			hint: 'Sets the distance between neighbouring grooves (leaf veins: measured across the veins)'
 		}),
 		P.float('groove_w', 'Groove width', 3, 0.5, 16, {
 			softMax: 6,
@@ -205,7 +210,7 @@ export const carvingLayer: LayerDef = {
 			step: 0.001,
 			group: 'motif',
 			showIf: hasMotif,
-			hint: 'Sets how deep the grooves cut'
+			hint: 'Sets how deep the grooves cut (Blades: how high the blades stand)'
 		}),
 		P.bool('reed', 'Reeded', true, {
 			group: 'motif',
@@ -220,10 +225,30 @@ export const carvingLayer: LayerDef = {
 			showIf: hasMotif,
 			hint: 'Stops the grooves this far short of the outline'
 		}),
+		P.enum(
+			'fan_from',
+			'Fan from',
+			'point',
+			[
+				['point', 'A point', 'Lines radiate from the bottom of the cell'],
+				['edge', 'One edge', 'Lines start spread along one edge and comb across the cell']
+			],
+			{
+				group: 'motif',
+				showIf: (p) => p.motif === 'fan' || p.motif2 === 'fan',
+				hint: 'Picks where the fan’s lines start'
+			}
+		),
+		P.float('fan_end', 'Closing', 0.55, 0.3, 1, {
+			step: 0.001,
+			group: 'motif',
+			showIf: (p) => (p.motif === 'fan' || p.motif2 === 'fan') && p.fan_from === 'edge',
+			hint: 'Sets how close the combed lines draw together at the far edge, a share of Line spacing (1 = parallel)'
+		}),
 		P.float('sbend', 'S-bend', 0, -3, 3, {
 			step: 0.01,
 			group: 'motif',
-			showIf: (p) => p.motif === 'fan',
+			showIf: (p) => p.motif === 'fan' || p.motif2 === 'fan',
 			hint: 'Bends the fan’s lines back the other way further out, into S curves like flames'
 		}),
 		P.float('curl', 'Curl', 1.2, -3, 3, {
@@ -237,6 +262,32 @@ export const carvingLayer: LayerDef = {
 			showIf: (p) => p.motif === 'concentric' || p.motif === 'edge',
 			hint: 'Draws only this many lines in from the outline (0 = all the way in)'
 		}),
+		P.float('straight', 'Straighten', 0, 0, 1, {
+			step: 0.001,
+			group: 'motif',
+			showIf: (p) => p.motif === 'edge',
+			hint: 'Straightens the copies of the edge into V’s (1 = straight chevrons)'
+		}),
+		P.float('blade_off', 'Blade stagger', 0.5, 0, 1, {
+			step: 0.001,
+			group: 'motif',
+			showIf: (p) => p.motif === 'blades',
+			hint: 'Ends the blades at different lengths, each its own (0 = all reach the same angle)'
+		}),
+		P.float('blade_w', 'Blade width', 6, 1, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.25,
+			group: 'motif',
+			showIf: (p) => p.motif === 'blades',
+			hint: 'Sets how wide the blades are at their widest (Line spacing sets how far apart they lie)'
+		}),
+		P.float('sweep', 'Sweep', 110, 30, 180, {
+			step: 0.1,
+			group: 'motif',
+			showIf: (p) => p.motif === 'blades',
+			hint: 'Sets how far round the blades arc, in degrees'
+		}),
 		P.float('petal_len', 'Petal length', 0.62, 0.1, 1, {
 			step: 0.001,
 			group: 'motif',
@@ -249,10 +300,28 @@ export const carvingLayer: LayerDef = {
 			showIf: (p) => p.motif === 'petals',
 			hint: 'Narrows the petals (higher) or broadens them (lower)'
 		}),
+		P.float('petal_tip', 'Petal tips', 0, 0, 1, {
+			step: 0.001,
+			group: 'motif',
+			showIf: (p) => p.motif === 'petals',
+			hint: 'Draws the petals’ tips to a point (0 = round)'
+		}),
+		P.float('petal2', 'Second petals', 0, 0, 1, {
+			step: 0.001,
+			group: 'motif',
+			showIf: (p) => p.motif === 'petals',
+			hint: 'Adds a ring of shorter petals between the main ones, this share of their length (0 = none)'
+		}),
+		P.float('petal_h', 'Petal height', 0, 0, 1, {
+			step: 0.001,
+			group: 'motif',
+			showIf: (p) => p.motif === 'petals',
+			hint: 'Raises the petals’ crowns above Body level, into the headroom above it (1 = to the top)'
+		}),
 		P.int('arms', 'Count', 6, 1, 24, {
 			group: 'motif',
-			showIf: (p) => ['fan', 'spiral', 'petals'].includes(String(p.motif)),
-			hint: 'Sets how many lines fan out, spiral arms turn, or petals ring the flower'
+			showIf: (p) => (p.motif === 'fan' && p.fan_from !== 'edge') || ['spiral', 'petals'].includes(String(p.motif)),
+			hint: 'Sets how many lines fan out from a point, spiral arms turn, or petals ring the flower'
 		}),
 		P.enum(
 			'turn',
@@ -265,7 +334,15 @@ export const carvingLayer: LayerDef = {
 				['checker', 'Checkerboard']
 			],
 			{ group: 'motif', hint: 'Turns every other cell’s motif a quarter turn' }
-		)
+		),
+		P.float('boss', 'Node bosses', 0, 0, 64, {
+			softMax: 16,
+			unit: 'px',
+			step: 0.25,
+			group: 'cell',
+			showIf: (p) => p.layout === 'diamonds' || p.layout === 'squares',
+			hint: 'Sets the radius of a domed boss where the cells’ corners meet (0 = none)'
+		})
 	],
 	groups: [
 		{ id: 'cell', label: 'Cells' },
@@ -296,6 +373,8 @@ struct Cell {
   ivec2 id;
   // Scales: how far outside the nearest scale lying over this one the pixel is (its edge's shadow).
   float over;
+  // Diamonds and squares: the distance to the nearest lattice node (where the cells' corners meet).
+  float nd;
 };
 
 // Pointed scale: two circles' lens of half width R (round when pt = 0).
@@ -308,6 +387,7 @@ Cell crv_cell(vec2 q, vec2 cell) {
   Cell C;
   C.kind = 0;
   C.over = 1e4;
+  C.nd = 1e4;
   float w = cell.x, h = cell.y;
   if (u_layout == 0) {
     // Scales: rows h apart, staggered; each row lies over the one below, so a scale's free edge (and its point) shows.
@@ -365,19 +445,25 @@ Cell crv_cell(vec2 q, vec2 cell) {
     int nb = max(int(d_k.y + 0.5), 1);
     int j = int(floor((q.y - A * sin(kx * q.x)) / h));
     float c0 = 0.0, c1 = 0.0, s0 = 0.0, s1 = 0.0;
-    for (int it = 0; it < 3 * UNI_1; it++) {
-      // The two waves round band j; step j until the pixel lies between them.
-      vec2 r0 = vec2(hashI(ivec2(((j % nb) + nb) % nb, 3), uSeed), hashI(ivec2(((j % nb) + nb) % nb, 4), uSeed));
-      vec2 r1 = vec2(hashI(ivec2((((j + 1) % nb) + nb) % nb, 3), uSeed), hashI(ivec2((((j + 1) % nb) + nb) % nb, 4), uSeed));
-      // At variation 1: swings from 0 to twice the height, phases anywhere.
-      float a0 = A * (1.0 + 2.0 * u_wave_var * (r0.y - 0.5)), a1 = A * (1.0 + 2.0 * u_wave_var * (r1.y - 0.5));
-      float p0 = u_wave_var * 6.2831853 * (r0.x - 0.5), p1 = u_wave_var * 6.2831853 * (r1.x - 0.5);
-      c0 = float(j) * h + a0 * sin(kx * q.x + p0);
-      c1 = float(j + 1) * h + a1 * sin(kx * q.x + p1);
-      s0 = a0 * kx * cos(kx * q.x + p0);
-      s1 = a1 * kx * cos(kx * q.x + p1);
-      if (q.y < c0) j -= 1;
-      else if (q.y >= c1) j += 1;
+    float sn = sin(kx * q.x), cn = cos(kx * q.x);
+    for (int it = 0; it < 6 * UNI_1; it++) {
+      // The two waves round band j (wave j + (it & 1)); after each pair, step j until the pixel lies between them.
+      int jw = j + (it & 1);
+      int jm = ((jw % nb) + nb) % nb;
+      vec2 r = hash2I(ivec2(jm, 17), uSeed);
+      // Each wave is the common one plus its own difference: a sine of random phase and swing, up to 0.45 of a band
+      // at variation 1 — so neighbouring waves swell apart and close in but never cross.
+      float da = 0.45 * h * u_wave_var * sqrt(r.y);
+      vec2 dv = da * vec2(cos(6.2831853 * r.x), sin(6.2831853 * r.x));
+      float c = float(jw) * h + A * sn + dv.x * sn + dv.y * cn;
+      float sl = kx * (A * cn + dv.x * cn - dv.y * sn);
+      if ((it & 1) == 0) { c0 = c; s0 = sl; }
+      else {
+        c1 = c;
+        s1 = sl;
+        if (q.y < c0) j -= 1;
+        else if (q.y >= c1) j += 1;
+      }
     }
     float bh = max(c1 - c0, 1.0);
     float fv = clamp((q.y - c0) / bh, 0.0, 1.0);
@@ -436,6 +522,8 @@ Cell crv_cell(vec2 q, vec2 cell) {
     C.lp = q - cr;
     C.id = ivec2(g);
     C.S = dia ? 0.5 * w : 0.5 * min(w, h);
+    vec2 rn = floor(r + 0.5);
+    C.nd = length(q - (dia ? vec2(rn.x - rn.y, rn.x + rn.y) * 0.5 : rn) * vec2(w, h));
   }
   return C;
 }
@@ -454,17 +542,28 @@ GenOut gen(vec2 p) {
   // The body: from the floor at the outline up to the body level.
   float e = C.e;
   float body;
+  // Petals: which ring the pixel's petal belongs to (1 = the shorter petals between the main ones).
+  float ring = 0.0;
   if (mk == 7) {
-    // Petals: the flower's outline is the body's.
+    // Petals: the flower's outline is the body's — the main ring, and with Second petals a shorter ring turned half a
+    // petal between them.
     float th = atan(lp.y, lp.x);
     float n2 = float(u_arms) * 0.5;
-    float cs = abs(cos(n2 * th));
-    float R = u_petal_len * S * (0.25 + 0.75 * pow(cs, u_petal_w));
-    // The distance in from the petal's outline, not its radial depth (slender petals would get cliff sides): the radial
-    // difference over the outline's slope, dR/dθ = L·S·0.75·w·c^(w−1)·n/2·|sin|.
     float r = max(length(lp), 0.5);
-    float dR = u_petal_len * S * 0.75 * u_petal_w * pow(max(cs, 1e-3), u_petal_w - 1.0) * n2 * abs(sin(n2 * th));
-    e = min(e, (R - r) / sqrt(1.0 + pow(dR / r, 2.0)));
+    float ef = -1e4;
+    for (int k = 0; k < 2 * UNI_1; k++) {
+      float len = k == 0 ? u_petal_len : u_petal_len * u_petal2;
+      float cs = abs(cos(n2 * th - float(k) * 0.5 * CRV_PI));
+      // Petal tips: the profile toward a pointed one (linear in the angle) with Petal tips.
+      float tri = 1.0 - acos(min(cs, 1.0)) * 2.0 / CRV_PI;
+      float R = len * S * (0.25 + 0.75 * mix(pow(cs, u_petal_w), pow(max(tri, 1e-3), u_petal_w), u_petal_tip));
+      // The distance in from the petal's outline, not its radial depth (slender petals would get cliff sides): the
+      // radial difference over the outline's slope, dR/dθ = L·S·0.75·w·c^(w−1)·n/2·|sin|.
+      float dR = len * S * 0.75 * u_petal_w * n2 * mix(pow(max(cs, 1e-3), u_petal_w - 1.0) * sqrt(max(1.0 - cs * cs, 0.0)), pow(max(tri, 1e-3), u_petal_w - 1.0) * 2.0 / CRV_PI, u_petal_tip);
+      float ek = len > 0.0 ? (R - r) / sqrt(1.0 + pow(dR / r, 2.0)) : -1e4;
+      if (ek > ef) { ef = ek; ring = float(k); }
+    }
+    e = min(e, ef);
   }
   // Domed bodies over the cell (the second kind — gaps between discs, circles — would crease into pyramids along
   // their ridges, so they are pillowed instead).
@@ -476,7 +575,11 @@ GenOut gen(vec2 p) {
   float lvl = u_body_lvl + (C.kind == 1 ? u_lvl2 : 0.0);
   // Scales lie on one another: their edges drop only partway, onto the scale below.
   float floorLvl = u_layout == 0 ? mix(u_floor_lvl, lvl, 0.5) : u_floor_lvl;
-  float h = mix(floorLvl, lvl, body);
+  // Wave bands: a band pinched narrower than its share stands lower (no knife ridges at the pinches).
+  if (u_layout == 2) lvl = mix(floorLvl, lvl, sqrt(clamp(2.0 * S / cell.y, 0.0, 1.0)));
+  // Petals: the crowns rise above Body level by Petal height, further in from the petal's edge.
+  float crown = mk == 7 ? u_petal_h * (1.0 - lvl) * clamp(e / max(2.0 * u_body_w, 1.0), 0.0, 1.0) : 0.0;
+  float h = mix(floorLvl, lvl + crown, body);
   if (u_body == 3) h = mix(floorLvl, lvl, clamp(e / max(u_body_w, 0.5), 0.0, 1.0)) * (0.6 + 0.4 * clamp(0.5 + lp.y / S * 0.5, 0.0, 1.0));
   // A scale runs down under the edge of the one lying on it: low right at that edge, up to its body a Body edge away.
   if (u_layout == 0) h = mix(u_floor_lvl, h, clamp(C.over / max(u_body_w, 0.5), 0.0, 1.0));
@@ -485,12 +588,30 @@ GenOut gen(vec2 p) {
   // The motif: grooves along the isolines of a field φ (spacing 1 between lines), |∇φ| per px worked out per motif.
   float phi = 0.0, grad = 1.0;
   float sp = max(u_spacing, 1.0);
+  // Blades: the distance from the blade's centre line (in half widths; > 1 outside it) and its half width (px).
+  float bladeE = 2.0, bladeHw = 1.0;
   if (mk == 1) {
     phi = e / sp;
     grad = 1.0 / sp;
   } else if (mk == 2) {
     phi = lp.y / sp;
     grad = 1.0 / sp;
+  } else if (mk == 3 && u_fan_from == 1) {
+    // Combed: lines starting along one edge (y = S) and running across the cell, swept sideways by Curl (t²) and waved by
+    // S-bend (a full sine up the cell): x = c + D(t), t = 0 at the bottom, 1 at the top.
+    // The lines close in toward the far edge (m: their spacing, 1 → Closing) and hook over at their ends with Curl (t⁶),
+    // like flame tips.
+    float t = clamp((S - lp.y) / (2.0 * S), 0.0, 1.0);
+    float D = S * (0.35 * u_curl * t * t + 0.25 * u_sbend * sin(2.0 * CRV_PI * t) + 0.25 * u_curl * pow(t, 6.0));
+    float dDt = S * (0.7 * u_curl * t + 0.5 * CRV_PI * u_sbend * cos(2.0 * CRV_PI * t) + 1.5 * u_curl * pow(t, 5.0));
+    // The spacing closes from 1 to Closing, but never below a 3 px pitch.
+    float mt = u_fan_end - 1.0;
+    float m = 1.0 + mt * t;
+    if (sp * m < 3.0) { m = 3.0 / sp; mt = 0.0; }
+    phi = (lp.x - D) / (sp * m);
+    // ∂φ/∂y through t (dt/dy = −1 / 2S): −(D'·m + (x − D)·m') / (sp·m²).
+    float dy = (dDt * m + (lp.x - D) * mt) / (2.0 * S * sp * m * m);
+    grad = length(vec2(1.0 / (sp * m), dy));
   } else if (mk == 3) {
     // Fan from the bottom of the cell; Curl bends the lines with the distance.
     vec2 v = lp - vec2(0.0, 0.9 * S);
@@ -504,9 +625,13 @@ GenOut gen(vec2 p) {
     // Veins y = c − 0.6·x − 1.5·curl·x² (x from the midrib, in half widths): straight at Curl 0, sweeping up with it.
     float ax = abs(lp.x) / S;
     // Rising from the midrib toward the tip (−y); spacing measured across the veins.
+    // Normalised by the vein's slope, so the spacing holds as the veins turn along the outline instead of crowding:
+    // φ = N / (sp·L), N = −y − f, L = √(1 + f′²).
     float sl = 0.6 + 3.0 * u_curl * ax;
-    phi = (-lp.y - S * (0.6 * ax + 1.5 * u_curl * ax * ax)) / sp * sqrt(1.0 + 0.36);
-    grad = sqrt(1.0 + sl * sl) / sp * sqrt(1.0 + 0.36);
+    float N = -lp.y - S * (0.6 * ax + 1.5 * u_curl * ax * ax);
+    float L = sqrt(1.0 + sl * sl);
+    phi = N / (sp * L);
+    grad = length(vec2((sl * L + N * sl * 3.0 * u_curl / (S * L)) / (sp * L * L), 1.0 / (sp * L)));
   } else if (mk == 5) {
     float r = max(length(lp), 0.5);
     phi = float(u_arms) * atan(lp.y, lp.x) / (2.0 * CRV_PI) + r / sp;
@@ -526,13 +651,39 @@ GenOut gen(vec2 p) {
     float ax = min(abs(lp.x) + o, Rr - 0.01);
     float yb = u_layout == 0 ? sqrt(Rr * Rr - ax * ax) : S;
     float slope = u_layout == 0 ? ax / max(yb, 0.01) : 0.0;
+    // Straighten: toward a V from the bottom point to the cell's sides at its middle, its tip slightly rounded.
+    float yb0 = u_layout == 0 ? sqrt(max(Rr * Rr - o * o, 0.0)) : S;
+    float kr = 0.12 * S * (1.0 - u_straight) + 0.3;
+    float sax = sqrt(lp.x * lp.x + kr * kr) - kr;
+    yb = mix(yb, yb0 * (1.0 - sax / S), u_straight);
+    slope = mix(slope, yb0 / S * abs(lp.x) / (sax + kr), u_straight);
     phi = (yb - lp.y) / sp;
     grad = sqrt(1.0 + slope * slope) / sp;
   } else if (mk == 7) {
-    // Petals: a groove down each petal's middle and a button at the centre.
+    // Petals: a groove down each petal's middle (half a step round on the second ring) and a button at the centre.
     float r = max(length(lp), 0.5);
-    phi = float(u_arms) * atan(lp.y, lp.x) / (2.0 * CRV_PI);
+    phi = float(u_arms) * atan(lp.y, lp.x) / (2.0 * CRV_PI) + 0.5 * ring;
     grad = float(u_arms) / (2.0 * CRV_PI * r);
+  } else if (mk == 9) {
+    // Blades: arcs nested round a point low in the cell (its y runs up the texture), one per Line spacing, each swept
+    // from the right — tapering to nothing there — up and over to the left, ending blunt. Blade stagger shifts each
+    // blade's start and length.
+    vec2 c = lp - vec2(0.1, -0.35) * S;
+    float r = length(c);
+    phi = r / sp;
+    grad = 1.0 / sp;
+    float th = atan(c.y, c.x);
+    float bi = floor(phi);
+    // Stagger: per blade, and shifted per cell.
+    float th0 = -0.17 + 0.6 * u_blade_off * fract(bi * 0.618 + 0.3 + rnd);
+    float th1 = th0 + radians(u_sweep) * (1.0 - 0.25 * u_blade_off * fract(bi * 0.382 + 0.7 + 3.7 * rnd));
+    // Half width: growing from nothing at the start over the first ~55 % of the sweep, full to the blunt end.
+    float hw = min(0.5 * u_blade_w * sqrt(clamp((th - th0) / (0.55 * (th1 - th0)), 0.0, 1.0)), 0.5 * sp - 0.5);
+    // Distance from the blade's centre line, and past its blunt end (rounded over its half width).
+    float ac = abs(fract(phi) - 0.5) * sp;
+    float el = r * (th1 - th);
+    bladeE = th > th0 && hw > 0.25 && bi > 0.5 ? length(vec2(ac, max(hw - el, 0.0))) / hw : 2.0;
+    bladeHw = hw;
   }
   float grooveCov = 0.0;
   if (mk != 0) {
@@ -542,12 +693,26 @@ GenOut gen(vec2 p) {
     // A limited count of lines in from the outline (Following the outline).
     float nth = floor(phi + 0.5);
     if ((mk == 1 || mk == 8) && u_lines_n > 0 && (nth < 1.0 || nth > float(u_lines_n))) room = 0.0;
+    // Following the outline: no innermost ring closing to a dot (it must enclose at least ¾ of a spacing).
+    if (mk == 1 && nth > S / sp - 0.75) room = 0.0;
     float half_ = 0.5 / max(grad, 1e-4);
     float fade = clamp((e - u_margin) / 1.5, 0.0, 1.0);
-    if (mk == 7) fade *= clamp((length(lp) - 0.22 * S) / 1.5, 0.0, 1.0);
+    // Scales: grooves fade out in the shadow where a scale runs down under the edge of the one lying on it (no ring
+    // cutting a second step into that slope).
+    // Blades tuck under that edge the same way.
+    if (u_layout == 0) fade *= clamp(C.over / max(mk == 9 ? bladeHw + 1.0 : 0.5 * u_body_w, 0.5), 0.0, 1.0);
+    // Petals: the midribs fade out well before the centre, under its boss (they would alias where they converge).
+    if (mk == 7) fade *= smoothstep(0.26 * S, 0.4 * S, length(lp));
+    // A spiral's eye: the arms fade out round the centre into a small round boss (no 1-px spike where they meet).
+    if (mk == 5) fade *= smoothstep(0.25 * sp, 0.75 * sp, length(lp));
     float g;
-    if (u_reed && mk != 7) {
-      float s = clamp(dist / max(half_, 0.5), 0.0, 1.0);
+    if (mk == 9) {
+      // A blade stands up from the ground with a round cross-section (falling to the ground on both sides, no flat top),
+      // meeting the ground in a fillet a pixel past its edge, lower where it tapers.
+      g = (1.0 - smoothstep(0.0, 1.0 + 1.0 / max(bladeHw, 0.5), bladeE)) * clamp(bladeHw / max(0.5 * u_blade_w, 0.5), 0.3, 1.0);
+    } else if (u_reed && mk != 7) {
+      // The groove's floor rounded over ~1.5 px (a sharp V cusp aliases into beads along diagonals).
+      float s = clamp((sqrt(dist * dist + 2.25) - 1.5) / max(half_ - 1.5, 0.5), 0.0, 1.0);
       g = 1.0 - sqrt(max(1.0 - (1.0 - s) * (1.0 - s), 0.0));
     } else {
       // A petal's midrib is a fine line whatever the groove width (a wide one would eat a slender petal).
@@ -555,21 +720,37 @@ GenOut gen(vec2 p) {
       float s = clamp(dist / (0.5 * gw + 0.35), 0.0, 1.0);
       g = sqrt(max(1.0 - s * s, 0.0));
     }
-    // The leaf's midrib.
-    if (mk == 4) g = max(g, clamp(1.0 - abs(lp.x) / (0.5 * u_groove_w + 0.5), 0.0, 1.0));
+    // A spiral's outer arm runs into the outline: the last band (no groove left between it and the outline) sinks into
+    // the groove as it narrows below one spacing (fully below half a spacing), instead of leaving a thin crescent.
+    // (Not held back by Margin: it reaches the outline groove.)
+    float sink = 0.0;
+    if (mk == 5) {
+      float f = fract(phi);
+      if (e < (1.0 - f) * sp) sink = clamp((sp - f * sp - e) / (0.5 * sp), 0.0, 1.0);
+    }
+    // The leaf's midrib, stopping short of the lens's tips.
+    if (mk == 4) g = max(g, clamp(1.0 - abs(lp.x) / (0.5 * u_groove_w + 0.5), 0.0, 1.0) * clamp((e - max(u_margin, 0.12 * S)) / 3.0, 0.0, 1.0));
     // A petal's midrib is a shallow vein, not a channel.
-    grooveCov = g * fade * room * (mk == 7 ? 0.45 : 1.0);
-    h -= u_groove_d * grooveCov;
-    if (mk == 7) h = max(h, mix(h, lvl + 0.08, sqrt(max(1.0 - pow(length(lp) / (0.22 * S), 2.0), 0.0))));
+    grooveCov = max(g * fade * room * (mk == 7 ? 0.45 : 1.0), sink);
+    h += (mk == 9 ? 1.0 : -1.0) * u_groove_d * grooveCov;
+    if (mk == 7) h = max(h, mix(h, lvl + crown + 0.08, sqrt(max(1.0 - pow(length(lp) / (0.26 * S), 2.0), 0.0))));
   }
   // The outline: a groove (or a raised rib) along it.
   if (u_outline_w > 0.0) {
     float ol = clamp(1.0 - C.e / (0.5 * u_outline_w + 0.35), 0.0, 1.0);
-    // A groove cuts down from the surface; a rib (negative depth) stands up from the body's top, rounded.
-    if (u_outline_d >= 0.0) h -= u_outline_d * ol;
+    // A groove cuts down from the surface — where a motif groove runs into it, only the deeper of the two (no pit); a
+    // rib (negative depth) stands up from the body's top, rounded.
+    float cutG = mk == 9 ? 0.0 : u_groove_d * grooveCov;
+    if (u_outline_d >= 0.0) h += cutG - max(cutG, u_outline_d * ol);
     // A rib: rounded, standing from the surface into the headroom above the body (Outline depth −1 = to the top).
-    else if (ol > 0.0) h = max(h, mix(h, lvl + (-u_outline_d) * (1.0 - lvl), sqrt(ol)));
+    // Flat-topped: 1 − (1 − ol)³ (level across its middle, sloping at its sides).
+    else if (ol > 0.0) h = max(h, mix(h, lvl + (-u_outline_d) * (1.0 - lvl), 1.0 - pow(1.0 - ol, 3.0)));
   }
+
+  // Bosses where the lattice's corners meet: domes rising from the floor a little above the ribs (or the bodies).
+  float bossTop = lvl + max(-u_outline_d, 0.0) * (1.0 - lvl);
+  bossTop += 0.4 * (1.0 - bossTop);
+  if (u_boss > 0.0) h = max(h, mix(u_floor_lvl, bossTop, sqrt(max(1.0 - pow(C.nd / u_boss, 2.0), 0.0))) - (C.nd < u_boss ? 0.0 : 1.0));
 
   if (u_output == 1) return genOut(1.0, 1.0, rnd, -C.e + 0.5 * u_outline_w);
   if (u_output == 2) return genOut(1.0, 1.0, rnd, 0.5 - grooveCov);

@@ -175,7 +175,7 @@ export function diagonal(t: Tiling): Tiling {
 	return { period: [P, P], polys };
 }
 
-export type Construction = 'edges' | 'stars' | 'rings' | 'edges_stars' | 'edges_rings';
+export type Construction = 'edges' | 'stars' | 'rings' | 'edges_stars' | 'edges_rings' | 'rings_spokes';
 
 export interface BuildOpts {
 	tiling: TilingName;
@@ -192,9 +192,17 @@ export interface BuildOpts {
 	diagonal?: boolean;
 	/** Stars: rays run on to the tile's border instead of stopping where they meet. */
 	through?: boolean;
+	/**
+	 * Stars: grown on each tile's outline scaled about its centre by this (1 = the tile itself); below 1 each star is a
+	 * rosette inside its tile, tied to the tile's edges by a spoke from each ray pair's start.
+	 */
+	starInset?: number;
 }
 
-/** A segment, and its class: 1 a tile edge, else a star ray or ring (edges can be drawn heavier). */
+/**
+ * A segment, and its class: 1 a tile edge (edges can be drawn heavier), 2 a rosette's spoke against a frame (never
+ * merged with the next one), else a star ray or ring.
+ */
 type Seg = [V2, V2, number?];
 
 function edgesOf(polys: V2[][]): Seg[] {
@@ -231,11 +239,22 @@ function exitOf(p: V2[], a: V2, d: V2): V2 | null {
  * Hankin's polygons in contact: from each edge's midpoint two rays at `angle` to it, cut where they meet the next —
  * or, `through`, run on to where they leave the tile (crossing bars: woven planks, lattices).
  */
-function stars(polys: V2[][], angle: number, offset: number, through = false): Seg[] {
+function stars(polys: V2[][], angle: number, offset: number, through = false, inset = 1, framed = false): Seg[] {
 	const th = (angle * Math.PI) / 180;
 	const out: Seg[] = [];
-	for (const p of polys) {
-		const n = p.length;
+	for (const p0 of polys) {
+		const n = p0.length;
+		// A rosette: the star grown on the outline scaled about the centre, a spoke from each edge's midpoint to the
+		// scaled one. Framed (the tile edges drawn too), spokes butt against the edge (class 2: never merged into one bar
+		// with the next tile's spoke).
+		const c0 = mul(
+			p0.reduce((a, b) => add(a, b), [0, 0] as V2),
+			1 / n
+		);
+		const p = inset < 0.999 ? p0.map((v) => add(c0, mul(sub(v, c0), inset))) : p0;
+		if (p !== p0)
+			for (let i = 0; i < n; i++)
+				out.push([mul(add(p0[i], p0[(i + 1) % n]), 0.5), mul(add(p[i], p[(i + 1) % n]), 0.5), framed ? 2 : 0]);
 		const mids = p.map((v, i) => {
 			const w = p[(i + 1) % n];
 			const e = norm(sub(w, v));
@@ -272,8 +291,11 @@ function stars(polys: V2[][], angle: number, offset: number, through = false): S
 	return out;
 }
 
-/** Each tile's outline scaled about its centroid, its corners rounded (sampled into short segments). */
-function rings(polys: V2[][], scale: number, round: number): Seg[] {
+/**
+ * Each tile's outline scaled about its centroid, its corners rounded (sampled into short segments); with `spokes`, a
+ * line from each tile corner to the ring's corner (coffers joined corner to corner).
+ */
+function rings(polys: V2[][], scale: number, round: number, spokes = false): Seg[] {
 	const out: Seg[] = [];
 	for (const p0 of polys) {
 		const n = p0.length;
@@ -299,6 +321,7 @@ function rings(polys: V2[][], scale: number, round: number): Seg[] {
 			const next = p[(i + 1) % n];
 			if (r <= 1e-6) {
 				pts.push(v);
+				if (spokes) out.push([p0[i], v]);
 				continue;
 			}
 			// The arc tangent to both edges at the corner: its centre on the bisector, r from each edge.
@@ -318,6 +341,8 @@ function rings(polys: V2[][], scale: number, round: number): Seg[] {
 				const ang = a0 + ((a1 - a0) * j) / k;
 				pts.push([ctr[0] + r * Math.cos(ang), ctr[1] + r * Math.sin(ang)]);
 			}
+			// The spoke meets the arc at its middle (the point toward the corner).
+			if (spokes) out.push([p0[i], pts[pts.length - 1 - k / 2]]);
 		}
 		for (let i = 0; i < pts.length; i++) out.push([pts[i], pts[(i + 1) % pts.length]]);
 	}
@@ -331,7 +356,10 @@ export interface Piece {
 	line: number;
 	/** 1 a tile edge, 0 a star ray or ring. */
 	cls: number;
-	/** At each end: 0 a plain end or join, 1 over a crossing, 2 under it. */
+	/**
+	 * At each end: 0 a plain end or join, 1 over a crossing, 2 under it, 3 ending on another line's side (a T: it butts
+	 * against that strap), 4 the same against a tile edge (which may be drawn heavier).
+	 */
 	endA: number;
 	endB: number;
 }
@@ -384,7 +412,7 @@ function mergeCollinear(input: Seg[]): Seg[] {
 					const pa = k(a[0]) === key ? a[0] : a[1];
 					const da = norm(sub(fa, pa));
 					const db = norm(sub(fb, pa));
-					if (Math.abs(cross(da, db)) < 1e-6 && dot(da, db) < 0 && (a[2] ?? 0) === (b[2] ?? 0)) {
+					if (Math.abs(cross(da, db)) < 1e-6 && dot(da, db) < 0 && (a[2] ?? 0) === (b[2] ?? 0) && a[2] !== 2) {
 						segs[ids[x]] = [fa, fb, a[2]];
 						segs[ids[y]] = null;
 						changed = true;
@@ -413,8 +441,9 @@ export function lines(o: BuildOpts, rep: V2 = [1, 1]): { period: V2; segs: Seg[]
 	let segs: Seg[] = [];
 	if (o.construct === 'edges' || o.construct.startsWith('edges_')) segs.push(...edgesOf(polys));
 	if (o.construct === 'stars' || o.construct === 'edges_stars')
-		segs.push(...stars(polys, o.angle, o.offset, o.through));
-	if (o.construct === 'rings' || o.construct === 'edges_rings') segs.push(...rings(polys, o.ringScale, o.ringRound));
+		segs.push(...stars(polys, o.angle, o.offset, o.through, o.starInset ?? 1, o.construct === 'edges_stars'));
+	if (o.construct === 'rings' || o.construct === 'edges_rings' || o.construct === 'rings_spokes')
+		segs.push(...rings(polys, o.ringScale, o.ringRound, o.construct === 'rings_spokes'));
 	// Dedupe (shared edges, rays meeting from both sides).
 	const key = (s: Seg) => {
 		const r = (v: number) => Math.round(v * 1e5);
@@ -471,6 +500,9 @@ function buildOnce(o: BuildOpts, res: number, rep: V2): Net {
 	const lineOf = segs.map((_, i) => i);
 	// Crossings: interior intersections (both parameters inside), splitting both.
 	const cuts: { t: number; x: V2; other: number; cross: boolean }[][] = segs.map(() => []);
+	// Ends lying on another line's side (T junctions): 3, or 4 when that line is a tile edge.
+	const tee: [number, number][] = segs.map(() => [0, 0]);
+	const teeOf = (j: number) => (segs[j][2] === 1 ? 4 : 3);
 	for (let i = 0; i < segs.length; i++)
 		for (let j = i + 1; j < segs.length; j++) {
 			const [a, b] = segs[i];
@@ -486,6 +518,8 @@ function buildOnce(o: BuildOpts, res: number, rep: V2): Net {
 			const tIn = t > 1e-6 && t < 1 - 1e-6;
 			const uIn = u > 1e-6 && u < 1 - 1e-6;
 			if (!tIn && !uIn) continue; // meeting at ends: a join
+			if (tIn && !uIn) tee[j][u < 0.5 ? 0 : 1] = teeOf(i);
+			if (uIn && !tIn) tee[i][t < 0.5 ? 0 : 1] = teeOf(j);
 			const x = add(a, mul(r, t));
 			// A crossing when both pass through; a T when one ends on the other.
 			const both = tIn && uIn;
@@ -499,18 +533,23 @@ function buildOnce(o: BuildOpts, res: number, rep: V2): Net {
 		cls: number;
 		xa: V2 | null;
 		xb: V2 | null;
+		/** T flags of the line's own ends, on its first / last piece. */
+		ta: number;
+		tb: number;
 	}
 	const raw: Raw[] = [];
 	segs.forEach((s, i) => {
 		const cs = cuts[i].sort((p, q) => p.t - q.t);
 		let prev: V2 = s[0];
 		let prevX: V2 | null = null;
+		let ta = tee[i][0];
 		for (const c of cs) {
-			raw.push({ a: prev, b: c.x, line: lineOf[i], cls: s[2] ?? 0, xa: prevX, xb: c.cross ? c.x : null });
+			raw.push({ a: prev, b: c.x, line: lineOf[i], cls: s[2] ?? 0, xa: prevX, xb: c.cross ? c.x : null, ta, tb: 0 });
 			prev = c.x;
 			prevX = c.cross ? c.x : null;
+			ta = 0;
 		}
-		raw.push({ a: prev, b: s[1], line: lineOf[i], cls: s[2] ?? 0, xa: prevX, xb: null });
+		raw.push({ a: prev, b: s[1], line: lineOf[i], cls: s[2] ?? 0, xa: prevX, xb: null, ta, tb: tee[i][1] });
 	});
 
 	// Fields: draw the lines into a raster of the period (wrapping), flood-fill the gaps.
@@ -542,6 +581,10 @@ function buildOnce(o: BuildOpts, res: number, rep: V2): Net {
 	const label = new Uint16Array(rw * rh);
 	const regions: Net['regions'] = [{ kind: 0, colour: 0, inr: 0, area: 0, ang: 0 }];
 	const queue = new Int32Array(rw * rh);
+	// Each texel's position unwrapped along the fill (a field can span the whole period, so it can't be unwrapped about
+	// one texel).
+	const ux = new Int32Array(rw * rh);
+	const uy = new Int32Array(rw * rh);
 	for (let i0 = 0; i0 < rw * rh; i0++) {
 		if (wall[i0] || label[i0]) continue;
 		const id = regions.length;
@@ -549,19 +592,23 @@ function buildOnce(o: BuildOpts, res: number, rep: V2): Net {
 		let qt = 0;
 		queue[qt++] = i0;
 		label[i0] = id;
+		ux[i0] = i0 % rw;
+		uy[i0] = (i0 / rw) | 0;
 		while (qh < qt) {
 			const i = queue[qh++];
 			const x = i % rw;
 			const y = (i / rw) | 0;
-			for (const [nx, ny] of [
-				[wrap(x + 1, rw), y],
-				[wrap(x - 1, rw), y],
-				[x, wrap(y + 1, rh)],
-				[x, wrap(y - 1, rh)]
+			for (const [dx, dy] of [
+				[1, 0],
+				[-1, 0],
+				[0, 1],
+				[0, -1]
 			]) {
-				const j = ny * rw + nx;
+				const j = wrap(y + dy, rh) * rw + wrap(x + dx, rw);
 				if (!wall[j] && !label[j]) {
 					label[j] = id;
+					ux[j] = ux[i] + dx;
+					uy[j] = uy[i] + dy;
 					queue[qt++] = j;
 				}
 			}
@@ -576,13 +623,8 @@ function buildOnce(o: BuildOpts, res: number, rep: V2): Net {
 		const y0 = (i0 / rw) | 0;
 		for (let q = 0; q < qt; q++) {
 			const i = queue[q];
-			// Unwrapped about the seed texel.
-			let x = (i % rw) - x0;
-			let y = ((i / rw) | 0) - y0;
-			if (x > rw / 2) x -= rw;
-			if (x < -rw / 2) x += rw;
-			if (y > rh / 2) y -= rh;
-			if (y < -rh / 2) y += rh;
+			const x = ux[i] - x0;
+			const y = uy[i] - y0;
 			const X = (x * px) / rw;
 			const Y = (y * py) / rh;
 			sx += X;
@@ -744,7 +786,7 @@ function buildOnce(o: BuildOpts, res: number, rep: V2): Net {
 			if (s.cls === 1 && other.cls === 1) return 0;
 			return overAt(x, dirOf(s), dirOf(other)) ? 1 : 2;
 		};
-		pieces.push({ a: s.a, b: s.b, line: s.line, cls: s.cls, endA: flag(s.xa), endB: flag(s.xb) });
+		pieces.push({ a: s.a, b: s.b, line: s.line, cls: s.cls, endA: s.ta || flag(s.xa), endB: s.tb || flag(s.xb) });
 	}
 	// Vertices where an odd number of lines meet (T-junctions, three-way joins): no two-colouring exists then.
 	const deg = new Map<string, number>();

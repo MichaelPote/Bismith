@@ -14,7 +14,7 @@ const opts = (o: Partial<BuildOpts>): BuildOpts => ({
 describe('strapwork network', () => {
 	it('builds every tiling with every construction', () => {
 		for (const tiling of TILINGS)
-			for (const construct of ['edges', 'stars', 'rings', 'edges_stars', 'edges_rings'] as const) {
+			for (const construct of ['edges', 'stars', 'rings', 'edges_stars', 'edges_rings', 'rings_spokes'] as const) {
 				const n = buildNet(opts({ tiling, construct, angle: 60 }), 64);
 				expect(n.pieces.length, `${tiling} ${construct}`).toBeGreaterThan(0);
 				expect(n.regions.length, `${tiling} ${construct}`).toBeGreaterThan(1);
@@ -45,6 +45,22 @@ describe('strapwork network', () => {
 		expect(new Set(rh.regions.slice(1).map((r) => r.kind)).size).toBe(3);
 		const oct = buildNet(opts({ tiling: 'octagon', construct: 'edges' }));
 		expect(new Set(oct.regions.slice(1).map((r) => r.kind)).size).toBe(2);
+	});
+	it('butts lines ending on another line’s side against it (T ends)', () => {
+		// Rays through, framed: every ray ends on a tile edge.
+		const n = buildNet(opts({ tiling: 'square', construct: 'edges_stars', angle: 45, offset: -0.8, through: true }));
+		const ends = n.pieces.filter((p) => p.cls === 0).flatMap((p) => [p.endA, p.endB]);
+		expect(ends.filter((e) => e === 4).length).toBeGreaterThan(0);
+		expect(ends.filter((e) => e === 1).length).toBe(ends.filter((e) => e === 2).length);
+	});
+	it('grows rosettes inside framed tiles, their spokes butting against the frame', () => {
+		const n = buildNet(opts({ tiling: 'hexagon', construct: 'edges_stars', angle: 60, starInset: 0.6 }));
+		expect(n.pieces.some((p) => p.cls === 2 && (p.endA === 4 || p.endB === 4))).toBe(true);
+	});
+	it('joins coffers corner to corner with spokes', () => {
+		const n = buildNet(opts({ tiling: 'square', construct: 'rings_spokes', ringScale: 0.5, ringRound: 0 }));
+		// Squares and the elongated hexagons between them, lying across and down.
+		expect(new Set(n.regions.slice(1).map((r) => r.kind)).size).toBe(3);
 	});
 	it('turns a square-period tiling 45° on a √2 period', () => {
 		const t = diagonal(makeTiling('square'));

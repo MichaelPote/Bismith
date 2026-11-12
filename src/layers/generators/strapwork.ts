@@ -31,7 +31,8 @@ const optsOf = (p: ParamValues): BuildOpts => ({
 	ringScale: Number(p.ring_scale) || 1,
 	ringRound: Number(p.ring_round) || 0,
 	diagonal: Boolean(p.diagonal) && SQUARE_PERIOD.includes(String(p.tiling)),
-	through: Boolean(p.through)
+	through: Boolean(p.through),
+	starInset: Number(p.star_inset) || 1
 });
 
 /** Periods across and down (whole when tiling), the net's period aspect kept × Aspect. */
@@ -129,6 +130,7 @@ const pack = memoReads((p: ParamValues, c: LayerCanvas) => {
 });
 
 const isRings = (p: ParamValues) => String(p.construct).includes('rings');
+const isFramed = (p: ParamValues) => String(p.construct).startsWith('edges_');
 const isStars = (p: ParamValues) => String(p.construct).includes('stars');
 const hasFill = (p: ParamValues) => p.fill !== 'none';
 
@@ -189,7 +191,12 @@ export const strapworkLayer: LayerDef = {
 				['stars', 'Stars', 'Two rays from each edge’s midpoint, cut where they meet the next: star patterns'],
 				['rings', 'Rings', 'Each tile’s outline grown and rounded so neighbours overlap: chain links, circles'],
 				['edges_stars', 'Edges and stars'],
-				['edges_rings', 'Edges and rings']
+				['edges_rings', 'Edges and rings'],
+				[
+					'rings_spokes',
+					'Rings and spokes',
+					'Each tile’s outline shrunk into a ring (a coffer), joined to the tile’s corners by spokes'
+				]
 			],
 			{ uniform: false, hint: 'Picks how the lines are drawn on the tiling' }
 		),
@@ -199,6 +206,12 @@ export const strapworkLayer: LayerDef = {
 			unit: '°',
 			showIf: isStars,
 			hint: 'Sets the rays’ angle to their edge: low angles give broad, shallow stars, high angles sharp ones (squares at 45° make the plain lattice)'
+		}),
+		P.float('star_inset', 'Star size', 1, 0.2, 1, {
+			uniform: false,
+			step: 0.001,
+			showIf: isStars,
+			hint: 'Grows each star on its tile shrunk to this size: below 1 a rosette inside each tile, tied to the tile’s edges by short spokes'
 		}),
 		P.bool('through', 'Rays through', false, {
 			uniform: false,
@@ -237,8 +250,38 @@ export const strapworkLayer: LayerDef = {
 		P.float('edge_wt', 'Edge weight', 1, 0.25, 4, {
 			step: 0.01,
 			group: 'straps',
-			showIf: (p) => String(p.construct).startsWith('edges_'),
+			showIf: isFramed,
 			hint: 'Makes the tile edges’ straps this many times as wide as the star lines or rings on them: a heavy frame round finer work'
+		}),
+		P.float('edge_lvl', 'Edge level', 0, -1, 1, {
+			step: 0.001,
+			group: 'straps',
+			showIf: isFramed,
+			hint: 'Raises (or lowers) the tile edges’ straps from Strap level, so the frame stands above the stars or rings on it'
+		}),
+		P.enum(
+			'edge_prof',
+			'Edge profile',
+			'same',
+			[
+				['same', 'As Strap profile'],
+				['flat', 'Flat (bevelled edges)'],
+				['round', 'Round'],
+				['ridge', 'Ridge'],
+				['hollow', 'Hollow (concave)'],
+				['stepped', 'Stepped'],
+				['moulded', 'Moulded']
+			],
+			{
+				group: 'straps',
+				showIf: isFramed,
+				hint: 'Gives the tile edges’ straps their own profile: a ridged frame round flat stars'
+			}
+		),
+		P.int('edge_lines', 'Edge lines', 0, 0, 3, {
+			group: 'straps',
+			showIf: isFramed,
+			hint: 'Gives the tile edges’ straps their own number of lines (0 = as Lines): a plain frame round double-line stars'
 		}),
 		P.float('strap_w', 'Strap width', 5, 0.5, 128, {
 			softMax: 24,
@@ -261,6 +304,11 @@ export const strapworkLayer: LayerDef = {
 			],
 			{ group: 'straps', hint: 'Shapes the straps across their width' }
 		),
+		P.int('steps', 'Steps', 1, 1, 3, {
+			group: 'straps',
+			showIf: (p) => p.strap_prof === 'stepped' || p.edge_prof === 'stepped',
+			hint: 'Sets how many flat fillets step down each side of a stepped strap’s face'
+		}),
 		P.float('strap_bevel', 'Edge bevel', 1, 0.5, 32, {
 			softMax: 6,
 			unit: 'px',
@@ -291,6 +339,18 @@ export const strapworkLayer: LayerDef = {
 			group: 'straps',
 			hint: 'Sets the height of the straps’ faces'
 		}),
+		P.float('joint_w', 'Joint lines', 0, 0, 4, {
+			unit: 'px',
+			step: 0.05,
+			group: 'straps',
+			hint: 'Cuts a fine joint line this wide along every strap’s edge (0 = none): boards fitted flush against their fields'
+		}),
+		P.float('joint_d', 'Joint depth', 0.2, 0, 1, {
+			step: 0.001,
+			group: 'straps',
+			showIf: (p) => Number(p.joint_w) > 0,
+			hint: 'Sets how deep the joint lines cut'
+		}),
 		P.bool('weave', 'Weave', true, {
 			group: 'straps',
 			hint: 'Weaves the straps over and under where they cross, alternating along each strand. Off: crossings join flat'
@@ -299,7 +359,7 @@ export const strapworkLayer: LayerDef = {
 			step: 0.001,
 			group: 'straps',
 			showIf: (p) => Boolean(p.weave),
-			hint: 'Lowers a strap where it passes under another'
+			hint: 'Lowers a strap where it passes under another, sloping back up over half a strap width from the gap'
 		}),
 		P.float('gap', 'Under gap', 1.5, 0, 16, {
 			softMax: 4,
@@ -363,7 +423,8 @@ export const strapworkLayer: LayerDef = {
 				['none', 'None'],
 				['slats', 'Slats', 'Parallel grooves, turned for each kind of field'],
 				['insets', 'Insets', 'Lines following the field’s outline, stepping in'],
-				['diaper', 'Diaper', 'A small grid of pyramids']
+				['diaper', 'Diaper', 'A small grid of pyramids'],
+				['checks', 'Cut diaper', 'A small grid of sunk pyramids: cut checks (turn it 45° for sunk diamonds)']
 			],
 			{ group: 'fields', hint: 'Carves a pattern into the fields' }
 		),
@@ -387,11 +448,36 @@ export const strapworkLayer: LayerDef = {
 			showIf: (p) => p.fill === 'slats',
 			hint: 'Shifts each slat’s groove and varies its depth a little, as cut by hand'
 		}),
+		P.enum(
+			'fill_dir',
+			'Slat direction',
+			'turn',
+			[
+				['turn', 'Turned per kind', 'At Fill angle (slats also turned by Turn per kind for each kind of field)'],
+				['edge', 'Along the straps', 'Parallel to the nearest strap, so each field’s slats follow its sides'],
+				[
+					'mixed',
+					'Along the straps in the largest',
+					'Along the straps in the largest kind of field, turned in the others'
+				]
+			],
+			{
+				group: 'fields',
+				showIf: (p) => ['slats', 'diaper', 'checks'].includes(String(p.fill)),
+				hint: 'Picks which way the slats (or the diaper grid) run'
+			}
+		),
+		P.float('fill_gw', 'Slat groove', 0.5, 0.1, 1, {
+			step: 0.001,
+			group: 'fields',
+			showIf: (p) => p.fill === 'slats',
+			hint: 'Sets how wide the grooves between the slats are, a share of Fill spacing: low for fine cuts between broad boards'
+		}),
 		P.float('fill_angle', 'Fill angle', 0, -180, 180, {
 			step: 0.1,
 			unit: '°',
 			group: 'fields',
-			showIf: (p) => p.fill === 'slats' || p.fill === 'diaper',
+			showIf: (p) => ['slats', 'diaper', 'checks'].includes(String(p.fill)),
 			hint: 'Turns the slats or the diaper grid (0° runs the slats across, 90° down)'
 		}),
 		P.float('kind_turn', 'Turn per kind', 60, -180, 180, {
@@ -420,10 +506,10 @@ export const strapworkLayer: LayerDef = {
 		dif_grad: STRAP_RAMP
 	},
 	derivedUniforms: {
-		decl: { k: 'vec2', inr: 'float', kinds: 'float' },
+		decl: { k: 'vec2', inr: 'float', kinds: 'float', mixd: 'float' },
 		compute: (p, c) => {
 			const k = pack(p, c);
-			return { k: k.k, inr: k.maxInrPx, kinds: k.kinds };
+			return { k: k.k, inr: k.maxInrPx, kinds: k.kinds, mixd: isFramed(p) ? 1 : 0 };
 		}
 	},
 	textures: ['seg', 'bkt', 'idx', 'face', 'reg'],
@@ -439,27 +525,37 @@ vec2 stw_seg(vec2 a, vec2 b) {
   return vec2(length(a + ab * t), t);
 }
 
-// The strap's profile 0..1 at distance d from its centre line (half width hw).
-float stw_prof(float d, float hw) {
+// The strap's profile 0..1 at distance d from its centre line (half width hw), with n lines.
+// The strap's profile 0..1 at distance d from its centre line (half width hw): profile pf, n lines.
+float stw_prof(float d, float hw, int pf, int n, float lvl) {
   if (d >= hw + 0.5) return 0.0;
   float s = clamp(d / hw, 0.0, 1.0);
   float cov = clamp(hw + 0.5 - d, 0.0, 1.0);
   float bev = clamp((hw - d) / max(u_strap_bevel, 0.5), 0.0, 1.0);
-  float pr = u_strap_prof == 1 ? sqrt(max(1.0 - s * s, 0.0))
-    : u_strap_prof == 2 ? 1.0 - s
+  // Stepped: a flat face, then Steps flat fillets down each side, each at least 1 px wide, the risers 1 px. The face
+  // keeps at least 40 % of the width: steps that don't fit are dropped (a narrow strap stays flat, not reeded).
+  // Moulded: a round bead on one such fillet, a quirk at its foot.
+  float sh = max(1.0, 0.22 * hw);
+  int ns = pf == 4 ? clamp(u_steps, 0, max(int(floor((0.6 * hw - u_strap_bevel) / sh)), 0)) : 1;
+  float fe = max(hw - u_strap_bevel - float(ns) * sh, 0.5);
+  float drop = 0.0;
+  for (int k = 0; k < 3 * UNI_1; k++) {
+    if (k < ns) drop += clamp(d - fe - float(k) * sh + 0.5, 0.0, 1.0);
+  }
+  float quirk = clamp(1.0 - abs(d - fe - 0.6) / 0.6, 0.0, 1.0);
+  float pr = pf == 1 ? sqrt(max(1.0 - s * s, 0.0))
+    : pf == 2 ? 1.0 - s
+    : pf == 4 ? bev * (1.0 - 0.5 / float(max(ns, 1)) * drop)
+    : pf == 5 ? bev * (d < fe ? 0.55 + 0.45 * sqrt(max(1.0 - (d / fe) * (d / fe), 0.0)) : 0.72 - 0.18 * quirk)
     : bev;
   // Hollow: flat edges, a shallow channel down the middle.
-  if (u_strap_prof == 3) pr *= 0.7 + 0.3 * s * s;
-  // Stepped: a raised face down the middle on a lower shoulder each side, crisp edges.
-  if (u_strap_prof == 4) pr = bev * (s < 0.55 ? 1.0 : 0.72) - (abs(s - 0.55) * hw < 0.6 ? 0.08 : 0.0);
-  // Moulded: a round bead down the middle between flat shoulders.
-  if (u_strap_prof == 5) pr = bev * (s < 0.45 ? 0.82 + 0.18 * sqrt(max(1.0 - (s / 0.45) * (s / 0.45), 0.0)) : 0.74);
+  if (pf == 3) pr *= 0.7 + 0.3 * s * s;
   // Grooves between the lines (a double or triple strap), Line width wide.
-  if (u_lines > 1) {
-    float at = u_lines == 2 ? 0.0 : hw / 3.0;
+  if (n > 1) {
+    float at = n == 2 ? 0.0 : hw / 3.0;
     float lw = 0.5 * u_line_w + 0.35;
     float gq = clamp(1.0 - abs(d - at) / lw, 0.0, 1.0);
-    pr -= u_line_d * sqrt(gq) / max(u_strap_lvl - u_field_lvl, 0.05);
+    pr -= u_line_d * sqrt(gq) / max(lvl - u_field_lvl, 0.05);
   }
   return max(pr, 0.0) * cov;
 }
@@ -473,11 +569,21 @@ GenOut gen(vec2 p) {
   int start = hd.x * 256 + hd.y;
   int count = hd.z;
   float hw = 0.5 * u_strap_w;
-  float dmin = 1e4;        // to the nearest strap's edge (outside > 0)
-  float hOver = 0.0;       // straps on top (or not crossing)
-  float edgeOver = 1e4;    // px outside the nearest strap on top
-  float hUnder = 0.0;      // straps passing under
-  float lineId = -1.0;
+  // Tile edges (with stars, rings on them) may have their own width, level and lines.
+  bool mixd = d_mixd > 0.5;
+  float hwE = mixd ? hw * u_edge_wt : hw;
+  // Channels, each the nearest piece (by distance to its edge, so joins mitre and lines run on through them):
+  // 0 / 1 on top (star lines or rings / tile edges), 2 passing under, 3 butting against another strap (a T).
+  float ck[4] = float[4](1e4, 1e4, 1e4, 1e4);
+  float cd[4] = float[4](1e4, 1e4, 1e4, 1e4);
+  float ch[4] = float[4](1.0, 1.0, 1.0, 1.0);
+  int ce[4] = int[4](0, 0, 0, 0);
+  float uDip = 0.0;
+  bool tEdge = false;
+  float dmin = 1e4;        // to the nearest strap's edge (outside > 0), hidden or not: picks the strap the fills follow
+  float nhw = hw;
+  float nperp = 0.0;
+  vec2 ndir = vec2(1.0, 0.0);
   for (int i = 0; i < ${MAX_PER_BUCKET} * UNI_1; i++) {
     if (i < count) {
       int e = start + i;
@@ -490,27 +596,70 @@ GenOut gen(vec2 p) {
       ivec4 fl = ivec4(texelFetch(t_seg, base + ivec2(2, 0), 0) * 255.0 + 0.5);
       vec2 a = (vec2(stw_dec(t0.x, t0.y), stw_dec(t0.z, t0.w)) + off - f) * cell;
       vec2 b = (vec2(stw_dec(t1.x, t1.y), stw_dec(t1.z, t1.w)) + off - f) * cell;
-      vec2 ds = stw_seg(a, b);
-      float d = ds.x;
-      // Tile edges may be drawn heavier than the star lines or rings on them (Edge weight).
-      float hwi = fl.w == 1 ? hw * u_edge_wt : hw;
-      if (d - hwi < dmin) { dmin = d - hwi; lineId = float(fl.z); }
-      float pr = stw_prof(d, hwi);
-      // Under where an end crosses beneath another strap and the pixel is near that end.
-      float reach = 1.8 * hwi + u_gap + 1.0;
-      bool under = u_weave && ((fl.x == 2 && length(a) < reach) || (fl.y == 2 && length(b) < reach));
-      if (under) hUnder = max(hUnder, pr);
-      else {
-        hOver = max(hOver, pr);
-        edgeOver = min(edgeOver, d - hwi);
+      vec2 ab = b - a;
+      float L = max(length(ab), 1e-4);
+      vec2 dir = ab / L;
+      // How far along the piece the pixel is from each end (unclamped), and its distance to the piece.
+      float la = -dot(a, dir);
+      float lb = L - la;
+      float d = length(a + ab * clamp(la / L, 0.0, 1.0));
+      bool edge = fl.w == 1 && mixd;
+      float hwi = edge ? hwE : hw;
+      if (d - hwi < dmin) {
+        dmin = d - hwi;
+        nhw = hwi;
+        ndir = dir;
+        nperp = abs(a.x * dir.y - a.y * dir.x);
+      }
+      // The nearer end decides (a short piece can pass under at one end and over at the other); a plain end (a join, a
+      // star tip) never does, so a short tip past an under crossing stays under, not a bright knob.
+      bool nearA = fl.y == 0 || (fl.x != 0 && la <= lb);
+      int fe = nearA ? fl.x : fl.y;
+      float le = nearA ? la : lb;
+      // Under: near an end that passes beneath a crossing strap, rising back to full height over a ramp beyond.
+      float reach = 1.6 * hwi + u_gap + 1.0;
+      float ramp = max(hwi, 2.0);
+      float uu = u_weave && fe == 2 ? clamp((reach + ramp - le) / ramp, 0.0, 1.0) : 0.0;
+      // A T: near an end lying on another strap's side, it gives way to that strap (a butt joint).
+      bool tee = fe >= 3 && le < 1.5 * (fe == 4 ? hwE : hw) + 1.0;
+      int c = tee ? 3 : uu > 0.0 ? 2 : edge ? 1 : 0;
+      // Past an end at a crossing the line runs on in its next piece: no cap (an under strand's would poke out beside a
+      // short over piece).
+      float k = (fe == 1 || fe == 2) && le < 0.0 ? 1e4 : d - hwi;
+      for (int j = 0; j < 4 * UNI_1; j++) {
+        if (j == c && k < ck[j]) {
+          ck[j] = k;
+          cd[j] = d;
+          ch[j] = hwi;
+          ce[j] = edge ? 1 : 0;
+          if (j == 2) uDip = uu;
+          if (j == 3) tEdge = fe == 4;
+        }
       }
     }
   }
-  // An under strap shows only clear of the one on top (and its gap), lowered by the dip.
+  // Clear of the straps on top (and the gap round them): where unders and Ts show.
+  float edgeOver = min(ck[0], ck[1]);
   float strapLvl = u_strap_lvl;
-  float hu = edgeOver > u_gap ? hUnder : 0.0;
-  float sOver = hOver;
-  float sUnder = hu;
+  float hs[4];
+  float lvls[4];
+  for (int j = 0; j < 4 * UNI_1; j++) {
+    lvls[j] = u_strap_lvl + (ce[j] == 1 ? u_edge_lvl : 0.0);
+    int n = ce[j] == 1 && u_edge_lines > 0 ? u_edge_lines : u_lines;
+    int pf = ce[j] == 1 && u_edge_prof > 0 ? u_edge_prof - 1 : u_strap_prof;
+    hs[j] = cd[j] < 1e3 ? stw_prof(cd[j], ch[j], pf, n, lvls[j]) : 0.0;
+  }
+  float sUnder = hs[2] * clamp((edgeOver - u_gap) + 0.5, 0.0, 1.0);
+  // A T strap shows up to where the strap it meets reaches full height (its bevel, or a ridge's flank), meeting it by
+  // the higher of the two: no dark notch at the butt.
+  int pfo = tEdge && u_edge_prof > 0 ? u_edge_prof - 1 : u_strap_prof;
+  float bz = pfo == 1 || pfo == 2 ? (tEdge ? hwE : hw) : u_strap_bevel;
+  float sTee = hs[3] * clamp(edgeOver + bz + 0.5, 0.0, 1.0);
+  // The under strand is lowest at the gap line, rising back to full height a ramp away from it (never a knob beside the
+  // strand on top), and only near its crossing.
+  uDip *= clamp(1.0 - (edgeOver - u_gap) / max(0.5 * u_strap_w, 2.0), 0.0, 1.0);
+  // The straps' visible outline (over, unders and Ts where they show): a joint line cut along it.
+  float sv = min(edgeOver, min(max(ck[2], u_gap - edgeOver), max(ck[3], -edgeOver)));
 
   // The field under the pixel: its kind, colour and inradius; the distance from the strap edge.
   ivec2 R = textureSize(t_face, 0);
@@ -520,7 +669,8 @@ GenOut gen(vec2 p) {
   float kind = float(rg.x);
   float rinr = float(rg.z) / 255.0 * d_inr;
   float inr = max(rinr - hw, 1.0);
-  float fd = dmin;
+  // From the straps' visible outline (a strand passing under, hidden, doesn't raise the field round it).
+  float fd = sv;
   float rnd = hashI(ivec2(rid, 7), uSeed);
 
   float lvl = u_field_lvl + u_kind_d * kind + (rnd - 0.5) * u_field_var;
@@ -532,6 +682,8 @@ GenOut gen(vec2 p) {
     : lvl;
   // The slope from the straps' foot down to the field.
   if (u_field_w > 0.0) fh = mix(strapLvl * 0.5 + 0.5 * fh, fh, clamp(fd / u_field_w, 0.0, 1.0));
+  // Fills along the straps (Slat direction): everywhere, or in the largest kind of field.
+  bool along = u_fill_dir == 1 || (u_fill_dir == 2 && kind < 0.5);
   if (u_fill != 0) {
     float sp = max(u_fill_sp, 1.0);
     // The slats' (and diaper's) direction: 0° runs them across, 90° down.
@@ -539,24 +691,29 @@ GenOut gen(vec2 p) {
     vec2 n = vec2(-sin(a), cos(a));
     float g;
     if (u_fill == 1) {
-      // Slats: rounded grooves a third of the spacing wide, softened by half a pixel; with Slat jitter each groove
+      // Slats: rounded grooves Slat groove × the spacing wide, softened by half a pixel; with Slat jitter each groove
       // shifts and varies its depth a little, as cut by hand.
-      float v = dot(q, n) / sp;
+      // Along the straps: grooves parallel to the nearest strap, a whole spacing apart from its edge on (the first a
+      // whole slat in, so the strap doesn't get a double outline).
+      float v = along ? (nperp - nhw) / sp + 0.5 : dot(q, n) / sp;
       float k = floor(v);
       vec2 jr = vec2(hashI(ivec2(int(k), rid), uSeed + 31.0), hashI(ivec2(int(k), rid), uSeed + 57.0));
       float dist = abs(fract(v) - 0.5 - u_fill_jit * 0.25 * (jr.x - 0.5)) * sp;
-      float s = clamp(dist / (max(0.33 * sp, 0.75) + 0.35), 0.0, 1.0);
+      float s = clamp(dist / (max(0.5 * u_fill_gw * sp, 0.5) + 0.35), 0.0, 1.0);
       g = sqrt(max(1.0 - s * s, 0.0)) * (1.0 - u_fill_jit * 0.6 * jr.y);
+      // Along the straps, a groove whose loop would close into a pip (too near the field's middle) is left out.
+      if (along) g *= clamp(nperp - nhw - 0.5 * sp, 0.0, 1.0) * clamp(inr - (nperp - nhw) - 0.6 * sp + 0.5, 0.0, 1.0);
     } else if (u_fill == 2) {
       // Insets: terraces stepping in from the edge, one Fill spacing wide each, a 1 px chamfer between.
       float k = clamp(fd / sp, 0.0, float(u_inset_n));
       g = floor(k) + clamp(fract(k) * sp - (sp - 1.0), 0.0, 1.0);
       g /= max(float(u_inset_n), 1.0);
     } else {
-      // Diaper: faceted pyramids standing up from the field (a negative cut).
-      vec2 r = vec2(dot(q, n), dot(q, vec2(-n.y, n.x))) / sp;
+      // Diaper: faceted pyramids standing up from the field; Cut diaper: sunk ones (checks). Along the straps the grid
+      // lines up with the nearest strap, a row starting at its edge.
+      vec2 r = along ? vec2(dot(q, ndir) / sp, (nperp - nhw) / sp) : vec2(dot(q, n), dot(q, vec2(-n.y, n.x))) / sp;
       vec2 cc = abs(fract(r) - 0.5) * 2.0;
-      g = max(cc.x, cc.y) - 1.0;
+      g = u_fill == 4 ? 1.0 - max(cc.x, cc.y) : max(cc.x, cc.y) - 1.0;
     }
     // Fills finer than ~2.5 px fade out instead of aliasing into noise.
     float room = u_fill == 2 ? 1.0 : clamp((sp - 2.5) / 1.5, 0.0, 1.0);
@@ -565,15 +722,18 @@ GenOut gen(vec2 p) {
 
   // A sliver of field too small to be one (where four rings meet) fills to the straps' level instead of a pit.
   fh = mix(fh, strapLvl, clamp((hw + 2.0 - rinr) / 2.0, 0.0, 1.0));
-  float h = max(max(fh, mix(fh, strapLvl, sOver)), mix(fh, strapLvl - u_dip, sUnder));
+  float h = max(max(fh, mix(fh, lvls[0], hs[0])), mix(fh, lvls[1], hs[1]));
+  h = max(h, max(mix(fh, lvls[2] - u_dip * uDip, sUnder), mix(fh, lvls[3], sTee)));
+  // Joint lines: a fine groove along every strap's visible outline (flush boards, frames against their fields).
+  if (u_joint_w > 0.0) h -= u_joint_d * clamp(1.0 - abs(sv) / (0.5 * u_joint_w + 0.35), 0.0, 1.0);
 
-  if (u_output == 1) return genOut(1.0, 1.0, rnd, dmin);
-  if (u_output == 2) return genOut(1.0, 1.0, rnd, -dmin);
+  if (u_output == 1) return genOut(1.0, 1.0, rnd, sv);
+  if (u_output == 2) return genOut(1.0, 1.0, rnd, -sv);
   if (u_output == 3) {
-    GenOut ok = genOutOwn((kind + 0.5) / max(d_kinds, 1.0), 1.0, rnd, -dmin);
+    GenOut ok = genOutOwn((kind + 0.5) / max(d_kinds, 1.0), 1.0, rnd, -sv);
     return ok;
   }
-  GenOut o = genOutOwn(clamp(h, 0.0, 1.0), 1.0, rnd, dmin);
+  GenOut o = genOutOwn(clamp(h, 0.0, 1.0), 1.0, rnd, sv);
   o.feat = 0.0;
   return o;
 }

@@ -23,12 +23,13 @@ const STEP_PROFILES: [string, string, string][] = [
 	['vee', 'Ridge / V groove (and back)', 'A straight-sided ridge or V groove to the level and back']
 ];
 const STEPS = 4;
-/** The default moulding, a staircase: an ovolo off the frame, a fillet, a cove down, a fillet, then the field. */
+/** The default moulding, a staircase: an ovolo off the frame, a fillet, a cove down, a fillet, then the field. 3 px
+ * members: narrower ones don't read at 256 px. */
 const STEP_DEFAULTS: [number, string, number][] = [
-	[2, 'round', 0.56],
-	[2, 'flat', 0.52],
-	[3, 'cove', 0.36],
-	[2, 'flat', 0.32]
+	[3, 'round', 0.52],
+	[3, 'flat', 0.46],
+	[3, 'cove', 0.3],
+	[3, 'flat', 0.24]
 ];
 
 const FIELDS: [string, string, string][] = [
@@ -222,10 +223,10 @@ export const panellingLayer: LayerDef = {
 			showIf: (p) => p.boards !== 'none',
 			hint: 'Sets how deep the joints cut'
 		}),
-		P.float('quirk', 'Quirks', 0.12, 0, 0.5, {
+		P.float('quirk', 'Quirks', 0.1, 0, 0.5, {
 			step: 0.001,
 			group: 'moulding',
-			hint: 'Cuts a fine groove between the members of the mouldings and rails (0 = none), the crisp line that separates them'
+			hint: 'Cuts a fine groove, one pixel wide, between the members of the mouldings and rails (0 = none), the crisp line that separates them. Beads keep their full width'
 		}),
 		P.int('m_rep', 'Repeat moulding', 1, 1, 4, {
 			group: 'moulding',
@@ -257,7 +258,21 @@ export const panellingLayer: LayerDef = {
 			STEP_PROFILES.slice(0, 5).map(([v, l, h]) => [v, l, h]),
 			{ group: 'field', showIf: (p) => p.field === 'raised' }
 		),
-		P.float('field_var', 'Field variation', 0, 0, 0.5, {
+		P.float('fe_w', 'Face edge bead', 0, 0, 64, {
+			softMax: 12,
+			unit: 'px',
+			step: 0.5,
+			group: 'field',
+			showIf: (p) => p.field === 'raised',
+			hint: 'Runs a bead of this width round the edge of the raised face, a small moulding of its own (0 = none)'
+		}),
+		P.float('fe_lvl', 'Bead height', 0.06, -0.5, 0.5, {
+			step: 0.001,
+			group: 'field',
+			showIf: (p) => p.field === 'raised' && Number(p.fe_w) > 0,
+			hint: 'Sets how far the bead stands above the face (below 0: a sunk flute)'
+		}),
+		P.float('field_var', 'Field variation', 0.12, 0, 0.5, {
 			step: 0.001,
 			group: 'field',
 			showIf: (p) => p.field !== 'flat',
@@ -283,6 +298,11 @@ export const panellingLayer: LayerDef = {
 			group: 'field',
 			showIf: (p) => p.fill_alt !== 'none'
 		}),
+		P.bool('fill_flip', 'Mirror alternate', false, {
+			group: 'field',
+			showIf: hasFill,
+			hint: 'Mirrors the fill in every other panel that has it, so diagonals change direction from one to the next (by row with Alternate fill off or by rows; by column with by columns)'
+		}),
 		P.float('fill_sp', 'Fill spacing', 6, 1, 256, {
 			softMax: 32,
 			unit: 'px',
@@ -298,6 +318,14 @@ export const panellingLayer: LayerDef = {
 			group: 'field',
 			showIf: hasFill,
 			hint: 'Sets how wide each groove is (reeds fill their spacing)'
+		}),
+		P.float('fill_w2', 'Second groove width', 2, 0.5, 64, {
+			softMax: 12,
+			unit: 'px',
+			step: 0.25,
+			group: 'field',
+			showIf: (p) => p.fill_alt !== 'none' && p.fill2 !== 'none',
+			hint: 'Sets how wide each groove of the second fill is'
 		}),
 		P.float('fill_d', 'Fill depth', 0.12, 0, 1, {
 			step: 0.001,
@@ -360,7 +388,7 @@ export const panellingLayer: LayerDef = {
 			group: 'ornament',
 			section: 'Carving',
 			showIf: (p) => p.orn !== 'none',
-			hint: 'Sets the length of one unit (an egg and its dart, a bead and its reels); each side fits a whole number'
+			hint: 'Sets the length of one unit (an egg and its dart, a bead and its reels); each side fits a whole number. Units under about 12 px are too small to read'
 		}),
 		P.float('orn_d', 'Ornament height', 0.2, -1, 1, {
 			step: 0.001,
@@ -456,13 +484,23 @@ export const panellingLayer: LayerDef = {
 			[
 				['plain', 'Plain block'],
 				['leaves', 'Leaves'],
-				['volutes', 'Volutes']
+				['volutes', 'Volutes'],
+				[
+					'console',
+					'Console',
+					'A bracket seen from the front: a scroll rolled over at the top, tapering down to a smaller curl, a leaf hanging down its face'
+				],
+				[
+					'block',
+					'Carved block',
+					'A block at the top and the same at the base, each with a sunk square holding a rosette'
+				]
 			],
 			{
 				group: 'ornament',
 				section: 'Pilasters',
 				showIf: (p) => p.pilaster !== 'none' && Number(p.pil_cap) > 0,
-				hint: 'Carves the capital at the top of each pilaster: a row of upright leaves, or a pair of scrolls over a bead'
+				hint: 'Carves the capital at the top of each pilaster: a row of upright leaves, a pair of scrolls over a bead, a console bracket, or carved blocks at both ends. Carving under about 16 px tall is too small to read'
 			}
 		),
 		P.float('boss_r', 'Boss size', 4, 0.5, 128, {
@@ -577,13 +615,27 @@ export const panellingLayer: LayerDef = {
 			group: 'ornament',
 			section: 'Pilasters',
 			showIf: (p) => p.pilaster !== 'none',
-			hint: 'Sets how many flutes run down each pilaster (0 = plain)'
+			hint: 'Sets how many flutes run down each pilaster (0 = plain). Fewer are cut where they would be under 3 px apart: a narrow pilaster may get fewer than asked'
 		}),
 		P.float('pil_fd', 'Flute depth', 0.18, 0, 1, {
 			step: 0.001,
 			group: 'ornament',
 			section: 'Pilasters',
-			showIf: (p) => p.pilaster !== 'none' && Number(p.pil_flutes) > 0
+			showIf: (p) => p.pilaster !== 'none' && Number(p.pil_flutes) > 0,
+			hint: 'Sets how deep the flutes cut; narrow flutes (under 6 px) cut shallower, keeping their round section'
+		}),
+		P.bool('pil_sunk', 'Sunk panel', false, {
+			group: 'ornament',
+			section: 'Pilasters',
+			showIf: (p) => p.pilaster !== 'none',
+			hint: 'Sinks a panel down each pilaster’s shaft between the capital and the base; flutes run inside it'
+		}),
+		P.float('pil_sd', 'Panel depth', 0.1, 0, 1, {
+			step: 0.001,
+			group: 'ornament',
+			section: 'Pilasters',
+			showIf: (p) => p.pilaster !== 'none' && Boolean(p.pil_sunk),
+			hint: 'Sets how deep the sunk panel is'
 		}),
 		P.float('pil_cap', 'Capital height', 10, 0, 256, {
 			softMax: 48,
@@ -699,12 +751,15 @@ float pnl_run(int k, vec2 p, vec2 hh) {
   if (k == 1) return max(pnl_ell(p, vec2(0.62, 0.95) * hh), 0.85 * pnl_ell(vec2(abs(p.x) - 0.86 * hh.x, p.y), vec2(0.1, 0.72) * hh));
   if (k == 2) {
     // An egg in an open shell, a dart between eggs pointing inward.
-    float egg = pnl_ell(p - vec2(0.0, 0.12 * hh.y), vec2(0.46, 0.7) * hh);
-    float ring = length((p - vec2(0.0, 0.1 * hh.y)) / (vec2(0.72, 0.98) * hh));
-    float shell = n.y > -0.7 ? pnl_ell(vec2(ring - 0.88, 0.0), vec2(0.12)) * 0.8 : 0.0;
+    // An egg, its long axis across the moulding, in a shell open toward the outer edge (−y), kept clear of it by a sunk
+    // gap; between eggs a dart, a thin shaft ending in an arrowhead pointing inward.
+    float egg = pnl_ell(p - vec2(0.0, 0.08 * hh.y), vec2(0.38, 0.72) * hh);
+    float ring = length((p - vec2(0.0, 0.04 * hh.y)) / (vec2(0.64, 0.98) * hh));
+    float shell = n.y > -0.35 ? pnl_ell(vec2(ring - 0.92, 0.0), vec2(0.08)) * 0.75 : 0.0;
     float dx = abs(abs(p.x) - hh.x);
-    float wd = 0.24 * hh.x * clamp(0.62 - 0.62 * n.y, 0.0, 1.0);
-    float dart = dx < wd ? (1.0 - dx / wd) * 0.85 : 0.0;
+    float head = n.y > 0.25 && n.y < 0.95 ? 0.32 * hh.x * (0.95 - n.y) / 0.7 : 0.0;
+    float wd = max(max(0.07 * hh.x, 0.5), head);
+    float dart = dx < wd && n.y > -0.9 ? (1.0 - dx / wd) * 0.85 : 0.0;
     return max(max(egg, shell), dart);
   }
   if (k == 3) {
@@ -732,12 +787,15 @@ float pnl_corner(int k, vec2 o, float S) {
     // A quarter sunburst: ribs fanning between the two edges, a scalloped rim, a hub at the anchor.
     float r = length(o);
     float th = atan(v, max(u, 1e-4));
-    float hub = pnl_ell(o, vec2(0.22 * S));
+    // A domed hub ringed by a groove, ribs between it and a beaded rim, a groove inside the rim.
+    float hub = r < 0.24 * S ? 0.5 + 0.5 * pnl_ell(o, vec2(0.24 * S)) : 0.0;
     if (u <= 0.0 || abs(th) > 0.7854) return hub;
     // Ribs fade out toward the hub, where they come closer than a pixel and a half.
     float rib = mix(0.5, abs(fract((th / 1.5707963 + 0.5) * 7.0) - 0.5) * 2.0, clamp((r * 0.2244 - 1.5) / 1.5, 0.0, 1.0));
-    float R = S * (0.86 + 0.14 * sqrt(max(1.0 - rib, 0.0)));
-    return r < R ? max(sqrt(1.0 - (r / R) * (r / R)) * (0.55 + 0.45 * (1.0 - rib * rib)) * 0.85, hub) : hub;
+    float R = S * (0.9 + 0.1 * sqrt(max(1.0 - rib, 0.0)));
+    float ribs = r > 0.3 * S && r < 0.74 * R ? 0.45 + 0.4 * (1.0 - rib * rib) : 0.0;
+    float rim = r > 0.8 * R && r < R ? 0.85 * mouldBead((r - 0.8 * R) / (0.2 * R)) : 0.0;
+    return max(max(ribs, rim), hub);
   }
   if (k == 3) {
     // Six petals round a button, set in along the diagonal.
@@ -757,12 +815,16 @@ float pnl_corner(int k, vec2 o, float S) {
     float len = S * (i == 1 ? 1.0 : 0.78);
     float x = l.x / len;
     float y = l.y + float(i - 1) * 0.2 * len * x * x;
-    float w = 0.2 * len * pow(max(sin(3.1415927 * clamp(x, 0.0, 1.0)), 0.0), 0.7) * (0.82 + 0.18 * cos(x * 31.4159));
+    // Lobed edges only where a lobe is at least ~10 px long (smaller ones mottle the leaf), as smooth scallops.
+    float nl = floor(len / 10.0);
+    float lobe = nl >= 2.0 ? 0.88 + 0.12 * cos(6.2831853 * min(nl, 5.0) * x) : 1.0;
+    float w = 0.2 * len * pow(max(sin(3.1415927 * clamp(x, 0.0, 1.0)), 0.0), 0.7) * lobe;
     if (x > 0.0 && x < 1.0 && abs(y) < w) {
       float s = abs(y) / w;
-      float hl = sqrt(1.0 - s * s) * (0.65 + 0.35 * (1.0 - x)) - 0.3 * max(1.0 - abs(y) / max(0.12 * w, 0.4), 0.0);
-      // Veins slanting toward the tip, where they are far enough apart to draw.
-      if (len > 24.0) hl -= 0.12 * max(0.0, 1.0 - abs(fract(x * 5.0 - s * 0.8) - 0.5) * 6.0) * step(0.25, s);
+      // A midrib groove where the leaf is wide enough to hold one.
+      float hl = sqrt(1.0 - s * s) * (0.65 + 0.35 * (1.0 - x)) - 0.22 * max(1.0 - abs(y) / 0.9, 0.0) * clamp(w / 2.0 - 1.0, 0.0, 1.0);
+      // Veins slanting toward the tip, only on big leaves (below ~40 px they come out as 1-px speckle).
+      if (len > 40.0) hl -= 0.1 * max(0.0, 1.0 - abs(fract(x * 5.0 - s * 0.8) - 0.5) * 4.0) * step(0.3, s);
       best = max(best, hl);
     }
     // The side leaves end in a scroll curling back toward the middle one.
@@ -771,7 +833,8 @@ float pnl_corner(int k, vec2 o, float S) {
       float rc = 0.2 * len;
       float rr = length(cc);
       if (rr < rc) {
-        float ridge = 1.0 - abs(fract(rr / (rc / 1.8) + float(i - 1) * atan(cc.y, cc.x) / 6.2831853) - 0.5) * 2.0;
+        // Its spiral only where the turns are 3 px apart or more; a plain round curl below that.
+        float ridge = rc > 5.4 ? 1.0 - abs(fract(rr / (rc / 1.8) + float(i - 1) * atan(cc.y, cc.x) / 6.2831853) - 0.5) * 2.0 : 0.6;
         best = max(best, (0.45 + 0.4 * ridge) * sqrt(1.0 - (rr / rc) * (rr / rc)));
       }
     }
@@ -904,17 +967,45 @@ GenOut gen(vec2 p) {
     float ey = hb.y - abs(lq.y);
     if (dp < 0.0) {
       h = mix(u_frame, u_pil_lvl, mouldEase(2, -dp / 1.5, u_pil_lvl > u_frame));
-      if (u_pil_cap > 0.0) h += 0.06 * clamp(u_pil_cap - ey + 0.5, 0.0, 1.0) * clamp(-dp / 1.5, 0.0, 1.0);
+      // The capital and base blocks stand a little proud (a console stands on the shaft itself).
+      if (u_pil_cap > 0.0 && (u_pil_orn != 3 || lq.y > 0.0)) h += 0.06 * clamp(u_pil_cap - ey + 0.5, 0.0, 1.0) * clamp(-dp / 1.5, 0.0, 1.0);
       float m = 2.0;
-      if (u_pil_flutes > 0 && ey > u_pil_cap + m) {
-        float w = 2.0 * (hb.x - m);
-        float sp = w / float(u_pil_flutes);
+      if (u_pil_sunk) {
+        // A sunk panel down the shaft, in from the sides and the blocks, its sides a 1.5 px chamfer; flutes run inside.
+        // At least 2 px of panel across, or none (a narrower one is a black line).
+        float ins = max(2.0, 0.18 * hb.x);
+        float sd = min(hb.x - ins - abs(lq.x), ey - u_pil_cap - ins);
+        if (hb.x - ins >= 2.0) {
+          h -= u_pil_sd * clamp(sd / 1.5, 0.0, 1.0);
+          m = ins + 2.0;
+        }
+      }
+      // Flutes no closer than 3 px (fewer of them), or they turn into hairlines.
+      float w = 2.0 * (hb.x - m);
+      int nf = min(u_pil_flutes, int(w / 3.0));
+      if (nf > 0 && ey > u_pil_cap + m) {
+        float sp = w / float(nf);
         float u = lq.x + hb.x - m;
         if (u > 0.0 && u < w) {
+          // A round (U) section, softened by half a pixel at its edges, its depth shrinking with a flute under 6 px
+          // across so a narrow one isn't a black slot.
           float dist = abs(fract(u / sp) - 0.5) * sp;
-          float s = clamp(dist / max(0.33 * sp, 0.25), 0.0, 1.0);
-          h -= u_pil_fd * sqrt(max(1.0 - s * s, 0.0)) * clamp(ey - u_pil_cap - m, 0.0, 1.0);
+          float fw = 0.33 * sp;
+          float s = clamp(dist / (fw + 0.5), 0.0, 1.0);
+          h -= u_pil_fd * min(fw / 3.0, 1.0) * sqrt(max(1.0 - s * s, 0.0)) * clamp(ey - u_pil_cap - m, 0.0, 1.0);
         }
+      }
+      // Carved blocks at both ends: a sunk square in each, a rosette in it.
+      if (u_pil_orn == 4 && u_pil_cap > 0.0 && ey < u_pil_cap) {
+        vec2 bq = vec2(lq.x, ey - 0.5 * u_pil_cap);
+        vec2 bb = vec2(hb.x, 0.5 * u_pil_cap);
+        float ins = max(1.5, 0.2 * min(bb.x, bb.y));
+        float sd = min(bb.x - ins - abs(bq.x), bb.y - ins - abs(bq.y));
+        h -= 0.1 * clamp(sd / 1.25, 0.0, 1.0);
+        float rr = min(bb.x, bb.y) - ins - 1.0;
+        float pet = pow(abs(cos(2.0 * atan(bq.y, bq.x))), 0.7);
+        float rl = length(bq) / max(rr * (0.7 + 0.3 * pet), 0.5);
+        if (rl < 1.0) h += 0.16 * max(sqrt(1.0 - rl * rl) * (0.7 + 0.3 * pet), 1.2 * pnl_ell(bq, vec2(0.3 * rr)));
       }
       // A leaf capital's drop: a leaf hanging from its middle down the shaft.
       if (u_pil_orn == 1 && u_pil_cap > 0.0 && lq.y < 0.0 && ey >= u_pil_cap && ey < 1.7 * u_pil_cap) {
@@ -923,7 +1014,7 @@ GenOut gen(vec2 p) {
         if (abs(lq.x) < w) h += 0.13 * sqrt(1.0 - (lq.x / w) * (lq.x / w)) * (1.0 - 0.5 * t);
       }
       // The capital (the top block): a row of upright leaves, or a pair of volutes over a bead.
-      if (u_pil_orn != 0 && u_pil_cap > 0.0 && lq.y < 0.0 && ey < u_pil_cap) {
+      if (u_pil_orn != 0 && u_pil_orn != 4 && u_pil_cap > 0.0 && lq.y < 0.0 && ey < u_pil_cap) {
         if (u_pil_orn == 1) {
           // An abacus slab on top, a row of leaves under it, a bead at the neck.
           float ab = 0.24 * u_pil_cap;
@@ -938,6 +1029,40 @@ GenOut gen(vec2 p) {
             runA = 0.2;
           }
           h += 0.07 * pnl_ell(vec2(0.0, ey - u_pil_cap + 0.75), vec2(1.0, 1.1));
+        } else if (u_pil_orn == 3) {
+          // A console seen from the front: an abacus slab, then the bracket tapering down — its height the bracket's side
+          // view: a big roll at the top (its ends curled into volutes), a hollow sweep, a small curl at the foot — and a
+          // leaf hanging down its face.
+          float ab = 0.14 * u_pil_cap;
+          float L = u_pil_cap - ab;
+          h += 0.05 * clamp(ab - ey + 0.5, 0.0, 1.0) - u_quirk * clamp(1.0 - abs(ey - ab - 0.5), 0.0, 1.0);
+          float t = (ey - ab) / L;
+          float hw = hb.x * mix(0.96, 0.5, clamp(t, 0.0, 1.0));
+          float side = hw - abs(lq.x);
+          if (t > 0.0 && side > 0.0) {
+            float roll = pnl_ell(vec2(t - 0.26, 0.0), vec2(0.26, 1.0));
+            float u = clamp((t - 0.36) / 0.5, 0.0, 1.0);
+            float sweep = t > 0.36 && t < 0.86 ? 0.22 + 0.3 * (1.0 - u) * (1.0 - u) : 0.0;
+            float curl = 0.55 * pnl_ell(vec2(t - 0.91, 0.0), vec2(0.09, 1.0));
+            float prof = max(max(roll, sweep), curl);
+            // The roll's ends: volutes, a spiral groove winding in to an eye.
+            // Small ones (under 5 px) a boss with a sunk eye instead of a spiral that would break into dots.
+            float R = max(min(0.26 * L, 0.5 * hw), min(1.5, 0.5 * hw));
+            vec2 rel = vec2(abs(lq.x) - (hw - R), ey - ab - R);
+            float rr = length(rel);
+            if (rr < R) {
+              float ridge = R >= 5.0 ? 1.0 - abs(fract(rr / (R / 1.7) + atan(rel.y, rel.x) / 6.2831853) - 0.5) * 2.0 : 1.0 - 0.8 * max(1.0 - rr / max(0.35 * R, 0.6), 0.0);
+              prof = max(prof * 0.8, (0.35 + 0.75 * ridge) * sqrt(1.0 - (rr / R) * (rr / R)));
+            }
+            // The hanging leaf: tip down, a groove down its middle.
+            float lu = (t - 0.4) / 0.55;
+            float lw = 0.62 * hw * pow(max(sin(3.1415927 * clamp(lu, 0.0, 1.0)), 0.0), 0.6) * (1.0 - 0.4 * lu);
+            if (lu > 0.0 && lu < 1.0 && abs(lq.x) < lw) {
+              float s = abs(lq.x) / lw;
+              prof += 0.35 * sqrt(1.0 - s * s) - 0.15 * max(1.0 - abs(lq.x) / 0.8, 0.0);
+            }
+            h += 0.3 * prof * clamp(side, 0.0, 1.0);
+          }
         } else {
           float R = 0.34 * u_pil_cap;
           vec2 rel = vec2(abs(lq.x), ey) - vec2(hb.x - 0.36 * u_pil_cap, 0.38 * u_pil_cap);
@@ -977,7 +1102,10 @@ GenOut gen(vec2 p) {
     d = sStart > 0.0 ? dRect : ds;
     // Inside the shaped step's square, the distance to its shape (outside it — in a notch — the steps before it run on
     // round the notch instead of stopping at its edge).
-    float e = sStart > 0.0 && -dRect > sStart ? sStart - ds : -d;
+    // Inside a notch the step before the shaped one fills the rest of it (a notch wider than the steps before it would
+    // otherwise run them back up to the frame at its centre: a pimple).
+    float wPrev = u_shape_from == 2 ? u_m1_w : u_shape_from == 3 ? u_m2_w : u_shape_from == 4 ? u_m3_w : 0.0;
+    float e = sStart > 0.0 && -dRect > sStart ? max(sStart - ds, sStart - 0.5 * wPrev) : -d;
     rnd = hashI(P.xy, uSeed);
     onFrame = e <= 0.0;
 
@@ -994,6 +1122,10 @@ GenOut gen(vec2 p) {
     // Distance to the nearest boundary between members (the quirks), and where the steps have got to.
     float qd = 1e4;
     float qpos = 0.0;
+    // The level the steps have reached (past the pixel too) and the floor of the nearest quirk: half a quirk below the
+    // lower member beside it, so a quirk at a step down is a crisp line, not a pit.
+    float ql = u_frame;
+    float qf = 0.0;
     int hitRep = 0;
     float hitPos = 0.0;
     float hitW = 1.0;
@@ -1023,12 +1155,21 @@ GenOut gen(vec2 p) {
           if (kind < 5) lvl = end;
         }
         qpos += w;
-        qd = min(qd, abs(e - qpos));
+        // A quirk one pixel into the next member (into this one's last pixel when the next is a bead or ridge, so a
+        // bead keeps its width); none where the moulding meets the field, which would leave a pit at its foot.
+        int nk = K[i == ${STEPS - 1} ? 0 : i + 1];
+        bool last = rep == u_m_rep - 1 && (i == ${STEPS - 1} || W[min(i + 1, ${STEPS - 1})] <= 0.0);
+        if (kind < 5) ql = end;
+        float qe = abs(e - qpos - (nk >= 5 ? (kind >= 5 ? 0.0 : -0.5) : 0.5));
+        if (!last && qe < qd) {
+          qd = qe;
+          qf = min(ql, nk == 0 ? L[i == ${STEPS - 1} ? 0 : i + 1] : ql) - 0.5 * u_quirk;
+        }
       }
       if (i == ${STEPS - 1}) stop = false;
     }
     fd = pos - e;
-    if (e > 0.0) h -= u_quirk * clamp(1.0 - qd / 0.75, 0.0, 1.0);
+    if (e > 0.0 && qd < 1.0) h = max(h - u_quirk * (1.0 - qd), min(h, qf));
 
     // Running ornament along one step of the moulding (its first pass): units fitted to each side so they meet in the
     // corner mitres, measured along the side's centre line.
@@ -1049,12 +1190,18 @@ GenOut gen(vec2 p) {
       // The field.
       float f = e - pos;
       float span = max(min(hb.x, hb.y) - pos, 1.0);
+      // Field variation never carries a raised face down to (or a sunk one up to) the step before it: at most halfway.
       float top = clamp(u_field_lvl + (rnd - 0.5) * u_field_var, 0.0, 1.0);
+      float half_ = mix(lvl, u_field_lvl, 0.5);
+      top = u_field_lvl >= lvl ? max(top, half_) : min(top, half_);
       float face = 0.0;
       h = lvl;
       if (u_field == 1) {
         h = mix(lvl, top, u_field_prof == 0 ? clamp(f, 0.0, 1.0) : mouldEase(u_field_prof, f / max(u_field_w, 0.5), top > lvl));
-        face = u_field_w;
+        // A bead round the face's edge.
+        float fb = f - u_field_w;
+        if (u_fe_w > 0.0 && fb > 0.0 && fb < u_fe_w) h += u_fe_lvl * mouldBead(fb / u_fe_w);
+        face = u_field_w + u_fe_w;
       } else if (u_field == 2) {
         float t = clamp(f / span, 0.0, 1.0);
         h = mix(lvl, top, mouldRound(t));
@@ -1064,15 +1211,18 @@ GenOut gen(vec2 p) {
       // The fill, on the face, from the panel's centre so it sits symmetrically.
       bool odd = u_fill_alt == 1 ? (P.y & 1) == 1 : u_fill_alt == 2 ? (P.x & 1) == 1 : u_fill_alt == 3 ? ((P.x + P.y) & 1) == 1 : false;
       int fk = odd ? u_fill2 : u_fill;
+      // Mirror alternate: every other panel of the same fill mirrored (by row, or by column with Every other column).
+      int fi = u_fill_alt == 1 ? (P.y >> 1) : u_fill_alt == 2 ? (P.x >> 1) : P.y;
+      vec2 fq = u_fill_flip && (fi & 1) == 1 ? vec2(-lq.x, lq.y) : lq;
       if (fk != 0) {
         float sp = max(u_fill_sp, 1.0);
         vec2 n = fk <= 2 ? vec2(1.0, 0.0) : fk == 3 ? vec2(0.0, 1.0) : fk == 6 ? vec2(0.70710678, -0.70710678) : vec2(0.70710678);
         // Reeds: strips centred on the lines between grooves.
-        float dist = pnl_lines(lq + (fk == 2 ? n * 0.5 * sp : vec2(0.0)), n, sp);
-        if (fk == 5) dist = min(dist, pnl_lines(lq, vec2(0.70710678, -0.70710678), sp));
+        float dist = pnl_lines(fq + (fk == 2 ? n * 0.5 * sp : vec2(0.0)), n, sp);
+        if (fk == 5) dist = min(dist, pnl_lines(fq, vec2(0.70710678, -0.70710678), sp));
         float fade = clamp(f - face - u_fill_m, 0.0, 1.0);
         // Grooves at least 1.5 px across and softened by half a pixel, so thin ones don't stair-step.
-        float hw = fk == 2 ? 0.5 * sp : max(0.5 * u_fill_w, 0.75) + 0.35;
+        float hw = fk == 2 ? 0.5 * sp : max(0.5 * (odd ? u_fill_w2 : u_fill_w), 0.75) + 0.35;
         float s = clamp(dist / hw, 0.0, 1.0);
         float g = fk == 2 ? 1.0 - sqrt(max(1.0 - (1.0 - s) * (1.0 - s), 0.0)) : sqrt(max(1.0 - s * s, 0.0));
         h -= u_fill_d * g * fade;
@@ -1084,7 +1234,9 @@ GenOut gen(vec2 p) {
         bool inside = u_shape < 4 || pnl_shape(sign(lq) * anchor, hb, u_corner, u_shape) < -pos;
         // Stretched along the top and bottom (Corner spread > 1) or down the sides.
         vec2 sp2 = vec2(sqrt(u_co_aspect), 1.0 / sqrt(u_co_aspect));
-        float cv = inside ? pnl_corner(u_co, (abs(lq) - anchor) / sp2, u_co_size) : 0.0;
+        // Shrunk to stay inside its quarter of the field, so the four pieces don't run into one another.
+        float cs = min(u_co_size, 0.8 * min(anchor.x / sp2.x, anchor.y / sp2.y));
+        float cv = inside ? pnl_corner(u_co, (abs(lq) - anchor) / sp2, cs) : 0.0;
         h += u_co_d * cv;
         if (cv > 0.0) bd = min(bd, -0.5);
       }

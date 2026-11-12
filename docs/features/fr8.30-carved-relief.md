@@ -1,6 +1,6 @@
 # FR8.30 — Carved relief: Panelling, Strapwork, Carving
 
-**Status:** built — Area, the grid gizmo, Panelling, Strapwork and Carving (checklist below), each through three critic
+**Status:** built — Area, the grid gizmo, Panelling, Strapwork and Carving (checklist below), each through five critic
 rounds; the open flaws are in the private hand-over.
 
 ## Goal
@@ -346,6 +346,16 @@ with them), and optionally a Wood layer on Multiply for the grain. One preset pe
       level; turned cells. 0.35 s cold compile.
 - [x] **Critic run**: three rounds each against the geometric (G1–G9) and organic (O1–O8) references; hand-over in the
       private critic folder.
+- [x] **Second pass** (two more critic rounds each; Panelling 6.6 → 7.2, Strapwork 6.4 → 7.0, Carving 6.5 → 7.1).
+      Panelling: console and carved-block capitals, sunk pilaster panels, U flutes with a minimum spacing, 3 px default
+      members with 1 px quirks that keep a bead's width, a face-edge bead, smoother leaves, egg and dart as ovals and
+      darts, corner carvings kept inside their quarter, a second fill's groove width, mirrored alternate fills, a small
+      default field variation. Strapwork: stepped / moulded profiles in px (flat fillets, steps that don't fit dropped),
+      each pixel profiled by its nearest piece (grooves run on through crossings and joins), lines ending on a strap
+      butt against it, joint lines, slats and diaper along the nearest strap, cut diaper, a star rosette per tile, a
+      rings-and-spokes construct, edge level / lines / profile. Carving: blades, fans combed from one edge (Closing),
+      Straighten for the free-edge chevrons, second petals, petal height and tips, node bosses, grooves and outline
+      taking the deeper cut, wave bands that never cross. 1.1 / 0.4 / 0.6 s cold compile.
 - [ ] Each generator: tiling 2×2 at 45° frames and odd sizes, supersampling (px units), cold compile on the Windows
       backend (target < 2 s), gensheet + critic rounds (`docs/gensheet.md`, `docs/generator-critic.md`), presets,
       docs (this file's layer reference, architecture.md's generator list and feature index).
