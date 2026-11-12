@@ -292,18 +292,6 @@ vec3 ch_regN(vec2 s) {
   return vec3(d, dot(g, g) > 1e-6 ? normalize(g) : vec2(0.0));
 }
 
-// Cells of about size px per axis over extent px, whole when tiling (x: cell size, y: cell count).
-vec2 ch_cells(float extent, float size) {
-  float n = max(floor(extent / max(size, 1.0) + 0.5), 1.0);
-  return uTile ? vec2(extent / n, n) : vec2(max(size, 1.0), 1e6);
-}
-// A grid of cells of about size px over ext px (ch_cells per axis): the cell size, and the cell counts in per.
-vec2 ch_grid(vec2 ext, vec2 size, out ivec2 per) {
-  vec2 cx = ch_cells(ext.x, size.x), cy = ch_cells(ext.y, size.y);
-  per = ivec2(cx.y, cy.y);
-  return vec2(cx.x, cy.x);
-}
-
 // A crack at x px across it, of width w, taper tau and depth f (r: its random): the distance from its side scaled so the
 // layer's bevel spans the crack's bevel bev (narrowing with the crack, so tips stay sharp) and, for hairlines, its
 // thin-line coverage (a pixel box filter, ≤ the width).
@@ -512,9 +500,10 @@ void ch_stone(vec2 p, float reg0, float K, float fid, inout float cut, inout flo
   // bounded by the fault, a line converging on its tip from Fault slab width along the edge, and the edge — crisp risers, a flat
   // floor, no groove.
   if (u_cracks > 0.0 || u_faults > 0.0) {
-    ivec2 per;
     float Lmax = max(u_cracks > 0.0 ? u_crack_len : 0.0, u_faults > 0.0 ? u_fault_len : 0.0);
-    vec2 cs = ch_grid(uRes, vec2(Lmax), per);
+    vec2 cells = snapCells(uRes / max(Lmax, 1.0));
+    ivec2 per = periodOf(cells);
+    vec2 cs = uRes / cells;
     ivec2 ip = ivec2(floor(p / cs));
     float bq = 1e9;                          // the nearest crack's |x| − half its width
     float bx = 1e3, bw = 0.0, btau = 1.0, bf = 0.0, bRnd = 0.5;

@@ -283,13 +283,6 @@ bool hmStruck(vec2 at, int jv, int own, float near) {
   return hit;
 }
 
-// The dents' discs for the mask it writes, joined with a 2 px fillet so pinholes between nearly touching discs close
-// (continuous, so the mask's distance stays usable past its edge).
-float hmSmin(float a, float b) {
-  float h = max(2.0 - abs(a - b), 0.0) * 0.5;
-  return min(a, b) - h * h * 0.5;
-}
-
 // Online smooth maximum (log-sum-exp) of non-negative depths, each counted from 0 so untouched metal stays at 0:
 // m = the largest so far, S = Σ exp((d − m) / k).
 void hmSmax(inout float m, inout float S, float d, float k) {
@@ -440,7 +433,7 @@ GenOut gen(vec2 p) {
       if (q >= ext + 2.0 / R) {
         // Too far to touch this pixel: only the nearest such dent's random (for untouched metal) and its disc.
         if (1.0 + q < score) { score = 1.0 + q; dentRnd = rnd; shade = shR[reg]; }
-        if (wantSdf) sd = hmSmin(sd, dDisc);
+        if (wantSdf) sd = smin(sd, dDisc, 2.0);
       } else {
         // Each region's dents cross its edges whole, and run on past them (Region overlap, both ways), thinning out by
         // count — each dent its own random cut-off over the band, so the regions' last dents don't end along a line of
@@ -482,7 +475,7 @@ GenOut gen(vec2 p) {
           rimH = max(rimH, bump * hv);
           float key = q < 1.0 ? 1.0 - dep : 1.0 + q;
           if (key < score) { score = key; dentRnd = rnd; shade = shR[reg]; }
-          if (wantSdf) sd = hmSmin(sd, dDisc);
+          if (wantSdf) sd = smin(sd, dDisc, 2.0);
         }
       }
     }

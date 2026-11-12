@@ -5,11 +5,10 @@
 // tension holds a real one: small drops stay domed and low, big pools flat. Value = thickness (0..1) for the ramp and
 // Height; the outline goes to the mask it writes.
 
-import { memoReads } from '@/core/memo';
+import { memoOn, memoReads } from '@/core/memo';
 import { P, defaultParams, gradient, halfPx, type ParamDef, type ParamValues } from '@/core/params';
 import { PX_SCALE_PARAM } from '../commonParams';
 import { GLSL_PRIMTEX, PRIM_UNIFORMS, primUniforms } from '../primTexture';
-import { memoOn } from '@/core/memo';
 import type { LayerCanvas, LayerDef } from '../types';
 import {
 	SPLAT_STRIDE,

@@ -590,8 +590,8 @@ GenOut gen(vec2 p) {
           vec2 mid = 0.5 * (si + sj);
           // Distance to the edge's line (inside this cell ≥ 0), and along it — oriented the same from either side.
           float d = max(dot(pw - mid, n), 0.0);
-          bool lo = nk.x < key.x || (nk.x == key.x && nk.y < key.y);
-          ivec2 pk = (lo ? nk : key) * 1013 + (lo ? key : nk);
+          bool lo;
+          ivec2 pk = pairKey(nk, key, lo);
           vec4 hp = vec4(hash3I(pk, uSeed + 83.0), hashI(pk, uSeed + 85.0));
           float along = dot(pw - mid, lo ? vec2(-n.y, n.x) : vec2(n.y, -n.x));
           float dpt = u_depth * hp.w;

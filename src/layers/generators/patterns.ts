@@ -215,12 +215,6 @@ float pat_face(vec2 p, vec2 res, float size, vec2 q, vec2 hs, ivec2 id, float de
   return clamp(h, 0.0, 1.0);
 }
 
-// Polynomial smooth minimum (k: the blend width): rounds the ridges a crown would take from an exact distance's mitres.
-float pat_smin(float a, float b, float k) {
-  float h = max(k - abs(a - b), 0.0) / max(k, 1e-4);
-  return min(a, b) - 0.25 * h * h * k;
-}
-
 // The bevel distance a generator hands the wrapper (GenOut.bdist; NO_SDF = none): set before pat_out / pat_bedOut.
 float pat_bd = NO_SDF;
 // A share of the layer's coverage (Chip dust: chips show some of the colour beneath), set before pat_out / pat_bedOut.
@@ -835,7 +829,7 @@ GenOut gen(vec2 p) {
   }
   float hv = 1.0;
   if (PAT_FACED) hv = pat_face(p, res, 0.5 * cs.y, bestQ, bestHs, bestId,
-    pat_smin(bestHs.x - abs(bestQ.x), bestHs.y - abs(bestQ.y), 0.6 * min(bestHs.x, bestHs.y)), min(bestHs.x, bestHs.y));
+    smin(bestHs.x - abs(bestQ.x), bestHs.y - abs(bestQ.y), 0.6 * min(bestHs.x, bestHs.y)), min(bestHs.x, bestHs.y));
   if (u_chips > 0.0) {
     // Chips: angular pieces broken out of the nearest brick — one may knock off each corner (0–3), two more bite into
     // its long sides (4, 5): the piece beyond a kinked cut (pat_notch), so it always reaches the outline. Each is a
@@ -1140,7 +1134,7 @@ GenOut gen(vec2 p) {
   float hv = 1.0;
   if (PAT_FACED) {
     float kc = 0.5 * Rt;
-    hv = pat_face(q, res, 0.35 * cs.x, qc, 0.5 * cs, id, pat_smin(pat_smin(ms[0], ms[1], kc), ms[2], kc) - extra, 0.866 * Rt);
+    hv = pat_face(q, res, 0.35 * cs.x, qc, 0.5 * cs, id, smin(smin(ms[0], ms[1], kc), ms[2], kc) - extra, 0.866 * Rt);
   }
   if (u_chips > 0.0) {
     // Chips: angular pieces broken off the tile's corners (turned with it) — the piece beyond a kinked cut between
@@ -1723,7 +1717,7 @@ GenOut gen(vec2 p) {
   float hv = 1.0;
   if (PAT_FACED) {
     float kc = 0.2 * L;
-    hv = pat_face(p, uRes, 0.35 * L, -mr, 0.5 * cs, id, pat_smin(pat_smin(ms[0], ms[1], kc), ms[2], kc) - extra, 0.35 * L);
+    hv = pat_face(p, uRes, 0.35 * L, -mr, 0.5 * cs, id, smin(smin(ms[0], ms[1], kc), ms[2], kc) - extra, 0.35 * L);
   }
   return pat_finish(rnd, d, hv, PAT_FACED, u_grout_level, nz);
 }

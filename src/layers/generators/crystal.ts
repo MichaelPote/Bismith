@@ -507,8 +507,8 @@ GenOut gen(vec2 p) {
   // face's slope more; the creases between layers were filled above). The slope capped at a large crystal's steepest, so
   // a sliver of a face doesn't spike.
   vec2 c0 = cellsFor(u_scale, 1.0);
-  float smax = 4.0 / (hmax * min(uRes.x / c0.x, uRes.y / c0.y));
-  if (vw > 0.0 && DE < vw) H += min(length(dH), smax) * (vw - DE) * (vw - DE) / (2.0 * vw);
+  float sCap = 4.0 / (hmax * min(uRes.x / c0.x, uRes.y / c0.y));
+  if (vw > 0.0 && DE < vw) H += min(length(dH), sCap) * (vw - DE) * (vw - DE) / (2.0 * vw);
   // The mask: the front crystal (its outline) or its facet (its ridges and edges too), with its random.
   GenOut g = genOut(BV * clamp(cyEdges(V, DR, MR, DV, MV), 0.0, 1.0), u_ground ? 1.0 : C, RN, facets ? max(SD, -DR) : SD);
   // (The bevel is done: the wrapper's, by the mask's distance, would dip along the creases between layers.)

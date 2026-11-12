@@ -1210,7 +1210,7 @@ GenOut gen(vec2 p) {
       dNew -= 0.04 * R * gi * u_wobble * (hwb.x * (nu.x * nu.x - nu.y * nu.y) + hwb.y * nu.x * (4.0 * nu.x * nu.x - 3.0) + hwb.z * nu.y * (3.0 - 4.0 * nu.y * nu.y));
     }
     rowMin = min(rowMin, dNew);
-    rowS = org_smin(rowS, dNew, ks);
+    rowS = smin(rowS, dNew, ks);
     rowMinS = min(rowMinS, (dNew - u_outline) * fNew);
     if (j >= 6) {
       // Column c − 3: covered by the rows in front and by any of the three columns either side that ranks above it.
@@ -1236,7 +1236,7 @@ GenOut gen(vec2 p) {
     }
     if (j == nc - 1) {
       frontMin = min(frontMin, rowMin);
-      frontS = org_smin(frontS, rowS, ks);
+      frontS = smin(frontS, rowS, ks);
       frontMinS = min(frontMinS, rowMinS);
     }
     dA = vec3(dA.yz, dB.x);

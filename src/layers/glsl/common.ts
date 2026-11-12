@@ -100,6 +100,12 @@ vec4 sampleT(sampler2D t, vec2 px) {
 // Shortest offset between two pixel positions (toroidal when tiling).
 vec2 wrapDelta(vec2 d) { return uTile ? d - uRes * floor(d / uRes + 0.5) : d; }
 
+// Order-independent key of a cell pair (wrapped ids), so both cells agree on the pair's randoms; aLo: a sorts first.
+ivec2 pairKey(ivec2 a, ivec2 b, out bool aLo) {
+  aLo = a.x < b.x || (a.x == b.x && a.y < b.y);
+  return aLo ? a * 7919 + b : b * 7919 + a;
+}
+
 // ---------------------------------------------------------------- coordinates
 // User positions are fractions 0..1 with y DOWN; convert to GL pixel space.
 vec2 userPx(vec2 u) { return vec2(u.x * uRes.x, (1.0 - u.y) * uRes.y); }
@@ -261,6 +267,19 @@ float profileCurve(int type, float x) {
   if (type == 5) return 1.0 - abs(2.0 * x - 1.0);
   if (type == 6) return floor(x * 3.999) / 3.0;
   return x;
+}
+
+// ---------------------------------------------------------------- smooth min / max
+// Polynomial smooth minimum / maximum over a blend width k (k <= 0: plain min / max). sminK is how far the minimum dips
+// below min(a, b) (at most k / 4, where a = b).
+float sminK(float a, float b, float k) {
+  float h = k > 0.0 ? max(k - abs(a - b), 0.0) / k : 0.0;
+  return h * h * k * 0.25;
+}
+float smin(float a, float b, float k) { return min(a, b) - sminK(a, b, k); }
+float smax(float a, float b, float k) {
+  float h = max(k - abs(a - b), 0.0);
+  return max(a, b) + (k > 0.0 ? h * h / (4.0 * k) : 0.0);
 }
 
 // ---------------------------------------------------------------- SDF operators

@@ -16,6 +16,16 @@ export function gcd(a: number, b: number): number {
 	return Math.max(a, 1);
 }
 
+/** Extended Euclid (truncating division): [g, s, t] with s·a + t·b = g = gcd(a, b) ≥ 0. */
+export function extGcd(a: number, b: number): [number, number, number] {
+	let [r0, r1, s0, s1, t0, t1] = [a, b, 1, 0, 0, 1];
+	while (r1 !== 0) {
+		const q = Math.trunc(r0 / r1);
+		[r0, r1, s0, s1, t0, t1] = [r1, r0 - q * r1, s1, s0 - q * s1, t1, t0 - q * t1];
+	}
+	return r0 < 0 ? [-r0, -s0, -t0] : [r0, s0, t0];
+}
+
 /** GLSL cellsFor(scale, stretch): cells across and down for `scale` across the width, whole when tiling. */
 export function cellsFor(scale: number, stretch: number, c: LayerCanvas): [number, number] {
 	const cx = f32(scale / Math.max(stretch, 1e-3));

@@ -26,18 +26,6 @@ float org_line(float d, float w, float s) {
   return 1.0 - smoothstep(-0.5, 0.5 + max(s, 0.0), d - 0.5 * w);
 }
 
-// Polynomial smooth minimum / maximum over a blend width k (k <= 0: plain min / max). org_sminK is how far the minimum
-// dips below min(a, b) (at most k / 4, where a = b).
-float org_sminK(float a, float b, float k) {
-  float h = k > 0.0 ? max(k - abs(a - b), 0.0) / k : 0.0;
-  return h * h * k * 0.25;
-}
-float org_smin(float a, float b, float k) { return min(a, b) - org_sminK(a, b, k); }
-float org_smax(float a, float b, float k) {
-  float h = max(k - abs(a - b), 0.0);
-  return max(a, b) + (k > 0.0 ? h * h / (4.0 * k) : 0.0);
-}
-
 // Power-weighted Voronoi (the cells of liquids and cracked plates): cell c's site, jittered inside its cell of a grid
 // of cs px cells, and its weight (xy, z), from the hash of its wrapped id. wScale spreads the weights (cell sizes).
 vec3 org_powerSite(ivec2 c, ivec2 per, vec2 cs, float jitter, float wScale, float seed) {

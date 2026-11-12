@@ -4,7 +4,7 @@
 import { P, enumIndex, gradient } from '@/core/params';
 import type { LayerCanvas, LayerDef } from '../types';
 import type { ParamValues } from '@/core/params';
-import { NO_PERIOD, cellsFor, f32, gcd, periodOf, radians } from '../derivedMath';
+import { NO_PERIOD, cellsFor, extGcd, f32, gcd, periodOf, radians } from '../derivedMath';
 import { ORG_GLSL } from './organicShared';
 
 // ------------------------------------------------------------------------------------------------ marble
@@ -60,15 +60,9 @@ function mbTurbDir(c: V2): I4 {
 		if (q > f32(best + 1e-4) && best <= f32(0.995)) [best, m] = [q, v];
 	}
 	// Extended Euclid: s·m.x + t·m.y = g, so the primitive m / g has the Bezout pair (s, t).
-	let a0 = [m[0], 1, 0];
-	let a1 = [m[1], 0, 1];
-	for (let i = 0; i < 8 && a1[0] !== 0; i++) {
-		const q = Math.trunc(a0[0] / a1[0]);
-		[a0, a1] = [a1, a0.map((x, j) => x - q * a1[j])];
-	}
-	if (a0[0] < 0) a0 = a0.map((x) => -x);
-	const g = Math.max(a0[0], 1);
-	return [Math.trunc(m[0] / g), Math.trunc(m[1] / g), a0[1], a0[2]];
+	const [g0, s, t] = extGcd(m[0], m[1]);
+	const g = Math.max(g0, 1);
+	return [Math.trunc(m[0] / g), Math.trunc(m[1] / g), s, t];
 }
 
 /**
@@ -1177,8 +1171,8 @@ vec4 cl_cells(vec2 p, vec2 cells, vec2 M, float jitter, float sizeVar, float k, 
     }
   }
   ivec2 a = imod(bc, per), b = imod(nc, per);
-  int ka = a.x + a.y * 7919, kb = b.x + b.y * 7919;
-  er = hashI(ivec2(min(ka, kb), max(ka, kb)), seed + 29.0);
+  bool aLo;
+  er = hashI(pairKey(a, b, aLo), seed + 29.0);
   float dr = k > 0.0 ? m - kk * log(max(acc, 1.0)) : m;
   // Shifted by the rims' rounding, so it meets the rims' distance as kg goes to 0.
   // The border normal, blended with the second-nearest bisector's within ~3 px of where they swap (the medial lines
@@ -1186,7 +1180,7 @@ vec4 cl_cells(vec2 p, vec2 cells, vec2 M, float jitter, float sizeVar, float k, 
   float bl = 0.5 * (1.0 - smoothstep(0.0, 3.0, m2 - mg));
   vec2 nb2 = mix(nrm1, nrm2, bl);
   nrm = dot(nb2, nb2) > 1e-6 ? normalize(nb2) : nrm1;
-  dg = dr - org_sminK(mg, m2, kg);
+  dg = dr - sminK(mg, m2, kg);
   // F1 / F2 for weighted cells: d1 / sqrt(d1² + Δ), Δ the power distance to the nearest other site less the own. It is
   // the plain F1 / F2 for equal weights, 0 at the site and exactly 1 on the weighted border from both sides — the plain
   // ratio isn't, between cells of different weights, and the domes stepped there.
@@ -1225,11 +1219,11 @@ float cl_liquid(float dCore, float dGlow, float f12, float R, float rim, float r
   // (Rounded rims), not a razor lip.
   float hp = u_rim_round > 0.0 ? mix(hc, 1.0 - smoothstep(0.0, 0.5 * rim + 5.0 + u_rim_soft, dCore), u_rim_round) : hc;
   if (u_mode == 0) {
-    h = vec2(org_smax(hc, 1.0 - dome, ks), hp);
+    h = vec2(smax(hc, 1.0 - dome, ks), hp);
     // The glow next to the rim follows the rim's brightness variation half way (visible on thin rims too).
     // The glow follows only the smooth part of the rim's brightness variation (the per-segment random jumps where the
     // nearest border changes, inside the cell).
-    return org_smax(core * rb, pow(1.0 - t, u_falloff) * glowAmt * (1.0 - u_rim_var * 0.25 * (1.0 - rbs)), ks);
+    return smax(core * rb, pow(1.0 - t, u_falloff) * glowAmt * (1.0 - u_rim_var * 0.25 * (1.0 - rbs)), ks);
   }
   h = vec2((1.0 - hc) * dome, 1.0 - hp);
   return (1.0 - core) * mix(glowAmt, 1.0, 1.0 - pow(1.0 - t, u_falloff));
