@@ -337,10 +337,8 @@ float tb_shape(vec2 q) {
     return max(-v, sdEllipse(q, vec2(hl, d)));
   }
   // Chamfered plate.
-  vec2 c = vec2(abs(u), abs(v - 0.5 * d));
   vec2 b = vec2(hl, 0.5 * d);
-  float ch = min(b.x, b.y) * clamp(u_cut, 0.0, 1.0);
-  return max(sdBox(c, b), (c.x + c.y - (b.x + b.y - ch)) * TB_R2);
+  return sdChamferBox(vec2(u, v - 0.5 * d), b, min(b.x, b.y) * clamp(u_cut, 0.0, 1.0));
 }
 
 // Bevel aspect: plane i of a convex element in its local frame — its unit normal (xy) and offset (z): the plane is

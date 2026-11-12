@@ -16,6 +16,21 @@ float sdBox(vec2 p, vec2 b) {
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
 }
 
+// Box (half size b) with its corners cut at 45° by c px along each side.
+float sdChamferBox(vec2 p, vec2 b, float c) {
+  vec2 a = abs(p);
+  return max(sdBox(p, b), (a.x + a.y - (b.x + b.y - c)) * 0.70710678);
+}
+
+// Hexagon of inradius r, flat top and bottom (swap p's components for one standing on a point).
+float sdHexagon(vec2 p, float r) {
+  const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
+  p = abs(p);
+  p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
+  p -= vec2(clamp(p.x, -k.z * r, k.z * r), r);
+  return length(p) * sign(p.y);
+}
+
 // Ellipse (approximate but robust, exact for circles).
 float sdEllipse(vec2 p, vec2 ab) {
   ab = max(ab, vec2(1e-3));

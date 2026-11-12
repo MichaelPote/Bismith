@@ -9,6 +9,7 @@
 
 import { P, gradient, type ParamDef, type ParamValues } from '@/core/params';
 import { MAX_GRID, edgesPx, gridOf, layoutGrid, panelAt, randomMerges, staggerAlong } from '@/core/grid';
+import { GLSL_MOULD } from '../glsl/mould';
 import type { LayerDef } from '../types';
 
 /** Moulding step profiles. Option order is the uniform's index (the GLSL tests it): only append. */
@@ -60,7 +61,7 @@ const SHAPES: ([string, string] | [string, string, string])[] = [
 	['oval', 'Oval']
 ];
 /** Rail row profiles across their height, from the panels out to the area's edge: none, then the step profiles. */
-const BAND_PROFILES: ([string, string] | [string, string, string])[] = [
+const RAIL_PROFILES: ([string, string] | [string, string, string])[] = [
 	['none', 'None'],
 	...STEP_PROFILES.slice(0, 5),
 	['cornice', 'Cornice (members)', 'A bead and fillet off the panels, a cove, a fillet and an ogee out to the edge'],
@@ -489,12 +490,12 @@ export const panellingLayer: LayerDef = {
 			showIf: (p) => p.boss !== 'none',
 			hint: 'Sets the height of the bosses'
 		}),
-		P.enum('band_top', 'Top rail', 'none', BAND_PROFILES, {
+		P.enum('band_top', 'Top rail', 'none', RAIL_PROFILES, {
 			group: 'ornament',
 			section: 'Rails',
 			hint: 'Turns the first row into a rail across the whole width, a cornice, shaped by this profile out to the top edge'
 		}),
-		P.enum('band_bot', 'Bottom rail', 'none', BAND_PROFILES, {
+		P.enum('band_bot', 'Bottom rail', 'none', RAIL_PROFILES, {
 			group: 'ornament',
 			section: 'Rails',
 			hint: 'Turns the last row into a rail across the whole width, a skirting or dado, shaped by this profile out to the bottom edge'
@@ -644,22 +645,9 @@ export const panellingLayer: LayerDef = {
 			}
 		return { cells: { width: MAX_GRID, height: MAX_GRID, data } };
 	},
-	glsl: /* glsl */ `
-// A moulding step's 0..1 progress at t of its width: chamfer, round (convex: quick at the top), cove (concave: quick
-// at the bottom), ogee.
-float pnl_ease(int k, float t, bool rising) {
-  t = clamp(t, 0.0, 1.0);
-  if (k == 1) return t;
-  if (k == 4) return t * t * (3.0 - 2.0 * t);
-  bool quick = (k == 2) == rising;
-  return quick ? sqrt(max(1.0 - (1.0 - t) * (1.0 - t), 0.0)) : 1.0 - sqrt(max(1.0 - t * t, 0.0));
-}
-
-float pnl_box(vec2 q, vec2 b) {
-  vec2 d = abs(q) - b;
-  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
-}
-
+	glsl:
+		GLSL_MOULD +
+		/* glsl */ `
 // The panel's outline: q from its centre (y down), b its half size, r the corner size. Square, cut, rounded, notched;
 // arched top, rounded both ends, pointed arch, cusped (round bottom, a dip between two points on top), oval.
 float pnl_shape(vec2 q, vec2 b, float r, int kind) {
@@ -678,10 +666,10 @@ float pnl_shape(vec2 q, vec2 b, float r, int kind) {
       float R = (h * h + b.x * b.x) / (2.0 * b.x);
       float ys = h - b.y;
       float lens = max(length(f - vec2(R - b.x, ys)) - R, length(f - vec2(b.x - R, ys)) - R);
-      d = min(pnl_box(f - vec2(0.0, 0.5 * (ys + b.y)), vec2(b.x, 0.5 * (b.y - ys))), lens);
+      d = min(sdBox(f - vec2(0.0, 0.5 * (ys + b.y)), vec2(b.x, 0.5 * (b.y - ys))), lens);
     } else {
       float yc = b.y - ra;
-      float box = kind == 5 ? pnl_box(f, vec2(b.x, yc)) : pnl_box(f - vec2(0.0, 0.5 * ra), vec2(b.x, b.y - 0.5 * ra));
+      float box = kind == 5 ? sdBox(f, vec2(b.x, yc)) : sdBox(f - vec2(0.0, 0.5 * ra), vec2(b.x, b.y - 0.5 * ra));
       d = min(box, length(f - vec2(0.0, -yc)) - ra);
     }
     if (kind == 7) {
@@ -692,11 +680,10 @@ float pnl_shape(vec2 q, vec2 b, float r, int kind) {
     }
     return d;
   }
-  vec2 d = a - (kind == 2 ? b - rr : b);
-  float box = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - (kind == 2 ? rr : 0.0);
-  if (kind == 1) return max(box, (a.x + a.y - (b.x + b.y - rr)) * 0.70710678);
-  if (kind == 3) return max(box, rr - length(a - b));
-  return box;
+  if (kind == 1) return sdChamferBox(q, b, rr);
+  float k2 = kind == 2 ? rr : 0.0;
+  float box = sdBox(q, b - k2) - k2;
+  return kind == 3 ? max(box, rr - length(a - b)) : box;
 }
 
 // An ellipsoid cap of radii r at p: 1 at its centre, 0 at its rim.
@@ -869,7 +856,7 @@ GenOut gen(vec2 p) {
     float blvl = top ? u_band_lvl : u_band_lvl2;
     float H = max(y1 - y0, 1.0);
     if (bk < 6) {
-      h = mix(u_frame, blvl, bk == 1 ? clamp(px, 0.0, 1.0) : pnl_ease(bk - 1, t, blvl > u_frame));
+      h = mix(u_frame, blvl, bk == 1 ? clamp(px, 0.0, 1.0) : mouldEase(bk - 1, t, blvl > u_frame));
     } else {
       // Members from the panels' side to the edge: where each ends (share of the rail), its profile and the share of
       // the way from the frame to the rail level it reaches (a bead goes there and back).
@@ -886,10 +873,9 @@ GenOut gen(vec2 p) {
         float fe = RF[b0 + i];
         if (t >= t0 && (t < t1 || i == 5)) {
           float tt = (t - t0) / max(t1 - t0, 1e-4);
-          float x = 2.0 * tt - 1.0;
           f = k == 0 ? mix(f0, fe, clamp((t - t0) * H, 0.0, 1.0))
-            : k == 5 ? mix(f0, fe, sqrt(max(1.0 - x * x, 0.0)))
-            : mix(f0, fe, pnl_ease(k, tt, fe > f0));
+            : k == 5 ? mix(f0, fe, mouldBead(tt))
+            : mix(f0, fe, mouldEase(k, tt, fe > f0));
         }
         if (i < 5) qd = min(qd, abs(t - t1) * H);
         if (k != 5) f0 = fe;
@@ -914,10 +900,10 @@ GenOut gen(vec2 p) {
     vec2 ctr = 0.5 * vec2(x0 + x1, ya + yb);
     vec2 hb = max(0.5 * vec2(x1 - x0, yb - ya), vec2(0.5));
     vec2 lq = q0 - ctr;
-    float dp = pnl_box(lq, hb);
+    float dp = sdBox(lq, hb);
     float ey = hb.y - abs(lq.y);
     if (dp < 0.0) {
-      h = mix(u_frame, u_pil_lvl, pnl_ease(2, -dp / 1.5, u_pil_lvl > u_frame));
+      h = mix(u_frame, u_pil_lvl, mouldEase(2, -dp / 1.5, u_pil_lvl > u_frame));
       if (u_pil_cap > 0.0) h += 0.06 * clamp(u_pil_cap - ey + 0.5, 0.0, 1.0) * clamp(-dp / 1.5, 0.0, 1.0);
       float m = 2.0;
       if (u_pil_flutes > 0 && ey > u_pil_cap + m) {
@@ -986,7 +972,7 @@ GenOut gen(vec2 p) {
     // The shape may start from a later step (Shape from): the steps before it are square, the ones from it follow the
     // shape inset by their start — a notch round a carving inside a square outer moulding.
     float sStart = (u_shape_from > 1 ? u_m1_w : 0.0) + (u_shape_from > 2 ? u_m2_w : 0.0) + (u_shape_from > 3 ? u_m3_w : 0.0);
-    float dRect = pnl_box(sq, hb2);
+    float dRect = sdBox(sq, hb2);
     float ds = pnl_shape(sq, hb2 - sStart, u_corner, u_shape);
     d = sStart > 0.0 ? dRect : ds;
     // Inside the shaped step's square, the distance to its shape (outside it — in a notch — the steps before it run on
@@ -1022,11 +1008,10 @@ GenOut gen(vec2 p) {
         float end = L[i];
         if (!done && e < pos + w) {
           float t = (e - pos) / w;
-          float x = 2.0 * t - 1.0;
           h = kind == 0 ? mix(lvl, end, clamp(e - pos, 0.0, 1.0))
-            : kind == 5 ? mix(lvl, end, sqrt(max(1.0 - x * x, 0.0)))
-            : kind == 6 ? mix(lvl, end, 1.0 - abs(x))
-            : mix(lvl, end, pnl_ease(kind, t, end > lvl));
+            : kind == 5 ? mix(lvl, end, mouldBead(t))
+            : kind == 6 ? mix(lvl, end, mouldRidge(t))
+            : mix(lvl, end, mouldEase(kind, t, end > lvl));
           hitI = i;
           hitRep = rep;
           hitPos = pos;
@@ -1068,11 +1053,11 @@ GenOut gen(vec2 p) {
       float face = 0.0;
       h = lvl;
       if (u_field == 1) {
-        h = mix(lvl, top, u_field_prof == 0 ? clamp(f, 0.0, 1.0) : pnl_ease(u_field_prof, f / max(u_field_w, 0.5), top > lvl));
+        h = mix(lvl, top, u_field_prof == 0 ? clamp(f, 0.0, 1.0) : mouldEase(u_field_prof, f / max(u_field_w, 0.5), top > lvl));
         face = u_field_w;
       } else if (u_field == 2) {
         float t = clamp(f / span, 0.0, 1.0);
-        h = mix(lvl, top, sqrt(max(1.0 - (1.0 - t) * (1.0 - t), 0.0)));
+        h = mix(lvl, top, mouldRound(t));
       } else if (u_field == 3) {
         h = mix(lvl, top, clamp(f / span, 0.0, 1.0));
       }
@@ -1116,14 +1101,14 @@ GenOut gen(vec2 p) {
       vec2 bc = max(hb - sStart - u_boss_in, vec2(0.0));
       vec2 ba = abs(lq) - bc;
       float pet = pow(abs(cos(3.0 * atan(ba.y, ba.x))), 0.7);
-      float db = u_boss == 2 ? pnl_box(ba, vec2(u_boss_r)) : length(ba) - u_boss_r * (u_boss == 3 ? 0.72 + 0.28 * pet : 1.0);
+      float db = u_boss == 2 ? sdBox(ba, vec2(u_boss_r)) : length(ba) - u_boss_r * (u_boss == 3 ? 0.72 + 0.28 * pet : 1.0);
       // Only where the corner is the panel's (an arch's top corners are frame): its centre inside the outline, or in a
       // notch.
       if (u_shape >= 4 && pnl_shape(sign(lq) * bc, hb, u_corner, u_shape) > 0.0) db = 1e4;
       bd = min(bd, db);
       if (db < 0.5) {
         float t = clamp(-db / max(u_boss == 2 ? 1.5 : 0.8 * u_boss_r, 0.5), 0.0, 1.0);
-        float prof = u_boss == 2 ? t : sqrt(max(1.0 - (1.0 - t) * (1.0 - t), 0.0));
+        float prof = u_boss == 2 ? t : mouldRound(t);
         // A rosette's petals rise toward their middles, round a button.
         if (u_boss == 3) prof = max(prof * (0.7 + 0.3 * pet), pnl_ell(ba, vec2(0.3 * u_boss_r)));
         h = mix(h, mix(h, u_boss_lvl, prof), clamp(0.5 - db, 0.0, 1.0));

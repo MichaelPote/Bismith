@@ -23,7 +23,7 @@
 
 import { P, halfPx, type ParamDef, type ParamValues } from '@/core/params';
 import { placementParams, repeatParams } from '../commonParams';
-import { FASTENER_HEADS, GRB_GLSL } from './greebleCommon';
+import { FASTENER_HEADS, GRB_HEADS_GLSL } from './greebleCommon';
 import type { LayerDef } from '../types';
 
 const PLACEMENT: ParamDef[] = [
@@ -535,7 +535,7 @@ export const circleLayer = shape({
 	placementShowIf: { outline: circleHead },
 	fresh: (t) => ({ radius: Math.round(short(t) * 0.2), bevel: freshBevel(t) }),
 	sdfGlsl:
-		GRB_GLSL +
+		GRB_HEADS_GLSL +
 		/* glsl */ `
 vec2 ellipseAxes() { return vec2(u_radius, u_radius * u_squash); }
 // Head: 0 the circle; else a fastener head (FASTENER_HEADS' index + 1; GRB_FK its kind).
@@ -559,7 +559,7 @@ float shapeSdf(vec2 q, float rnd, vec2 cell) {
   // (gShapeBevel, GenOut.bdist); its footprint, the shape, may be a counterbore round that. For shapeRelief: where the
   // instance is, and the edge's distance in px.
   gShapeNoOutline = true;
-  float edge = headDome() ? sdEllipseExact(q, ellipseAxes()) : headHex() ? grb_hexagon(q, HEX_FLATS * u_radius) : length(q) - u_radius;
+  float edge = headDome() ? sdEllipseExact(q, ellipseAxes()) : headHex() ? sdHexagon(q, HEX_FLATS * u_radius) : length(q) - u_radius;
   gShapeBevel = edge;
   gShapeAux = vec3(q, edge * gShapeScale);
   return headSunk() ? length(q) - u_sink_r * u_radius : edge;
@@ -585,7 +585,7 @@ void shapeRelief(inout GenOut g, float d, vec3 f) {
   float dark = 0.0;
   if (k == 1) {
     // An Allen bolt: a hex socket sunk deep in its cap.
-    float sock = 1.0 - smoothstep(-0.35, 0.35, grb_hexagon(q, max(u_socket * r, 1.0)));
+    float sock = 1.0 - smoothstep(-0.35, 0.35, sdHexagon(q, max(u_socket * r, 1.0)));
     head -= sock;
     dark = sock;
   } else if (k == 2) {
@@ -652,7 +652,7 @@ float shapeEdges(vec2 q, float rnd, vec2 cell, vec2 ax, vec2 ay, float dl) {
       h2 = min(h2, bevelSeg2(ph, a0, b0));
       a0 = b0;
     }
-    return (grb_hexagon(q, HEX_FLATS * u_radius) < 0.0 ? -1.0 : 1.0) * sqrt(h2);
+    return (sdHexagon(q, HEX_FLATS * u_radius) < 0.0 ? -1.0 : 1.0) * sqrt(h2);
   }
   bool cut = u_sweep < 360.0;
   gShapeEdgesAll = u_outline <= 0.0;

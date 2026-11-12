@@ -7,6 +7,7 @@
 import { P, gradient, halfPx, type ParamDef, type ParamValues } from '@/core/params';
 import type { LayerDef } from '../types';
 import { maskParts } from '../commonParams';
+import { GLSL_MOULD } from '../glsl/mould';
 import { GRB_GLSL, ORIENT, ORIENT_ACROSS, ORIENT_ALONG } from './greebleCommon';
 
 // Option order is the uniform's index (the GLSL tests it): only append.
@@ -467,22 +468,19 @@ export const trimLayer: LayerDef = {
 	fresh: trimFresh,
 	glsl:
 		GRB_GLSL +
+		GLSL_MOULD +
 		/* glsl */ `
 // Band shape 0..1 at t (0 = outer edge, 1 = inner edge); y = px from the band's outer edge, h = band px.
 float grb_bandShape(int prof, float t, float y, float h) {
-  float x = 2.0 * t - 1.0;
   if (prof == 0) return 1.0;
-  if (prof == 1) return sqrt(max(1.0 - x * x, 0.0));
-  if (prof == 2) return 1.0 - sqrt(max(1.0 - x * x, 0.0));
-  if (prof == 3) return 1.0 - abs(x);
-  if (prof == 4) return min(abs(x) * 2.0, 1.0);
+  if (prof == 1) return mouldBead(t);
+  if (prof == 2) return 1.0 - mouldBead(t);
+  if (prof == 3) return mouldRidge(t);
+  if (prof == 4) return min(abs(2.0 * t - 1.0) * 2.0, 1.0);
   if (prof == 5) return grb_rise(-min(y, h - y), u_bevel);
-  if (prof == 6) return t;
-  if (prof == 7) return 1.0 - t;
-  // Quarter rounds (8, 9), ogees (10, 11) and coves (12, 13: concave quarter rounds), rising (even) or falling (odd)
-  // inward.
+  // Chamfers (6, 7), quarter rounds (8, 9), ogees (10, 11) and coves (12, 13), rising (even) or falling (odd) inward.
   float r = (prof & 1) == 0 ? t : 1.0 - t;
-  return prof < 10 ? sqrt(max(1.0 - (1.0 - r) * (1.0 - r), 0.0)) : prof < 12 ? r * r * (3.0 - 2.0 * r) : 1.0 - sqrt(max(1.0 - r * r, 0.0));
+  return mouldEase(prof < 8 ? 1 : prof < 10 ? 2 : prof < 12 ? 4 : 3, r, true);
 }
 
 // Join bands: bit p set where profile p starts at its level (flute, groove, the falling ones), and where it ends there.

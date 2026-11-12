@@ -2270,7 +2270,7 @@ float grb_switches(vec2 ql, vec2 lo2, vec2 hi2, vec4 pa, vec4 pb2, float hd, ino
     // A toggle: a round washer, a hex nut, a lever thrown up or down rising to a ball tip (it leans out of the plate),
     // on some banks a U-guard round each lever.
     float wash = length(lp) - 0.2 * u0;
-    float nut = grb_hexagon(lp, 0.13 * u0);
+    float nut = sdHexagon(lp, 0.13 * u0);
     float lr = max(0.11 * u0, 1.2);
     vec2 tipc = vec2(0.0, 0.44 * u0 * sg2);
     float tl = clamp(lp.y * sg2 / (0.44 * u0), 0.0, 1.0);
