@@ -4,7 +4,7 @@
 // with a bounding-circle test so far instances cost one length().
 
 import { P, round1 as r1, type ParamDef } from '@/core/params';
-import { spacingParams } from '../commonParams';
+import { placementParams, repeatParams } from '../commonParams';
 import type { LayerDef } from '../types';
 import { GLSL_MOT_COMMON, MOTIF_DEFAULTS } from './motifCommon';
 
@@ -16,49 +16,14 @@ const GLSL_MOT_INST =
 float gMotH = 0.0;
 `;
 
-const PLACEMENT: ParamDef[] = [
-	P.float('x', 'X', 0.5, -2, 3, {
-		softMin: 0,
-		softMax: 1,
-		step: 0.001,
-		hint: 'Moves the centre across (0…1, within each repeat cell)'
-	}),
-	P.float('y', 'Y', 0.5, -2, 3, {
-		softMin: 0,
-		softMax: 1,
-		step: 0.001,
-		hint: 'Moves the centre down (0…1, within each repeat cell)'
-	}),
-	P.float('rotation', 'Rotation', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1 })
-];
+const PLACEMENT: ParamDef[] = placementParams();
 
-const REPEAT: ParamDef[] = [
-	P.int('rep_x', 'Columns', 1, 1, 256, { softMax: 16, group: 'repeat' }),
-	P.int('rep_y', 'Rows', 1, 1, 256, { softMax: 16, group: 'repeat' }),
-	...spacingParams({ group: 'repeat' }),
-	P.float('rep_stagger', 'Row offset', 0, 0, 1, {
-		step: 0.001,
-		group: 'repeat',
-		hint: 'Shifts every other row sideways (use an even row count to tile)'
-	}),
-	P.float('rep_rot', 'Rotation variation', 0, 0, 180, { unit: '°', step: 0.1, group: 'repeat' }),
-	P.float('rep_scale', 'Size variation', 0, 0, 1, {
-		step: 0.001,
-		group: 'repeat',
-		hint: 'Shrinks each instance by a random amount (0 = all full size, 0.5 = anywhere from half to full size). Line widths and bevels shrink with it'
-	}),
-	P.float('rep_jit', 'Position jitter', 0, 0, 1, {
-		step: 0.001,
-		group: 'repeat',
-		hint: 'Moves each instance randomly off its cell centre, up to half a cell at 1, for scattered medallions or uneven rune text'
-	}),
-	P.float('rep_drop', 'Drop out', 0, 0, 1, {
-		step: 0.001,
-		group: 'repeat',
-		hint: 'Removes this fraction of the instances at random'
-	}),
-	P.seed()
-];
+const REPEAT: ParamDef[] = repeatParams({
+	softMax: 16,
+	jitter: 'cell',
+	scaleHint:
+		'Shrinks each instance by a random amount (0 = all full size, 0.5 = anywhere from half to full size). Line widths and bevels shrink with it'
+});
 
 /**
  * Instancing wrapper. The layer supplies:

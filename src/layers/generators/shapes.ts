@@ -22,24 +22,12 @@
 //                             shapeSdf left in gShapeAux for it (so the relief isn't worked out twice)
 
 import { P, halfPx, type ParamDef, type ParamValues } from '@/core/params';
-import { spacingParams } from '../commonParams';
+import { placementParams, repeatParams } from '../commonParams';
 import { FASTENER_HEADS, GRB_GLSL } from './greebleCommon';
 import type { LayerDef } from '../types';
 
 const PLACEMENT: ParamDef[] = [
-	P.float('x', 'X', 0.5, -2, 3, {
-		softMin: 0,
-		softMax: 1,
-		step: 0.001,
-		hint: 'Moves the centre across (0…1, within each repeat cell)'
-	}),
-	P.float('y', 'Y', 0.5, -2, 3, {
-		softMin: 0,
-		softMax: 1,
-		step: 0.001,
-		hint: 'Moves the centre down (0…1, within each repeat cell)'
-	}),
-	P.float('rotation', 'Rotation', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1 }),
+	...placementParams(),
 	P.float('outline', 'Outline', 0, 0, 1024, {
 		softMax: 64,
 		unit: 'px',
@@ -48,76 +36,54 @@ const PLACEMENT: ParamDef[] = [
 	})
 ];
 
-const REPEAT: ParamDef[] = [
-	P.int('rep_x', 'Columns', 1, 1, 256, { softMax: 32, group: 'repeat' }),
-	P.int('rep_y', 'Rows', 1, 1, 256, { softMax: 32, group: 'repeat' }),
-	...spacingParams({ group: 'repeat' }),
-	P.float('rep_stagger', 'Row offset', 0, 0, 1, {
-		step: 0.001,
-		group: 'repeat',
-		hint: 'Shifts every other row sideways (use an even row count to tile)'
-	}),
-	P.float('rep_jitter', 'Position jitter', 0, 0, 1024, {
-		softMax: 64,
-		unit: 'px',
-		step: 0.1,
-		group: 'repeat',
-		hint: 'Moves each instance randomly, up to this far from its place on each axis'
-	}),
-	P.float('rep_rot', 'Rotation variation', 0, 0, 180, {
-		unit: '°',
-		step: 0.1,
-		group: 'repeat',
-		hint: 'Turns each instance randomly, up to this much either way'
-	}),
-	P.float('rep_rot_step', 'Rotation steps', 0, 0, 180, {
-		softMax: 90,
-		unit: '°',
-		step: 0.1,
-		group: 'repeat',
-		showIf: (p) => Number(p.rep_rot) > 0,
-		hint: 'Snaps the random turns to multiples of this angle (0 = any angle). For example, 90 with a Rotation variation of 180 gives each instance a random quarter turn, for notched tiles or hooks facing every way'
-	}),
-	P.enum(
-		'rep_flip',
-		'Flip at random',
-		'none',
-		[
-			['none', 'None'],
-			['x', 'Left / right'],
-			['y', 'Up / down'],
-			['both', 'Both']
+const REPEAT: ParamDef[] = repeatParams({
+	softMax: 32,
+	jitter: 'px',
+	after: {
+		rep_rot: [
+			P.float('rep_rot_step', 'Rotation steps', 0, 0, 180, {
+				softMax: 90,
+				unit: '°',
+				step: 0.1,
+				group: 'repeat',
+				showIf: (p) => Number(p.rep_rot) > 0,
+				hint: 'Snaps the random turns to multiples of this angle (0 = any angle). For example, 90 with a Rotation variation of 180 gives each instance a random quarter turn, for notched tiles or hooks facing every way'
+			}),
+			P.enum(
+				'rep_flip',
+				'Flip at random',
+				'none',
+				[
+					['none', 'None'],
+					['x', 'Left / right'],
+					['y', 'Up / down'],
+					['both', 'Both']
+				],
+				{
+					group: 'repeat',
+					hint: 'Mirrors half the instances at random on each chosen axis, so lopsided shapes like a hooked curve or a notched corner face both ways'
+				}
+			)
 		],
-		{
-			group: 'repeat',
-			hint: 'Mirrors half the instances at random on each chosen axis, so lopsided shapes like a hooked curve or a notched corner face both ways'
-		}
-	),
-	P.float('rep_scale', 'Size variation', 0, 0, 0.95, {
-		step: 0.001,
-		group: 'repeat',
-		hint: 'Shrinks each instance randomly, by up to this fraction'
-	}),
-	P.bool('rep_scale_bevel', 'Scale the bevel too', true, {
-		group: 'repeat',
-		showIf: (p) => Number(p.rep_scale) > 0,
-		hint: 'Narrows the bevel on shrunk instances to match, so they’re scaled copies of one shape. Off: every instance keeps the Bevel width in px (small ones come out domed, large ones flat-topped)'
-	}),
-	P.float('rep_drop', 'Drop out', 0, 0, 1, {
-		step: 0.001,
-		group: 'repeat',
-		hint: 'Removes this fraction of the instances at random'
-	}),
-	P.bool('rep_mirror_x', 'Mirror odd columns', false, {
-		group: 'repeat',
-		hint: 'Mirrors the position left / right in every other column. For example, 2 columns put a pair of instances near the outer edges, or a rivet line along both edges of a plate'
-	}),
-	P.bool('rep_mirror_y', 'Mirror odd rows', false, {
-		group: 'repeat',
-		hint: 'Mirrors the position up / down in every other row. With Mirror odd columns, 2×2 puts one instance in each corner'
-	}),
-	P.seed()
-];
+		rep_scale: [
+			P.bool('rep_scale_bevel', 'Scale the bevel too', true, {
+				group: 'repeat',
+				showIf: (p) => Number(p.rep_scale) > 0,
+				hint: 'Narrows the bevel on shrunk instances to match, so they’re scaled copies of one shape. Off: every instance keeps the Bevel width in px (small ones come out domed, large ones flat-topped)'
+			})
+		],
+		rep_drop: [
+			P.bool('rep_mirror_x', 'Mirror odd columns', false, {
+				group: 'repeat',
+				hint: 'Mirrors the position left / right in every other column. For example, 2 columns put a pair of instances near the outer edges, or a rivet line along both edges of a plate'
+			}),
+			P.bool('rep_mirror_y', 'Mirror odd rows', false, {
+				group: 'repeat',
+				hint: 'Mirrors the position up / down in every other row. With Mirror odd columns, 2×2 puts one instance in each corner'
+			})
+		]
+	}
+});
 
 /** Bevel span: Edge › Bevel's width, or all the way to the middle (and, for some shapes, a smooth dome). */
 const spanParam = (smooth?: [string, string]): ParamDef =>
