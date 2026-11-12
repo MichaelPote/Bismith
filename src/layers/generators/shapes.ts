@@ -166,7 +166,7 @@ const TAPER_CURVES: [string, string, string][] = [
 ];
 
 /**
- * The taper of a stroke (Line, Curve, Path / Polyline lines, Scratches): how much, towards which end, over how much of
+ * The taper of a stroke (Line, Curve, Polyline, Scratches): how much, towards which end, over how much of
  * it and in what curve; TAPER_GLSL draws it. `d` sets each layer's defaults; `section` files them under a heading.
  */
 export function taperParams(
