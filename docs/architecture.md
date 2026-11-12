@@ -180,7 +180,7 @@ ParamDef { key, label, type: float|int|bool|color|enum|seed|gradient|curve|text,
 
 `ParamDef`s are the single source of truth: the properties panel renders controls from them, the material
 pipeline uploads them as uniforms named `u_<key>` (enum → option index, colour → linear `vec3`, gradient →
-`vec4 u_<key>_stops[8]` in sRGB + `u_<key>_count`, text → not uploaded unless it declares a `bitmap` encoding:
+`vec4 u_<key>_stops[8]` in sRGB + the stops' opacities `vec4 u_<key>_alpha[2]` (`gradientLookupA`; a gradient with `alpha: true` edits them: Diffuse's and Grime's ramps) + `u_<key>_count`, text → not uploaded unless it declares a `bitmap` encoding:
 `pixels` / `font` → packed cells `ivec4 u_<key>[64]`, `points` → polygon vertices `vec4 u_<key>[64]`, both with an
 `ivec2 u_<key>_size`), and the optimiser reads the ranges to know what it may mutate.
 
@@ -267,14 +267,14 @@ The common generator wrapper then:
 5. **Channel outputs.** Each enabled output maps the value into a channel and blends it in, weighted by
    `mask × opacity`:
 
-| Output    | Source                        | Mapping                                     | Modes                                                                         |
-| --------- | ----------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------- |
-| Diffuse   | value / flat / random / shape | gradient ramp (≤8 stops) + colour variation | normal, multiply, screen, overlay, add, subtract, darken, lighten, soft light |
-| Opacity   | coverage                      | —                                           | replace, multiply, union (max), subtract                                      |
-| Height    | value / flat / random / shape | `value × amount + offset`                   | add, subtract, max, min, replace, multiply                                    |
-| Roughness | value / flat / random / shape | `mix(a, b, value)`                          | replace, multiply, add, min, max                                              |
-| Emissive  | value / flat / random / shape | `colour × intensity × value` (HDR)          | add, replace, max                                                             |
-| Specular  | value / flat / random / shape | `mix(a, b, value)` level 0..1               | replace, multiply, add, min, max                                              |
+| Output    | Source                        | Mapping                                                                                           | Modes                                                                         |
+| --------- | ----------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Diffuse   | value / flat / random / shape | gradient ramp (≤8 stops, each with an opacity: the colour below shows through) + colour variation | normal, multiply, screen, overlay, add, subtract, darken, lighten, soft light |
+| Opacity   | coverage                      | —                                                                                                 | replace, multiply, union (max), subtract                                      |
+| Height    | value / flat / random / shape | `value × amount + offset`                                                                         | add, subtract, max, min, replace, multiply                                    |
+| Roughness | value / flat / random / shape | `mix(a, b, value)`                                                                                | replace, multiply, add, min, max                                              |
+| Emissive  | value / flat / random / shape | `colour × intensity × value` (HDR)                                                                | add, replace, max                                                             |
+| Specular  | value / flat / random / shape | `mix(a, b, value)` level 0..1                                                                     | replace, multiply, add, min, max                                              |
 
 _Shape_ is inside the layer's own shape (1 in, 0 out, anti-aliased; 1 for layers without a shape) — the shape without
 its pattern, for layers that paint their own value over it (Wood: rougher gaps than boards, the grain ignored).

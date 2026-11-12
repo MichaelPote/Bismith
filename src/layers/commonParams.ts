@@ -841,7 +841,8 @@ export const OUTPUT_PARAMS: ParamDef[] = [
 	P.float('dif_opacity', 'Opacity', 1, 0, 1, { step: 0.001, group: 'diffuse' }),
 	P.gradient('dif_grad', 'Colour ramp', gradient('#2a2622', '#b8ab98'), {
 		group: 'diffuse',
-		hint: 'Maps the source to a colour along the gradient ramp (0 = left end, 1 = right end)'
+		alpha: true,
+		hint: 'Maps the source to a colour along the gradient ramp (0 = left end, 1 = right end). A stop’s opacity lets the colour below show through there'
 	}),
 	P.float('dif_jitter', 'Colour variation', 0, 0, 1, {
 		step: 0.001,
@@ -1132,15 +1133,19 @@ ${
   if (u_dif_on) {
     float v = srcValue(u_dif_src, value, g.rnd, shapeV);
     v = clamp(v + (g.rnd - 0.5) * u_dif_jitter, 0.0, 1.0);
-    vec3 top = gGenRgb.x >= 0.0 ? gGenRgb : gradientLookup(u_dif_grad_stops, u_dif_grad_count, v);
+    // The ramp's colour and its opacity there (a stop's opacity: the colour below shows through).
+    vec4 ramp = gGenRgb.x >= 0.0 ? vec4(gGenRgb, 1.0) : gradientLookupA(u_dif_grad_stops, u_dif_grad_alpha, u_dif_grad_count, v);
     if (gGenAlt.y > 0.0 && u_dif_src == 0 && gGenRgb.x < 0.0) {
       float va = clamp(gGenAlt.x + (g.rnd - 0.5) * u_dif_jitter, 0.0, 1.0);
-      top = mix(top, gradientLookup(u_dif_grad_stops, u_dif_grad_count, va), gGenAlt.y);
+      vec4 alt = gradientLookupA(u_dif_grad_stops, u_dif_grad_alpha, u_dif_grad_count, va);
+      float ma = mix(ramp.a, alt.a, gGenAlt.y);
+      ramp = vec4(ma > 1e-5 ? mix(ramp.rgb * ramp.a, alt.rgb * alt.a, gGenAlt.y) / ma : ramp.rgb, ma);
     }
+    vec3 top = ramp.rgb;
     top = mix(top, vec3(luma(top)), gGenGrey) * gGenShade;
     vec3 base = linearToSrgb(A.rgb);
     vec3 blended = blendMode(u_dif_blend, base, top);
-    float w = m * u_dif_opacity;
+    float w = m * u_dif_opacity * ramp.a;
     if (gGenTransmit > 0.0) {
       // Its transmitted share goes to emission (layTransparent: seen through, not shaded by the surface).
       vec3 a = A.rgb, e = E.rgb;
