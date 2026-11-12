@@ -5,7 +5,9 @@ import { getLayerDef, layerParamDefs, sanitizeLayer, createLayer as registryCrea
 import { MASK_HUES, sanitizeLimit } from '@/layers/masks';
 import { createPostFilter as registryCreatePost, getPostDef, sanitizePostFilter } from '@/render/post/registry';
 import { LIGHT_DEFS, createLight } from './lights';
-import { sanitizeParams } from './params';
+import { GALLERY_ID } from '@/gallery/ids';
+import { defaultParams, sanitizeParams } from './params';
+import { AMBIENT_DEFS, BASE_DEFS, PROJECT_DEFS, RENDER_DEFS, SKY_DEFS } from './settingsDefs';
 import { newId } from './ids';
 import {
 	applySettings,
@@ -20,7 +22,6 @@ import {
 } from './variants';
 import {
 	MAX_LIGHTS,
-	MAX_SIZE,
 	PROJECT_VERSION,
 	defaultBase,
 	defaultLighting,
@@ -28,6 +29,9 @@ import {
 	gatherGroups,
 	type Layer,
 	type Light,
+	type Lighting,
+	type MaterialBase,
+	type RenderSettings,
 	type PostFilter,
 	type PresetInfo,
 	type PresetKind,
@@ -35,16 +39,15 @@ import {
 	type LayerGroup
 } from './project';
 
+/** The project's own settings (PROJECT_DEFS). */
+type ProjectField = 'width' | 'height' | 'tileable' | 'heightDepth' | 'seed';
+
 export function createProject(overrides: Partial<Project> = {}): Project {
 	ensureBuiltins();
 	const project: Project = {
 		version: PROJECT_VERSION,
 		name: 'Untitled',
-		width: 128,
-		height: 128,
-		tileable: true,
-		heightDepth: 2,
-		seed: 1,
+		...(defaultParams(PROJECT_DEFS) as Pick<Project, ProjectField>),
 		base: defaultBase(),
 		layers: [
 			createLayer('noise', {
@@ -106,22 +109,11 @@ function presetInfo(v: unknown): { preset: PresetInfo } | undefined {
 /** The project's gallery entry (Project.gallery), or undefined. */
 function galleryRef(v: unknown): { gallery: { id: string } } | undefined {
 	const id = v && typeof v === 'object' ? (v as Record<string, unknown>).id : undefined;
-	return typeof id === 'string' && /^[a-z2-9]{10}$/.test(id) ? { gallery: { id } } : undefined;
-}
-
-function num(v: unknown, def: number, min: number, max: number, int = false): number {
-	let n = typeof v === 'number' ? v : Number(v);
-	if (!Number.isFinite(n)) n = def;
-	n = Math.min(max, Math.max(min, n));
-	return int ? Math.round(n) : n;
+	return typeof id === 'string' && GALLERY_ID.test(id) ? { gallery: { id } } : undefined;
 }
 
 function str(v: unknown, def: string): string {
 	return typeof v === 'string' ? v : def;
-}
-
-function hex(v: unknown, def: string): string {
-	return typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : def;
 }
 
 /** The on/off params of the colour outputs (diffuse, opacity, emission) across layer types. */
@@ -208,12 +200,7 @@ function uniqueIds<T extends { id: string }>(items: T[], prefix: string): T[] {
 
 /** The project's own fields (in a file, the base variant's), validated and default-filled. */
 function normalizeBase(raw: Record<string, any>): Project {
-	const base = defaultBase();
-	const rb = (raw.base ?? {}) as Record<string, unknown>;
-	const lighting = defaultLighting();
 	const rl = (raw.lighting ?? {}) as Record<string, any>;
-	const render = defaultRender();
-	const rr = (raw.render ?? {}) as Record<string, unknown>;
 
 	const stack = (list: unknown): Layer[] =>
 		(Array.isArray(list) ? list : [])
@@ -285,60 +272,21 @@ function normalizeBase(raw: Record<string, any>): Project {
 		'pf'
 	);
 
-	const specLevel = num(rb.specular, base.specular, 0, 1);
-	const specScale = num(rr.specular, render.specular, 0, 4);
-
 	return {
 		version: PROJECT_VERSION,
 		name: str(raw.name, 'Untitled'),
 		...(typeof raw.description === 'string' && raw.description.trim() ? { description: raw.description } : {}),
-		width: num(raw.width, 128, 1, MAX_SIZE, true),
-		height: num(raw.height, 128, 1, MAX_SIZE, true),
-		tileable: raw.tileable !== false,
-		heightDepth: num(raw.heightDepth, 2, 0, 4096),
-		seed: num(raw.seed, 1, 0, 99999, true),
-		base: {
-			color: hex(rb.color, base.color),
-			roughness: num(rb.roughness, base.roughness, 0, 1),
-			specular: specLevel,
-			metalness: num(rb.metalness, base.metalness, 0, 1),
-			height: num(rb.height, base.height, -64, 64),
-			opacity: num(rb.opacity, base.opacity, 0, 1)
-		},
+		...(sanitizeParams(PROJECT_DEFS, raw) as Pick<Project, ProjectField>),
+		base: sanitizeParams(BASE_DEFS, raw.base) as unknown as MaterialBase,
 		layers: gatherGroups(flat, groups),
 		...(groups.length ? { groups } : {}),
 		...(Object.keys(maskHues).length ? { maskHues } : {}),
 		lighting: {
-			sky: {
-				enabled: rl.sky?.enabled !== false,
-				zenith: hex(rl.sky?.zenith, lighting.sky.zenith),
-				horizon: hex(rl.sky?.horizon, lighting.sky.horizon),
-				intensity: num(rl.sky?.intensity, lighting.sky.intensity, 0, 1000),
-				image: typeof rl.sky?.image === 'string' ? rl.sky.image : '',
-				rotation: num(rl.sky?.rotation, 0, -180, 180),
-				plane: rl.sky?.plane === 'wall' ? 'wall' : 'floor'
-			},
-			ambient: {
-				color: hex(rl.ambient?.color, lighting.ambient.color),
-				intensity: num(rl.ambient?.intensity, lighting.ambient.intensity, 0, 1000)
-			},
+			sky: sanitizeParams(SKY_DEFS, rl.sky) as unknown as Lighting['sky'],
+			ambient: sanitizeParams(AMBIENT_DEFS, rl.ambient) as unknown as Lighting['ambient'],
 			lights
 		},
-		render: {
-			samplesPerFrame: num(rr.samplesPerFrame, render.samplesPerFrame, 1, 64, true),
-			maxSamples: num(rr.maxSamples, render.maxSamples, 1, 65536, true),
-			bounces: num(rr.bounces, render.bounces, 0, 4, true),
-			specular: specScale,
-			specularTint: num(rr.specularTint, render.specularTint, 0, 1),
-			ao: num(rr.ao, render.ao, 0, 8),
-			aoRadius: num(rr.aoRadius, render.aoRadius, 0.5, 128),
-			jitter: rr.jitter !== false,
-			clamp: num(rr.clamp, render.clamp, 0, 1000),
-			shadows: rr.shadows !== false,
-			supersample: num(rr.supersample, 1, 1, 4, true),
-			exportSamples: num(rr.exportSamples, render.exportSamples, 1, 65536, true),
-			exportSupersample: num(rr.exportSupersample, render.exportSupersample, 1, 4, true)
-		},
+		render: sanitizeParams(RENDER_DEFS, raw.render) as unknown as RenderSettings,
 		post,
 		...(galleryRef(raw.gallery) ?? {}),
 		// Last, so the file's readable part comes first.
