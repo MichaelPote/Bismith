@@ -225,6 +225,15 @@ export class TexelReader {
 	}
 }
 
+/** Floats as an RGBA8 texture `width` texels across, one per texel (its bits, little-endian): texF32 reads them back. */
+export function floatTexture(f: Float32Array, width: number): CpuTexture {
+	const height = Math.max(1, Math.ceil(f.length / width));
+	const data = new Uint8Array(width * height * 4);
+	const dv = new DataView(data.buffer);
+	f.forEach((x, i) => dv.setFloat32(i * 4, x, true));
+	return { width, height, data };
+}
+
 /**
  * GLSL for reading a primitive texture (interpolate it into the layer's shader): bytes, u16, u32 and float32 texels,
  * record and linear addresses, fixed-point positions (× the unit un), angles and unit vectors, and a cell's list.

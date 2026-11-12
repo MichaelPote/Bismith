@@ -8,8 +8,9 @@
 //          depth-first for long winding corridors, or from random frontier nodes for many short dead ends).
 // Route and maze draw a hash per node (hashI); the labyrinth grows sequentially, from a seeded PRNG.
 
-import { hashI } from '@/core/hash';
-import { KING, rng } from './router';
+import { hashI, seededRng } from '@/core/hash';
+import { imod } from '../derivedMath';
+import { KING, nodeIndex } from './router';
 
 export { KING };
 
@@ -48,7 +49,7 @@ export const kingOf = (dx: number, dy: number) => KING_OF[(dy + 1) * 3 + dx + 1]
 
 /** The node a link from node i toward KING[d] reaches (wrapped; untiled links never leave the board). */
 export const linkTo = (i: number, d: number, nx: number, ny: number) =>
-	((((Math.floor(i / nx) + KING[d][1]) % ny) + ny) % ny) * nx + (((((i % nx) + KING[d][0]) % nx) + nx) % nx);
+	nodeIndex((i % nx) + KING[d][0], Math.floor(i / nx) + KING[d][1], nx, ny, true);
 
 /** Links per node: its own plus the ones arriving from its neighbours. */
 export function linkDegrees(links: Uint8Array, nx: number, ny: number): Uint8Array {
@@ -70,12 +71,10 @@ export function traceLinks(o: TraceLinkOptions): TraceLinks {
 	const blk = Math.max(Math.round(o.block), 1);
 	const bnx = Math.max(Math.trunc(nx / blk), 1);
 	const bny = Math.max(Math.trunc(ny / blk), 1);
-	const imod = (a: number, m: number) => ((a % m) + m) % m;
 	const wx = (x: number) => (wrap ? imod(x, nx) : x);
 	const wy = (y: number) => (wrap ? imod(y, ny) : y);
-	const inside = (x: number, y: number) => wrap || (x >= 0 && y >= 0 && x < nx && y < ny);
 	/** Array index of a node (wrapped when tiling), or -1 outside the board. */
-	const idx = (x: number, y: number) => (inside(x, y) ? wy(y) * nx + wx(x) : -1);
+	const idx = (x: number, y: number) => nodeIndex(x, y, nx, ny, wrap);
 	const h = (x: number, y: number, salt: number) => hashI(wx(x), wy(y), o.seed + salt);
 	/** Hash of the node's block of cells (blocks share a direction). */
 	const hb = (x: number, y: number, salt: number) => {
@@ -118,7 +117,7 @@ export function traceLinks(o: TraceLinkOptions): TraceLinks {
 				for (let dir = 0; dir < 4; dir++)
 					if (
 						raw(x, y, dir) &&
-						inside(x + STEP[dir][0], y + STEP[dir][1]) &&
+						idx(x + STEP[dir][0], y + STEP[dir][1]) >= 0 &&
 						(dir === 2 ? pickNE(x, y) : dir === 3 ? !pickNE(x, y - 1) : true)
 					)
 						links[y * nx + x] |= STEP_BIT[dir];
@@ -140,7 +139,7 @@ export function traceLinks(o: TraceLinkOptions): TraceLinks {
 					const b = blockDir(x, y);
 					const t = h(x, y, 33);
 					d = (t < straight ? b : t < turnCut ? b + 1 : b + 7) % 8;
-					if (!inside(x + KING[d][0], y + KING[d][1])) d = -1;
+					if (idx(x + KING[d][0], y + KING[d][1]) < 0) d = -1;
 				}
 				outDir[y * nx + x] = d;
 			}
@@ -199,7 +198,7 @@ export function traceLinks(o: TraceLinkOptions): TraceLinks {
 function labyrinth(o: TraceLinkOptions, links: Uint8Array, idx: (x: number, y: number) => number): void {
 	const { nx, ny } = o;
 	const n = nx * ny;
-	const rand = rng(Math.floor(o.seed * 7919) + 101);
+	const rand = seededRng(Math.floor(o.seed * 7919) + 101);
 	const diag = clamp01(o.diagonal);
 	const bias = clamp01(o.bias);
 	const straight = clamp01(o.straight);

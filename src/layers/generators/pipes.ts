@@ -26,24 +26,24 @@ import {
 	type PipeRun
 } from './pipesGeometry';
 
-const isRandom = (p: Record<string, unknown>) => (p.layout ?? 'random') === 'random';
+const isRandom = (p: Record<string, unknown>) => p.layout === 'random';
 const isDrawn = (p: Record<string, unknown>) => p.layout === 'drawn';
 /** Outputs for paint over the pipes, not the metal itself (Metalness starts off for them). */
 const NOT_METAL = new Set(['underside', 'tubes', 'liquid']);
 
 /** The runs of a layer (drawn or random) at a texture size. */
 export function pipeRuns(q: ParamValues, o: PipeOptions): PipeRun[] {
-	const radius = Number(q.radius ?? 6);
-	const variety = Number(q.variety ?? 0.3);
-	if (q.layout === 'drawn') return drawnRuns(o, String(q.points ?? ''), q.units === 'fraction', radius, variety);
+	const radius = Number(q.radius);
+	const variety = Number(q.variety);
+	if (q.layout === 'drawn') return drawnRuns(o, String(q.points), q.units === 'fraction', radius, variety);
 	return randomRuns(o, {
-		runs: Math.round(Number(q.runs ?? 3)),
-		drops: Math.round(Number(q.drops ?? 2)),
+		runs: Math.round(Number(q.runs)),
+		drops: Math.round(Number(q.drops)),
 		radius,
 		variety,
-		jogs: Number(q.jogs ?? 0.5),
-		tees: Number(q.tees ?? 0.5),
-		density: Number(q.density ?? 0)
+		jogs: Number(q.jogs),
+		tees: Number(q.tees),
+		density: Number(q.density)
 	});
 }
 
@@ -60,18 +60,18 @@ const pipeTexture = memoReads((q: ParamValues, ctx: LayerCanvas) => {
 		width: ctx.width,
 		height: ctx.height,
 		tile: ctx.tileable,
-		seed: Math.floor(ctx.seed * 7919) + Number(q.seed ?? 0),
-		bend: Number(q.bend ?? 2),
-		spacing: Number(q.spacing ?? 48),
-		flanges: Number(q.flanges ?? 0.3),
-		collar: Number(q.collar ?? 0.15),
+		seed: Math.floor(ctx.seed * 7919) + Number(q.seed),
+		bend: Number(q.bend),
+		spacing: Number(q.spacing),
+		flanges: Number(q.flanges),
+		collar: Number(q.collar),
 		elbowFittings: q.elbow_fittings !== false,
-		fill: Number(q.fill ?? 0.5)
+		fill: Number(q.fill)
 	};
 	const prims = buildPrims(pipeRuns(q, o), o);
 	// Height for a value of 1: 4 × the pipe radius, or a taller stack (density, runs lying over runs) whole, scaled to
 	// fit rather than having its front pipes clipped flat.
-	return encodePrims(prims, Math.max(stackHeight(prims), 4 * Math.max(Number(q.radius ?? 6), 0.5)), ctx);
+	return encodePrims(prims, Math.max(stackHeight(prims), 4 * Math.max(Number(q.radius), 0.5)), ctx);
 });
 
 export const pipeworkLayer: LayerDef = {
@@ -253,13 +253,13 @@ GenOut gen(vec2 p) {
         // Elbow: an arc of the bend radius around its centre, within its sweep (the lengths' round ends close it).
         t2 = pp_at(c, 2);
         float rb = texU16(t1.rg) / 8.0 * un;
-        float a0 = texAng(t1.ba, 3.14159265);
-        float sw = texAng(t2.rg, 6.28318531);
+        float a0 = texAng(t1.ba, PI);
+        float sw = texAng(t2.rg, TAU);
         vec2 dl = q - a;
         float l = length(dl);
         if (!wantSd && abs(l - rb) > r + 1.0) continue;
         float ph = atan(dl.y, dl.x);
-        float rel = sw >= 0.0 ? mod(ph - a0, 6.28318531) : mod(a0 - ph, 6.28318531);
+        float rel = sw >= 0.0 ? mod(ph - a0, TAU) : mod(a0 - ph, TAU);
         if (rel <= abs(sw)) d = abs(l - rb);
         nb = dl;
         an = dl / max(l, 1e-3);
@@ -274,7 +274,7 @@ GenOut gen(vec2 p) {
       // Collar / flange: a short, wider cylinder around the axis. A flange is two plates (a groove between them)
       // with bolt heads standing on the rim.
       t2 = pp_at(c, 2);
-      float ax = texAng(t1.rg, 3.14159265);
+      float ax = texAng(t1.rg, PI);
       hw = texU16(t1.ba) / 64.0 * un;
       ro = texU16(t2.rg) / 64.0 * un;
       vec2 tx = vec2(cos(ax), sin(ax));

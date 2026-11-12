@@ -6,8 +6,8 @@
 
 import { hash2I, hashI } from '@/core/hash';
 import { memoReads } from '@/core/memo';
-import { P, gradient, round1 as r1, type ParamValues } from '@/core/params';
-import { f32, gcd } from '../derivedMath';
+import { P, gradient, round1 as r1, type ParamDef, type ParamValues } from '@/core/params';
+import { cellsFor, f32, gcd, imod, periodOf, radians } from '../derivedMath';
 import type { LayerCanvas, LayerDef } from '../types';
 import { gradientLayer, scratchesLayer } from './patternsFill';
 
@@ -386,6 +386,61 @@ const faceParams = (what: string) => [
 ];
 
 /**
+ * Chipped corners (PAT_CHIPS_GLSL) of a brick or tile set in mortar or grout: the five chip params, their defaults by
+ * key. Chip size is a share of the brick's height or the tile's radius.
+ */
+function chipParams(what: 'brick' | 'tile', joint: string, d: Record<string, number>): ParamDef[] {
+	const chipped = (p: ParamValues) => Number(p.chips) > 0;
+	const size = what === 'brick' ? 'height' : 'radius (centre to corner)';
+	return [
+		P.float('chips', 'Chipped corners', d.chips, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: `Breaks corners${what === 'brick' ? ' (and long sides)' : ''} out of each ${what}, leaving ragged hollows in its height that are deepest at the broken edge (how many). The outline stays; Broken outline notches it`
+		}),
+		P.float('chip_size', 'Chip size', d.chip_size, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: chipped,
+			hint: `Sets the radius of the largest chips, as a share of each ${what}’s ${size} (each one varies down to about a third of it)`
+		}),
+		P.float('chip_depth', 'Chip depth', d.chip_depth, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: chipped,
+			hint: `Sets how deep the chips break in, as a share of the ${what}’s height (1 = down to the ${joint} at the broken edge)`
+		}),
+		P.float('chip_break', 'Broken outline', d.chip_break, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: chipped,
+			hint: `Sets how much of each chip breaks right through, notching the ${what}’s outline down to the ${joint} (0 = the outline stays, the chips only dent the face)`
+		}),
+		P.float('chip_dust', 'Chip dust', d.chip_dust, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: chipped,
+			hint: `Makes the chips’ broken floors paler, like a freshly broken face, so the chips show in colour as well as in relief. With Diffuse › Source Random, it moves them this far towards the light end of the gradient ramp (where a chip breaks through, the ${joint} shows anyway)`
+		})
+	];
+}
+
+/** Round bevel corners (Hex, Voronoi): rounded corners keep round bevel contours. */
+const roundBevelParam = (showIf: (p: ParamValues) => boolean): ParamDef =>
+	P.bool('round_bevel', 'Round bevel corners', true, {
+		showIf,
+		hint: 'Keeps the bevel’s inner contours as round as the corners, however wide the bevel. Off, they sharpen into mitre lines from each corner once the bevel is deeper than the rounding'
+	});
+
+/** Grout level (Hex, Voronoi): the bed between the `what` (plural), raised as a share of their height. */
+const groutLevelParam = (what: string, showIf?: (p: ParamValues) => boolean): ParamDef =>
+	P.float('grout_level', 'Grout level', 0.2, 0, 1, {
+		step: 0.001,
+		showIf,
+		hint: `Raises the grout bed between the ${what}, as a share of their height (Height › Pattern only): 0 leaves the joints at the surface below, higher fills them with a level, slightly lumpy bed. When it’s on, Height skips Shaping › Value`
+	});
+
+/**
  * Bricks and Voronoi cells with their own relief and wear off (face relief, crown, tilt, chips, the mortar / grout bed,
  * per-feature height): for recipes and templates that stack copies of one shape (pillow, edges, heights, colour) and
  * build the relief themselves.
@@ -522,34 +577,12 @@ export const bricksLayer: LayerDef = {
 			showIf: (p) => Number(p.wobble) > 0 || Number(p.chips) > 0 || Number(p.mortar_level) > 0,
 			hint: 'Sets the size of the wobble’s bumps (and of the chips’ ragged outline and the mortar bed’s lumps): 1 ≈ half a course, smaller is finer and crumblier'
 		}),
-		P.float('chips', 'Chipped corners', 0.4, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			hint: 'How many corners (and long sides) break out of each brick, leaving ragged hollows in its height that are deepest at the edge. The outline stays (Stone shape, Edge variation and Wobble break that)'
-		}),
-		P.float('chip_size', 'Chip size', 0.3, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.chips) > 0,
-			hint: 'Sets the radius of the largest chips, as a share of each brick’s height (each one varies down to about a third of it)'
-		}),
-		P.float('chip_depth', 'Chip depth', 0.6, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.chips) > 0,
-			hint: 'How deep the chips break in, as a share of the brick’s height (1 = down to the mortar at the broken edge)'
-		}),
-		P.float('chip_break', 'Broken outline', 0.35, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.chips) > 0,
-			hint: 'How much of each chip breaks right through, notching the brick’s outline down to the mortar (0 = the outline stays, the chips only dent the face)'
-		}),
-		P.float('chip_dust', 'Chip dust', 0.45, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.chips) > 0,
-			hint: 'Makes the chips’ broken floors paler, like a freshly broken face, so the chips show in colour as well as in relief. With Diffuse › Source Random, it moves them this far towards the light end of the gradient ramp (where a chip breaks through, the mortar shows anyway)'
+		...chipParams('brick', 'mortar', {
+			chips: 0.4,
+			chip_size: 0.3,
+			chip_depth: 0.6,
+			chip_break: 0.35,
+			chip_dust: 0.45
 		}),
 		...faceParams('brick'),
 		P.seed()
@@ -917,14 +950,8 @@ export const hexLayer: LayerDef = {
 		]),
 		P.float('gap', 'Grout width', 2, 0, 256, { softMax: 24, unit: 'px', step: 0.1 }),
 		P.float('round', 'Corner rounding', 0, 0, 256, { softMax: 32, unit: 'px', step: 0.1 }),
-		P.bool('round_bevel', 'Round bevel corners', true, {
-			showIf: (p) => Number(p.round) > 0,
-			hint: 'Keeps the bevel’s inner contours as round as the corners, however wide the bevel. Off, they sharpen into mitre lines from each corner once the bevel is deeper than the rounding'
-		}),
-		P.float('grout_level', 'Grout level', 0.2, 0, 1, {
-			step: 0.001,
-			hint: 'Raises the grout bed, as a share of the tiles’ height (Height › Pattern only): 0 leaves the joints at the surface below, higher fills them with a level, slightly lumpy bed. When it’s on, Height skips Shaping › Value'
-		}),
+		roundBevelParam((p) => Number(p.round) > 0),
+		groutLevelParam('tiles'),
 		P.float('size_jitter', 'Size variation', 0, 0, 128, {
 			softMax: 16,
 			unit: 'px',
@@ -953,35 +980,7 @@ export const hexLayer: LayerDef = {
 			section: 'Irregularity',
 			hint: 'Makes the tile sides uneven, like handmade or worn tiles. It fades out towards the corners so they stay sharp (Shaping › Domain warp bends the whole grid instead)'
 		}),
-		P.float('chips', 'Chipped corners', 0.3, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			hint: 'How many corners break out of each tile, leaving ragged hollows in its height that are deepest at the corner (the outline stays)'
-		}),
-		P.float('chip_size', 'Chip size', 0.25, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.chips) > 0,
-			hint: 'Sets the radius of the largest chips, as a share of the tile’s radius (centre to corner; each chip varies down to about a third of it)'
-		}),
-		P.float('chip_depth', 'Chip depth', 0.7, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.chips) > 0,
-			hint: 'How deep the chips break in, as a share of the tile’s height'
-		}),
-		P.float('chip_break', 'Broken outline', 0.5, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.chips) > 0,
-			hint: 'How much of each chip breaks right through, notching the tile’s outline down to the grout (0 = the outline stays, the chips only dent the face)'
-		}),
-		P.float('chip_dust', 'Chip dust', 0.2, 0, 1, {
-			step: 0.001,
-			section: 'Relief',
-			showIf: (p) => Number(p.chips) > 0,
-			hint: 'Makes the chips’ broken floors paler, like a freshly broken face, so the chips show in colour as well as in relief. With Diffuse › Source Random, it moves them this far towards the light end of the gradient ramp (where a chip breaks through, the grout shows anyway)'
-		}),
+		...chipParams('tile', 'grout', { chips: 0.3, chip_size: 0.25, chip_depth: 0.7, chip_break: 0.5, chip_dust: 0.2 }),
 		...faceParams('tile'),
 		P.seed()
 	],
@@ -1187,7 +1186,7 @@ GenOut gen(vec2 p) {
 
 // ------------------------------------------------------------------------------------------------ voronoi
 
-const cellsOut = (p: Record<string, unknown>) => (p.output ?? 'cells') === 'cells';
+const cellsOut = (p: Record<string, unknown>) => p.output === 'cells';
 
 // The shader's Voronoi cell points (glsl/noise.ts cellPoint), replicated on the CPU with its hashes (core/hash.ts) so
 // the cells to merge can be decided once per cell (Smallest cell).
@@ -1201,7 +1200,6 @@ function cellPointCpu(x: number, y: number, seed: number, phase: number): [numbe
 	};
 	return [anim(p[0], seed + 41), anim(p[1], seed + 43)];
 }
-const imodJs = (a: number, m: number) => ((a % m) + m) % m;
 
 /**
  * Voronoi's per-cell data (t_cells, R = 255: merged away): with Smallest cell, a cell whose nearest edge comes closer
@@ -1213,29 +1211,21 @@ function voronoiCells(
 	ctx: { width: number; height: number; tileable: boolean; seed: number }
 ) {
 	const blank = { cells: { width: 1, height: 1, data: new Uint8Array(4) } };
-	const minCell = Number(q.min_cell ?? 0);
-	if (!(minCell > 0) || (q.output ?? 'cells') !== 'cells' || q.metric !== 'euclidean') return blank;
+	const minCell = Number(q.min_cell);
+	if (!(minCell > 0) || q.output !== 'cells' || q.metric !== 'euclidean') return blank;
 	const W = ctx.width,
 		H = ctx.height;
-	const scale = Number(q.scale ?? 6);
-	let cx = scale,
-		cy = (scale * H) / W;
-	if (ctx.tileable) {
-		cx = Math.max(1, Math.floor(cx + 0.5));
-		cy = Math.max(1, Math.floor(cy + 0.5));
-	} else {
-		cx = Math.max(cx, 1e-3);
-		cy = Math.max(cy, 1e-3);
-	}
+	// The shader's cellsFor(u_scale, 1.0) and periodOf.
+	const [cx, cy] = cellsFor(Number(q.scale), 1, ctx);
 	const csx = W / cx,
 		csy = H / cy;
 	const L = Math.sqrt(csx * csy);
-	const jitter = Number(q.jitter ?? 0.8);
-	const W2 = Math.max(0, Number(q.size_var ?? 0)) * L * L;
-	const g = 0.5 * Number(q.gap ?? 2);
-	const phase = Number(q.phase ?? 0);
-	const per = ctx.tileable ? [cx, cy] : [1 << 20, 1 << 20];
-	const M = ctx.tileable ? 0 : 3 + Math.ceil(Number(q.warp ?? 0) / Math.min(csx, csy));
+	const jitter = Number(q.jitter);
+	const W2 = Math.max(0, Number(q.size_var)) * L * L;
+	const g = 0.5 * Number(q.gap);
+	const phase = Number(q.phase);
+	const per = periodOf([cx, cy], ctx.tileable);
+	const M = ctx.tileable ? 0 : 3 + Math.ceil(Number(q.warp) / Math.min(csx, csy));
 	const nx = ctx.tileable ? cx : Math.ceil(cx) + 2 * M,
 		ny = ctx.tileable ? cy : Math.ceil(cy) + 2 * M;
 	if (nx * ny > 1 << 20) return blank;
@@ -1246,13 +1236,13 @@ function voronoiCells(
 		for (let i = 0; i < sw; i++) {
 			const x = i - M - 2,
 				y = j - M - 2;
-			const cp = cellPointCpu(imodJs(x, per[0]), imodJs(y, per[1]), ctx.seed, phase);
+			const cp = cellPointCpu(imod(x, per[0]), imod(y, per[1]), ctx.seed, phase);
 			const o = (j * sw + i) * 3;
 			sites[o] = (x + 0.5 + (cp[0] - 0.5) * jitter) * csx;
 			sites[o + 1] = (y + 0.5 + (cp[1] - 0.5) * jitter) * csy;
 			sites[o + 2] = W2 * (cp[0] * 7.13 + cp[1] * 3.71 - Math.floor(cp[0] * 7.13 + cp[1] * 3.71));
 		}
-	const sizeJitter = Number(q.size_jitter ?? 0);
+	const sizeJitter = Number(q.size_jitter);
 	const sjSeed = Math.fround(Math.fround(ctx.seed) + 41);
 	const data = new Uint8Array(nx * ny * 4);
 	for (let j = 0; j < ny; j++)
@@ -1267,7 +1257,7 @@ function voronoiCells(
 					if (dl > 1e-6) hmin = Math.min(hmin, 0.5 * dl + (0.5 * (sites[a + 2] - sites[b + 2])) / dl - g);
 				}
 			// Joint variation shrinks the cell by its own random share (the shader's hashI(cell, seed + 41)) — count that too.
-			const sj = sizeJitter > 0 ? sizeJitter * hashI(imodJs(i - M, per[0]), imodJs(j - M, per[1]), sjSeed) : 0;
+			const sj = sizeJitter > 0 ? sizeJitter * hashI(imod(i - M, per[0]), imod(j - M, per[1]), sjSeed) : 0;
 			if (hmin - sj < minCell) data[(j * nx + i) * 4] = 255;
 		}
 	return { cells: { width: nx, height: ny, data } };
@@ -1371,10 +1361,7 @@ export const voronoiLayer: LayerDef = {
 			showIf: (p) => cellsOut(p) && p.metric === 'euclidean',
 			hint: 'Gives cells too small for the bevel a narrower one, scaled with their size down to this share of the Bevel, so small stones still dome up (1 = every cell gets the same bevel)'
 		}),
-		P.bool('round_bevel', 'Round bevel corners', true, {
-			showIf: (p) => p.output === 'cells' && p.metric === 'euclidean' && Number(p.round) > 0,
-			hint: 'Keeps the bevel’s inner contours as round as the corners, however wide the bevel. Off, they sharpen into mitre lines from each corner once the bevel is deeper than the rounding'
-		}),
+		roundBevelParam((p) => p.output === 'cells' && p.metric === 'euclidean' && Number(p.round) > 0),
 		P.float('warp', 'Warp', 0, 0, 256, {
 			softMax: 32,
 			unit: 'px',
@@ -1382,11 +1369,7 @@ export const voronoiLayer: LayerDef = {
 			hint: 'Pushes the cells around with noise, for irregular cell borders'
 		}),
 		P.float('warp_scale', 'Warp scale', 8, 0.25, 128, { softMax: 32, step: 0.01, showIf: (p) => Number(p.warp) > 0 }),
-		P.float('grout_level', 'Grout level', 0.2, 0, 1, {
-			step: 0.001,
-			showIf: cellsOut,
-			hint: 'Raises the bed between the cells, as a share of the cells’ height (Height › Pattern only): 0 leaves the joints at the surface below, higher fills them with a level, slightly lumpy bed. When it’s on, Height skips Shaping › Value'
-		}),
+		groutLevelParam('cells', cellsOut),
 		P.float('size_var', 'Cell size variation', 0.5, 0, 1, {
 			step: 0.001,
 			showIf: (p) => p.metric === 'euclidean' && p.output !== 'facets',
@@ -1878,7 +1861,7 @@ const stripeShape = (p: Record<string, unknown>) => p.mode === 'shape' || p.mode
  * apart then (g, the gcd of those cycles). In float32 steps, as the shader did.
  */
 export function stripesDerived(p: ParamValues, c: LayerCanvas): { k: number[]; g: number } {
-	const a = f32(f32(Number(p.angle)) * f32(Math.PI / 180));
+	const a = radians(f32(Number(p.angle)));
 	const n = f32(Number(p.count));
 	const k = [f32(f32(-f32(Math.sin(a)) * n) / c.width), f32(f32(f32(Math.cos(a)) * n) / c.width)];
 	if (!c.tileable) return { k, g: 1 };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { KING, routeTraces, type RouteOptions } from '@/layers/generators/router';
+import { KING, nodeIndex, routeTraces, type RouteOptions } from '@/layers/generators/router';
+import { linkTo } from '@/layers/generators/traceLinks';
 
 const base: RouteOptions = {
 	nx: 24,
@@ -143,5 +144,15 @@ describe('circuit router: crossings and bias', () => {
 			return k / Math.max(1, r.out.filter((d) => d >= 0).length);
 		};
 		expect(parallel(routeTraces({ ...o, hug: 3 }))).toBeGreaterThan(parallel(routeTraces({ ...o, hug: 0 })) + 0.1);
+	});
+
+	it('indexes nodes wrapped round the board, or -1 off it', () => {
+		expect(nodeIndex(-1, 0, 5, 4, true)).toBe(4);
+		expect(nodeIndex(5, 4, 5, 4, true)).toBe(0);
+		expect(nodeIndex(2, -1, 5, 4, true)).toBe(17);
+		expect(nodeIndex(-1, 0, 5, 4, false)).toBe(-1);
+		expect(nodeIndex(4, 3, 5, 4, false)).toBe(19);
+		// A link from the last node toward KING[1] (+1, +1) wraps to the first.
+		expect(linkTo(19, 1, 5, 4)).toBe(0);
 	});
 });

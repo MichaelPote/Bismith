@@ -89,4 +89,23 @@ describe('shape layers', () => {
 				}
 		}
 	});
+
+	it('share one taper with Polyline and Scratches, each with its own defaults', () => {
+		const keys = ['taper', 'taper_at', 'taper_len', 'taper_px', 'taper_curve', 'taper_k'];
+		for (const type of ['line', 'curve', 'polyline', 'scratches']) {
+			const own = layerParamDefs(type).map((d) => d.key);
+			for (const k of keys) expect(own, `${type}.${k}`).toContain(k);
+		}
+		expect(createLayer('line').params).toMatchObject({ taper: 0, taper_at: 'both', taper_curve: 'linear' });
+		expect(createLayer('polyline').params).toMatchObject({ taper: 0, taper_at: 'end', taper_len: 1 });
+		expect(createLayer('scratches').params).toMatchObject({
+			taper: 0.8,
+			taper_at: 'both',
+			taper_len: 0.35,
+			taper_curve: 'round'
+		});
+		// The shader numbers Taper towards 0 end, 1 start, 2 both.
+		const at = layerParamDefs('line').find((d) => d.key === 'taper_at')!;
+		expect(at.options!.map((o) => o.value)).toEqual(['end', 'start', 'both']);
+	});
 });

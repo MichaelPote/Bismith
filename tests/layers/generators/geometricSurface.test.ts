@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer, freshParams, layerParamDefs, linkedChanges } from '@/layers/registry';
 import { treadplateLayer, weaveLayer } from '@/layers/generators/geometricSurface';
-import { GEO_DERIVED, geoAB } from '@/layers/generators/geometricCommon';
+import { geoAB } from '@/layers/generators/geometricCommon';
+import { settsLayer } from '@/layers/generators/setts';
+import type { ParamValues } from '@/core/params';
 
 const tex = { width: 512, height: 512 };
 
@@ -92,8 +94,24 @@ describe('geometric frame', () => {
 		expect(geoAB({ width: 96, height: 64, tileable: true, seed: 0 })).toEqual([3, 2]);
 		expect(geoAB({ width: 97, height: 64, tileable: true, seed: 0 })).toEqual([97, 64]);
 		for (const def of [treadplateLayer, weaveLayer]) {
-			expect(def.derivedUniforms).toBe(GEO_DERIVED);
+			expect(def.derivedUniforms!.decl).toEqual({ k: 'vec2', geo_AB: 'ivec2' });
 			expect(def.glsl).not.toMatch(/igcd/);
 		}
+	});
+
+	it('takes the period counts from the CPU: whole when tiling, even where alternation needs it', () => {
+		const tile = { width: 96, height: 64, tileable: true, seed: 0 };
+		const k = (def: typeof weaveLayer, p: ParamValues, c = tile) =>
+			def.derivedUniforms!.compute({ ...createLayer(def.type).params, ...p }, c).k as number[];
+		expect(k(treadplateLayer, { layout: 'checker', count_x: 7, count_y: 5 })).toEqual([8, 6]);
+		expect(k(treadplateLayer, { layout: 'same', count_x: 7, count_y: 5 })).toEqual([7, 5]);
+		// Weave: repeats of the weave (twill 2/2: 4 strands) across and down.
+		expect(k(weaveLayer, { pattern: 'twill', count_x: 16, count_y: 6 })).toEqual([4, 2]);
+		// Setts: fans across, then rows in pairs (fans), half a fan width apart × Row height.
+		expect(k(settsLayer, { layout: 'fan', scale: 2, aspect: 1 })).toEqual([2, 2]);
+		expect(k(settsLayer, { layout: 'fan', scale: 2.4, aspect: 1 }, { ...tile, tileable: false })[0]).toBeCloseTo(
+			2.4,
+			5
+		);
 	});
 });

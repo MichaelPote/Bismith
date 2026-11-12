@@ -31,6 +31,9 @@ export const u2f = (h: number) => Math.fround(h) / 4294967296;
  */
 export const u2d = (h: number) => h / 4294967296;
 
+/** The shaders' hashI, unrounded (u2d): for CPU statistics that need only its distribution (noise and cloud quantiles). */
+export const hashD = (x: number, y: number, s: number) => u2d(pcg3(x, y, s));
+
 /** uint(seed) of a float seed uniform: rounded to float32, truncated, wrapped to 32 bits. */
 const seedU = (seed: number) => Math.trunc(Math.fround(seed)) >>> 0;
 
@@ -67,6 +70,9 @@ export function mulberry32(state: number): () => number {
 		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 	};
 }
+
+/** A layout's random stream (router, pipes, labyrinths): mulberry32 seeded with the whole part of `seed`. */
+export const seededRng = (seed: number) => mulberry32((Math.floor(seed) >>> 0) ^ 0x9e3779b9);
 
 /** Union-find over n items (path halving): `find` the set's root, `join` two sets. */
 export function unionFind(n: number) {

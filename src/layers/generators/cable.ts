@@ -225,8 +225,6 @@ export const cableLayer: LayerDef = {
 	// Uniform-only work on the CPU (cableDerived); the params only it reads are `uniform: false`.
 	derivedUniforms: { decl: { frame: 'vec4', wrapU: 'float' }, compute: cableDerived },
 	glsl: /* glsl */ `
-const float CABLE_TAU = 6.28318530718;
-
 // The cut length's copy nearest along (one per period when tiling; else the one).
 vec2 cableCopy(vec2 ub, float xs, float xe, float len) {
   return uTile ? floor((ub - 0.5 * (xs + xe)) / len + 0.5) * len : vec2(0.0);
@@ -240,14 +238,14 @@ float cableFibre(vec4 f, vec2 px, vec4 geo, float K, float cb, float yp) {
   if (u_yarns <= 0 || u_yarn_depth <= 0.0 || f.y <= 0.0) return 0.0;
   // The nearest point of the smooth strand, by Newton steps from the chord's: the chords' own parameter kinks at each
   // vertex, which would print the polyline into the yarns.
-  float P = geo.x, L = geo.y, Rk = geo.z * f.w, off = CABLE_TAU * f.z / geo.w;
+  float P = geo.x, L = geo.y, Rk = geo.z * f.w, off = TAU * f.z / geo.w;
   float th = f.x;
   vec2 rel = vec2(0.0), d1 = vec2(1.0, 0.0);
   for (int it = 0; it < 3; it++) {
     float a = th + off;
     float sa = sin(a), ca = cos(a);
-    rel = px - vec2(P * th / CABLE_TAU + L * sa, Rk * ca);
-    d1 = vec2(P / CABLE_TAU + L * ca, -Rk * sa);
+    rel = px - vec2(P * th / TAU + L * sa, Rk * ca);
+    d1 = vec2(P / TAU + L * ca, -Rk * sa);
     if (it == 2) break;
     float dd = dot(d1, d1);
     th += dot(rel, d1) / max(dd + dot(rel, vec2(L * sa, Rk * ca)), 0.25 * dd);
@@ -255,13 +253,13 @@ float cableFibre(vec4 f, vec2 px, vec4 geo, float K, float cb, float yp) {
   float sn = clamp((d1.x * rel.y - d1.y * rel.x) * inversesqrt(max(dot(d1, d1), 1e-6)) / f.y, -1.0, 1.0);
   float yarns = float(u_yarns);
   float strand = floor(f.z + 0.5);
-  float ph = yarns * asin(sn) / CABLE_TAU + K * th / CABLE_TAU + 0.37 * strand;
+  float ph = yarns * asin(sn) / TAU + K * th / TAU + 0.37 * strand;
   float x = fract(ph);
-  float w = CABLE_TAU * f.y / yarns;
+  float w = TAU * f.y / yarns;
   // The yarns' spacing on screen (closer towards the strand's sides). Wide yarns are round, meeting in V grooves; narrow
   // ones turn into a plain ripple (a V's corner would alias), and under ~2 px they fade out.
   float per = w * cb * sqrt(1.0 - sn * sn);
-  float g = mix(0.5 + 0.5 * cos(CABLE_TAU * x), (2.0 * x - 1.0) * (2.0 * x - 1.0), smoothstep(3.0, 8.0, per));
+  float g = mix(0.5 + 0.5 * cos(TAU * x), (2.0 * x - 1.0) * (2.0 * x - 1.0), smoothstep(3.0, 8.0, per));
   // Uneven: each yarn's crown stands at its own height (the grooves between stay put, so neighbours still meet).
   float yi = floor(ph);
   if (yp > 0.5) yi = mod(yi, yp);
@@ -332,7 +330,7 @@ GenOut gen(vec2 p) {
   vec2 ur = ub2 + shift;
   vec4 ends = vec4(xs, xe, xs, xe) + (cm2 + shift).xxyy;
   // Chords per turn: about 2 px long at the strand's fastest; the window covers every chord that can reach the pixel.
-  float SEG = clamp(ceil(CABLE_TAU * length(vec2(P / CABLE_TAU + abs(L), Rm)) * 0.5), 8.0, 512.0);
+  float SEG = clamp(ceil(TAU * length(vec2(P / TAU + abs(L), Rm)) * 0.5), 8.0, 512.0);
   float W = (abs(L) + reach) / P + 1.0 / SEG;
   SEG = min(SEG, floor(766.0 / (2.0 * W)));
   int NV = int(ceil(2.0 * W * SEG)) + 2;
@@ -369,7 +367,7 @@ GenOut gen(vec2 p) {
     vec2 px = c == 0 ? vec2(ur.x, vr.x) : vec2(ur.y, vr.y);
     int id = (c == 0 ? jr.x : jr.y) * 8 + s;
     float kk = floor((px.x / P - W) * SEG) + float(i);
-    float th = kk * CABLE_TAU / SEG;
+    float th = kk * TAU / SEG;
     vec4 jit = vec4(0.0);
     if (irr > 0.0) {
       float jx = 2.0 * kk / SEG;
@@ -396,9 +394,9 @@ GenOut gen(vec2 p) {
     // strand spacing.
     float sf = float(s) + 0.25 * jit.z;
     float sz = 1.0 + 0.3 * jit.x;
-    float a = th + CABLE_TAU * sf / float(n);
+    float a = th + TAU * sf / float(n);
     // Along the axis, across it, depth toward the viewer; tube radius.
-    vec4 cv = vec4(P * th / CABLE_TAU + L * sin(a), R * sz * cos(a), R * sz * sin(a) * u_back, r * sz * (1.0 + 0.1 * jit.y + 0.15 * jit.w));
+    vec4 cv = vec4(P * th / TAU + L * sin(a), R * sz * cos(a), R * sz * sin(a) * u_back, r * sz * (1.0 + 0.1 * jit.y + 0.15 * jit.w));
     vec3 cf = vec3(th, sf, sz);
     bool hit = false;
     float h = 0.0, cov = 0.0;
@@ -468,7 +466,7 @@ GenOut gen(vec2 p) {
 
   // Fibres: K yarn turns per helix turn give the yarn angle on the strand's crown (rounded when tiling).
   float tb = tan(radians(u_yarn_angle));
-  float K = -tb * length(vec2(P / CABLE_TAU, R)) * float(u_yarns) / r;
+  float K = -tb * length(vec2(P / TAU, R)) * float(u_yarns) / r;
   if (uTile) K = floor(K * turns + 0.5) / turns;
   float yp = uTile ? abs(K * turns) : 0.0;
   float cb = inversesqrt(1.0 + tb * tb);

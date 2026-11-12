@@ -8,7 +8,8 @@
 // least `gap` free nodes between them and never touch or cross. A few long seed walks go first; then the rest of the
 // space fills with traces started next to existing ones and preferring to run alongside them (buses).
 
-import { mulberry32 } from '@/core/hash';
+import { seededRng } from '@/core/hash';
+import { imod } from '../derivedMath';
 
 export interface RouteOptions {
 	nx: number;
@@ -73,8 +74,9 @@ export interface RouteResult {
 	traces: number;
 }
 
-/** The router's random stream (mulberry32), uniform in [0, 1). */
-export const rng = (seed: number) => mulberry32((seed >>> 0) ^ 0x9e3779b9);
+/** Array index of node (x, y) on an nx × ny board: wrapped when it wraps, else -1 off the board. */
+export const nodeIndex = (x: number, y: number, nx: number, ny: number, wrap: boolean): number =>
+	wrap ? imod(y, ny) * nx + imod(x, nx) : x < 0 || y < 0 || x >= nx || y >= ny ? -1 : y * nx + x;
 
 export function routeTraces(o: RouteOptions): RouteResult {
 	const { nx, ny } = o;
@@ -83,11 +85,8 @@ export function routeTraces(o: RouteOptions): RouteResult {
 	const order = new Int32Array(n).fill(-1); // step index within its trace (for the own-tail exemption)
 	const out = new Int8Array(n).fill(-1);
 	const flags = new Uint8Array(n);
-	const rand = rng(o.seed * 2654435761 + 17);
-	const idx = (x: number, y: number): number => {
-		if (o.wrap) return (((y % ny) + ny) % ny) * nx + (((x % nx) + nx) % nx);
-		return x < 0 || y < 0 || x >= nx || y >= ny ? -1 : y * nx + x;
-	};
+	const rand = seededRng(o.seed * 2654435761 + 17);
+	const idx = (x: number, y: number): number => nodeIndex(x, y, nx, ny, o.wrap);
 	// Indices into KING (sorted by angle), so "one step" in the set is always the neighbouring direction.
 	const dirs = o.directions === 4 ? [0, 2, 4, 6] : o.directions === 6 ? [0, 1, 3, 4, 5, 7] : [0, 1, 2, 3, 4, 5, 6, 7];
 	const gap = Math.max(0, Math.round(o.gap));
@@ -328,7 +327,7 @@ export function routeTraces(o: RouteOptions): RouteResult {
  */
 function openAreas(nx: number, ny: number, wrap: boolean, seed: number, open: number, size: number): Uint8Array | null {
 	if (!(open > 0)) return null;
-	const rand = rng(seed * 40503 + 977);
+	const rand = seededRng(seed * 40503 + 977);
 	const out = new Uint8Array(nx * ny);
 	const want = 0.5 * Math.min(1, open) * nx * ny;
 	const side = Math.max(2, Math.min(1, Math.max(0.02, size)) * Math.sqrt(nx * ny));
