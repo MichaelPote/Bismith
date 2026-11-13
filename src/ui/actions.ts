@@ -20,6 +20,7 @@ import {
 	applyPostPreset
 } from '@/presets/apply';
 import { getLayerDef } from '@/layers/registry';
+import { exportSupersampleFactor } from '@/core/supersample';
 import { fetchProjectFile, MAX_VARIANTS, type GalleryRender } from '@/gallery/client';
 import { galleryImages } from '@/gallery/renders';
 
@@ -60,7 +61,7 @@ export function useActions() {
 		if (!engine) return null;
 		const r = store.project.render;
 		const ctrl = new AbortController();
-		const ss = Math.max(r.supersample ?? 1, r.exportSupersample);
+		const ss = exportSupersampleFactor(store.project);
 		editor.busy = {
 			title: `Rendering ${what}…`,
 			detail: trace ? `${Math.max(r.maxSamples, r.exportSamples)} samples at ${ss}×` : `At ${ss}×`,
@@ -142,7 +143,7 @@ export function useActions() {
 		store.commitNow();
 		const r = store.project.render;
 		const ctrl = new AbortController();
-		const ss = Math.max(r.supersample ?? 1, r.exportSupersample);
+		const ss = exportSupersampleFactor(store.project);
 		const trace = kinds.some((k) => k === 'final' || k === 'render');
 		const several = store.variants.list.length > 1;
 		const single = ids.length * kinds.length === 1;
@@ -273,7 +274,7 @@ export function useActions() {
 		if (!engine) return null;
 		store.commitNow();
 		const r = store.project.render;
-		const ss = Math.max(r.supersample ?? 1, r.exportSupersample);
+		const ss = exportSupersampleFactor(store.project);
 		const list = store.variants.list.slice(0, MAX_VARIANTS);
 		const named = store.variants.list.length > 1;
 		const ctrl = new AbortController();

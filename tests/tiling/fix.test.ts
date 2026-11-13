@@ -6,6 +6,7 @@ import { rng } from '../match/testUtils';
 import { analyzeTiling } from '@/tiling/analyze';
 import { attributeTiling } from '@/tiling/attribute';
 import { fixTiling, reseed } from '@/tiling/fix';
+import { Rng } from '@/match/optimizer';
 
 const S = 128;
 const wd = (a: number, b: number) => Math.min(Math.abs(a - b), S - Math.abs(a - b));
@@ -158,6 +159,45 @@ describe('fixTiling', () => {
 		expect(records).toEqual(all.slice(k));
 		const strip = (r: typeof whole) => ({ ...r, before: r.before.score, after: r.after.score, project: r.project });
 		expect(strip(resumed)).toEqual(strip(whole));
+	}, 60_000);
+
+	it('goes over the culprits again from the best so far', async () => {
+		const attribution = await attributeTiling(project, render);
+		// The seeds the search will try, in order: each scores better than all before it, so every iteration finds one.
+		const rng = new Rng(1);
+		const order = Array.from({ length: 9 }, () => rng.int(100000));
+		const evaluate = (p: Project) => {
+			const k = order.indexOf(Number(p.layers[1].params.seed));
+			return { score: k < 0 ? 1 : 0.9 - 0.05 * k, drift: 0 };
+		};
+		const opts = { seeds: 3, culprits: 1 };
+		const one = await fixTiling(project, attribution, evaluate, opts);
+		const three = await fixTiling(project, attribution, evaluate, { ...opts, iterations: 3 });
+		expect(one.iterations).toBe(1);
+		expect(three.iterations).toBe(3);
+		// The first iteration is the same search; the others carry on from its best.
+		expect(three.trials.slice(0, one.trials.length)).toEqual(one.trials);
+		expect(three.changes.map((c) => c.to)).toEqual([order[2], order[5], order[8]]);
+		expect(three.changes[1].from).toBe(order[2]);
+		expect(three.after.score).toBeCloseTo(0.5);
+	}, 60_000);
+
+	it('stops after an iteration that changes nothing, its allowance set by the first', async () => {
+		const attribution = await attributeTiling(project, render);
+		const rng = new Rng(1);
+		const order = Array.from({ length: 9 }, () => rng.int(100000));
+		// The first iteration's reseeds drift 0.05…0.15 (allowance 0.1); the second's score a little better but drift
+		// 0.3: they win only if the allowance followed them.
+		const evaluate = (p: Project) => {
+			const k = order.indexOf(Number(p.layers[1].params.seed));
+			if (k < 0) return { score: 1, drift: 0 };
+			return k < 3 ? { score: 0.5, drift: 0.05 * (k + 1) } : { score: 0.45, drift: 0.3 };
+		};
+		const r = await fixTiling(project, attribution, evaluate, { seeds: 3, culprits: 1, iterations: 5 });
+		expect(r.driftFree).toBeCloseTo(0.1);
+		expect(r.iterations).toBe(2);
+		expect(r.evaluations).toBe(1 + 3 + 3);
+		expect(r.changes.map((c) => c.to)).toEqual([order[0]]);
 	}, 60_000);
 
 	it('reseeds only the given layers', () => {

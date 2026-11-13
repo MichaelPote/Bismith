@@ -131,7 +131,7 @@ took the legacy path and doubled the render specular: the slate's 0.5 is 1 in it
 
 ## Performance
 
-Cold D3D11 compile 1.9 s (Rock 4.1 s, Bricks 1.4 s). The scar loop is one flat loop of 32 with a uniform bound
+Cold D3D11 compile 1.9 s (Stones 4.1 s, Bricks 1.4 s). The scar loop is one flat loop of 32 with a uniform bound
 (`UNI_1`); the layout's searches are straight-line code.
 
 ## Checks

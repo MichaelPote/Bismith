@@ -6,6 +6,11 @@ The material stack and the path tracer run at k× the texture size; the traced (
 down to the texture size before the post stack (tonemap, palette snap) — fine features such as 1 px highlights, thin
 joints and small bolt holes are computed at k× and averaged instead of being decided by one sample per texel.
 
+- **The k× stack stays within 4096 px** (`MAX_STACK_SIZE`, `capSupersample`): a canvas over 1024 px gets 2× at most and
+  one over 2048 px (up to the 4096 maximum) none, for the viewport and exports alike (`supersampleFactor`,
+  `exportSupersampleFactor`; the outliner's @Nx shows the factor used). An 8192² stack (2048 at 4×) made a layer's
+  draw run past Windows' GPU timeout on an RTX 5080: the display driver reset, every shader after failed with an empty
+  log and the render came out blank. Larger stacks would need the stack evaluated in tiles.
 - `core/supersample.ts` — `scaleProject(p, k)`: width / height × k and every pixel-measured value scaled by k through
   `core/pixelScale.ts` (`scalePixels`): ParamDef `unit: 'px'` params (bevels, joints, radii, widths, white-noise block
   sizes, stamp pixel sizes, path vertex lists in px), heightDepth, AO radius and point lights' px params and falloff

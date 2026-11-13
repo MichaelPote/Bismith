@@ -620,77 +620,30 @@ export const spacingParams = (extra: Pick<ParamDef, 'group' | 'showIf'> = {}): P
 	})
 ];
 
-/** Where a shape or motif sits: its centre (X, Y within each repeat cell) and its Rotation. */
-export const placementParams = (): ParamDef[] => [
-	P.float('x', 'X', 0.5, -2, 3, {
-		softMin: 0,
-		softMax: 1,
-		step: 0.001,
-		hint: 'Moves the centre across (0…1, within each repeat cell)'
-	}),
-	P.float('y', 'Y', 0.5, -2, 3, {
-		softMin: 0,
-		softMax: 1,
-		step: 0.001,
-		hint: 'Moves the centre down (0…1, within each repeat cell)'
-	}),
-	P.float('rotation', 'Rotation', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1 })
-];
-
 /**
- * A repeat grid of instances (the Repeat card of shapes and motifs): Columns, Rows (sliders up to `softMax`), spacing,
- * Row offset, Position jitter, Rotation and Size variation, Drop out, then the seed. Jitter is `rep_jitter` in px
- * (shapes) or `rep_jit`, a share of the cell (motifs: half a cell at 1). `after` puts a type's own params after one of
- * these (by key).
+ * Where a shape or motif sits: its centre (X, Y within each repeat cell) and its Rotation. X / Y place it on the grid; along
+ * an outline (Repeat › Place, repeat.ts) the outline places it.
  */
-export function repeatParams(o: {
-	softMax: number;
-	jitter: 'px' | 'cell';
-	scaleHint?: string;
-	after?: Record<string, ParamDef[]>;
-}): ParamDef[] {
-	const group = 'repeat';
-	const list = [
-		P.int('rep_x', 'Columns', 1, 1, 256, { softMax: o.softMax, group }),
-		P.int('rep_y', 'Rows', 1, 1, 256, { softMax: o.softMax, group }),
-		...spacingParams({ group }),
-		P.float('rep_stagger', 'Row offset', 0, 0, 1, {
+export const placementParams = (): ParamDef[] => {
+	const onGrid = (p: ParamValues) => p.rep_place !== 'mask' && p.rep_place !== 'edges';
+	return [
+		P.float('x', 'X', 0.5, -2, 3, {
+			softMin: 0,
+			softMax: 1,
 			step: 0.001,
-			group,
-			hint: 'Shifts every other row sideways (use an even row count to tile)'
+			showIf: onGrid,
+			hint: 'Moves the centre across (0…1, within each repeat cell)'
 		}),
-		o.jitter === 'px'
-			? P.float('rep_jitter', 'Position jitter', 0, 0, 1024, {
-					softMax: 64,
-					unit: 'px',
-					step: 0.1,
-					group,
-					hint: 'Moves each instance randomly, up to this far from its place on each axis'
-				})
-			: P.float('rep_jit', 'Position jitter', 0, 0, 1, {
-					step: 0.001,
-					group,
-					hint: 'Moves each instance randomly off its cell centre, up to half a cell at 1, for scattered medallions or uneven rune text'
-				}),
-		P.float('rep_rot', 'Rotation variation', 0, 0, 180, {
-			unit: '°',
-			step: 0.1,
-			group,
-			hint: 'Turns each instance randomly, up to this much either way'
-		}),
-		P.float('rep_scale', 'Size variation', 0, 0, 0.95, {
+		P.float('y', 'Y', 0.5, -2, 3, {
+			softMin: 0,
+			softMax: 1,
 			step: 0.001,
-			group,
-			hint: o.scaleHint ?? 'Shrinks each instance randomly, by up to this fraction'
+			showIf: onGrid,
+			hint: 'Moves the centre down (0…1, within each repeat cell)'
 		}),
-		P.float('rep_drop', 'Drop out', 0, 0, 1, {
-			step: 0.001,
-			group,
-			hint: 'Removes this fraction of the instances at random'
-		})
+		P.float('rotation', 'Rotation', 0, -360, 360, { softMin: -180, softMax: 180, unit: '°', step: 0.1 })
 	];
-	return [...list.flatMap((p) => [p, ...(o.after?.[p.key] ?? [])]), P.seed()];
-}
+};
 
 const PHASE_HINT =
 	'Animates the noise: 0 → 1 is one seamless loop (render frames at even steps), and it repeats beyond 1';

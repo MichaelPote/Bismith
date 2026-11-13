@@ -14,6 +14,7 @@
 	import DialogFrame from '@/ui/components/DialogFrame.vue';
 	import { useEditorStore } from '@/stores/editor';
 	import { useProjectStore } from '@/stores/project';
+	import { exportSupersampleFactor } from '@/core/supersample';
 	import { useActions } from '@/ui/actions';
 	import { useVariantThumbs } from '@/ui/variantThumbs';
 
@@ -75,7 +76,7 @@
 	const r = computed(() => store.project.render);
 	const settings = computed(() => [
 		{ label: 'Output size', value: `${store.project.width} × ${store.project.height} px` },
-		{ label: 'Supersample', value: `${Math.max(r.value.supersample ?? 1, r.value.exportSupersample)}×` },
+		{ label: 'Supersample', value: `${exportSupersampleFactor(store.project)}×` },
 		{ label: 'Samples', value: String(Math.max(r.value.maxSamples, r.value.exportSamples)) }
 	]);
 	function changeSettings(): void {

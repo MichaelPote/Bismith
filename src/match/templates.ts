@@ -607,7 +607,7 @@ function withBase(look: Look, base: Partial<MaterialBase>): Look {
 }
 
 /**
- * A natural rock face (FR8.18): one Rock pattern used five times — the relief (height only), its colour by height,
+ * A natural rock face (FR8.18): one Stones pattern used five times — the relief (height only), its colour by height,
  * colour bands per bed, darker scarps and dirt (or moss, on a palette with a real green) in the crevices — plus in-hue grain
  * and cavity grime. Steep strata broken into tilted blocks, with whole, smooth fracture planes beside shattered zones;
  * blocks about an eighth of the texture's side and deep relief, so they cast shadows under a low, warm key light and a
@@ -662,12 +662,12 @@ function rockFace(a: Analysis, ctx: TemplateContext): Project {
 	const p = base(
 		a,
 		ctx,
-		'Rock face',
+		'Stone face',
 		{
-			relief: [L('rock', 'Rock', { ...rock, h_on: true, h_amount: r2(size * 0.32) })],
+			relief: [L('stones', 'Stones', { ...rock, h_on: true, h_amount: r2(size * 0.32) })],
 			paint: [
-				L('rock', 'Rock colour', { ...rock, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0.05, 0.95) }),
-				L('rock', 'Bed colour', {
+				L('stones', 'Stone colour', { ...rock, h_on: false, dif_on: true, dif_grad: paletteRamp(a, 0.05, 0.95) }),
+				L('stones', 'Bed colour', {
 					...rock,
 					rnd_mode: 'mix',
 					h_on: false,
@@ -677,7 +677,7 @@ function rockFace(a: Analysis, ctx: TemplateContext): Project {
 					dif_opacity: 0.35,
 					dif_grad: hueRamp(a, 0.2, 0.9)
 				}),
-				L('rock', 'Scarps', {
+				L('stones', 'Scarps', {
 					...rock,
 					output: 'scarps',
 					h_on: false,
@@ -686,7 +686,7 @@ function rockFace(a: Analysis, ctx: TemplateContext): Project {
 					dif_opacity: 0.8,
 					dif_grad: ramp('#ffffff', mix(pick(a, 0.3), dark, 0.5))
 				}),
-				L('rock', moss ? 'Moss' : 'Crevice dirt', {
+				L('stones', moss ? 'Moss' : 'Crevice dirt', {
 					...rock,
 					output: 'crevices',
 					crev_reach: r2(clamp(size * 0.12, 1.2, 4)),
@@ -791,8 +791,8 @@ export const TEMPLATES: Template[] = [
 	},
 	{
 		id: 'rocky',
-		label: 'Rock face (fractured strata)',
-		requires: ['rock', 'cavity'],
+		label: 'Stone face (fractured strata)',
+		requires: ['stones', 'cavity'],
 		build: (a, ctx) => rockFace(a, ctx)
 	},
 	{

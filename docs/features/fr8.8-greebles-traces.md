@@ -9,25 +9,21 @@ dovetail), notches, chevrons, bow-ties, diagonal slits, chamfered plates and hal
 small relief (a lit 1–2 px chamfer, cut in by default and shaded a little darker) and colour; it writes the Shape mask
 by default.
 
-**Placement**
+**Placement** — the shared Repeat (FR8.33, `docs/features/fr8.33-repeat-around-mask.md`), whose card starts open here:
 
-- _Along the mask's edges_ (default): each pixel takes the nearest edge of the mask before it (the one the layer
-  writes, or Shape; distance and normal from the mask), finds how far it runs straight both ways — to a corner, a
-  gap, the texture's border — and spreads that side's elements evenly over it, _into_ the shape or _out_ of it.
-  Passes before the layer (`prepare`) give every edge texel how far its side runs, by doubling (log₂ of the
-  texture's size passes, as in jump flooding); each pixel then refines its side's two ends locally (1 px steps from
-  just short of each, then bisection). Exact distances read ~0 all along a straight side, so a tight threshold finds
-  its ends; curved edges never stay straight long enough to hold one. Elements keep clear of the side's corners (their shape's own clearance plus
-  _Corner clearance_); short sides get fewer or none. Edges filter sides by the way they face. With nothing in the
-  mask, the texture's edges are used (`readsMask`).
-- _Along the texture edges_ (left + right, top + bottom, all, one).
-- _Grid_ (Column / Row spacing round the centre, cells from `repGrid` — those whose element can reach the pixel) and
-  _Scattered_ (density, jitter); both take Rotation and Rotation variation.
+- _Around a mask_ (default; Shape): along each straight side of the mask, spread by Spacing (a whole number per side,
+  at least one) or a count, _into_ the shape or _out_ of it (Side), Inset further in. Elements keep clear of the side's
+  corners: their shape's own clearance (`tabClearance`) plus _Corner clearance_, and as many as fit with their Length;
+  short sides get fewer or none. Edges filter sides by the way they face. With nothing in the mask, the texture's edges
+  are used. (Until FR8.33 Tabs found the sides itself, by passes that doubled each edge texel's run; the shared outline
+  also counts curved outlines and rounded corners.)
+- _Along the texture edges_.
+- _Grid_ (Columns / Rows, Column / Row spacing, Row offset); Position jitter scatters it (the old _Scattered_). Rotation
+  turns grid elements.
 
-Along edges the _Spread_ is a Spacing (about one element every N px, a whole number per side, evenly spread — the
-default) or a Count per edge. Every placement has Size variation; all but scatter have Drop out and Flip every other (every
-other element mirrored end for end; checkerboard on a grid). The Grate lump uses it (texture edges, a count) for the
-clip notches cut into its frame sides.
+Every placement has the shared variation (Position jitter, Rotation variation, Flip at random, Size variation, Drop out)
+and Tabs' own Flip every other (every other element turned end for end; a checkerboard on a grid). The Grate lump uses it
+(texture edges, a count) for the clip notches cut into its frame sides.
 
 ## Traces & mazes (`traces` generator)
 

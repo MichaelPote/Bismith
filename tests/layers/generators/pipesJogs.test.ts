@@ -3,16 +3,17 @@
 // by side, and nothing along the runs passes through a jog's bends.
 
 import { describe, expect, it } from 'vitest';
+import type { ParamValues } from '@/core/params';
 import { ensureBuiltins } from '@/render/builtins';
 import { createLayer } from '@/layers/registry';
 import { JOG_KEEP, planJogRuns, planJogs, type Run } from '@/layers/generators/pipesJogs';
 
 ensureBuiltins();
 
-const params = (extra: Record<string, unknown>) => ({ ...createLayer('pipes').params, ...extra });
+const params = (extra: ParamValues): ParamValues => ({ ...createLayer('pipes').params, ...extra });
 const ctx = (seed: number) => ({ width: 512, height: 512, tileable: true, seed });
 
-const CASES: Record<string, unknown>[] = [
+const CASES: ParamValues[] = [
 	{ count: 5, diameter: 50, jog_chance: 1, jog_angle: '90', jog_amount: 0.3 },
 	{ count: 6, diameter: 24, bundle_max: 2, jog_chance: 1, jog_angle: 'mixed', jog_amount: 0.3 },
 	{ count: 12, diameter: 14, clamp_foot: 4, jog_chance: 1, jog_angle: '45', jog_amount: 0.4 },

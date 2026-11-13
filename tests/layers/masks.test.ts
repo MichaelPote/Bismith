@@ -234,9 +234,9 @@ describe('mask plan', () => {
 	});
 
 	it('gives each row its own Mode, Smoothness and Feather; skips empty source rows, stops at an empty added one', () => {
-		const def = getLayerDef('rock');
+		const def = getLayerDef('stones');
 		// Rock has five sources, so rows 1–5 are its own; 6 on are added rows.
-		const l = createLayer('rock', {
+		const l = createLayer('stones', {
 			mk_target: 'Rock',
 			mk_src_2: 'out_crevices',
 			mk_target_2: 'Rock',

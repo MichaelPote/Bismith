@@ -3,7 +3,7 @@
 //
 //   npx tsx tools/tiling.ts <project.json…> [--presets [id1,id2]] [--out DIR] [--samples 32] [--top 3]
 //                           [--backend windows|swiftshader] [--workers N] [--json]
-//                           [--fix [--seeds 24] [--culprits 2] [--scale]] [--without] [--cpu] [--check]
+//                           [--fix [--seeds 24] [--culprits 2] [--iterations 1] [--scale]] [--without] [--cpu] [--check]
 //
 // Per project it prints the tiling score and terms (patches, lines, clumping, tone; 0..1) and the ranked findings — which
 // layer behind which term — and writes <out>/<name>.png: [render 3×3 | hotspots 3×3 | the top culprits'
@@ -19,7 +19,8 @@
 // --fix reseeds and nudges the blamed layers instead (tiling score down, look held — src/tiling/fix.ts): it prints the
 // score and drift before and after and the changes, and writes <out>/<name>.fix.png [before 3×3 | after 3×3 | hotspots
 // before | after] and the fixed project as <name>.fixed.json. --scale lets it change sizes too (off: a fix keeps the
-// material's scale).
+// material's scale). --iterations goes over the culprits again from the best so far (ending early once one changes
+// nothing).
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
@@ -43,6 +44,7 @@ const asJson = has(args, 'json');
 const fix = has(args, 'fix');
 const seeds = num(args, 'seeds', 24);
 const culpritCount = num(args, 'culprits', 2);
+const iterations = num(args, 'iterations', 1);
 const scale = has(args, 'scale');
 const withoutIt = has(args, 'without');
 const cpu = has(args, 'cpu');
@@ -124,7 +126,7 @@ function reportFix(name: string, r: HeadlessTilingFixResult): void {
 			.join(' ');
 	console.log(
 		`\n${name}  score ${f2(r.before.score)} → ${f2(r.after.score)}  drift ${f2(r.after.drift)}` +
-			`  (${r.evaluations} evaluations, ${(r.ms / 1000).toFixed(0)} s)`
+			`  (${r.evaluations} evaluations, ${r.iterations} iteration${r.iterations === 1 ? '' : 's'}, ${(r.ms / 1000).toFixed(0)} s)`
 	);
 	console.log(`  before: ${terms(r.before.terms)}\n  after:  ${terms(r.after.terms)}`);
 	const culprits = [...new Set(r.findings.map((f) => f.name))].slice(0, culpritCount);
@@ -132,10 +134,15 @@ function reportFix(name: string, r: HeadlessTilingFixResult): void {
 	const seedTrials = r.trials.filter((t) => t.key === 'seed');
 	if (seedTrials.length) {
 		const sc = seedTrials.map((t) => t.score).sort((a, b) => a - b);
-		const dr = seedTrials.map((t) => t.drift).sort((a, b) => a - b);
+		// Only the drifts measured: after the first iteration a reseed whose score can't win skips it (NaN, null in JSON).
+		const dr = seedTrials
+			.map((t) => t.drift)
+			.filter((d) => typeof d === 'number' && Number.isFinite(d))
+			.sort((a, b) => a - b);
+		const drift = dr.length ? `${f2(dr[0])}…${f2(dr[dr.length >> 1])}…${f2(dr[dr.length - 1])}` : 'not measured';
 		console.log(
 			`  reseeds: score ${f2(sc[0])}…${f2(sc[sc.length >> 1])}…${f2(sc[sc.length - 1])} (min…median…max),` +
-				` drift ${f2(dr[0])}…${f2(dr[dr.length >> 1])}…${f2(dr[dr.length - 1])}; drift allowed ${f2(r.driftFree)}`
+				` drift ${drift}; drift allowed ${f2(r.driftFree)}`
 		);
 	}
 	if (!r.changes.length) console.log('  no change helped');
@@ -183,6 +190,7 @@ async function main() {
 							samples,
 							seeds,
 							culprits: culpritCount,
+							iterations,
 							scale,
 							cpu
 						});

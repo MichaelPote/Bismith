@@ -27,12 +27,14 @@ describe('column / row spacing', () => {
 		}
 	});
 
-	it('shows them on a grid of tabs only (not scattered, not along edges)', () => {
-		const show = layerParamDefs('tabs').find((d) => d.key === 'row_sp')!.showIf!;
-		const tabs = createLayer('tabs').params;
-		expect(show({ ...tabs, place: 'grid' })).toBe(true);
-		expect(show({ ...tabs, place: 'scatter' })).toBe(false);
-		expect(show({ ...tabs, place: 'border' })).toBe(false);
+	it('shows them on a grid only (not along an outline)', () => {
+		for (const type of ['tabs', 'rect', 'rosette']) {
+			const show = layerParamDefs(type).find((d) => d.key === 'row_sp')!.showIf!;
+			const p = createLayer(type).params;
+			expect(show({ ...p, rep_place: 'grid' }), type).toBe(true);
+			expect(show({ ...p, rep_place: 'mask' }), type).toBe(false);
+			expect(show({ ...p, rep_place: 'edges' }), type).toBe(false);
+		}
 	});
 
 	it('leaves plane-filling tilings and grids with their own steps alone', () => {

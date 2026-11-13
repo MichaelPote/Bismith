@@ -178,7 +178,7 @@ describe('layer registry', () => {
 		for (const t of ['treadplate', 'hammered', 'pipes', 'pipework', 'vents', 'greebles', 'trim'])
 			expect(createLayer(t).params, t).toMatchObject({ mt_on: true, mt_b: 1 });
 		for (const t of ['drips', 'splats']) expect(createLayer(t).params, t).toMatchObject({ mt_on: true, mt_b: 0 });
-		for (const t of ['noise', 'bricks', 'wood', 'rock']) expect(createLayer(t).params.mt_on, t).toBe(false);
+		for (const t of ['noise', 'bricks', 'wood', 'stones']) expect(createLayer(t).params.mt_on, t).toBe(false);
 		// Pipework's paint outputs (rust underneath, glass tubes, liquid) start non-metal.
 		const pipes = createLayer('pipework').params;
 		expect(linkedChanges('pipework', pipes, 'output', 'liquid')).toMatchObject({ mt_on: false });

@@ -41,7 +41,7 @@ doesn't.)
   with its size (Scratches once gained k² × the scratches). A length tied to one axis declares `axis: 'x' | 'y'`, or
   `orientAxis(...)` when the layer's orientation picks it (band width across the bands, slot length along them), so
   a widening scales it by the width alone; other lengths take √(kx·ky). Counts per texture or per cell ("cells
-  across") need nothing. One output pixel (Rock's hidden pixel scale) is `outputPx`: supersampling only.
+  across") need nothing. One output pixel (Stones' hidden pixel scale) is `outputPx`: supersampling only.
 - **Featureless generators return `genOutSmooth(...)`.** `rnd` is meant to be one random per feature (brick, cell,
   instance); Height's _Per-feature variation_ hashes it with `fract(rnd · 61.37)`. A generator without features that
   passes a continuous value as `rnd` (smooth noise, clouds) must use `genOutSmooth`, which switches that variation

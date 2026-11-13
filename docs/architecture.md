@@ -222,11 +222,21 @@ of the albedo (`layTransparent`).
 
 Transparent media share one GLSL helper, `GLSL_TRANSPARENCY` (`src/layers/glsl/transparency.ts`, in every material
 shader): the normal of a slope, the lens shift through it, the layers below seen through (`seenThrough` samples
-`tAlbedo`), tinting, grazing-angle rims, the inner glint where a dome focuses light, and `layTransparent`, which splits a
+`tAlbedo`), tinting, grazing-angle rims, the inner glint where a dome focuses light, the smooth level and slope a clear fill settles at (`fillLevel`), and
+`layTransparent`, which splits a
 colour into lit albedo and transmitted light. The Glass filter and Ice both go through it; new refracting layers should
 too. Likewise, layers that hang things from the relief below share `src/layers/ledges.ts`: the ledge test (`LEDGE_GLSL`,
 `ledgeParams`) and the pass that finds each cell's strongest ledge pixel (`ledgeCells`) — Drips' trails, Blisters'
-blisters, and Frost's snow caps (the ledge test the other way up) and icicles.
+blisters, and Snow's snow caps (the ledge test the other way up) and icicles.
+
+Every layer with a **Repeat** card (the shapes, Rosette, Glyph, Stamp, Label, Path, Tabs & notches) draws its instances
+through one shared Repeat (FR8.33): `repeatParams` and `withRepeat` (`src/layers/repeat.ts`) give it the card — Place
+(a grid, around a mask, along the texture's edges), the family's own grid rows, the outline rows and the variation every
+layout shares — and `GLSL_REPEAT` (`src/layers/glsl/repeat.ts`) the instances that can reach a pixel, with their jitter,
+turns, flips, size, drop-out and random worked out once. On an outline (the `MASK_REPEAT` variant) the instances come
+from the CPU: `prepare` reads back the mask's distance less the Offset, `src/layers/outline.ts` traces it, finds its
+corners (chamfers and rounded corners count as one), places the instances per outline or per side, by count or
+spacing, and sorts them into buckets the shader walks.
 
 The common generator wrapper then:
 
@@ -295,7 +305,12 @@ pulls the layers below apart along the dark lines of their colour — a ring's l
 splits that push the material aside.) **Rock**
 (FR8.18) builds natural rock faces from blocks in strata on a sheared lattice — each block a mesa with its own height,
 tilt and draped scarps, finer facets, joints, folds — with outputs for the relief and for paint (scarps, crevices, rain
-streaks). **Grass** (FR8.21) strews tapered blades that bend, curl and waver, in depth over one another, shaded light at
+streaks). **Rock** (FR8.32) builds the same kind of face without
+the lattice: irregular blocks of every size from a power diagram (elongated along a cleavage in its own metric, jagged,
+fused into level masses, split by kinked chords), each a mesa with its own height, tilt, chipped facets, rim steps and
+skirts that overhang lower neighbours; over them stacked sheets — a second power diagram whose cells stand whole layers
+apart, every step bevelled by the Edge card's Bevel and Profile — then optional flakes, cracks, hairline fractures, grain
+and pits. Its crevices, fractures and ledges go out as masks (Write to › Source), its blocks and sheets as shapes. **Grass** (FR8.21) strews tapered blades that bend, curl and waver, in depth over one another, shaded light at
 the tips and dark among the roots, with tufts, bare patches and two kinds of blade on one ramp. **Stone blocks**
 (FR8.22) lays a wall of rock-faced ashlar — courses of varying height, blocks split into slabs and short pieces, some
 running through two courses — each face pitched with flake scars struck in from its edges, with outputs for the
@@ -312,7 +327,7 @@ combined by max (finer crystals growing out of the valleys), each facet its own 
 star of refracted wedges seen through it — cut glass, gem clusters, loose stones. **Ice** (FR8.28) lays a sheet of ice
 over the layers below — what is under it refracted through its rippled surface, coloured by its depth along a ramp with
 subsurface scattering — with glinting surface bumps, cracks going down into it at an angle (a hairline and a veil to one
-side), long and star cracks, bubbles and stacks of them, specks and blades of frost. **Frost** (FR8.31) coats the layers
+side), long and star cracks, bubbles and stacks of them, specks and blades of frost. **Snow** (FR8.31) coats the layers
 below in winter: a grainy rime on every exposed face, then — Wall — snow caps on the top sides of the ledges in the
 relief below and icicles hanging from their undersides, or — Floor — snow on the most exposed parts and a clear glaze of
 ice built up in the hollows.
@@ -567,7 +582,7 @@ docs/
 | 8.16  | [New project wizard and one add grid](features/fr8.16-new-project-wizard.md)                                     |
 | 8.16a | [Instant wizard, project loading, export quality](features/fr8.16a-presets.md)                                   |
 | 8.17  | [Cracks (was Chips & splits), plank-end wobble, soft rings](features/fr8.17-chips-splits.md)                     |
-| 8.18  | [Rock (bedded, jointed, faceted stone)](features/fr8.18-rock.md)                                                 |
+| 8.18  | [Stones (bedded, jointed, faceted stone; formerly Rock)](features/fr8.18-stones.md)                              |
 | 8.19  | [Windows metric (local texture)](features/fr8.19-window-metric.md)                                               |
 | 8.20  | [Project previews](features/fr8.20-project-previews.md)                                                          |
 | 8.21  | [Grass](features/fr8.21-grass.md)                                                                                |
@@ -579,6 +594,8 @@ docs/
 | 8.27  | [Laid-out references: true-shift structure, Bolts / Rivets, Tile + motifs](features/fr8.27-laid-out-matching.md) |
 | 8.28  | [Ice (refracting sheet, cracks, bubbles, frost)](features/fr8.28-ice.md)                                         |
 | 8.29  | [Splits (the layers below pulled apart along their weakest lines)](features/fr8.29-splits.md)                    |
-| 8.31  | [Frost (rime, snow on ledges or high spots, icicles or ice in the hollows)](features/fr8.31-frost.md)             |
+| 8.31  | [Snow (rime, snow on ledges or high spots, icicles or ice in the hollows)](features/fr8.31-snow.md)              |
+| 8.32  | [Rock (irregular fractured blocks, stacked sheets, facets, ledges)](features/fr8.32-rock.md)                    |
+| 8.33  | [One Repeat, on a grid or around a mask](features/fr8.33-repeat-around-mask.md)                                  |
 | 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                                             |
 | 10    | [Project variants](features/fr10-variants.md)                                                                    |

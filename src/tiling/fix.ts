@@ -1,7 +1,9 @@
 // Fix what makes the repeat obvious (docs/features/fr9-tiling-workspace.md): a narrow search over the blamed layers
 // only. Each culprit — a layer, or the copies of one pattern — is first reseeded (N seeds, the copies together, so they
-// stay one pattern), then its pattern params are nudged one at a time, keeping each step that helps. A candidate's
-// loss is its tiling score plus a penalty once its look drifts past what a reseed alone costs:
+// stay one pattern), then its pattern params are nudged one at a time, keeping each step that helps. That pass over the
+// culprits is one iteration; more go over them again from the best so far (new seeds, and every param nudged again,
+// so one that helped can move further), until an iteration changes nothing. A candidate's loss is its tiling score
+// plus a penalty once its look drifts past what a reseed alone costs:
 //
 //   loss = score + DRIFT_WEIGHT · max(0, drift − DRIFT_FREE)
 //
@@ -50,9 +52,15 @@ export interface FixOptions {
 	/** Culprits fixed, most important first (default 2). */
 	culprits?: number;
 	/**
+	 * Passes over the culprits (default 1), each from the best so far: their reseeds (new seeds) and nudges again. The
+	 * search ends early after an iteration that changes nothing (the next would only try other seeds).
+	 */
+	iterations?: number;
+	/**
 	 * Drift a fix may cost for free. Default: what a reseed costs for this project — from each culprit on, the largest
 	 * median drift of the culprits' reseeds so far (a reseeded rock drifts ≈0.3, a sprinkle of flecks ≈0.03); 0.25
-	 * until a culprit with a seed comes.
+	 * until a culprit with a seed comes. Set by the first iteration only: later ones reseed a project already moved, and
+	 * would let the allowance creep up.
 	 */
 	driftFree?: number;
 	/** Loss per unit of drift past that (default 2). */
@@ -73,8 +81,8 @@ export interface FixOptions {
 	replay?: { score: number; drift: number | null }[];
 	/** Checked before each evaluation: true stops the search, which returns the best so far. */
 	shouldStop?: () => boolean;
-	/** Called after each evaluation with the candidate and the best kept so far. */
-	onEvaluate?: (done: number, candidate: FixCandidate, best: FixCandidate) => void;
+	/** Called after each evaluation with the candidate, the best kept so far and the iteration (1…). */
+	onEvaluate?: (done: number, candidate: FixCandidate, best: FixCandidate, iteration: number) => void;
 }
 
 export interface FixCandidate {
@@ -118,6 +126,8 @@ export interface FixResult {
 	/** The drift allowance used (set from the reseeds unless given). */
 	driftFree: number;
 	evaluations: number;
+	/** Iterations run: fewer than asked when one changed nothing (or the search was stopped). */
+	iterations: number;
 }
 
 /** Pattern params that only move the pattern (no new layout once tiled). */
@@ -156,13 +166,14 @@ export async function fixTiling(
 
 	/** Evaluate a candidate; `bar`: what its score must beat to have a chance (its drift may be skipped otherwise). */
 	let replayed = 0;
+	let iteration = 1;
 	const judge = async (p: Project, bar?: number): Promise<FixCandidate> => {
 		const r = opts.replay?.[replayed];
 		if (r) replayed++;
 		const e: FixEvaluation = r ? { score: r.score, drift: r.drift ?? NaN } : await evaluate(p, bar);
 		evaluations++;
 		const c: FixCandidate = { project: p, score: e.score, drift: e.drift, loss: lossOf(e), detail: e.detail };
-		opts.onEvaluate?.(evaluations, c, best ?? c);
+		opts.onEvaluate?.(evaluations, c, best ?? c, iteration);
 		return c;
 	};
 	let best: FixCandidate | null = null;
@@ -185,96 +196,104 @@ export async function fixTiling(
 	}
 
 	const stop = () => opts.shouldStop?.() === true;
-	search: for (const { ids, name } of units.slice(0, opts.culprits ?? 2)) {
-		const layers = ids.map((id) => best!.project.layers.find((l) => l.id === id)).filter((l) => !!l);
-		if (!layers.length) continue;
+	const iterations = Math.max(1, Math.floor(opts.iterations ?? 1));
+	search: for (;;) {
+		const changed = changes.length;
+		// The first iteration's reseeds set the allowance, unless it was given: every reseed's drift counts then.
+		const allowanceFromSeeds = opts.driftFree === undefined && iteration === 1;
+		for (const { ids, name } of units.slice(0, opts.culprits ?? 2)) {
+			const layers = ids.map((id) => best!.project.layers.find((l) => l.id === id)).filter((l) => !!l);
+			if (!layers.length) continue;
 
-		// Reseed: the copies together.
-		if (layers[0].params.seed !== undefined) {
-			const from = layers[0].params.seed as number;
-			const tried: { seed: number; c: FixCandidate }[] = [];
-			for (let i = 0; i < (opts.seeds ?? 24) && !stop(); i++) {
-				const seed = rng.int(100000);
-				// Without a given allowance every reseed's drift counts: their median sets it.
-				const c = await judge(
-					reseed(best.project, ids, seed),
-					opts.driftFree !== undefined ? best.loss - minGain : undefined
-				);
-				// The loss is only known once the round sets the allowance, but it is never below the score, and the bar
-				// (best's loss) only falls: a candidate whose score misses it now can't win.
-				if (!(c.score < best.loss - minGain)) c.detail = undefined;
-				tried.push({ seed, c });
-			}
-			if (opts.driftFree === undefined) {
-				const d = tried.map((t) => t.c.drift).sort((a, b) => a - b);
-				driftFree = reseeded ? Math.max(driftFree, d[d.length >> 1]) : d[d.length >> 1];
-				reseeded = true;
-				best.loss = lossOf(best);
-				for (const t of tried) t.c.loss = lossOf(t.c);
-			}
-			let won: FixCandidate | null = null;
-			let to = from;
-			for (const { seed, c } of tried) {
-				trials.push({ name, key: 'seed', value: seed, score: c.score, drift: c.drift, loss: c.loss });
-				if (c.loss < (won ? won.loss : best.loss - minGain)) {
-					won = c;
-					to = seed;
+			// Reseed: the copies together.
+			if (layers[0].params.seed !== undefined) {
+				const from = layers[0].params.seed as number;
+				const tried: { seed: number; c: FixCandidate }[] = [];
+				for (let i = 0; i < (opts.seeds ?? 24) && !stop(); i++) {
+					const seed = rng.int(100000);
+					// While the reseeds set the allowance every one's drift counts: their median sets it.
+					const c = await judge(reseed(best.project, ids, seed), allowanceFromSeeds ? undefined : best.loss - minGain);
+					// The loss is only known once the reseeds set the allowance, but it is never below the score, and the bar
+					// (best's loss) only falls: a candidate whose score misses it now can't win.
+					if (!(c.score < best.loss - minGain)) c.detail = undefined;
+					tried.push({ seed, c });
+				}
+				if (allowanceFromSeeds && tried.length) {
+					const d = tried.map((t) => t.c.drift).sort((a, b) => a - b);
+					driftFree = reseeded ? Math.max(driftFree, d[d.length >> 1]) : d[d.length >> 1];
+					reseeded = true;
+					best.loss = lossOf(best);
+					for (const t of tried) t.c.loss = lossOf(t.c);
+				}
+				let won: FixCandidate | null = null;
+				let to = from;
+				for (const { seed, c } of tried) {
+					trials.push({ name, key: 'seed', value: seed, score: c.score, drift: c.drift, loss: c.loss });
+					if (c.loss < (won ? won.loss : best.loss - minGain)) {
+						won = c;
+						to = seed;
+					}
+				}
+				for (const t of tried) if (t.c !== won) t.c.detail = undefined;
+				if (won) {
+					if (best !== before) best.detail = undefined;
+					best = won;
+					changes.push({ ids, name, key: 'seed', from, to });
 				}
 			}
-			for (const t of tried) if (t.c !== won) t.c.detail = undefined;
-			if (won) {
-				if (best !== before) best.detail = undefined;
-				best = won;
-				changes.push({ ids, name, key: 'seed', from, to });
-			}
-		}
 
-		// Even out the layout: one pattern param at a time, keeping each step that helps. Not effects that are off (at a
-		// minimum of 0: turning one on adds a feature), nor the scale unless asked.
-		const keys = patternKeys(layers[0].type);
-		const pick = (e: ParamEntry) =>
-			e.scope === 'layer' &&
-			e.kind === 'number' &&
-			ids.includes(e.owner) &&
-			keys.has(e.key) &&
-			!SHIFT_KEYS.has(e.key) &&
-			!(e.def?.min === 0 && layerValue(best!.project, e) === 0) &&
-			(opts.scale || (e.def?.unit !== 'px' && e.key !== 'scale'));
-		// The params are listed once; each is extracted again from the best so far, so its steps start from the params
-		// kept before it (and applying them changes that one param only).
-		const entries = extractParams(best.project, { filter: pick }).entries.filter((e) =>
-			isEntryActive(best!.project, e)
-		);
-		for (const e0 of entries) {
-			if (stop()) break search;
-			const space = extractParams(best.project, { filter: (e) => e.owner === e0.owner && e.key === e0.key && pick(e) });
-			const e = space.entries[0];
-			if (!e) continue;
-			const from = entryValue(e, space.initial);
-			let won: FixCandidate | null = null;
-			let wonTo = from;
-			for (const s of steps) {
-				if (stop()) break;
-				const v = space.initial[e.offset] + s;
-				if (!e.wrap && (v < 0 || v > 1)) continue;
-				const vec = Float64Array.from(space.initial);
-				vec[e.offset] = v;
-				const c = await judge(applyParams(best.project, space, vec), won ? won.loss : best.loss - minGain);
-				const to = entryValue(e, vec);
-				trials.push({ name, key: e.key, value: to, score: c.score, drift: c.drift, loss: c.loss });
-				if (c.loss < (won ? won.loss : best.loss - minGain)) {
-					if (won) won.detail = undefined;
-					won = c;
-					wonTo = to;
-				} else c.detail = undefined;
-			}
-			if (won) {
-				if (best !== before) best.detail = undefined;
-				best = won;
-				changes.push({ ids, name, key: e.key, from, to: wonTo });
+			// Even out the layout: one pattern param at a time, keeping each step that helps. Not effects that are off (at a
+			// minimum of 0: turning one on adds a feature), nor the scale unless asked.
+			const keys = patternKeys(layers[0].type);
+			const pick = (e: ParamEntry) =>
+				e.scope === 'layer' &&
+				e.kind === 'number' &&
+				ids.includes(e.owner) &&
+				keys.has(e.key) &&
+				!SHIFT_KEYS.has(e.key) &&
+				!(e.def?.min === 0 && layerValue(best!.project, e) === 0) &&
+				(opts.scale || (e.def?.unit !== 'px' && e.key !== 'scale'));
+			// The params are listed once; each is extracted again from the best so far, so its steps start from the params
+			// kept before it (and applying them changes that one param only).
+			const entries = extractParams(best.project, { filter: pick }).entries.filter((e) =>
+				isEntryActive(best!.project, e)
+			);
+			for (const e0 of entries) {
+				if (stop()) break search;
+				const space = extractParams(best.project, {
+					filter: (e) => e.owner === e0.owner && e.key === e0.key && pick(e)
+				});
+				const e = space.entries[0];
+				if (!e) continue;
+				const from = entryValue(e, space.initial);
+				let won: FixCandidate | null = null;
+				let wonTo = from;
+				for (const s of steps) {
+					if (stop()) break;
+					const v = space.initial[e.offset] + s;
+					if (!e.wrap && (v < 0 || v > 1)) continue;
+					const vec = Float64Array.from(space.initial);
+					vec[e.offset] = v;
+					const c = await judge(applyParams(best.project, space, vec), won ? won.loss : best.loss - minGain);
+					const to = entryValue(e, vec);
+					trials.push({ name, key: e.key, value: to, score: c.score, drift: c.drift, loss: c.loss });
+					if (c.loss < (won ? won.loss : best.loss - minGain)) {
+						if (won) won.detail = undefined;
+						won = c;
+						wonTo = to;
+					} else c.detail = undefined;
+				}
+				if (won) {
+					if (best !== before) best.detail = undefined;
+					best = won;
+					changes.push({ ids, name, key: e.key, from, to: wonTo });
+				}
 			}
 		}
+		// An iteration that changed nothing leaves the next only other seeds to try.
+		if (changes.length === changed || iteration >= iterations || stop()) break;
+		iteration++;
 	}
 
-	return { before, after: best, project: best.project, changes, trials, driftFree, evaluations };
+	return { before, after: best, project: best.project, changes, trials, driftFree, evaluations, iterations: iteration };
 }

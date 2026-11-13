@@ -1,10 +1,13 @@
 // Radial / emblem motifs (FR7.2c): rosettes (rings, spokes, stars, star polygons, petals, bead rings) and
 // procedural glyphs (mirrored random strokes on a small node grid: runes, sigils, insignia). Both share a
-// placement + repeat-grid wrapper (MOT_REPEAT: the repeat cells that can reach the pixel, torus copies when tiling),
-// with a bounding-circle test so far instances cost one length().
+// placement + repeat wrapper (MOT_REPEAT, on the shared Repeat of glsl/repeat.ts: the instances on the grid or along an
+// outline that can reach the pixel, torus copies when tiling), with a bounding-circle test so far instances cost one
+// length().
 
 import { P, round1 as r1, type ParamDef } from '@/core/params';
-import { placementParams, repeatParams } from '../commonParams';
+import { placementParams } from '../commonParams';
+import { GLSL_REPEAT } from '../glsl/repeat';
+import { REPEAT_GROUP, repeatParams, withRepeat } from '../repeat';
 import type { LayerDef } from '../types';
 import { GLSL_MOT_COMMON, MOTIF_DEFAULTS } from './motifCommon';
 
@@ -19,6 +22,7 @@ float gMotH = 0.0;
 const PLACEMENT: ParamDef[] = placementParams();
 
 const REPEAT: ParamDef[] = repeatParams({
+	grid: 'cells',
 	softMax: 16,
 	jitter: 'cell',
 	scaleHint:
@@ -41,21 +45,26 @@ const REPEAT: ParamDef[] = repeatParams({
  *                                                 stretches, gMotF its local axes on screen), into GenOut.bdist
  * Size variation evaluates an instance at q / s and scales its distance by s (s ≤ 1, so the bound still holds).
  */
-const MOT_REPEAT = /* glsl */ `
+const MOT_REPEAT =
+	GLSL_REPEAT +
+	/* glsl */ `
 GenOut gen(vec2 p0) {
   ivec2 n = ivec2(max(u_rep_x, 1), max(u_rep_y, 1));
-  // The step between instances (Column / Row spacing) and the grid's centre (X / Y place it within a step).
-  vec2 pitch = vec2(repPitch(uRes.x, n.x, u_col_sp, uRes.x), repPitch(uRes.y, n.y, u_row_sp, uRes.y));
-  vec2 gc = 0.5 * uRes + vec2(u_x - 0.5, 0.5 - u_y) * pitch;
+  // The step between instances (Column / Row spacing); X / Y place each within its step.
+  RepFrame f = repFrame(n, vec2(repPitch(uRes.x, n.x, u_col_sp, uRes.x), repPitch(uRes.y, n.y, u_row_sp, uRes.y)), 0.5 * uRes);
+  f.stagger = u_rep_stagger * f.pitch.x;
+  f.mirror = bvec2(u_rep_mirror_x, u_rep_mirror_y);
+  f.off = vec2(u_x - 0.5, 0.5 - u_y) * f.pitch;
+  f.rot = u_rotation;
+  f.jitStep = u_rep_jit;
+  f.near = 1.5;
   float bound = motifBound();
   // MOT_TAPS > 1: the value averaged over taps on a Vogel disc of radius MOT_BLUR (Rosette's glow softness).
   int taps = max(MOT_TAPS, 1);
-  // The instances to visit: every one whose motif can reach a tap (its bound, position jitter, the blur, snapping),
-  // and at least those within a step and a half — the neighbours either side, whose distance the output needs too.
-  vec2 reach = max(1.5 * pitch, vec2(bound + MOT_BLUR + 2.0) + 0.5 * u_rep_jit * pitch);
-  float shift = u_rep_stagger * pitch.x;
-  RepGrid rg = repGrid(n, pitch, gc, uRes, uTile, p0 - reach - vec2(shift, 0.0), p0 + reach);
-  int nxy = repCount(rg);
+  // The instances to visit: every one whose motif can reach a tap (its bound, the blur, snapping), and at least those
+  // within a step and a half — the neighbours either side, whose distance the output needs too.
+  RepSrc s0 = repBegin(p0, f, vec2(bound + MOT_BLUR + 2.0));
+  int nxy = max(repIters(s0), 1);
   GenOut g0 = genOut(0.0, 1.0, 0.0, NO_SDF);
   float acc = 0.0;
   float best = 1e9, bestRnd = 0.0, bestH = 0.0, nearR = 1e9;
@@ -64,14 +73,15 @@ GenOut gen(vec2 p0) {
   // — the same motifSdf call, so the shader keeps one copy of it.
   bool str = (MOT_STRETCH) && bevelAspectOn();
   int its = nxy * taps;
-  vec2 wQ = vec2(0.0);
+  vec2 wQ = vec2(0.0), wFl = vec2(1.0);
   float wAng = 0.0, wSc = 1.0, bd = NO_SDF;
   MOT_SET_STR(false);
+  RepSrc s = s0;
   // One flat loop over the taps × the instances, so D3D keeps a single copy of the body and of motifSdf (a loop of
-  // taps round the instance loop made the compile much slower). The nearest instances come first, and an instance is
-  // measured only when its bounding circle could beat the nearest distance so far (and lies within MOT_EXACT): far
-  // ones cost one length(), and the distance stays exact (a fixed cut-off just past the bound left rings in a bevel
-  // reading the mask).
+  // taps round the instance loop made the compile much slower). The nearest instances come first on the grid, and an
+  // instance is measured only when its bounding circle could beat the nearest distance so far (and lies within
+  // MOT_EXACT): far ones cost one length(), and the distance stays exact (a fixed cut-off just past the bound left rings
+  // in a bevel reading the mask).
   for (int e = 0; e < its + (str ? 1 : 0); e++) {
     bool fin = e == its;
     int k = e % nxy;
@@ -79,26 +89,22 @@ GenOut gen(vec2 p0) {
       float t = float(e / nxy) + 0.5;
       p = p0 + (taps > 1 ? MOT_BLUR * sqrt(t / float(taps)) * vec2(cos(2.39996 * t), sin(2.39996 * t)) : vec2(0.0));
       best = 1e9; bestRnd = 0.0; bestH = 0.0; nearR = 1e9; nearQ = vec2(1e9);
+      s = s0;
     }
-    ivec2 c;
-    vec2 centre;
-    repAt(rg, k, c, centre);
-    // Odd rows, counted from the top, shift by the row offset.
-    if (((n.y - 1 - c.y) & 1) == 1) centre.x += shift;
-    if (fin || !(u_rep_drop > 0.0 && hashI(c, uSeed + 3.0) < u_rep_drop)) {
-      float inst = hashI(c, uSeed);
-      vec3 jit = hash3I(c, uSeed + 7.0);
-      centre += (jit.xy - 0.5) * u_rep_jit * pitch;
-      centre = motifSnap(centre);
-      float ang = u_rotation + (u_rep_rot > 0.0 ? (hashI(c, uSeed + 5.0) - 0.5) * 2.0 * u_rep_rot : 0.0);
-      float sc = 1.0 - u_rep_scale * jit.z;
-      vec2 q = unrotCW(p - centre, ang) / sc;
+    RepInst it = repNext(s);
+    if (fin || it.kept) {
+      float inst = it.rnd;
+      vec2 centre = motifSnap(it.centre);
+      float ang = it.ang;
+      float sc = it.scale;
+      vec2 fl = vec2(it.flip.x ? -1.0 : 1.0, it.flip.y ? -1.0 : 1.0);
+      vec2 q = unrotCW(p - centre, ang) / sc * fl;
       if (fin) {
-        // The last pass: the nearest instance, in its own frame (local axes on screen).
-        q = wQ; ang = wAng; sc = wSc; inst = bestRnd;
+        // The last pass: the nearest instance, in its own frame (local axes on screen, flipped as it was).
+        q = wQ; ang = wAng; sc = wSc; inst = bestRnd; fl = wFl;
         MOT_SET_STR(true);
         vec2 ax = rotCW(vec2(1.0, 0.0), ang);
-        gMotF = mat2(ax, vec2(-ax.y, ax.x));
+        gMotF = mat2(ax * fl.x, vec2(-ax.y, ax.x) * fl.y);
       }
       float r = length(q);
       float d = (r - bound) * sc;
@@ -106,7 +112,7 @@ GenOut gen(vec2 p0) {
       if (fin) {
         if (best < 1e8) bd = d;
       } else {
-        if (d < best) { best = d; bestRnd = inst; bestH = gMotH; wQ = q; wAng = ang; wSc = sc; }
+        if (d < best) { best = d; bestRnd = inst; bestH = gMotH; wQ = q; wAng = ang; wSc = sc; wFl = fl; }
         if (r < nearR) { nearR = r; nearQ = q; }
       }
     }
@@ -178,7 +184,7 @@ export function rosetteBevel(p: Record<string, unknown>): number {
 	return r1(Math.min(64, Math.max(0.5, lines.length ? 0.5 * Math.min(...lines) : 0.02 * n('radius'))));
 }
 
-export const rosetteLayer: LayerDef = {
+export const rosetteLayer: LayerDef = withRepeat({
 	type: 'rosette',
 	label: 'Rosette',
 	category: 'pattern',
@@ -461,7 +467,7 @@ export const rosetteLayer: LayerDef = {
 		{ id: 'star', label: 'Star' },
 		{ id: 'petals', label: 'Petals', collapsed: true },
 		{ id: 'dots', label: 'Beads', collapsed: true },
-		{ id: 'repeat', label: 'Repeat', collapsed: true }
+		REPEAT_GROUP
 	],
 	defaults: MOTIF_DEFAULTS,
 	// The bevel follows the line widths (domed lines), and the glow / radial outputs are light: emissive, not paint
@@ -784,7 +790,7 @@ GenOut motifOut(float d, float rnd, vec2 nearQ, float h) {
 #define MOT_STRETCH (u_output == 0)
 ` +
 		MOT_REPEAT
-};
+});
 
 // ------------------------------------------------------------------------------------------------ glyph
 
@@ -795,7 +801,7 @@ export function glyphBevel(p: Record<string, unknown>): number {
 	return r1(Math.min(64, Math.max(0.5, 0.5 * n('width', 2))));
 }
 
-export const glyphLayer: LayerDef = {
+export const glyphLayer: LayerDef = withRepeat({
 	type: 'glyph',
 	label: 'Glyph / Sigil',
 	category: 'pattern',
@@ -983,7 +989,7 @@ export const glyphLayer: LayerDef = {
 		...PLACEMENT,
 		...REPEAT
 	],
-	groups: [{ id: 'repeat', label: 'Repeat', collapsed: true }],
+	groups: [REPEAT_GROUP],
 	defaults: MOTIF_DEFAULTS,
 	// The bevel follows the strokes (half their width: a round, domed section) or the blocks' cells.
 	// The pen's strokes end as the pen leaves them.
@@ -1372,4 +1378,4 @@ GenOut motifOut(float d, float rnd, vec2 nearQ, float h) { return genOut(0.0, 1.
 #define MOT_STRETCH true
 ` +
 		MOT_REPEAT
-};
+});

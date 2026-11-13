@@ -3,9 +3,12 @@
 
 import { P, type ParamDef, type ParamValues } from './params';
 
+/** Largest canvas side, px (supersampling stays within MAX_STACK_SIZE, core/supersample.ts). */
+export const MAX_SIZE = 4096;
+
 export const PROJECT_DEFS: ParamDef[] = [
-	P.int('width', 'Width', 128, 1, 2048, { softMin: 16, softMax: 1024, unit: 'px' }),
-	P.int('height', 'Height', 128, 1, 2048, { softMin: 16, softMax: 1024, unit: 'px' }),
+	P.int('width', 'Width', 128, 1, MAX_SIZE, { softMin: 16, softMax: 1024, unit: 'px' }),
+	P.int('height', 'Height', 128, 1, MAX_SIZE, { softMin: 16, softMax: 1024, unit: 'px' }),
 	P.bool('tileable', 'Tileable (seamless wrap)', true),
 	P.float('heightDepth', 'Height depth', 2, 0, 4096, {
 		softMax: 8,
@@ -64,7 +67,7 @@ export const RENDER_DEFS: ParamDef[] = [
 		hint: 'Off: lights shade by surface angle only (painted / hand-lit look)'
 	}),
 	P.int('supersample', 'Supersample', 1, 1, 4, {
-		hint: 'Render the surface and lighting at 2–4× and average down: finer 1 px highlights, thin joints and small holes (costs k² time). Shown as @Nx beside the project in the outliner'
+		hint: 'Render the surface and lighting at 2–4× and average down: finer 1 px highlights, thin joints and small holes (costs k² time). At most 4096 px across: a canvas over 1024 px gets 2× at most, over 2048 none. Shown as @Nx beside the project in the outliner'
 	}),
 	P.int('exportSamples', 'Samples', 1024, 1, 65536, {
 		section: 'Export',
@@ -74,7 +77,7 @@ export const RENDER_DEFS: ParamDef[] = [
 	}),
 	P.int('exportSupersample', 'Supersample', 2, 1, 4, {
 		section: 'Export',
-		hint: 'Exports render at this many × the size and average down (antialiased edges); a project supersampled more keeps its own'
+		hint: 'Exports render at this many × the size and average down (antialiased edges); a project supersampled more keeps its own. At most 4096 px across: a canvas over 1024 px exports at 2× at most, over 2048 at 1×'
 	})
 ];
 

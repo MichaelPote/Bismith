@@ -21,6 +21,7 @@ import { settsLayer } from './setts';
 import { pipeworkLayer } from './pipes';
 import { surfaceMaskLayer } from './surfaceMask';
 import { cracksLayer } from './cracks';
+import { stonesLayer } from './stones';
 import { rockLayer } from './rock';
 import { stoneBlocksLayer } from './stoneBlocks';
 import { grassLayer } from './grass';
@@ -53,6 +54,7 @@ export const GENERATORS: LayerDef[] = [
 	pipeworkLayer,
 	surfaceMaskLayer,
 	cracksLayer,
+	stonesLayer,
 	rockLayer,
 	stoneBlocksLayer,
 	grassLayer,

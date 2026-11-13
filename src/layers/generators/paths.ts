@@ -8,6 +8,8 @@ import { P, type ParamValues } from '@/core/params';
 import { GLSL_PRIMTEX, floatTexture } from '../primTexture';
 import { TAPER_GLSL, taperParams } from './shapes';
 import type { CpuTexture, LayerCanvas, LayerDef } from '../types';
+import { GLSL_REPEAT } from '../glsl/repeat';
+import { REPEAT_GROUP, repeatParams, withRepeat } from '../repeat';
 
 type V2 = [number, number];
 
@@ -238,41 +240,52 @@ GenOut gen(vec2 p) {
   vec2 hi = vec2(texF32(t_poly, ivec2(2, n)), texF32(t_poly, ivec2(3, n)));
   vec2 q0 = vec2(p.x, uRes.y - p.y);
   float sc = max(u_scale, 1e-3);
-  float zs = 1.0 / sc;
   vec2 piv = 0.5 * (lo + hi);
-  float ca = cos(radians(u_rotation));
-  float sa = sin(radians(u_rotation));
-  // Bevel aspect: polygon-space offsets → screen (turned back, scaled; y down, which the widths don't mind) → stretched.
+  // Bevel aspect: polygon-space offsets → screen (turned back, scaled; y down, which the widths don't mind) → stretched
+  // (pth_M, per copy below).
   pth_asp = bevelAspectOn();
-  pth_M = bevelFrame(vec2(ca, sa), vec2(-sa, ca)) * sc;
   float rS = 1e20;
-  // Repeats (Step X / Y apart, either way from the polygons as drawn), and round the torus when tiling (repGrid): every
-  // copy whose bounds can reach the pixel, nearest first; a copy whose bounds lie farther than the nearest distance
-  // found so far is skipped.
+  // The copies (the shared Repeat, glsl/repeat.ts, in GL space): Repeat X / Y, Step X / Y apart either way from the
+  // polygons as drawn, round the torus when tiling — or along an outline, each copy's centre (its bounds' centre) on it —
+  // each with its own turn, size and flips. Every copy whose bounds can reach the pixel, nearest first on the grid; a
+  // copy whose bounds lie farther than the nearest distance found so far is skipped.
   ivec2 rep = ivec2(u_rep_x, u_rep_y);
   vec2 stepR = vec2(u_rep_dx, u_rep_dy);
+  vec2 gc = piv + 0.5 * vec2(rep - 1) * stepR;
+  RepFrame f = repFrame(rep, abs(stepR), vec2(gc.x, uRes.y - gc.y));
+  f.rot = u_rotation;
+  f.jitPx = vec2(u_rep_jitter);
   float ext = 0.5 * length(hi - lo) * sc + max(u_grow, 0.0) + 2.0;
-  RepGrid rg = repGrid(rep, max(abs(stepR), 1e-3), piv + 0.5 * vec2(rep - 1) * stepR, uRes, uTile, q0 - ext, q0 + ext);
-  int nc = repCount(rg);
+  RepSrc rs = repBegin(p, f, vec2(ext));
+  int nc = repIters(rs);
   vec2 r = vec2(1e20, 0.0);
+  float rRnd = 0.0;
   float reach = 1e20;
   for (int c = 0; c < nc; c++) {
-    ivec2 cw;
-    vec2 pos;
-    repAt(rg, c, cw, pos);
-    // Into the polygons' own space (the copy's offset off, Scale / Rotation about the bounds' centre).
-    vec2 m = q0 - pos;
-    vec2 q = piv + vec2(ca * m.x + sa * m.y, ca * m.y - sa * m.x) * zs;
-    vec2 bx = max(max(lo - q, q - hi), 0.0);
-    if (length(bx) * sc < reach) {
-      vec2 o = pathSdf(q, k);
-      o.x *= sc;
-      if (o.x < r.x) { r = o; rS = pth_bs; }
-      reach = abs(r.x) + max(u_grow, 0.0) + 2.0;
+    RepInst it = repNext(rs);
+    if (it.kept) {
+      // Into the polygons' own space (the copy's offset off, its turn and flips undone, Scale about the bounds' centre).
+      vec2 pos = vec2(it.centre.x, uRes.y - it.centre.y);
+      float sci = sc * it.scale;
+      float ci = cos(radians(it.ang));
+      float si = sin(radians(it.ang));
+      vec2 fl = vec2(it.flip.x ? -1.0 : 1.0, it.flip.y ? -1.0 : 1.0);
+      vec2 m = q0 - pos;
+      vec2 q = piv + vec2(ci * m.x + si * m.y, ci * m.y - si * m.x) * fl / sci;
+      vec2 bx = max(max(lo - q, q - hi), 0.0);
+      if (length(bx) * sci < reach) {
+        pth_M = bevelFrame(vec2(ci, si) * fl.x, vec2(-si, ci) * fl.y) * sci;
+        vec2 o = pathSdf(q, k);
+        o.x *= sci;
+        if (o.x < r.x) { r = o; rS = pth_bs; rRnd = it.rnd; }
+        reach = abs(r.x) + max(u_grow, 0.0) + 2.0;
+      }
     }
   }
   float sd = sdOnion(r.x - u_grow, u_outline);
-  GenOut g = genOut(1.0, 1.0, hashI(ivec2(int(r.y), 7), uSeed), sd);
+  // Each filled region its own random, and each copy's its own when there are several.
+  float h = hashI(ivec2(int(r.y), 7), uSeed);
+  GenOut g = genOut(1.0, 1.0, rep.x * rep.y > 1 || u_rep_place != 0 ? fract(h + rRnd) : h, sd);
   // Bevel aspect: the stretched distance to the outline, so the bevels meet in clean mitres. Grown or outlined: the
   // distance × the local stretch (stretched over plain distance to the polygons' outline) — exact along straight edges,
   // continuous through the mitres.
@@ -288,7 +301,7 @@ GenOut gen(vec2 p) {
 const pointsHint =
 	'Lists the corners as x,y pairs (px from the top-left, or 0..1 with Units = fraction). Put each polygon on its own line or separate them with "|". Up to 64 vertices';
 
-export const pathLayer: LayerDef = {
+export const pathLayer: LayerDef = withRepeat({
 	type: 'path',
 	label: 'Path',
 	category: 'shape',
@@ -354,35 +367,36 @@ export const pathLayer: LayerDef = {
 			step: 0.1,
 			hint: 'Turns the polygons clockwise around the same centre'
 		}),
-		P.int('rep_x', 'Repeat X', 1, 1, 64, {
-			softMax: 16,
-			group: 'repeat',
-			hint: 'Repeats the polygons side by side this many times (Offset X / Y under Shaping moves them all)'
-		}),
-		P.int('rep_y', 'Repeat Y', 1, 1, 64, { softMax: 16, group: 'repeat' }),
-		P.float('rep_dx', 'Step X', 64, -4096, 4096, {
-			softMin: 0,
-			softMax: 512,
-			unit: 'px',
-			axis: 'x',
-			step: 0.5,
-			group: 'repeat',
-			showIf: (p) => Number(p.rep_x) > 1,
-			hint: 'Sets how far right each copy sits from the one before'
-		}),
-		P.float('rep_dy', 'Step Y', 64, -4096, 4096, {
-			softMin: 0,
-			softMax: 512,
-			unit: 'px',
-			axis: 'y',
-			step: 0.5,
-			group: 'repeat',
-			showIf: (p) => Number(p.rep_y) > 1,
-			hint: 'Sets how far down each copy sits from the one before'
-		}),
-		P.seed('seed', 'Seed', 1, { hint: 'Reshuffles the random value each filled region gets' })
+		...repeatParams({
+			grid: [
+				P.int('rep_x', 'Repeat X', 1, 1, 64, {
+					softMax: 16,
+					hint: 'Repeats the polygons side by side this many times (Offset X / Y under Shaping moves them all)'
+				}),
+				P.int('rep_y', 'Repeat Y', 1, 1, 64, { softMax: 16 }),
+				P.float('rep_dx', 'Step X', 64, -4096, 4096, {
+					softMin: 0,
+					softMax: 512,
+					unit: 'px',
+					axis: 'x',
+					step: 0.5,
+					showIf: (p) => Number(p.rep_x) > 1,
+					hint: 'Sets how far right each copy sits from the one before'
+				}),
+				P.float('rep_dy', 'Step Y', 64, -4096, 4096, {
+					softMin: 0,
+					softMax: 512,
+					unit: 'px',
+					axis: 'y',
+					step: 0.5,
+					showIf: (p) => Number(p.rep_y) > 1,
+					hint: 'Sets how far down each copy sits from the one before'
+				})
+			],
+			jitter: 'px'
+		})
 	],
-	groups: [{ id: 'repeat', label: 'Repeat', collapsed: true }],
+	groups: [REPEAT_GROUP],
 	textures: ['poly'],
 	// (Memoised by the params it reads: a colour or Height slider keeps the uploaded texture.)
 	cpuData: memoReads((q: ParamValues, ctx: LayerCanvas) => ({
@@ -402,8 +416,8 @@ export const pathLayer: LayerDef = {
 			radius: Math.round(s / 64)
 		};
 	},
-	glsl: PATHS_GLSL + PATH_GLSL
-};
+	glsl: PATHS_GLSL + GLSL_REPEAT + PATH_GLSL
+});
 
 // ------------------------------------------------------------------------------------------------ Polyline
 

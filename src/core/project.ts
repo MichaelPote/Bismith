@@ -228,8 +228,8 @@ export interface GalleryRef {
 	id: string;
 }
 
-export const SIZE_PRESETS = [16, 32, 64, 128, 256, 512, 1024];
-export const MAX_SIZE = 2048;
+export const SIZE_PRESETS = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
+export { MAX_SIZE } from './settingsDefs';
 export const MAX_LIGHTS = 8;
 
 // Defaults and ranges live in the settings' ParamDefs (settingsDefs.ts); serialize.ts normalises files through them.

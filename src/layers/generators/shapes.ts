@@ -22,7 +22,9 @@
 //                             shapeSdf left in gShapeAux for it (so the relief isn't worked out twice)
 
 import { P, halfPx, type ParamDef, type ParamValues } from '@/core/params';
-import { placementParams, repeatParams } from '../commonParams';
+import { placementParams } from '../commonParams';
+import { GLSL_REPEAT } from '../glsl/repeat';
+import { REPEAT_GROUP, repeatParams, withRepeat } from '../repeat';
 import { FASTENER_HEADS, GRB_HEADS_GLSL } from './greebleCommon';
 import type { LayerDef } from '../types';
 
@@ -37,49 +39,14 @@ const PLACEMENT: ParamDef[] = [
 ];
 
 const REPEAT: ParamDef[] = repeatParams({
+	grid: 'cells',
 	softMax: 32,
 	jitter: 'px',
 	after: {
-		rep_rot: [
-			P.float('rep_rot_step', 'Rotation steps', 0, 0, 180, {
-				softMax: 90,
-				unit: '°',
-				step: 0.1,
-				group: 'repeat',
-				showIf: (p) => Number(p.rep_rot) > 0,
-				hint: 'Snaps the random turns to multiples of this angle (0 = any angle). For example, 90 with a Rotation variation of 180 gives each instance a random quarter turn, for notched tiles or hooks facing every way'
-			}),
-			P.enum(
-				'rep_flip',
-				'Flip at random',
-				'none',
-				[
-					['none', 'None'],
-					['x', 'Left / right'],
-					['y', 'Up / down'],
-					['both', 'Both']
-				],
-				{
-					group: 'repeat',
-					hint: 'Mirrors half the instances at random on each chosen axis, so lopsided shapes like a hooked curve or a notched corner face both ways'
-				}
-			)
-		],
 		rep_scale: [
 			P.bool('rep_scale_bevel', 'Scale the bevel too', true, {
-				group: 'repeat',
 				showIf: (p) => Number(p.rep_scale) > 0,
 				hint: 'Narrows the bevel on shrunk instances to match, so they’re scaled copies of one shape. Off: every instance keeps the Bevel width in px (small ones come out domed, large ones flat-topped)'
-			})
-		],
-		rep_drop: [
-			P.bool('rep_mirror_x', 'Mirror odd columns', false, {
-				group: 'repeat',
-				hint: 'Mirrors the position left / right in every other column. For example, 2 columns put a pair of instances near the outer edges, or a rivet line along both edges of a plate'
-			}),
-			P.bool('rep_mirror_y', 'Mirror odd rows', false, {
-				group: 'repeat',
-				hint: 'Mirrors the position up / down in every other row. With Mirror odd columns, 2×2 puts one instance in each corner'
 			})
 		]
 	}
@@ -205,66 +172,51 @@ const STROKE_GLSL =
 float strokeLenK(float rnd) { return 1.0 - u_len_jitter * fract(rnd * 53.71 + 0.27); }
 `;
 
-// Instancing: the union of every repeat instance that can reach p — the shape's extent, the position jitter and the
-// offset of X / Y decide how many that is (at least the neighbours either side, more for shapes larger than their
-// step), with copies round the torus when tiling (repGrid; Column / Row spacing moves the instances, while their cells
-// still size the shapes). One flat loop with uniform-derived bounds, so D3D compiles the shape once (and no "continue",
-// which ANGLE can miscompile). The nearest instance also gives the bevel distance (GenOut.bdist): the outline's in px,
-// the shape's own (Cross), scaled with the instance, or spanned to the middle.
+// Instancing: the union of every instance that can reach p, from the shared Repeat (glsl/repeat.ts) — on the grid (the
+// shape's extent, the position jitter and the offset of X / Y decide how many: at least the neighbours either side, more
+// for shapes larger than their step, with copies round the torus when tiling; Column / Row spacing moves the instances,
+// while their cells still size the shapes) or along an outline. One flat loop with bounds from the pixel, so D3D compiles
+// the shape once (and no "continue", which ANGLE can miscompile). The nearest instance also gives the bevel distance
+// (GenOut.bdist): the outline's in px, the shape's own (Cross), scaled with the instance, or spanned to the middle.
 const SHAPE_GEN = /* glsl */ `
 GenOut gen(vec2 p) {
   ivec2 R = ivec2(u_rep_x, u_rep_y);
-  vec2 cell = uRes / vec2(R);
-  vec2 pitch = vec2(repPitch(uRes.x, R.x, u_col_sp, uRes.x), repPitch(uRes.y, R.y, u_row_sp, uRes.y));
-  vec2 off0 = vec2(u_x - 0.5, 0.5 - u_y);
-  // How far an instance's place can be from p and still reach it (+2 px for the anti-aliasing), and at least a step.
-  vec2 reach = max(vec2(shapeExtent(cell) + u_rep_jitter + 2.0), pitch) + abs(off0) * pitch;
-  float inr = shapeInradius(cell);
-  float shift = u_rep_stagger * pitch.x;
-  RepGrid rg = repGrid(R, pitch, 0.5 * uRes, uRes, uTile, p - reach - vec2(shift, 0.0), p + reach);
-  int n = repCount(rg);
+  RepFrame f = repFrame(R, vec2(repPitch(uRes.x, R.x, u_col_sp, uRes.x), repPitch(uRes.y, R.y, u_row_sp, uRes.y)), 0.5 * uRes);
+  f.cell = uRes / vec2(R);
+  f.stagger = u_rep_stagger * f.pitch.x;
+  f.mirror = bvec2(u_rep_mirror_x, u_rep_mirror_y);
+  f.off = vec2(u_x - 0.5, 0.5 - u_y) * f.pitch;
+  f.rot = u_rotation;
+  f.jitPx = vec2(u_rep_jitter);
+  // (+2 px for the anti-aliasing.)
+  RepSrc rs = repBegin(p, f, vec2(shapeExtent(repCellMax(f)) + 2.0));
+  int n = repIters(rs);
   float best = 1e9;
   float bestSolid = 1e9;   // the nearest instance's distance before the outline (px): its direction for Bevel aspect
   float bestRnd = 0.0;
   float bestBd = 1e9;
 #ifdef BEVEL_ASPECT
-  vec2 bestQ = vec2(1e9), bestAx = vec2(1.0, 0.0), bestAy = vec2(0.0, 1.0);
+  vec2 bestQ = vec2(1e9), bestAx = vec2(1.0, 0.0), bestAy = vec2(0.0, 1.0), bestCell = f.cell;
   float bestS = 1.0, bestDs = 1e9;
 #endif
 #ifdef SHAPE_RELIEF
   vec3 bestAux = vec3(0.0);
 #endif
   for (int k = 0; k < n; k++) {
-    ivec2 cw;
-    vec2 centre;
-    repAt(rg, k, cw, centre);
-    // Rows and the mirror count from the top, on the instance (the same on every copy round the torus, so the copies
-    // across an edge match).
-    int rowFromTop = R.y - 1 - cw.y;
-    if (imod(rowFromTop, 2) == 1) centre.x += shift;
-    // Drop out: the body wrapped in a test rather than a "continue".
-    if (hashI(cw, uSeed + 3.0) >= u_rep_drop) {
-      vec3 h = hash3I(cw, uSeed);
-      float rnd = hashI(cw, uSeed + 7.0);   // the instance's own random (Diffuse jitter, Per-feature variation), apart from its jitter
-      vec2 off = off0;
-      if (u_rep_mirror_x && imod(cw.x, 2) == 1) off.x = -off.x;
-      if (u_rep_mirror_y && imod(rowFromTop, 2) == 1) off.y = -off.y;
-      centre += off * pitch + (h.xy - 0.5) * 2.0 * u_rep_jitter;
-      float s = 1.0 - h.z * u_rep_scale;
-      float jr = (hashI(cw, uSeed + 5.0) - 0.5) * 2.0 * u_rep_rot;
-      if (u_rep_rot_step > 0.0) jr = floor(jr / u_rep_rot_step + 0.5) * u_rep_rot_step;
+    RepInst it = repNext(rs);
+    // Dropped instances (and the steps that only move to the next bucket of an outline) skip the body by a flag.
+    if (it.kept) {
+      vec2 cell = it.cell;
+      float s = it.scale;
       // The local axes' screen directions (with the flips, for Bevel aspect along the shape's edges); q in that frame.
-      vec2 ax = rotCW(vec2(1.0, 0.0), u_rotation + jr);
+      vec2 ax = rotCW(vec2(1.0, 0.0), it.ang);
       vec2 ay = vec2(-ax.y, ax.x);
-      vec2 q = vec2(dot(p - centre, ax), dot(p - centre, ay)) / s;
-      if (u_rep_flip > 0) {
-        vec2 hf = hash3I(cw, uSeed + 11.0).xy;
-        if ((u_rep_flip == 1 || u_rep_flip == 3) && hf.x < 0.5) { q.x = -q.x; ax = -ax; }
-        if ((u_rep_flip == 2 || u_rep_flip == 3) && hf.y < 0.5) { q.y = -q.y; ay = -ay; }
-      }
+      vec2 q = vec2(dot(p - it.centre, ax), dot(p - it.centre, ay)) / s;
+      if (it.flip.x) { q.x = -q.x; ax = -ax; }
+      if (it.flip.y) { q.y = -q.y; ay = -ay; }
       gShapeBevel = 1e9;
       gShapeScale = s;
-      float dl = shapeSdf(q, rnd, cell);
+      float dl = shapeSdf(q, it.rnd, cell);
       // In the instance's own units (scaled), so the outline keeps its width in px.
       float ol = gShapeNoOutline ? 0.0 : u_outline / s;
       float ds = dl;
@@ -279,19 +231,21 @@ GenOut gen(vec2 p) {
       if (d < best) {
         best = d;
         bestSolid = ds * s;
-        bestRnd = rnd;
+        bestRnd = it.rnd;
 #ifdef BEVEL_ASPECT
         bestQ = q;
         bestAx = ax;
         bestAy = ay;
         bestS = s;
         bestDs = ds;
+        bestCell = cell;
 #endif
 #ifdef SHAPE_RELIEF
         bestAux = gShapeAux;
 #endif
         if (u_dome > 0) {
           // Spanned to the middle: the depth over the shape's greatest depth (a ring's: half its width), as px of Bevel.
+          float inr = shapeInradius(cell);
           float t = clamp(-bl / max(ol > 0.0 ? min(inr, ol * 0.5) : inr, 1e-3), 0.0, 1.0);
 #ifdef SHAPE_DOME
           if (u_dome == 2 && ol <= 0.0) {
@@ -315,7 +269,7 @@ GenOut gen(vec2 p) {
   g.bdist = u_dome > 0 || !bevelAspectOn() ? bestBd : bevelLine(bestBd, vec2(dFdx(bestSolid), dFdy(bestSolid)));
 #if defined(SHAPE_EDGES) && defined(BEVEL_ASPECT)
   if (u_dome == 0 && bevelAspectOn()) {
-    float e = shapeEdges(bestQ, bestRnd, cell, bestAx, bestAy, bestDs);
+    float e = shapeEdges(bestQ, bestRnd, bestCell, bestAx, bestAy, bestDs);
     e = u_rep_scale_bevel ? e : e * bestS;
     // The distance's direction is only needed for what the pieces leave out (an outline's inner edge): at a mitre it
     // mixes the two sides' directions, a dotted line along the old 45° crease.
@@ -338,17 +292,17 @@ type ShapeDef = Omit<LayerDef, 'category' | 'kind' | 'sdf' | 'glsl' | 'groups'> 
 function shape(def: ShapeDef): LayerDef {
 	const { sdfGlsl, params, placementShowIf, ...rest } = def;
 	const placement = PLACEMENT.map((d) => (placementShowIf?.[d.key] ? { ...d, showIf: placementShowIf[d.key] } : d));
-	return {
+	return withRepeat({
 		...rest,
 		category: 'shape',
 		kind: 'generator',
 		sdf: true,
 		params: [...params, ...placement, ...REPEAT],
-		groups: [{ id: 'repeat', label: 'Repeat', collapsed: true }],
-		glsl: SHAPE_PRE + sdfGlsl + SHAPE_GEN,
+		groups: [REPEAT_GROUP],
+		glsl: SHAPE_PRE + sdfGlsl + GLSL_REPEAT + SHAPE_GEN,
 		// Diffuse fills the shape (Source › Shape) rather than following the bevel's rise through the ramp.
 		defaults: { h_on: true, h_amount: 0.5, dif_on: false, dif_src: 'shape', ...(def.defaults ?? {}) }
-	};
+	});
 }
 
 /** Editor defaults sized to the texture: a shape that reads at any size, with a bevel wide enough to show. */

@@ -213,6 +213,8 @@ export interface HeadlessTilingFixResult {
 	/** The fixed project (also loaded as the current one). */
 	project: Project;
 	evaluations: number;
+	/** Iterations the search ran (`iterations`: fewer once one changed nothing). */
+	iterations: number;
 	ms: number;
 	/** Whether the GPU analysed. */
 	gpu: boolean;
@@ -564,6 +566,7 @@ function installHeadless(engine: Engine): BismithHeadless {
 				hotspotAfterPng: after.hotspot,
 				project: project!,
 				evaluations: r.evaluations,
+				iterations: r.iterations,
 				ms: performance.now() - t0,
 				gpu: !!gpu
 			};

@@ -241,7 +241,7 @@ ends with a grep for the old identifiers (`sm_on`, `sdf_op`, `sdf_k`, `mk_write`
 - Per-type shape-writing rules (`writesMask`): `greebles.ts`, `greebleVents.ts`, `greebleTrim.ts`, `hammered.ts`.
 - `surfaceMask.ts` → Mask area.
 - Hints and descriptions that say _Shape Mask_, _register_ or _Mask 1_: about 30 generator and filter files (`tabs`,
-  `chips`, `hammered`, `geometricSurface`, `rock`, `patternsFill`, `organicLiquid`, `organicCracks`, `motifRadial`,
+  `chips`, `hammered`, `geometricSurface`, `stones`, `patternsFill`, `organicLiquid`, `organicCracks`, `motifRadial`,
   `greebleVents`, `drips`, `stoneBlocks`, `organicWood`, `greebles`, `greebleTrim`, `cable`, `traces`, `patterns`,
   `geometricTiles`, `shapes`, `pipes`, `geometricBands`, …) — reworded to _the mask it writes_ / _Shape_.
 

@@ -280,6 +280,10 @@ export function layerGizmo(layer: Layer, project: Project): Gizmo | null {
 	const W = project.width,
 		H = project.height;
 	const t = layer.type;
+	// Repeated along an outline (Repeat › Place, FR8.33): no grid instance to stand on, and the editor doesn't know where
+	// the outline put them.
+	const repeated = SHAPES.has(t) || MOTIFS.has(t) || STAMPS.has(t) || t === 'line' || t === 'curve';
+	if (repeated && (p.rep_place === 'mask' || p.rep_place === 'edges')) return null;
 	if (SHAPES.has(t) || MOTIFS.has(t)) return { move: placeOf(p, W, H), turn: num(p, 'rotation') - 90 };
 	if (t === 'line' || t === 'curve') return { move: placeOf(p, W, H), ends: strokeEnds(t, p, W, H) };
 	if (STAMPS.has(t)) {

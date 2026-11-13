@@ -11,6 +11,8 @@ import { FONT, parseBitmap } from '@/core/bitmap';
 import { Lru, memoReads } from '@/core/memo';
 import { P, type ParamDef, type ParamValues } from '@/core/params';
 import type { CpuTexture, LayerDef } from '../types';
+import { GLSL_REPEAT } from '../glsl/repeat';
+import { onGrid, REPEAT_GROUP, repeatParams, withRepeat } from '../repeat';
 import { getImage } from '@/core/images';
 
 // ------------------------------------------------------------------------------------------------ bitmaps (CPU)
@@ -1062,12 +1064,14 @@ const placement: ParamDef[] = [
 		softMin: 0,
 		softMax: 1,
 		step: 0.001,
+		showIf: onGrid,
 		hint: 'Moves the centre left or right (0…1 across)'
 	}),
 	P.float('y', 'Centre Y', 0.5, -2, 3, {
 		softMin: 0,
 		softMax: 1,
 		step: 0.001,
+		showIf: onGrid,
 		hint: 'Moves the centre up or down (0…1 down)'
 	}),
 	P.float('scale', 'Pixel size', 1, 0.25, 256, {
@@ -1112,111 +1116,100 @@ const placement: ParamDef[] = [
 		softMax: 2,
 		step: 0.001,
 		hint: 'Smooths the pixel staircase of the outline (0 = the exact pixel outline: crisp, but a bevel wider than about a cell follows every stair and spikes inward at each step, so raise this for wide bevels). Up to 1, the staircase rounds into curves (45° steps become straight diagonals), like a stamp drawn small and shown large; from 1 to 2, uneven stair runs straighten into the sides they suggest; beyond 2, corners round further. For lettering with Join diagonals (strokes from 1), beyond 1 the strokes’ bends round off into curves (fully at 2)'
-	}),
-	P.int('count_x', 'Repeat X', 1, 1, 256, { softMax: 32, group: 'repeat' }),
-	P.int('count_y', 'Repeat Y', 1, 1, 256, { softMax: 32, group: 'repeat' }),
-	P.enum(
-		'step_by',
-		'Spacing',
-		'gap',
-		[
-			['step', 'Step', 'sets the distance centre to centre, in px'],
-			[
-				'gap',
-				'Gap',
-				'sets the space between neighbouring repeats (the step is their size plus the gap), following the pixel size and rotation'
-			]
-		],
-		{ group: 'repeat', showIf: repeats }
-	),
-	P.float('step_x', 'Step X', 16, 0, 4096, {
-		softMax: 256,
-		unit: 'px',
-		axis: 'x',
-		step: 0.5,
-		group: 'repeat',
-		showIf: (p) => Number(p.count_x) > 1 && p.step_by !== 'gap',
-		hint: 'Spaces the repeats this far apart, centre to centre; they can overlap (and merge)'
-	}),
-	P.float('step_y', 'Step Y', 16, 0, 4096, {
-		softMax: 256,
-		unit: 'px',
-		axis: 'y',
-		step: 0.5,
-		group: 'repeat',
-		showIf: (p) => Number(p.count_y) > 1 && p.step_by !== 'gap',
-		hint: 'Spaces the rows this far apart, centre to centre; they can overlap (and merge)'
-	}),
-	P.float('gap_x', 'Gap X', 1, -256, 256, {
-		softMin: -4,
-		softMax: 16,
-		step: 0.05,
-		group: 'repeat',
-		showIf: (p) => Number(p.count_x) > 1 && p.step_by === 'gap',
-		hint: 'Adds a gap between neighbouring repeats, in cells (follows Pixel size); negative overlaps them (they merge)'
-	}),
-	P.float('gap_y', 'Gap Y', 1, -256, 256, {
-		softMin: -4,
-		softMax: 16,
-		step: 0.05,
-		group: 'repeat',
-		showIf: (p) => Number(p.count_y) > 1 && p.step_by === 'gap',
-		hint: 'Adds a gap between neighbouring rows, in cells (follows Pixel size); negative overlaps them (they merge)'
-	}),
-	P.float('skew', 'Row shift', 0, -4096, 4096, {
-		softMin: -256,
-		softMax: 256,
-		unit: 'px',
-		axis: 'x',
-		step: 0.5,
-		group: 'repeat',
-		showIf: (p) => Number(p.count_y) > 1,
-		hint: 'Shifts each row of repeats sideways for diagonal rivet lines or staggered grids (half the step = brick bond)'
-	}),
-	P.float('jitter', 'Position jitter', 0, 0, 1024, {
-		softMax: 32,
-		unit: 'px',
-		step: 0.1,
-		group: 'repeat',
-		showIf: repeats,
-		hint: 'Moves each repeat randomly by up to this much (snapped to whole pixels, set by the seed)'
-	}),
-	P.float('drop', 'Missing repeats', 0, 0, 1, {
-		step: 0.001,
-		group: 'repeat',
-		showIf: repeats,
-		hint: 'Leaves out some of the repeats at random, like missing rivets (0 = none, 1 = all; set by the seed)'
-	}),
-	P.enum(
-		'rnd_by',
-		'Random per',
-		'level',
-		[
-			[
-				'level',
-				'Pixel level',
-				'follows the cell level ("-" low, "+" mid, "#" full), for multi-tone bitmaps through a Random gradient ramp'
-			],
-			['instance', 'Repeat', 'gives each repeat a random value, so each rivet can be its own shade or height'],
-			['both', 'Level + repeat', 'the level picks a third of the gradient ramp, the repeat a shade within it']
-		],
-		{
-			group: 'repeat',
-			hint: 'Picks what the per-feature random value follows (for Random sources, Colour variation, Per-feature variation)'
-		}
-	),
-	P.float('rnd_lo', 'From', 0, 0, 1, {
-		step: 0.001,
-		group: 'repeat',
-		showIf: (p) => p.rnd_by !== 'level',
-		join: { with: 'rnd_hi', as: 'pair', label: 'Repeat random range' },
-		hint: "Limits each repeat's random value to this part of the gradient ramp (e.g. 0.3 … 1 keeps every repeat clear of a dark base)"
-	}),
-	P.float('rnd_hi', 'To', 1, 0, 1, { step: 0.001, group: 'repeat', showIf: (p) => p.rnd_by !== 'level' }),
-	P.seed('seed', 'Seed', 1, { group: 'repeat' })
+	})
 ];
 
-const stampGroups = [{ id: 'repeat', label: 'Repeat', collapsed: true }];
+/** The Repeat card: the copies Repeat X / Y, a Step or Gap apart, each row shifted; or along an outline. */
+const STAMP_REPEAT: ParamDef[] = repeatParams({
+	grid: [
+		P.int('count_x', 'Repeat X', 1, 1, 256, { softMax: 32 }),
+		P.int('count_y', 'Repeat Y', 1, 1, 256, { softMax: 32 }),
+		P.enum(
+			'step_by',
+			'Spacing',
+			'gap',
+			[
+				['step', 'Step', 'sets the distance centre to centre, in px'],
+				[
+					'gap',
+					'Gap',
+					'sets the space between neighbouring repeats (the step is their size plus the gap), following the pixel size and rotation'
+				]
+			],
+			{ showIf: repeats }
+		),
+		P.float('step_x', 'Step X', 16, 0, 4096, {
+			softMax: 256,
+			unit: 'px',
+			axis: 'x',
+			step: 0.5,
+			showIf: (p) => Number(p.count_x) > 1 && p.step_by !== 'gap',
+			hint: 'Spaces the repeats this far apart, centre to centre; they can overlap (and merge)'
+		}),
+		P.float('step_y', 'Step Y', 16, 0, 4096, {
+			softMax: 256,
+			unit: 'px',
+			axis: 'y',
+			step: 0.5,
+			showIf: (p) => Number(p.count_y) > 1 && p.step_by !== 'gap',
+			hint: 'Spaces the rows this far apart, centre to centre; they can overlap (and merge)'
+		}),
+		P.float('gap_x', 'Gap X', 1, -256, 256, {
+			softMin: -4,
+			softMax: 16,
+			step: 0.05,
+			showIf: (p) => Number(p.count_x) > 1 && p.step_by === 'gap',
+			hint: 'Adds a gap between neighbouring repeats, in cells (follows Pixel size); negative overlaps them (they merge)'
+		}),
+		P.float('gap_y', 'Gap Y', 1, -256, 256, {
+			softMin: -4,
+			softMax: 16,
+			step: 0.05,
+			showIf: (p) => Number(p.count_y) > 1 && p.step_by === 'gap',
+			hint: 'Adds a gap between neighbouring rows, in cells (follows Pixel size); negative overlaps them (they merge)'
+		}),
+		P.float('skew', 'Row shift', 0, -4096, 4096, {
+			softMin: -256,
+			softMax: 256,
+			unit: 'px',
+			axis: 'x',
+			step: 0.5,
+			showIf: (p) => Number(p.count_y) > 1,
+			hint: 'Shifts each row of repeats sideways for diagonal rivet lines or staggered grids (half the step = brick bond)'
+		})
+	],
+	jitter: 'px',
+	after: {
+		rep_drop: [
+			P.enum(
+				'rnd_by',
+				'Random per',
+				'level',
+				[
+					[
+						'level',
+						'Pixel level',
+						'follows the cell level ("-" low, "+" mid, "#" full), for multi-tone bitmaps through a Random gradient ramp'
+					],
+					['instance', 'Repeat', 'gives each repeat a random value, so each rivet can be its own shade or height'],
+					['both', 'Level + repeat', 'the level picks a third of the gradient ramp, the repeat a shade within it']
+				],
+				{
+					hint: 'Picks what the per-feature random value follows (for Random sources, Colour variation, Per-feature variation)'
+				}
+			),
+			P.float('rnd_lo', 'From', 0, 0, 1, {
+				step: 0.001,
+				showIf: (p) => p.rnd_by !== 'level',
+				join: { with: 'rnd_hi', as: 'pair', label: 'Repeat random range' },
+				hint: "Limits each repeat's random value to this part of the gradient ramp (e.g. 0.3 … 1 keeps every repeat clear of a dark base)"
+			}),
+			P.float('rnd_hi', 'To', 1, 0, 1, { step: 0.001, showIf: (p) => p.rnd_by !== 'level' })
+		]
+	}
+});
+
+const stampGroups = [REPEAT_GROUP];
 
 const defaults = {
 	bevel: 0.5,
@@ -1243,7 +1236,10 @@ function freshStamp(texture: { width: number; height: number }, cells: number): 
 	return { scale, bevel: scale >= 3 ? Math.round(scale * 0.35) : 0.5 };
 }
 
-const STAMP_GLSL = /* glsl */ `
+const STAMP_GLSL =
+	'#define REP_SKEW\n' +
+	GLSL_REPEAT +
+	/* glsl */ `
 ivec4 stm_t(ivec2 c) { return ivec4(texelFetch(t_stamp, c, 0) * 255.0 + 0.5); }
 // A stored distance (put16: signed 16 bits, 1/16 cell) from its low and high bytes.
 float stm_s16(int lo, int hi) { int raw = lo + hi * 256; return float(raw >= 32768 ? raw - 65536 : raw) / 16.0; }
@@ -1294,39 +1290,31 @@ GenOut gen(vec2 p) {
   vec2 dims = vec2(sz);
   bool odd = u_rotate == 1 || u_rotate == 3;
   vec2 outDims = odd ? dims.yx : dims;
-  float sc = max(u_scale, 0.01) / float(max(h1.z, 1));
-  vec2 hs = outDims * sc * 0.5;
-  bool turned = mod(u_angle, 360.0) != 0.0;
-  float ca = cos(radians(u_angle));
-  float sa = sin(radians(u_angle));
-  // How far one repeat reaches from its centre (px).
-  vec2 ext = (turned ? vec2(length(hs)) : hs) + max(u_grow, 0.0) + u_jitter + 1.0;
+  // A repeat's size at full size (Size variation shrinks each), its turn (Angle; each repeat's own turn below).
+  float sc0 = max(u_scale, 0.01) / float(max(h1.z, 1));
+  vec2 hs0 = outDims * sc0 * 0.5;
+  bool turned0 = mod(u_angle, 360.0) != 0.0;
+  float ca0 = cos(radians(u_angle));
+  float sa0 = sin(radians(u_angle));
+  // How far one repeat reaches from its centre (px): to its corners when any repeat may be turned (Angle, Rotation
+  // variation, an outline's direction).
+  bool anyTurn = turned0 || u_rep_rot > 0.0 || u_rep_place != 0;
+  vec2 ext = (anyTurn ? vec2(length(hs0)) : hs0) + max(u_grow, 0.0) + 1.0;
 
   // Positions with y down from the top.
   vec2 q = vec2(p.x, uRes.y - p.y);
-  vec2 centre = vec2(u_x, u_y) * uRes;
   ivec2 cnt = ivec2(u_count_x, u_count_y);
   // Spacing by gap: the repeat's extent (its bounding box when turned) plus the gap.
-  vec2 box = turned ? vec2(abs(ca) * hs.x + abs(sa) * hs.y, abs(sa) * hs.x + abs(ca) * hs.y) * 2.0 : hs * 2.0;
+  vec2 box = turned0 ? vec2(abs(ca0) * hs0.x + abs(sa0) * hs0.y, abs(sa0) * hs0.x + abs(ca0) * hs0.y) * 2.0 : hs0 * 2.0;
   vec2 stp = u_step_by == 1 ? max(box + vec2(u_gap_x, u_gap_y) * max(u_scale, 0.01), 0.0) : vec2(u_step_x, u_step_y);
-  vec2 ss = max(stp, 1e-3);
-  vec2 c0 = vec2(cnt - 1) * 0.5;
-  // The repeats that may reach here, round the torus when tiling (repGrid, in this y-down space). Row shift moves each
-  // row its own way: the window reaches as far across as the rows it covers are shifted.
-  vec2 sh = vec2(0.0);
-  if (u_skew != 0.0 && cnt.y > 1) {
-    RepGrid ry = repGrid(ivec2(1, cnt.y), ss, centre, uRes, uTile, q - ext, q + ext);
-    sh = vec2(1e9, -1e9);
-    for (int k = 0; k < repCount(ry); k++) {
-      ivec2 cw;
-      vec2 pos;
-      repAt(ry, k, cw, pos);
-      float s = (float(cw.y) - c0.y) * u_skew;
-      sh = vec2(min(sh.x, s), max(sh.y, s));
-    }
-  }
-  RepGrid rg = repGrid(cnt, ss, centre, uRes, uTile, q - ext - vec2(sh.y, 0.0), q + ext - vec2(sh.x, 0.0));
-  int nr = repCount(rg);
+  // The repeats that may reach here (the shared Repeat, glsl/repeat.ts, in GL space): the grid centred on X / Y, a step
+  // apart, each row shifted by Row shift, round the torus when tiling — or along an outline.
+  RepFrame f = repFrame(cnt, stp, vec2(u_x, 1.0 - u_y) * uRes);
+  f.skew = u_skew;
+  f.rot = u_angle;
+  f.jitPx = vec2(u_rep_jitter);
+  RepSrc rs = repBegin(p, f, ext);
+  int nr = repIters(rs);
 
   // Every repeat in reach (overlapping repeats merge), or the nearest one when none is: one flat loop, the last turn
   // for that nearest one.
@@ -1342,14 +1330,17 @@ GenOut gen(vec2 p) {
   vec2 cen1 = vec2(1e9);
   // Bevel aspect (GLSL_BEVEL) on the exact outline: the distance in the space the aspect stretches, to the same cells
   // (a cell offset → screen px → × Bevel / its width per screen axis), so the bevels meet in clean mitres. Mb maps a
-  // bitmap-cell offset there: undo the quarter turns, cells → px, undo Angle. (Even strokes cap each axis' width at 0.4
-  // cell, as they cap the bevel.) bestS, sdep1/2: as best, dep1/2.
+  // bitmap-cell offset there: undo the quarter turns, cells → px, undo the flips and the repeat's turn. (Even strokes
+  // cap each axis' width at 0.4 cell, as they cap the bevel.) bestS, sdep1/2: as best, dep1/2. sc and Mb end up the
+  // nearest repeat's (the level edges below).
   bool aspX = bevelAspectOn() && !smoothMap;
   vec2 Wb = bevelWidths();
   if (u_bev_lim) Wb = min(Wb, vec2(0.4 * max(u_scale, 0.01)));
   mat2 Rq = u_rotate == 1 ? mat2(0.0, 1.0, -1.0, 0.0) : u_rotate == 2 ? mat2(-1.0, 0.0, 0.0, -1.0)
           : u_rotate == 3 ? mat2(0.0, -1.0, 1.0, 0.0) : mat2(1.0);
-  mat2 Mb = mat2(u_bevel / Wb.x, 0.0, 0.0, u_bevel / Wb.y) * (turned ? mat2(ca, sa, -sa, ca) : mat2(1.0)) * Rq * sc;
+  mat2 Db = mat2(u_bevel / Wb.x, 0.0, 0.0, u_bevel / Wb.y);
+  float sc = sc0;
+  mat2 Mb = Db * Rq * sc0;
   // The cells searched round the pixel's: 3×3, or 5×5 with the aspect — the nearest cell in the stretched space can lie
   // a cell or two along an edge from the nearest one (the candidates are those cells and their own nearest ones).
   int nb = aspX ? 5 : 3;
@@ -1358,31 +1349,36 @@ GenOut gen(vec2 p) {
   float sdep2 = 0.0;
   bool reached = false;
   float farD = 1e20;
-  ivec2 farId = ivec2(-1);
-  vec2 farC = vec2(0.0);
+  RepInst far;
+  far.kept = false;
   for (int k = 0; k <= nr; k++) {
     // (No continue: ANGLE / D3D11 can miscompile it in a loop — the body is skipped by a flag instead.)
-    ivec2 id = farId;
-    vec2 ic = farC;
-    bool use = k == nr && !reached && farId.x >= 0;
+    RepInst it = far;
+    bool use = k == nr && !reached && far.kept;
     if (k < nr) {
-      vec2 pos;
-      repAt(rg, k, id, pos);
-      // The repeat's centre (before jitter): its place on the grid (Step 0 stacks them), its row shifted.
-      ic = pos + (vec2(id) - c0) * (stp - ss) + vec2((float(id.y) - c0.y) * u_skew, 0.0);
-      bool kept = !(u_drop > 0.0 && hashI(id, uSeed + 31.0) < u_drop);
-      vec2 o = abs(q - ic);
-      use = kept && o.x <= ext.x && o.y <= ext.y;
+      it = repNext(rs);
+      vec2 o = abs(q - vec2(it.centre.x, uRes.y - it.centre.y));
+      use = it.kept && o.x <= ext.x && o.y <= ext.y;
       reached = reached || use;
-      if (kept && !use && length(q - ic) < farD) { farD = length(q - ic); farId = id; farC = ic; }
+      if (it.kept && !use && length(o) < farD) { farD = length(o); far = it; }
     }
     if (use) {
-      if (u_jitter > 0.0) ic += (hash2I(id, uSeed + 17.0) * 2.0 - 1.0) * u_jitter;
-      // The repeat's top-left corner snapped to the pixel grid (whole pixel sizes stay crisp), the pixel in its cells.
+      vec2 ic = vec2(it.centre.x, uRes.y - it.centre.y);
+      float sci = sc0 * it.scale;
+      vec2 hs = outDims * sci * 0.5;
+      bool turned = mod(it.ang, 360.0) != 0.0;
+      float ca = cos(radians(it.ang));
+      float sa = sin(radians(it.ang));
+      // The repeat's top-left corner snapped to the pixel grid (whole pixel sizes stay crisp), the pixel in its cells,
+      // turned, and mirrored about its middle (Flip at random).
       vec2 tl = floor(ic - hs + 0.5);
       vec2 lp = q - tl;
       if (turned) { vec2 r = lp - hs; lp = hs + vec2(ca * r.x + sa * r.y, ca * r.y - sa * r.x); }
-      vec2 ob = lp / sc;
+      if (it.flip.x) lp.x = 2.0 * hs.x - lp.x;
+      if (it.flip.y) lp.y = 2.0 * hs.y - lp.y;
+      mat2 Mbi = Db * (turned ? mat2(ca, sa, -sa, ca) : mat2(1.0)) * mat2(it.flip.x ? -1.0 : 1.0, 0.0, 0.0, it.flip.y ? -1.0 : 1.0)
+               * Rq * sci;
+      vec2 ob = lp / sci;
       // Output cell space → bitmap cell space.
       vec2 b = u_rotate == 1 ? vec2(ob.y, dims.y - ob.x)
              : u_rotate == 2 ? dims - ob
@@ -1406,7 +1402,7 @@ GenOut gen(vec2 p) {
           ivec4 t = stm_t(cn);
           sd[j] = stm_s16(t.y, t.z) + length(vec2(n - cn));
         }
-        d = stm_bilin(sd, g - floor(g)) * sc;
+        d = stm_bilin(sd, g - floor(g)) * sci;
         lvl = (t0.x & 3) > 0 ? t0.x & 3 : t0.x >> 2;
       } else {
         // Exact: distance to the nearest cell of the other state, among the 3×3 cells round this one each either of the
@@ -1424,14 +1420,14 @@ GenOut gen(vec2 p) {
           vec2 dd = max(max(lo - b, b - lo - 1.0), 0.0);
           float d2 = dot(dd, dd);
           if (d2 < bd) { bd = d2; blv = other ? t.x & 3 : t.x >> 2; }
-          if (aspX) bs = min(bs, stm_box2(b, lo, Mb));
+          if (aspX) bs = min(bs, stm_box2(b, lo, Mbi));
         }
-        d = (inside ? -sqrt(bd) : sqrt(bd)) * sc;
+        d = (inside ? -sqrt(bd) : sqrt(bd)) * sci;
         dS = inside ? -sqrt(bs) : sqrt(bs);
         // Outside, the level of the nearest filled cell (so a grown rim keeps its cell's colour).
         lvl = inside ? lv : blv;
       }
-      if (d < best) { best = d; bestLv = lvl; bestId = id; bestB = b; bestS = dS; }
+      if (d < best) { best = d; bestLv = lvl; bestId = it.id; bestB = b; bestS = dS; sc = sci; Mb = Mbi; }
       if (-d > dep1) { if (length(ic - cen1) > 0.5) { dep2 = dep1; sdep2 = sdep1; } dep1 = -d; cen1 = ic; sdep1 = -dS; }
       else if (-d > dep2 && length(ic - cen1) > 0.5) { dep2 = -d; sdep2 = -dS; }
     }
@@ -1642,7 +1638,7 @@ const pixelTextures = memoReads(
 	4
 );
 
-export const stampLayer: LayerDef = {
+export const stampLayer: LayerDef = withRepeat({
 	type: 'stamp',
 	label: 'Stamp',
 	category: 'shape',
@@ -1707,6 +1703,7 @@ export const stampLayer: LayerDef = {
 			hint: 'Bridges cells that touch only at a corner with two half-cell squares, so one-cell diagonal lines (and an X’s crossing) bevel as one stroke instead of a row of squares. Nothing else changes: square corners stay square'
 		}),
 		...placement,
+		...STAMP_REPEAT,
 		P.float('wear', 'Wear', 0, 0, 1, {
 			step: 0.001,
 			group: 'wear',
@@ -1746,9 +1743,9 @@ export const stampLayer: LayerDef = {
 	textures: ['stamp', 'lv', 'img'],
 	cpuData: (q) => (fromImage(q) ? imageTextures(q) : pixelTextures(q)),
 	glsl: 'const bool u_bev_lim = false;\n#define STAMP_IMAGE\n#define STAMP_LEVELS\n' + STAMP_GLSL
-};
+});
 
-const labelLayer: LayerDef = {
+const labelLayer: LayerDef = withRepeat({
 	type: 'label',
 	label: 'Label',
 	category: 'shape',
@@ -1793,7 +1790,8 @@ const labelLayer: LayerDef = {
 		P.bool('bev_lim', 'Even strokes', true, {
 			hint: 'Limits the bevel to just under half a stroke (0.4 cell), so thin strokes rise to full height like their junctions, with no bright beads where strokes meet'
 		}),
-		...placement
+		...placement,
+		...STAMP_REPEAT
 	],
 	groups: stampGroups,
 	defaults: { ...defaults, smooth: 1, gap_y: 2, rnd_lo: 0.25 },
@@ -1834,6 +1832,6 @@ const labelLayer: LayerDef = {
 	}, 4),
 	// Lettering is all one level: no level edges (STAMP_LEVELS).
 	glsl: STAMP_GLSL
-};
+});
 
 export const STAMP_LAYERS: LayerDef[] = [stampLayer, labelLayer];

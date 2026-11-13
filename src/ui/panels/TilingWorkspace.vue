@@ -52,6 +52,7 @@
 	// Settings: the fix search's inputs.
 	const seeds = ref(24);
 	const culprits = ref(2);
+	const iterations = ref(1);
 	const stepSize = ref(0.12);
 	const holdLook = ref(2);
 	const minGain = ref(0.01);
@@ -76,6 +77,8 @@
 	interface TilingSettings {
 		seeds: number;
 		culprits: number;
+		/** Missing in checkpoints saved before it existed: 1. */
+		iterations?: number;
 		stepSize: number;
 		holdLook: number;
 		minGain: number;
@@ -107,6 +110,7 @@
 	const settingsNow = (): TilingSettings => ({
 		seeds: seeds.value,
 		culprits: culprits.value,
+		iterations: iterations.value,
 		stepSize: stepSize.value,
 		holdLook: holdLook.value,
 		minGain: minGain.value,
@@ -116,6 +120,7 @@
 	function applySettings(t: TilingSettings): void {
 		seeds.value = t.seeds;
 		culprits.value = t.culprits;
+		iterations.value = t.iterations ?? 1;
 		stepSize.value = t.stepSize;
 		holdLook.value = t.holdLook;
 		minGain.value = t.minGain;
@@ -175,6 +180,10 @@
 		layers: {
 			title: 'Layers',
 			body: 'How many of the blamed layers the fix works on, starting with the one most to blame. Raise it when the repeat comes from several layers. Keep it low to change as little as possible.'
+		},
+		iterations: {
+			title: 'Iterations',
+			body: 'How many times the fix works through the culprit layers. Each iteration starts from the best fix so far, tries new seeds again and nudges every pattern setting again, so a setting that helped can move further. Raise it when the score is still falling as the fix ends. The fix ends early once an iteration changes nothing.'
 		},
 		nudge: {
 			title: 'Nudge',
@@ -388,6 +397,7 @@
 				state: { ...rec, evals: [...rec.evals] }
 			});
 			autosave = autosaveRun(take, (cp) => void checkpoints.save(cp));
+			const asked = rec.settings.iterations ?? 1;
 			const save = autosave;
 			const r = await fixTiling(
 				project,
@@ -404,6 +414,7 @@
 					seeds: seeds.value,
 					rngSeed: rec.rngSeed,
 					culprits: culprits.value,
+					iterations: asked,
 					steps: [-s, -0.4 * s, 0.4 * s, s],
 					driftWeight: holdLook.value,
 					minGain: minGain.value,
@@ -411,7 +422,7 @@
 					replay,
 					// Reopening a run that had stopped: as far as it had got.
 					shouldStop: () => abort || (!!resume?.paused && evaluations.value >= replay.length),
-					onEvaluate: (n, c, kept) => {
+					onEvaluate: (n, c, kept, iteration) => {
 						evaluations.value = n;
 						// A new array: LossChart's computeds see a change of the prop, not a push into it.
 						curve.value = [...curve.value, kept.loss];
@@ -423,7 +434,8 @@
 							const frame = evaluator.render(kept.project);
 							best.value = { frame, analysis: analyzeTiling(frame, {}, gpu), candidate: kept };
 						}
-						progress.value = `Fixing · ${n} candidates · best ${(best.value?.candidate.score ?? kept.score).toFixed(3)}`;
+						const of = asked > 1 ? ` · iteration ${iteration} of ${asked}` : '';
+						progress.value = `Fixing${of} · ${n} candidates · best ${(best.value?.candidate.score ?? kept.score).toFixed(3)}`;
 					}
 				}
 			);
@@ -438,11 +450,14 @@
 				best.value = { frame, analysis, candidate: r.after };
 			}
 			rec.stopped = resume?.paused ? !!saved?.stopped : abort;
+			// Fewer iterations than asked, not stopped: the last one changed nothing.
+			const settled = !rec.stopped && r.iterations < asked;
 			log.value = [
 				...log.value,
 				...(r.changes.length
 					? r.changes.map((c) => `${c.name}: ${c.key} ${String(c.from)} → ${String(c.to)}`)
 					: ['no change helped']),
+				...(settled ? [`iteration ${r.iterations} of ${asked} changed nothing: no need for more`] : []),
 				`${rec.stopped ? 'stopped' : 'done'} · ${r.evaluations} candidates · score ${r.before.score.toFixed(3)} → ${r.after.score.toFixed(3)}`
 			];
 			phase.value = 'done';
@@ -741,6 +756,10 @@
 				<div class="row">
 					<span v-tip:right="TIPS.layers" class="lbl">Layers</span>
 					<NumberField v-model="culprits" :min="1" :max="8" int label="Layers to fix" />
+				</div>
+				<div class="row">
+					<span v-tip:right="TIPS.iterations" class="lbl">Iterations</span>
+					<NumberField v-model="iterations" :min="1" :max="50" :soft-max="10" int label="Iterations of the fix" />
 				</div>
 				<div class="row">
 					<span v-tip:right="TIPS.nudge" class="lbl">Nudge</span>

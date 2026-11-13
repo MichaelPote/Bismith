@@ -38,7 +38,8 @@ The **Tiling** key on the workspace rail, laid out like Match (outliner and prop
   to the project, Ctrl+Z undoes it; asks first when the project was edited during the run) and _Discard_.
 - **Panes:** _Current project / Before_ 3 × 3 with its tiling score · _Fixed_ (_Best so far_ while running) 3 × 3 with
   score and drift · _Hotspots_ 3 × 3, of before or of the fix.
-- **Settings** — the search's inputs: _Seeds_ per layer (24), _Layers_ to fix (2), _Nudge_ (0.12 of a param's slider
+- **Settings** — the search's inputs: _Seeds_ per layer (24), _Layers_ to fix (2), _Iterations_ (1: passes over
+  the culprits, below), _Nudge_ (0.12 of a param's slider
   range, also tried at 40 %), _Hold look_ (drift weight, 2), _Min gain_ (0.01), _Samples_ per candidate (32; a canvas
   over 512 × 512 traced px gets proportionally fewer, at least 8 — it is evaluated at 512 px, where its pixels average
   to as many: `frameSamples`), _Allow scale changes_ (off). Each run draws the seeds it tries from a new random seed
@@ -110,7 +111,11 @@ A narrow search over the blamed layers only, culprit by culprit in the order of 
 
 - **Reseed:** N seeds (24), the copies of a pattern reseeded together so they stay one pattern; the best is kept.
 - **Even out layout:** then each of the culprit's pattern params (`patternKeys`), one at a time, at ±0.05 and ±0.12 of
-  its slider range, keeping a step when it helps. Not the offsets (a shift is no new layout once tiled), not effects
+  its slider range, keeping a step when it helps.
+- **Iterations** (1, `iterations`, `--iterations`): that pass over the culprits, repeated from the best so far — new
+  seeds, and every param nudged again, so one that helped can move further. An iteration that changes nothing ends the
+  search (the next would only try other seeds). The drift allowance comes from the first iteration's reseeds only:
+  later ones reseed a project that has already moved, and would let it creep up. Not the offsets (a shift is no new layout once tiled), not effects
   that are off (at a minimum of 0 — turning one on adds a feature), and not the scale — px lengths and `scale` (cells
   across) — unless asked (`scale: true`, `--scale`): a smaller pattern hides the repeat, but that changes the material.
 - **Objective:** `loss = score + 2 · max(0, drift − allowance)`; a change has to gain 0.01 to be kept (smaller gains

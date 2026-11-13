@@ -160,7 +160,7 @@ describe('serialize', () => {
 			layers: [{ type: 'noise' }, { type: 'does-not-exist' }],
 			post: [{ type: 'tonemap' }]
 		});
-		expect(p.width).toBe(2048);
+		expect(p.width).toBe(4096);
 		expect(p.layers).toHaveLength(1);
 		expect(p.layers[0].params.noise).toBe('perlin');
 		expect(p.layers[0].params.h_on).toBe(true);
@@ -299,6 +299,22 @@ describe('zip', () => {
 });
 
 describe('supersampling', () => {
+	it('keeps the k× stack within 4096 px on big canvases', async () => {
+		const { exportSupersampleFactor, supersampleFactor } = await import('@/core/supersample');
+		const at = (width: number, height: number, supersample: number, exportSupersample = 1) => {
+			const p = createProject({ width, height });
+			p.render.supersample = supersample;
+			p.render.exportSupersample = exportSupersample;
+			return [supersampleFactor(p), exportSupersampleFactor(p)];
+		};
+		expect(at(1024, 1024, 4, 4)).toEqual([4, 4]);
+		expect(at(2048, 2048, 4, 4)).toEqual([2, 2]);
+		expect(at(1500, 1000, 1, 4)).toEqual([1, 2]);
+		expect(at(4096, 1024, 4, 4)).toEqual([1, 1]);
+		expect(at(3000, 3000, 2, 1)).toEqual([1, 1]);
+		expect(at(512, 512, 2, 3)).toEqual([2, 3]);
+	});
+
 	it('scales pixel-unit params, point lists, height depth and AO radius; leaves counts and fractions alone', async () => {
 		const { scaleProject, supersampleFactor } = await import('@/core/supersample');
 		const { createLayer, createLight, createProject } = await import('@/core/serialize');
@@ -346,7 +362,7 @@ describe('canvas resize', () => {
 				createLayer('path', { points: '8,16 24,8 56,8' }),
 				createLayer('scratches', { density: 16 }),
 				createLayer('cavity', { wear_radius: 3, wear_sensitivity: 0.5, dirt_radius: 4 }),
-				createLayer('rock', { px_scale: 1 })
+				createLayer('stones', { px_scale: 1 })
 			],
 			post: [createPostFilter('pixelate', { size: 3 })]
 		});

@@ -626,14 +626,14 @@ ${fetches}
 		seed: number,
 		mat: THREE.RawShaderMaterial
 	): void {
+		// (Blank first: a type with both keeps cpuData's, and prepare's that it leaves out are blank.)
+		if (def.prepare) for (const t of def.textures ?? []) mat.uniforms[`t_${t}`].value = this.blankTexture();
 		if (def.cpuData)
 			for (const [name, t] of Object.entries(this.cpuTextures(def, layer, project, seed)))
 				mat.uniforms[`t_${name}`].value = t;
-		if (def.prepare) {
-			for (const t of def.textures ?? []) mat.uniforms[`t_${t}`].value = this.blankTexture();
+		if (def.prepare)
 			for (const [name, t] of Object.entries(def.prepare(this.filterContext(project, layer, seed), layer)))
 				mat.uniforms[`t_${name}`].value = t;
-		}
 	}
 
 	/** Upload a layer's derived uniforms for `params` (LayerDef.derivedUniforms); `slot` keys their cache. */

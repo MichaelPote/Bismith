@@ -10,7 +10,7 @@ import { PathTracer } from './pathtracer';
 import { PostStack } from './post/stack';
 import { Display, VOID_COLOR, type ChannelView, type DisplayOptions, type ViewTransform } from './display';
 import { ensureBuiltins } from './builtins';
-import { scaleProject, supersampleFactor } from '@/core/supersample';
+import { capSupersample, scaleProject, supersampleFactor } from '@/core/supersample';
 import { clamp01, linearToSrgb1 } from '@/core/color';
 import { onImageReady, pendingImages } from '@/core/images';
 import { toSrgb8 } from './export';
@@ -594,7 +594,7 @@ export class Engine {
 		if (!project || !shown) throw new Error('No project');
 		const r = project.render;
 		const target = opts.samples > 0 ? (opts.exact ? opts.samples : Math.max(r.maxSamples, opts.samples)) : 0;
-		const supersample = Math.max(supersampleFactor(project), Math.min(4, Math.max(1, Math.round(opts.supersample))));
+		const supersample = capSupersample(project, Math.max(supersampleFactor(project), opts.supersample));
 		const wasSuspended = this.suspended;
 		this.suspend();
 		try {
