@@ -23,6 +23,15 @@
 	import CurveField from './CurveField.vue';
 	import RampField from './RampField.vue';
 	import DropMenu, { type MenuItem } from './DropMenu.vue';
+	import {
+		RGBA_PRESETS,
+		RGB_PRESETS,
+		R_PRESETS,
+		withOpacityRamp,
+		type ColourPreset,
+		type GreyPreset
+	} from '@/core/gradientPresets';
+	import { SWATCH_CHECKER, gradientCss } from '@/ui/gradientCss';
 	import { IconDice5 } from '@tabler/icons-vue';
 	import { useProjectStore } from '@/stores/project';
 	import { useEditorStore } from '@/stores/editor';
@@ -86,7 +95,72 @@
 	const menu = ref<InstanceType<typeof DropMenu> | null>(null);
 	const menuItems = ref<MenuItem[]>([]);
 
-	/** Right-click on a row: copy / paste its value, reset it to the base variant's or to its default. */
+	/** A grey map's swatch: black (0) to white (1), left to right. */
+	const greyCss = (p: GreyPreset) => {
+		const g = (f: number) => `hsl(0 0% ${(f * 100).toFixed(1)}%)`;
+		return `linear-gradient(90deg, ${g(p.a)}, ${g(p.b)})`;
+	};
+
+	/**
+	 * A ramp row's presets for its menu, as swatches of the ramps themselves (src/core/gradientPresets.ts): an R row (a
+	 * grey At 0 … At 1 pair) gets the grey maps, a colour ramp the RGB ones, and one with opacity the RGB and RGBA ones
+	 * and the grey maps again as its A channel (the opacity runs along them, the colours kept). The ones that would leave
+	 * the row as it is are ticked.
+	 */
+	function rampPresetItems(r: Row): MenuItem[] {
+		if (r.def.type === 'gradient') {
+			const cur = value(r.def) as Gradient;
+			const same = JSON.stringify(cur);
+			const pick = (label: string, ramp: string, next: Gradient): MenuItem => ({
+				label,
+				ramp,
+				checked: JSON.stringify(next) === same,
+				action: () => set(r.def.key, next)
+			});
+			const colours = (title: string, list: ColourPreset[], alpha: boolean): MenuItem[] => [
+				{ section: title },
+				...list.map((p) =>
+					pick(
+						`${p.name} ramp${alpha ? ' with opacity' : ''}`,
+						gradientCss(p.gradient, alpha, SWATCH_CHECKER),
+						cloneValue(p.gradient)
+					)
+				)
+			];
+			return [
+				...colours('RGB presets', RGB_PRESETS, false),
+				...(r.def.alpha
+					? [
+							...colours('RGBA presets', RGBA_PRESETS, true),
+							{ section: 'A presets' },
+							...R_PRESETS.map((p) => pick(`${p.name} opacity`, greyCss(p), withOpacityRamp(cur, p.a, p.b)))
+						]
+					: [])
+			];
+		}
+		const b = r.partner!;
+		const lo = r.def.min ?? 0;
+		const span = (r.def.max ?? 1) - lo;
+		const step = r.def.step ?? 0.001;
+		const val = (f: number) => Number((Math.round((lo + f * span) / step) * step).toFixed(6));
+		return [
+			{ section: 'R presets' },
+			...R_PRESETS.map((p) => ({
+				label: `${p.name} ramp`,
+				ramp: greyCss(p),
+				checked: Number(value(r.def)) === val(p.a) && Number(value(b)) === val(p.b),
+				action: () => {
+					set(r.def.key, val(p.a));
+					set(b.key, val(p.b));
+				}
+			}))
+		];
+	}
+
+	/**
+	 * Right-click on a row: copy / paste its value, reset it to the base variant's or to its default; a ramp row's
+	 * presets below.
+	 */
 	function onMenu(e: MouseEvent, r: Row): void {
 		const t = e.target as HTMLElement;
 		// Text being edited keeps the browser's menu (copy, paste, spelling).
@@ -132,7 +206,10 @@
 				action: () => {
 					set(d.key, cloneValue(d.default));
 				}
-			}
+			},
+			...(r.def.type === 'gradient' || (r.partner && r.def.join?.as === 'ramp')
+				? [{ separator: true }, ...rampPresetItems(r)]
+				: [])
 		];
 		menu.value?.openAt(e.clientX, e.clientY);
 	}

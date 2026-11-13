@@ -1,10 +1,11 @@
 <script setup lang="ts">
 	// Colour-ramp editor: a bar with draggable gem stops. Click the bar to add a stop. The eyedropper takes the ramp's
 	// colour under the pointer. With `alpha` (a ramp that paints Diffuse) each stop has an opacity too, the bar drawn over
-	// a checkerboard.
+	// a checkerboard. Its row's right-click menu offers preset ramps (ParamList, src/core/gradientPresets.ts).
 	import { computed, ref } from 'vue';
-	import { MAX_GRADIENT_STOPS, type Gradient, type GradientStop } from '@/core/params';
-	import { hexToRgb, rgbToHex } from '@/core/color';
+	import { MAX_GRADIENT_STOPS, type Gradient } from '@/core/params';
+	import { gradientAlphaAt, gradientColorAt } from '@/core/gradientPresets';
+	import { gradientCss } from '@/ui/gradientCss';
 	import ColorField from './ColorField.vue';
 	import NumberField from './NumberField.vue';
 	import { IconArrowsLeftRight, IconTrash } from '@tabler/icons-vue';
@@ -21,22 +22,7 @@
 	const stops = computed(() => props.modelValue.stops);
 	const sel = computed(() => stops.value[Math.min(selected.value, stops.value.length - 1)]);
 
-	/** A stop's colour as CSS, with its opacity. */
-	function cssColor(s: GradientStop): string {
-		const a = props.alpha ? (s.alpha ?? 1) : 1;
-		if (a >= 1) return s.color;
-		const [r, g, b] = hexToRgb(s.color).map((c) => Math.round(c * 255));
-		return `rgba(${r}, ${g}, ${b}, ${a})`;
-	}
-
-	const css = computed(() => {
-		const s = [...stops.value].sort((a, b) => a.pos - b.pos);
-		const ramp =
-			s.length === 1
-				? `linear-gradient(${cssColor(s[0])}, ${cssColor(s[0])})`
-				: `linear-gradient(90deg, ${s.map((x) => `${cssColor(x)} ${(x.pos * 100).toFixed(2)}%`).join(', ')})`;
-		return props.alpha ? `${ramp}, var(--alpha-bg)` : ramp;
-	});
+	const css = computed(() => gradientCss(props.modelValue, !!props.alpha));
 
 	function clone(): Gradient {
 		return { stops: stops.value.map((s) => ({ ...s })) };
@@ -46,30 +32,8 @@
 		emit('update:modelValue', g);
 	}
 
-	/** The ramp's opacity at t. */
-	function alphaAt(t: number): number {
-		const s = [...stops.value].sort((a, b) => a.pos - b.pos);
-		const a = (x: GradientStop) => x.alpha ?? 1;
-		if (t <= s[0].pos) return a(s[0]);
-		for (let i = 1; i < s.length; i++)
-			if (t <= s[i].pos)
-				return a(s[i - 1]) + ((a(s[i]) - a(s[i - 1])) * (t - s[i - 1].pos)) / Math.max(1e-6, s[i].pos - s[i - 1].pos);
-		return a(s[s.length - 1]);
-	}
-
-	function colorAt(t: number): string {
-		const s = [...stops.value].sort((a, b) => a.pos - b.pos);
-		if (t <= s[0].pos) return s[0].color;
-		for (let i = 1; i < s.length; i++) {
-			if (t <= s[i].pos) {
-				const k = (t - s[i - 1].pos) / Math.max(1e-6, s[i].pos - s[i - 1].pos);
-				const a = hexToRgb(s[i - 1].color);
-				const b = hexToRgb(s[i].color);
-				return rgbToHex([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]);
-			}
-		}
-		return s[s.length - 1].color;
-	}
+	const alphaAt = (t: number) => gradientAlphaAt(props.modelValue, t);
+	const colorAt = (t: number) => gradientColorAt(props.modelValue, t);
 
 	function posFromEvent(e: PointerEvent | MouseEvent): number {
 		const r = bar.value!.getBoundingClientRect();

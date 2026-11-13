@@ -5,6 +5,7 @@
 	// menu: no trigger, opened at the cursor with `openAt(e.clientX, e.clientY)` from a contextmenu handler.
 	// placement="under" is "below" teleported (right-aligned under the trigger), for triggers in panels that clip.
 	// `tabs` (tile layout): a row of tabs over the tiles, each its own items; the menu opens on the first.
+	// List layout: items with a `ramp` are swatches (a gradient ramp, no text), and a run of them lays out as a grid.
 	import { computed, nextTick, onBeforeUnmount, ref, watch, type Component } from 'vue';
 	import { IconSquareRotated } from '@tabler/icons-vue';
 	import { vTip } from '@/ui/tooltip';
@@ -26,6 +27,8 @@
 		/** Tile layout: thumbnail image URL; replaces the icon. */
 		image?: string;
 		action?: () => void;
+		/** List layout: a swatch drawn with this CSS background (a gradient ramp) instead of the label (kept for screen readers). */
+		ramp?: string;
 		/** Right-click on the item: closes the menu and runs this (e.g. a preset tile's Edit). */
 		context?: () => void;
 	}
@@ -84,6 +87,17 @@
 			if (item.separator) continue;
 			if (item.section !== undefined || !group) out.push((group = { section: item.section, items: [] }));
 			if (item.section === undefined) group.items.push(item);
+		}
+		return out;
+	});
+
+	/** List layout: the items, each run of ramp swatches gathered into one grid. */
+	const blocks = computed(() => {
+		const out: { item?: MenuItem; ramps?: MenuItem[] }[] = [];
+		for (const item of props.items) {
+			const last = out[out.length - 1];
+			if (item.ramp && last?.ramps) last.ramps.push(item);
+			else out.push(item.ramp ? { ramps: [item] } : { item });
 		}
 		return out;
 	});
@@ -234,24 +248,38 @@
 						</div>
 					</div>
 				</template>
-				<template v-for="(item, i) in items" v-else :key="i">
-					<div v-if="item.separator" class="sep" />
-					<div v-else-if="item.section" class="section">{{ item.section }}</div>
+				<template v-for="(b, bi) in blocks" v-else :key="bi">
+					<div v-if="b.ramps" class="ramps">
+						<button
+							v-for="(r, ri) in b.ramps"
+							:key="ri"
+							type="button"
+							role="menuitem"
+							class="ramp"
+							:class="{ checked: r.checked }"
+							:aria-label="r.label"
+							:disabled="r.disabled"
+							:style="{ background: r.ramp }"
+							@click="run(r)"
+							@contextmenu="runContext(r)" />
+					</div>
+					<div v-else-if="b.item!.separator" class="sep" />
+					<div v-else-if="b.item!.section" class="section">{{ b.item!.section }}</div>
 					<button
 						v-else
-						v-tip:right="item.hint"
+						v-tip:right="b.item!.hint"
 						type="button"
 						role="menuitem"
 						class="item"
-						:disabled="item.disabled"
-						@click="run(item)"
-						@contextmenu="runContext(item)">
+						:disabled="b.item!.disabled"
+						@click="run(b.item!)"
+						@contextmenu="runContext(b.item!)">
 						<span
 							class="tick"
-							:style="item.hue ? { borderColor: item.hue } : undefined"
-							:class="{ hue: !!item.hue, checked: item.checked }" />
-						<span class="lbl">{{ item.label }}</span>
-						<span v-if="item.shortcut" class="sc">{{ item.shortcut }}</span>
+							:style="b.item!.hue ? { borderColor: b.item!.hue } : undefined"
+							:class="{ hue: !!b.item!.hue, checked: b.item!.checked }" />
+						<span class="lbl">{{ b.item!.label }}</span>
+						<span v-if="b.item!.shortcut" class="sc">{{ b.item!.shortcut }}</span>
 					</button>
 				</template>
 			</div>
@@ -479,6 +507,29 @@
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		color: var(--text-lo);
+	}
+	/* Ramp swatches: three to a row, edged like the gradient editor's bar. */
+	.ramps {
+		display: grid;
+		grid-template-columns: repeat(3, 80px);
+		gap: 4px;
+		padding: 2px 12px 4px 24px;
+	}
+	.ramp {
+		height: 18px;
+		padding: 0;
+		border: 1px solid var(--line);
+		border-radius: 2px;
+		box-shadow: inset 0 0 0 1px rgba(17, 19, 22, 0.5);
+	}
+	.ramp:hover:not(:disabled),
+	.ramp:focus-visible {
+		border-color: var(--e100);
+		outline: none;
+		filter: var(--drop-halo);
+	}
+	.ramp.checked {
+		border-color: var(--e400);
 	}
 	.sep {
 		height: 1px;

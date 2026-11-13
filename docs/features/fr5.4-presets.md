@@ -157,6 +157,20 @@ Card presets (v2), harvested from the starters' tuned layers at 128 px with thei
 - Lights: Warm key, Raking sun, Torch. Post filters: Quake palette, Soft glow, Clamp.
 - Lighting: UI key, Overhead, Torch-lit, Raking, Flat (v1's lighting buttons).
 
+Ramp presets (built into the code, `src/core/gradientPresets.ts`, not preset files): a ramp row's right-click menu
+adds unnamed swatches of the ramps under the Copy / Paste / Reset items, ticked when the row already holds one. A field
+is offered the presets of its kind (an RGBA field the RGB ones too), and picking one replaces the ramp:
+
+- **R** — a grey ramp of one value, At 0 … At 1 (Roughness, Specular, Metalness): black, mid grey and white, full,
+  inverted, halves, and ends suited to water, ice, polished, satin, rock, sand, moss and worn surfaces. Stored as
+  fractions of the field's range.
+- **RGB** — a colour ramp without opacity (Depth colour): ice, snow, water, fire, lava, rock, slate, marble, sand,
+  dirt, clay, moss, wood, rust, copper, gold, steel, blood, slime, amethyst, black to white.
+- **RGBA** — a colour ramp with opacity (`ParamDef.alpha`: the Diffuse and Cavity colour ramps): ice, water, fire,
+  rock, moss, sand, snow, lava, smoke, grime, rust, blood, dirt, verdigris, ash. Its menu also has the RGB ramps, and
+  an **A** section with the R maps again as its opacity: the opacity runs from the map's left value to its right one,
+  the colours kept (`withOpacityRamp`; White makes the ramp opaque).
+
 Starters (v1):
 
 - Quake-style (64×64, tileable, Quake palette): riveted plate, stone bricks, cobblestones, tech panel with light strip,

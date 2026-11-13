@@ -1,7 +1,8 @@
 <script setup lang="ts">
 	// Scalar ramp (roughness, specular): the output where the source is 0 (left) and where it is 1 (right), shown as a
 	// grey ramp like the colour ramp. Drag a gem sideways to scrub its value (Shift fine, Ctrl snaps to the range's
-	// divisions), or type in the fields below; ⇄ swaps the ends. The eyedropper takes the grey under the pointer.
+	// divisions), or type in the fields below; ⇄ swaps the ends. The eyedropper takes the grey under the pointer. Its row's
+	// right-click menu offers preset ramps (ParamList, src/core/gradientPresets.ts).
 	import { computed, ref } from 'vue';
 	import NumberField from './NumberField.vue';
 	import { IconArrowsLeftRight } from '@tabler/icons-vue';
