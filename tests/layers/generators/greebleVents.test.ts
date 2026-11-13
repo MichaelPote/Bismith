@@ -32,11 +32,8 @@ describe('vents & pipes', () => {
 			expect(relief.mask, def.type).toBe(def.type === 'vents' ? 'plate' : 'all');
 			expect(def.maskWrite!(relief), def.type).toBe('shape');
 			expect(def.maskWrite!({ ...relief, mask: 'none' }), def.type).toBe(false);
-			expect(
-				def.maskWrite!({ ...relief, mask: 'none', output: def.type === 'vents' ? 'slots' : 'pipes' }),
-				def.type
-			).toBe('shape');
 		}
+		expect(ventsLayer.maskWrite!({ ...createLayer('vents').params, mask: 'none', output: 'slots' })).toBe('shape');
 	});
 
 	it('sizes new pipes to the texture', () => {
@@ -97,11 +94,10 @@ describe('vents & pipes', () => {
 			'cross',
 			'hole'
 		]);
-		expect(opts('pipes', 'joint_style')).toEqual(['coupling', 'flange', 'weld']);
+		expect(opts('pipes', 'jog_angle')).toEqual(['90', '45', 'mixed']);
 		expect(opts('vents', 'output')).toEqual(['relief', 'slots', 'plate', 'frame']);
 		expect(opts('vents', 'mask')).toEqual(['none', 'plate', 'slots', 'frame']);
-		expect(opts('pipes', 'output')).toEqual(['relief', 'pipes', 'clamps', 'all']);
-		// The mask's parts share the output's numbers (maskParts).
+		// The shader reads the mask's part by its number: none, pipes, clamps, all.
 		expect(opts('pipes', 'mask')).toEqual(['none', 'pipes', 'clamps', 'all']);
 		expect(opts('pipes', 'scale')).toEqual(['unit', 'true']);
 	});
@@ -113,8 +109,7 @@ describe('vents & pipes', () => {
 				.options!.map((o) => o.value);
 		for (const [type, mask] of [
 			['greebles', 'mask'],
-			['trim', 'mask_shape'],
-			['pipes', 'mask']
+			['trim', 'mask_shape']
 		]) {
 			const out = opts(type, 'output');
 			expect(opts(type, mask).slice(1, out.length), type).toEqual(out.slice(1));

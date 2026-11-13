@@ -525,7 +525,6 @@
       "name": "Bulkhead Bulges",
       "enabled": true,
       "params": {
-        "output": "relief",
         "orient": "horizontal",
         "shape": "round",
         "crown": 0.4,
@@ -542,7 +541,6 @@
         "mask": "all",
         "seed": 40313,
         "joints": 2,
-        "joint_style": "coupling",
         "flange_bolts": true,
         "joint_size": 1.063,
         "joint_jitter": 0.79,
