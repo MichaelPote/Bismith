@@ -1,6 +1,6 @@
 // Ledges in the relief below — where the height drops going down the texture, as under a brick's lower edge or a
 // moulding's lip — and the cells that find them, shared by the layers that hang things from them: Drips (the trails and
-// Blisters' blisters start there) and Ice (its icicles hang there).
+// Blisters' blisters start there) and Frost (its icicles hang there; its snow caps use the test the other way up).
 //
 // The test reads the layer's `ledge` (the drop that counts), `ledge_reach` (how far below it is measured) and
 // `ledge_soft` (ledgeParams). The cells pass finds, in every cell of a grid, its strongest ledge pixel — every pixel
@@ -85,8 +85,8 @@ export function ledgeCells(ctx: FilterContext, name: string, cells: [number, num
 }
 
 /**
- * The ledge test's params, for a layer's ParamDefs (Drips and Blisters put them in their Ledges group, Ice in its
- * Icicles section). `short`: labels without the "Ledge" prefix, for a group that already says it.
+ * The ledge test's params, for a layer's ParamDefs (Drips and Blisters put them in their Ledges group, Frost in its
+ * Ledges section). `short`: labels without the "Ledge" prefix, for a group that already says it.
  */
 export function ledgeParams(
 	extra: Partial<ParamDef> = {},

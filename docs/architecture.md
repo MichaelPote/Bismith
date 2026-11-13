@@ -226,7 +226,7 @@ shader): the normal of a slope, the lens shift through it, the layers below seen
 colour into lit albedo and transmitted light. The Glass filter and Ice both go through it; new refracting layers should
 too. Likewise, layers that hang things from the relief below share `src/layers/ledges.ts`: the ledge test (`LEDGE_GLSL`,
 `ledgeParams`) and the pass that finds each cell's strongest ledge pixel (`ledgeCells`) — Drips' trails, Blisters'
-blisters and Ice's icicles.
+blisters, and Frost's snow caps (the ledge test the other way up) and icicles.
 
 The common generator wrapper then:
 
@@ -312,8 +312,10 @@ combined by max (finer crystals growing out of the valleys), each facet its own 
 star of refracted wedges seen through it — cut glass, gem clusters, loose stones. **Ice** (FR8.28) lays a sheet of ice
 over the layers below — what is under it refracted through its rippled surface, coloured by its depth along a ramp with
 subsurface scattering — with glinting surface bumps, cracks going down into it at an angle (a hairline and a veil to one
-side), long and star cracks, bubbles and stacks of them, specks, blades of frost, and icicles hanging from the overhangs
-in the relief below.
+side), long and star cracks, bubbles and stacks of them, specks and blades of frost. **Frost** (FR8.31) coats the layers
+below in winter: a grainy rime on every exposed face, then — Wall — snow caps on the top sides of the ledges in the
+relief below and icicles hanging from their undersides, or — Floor — snow on the most exposed parts and a clear glaze of
+ice built up in the hollows.
 
 **Generator GLSL must compile fast on D3D11.** On Windows, Chrome and Firefox run WebGL through ANGLE on D3D11,
 whose shader compiler inlines every function call and unrolls every loop with a constant count. A per-pixel search
@@ -575,7 +577,8 @@ docs/
 | 8.25  | [Bismuth (hopper crystals)](features/fr8.25-bismuth.md)                                                          |
 | 8.26  | [Crystal (faceted crystals)](features/fr8.26-crystal.md)                                                         |
 | 8.27  | [Laid-out references: true-shift structure, Bolts / Rivets, Tile + motifs](features/fr8.27-laid-out-matching.md) |
-| 8.28  | [Ice (refracting sheet, cracks, bubbles, frost, icicles)](features/fr8.28-ice.md)                                |
+| 8.28  | [Ice (refracting sheet, cracks, bubbles, frost)](features/fr8.28-ice.md)                                         |
 | 8.29  | [Splits (the layers below pulled apart along their weakest lines)](features/fr8.29-splits.md)                    |
+| 8.31  | [Frost (rime, snow on ledges or high spots, icicles or ice in the hollows)](features/fr8.31-frost.md)             |
 | 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                                             |
 | 10    | [Project variants](features/fr10-variants.md)                                                                    |

@@ -1,8 +1,9 @@
 // Ice (FR8.28): a sheet of ice over the layers below — what is under it seen through its rippled surface, bent and
-// tinted by its thickness — with cracks at depth, trapped bubbles, feathers of frost and fringes of icicles.
+// tinted by its thickness — with cracks at depth, trapped bubbles and feathers of frost. (Icicles: Frost's Wall mode.)
 //
-// The view of what is below goes through GLSL_TRANSPARENCY like Glass's: the ripples (an fBm at Ripples across) and the
-// icicles' round sections bend it (lensShift of their normals), each crack's veil offsets it, and a bubble turns it over.
+// The view of what is below goes through GLSL_TRANSPARENCY like Glass's: the ripples (an fBm at Ripples across) bend it
+// by their slope (Refraction px where the steepest are, at Ripples 1), each crack's veil offsets it, and a bubble turns
+// it over.
 // Thickness (an fBm at Patches across; Coverage below 1 cuts the sheet into patches along it, thinner and white at their
 // edges) picks its colour along Depth colour (thin → deep), which tints what is seen through it and, with Subsurface
 // scattering, glows from inside it in the deeper parts; Haze clouds it. Surface bumps add fine relief that catches the
@@ -22,47 +23,10 @@
 // speck lies at its own depth (Depth spread): deeper ones are softer, dimmer and bluer, and bubbles and specks move
 // with the ripples as seen through them. Frost: patches of blades — one to three from a point, each a curving spine
 // with barbs at 60° slanting towards its tip and barbs on the long barbs, longer in the thick of a patch — over a thin
-// glaze. Icicles hang from the ledges in the relief below, found as Drips finds them (layers/ledges.ts), at a density
-// along them: of random lengths, tapering to a drop, rippled, round in section (Height and refraction), with a milky
-// core; the sheet's cracks and frost stay out of them.
+// glaze.
 
-import type { Texture } from 'three';
-import { P, gradient, halfPx, round1, type ParamValues } from '@/core/params';
-import { LEDGE_GLSL, LEDGE_GRID_GLSL, ledgeCellGlsl, ledgeCells, ledgeGrid, ledgeParams } from '../ledges';
+import { P, gradient, halfPx, round1 } from '@/core/params';
 import type { LayerDef } from '../types';
-
-const icicles = (p: ParamValues) => p.icicles_on === true;
-
-/**
- * The icicle cells pass: per ledge cell (tLedges: its strongest ledge pixel, user px, and drop), whether it grows an
- * icicle — by the chance Icicles × how much its drop counts as a ledge × the clustering, unless a sheet that fills the
- * hollows fills the overhang in (as Fill hollows does, from four taps Fill width round it, against the overhang's
- * drop). Worked out once per cell, not at every pixel an icicle might reach: (pos, drop, 1 if it grows one).
- */
-const ICICLE_CELLS_GLSL =
-	LEDGE_GLSL +
-	/* glsl */ `
-uniform sampler2D tLedges;
-void main() {
-  ivec2 lw = ivec2(floor(gl_FragCoord.xy));
-  vec4 b = texelFetch(tLedges, lw, 0);
-  vec2 icl = cellsFor(4.0, 1.0);
-  float cl = mix(1.0, 2.0 * smoothstep(0.4, 0.7, valueNoise(b.xy / uRes * icl, periodOf(icl), uSeed + 69.0)), u_ice_cluster);
-  float hx = hashI(lw, uSeed + 63.0), chance = u_icicles * ledgeOk(b.z) * cl;
-  float gate = 1.0;
-  if (hx < chance && u_sheet && u_fill > 0.0) {
-    vec2 gb = vec2(b.x, uRes.y - b.y - u_ledge_reach);
-    float hb0 = sampleT(tSurface, gb).r, mx = hb0, mn = 0.0;
-    for (int t = 0; t < 4; t++) {
-      float hh = sampleT(tSurface, gb + u_fill_w * vec2(t == 0 ? 1.0 : t == 1 ? -1.0 : 0.0, t == 2 ? 1.0 : t == 3 ? -1.0 : 0.0)).r;
-      mx = max(mx, hh);
-      mn += 0.25 * hh;
-    }
-    gate = 1.0 - smoothstep(0.3, 1.0, max(mix(mn, mx, u_fill) - hb0, 0.0) / max(b.z, 1e-3));
-  }
-  oColor = vec4(b.xyz, hx < chance * gate ? 1.0 : 0.0);
-}
-`;
 
 export const iceLayer: LayerDef = {
 	type: 'ice',
@@ -70,7 +34,7 @@ export const iceLayer: LayerDef = {
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Ice over the layers below: Made from a clear sheet that refracts and tints what is under it, with cracks at depth, trapped bubbles, frost feathers and hanging icicles. Makes frozen lakes, iced-over floors, frosted panes, icicle fringes.',
+		'Ice over the layers below: Made from a clear sheet that refracts and tints what is under it, with cracks at depth, trapped bubbles and frost feathers. Makes frozen lakes, iced-over floors, frosted panes. (Icicles: Frost.)',
 	params: [
 		P.enum(
 			'output',
@@ -85,19 +49,13 @@ export const iceLayer: LayerDef = {
 				['cracks', 'Cracks', '1 on the cracks and their veils'],
 				['bubbles', 'Bubbles', '1 on bubbles and specks'],
 				['frost', 'Frost', '1 on frost feathers and rime'],
-				['icicles', 'Icicles', 'the icicles and ledges, 1 along their middles'],
 				['thickness', 'Thickness', 'how thick the ice is: 0 thin … 1 thickest']
 			],
 			{ hint: 'Picks what the layer puts out' }
 		),
-		P.bool('sheet', 'Sheet', true, {
-			section: 'Ice',
-			hint: 'Covers the surface in a sheet of ice; off, only the icicles and their ledges are ice'
-		}),
 		P.float('cover', 'Coverage', 1, 0, 1, {
 			step: 0.001,
 			section: 'Ice',
-			showIf: (p) => p.sheet !== false,
 			hint: 'Share of the surface the sheet covers: below 1 it breaks into patches that thin out and whiten at their edges'
 		}),
 		P.float('patches', 'Patches across', 3, 0.5, 64, {
@@ -158,12 +116,12 @@ export const iceLayer: LayerDef = {
 			showIf: (p) => Number(p.fill) > 0,
 			hint: 'Widest hollow the ice fills level'
 		}),
-		P.float('refraction', 'Refraction', 14, 0, 128, {
-			softMax: 16,
+		P.float('refraction', 'Refraction', 6, 0, 128, {
+			softMax: 32,
 			unit: 'px',
 			step: 0.05,
 			section: 'Surface',
-			hint: 'How far the ripples and bumps bend the view of what is below where they are steepest'
+			hint: 'How far the ripples bend the view of what is below, typically, at Ripples 1 (the steepest ripples bend it about four times as far)'
 		}),
 		P.float('ripple', 'Ripples', 0.5, 0, 1, {
 			step: 0.001,
@@ -194,7 +152,7 @@ export const iceLayer: LayerDef = {
 			unit: '°',
 			step: 0.1,
 			section: 'Surface',
-			hint: 'Where the bubbles’ highlights and the icicles’ glints face, clockwise from the top (match the key light)'
+			hint: 'Where the bubbles’ highlights face, clockwise from the top (match the key light)'
 		}),
 
 		P.float('cracks', 'Cracks across', 5, 0, 64, {
@@ -311,87 +269,8 @@ export const iceLayer: LayerDef = {
 			hint: 'How many frosted patches fit across the width'
 		}),
 
-		P.bool('icicles_on', 'Icicles', false, {
-			uniform: false,
-			optimize: false,
-			section: 'Icicles',
-			hint: 'Grows icicles from the overhangs in the relief below. Needs a variant of the shader, compiled the first time'
-		}),
-		P.float('icicles', 'Icicle chance', 0.5, 0, 1, {
-			gate: { by: 'icicles_on', off: 0 },
-			step: 0.001,
-			section: 'Icicles',
-			showIf: icicles,
-			hint: 'Chance that a spot along an overhang (a ledge, as Drips finds them) grows an icicle'
-		}),
-		P.float('ice_gap', 'Icicle spacing', 12, 1, 512, {
-			softMax: 64,
-			unit: 'px',
-			step: 0.5,
-			section: 'Icicles',
-			showIf: icicles,
-			hint: 'How far apart icicles can hang along a ledge; Icicles picks among those spots'
-		}),
-		P.float('ice_cluster', 'Icicle clustering', 0.35, 0, 1, {
-			step: 0.001,
-			section: 'Icicles',
-			showIf: icicles,
-			hint: 'Gathers the icicles into runs with bare stretches of ledge between (0 = evenly spread)'
-		}),
-		P.float('ice_len', 'Icicle length', 90, 1, 2048, {
-			softMax: 256,
-			unit: 'px',
-			axis: 'y',
-			step: 0.5,
-			section: 'Icicles',
-			showIf: icicles,
-			hint: 'Length of the longest icicles'
-		}),
-		P.float('ice_len_var', 'Length variation', 0.7, 0, 1, {
-			step: 0.001,
-			section: 'Icicles',
-			showIf: icicles,
-			hint: 'Mixes short icicles in with the long ones (0 = all as long as Icicle length)'
-		}),
-		P.float('ice_w', 'Icicle width', 16, 1, 256, {
-			softMax: 48,
-			unit: 'px',
-			axis: 'x',
-			step: 0.05,
-			section: 'Icicles',
-			showIf: icicles,
-			hint: 'Width of the widest icicles at their roots'
-		}),
-		P.float('ice_ripple', 'Icicle ripples', 0.4, 0, 1, {
-			step: 0.001,
-			section: 'Icicles',
-			showIf: icicles,
-			hint: 'Bulges down each icicle, where meltwater froze in rings'
-		}),
-		P.float('glint', 'Glint', 1, 0, 2, {
-			step: 0.001,
-			section: 'Icicles',
-			showIf: icicles,
-			hint: 'A bright line inside each icicle on the side away from the light, where it focuses the light'
-		}),
-		...ledgeParams({ section: 'Icicles' }, icicles),
 		P.seed()
 	],
-	// The ledges' cells (layers/ledges.ts): each one's strongest ledge pixel, and whether an icicle hangs from it.
-	prepare(ctx, layer): Record<string, Texture> {
-		const p = layer.params;
-		if (!icicles(p)) return {};
-		const cells = ledgeGrid(ctx.width, ctx.height, Math.max(Number(p.ice_gap), 1));
-		const mat = ctx.material('ice:icicle-cells', ICICLE_CELLS_GLSL, { tLedges: { value: null } });
-		mat.uniforms.tLedges.value = ledgeCells(ctx, 'ice-ledges', cells);
-		const target = ctx.scratch('ice-icicles', cells[0] + 1, cells[1] + 1);
-		ctx.run(mat, target);
-		return { ledges: target.texture };
-	},
-	textures: ['ledges'],
-	// Clear ice glossy, frost and haze matte (Roughness and Specular › Parts).
-	// The icicles' code is in the shader only for layers with icicles.
-	shaderFeatures: (p) => (icicles(p) ? ['ICE_ICICLES'] : []),
 	parts: 'each part gets its own level: clear ice is glossy, frost and milky haze are matte',
 	defaults: {
 		dif_on: true,
@@ -410,7 +289,7 @@ export const iceLayer: LayerDef = {
 	fresh: ({ width, height }) => {
 		const k = Math.sqrt(width * height) / 512;
 		return {
-			refraction: round1(Math.max(2, 14 * k)),
+			refraction: round1(Math.max(1, 6 * k)),
 			bump_size: halfPx(12 * k, 2),
 			fill_w: halfPx(16 * k, 1.5),
 			veil: halfPx(6 * k, 1.5),
@@ -418,137 +297,102 @@ export const iceLayer: LayerDef = {
 			crack_shift: halfPx(3 * k),
 			bub_size: halfPx(4 * k, 1.5),
 			frost_size: halfPx(160 * k, 8),
-			frost_barb: halfPx(5 * k, 2),
-			ice_len: halfPx((90 * height) / 512, 6),
-			ice_w: halfPx((16 * width) / 512, 3),
-			ice_gap: halfPx((12 * width) / 512, 3)
+			frost_barb: halfPx(5 * k, 2)
 		};
 	},
-	glsl:
-		LEDGE_GRID_GLSL +
-		ledgeCellGlsl('t_ledges') +
-		/* glsl */ `
+	glsl: /* glsl */ `
 // Long cracks' laps when tiling: (a, b) widths and heights per lap, and (c, d) with a·c + b·d = 1.
 const vec4 ICE_LAPS[12] = vec4[12](vec4(1, 0, 1, 0), vec4(0, 1, 0, 1), vec4(1, 1, 1, 0), vec4(1, -1, 1, 0), vec4(2, 1, 1, -1),
   vec4(1, 2, 1, 0), vec4(2, -1, 1, 1), vec4(1, -2, 1, 0), vec4(3, 1, 0, 1), vec4(1, 3, 1, 0), vec4(3, -1, 0, -1), vec4(3, 2, 1, -1));
 
+// The typical slope of the ripples per ripple (its median, measured; the steepest, its 99th percentile, is about 2.9) and
+// the bumps' steepest, for Refraction.
+const float ICE_RIPPLE_TYPICAL = 0.7;
+const float ICE_BUMP_STEEP = 20.0;
+// Quantiles (measured) of the body's noise and of the frost patches' noise at the shares ICE_QN, ends pushed past the
+// noise's range: Coverage and Frost pick their threshold here at 1 − themselves, so the covered or frosted share follows
+// them from none (1) to all (0).
+const float ICE_QN[11] = float[11](0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1.0);
+const float ICE_QBODY[11] = float[11](-0.15, 0.157, 0.234, 0.287, 0.383, 0.495, 0.613, 0.718, 0.771, 0.854, 1.05);
+const float ICE_QFROST[11] = float[11](-0.25, 0.0, 0.05, 0.135, 0.306, 0.5, 0.7, 0.856, 0.94, 0.99, 1.0);
+float icQuantile(float q, float t[11]) {
+  float r = t[0];
+  for (int i = 0; i < 10 * UNI_1; i++) {
+    float a = ICE_QN[i], b = ICE_QN[i + 1];
+    if (q > a) r = mix(t[i], t[i + 1], min((q - a) / (b - a), 1.0));
+  }
+  return r;
+}
+
 // A crack's veil at d px from its line, vw wide: the fracture plane seen at an angle, dimming as it goes down, a soft
-// shoulder, and a faint line where it ends.
+// shoulder, and a faint line where it ends — fading in over the first px of width, so Veil 0 is none.
 float icVeil(float d, float vw) {
-  float x = d / max(vw, 0.3);
-  return mix(0.6, 0.2, clamp(x, 0.0, 1.0)) * (1.0 - smoothstep(0.5, 1.0, x)) + 0.2 * exp(-pow((x - 0.85) * vw / 0.8, 2.0));
+  float w = max(vw, 0.05);
+  float x = d / w;
+  return (mix(0.6, 0.2, clamp(x, 0.0, 1.0)) * (1.0 - smoothstep(0.5, 1.0, x)) + 0.2 * exp(-pow((d - 0.85 * w) / 0.8, 2.0))) * smoothstep(0.0, 1.0, vw);
 }
 
 GenOut gen(vec2 p) {
   float la = radians(u_light);
   vec2 L = vec2(sin(la), cos(la));
   // Four fBms (as fbm()): the body's thickness (and the patches it breaks into) and haze at Patches across, the ripples,
-  // and the surface bumps (Bump size px across) — one flat loop over all their octaves, so the shader holds one copy of
-  // perlinNoise (docs/shader-compilation.md).
+  // and the surface bumps (Bump size px across) — and the ripples again a pixel across and up, for their slope — in one
+  // flat loop over all their octaves, so the shader holds one copy of perlinNoise (docs/shader-compilation.md).
   vec2 bc = cellsFor(u_patches, 1.0);
   vec2 rc = cellsFor(u_ripple_scale, 1.0);
   // (The bumps stretched across: melt pits and wind ripples, not orange peel.)
   vec2 kb = cellsFor(uRes.x / max(u_bump_size, 1.0), 1.6);
   vec4 nSum = vec4(0.0), nNorm = vec4(0.0);
-  for (int e = 0; e < 11 * UNI_1; e++) {
-    int j = e < 3 ? 0 : e < 6 ? 1 : e < 9 ? 2 : 3;
-    int o = e < 9 ? e - 3 * j : e - 9;
-    vec2 cells = j < 2 ? bc : j == 2 ? rc : kb;
+  vec2 dSum = vec2(0.0);
+  for (int e = 0; e < 17 * UNI_1; e++) {
+    // j: 0 body, 1 haze, 2 ripples (3 octaves each), 3 bumps (2), 4 / 5 the ripples a pixel across / up (3 each).
+    int j = e < 9 ? e / 3 : e < 11 ? 3 : 4 + (e - 11) / 3;
+    int o = e < 9 ? e - 3 * j : e < 11 ? e - 9 : (e - 11) % 3;
+    int jn = j > 3 ? 2 : j;
+    vec2 cells = jn < 2 ? bc : jn == 2 ? rc : kb;
     float f = exp2(float(o));
-    float v = perlinNoise((p / uRes * cells + (j == 1 ? 17.31 : 0.0)) * f, uTile ? periodOf(cells) * (1 << o) : NO_PERIOD,
-                          uSeed + (j == 0 ? 11.0 : j == 1 ? 23.0 : j == 2 ? 37.0 : 41.0) + float(o) * 31.0);
+    vec2 q = p + (j == 4 ? vec2(1.0, 0.0) : j == 5 ? vec2(0.0, 1.0) : vec2(0.0));
+    float v = perlinNoise((q / uRes * cells + (jn == 1 ? 17.31 : 0.0)) * f, uTile ? periodOf(cells) * (1 << o) : NO_PERIOD,
+                          uSeed + (jn == 0 ? 11.0 : jn == 1 ? 23.0 : jn == 2 ? 37.0 : 41.0) + float(o) * 31.0);
     vec4 w = vec4(equal(ivec4(j), ivec4(0, 1, 2, 3))) / f;
     nSum += v * w;
     nNorm += w;
+    dSum += v * vec2(equal(ivec2(j), ivec2(4, 5))) / f;
   }
   nSum /= nNorm;
+  // (The ripples' three octaves weigh 1 + 1/2 + 1/4.)
+  vec3 rq = vec3(nSum.z, dSum / 1.75);
   vec2 body = nSum.xy;
-  float rh = nSum.z, bn = nSum.w;
-  // A ridged share in the ripples: sharper crests, so lines seen through them kink.
-  rh = mix(rh, 1.0 - abs(2.0 * rh - 1.0), 0.35);
-  float tn = clamp((body.x - 0.5) * 2.2 + 0.5, 0.0, 1.0);
+  float bn = nSum.w;
+  // A ridged share in the ripples: crests where the noise crosses its middle, steep on one side and gentler on the
+  // other, so lines seen through them kink. (Under a third, the ridge's fall cancels the noise's rise and leaves the
+  // upper half flat.)
+  rq = mix(rq, 1.0 - abs(2.0 * rq - 1.0), 0.5);
+  float rh = rq.x;
+  // The thickness, stretched (tu) and clamped (tn).
+  float tu = (body.x - 0.5) * 2.2 + 0.5;
+  float tn = clamp(tu, 0.0, 1.0);
   // The bumps come in patches (with the haze's noise), smooth glassy stretches between.
   float bk = u_bumps * smoothstep(0.45, 0.75, body.y);
   // (Sparse, smooth lenses: the bumps' noise cut off below its upper part.)
   bn = smoothstep(0.5, 0.8, bn);
-  // (Derivatives before anything branches.) The ripples' slope, height px per px.
-  // The ripples' per ripple (so Refraction is about how far the steeper ones bend the view, however wide they are), the
-  // bumps' a finer wobble on top.
-  vec2 rg = vec2(dFdx(rh), dFdy(rh)) * (uRes.x / rc.x) * u_ripple + vec2(dFdx(bn * bk), dFdy(bn * bk)) * (0.08 * uRes.x / kb.x);
-  float tw = fwidth(tn);
-  vec3 nR = slopeNormal(rg);
-  // How far the ripples bend the view: deep features are seen this far off, × their depth.
-  vec2 rShift = lensShift(nR, u_refraction);
+  // How far the ripples and bumps bend the view (px): deep features are seen this far off, × their depth. The ripples'
+  // slope per ripple (so Refraction is about how far the steeper ones bend it, however wide they are), over that of the
+  // typical one (ICE_RIPPLE_TYPICAL), so at Ripples 1 a typical ripple bends it by Refraction (the steepest about four
+  // times as far); the bumps' (their screen-space
+  // derivative, before anything branches) a finer wobble on top, a third of Refraction at their steepest.
+  vec2 rg = (rq.yz - rq.x) * (uRes.x / rc.x) / ICE_RIPPLE_TYPICAL * u_ripple;
+  vec2 bsl = vec2(dFdx(bn * bk), dFdy(bn * bk)) * (uRes.x / kb.x) / ICE_BUMP_STEEP;
+  vec2 rShift = -(rg + bsl) * u_refraction;
+  float tw = fwidth(tu);
 
-  // The sheet, cut into patches by the thickness below Coverage: thinner towards a patch's edge, with white shore ice.
-  bool whole = u_cover >= 1.0;
-  float thr = 1.0 - u_cover;
-  float sheetCov = !u_sheet ? 0.0 : whole ? 1.0 : clamp((tn - thr) / max(tw, 1e-4) + 0.5, 0.0, 1.0);
-  float edgeK = whole ? 1.0 : smoothstep(thr, thr + 0.2, tn);
+  // The sheet, cut into patches along the thickness by Coverage: the threshold is the noise's quantile at 1 − Coverage,
+  // so the covered share follows Coverage from none to all. Thinner towards a patch's edge, with white shore ice.
+  float thr = (icQuantile(1.0 - u_cover, ICE_QBODY) - 0.5) * 2.2 + 0.5;
+  float sheetCov = clamp((tu - thr) / max(tw, 1e-4) + 0.5, 0.0, 1.0);
+  float edgeK = smoothstep(thr, thr + 0.2, tu);
   float T = u_thick * (1.0 - u_thick_var * (1.0 - tn)) * (0.35 + 0.65 * edgeK);
-  float hz = u_haze * smoothstep(0.3, 0.75, body.y) * (0.4 + 0.6 * tn) + (whole ? 0.0 : 0.5 * exp(-max(tn - thr, 0.0) / 0.04));
-
-  // Icicles hang from the ledges in the relief below, as Drips' trails do: the ledge cells (prepare: each Icicle
-  // spacing cell's strongest ledge pixel, user px, and whether it grows one — by the chance Icicles × how much its drop
-  // counts as a ledge × the clustering). Per pixel the cells round its column, from its own row up as far as an icicle
-  // reaches. The front one (the highest dome) gives the shape; the coverage is all of them.
-  // (iH: the front icicle's height, px — round in section, half as tall as it is wide.)
-  float iCov = 0.0, iDome = 0.0, iBest = 0.0, iCore = 0.0, iH = 0.0;
-  vec2 iG = vec2(0.0);
-#ifdef ICE_ICICLES
-  if (u_icicles > 0.0) {
-    vec2 cellsL = ledgeGrid(max(u_ice_gap, 1.0));
-    vec2 csL = uRes / cellsL;
-    vec2 pu = vec2(p.x, uRes.y - p.y);
-    ivec2 lc = ivec2(floor(pu / csL));
-    int rx = clamp(int(ceil(0.8 * u_ice_w / csL.x)), 1, 3);
-    int nxc = 2 * rx + 1;
-    int up = clamp(int(ceil((u_ice_len + u_ice_w) / csL.y)), 1, 40);
-    for (int e = 0; e < nxc * (up + 1) * UNI_1; e++) {
-      ivec2 l = lc + ivec2(e % nxc - rx, -(e / nxc));
-      ivec2 lw;
-      vec4 b = ledgeCell(l, cellsL, lw);
-      vec2 src = b.xy;
-      vec4 h = vec4(hash3I(lw, uSeed + 61.0), hashI(lw, uSeed + 67.0));
-      float len = u_ice_len * (1.0 - u_ice_len_var * (1.0 - h.x));
-      // (Shorter ones are thinner.)
-      float wid = u_ice_w * (0.55 + 0.45 * h.y) * mix(0.6, 1.0, h.x);
-      // px below its root (user y is down).
-      float q = pu.y - src.y;
-      // (w: whether it grows one; 0 outside an untiled texture.)
-      if (b.w > 0.5 && len > 1.0 && q > -0.5 * wid && q < len + wid) {
-        float f = clamp(q / len, 0.0, 1.0);
-        float dx = pu.x - src.x - (h.w - 0.5) * 0.8 * wid * f * f;
-        // Tapering to a drop at its tip, with rings of bulges down it; rounded over at its root.
-        float rb = max(0.08 * wid, 0.6);
-        float qt = max(len - rb, 0.0);
-        float rT = max(rb, 0.5 * wid * pow(1.0 - qt / len, 0.65));
-        // (The rings' spacing its own, and growing out of a smooth root.)
-        float ring = (0.6 + 0.8 * fract(h.z * 7.3)) * (0.8 * wid + 3.0);
-        float hw = 0.5 * wid * pow(1.0 - f, 0.65)
-                 * (1.0 + u_ice_ripple * 0.45 * smoothstep(0.0, 0.25, f) * sin(q * TAU / ring + 6.0 * h.w) * (0.7 + 0.3 * sin(q * 1.7 / ring + h.y * 9.0)));
-        float r = q < qt ? max(hw, rb) : rT;
-        vec2 rel = vec2(dx, q < 0.0 ? 2.0 * q : max(q - qt, 0.0)) / max(r, 0.5);
-        // (Above its root it fades into the overhang instead of ending in a cap.)
-        float c = clamp(0.5 - (length(rel) - 1.0) * r, 0.0, 1.0) * smoothstep(-0.5 * wid, 0.0, q);
-        float dm = sqrt(max(1.0 - dot(rel, rel), 0.0));
-        // Thinner icicles are lower domes.
-        float ws = clamp(r / (0.5 * u_ice_w), 0.25, 1.0);
-        if (c * dm * ws > iBest) {
-          iBest = c * dm * ws;
-          iDome = dm * ws;
-          // The round section's slope (height px per px; down the screen is −y), steep at the rims.
-          iG = vec2(-rel.x, rel.y) / max(dm, 0.25);
-          iCore = exp(-rel.x * rel.x / 0.04) * (1.0 - 0.6 * f) + 0.5 * exp(-q / max(0.3 * wid, 1.0)) * (q > 0.0 ? 1.0 : 0.0);
-          // (Rising from nothing above its root, so it merges into the ledge instead of standing on it as a cap.)
-          iH = 0.5 * r * dm * c * smoothstep(-0.2 * wid, 0.4 * wid, q);
-        }
-        iCov = max(iCov, c);
-      }
-    }
-  }
-#endif
-  float onI = clamp(iCov, 0.0, 1.0);
+  float hz = u_haze * smoothstep(0.3, 0.75, body.y) * (0.4 + 0.6 * tn) + 0.5 * exp(-max(tu - thr, 0.0) / 0.04);
 
   // Cracks: a network along the edges of a jittered Voronoi diagram (Cracks across) laid on a meandering position — the
   // nearest site from the 3 × 3 cells, then its edges with the 5 × 5 round it. An edge cracks by its pair's own random
@@ -768,11 +612,11 @@ GenOut gen(vec2 p) {
     }
   }
 
-  // Frost: in patches (a slow noise over 1 − Frost), blades growing from a point — one to three, longer in the thick of
-  // a patch — each a gently curving spine with barbs at 60° (ice grows in sixes) slanting towards its tip, from roots
-  // about Barb spacing apart, each side its own, each barb its own length within the blade's outline (widest near its
-  // base); long barbs grow barbs of their own. Every line is anti-aliased, tapering to its tip. A faint plate fills the
-  // blade, and a thin glaze of rime covers the patch.
+  // Frost: in patches (a slow noise over its quantile at 1 − Frost), blades growing from a point — one to three, longer in
+  // the thick of a patch, fading out at its edge — each a gently curving spine with barbs at 60° (ice grows in sixes)
+  // slanting towards its tip, from roots about Barb spacing apart, each side its own, each barb its own length within the
+  // blade's outline (widest near its base); long barbs grow barbs of their own. Every line is anti-aliased, tapering to
+  // its tip. A faint plate fills the blade, and a thin glaze of rime covers the patch.
   float F = 0.0;
   if (u_frost > 0.0) {
     vec2 fc = cellsFor(uRes.x / max(u_frost_size, 1.0), 1.0);
@@ -781,19 +625,22 @@ GenOut gen(vec2 p) {
     ivec2 f0 = ivec2(floor(p / fpx));
     vec2 pcc = cellsFor(u_frost_scale, 1.0);
     float sp = max(u_frost_barb, 0.5);
-    float fth = 1.0 - u_frost;
+    // The patches' threshold: the noise's quantile at 1 − Frost (as Coverage's), so the frosted share follows Frost.
+    float fth = icQuantile(1.0 - u_frost, ICE_QFROST);
+    // (The patch at the pixel, from the first round: its glaze, and how far blades reach into it.)
+    float presP = 0.0;
     for (int e = 0; e < 28 * UNI_1; e++) {
-      // (The last one is the patch at the pixel, for the glaze.)
-      bool rime = e == 27;
-      int ce = e / 3, k = e - ce * 3;
+      bool rime = e == 0;
+      int ce = (e - 1) / 3, k = (e - 1) - ce * 3;
       ivec2 c = f0 + ivec2(ce % 3, ce / 3) - 1;
       ivec2 key = wrapCell(c, nf);
       vec3 h = hash3I(key, uSeed + 111.0);
       vec3 hk = hash3I(ivec2(key.x * 131 + k, key.y), uSeed + 113.0);
       vec2 cen = (vec2(c) + 0.5) * fpx;
-      float pr = valueNoise((rime ? p : cen) / uRes * pcc, periodOf(pcc), uSeed + 115.0);
-      float pres = smoothstep(fth, fth + 0.25, pr + 0.1);
+      float pr = perlinNoise((rime ? p : cen) / uRes * pcc, uTile ? periodOf(pcc) : NO_PERIOD, uSeed + 115.0);
+      float pres = smoothstep(fth - 0.08, fth + 0.17, pr);
       if (rime) {
+        presP = pres;
         F = max(F, pres * (0.08 + 0.3 * smoothstep(0.4, 1.0, u_frost)) * (0.5 + hashI(wrapCell(ivec2(floor(p / 1.5)), ivec2(uRes / 1.5 + 0.5)), uSeed + 121.0)));
       } else if (pres > 0.35 && hk.z < pres * (k == 0 ? 1.0 : mix(0.35, 1.0, u_frost))) {
         vec2 o = cen + (h.xy - 0.5) * 0.8 * fpx + (hash2I(ivec2(key.x * 131 + k, key.y), uSeed + 119.0) - 0.5) * 0.3 * fpx;
@@ -839,18 +686,14 @@ GenOut gen(vec2 p) {
             sub = smoothstep(2.5, 4.0, sp2) * clamp(0.5 + 0.5 - abs(s2 - w0) * 0.8660, 0.0, 1.0) * (w0 > 0.0 && abs(z) < l2 ? 1.0 - smoothstep(0.6 * l2, l2, abs(z)) : 0.0) * inB;
           }
           float plate = 0.12 * (av < 0.45 * Lb * pow(1.0 - f, 0.8) ? 1.0 : 0.0);
-          F = 1.0 - (1.0 - F) * (1.0 - clamp(max(max(spine, barb), max(sub, plate)), 0.0, 1.0) * (0.65 + 0.35 * hk.y));
+          F = 1.0 - (1.0 - F) * (1.0 - clamp(max(max(spine, barb), max(sub, plate)), 0.0, 1.0) * (0.65 + 0.35 * hk.y) * smoothstep(0.0, 0.4, presP));
         }
       }
     }
   }
 
-  // What is below, seen through: bent by the ripples or an icicle's round section, offset across cracks, turned over
-  // in bubbles; tinted by the thickness (an icicle's by its own), clouded by haze and an icicle's milky core.
-  // (The sheet's cracks and frost stay out of the icicles.)
-  W *= 1.0 - onI;
-  F *= 1.0 - onI;
-  shift *= 1.0 - onI;
+  // What is below, seen through: bent by the ripples, offset across cracks, turned over in bubbles; tinted by the
+  // thickness, clouded by haze.
   // Fill hollows: the ice's top levels the relief below, from the mean of four rings round the pixel (twice Fill width,
   // it, a half and a quarter of it) up to their highest by Fill — a smooth level, so a part fill sags across a joint instead
   // of stepping at its walls — and is that much thicker there.
@@ -863,9 +706,7 @@ GenOut gen(vec2 p) {
     hs += hh;
   }
   float lift = u_fill > 0.0 ? max(mix(hs / 24.0, hm, u_fill) - h0, 0.0) : 0.0;
-  vec3 nI = slopeNormal(iG);
-  vec3 n = normalize(mix(nR, nI, onI));
-  vec3 bg = seenThrough(gl_FragCoord.xy, lensShift(n, u_refraction) + shift + bshift);
+  vec3 bg = seenThrough(gl_FragCoord.xy, rShift + shift + bshift);
   // The sheet: its colour at its depth (Depth colour); what is below seen through it, tinted by it, and (Subsurface
   // scattering) light scattered inside it, in the colour — growing with the square of the depth, so thin ice stays
   // clear, and dimmer over a dark ground, so deep water stays dark — and haze, cracks, bubbles and frost in white tinted
@@ -880,27 +721,14 @@ GenOut gen(vec2 p) {
   col = mix(col, u_white * mix(vec3(1.0), dc, 0.6 * Bd / max(Bsum, 1e-4)), Bv);
   col = mix(col, u_white * mix(vec3(1.0), dc, 0.15), F) * (1.0 - pit);
   col = mix(bg, col, clamp(20.0 * sheetCov, 0.0, 1.0));
-  // An icicle in front: thin, clear ice — what is behind it (the sheet's colour) tinted a little by its own depth, a
-  // narrow milky core, white rims, and a glint where it focuses the light.
-  vec3 di = srgbToLinear(gradientLookup(u_depth_grad_stops, u_depth_grad_count, 0.05 + 0.2 * iDome));
-  vec3 ci = mix(absorbTint(col, di, 0.8), u_white * mix(vec3(1.0), di, 0.3), 0.35 * iCore);
-  float gz = grazing(nI);
-  // (The rim facing the light catches it, the far one darkens.)
-  float lit = dot(nI.xy / max(length(nI.xy), 1e-4), L);
-  ci = mix(ci, u_white, rimFresnel(gz, 0.5) * smoothstep(-0.3, 0.7, lit)) * (1.0 - 0.4 * rimFresnel(gz, 1.0) * (1.0 - smoothstep(-0.8, 0.0, lit)));
-  ci += u_glint * innerGlint(nI, L, gz) * u_white;
-  col = mix(col, ci, onI);
-  hz = mix(hz, 0.35 * iCore, onI);
-  float Ti = mix(Ts, 0.05 + 0.2 * iDome, onI);
 
-  // Height: the sheet's ripples (lower towards a patch's edge), frost on it, a fine groove along the shallow cracks; the
-  // icicles' domes on it (0 at their rims).
+  // Height: the sheet's ripples (lower towards a patch's edge), frost on it, a fine groove along the shallow cracks.
   float hS = (0.4 + 1.6 * u_ripple * (rh - 0.5) + 2.0 * bk * bn) * (0.5 + 0.5 * edgeK) + 0.12 * F - 0.06 * exp(-cDist * cDist / 0.5);
-  float hv = clamp(hS * sheetCov + 0.6 * iDome, 0.0, 1.0);
+  float hv = clamp(hS * sheetCov, 0.0, 1.0);
   float white = clamp(max(max(W, Bv), max(F, hz)), 0.0, 1.0);
   int ok = u_output;
-  float val = ok == 1 ? W : ok == 2 ? Bv : ok == 3 ? F : ok == 4 ? onI * iDome : ok == 5 ? Ti : hv;
-  float cov = max(sheetCov, iCov);
+  float val = ok == 1 ? W : ok == 2 ? Bv : ok == 3 ? F : ok == 4 ? Ts : hv;
+  float cov = sheetCov;
   GenOut g = genOutSmooth(val, cov, 0.5, 0.0);
   if (ok == 0) {
     gGenRgb = linearToSrgb(clamp(col, 0.0, 1.0));
@@ -908,8 +736,7 @@ GenOut gen(vec2 p) {
     g.hval = hv;
     // Its own height (Height › Pattern adds it × Amount): the sheet's surface, plus the fill — in the surface's own
     // units, so divided by Amount — over the coverage.
-    // An icicle's own height is in px (round in section), so it is turned into the surface's units too.
-    g.height = cov * (hS * sheetCov + (lift + iH / max(uDepth, 1e-3)) / max(abs(u_h_amount), 1e-3));
+    g.height = cov * (hS * sheetCov + lift / max(abs(u_h_amount), 1e-3));
   }
   // Roughness and Specular › Parts: clear ice glossy, frost and haze matte.
   gGenLevel = vec4(mix(0.08, 0.75, max(F, 0.7 * hz)), mix(0.75, 0.3, F), -1.0, -1.0);

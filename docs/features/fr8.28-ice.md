@@ -1,9 +1,9 @@
 # FR8.28 — Ice
 
-A generator that lays ice over the layers below: frozen lakes, iced-over floors and walls, frosted panes, fringes of
-icicles. What is under it shows through, bent by the ice's surface and tinted by its thickness, with cracks going down
-into it, trapped bubbles, blades of frost, and icicles hanging from the overhangs in the relief below. Source:
-`src/layers/generators/ice.ts`.
+A generator that lays ice over the layers below: frozen lakes, iced-over floors and walls, frosted panes. What is under
+it shows through, bent by the ice's surface and tinted by its thickness, with cracks going down into it, trapped bubbles
+and blades of frost. Source: `src/layers/generators/ice.ts`. Icicles hanging from the overhangs in the relief below are
+Frost's (Wall mode, docs/features/fr8.31-frost.md).
 
 ## Seeing through
 
@@ -12,13 +12,16 @@ into it, trapped bubbles, blades of frost, and icicles hanging from the overhang
   (a bilinear sample of the albedo below) → `absorbTint`, `grazing` / `rimFresnel`, `innerGlint`. The colour's
   transmitted share goes out through `gGenTransmit`: the generator wrapper hands it to `layTransparent`, which carries it
   as emission (light through the ice isn't shaded by the ice surface) and keeps the rest as lit albedo.
-- **Ripples** (an fBm at **Ripples across**) give the surface its slope; their screen-space derivative is the normal,
-  taken per ripple, so **Refraction** is about how far the steeper ripples bend the view, however wide they are.
-  **Surface bumps** (a fine fBm cut into sparse, smooth lenses, **Bump size** px across, stretched sideways, in patches
-  with smooth glassy stretches between) catch a sun in glints: a top-down view sees a sun at 40° elevation only where
-  the surface tilts about 25° towards it. Their slope barely bends the view (their screen-space derivative is coarse).
-  An icicle's round section gives its own (steep at the rims: magnified in the middle, squeezed at the edges, like
-  Glass on Pipework's tubes). Each crack's veil offsets the view across it (**Offset**), and a bubble turns it over.
+- **Ripples** (an fBm at **Ripples across**, with a ridged share: crests where the noise crosses its middle, steep on
+  one side and gentler on the other) give the surface its slope, taken from the noise a pixel across and up (in the same
+  loop as the other noises, so smooth, not the 2 × 2 steps of a screen-space derivative) and per ripple, over the
+  typical slope (its median, measured): the view moves by **Refraction** px on a typical ripple at **Ripples** 1 —
+  about four times as far where they are steepest — and in proportion to Ripples. (The ridged share has to be over a third: under it the ridge's fall
+  cancels the noise's rise and leaves half the surface flat.) **Surface bumps** (a fine fBm cut into sparse, smooth
+  lenses, **Bump size** px across, stretched sideways, in patches with smooth glassy stretches between) catch a sun in
+  glints: a top-down view sees a sun at 40° elevation only where the surface tilts about 25° towards it. Their slope
+  (screen-space) adds a finer wobble, a third of Refraction where they are steepest at Surface bumps 1. Each crack's
+  veil offsets the view across it (**Offset**), and a bubble turns it over.
 - **Fill hollows** levels the relief below: the ice's top rises from the mean of three rings round the pixel (**Fill
   width**, a half and a quarter of it) towards their highest by Fill. The level is smooth, so a part fill sags across a
   joint instead of stepping at its walls; the ice is that much thicker (bluer) there. The fill goes out through the
@@ -29,8 +32,10 @@ into it, trapped bubbles, blades of frost, and icicles hanging from the overhang
   takes the colour — growing with the square of the depth (thin ice stays clear), dimmer over a dark ground (dark water
   stays dark), capped so the ground still shows — so deep ice shows less of what is below and glows in a stronger
   colour. Haze, cracks, bubbles and frost are tinted by the same local colour. **Coverage** below 1 cuts the
-  sheet into patches along the same noise, thinner and white towards their edges (shore ice). **Haze** clouds it white
-  in a second noise. **Sheet** off leaves only the icicles.
+  sheet into patches along the same noise, thinner and white towards their edges (shore ice): the threshold is the
+  noise's quantile at 1 − Coverage (a small table of measured quantiles, its ends past the noise's range), compared with
+  the unclamped noise, so the covered share follows Coverage smoothly from none at 0 to all at 1. **Haze** clouds it
+  white in a second noise.
 - **Transmission**: the share of the clear ice's colour carried as transmitted light; cracks, bubbles, frost and haze
   scatter, so they are always lit like a surface.
 
@@ -42,7 +47,8 @@ into it, trapped bubbles, blades of frost, and icicles hanging from the overhang
   end against others. Along an edge the width (0.5–2.4 px) and brightness vary. A crack is a plane going down into the
   ice at an angle: a crisp hairline where it meets the top (a faint glow round it), and on some a **Veil** into one of
   its two cells (the same answer from either side) — dimming as it goes deeper, a soft shoulder and a faint line where
-  it ends (`icVeil`), streaked across by hackle marks; the view below jumps across the veil (**Offset**). A bisector's
+  it ends (`icVeil`, which fades in over a veil's first px of width, so **Veil** 0 draws none on network cracks, star
+  rays or long cracks), streaked across by hackle marks; the view below jumps across the veil (**Offset**). A bisector's
   line runs on past its edge, so only the three nearest cracked edges count. A veil is drawn in its own cell only, so it
   fades out over 4 px before the cell's other edges (the nearest, or the next when the nearest is its own) instead of
   ending in a straight cut where the next cell begins. **Long cracks**
@@ -57,38 +63,25 @@ into it, trapped bubbles, blades of frost, and icicles hanging from the overhang
   across). Small ones are clear beads with a bright rim and a highlight towards **Light from**, and turn the view below
   over; large ones are flat, frosty discs with a bright rim over a dimmer mottled fill. **Stacks**: under a large one,
   up to two smaller discs in a column going down, each clear of the one above and deeper. **Specks**: tiny white dots, one per cell.
-- **Frost** in patches (a slow noise over 1 − Frost, **Frost patches across**): one to three blades from a point,
-  longer in the thick of a patch (**Feather length**). A blade is a gently curving spine with barbs at 60° (ice grows in
+- **Frost** in patches (a slow Perlin noise at **Frost patches across**, over its measured quantile at 1 − Frost, so
+  the frosted share follows Frost from none to all): one to three blades from a point, longer in the thick of a patch
+  (**Feather length**) and fading out at its edge, so they stay inside it. A blade is a gently curving spine with barbs at 60° (ice grows in
   sixes) slanting towards its tip, from roots about **Barb spacing** apart, each side its own and each barb its own
   length within the blade's outline (widest near its base); long barbs grow barbs of their own. Every line is
   anti-aliased and tapers to its tip; the barbs' own barbs fade out before they are too fine to draw. Blades start from
   points of their own near their cell's, and one side's barbs are shorter (a lopsided frond); more grow as Frost rises.
   A faint plate fills each blade, and a glaze of rime with a grain of crystals covers the patch, thicker as Frost rises. Frost
   raises the surface slightly and is matte.
-- **Icicles** hang from the ledges in the relief below, found as Drips finds them (`src/layers/ledges.ts`): where the
-  height drops by **Ledge threshold** over **Ledge reach** going down (**Ledge softness**). A prepare pass records each
-  **Icicle spacing** cell's strongest ledge pixel; each cell grows an icicle by the chance **Icicles** × how much its
-  drop counts as a ledge × **Icicle clustering** (runs of icicles and bare stretches). A sheet that fills hollows fills
-  an overhang in by as much as it raises the ground just below it (four taps Fill width round it, as Fill hollows does)
-  against the overhang's drop, and no icicle hangs from a filled one. Per pixel the cells round its
-  column are searched, from its own row up as far as an icicle reaches. An icicle is of random length (**Icicle
-  length**, **Length variation**; shorter ones thinner), tapering to a drop and bulging in rings (**Icicle ripples**),
-  slightly bent, round in section (half as tall as it is wide, its height in px) for Height and refraction, rising out
-  of the ledge at its root, with a narrow milky core (milkier at the root), a rim that catches the light on its lit
-  side and darkens on the other, and a **Glint** on the side away from the light. It lies over the sheet's colour. Thin ice, it mostly shows what is behind it. The sheet's cracks and
-  frost stay out of the icicles; their height is 0 at the rims, on top of the sheet's. The icicle code is a shader
-  variant (`ICE_ICICLES`), compiled only for a layer with Icicles above 0.
 
 ## Outputs
 
 **Output** › _Ice_ (default) paints the refracted colour itself (`gGenRgb`; the gradient ramp isn't used) and its
-Height is the surface: ripples, frost, a fine groove on shallow cracks, the icicles' domes. _Cracks_, _Bubbles_,
-_Frost_, _Icicles_ and _Thickness_ put out that feature as the value, for the ramp, Height or a mask (Write to ›
+Height is the surface: ripples, frost, a fine groove on shallow cracks. _Cracks_, _Bubbles_, _Frost_ and _Thickness_
+put out that feature as the value, for the ramp, Height or a mask (Write to ›
 Source offers each). Roughness and Specular default to Source › _Parts_: clear ice glossy, frost and haze matte.
 
 ## Cost
 
 One shader, its searches as flat loops with uniform-bound counts (cracks 9 + 25 cells and up to 8 long cracks,
-bubbles 9 × 3, frost 9 × 3 + 1, fill 24 taps; with icicles, the ledge cells round the pixel's column), and the four
-smooth noises in one loop over their octaves: ~3.0 s cold compile on D3D11 without icicles (the bubbles' grain is
-~0.3 s of it). The ledge-cells pass runs only with icicles.
+bubbles 9 × 3, frost 1 + 9 × 3, fill 24 taps), and the four smooth noises plus the ripples' two offset copies in one
+loop over their octaves (17 evaluations): ~3.2 s cold compile on D3D11 (the bubbles' grain is ~0.3 s of it).

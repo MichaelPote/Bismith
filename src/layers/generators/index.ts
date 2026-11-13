@@ -27,6 +27,7 @@ import { grassLayer } from './grass';
 import { bismuthLayer } from './bismuth';
 import { crystalLayer } from './crystal';
 import { iceLayer } from './ice';
+import { frostLayer } from './frost';
 
 /** Every generator layer type (the New Layer menu orders them by MENU_ORDER in ui/meta.ts). */
 export const GENERATORS: LayerDef[] = [
@@ -57,5 +58,6 @@ export const GENERATORS: LayerDef[] = [
 	grassLayer,
 	bismuthLayer,
 	crystalLayer,
-	iceLayer
+	iceLayer,
+	frostLayer
 ];
