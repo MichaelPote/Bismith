@@ -8,20 +8,24 @@ Frost's (Wall mode, docs/features/fr8.31-frost.md).
 ## Seeing through
 
 - **Shared helper.** Everything transparent goes through `GLSL_TRANSPARENCY` (`src/layers/glsl/transparency.ts`), as
-  the Glass filter does: `slopeNormal` → `lensShift` (out along the normal's tilt × **Refraction**) → `seenThrough`
+  the Glass filter does: `slopeNormal` → `lensShift` (out along the surface's slope × **Refraction**) → `seenThrough`
   (a bilinear sample of the albedo below) → `absorbTint`, `grazing` / `rimFresnel`, `innerGlint`. The colour's
   transmitted share goes out through `gGenTransmit`: the generator wrapper hands it to `layTransparent`, which carries it
   as emission (light through the ice isn't shaded by the ice surface) and keeps the rest as lit albedo.
-- **Ripples** (an fBm at **Ripples across**, with a ridged share: crests where the noise crosses its middle, steep on
-  one side and gentler on the other) give the surface its slope, taken from the noise a pixel across and up (in the same
-  loop as the other noises, so smooth, not the 2 × 2 steps of a screen-space derivative) and per ripple, over the
-  typical slope (its median, measured): the view moves by **Refraction** px on a typical ripple at **Ripples** 1 —
-  about four times as far where they are steepest — and in proportion to Ripples. (The ridged share has to be over a third: under it the ridge's fall
-  cancels the noise's rise and leaves half the surface flat.) **Surface bumps** (a fine fBm cut into sparse, smooth
-  lenses, **Bump size** px across, stretched sideways, in patches with smooth glassy stretches between) catch a sun in
-  glints: a top-down view sees a sun at 40° elevation only where the surface tilts about 25° towards it. Their slope
-  (screen-space) adds a finer wobble, a third of Refraction where they are steepest at Surface bumps 1. Each crack's
-  veil offsets the view across it (**Offset**), and a bubble turns it over.
+- **The surface bends the view by its own slope.** Its relief is the ripples and the bumps, in px: **Ripples** (an fBm
+  at **Ripples across**, with a ridged share: crests where the noise crosses its middle, steep on one side and gentler
+  on the other) rise 0.17 × their width × Ripples per unit of their noise, and **Surface bumps** (a fine fBm cut into
+  sparse, smooth lenses, **Bump size** px across, stretched sideways, in patches with smooth glassy stretches between)
+  0.25 × Bump size × Surface bumps — so each sets a slope whatever its size (measured: ripples typically 0.12 px per px
+  at Ripples 1, the steepest 0.5; bumps about 0.5 at their steeper 5% and 1 at the steepest 1%). Height › Amount scales
+  it, as it scales the output (default 1). The slope is taken from the same noises a pixel across and up (in the same
+  loop as the other noises, so smooth, not the 2 × 2 steps of a screen-space derivative), and the view moves by it ×
+  **Refraction** — the shift in px where the surface slopes at 45°, about a quarter of the ice's thickness — eased off
+  past a slope of about ½ (a steep lens a few px across would otherwise shift the view further than it is wide and
+  scramble it). So the ripples and bumps bend the view exactly as much as they tilt in the relief. (The ridged share has
+  to be over a third: under it the ridge's fall cancels the noise's rise and leaves half the surface flat.) The bumps
+  catch a sun in glints: a top-down view sees a sun at 40° elevation only where the surface tilts about 25° towards it.
+  Each crack's veil offsets the view across it (**Offset**), and a bubble turns it over.
 - **Fill hollows** levels the relief below: the ice's top rises from the mean of three rings round the pixel (**Fill
   width**, a half and a quarter of it) towards their highest by Fill. The level is smooth, so a part fill sags across a
   joint instead of stepping at its walls; the ice is that much thicker (bluer) there. The fill goes out through the

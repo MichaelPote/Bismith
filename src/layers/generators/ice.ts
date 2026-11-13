@@ -116,12 +116,12 @@ export const iceLayer: LayerDef = {
 			showIf: (p) => Number(p.fill) > 0,
 			hint: 'Widest hollow the ice fills level'
 		}),
-		P.float('refraction', 'Refraction', 6, 0, 128, {
-			softMax: 32,
+		P.float('refraction', 'Refraction', 32, 0, 512, {
+			softMax: 96,
 			unit: 'px',
 			step: 0.05,
 			section: 'Surface',
-			hint: 'How far the ripples bend the view of what is below, typically, at Ripples 1 (the steepest ripples bend it about four times as far)'
+			hint: 'How far the surface bends the view of what is below where it slopes at 45°: its ripples and bumps bend it as much as they tilt (about a quarter of the ice’s thickness)'
 		}),
 		P.float('ripple', 'Ripples', 0.5, 0, 1, {
 			step: 0.001,
@@ -275,7 +275,7 @@ export const iceLayer: LayerDef = {
 	defaults: {
 		dif_on: true,
 		h_on: true,
-		h_amount: 0.8,
+		h_amount: 1,
 		r_on: true,
 		r_src: 'parts',
 		r_a: 0,
@@ -289,7 +289,7 @@ export const iceLayer: LayerDef = {
 	fresh: ({ width, height }) => {
 		const k = Math.sqrt(width * height) / 512;
 		return {
-			refraction: round1(Math.max(1, 6 * k)),
+			refraction: round1(Math.max(4, 32 * k)),
 			bump_size: halfPx(12 * k, 2),
 			fill_w: halfPx(16 * k, 1.5),
 			veil: halfPx(6 * k, 1.5),
@@ -305,10 +305,11 @@ export const iceLayer: LayerDef = {
 const vec4 ICE_LAPS[12] = vec4[12](vec4(1, 0, 1, 0), vec4(0, 1, 0, 1), vec4(1, 1, 1, 0), vec4(1, -1, 1, 0), vec4(2, 1, 1, -1),
   vec4(1, 2, 1, 0), vec4(2, -1, 1, 1), vec4(1, -2, 1, 0), vec4(3, 1, 0, 1), vec4(1, 3, 1, 0), vec4(3, -1, 0, -1), vec4(3, 2, 1, -1));
 
-// The typical slope of the ripples per ripple (its median, measured; the steepest, its 99th percentile, is about 2.9) and
-// the bumps' steepest, for Refraction.
-const float ICE_RIPPLE_TYPICAL = 0.7;
-const float ICE_BUMP_STEEP = 20.0;
+// The surface's relief in px: the ripples' height range per px of ripple width at Ripples 1, the bumps' per px of Bump
+// size at Surface bumps 1 — so each sets a slope, whatever its size (measured: ripples typically 0.12 px per px at
+// Ripples 1, the steepest 0.5; bumps flat between their lenses, about 0.5 at their steeper 5% and 1 at the steepest 1%).
+const float ICE_RIPPLE_H = 0.17;
+const float ICE_BUMP_H = 0.25;
 // Quantiles (measured) of the body's noise and of the frost patches' noise at the shares ICE_QN, ends pushed past the
 // noise's range: Coverage and Frost pick their threshold here at 1 − themselves, so the covered or frosted share follows
 // them from none (1) to all (0).
@@ -336,28 +337,31 @@ GenOut gen(vec2 p) {
   float la = radians(u_light);
   vec2 L = vec2(sin(la), cos(la));
   // Four fBms (as fbm()): the body's thickness (and the patches it breaks into) and haze at Patches across, the ripples,
-  // and the surface bumps (Bump size px across) — and the ripples again a pixel across and up, for their slope — in one
-  // flat loop over all their octaves, so the shader holds one copy of perlinNoise (docs/shader-compilation.md).
+  // and the surface bumps (Bump size px across) — and the ripples and bumps again a pixel across and up, for the
+  // surface's slope — in one flat loop over all their octaves, so the shader holds one copy of perlinNoise
+  // (docs/shader-compilation.md).
   vec2 bc = cellsFor(u_patches, 1.0);
   vec2 rc = cellsFor(u_ripple_scale, 1.0);
   // (The bumps stretched across: melt pits and wind ripples, not orange peel.)
   vec2 kb = cellsFor(uRes.x / max(u_bump_size, 1.0), 1.6);
   vec4 nSum = vec4(0.0), nNorm = vec4(0.0);
-  vec2 dSum = vec2(0.0);
-  for (int e = 0; e < 17 * UNI_1; e++) {
-    // j: 0 body, 1 haze, 2 ripples (3 octaves each), 3 bumps (2), 4 / 5 the ripples a pixel across / up (3 each).
-    int j = e < 9 ? e / 3 : e < 11 ? 3 : 4 + (e - 11) / 3;
-    int o = e < 9 ? e - 3 * j : e < 11 ? e - 9 : (e - 11) % 3;
-    int jn = j > 3 ? 2 : j;
+  vec2 dSum = vec2(0.0), bSum = vec2(0.0);
+  for (int e = 0; e < 21 * UNI_1; e++) {
+    // j: 0 body, 1 haze, 2 ripples (3 octaves each), 3 bumps (2), 4 / 5 the ripples a pixel across / up (3 each),
+    // 6 / 7 the bumps a pixel across / up (2 each).
+    int j = e < 9 ? e / 3 : e < 11 ? 3 : e < 17 ? 4 + (e - 11) / 3 : 6 + (e - 17) / 2;
+    int o = e < 9 ? e - 3 * j : e < 11 ? e - 9 : e < 17 ? (e - 11) % 3 : (e - 17) % 2;
+    int jn = j > 5 ? 3 : j > 3 ? 2 : j;
     vec2 cells = jn < 2 ? bc : jn == 2 ? rc : kb;
     float f = exp2(float(o));
-    vec2 q = p + (j == 4 ? vec2(1.0, 0.0) : j == 5 ? vec2(0.0, 1.0) : vec2(0.0));
+    vec2 q = p + (j == 4 || j == 6 ? vec2(1.0, 0.0) : j == 5 || j == 7 ? vec2(0.0, 1.0) : vec2(0.0));
     float v = perlinNoise((q / uRes * cells + (jn == 1 ? 17.31 : 0.0)) * f, uTile ? periodOf(cells) * (1 << o) : NO_PERIOD,
                           uSeed + (jn == 0 ? 11.0 : jn == 1 ? 23.0 : jn == 2 ? 37.0 : 41.0) + float(o) * 31.0);
     vec4 w = vec4(equal(ivec4(j), ivec4(0, 1, 2, 3))) / f;
     nSum += v * w;
     nNorm += w;
     dSum += v * vec2(equal(ivec2(j), ivec2(4, 5))) / f;
+    bSum += v * vec2(equal(ivec2(j), ivec2(6, 7))) / f;
   }
   nSum /= nNorm;
   // (The ripples' three octaves weigh 1 + 1/2 + 1/4.)
@@ -376,14 +380,14 @@ GenOut gen(vec2 p) {
   float bk = u_bumps * smoothstep(0.45, 0.75, body.y);
   // (Sparse, smooth lenses: the bumps' noise cut off below its upper part.)
   bn = smoothstep(0.5, 0.8, bn);
-  // How far the ripples and bumps bend the view (px): deep features are seen this far off, × their depth. The ripples'
-  // slope per ripple (so Refraction is about how far the steeper ones bend it, however wide they are), over that of the
-  // typical one (ICE_RIPPLE_TYPICAL), so at Ripples 1 a typical ripple bends it by Refraction (the steepest about four
-  // times as far); the bumps' (their screen-space
-  // derivative, before anything branches) a finer wobble on top, a third of Refraction at their steepest.
-  vec2 rg = (rq.yz - rq.x) * (uRes.x / rc.x) / ICE_RIPPLE_TYPICAL * u_ripple;
-  vec2 bsl = vec2(dFdx(bn * bk), dFdy(bn * bk)) * (uRes.x / kb.x) / ICE_BUMP_STEEP;
-  vec2 rShift = -(rg + bsl) * u_refraction;
+  // (The bumps' two octaves weigh 1 + 1/2; the same a pixel across and up.)
+  vec2 bnd = smoothstep(0.5, 0.8, bSum / 1.5);
+  // The surface's relief in px (Height › Amount scales it as it does the output): the ripples ICE_RIPPLE_H × their width
+  // × Ripples per unit of their noise, the bumps ICE_BUMP_H × Bump size × Surface bumps (in patches) per unit of theirs —
+  // and its slope (px per px) from the same noises a pixel across and up.
+  float hR = ICE_RIPPLE_H * (uRes.x / rc.x) * u_ripple * u_h_amount;
+  float hB = ICE_BUMP_H * u_bump_size * bk * u_h_amount;
+  vec2 slope0 = (rq.yz - rq.x) * hR + (bnd - bn) * hB;
   float tw = fwidth(tu);
 
   // The sheet, cut into patches along the thickness by Coverage: the threshold is the noise's quantile at 1 − Coverage,
@@ -392,6 +396,12 @@ GenOut gen(vec2 p) {
   float sheetCov = clamp((tu - thr) / max(tw, 1e-4) + 0.5, 0.0, 1.0);
   float edgeK = smoothstep(thr, thr + 0.2, tu);
   float T = u_thick * (1.0 - u_thick_var * (1.0 - tn)) * (0.35 + 0.65 * edgeK);
+  // How far the surface bends the view of what is below (px): its slope × Refraction (the shift where it slopes at 45°),
+  // lower towards a patch's edge as the relief is, and eased off past a slope of about ½ — a steep bump lens a few px
+  // across would otherwise shift the view further than it is wide and scramble it into pixel noise. Deep features are
+  // seen this far off, × their depth.
+  vec2 slope = slope0 * (0.5 + 0.5 * edgeK);
+  vec2 rShift = -slope * u_refraction * inversesqrt(1.0 + 4.0 * dot(slope, slope));
   float hz = u_haze * smoothstep(0.3, 0.75, body.y) * (0.4 + 0.6 * tn) + 0.5 * exp(-max(tu - thr, 0.0) / 0.04);
 
   // Cracks: a network along the edges of a jittered Voronoi diagram (Cracks across) laid on a meandering position — the
@@ -723,7 +733,8 @@ GenOut gen(vec2 p) {
   col = mix(bg, col, clamp(20.0 * sheetCov, 0.0, 1.0));
 
   // Height: the sheet's ripples (lower towards a patch's edge), frost on it, a fine groove along the shallow cracks.
-  float hS = (0.4 + 1.6 * u_ripple * (rh - 0.5) + 2.0 * bk * bn) * (0.5 + 0.5 * edgeK) + 0.12 * F - 0.06 * exp(-cDist * cDist / 0.5);
+  // (The ripples and bumps in px, already × Amount, turned back into the surface's units before Amount.)
+  float hS = (0.4 + (hR * (rh - 0.5) + hB * bn) / max(uDepth * abs(u_h_amount), 1e-3)) * (0.5 + 0.5 * edgeK) + 0.12 * F - 0.06 * exp(-cDist * cDist / 0.5);
   float hv = clamp(hS * sheetCov, 0.0, 1.0);
   float white = clamp(max(max(W, Bv), max(F, hz)), 0.0, 1.0);
   int ok = u_output;
