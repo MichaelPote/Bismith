@@ -3,7 +3,7 @@
 A generator that lays ice over the layers below: frozen lakes, iced-over floors and walls, frosted panes. What is under
 it shows through, bent by the ice's surface and tinted by its thickness, with cracks going down into it, trapped bubbles
 and blades of frost. Source: `src/layers/generators/ice.ts`. Icicles hanging from the overhangs in the relief below are
-Frost's (Wall mode, docs/features/fr8.31-frost.md).
+Snow's (Wall mode, docs/features/fr8.31-snow.md).
 
 ## Seeing through
 
@@ -13,7 +13,8 @@ Frost's (Wall mode, docs/features/fr8.31-frost.md).
   transmitted share goes out through `gGenTransmit`: the generator wrapper hands it to `layTransparent`, which carries it
   as emission (light through the ice isn't shaded by the ice surface) and keeps the rest as lit albedo.
 - **The surface bends the view by its own slope.** Its relief is the ripples and the bumps, in px: **Ripples** (an fBm
-  at **Ripples across**, with a ridged share: crests where the noise crosses its middle, steep on one side and gentler
+  at **Ripples across**, moved alone by **Ripples phase** — the noise library's animation phase on top of the layer's
+  Phase, for its octaves only: 0 → 1 one seamless loop — with a ridged share: crests where the noise crosses its middle, steep on one side and gentler
   on the other) rise 0.17 × their width × Ripples per unit of their noise, and **Surface bumps** (a fine fBm cut into
   sparse, smooth lenses, **Bump size** px across, stretched sideways, in patches with smooth glassy stretches between)
   0.25 × Bump size × Surface bumps — so each sets a slope whatever its size (measured: ripples typically 0.12 px per px
@@ -26,10 +27,14 @@ Frost's (Wall mode, docs/features/fr8.31-frost.md).
   to be over a third: under it the ridge's fall cancels the noise's rise and leaves half the surface flat.) The bumps
   catch a sun in glints: a top-down view sees a sun at 40° elevation only where the surface tilts about 25° towards it.
   Each crack's veil offsets the view across it (**Offset**), and a bubble turns it over.
-- **Fill hollows** levels the relief below: the ice's top rises from the mean of three rings round the pixel (**Fill
-  width**, a half and a quarter of it) towards their highest by Fill. The level is smooth, so a part fill sags across a
-  joint instead of stepping at its walls; the ice is that much thicker (bluer) there. The fill goes out through the
-  generator's own height (`GenOut.height`, divided by Height › Amount so it lands in the surface's units).
+- **Fill hollows** levels the relief below: the ice's top rises from the mean of four rings of 6 round the pixel
+  (twice **Fill width**, it, a half and a quarter of it) towards their highest by Fill (`fillLevel`, GLSL_TRANSPARENCY,
+  shared with Snow's floor ice). The highest is a mean weighted by e^(h / 0.5 px), so the level is smooth: a part fill
+  sags across a joint instead of stepping at its walls, and the ice is that much thicker (bluer) there. The same level a
+  pixel across and up gives its slope, which bends the view as the ripples' does — in full where the fill is half a px
+  deep, since a thin coat follows the relief and barely bends it. A level top is flat, so a full fill bends the view
+  little; a part fill, which sags, more. The fill goes out through the generator's own height (`GenOut.height`, divided
+  by Height › Amount so it lands in the surface's units).
 - **Thickness** (an fBm at **Patches across**, spread by **Thickness variation**, deeper where Fill hollows fills) picks
   the ice's colour along **Depth colour**, a gradient ramp from thin (left) to the deepest (right). What is below is
   tinted by it, and **Subsurface scattering** mixes in the light scattered inside the ice, which grows with the depth and
@@ -64,8 +69,8 @@ Frost's (Wall mode, docs/features/fr8.31-frost.md).
 - **Depth.** Each crack, bubble and speck lies at its own depth (**Depth spread**): deeper ones are wider, dimmer and
   bluer, and are seen shifted with the ripples above them (parallax through the surface).
 - **Bubbles** (per 64 × 64 px): one per cell where **Clustering** keeps one (a slow value noise at twice Patches
-  across). Small ones are clear beads with a bright rim and a highlight towards **Light from**, and turn the view below
-  over; large ones are flat, frosty discs with a bright rim over a dimmer mottled fill. **Stacks**: under a large one,
+  across). Small ones are clear beads with a bright rim, and turn the view below over; one near the surface, 3 px or
+  more across, raises a small dome there (0.3 × its radius) so the project's lighting gives it its highlight; large ones are flat, frosty discs with a bright rim over a dimmer mottled fill. **Stacks**: under a large one,
   up to two smaller discs in a column going down, each clear of the one above and deeper. **Specks**: tiny white dots, one per cell.
 - **Frost** in patches (a slow Perlin noise at **Frost patches across**, over its measured quantile at 1 − Frost, so
   the frosted share follows Frost from none to all): one to three blades from a point, longer in the thick of a patch
@@ -80,12 +85,13 @@ Frost's (Wall mode, docs/features/fr8.31-frost.md).
 ## Outputs
 
 **Output** › _Ice_ (default) paints the refracted colour itself (`gGenRgb`; the gradient ramp isn't used) and its
-Height is the surface: ripples, frost, a fine groove on shallow cracks. _Cracks_, _Bubbles_, _Frost_ and _Thickness_
+Height is the surface: ripples, bumps, the fill, the clear beads' domes, frost, a fine groove on shallow cracks. _Cracks_, _Bubbles_, _Frost_ and _Thickness_
 put out that feature as the value, for the ramp, Height or a mask (Write to ›
 Source offers each). Roughness and Specular default to Source › _Parts_: clear ice glossy, frost and haze matte.
 
 ## Cost
 
 One shader, its searches as flat loops with uniform-bound counts (cracks 9 + 25 cells and up to 8 long cracks,
-bubbles 9 × 3, frost 1 + 9 × 3, fill 24 taps), and the four smooth noises plus the ripples' two offset copies in one
-loop over their octaves (17 evaluations): ~3.2 s cold compile on D3D11 (the bubbles' grain is ~0.3 s of it).
+bubbles 9 × 3, frost 1 + 9 × 3, fill 3 × 25 taps), and the four smooth noises plus the ripples' and bumps' offset
+copies in one loop over their octaves (21 evaluations): ~3.3 s cold compile on D3D11 (the bubbles' grain is ~0.3 s of
+it).

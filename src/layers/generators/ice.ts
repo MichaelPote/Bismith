@@ -1,5 +1,5 @@
 // Ice (FR8.28): a sheet of ice over the layers below — what is under it seen through its rippled surface, bent and
-// tinted by its thickness — with cracks at depth, trapped bubbles and feathers of frost. (Icicles: Frost's Wall mode.)
+// tinted by its thickness — with cracks at depth, trapped bubbles and feathers of frost. (Icicles: Snow's Wall mode.)
 //
 // The view of what is below goes through GLSL_TRANSPARENCY like Glass's: the ripples (an fBm at Ripples across) bend it
 // by their slope (Refraction px where the steepest are, at Ripples 1), each crack's veil offsets it, and a bubble turns
@@ -18,7 +18,7 @@
 // run straight across the whole texture over it; a Star crack's cell bursts from its point in rays towards its
 // neighbours. A crack is a plane going down into the ice at an angle: a crisp line of varying width where it meets the
 // top, and on some a veil to one side, dimming as it goes deeper, streaked across by hackle marks. Bubbles: one
-// per cell where Clustering lets one be — small ones clear beads with a rim and a highlight, large ones flat, frosty
+// per cell where Clustering lets one be — small ones clear beads with a rim (and, near the surface, a small dome the lighting catches), large ones flat, frosty
 // discs with lumpy outlines — and on Stacks smaller ones nearly behind; Specks are tiny ones. Every crack, bubble and
 // speck lies at its own depth (Depth spread): deeper ones are softer, dimmer and bluer, and bubbles and specks move
 // with the ripples as seen through them. Frost: patches of blades — one to three from a point, each a curving spine
@@ -34,7 +34,7 @@ export const iceLayer: LayerDef = {
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Ice over the layers below: Made from a clear sheet that refracts and tints what is under it, with cracks at depth, trapped bubbles and frost feathers. Makes frozen lakes, iced-over floors, frosted panes. (Icicles: Frost.)',
+		'Ice over the layers below: Made from a clear sheet that refracts and tints what is under it, with cracks at depth, trapped bubbles and frost feathers. Makes frozen lakes, iced-over floors, frosted panes. (Icicles: Snow.)',
 	params: [
 		P.enum(
 			'output',
@@ -135,6 +135,15 @@ export const iceLayer: LayerDef = {
 			showIf: (p) => Number(p.ripple) > 0,
 			hint: 'How many ripples fit across the width'
 		}),
+		P.float('ripple_phase', 'Ripples phase', 0, -10000, 10000, {
+			softMin: 0,
+			softMax: 1,
+			step: 0.001,
+			optimize: false,
+			section: 'Surface',
+			showIf: (p) => Number(p.ripple) > 0,
+			hint: 'Moves the ripples alone: 0 → 1 is one seamless loop, and it repeats beyond 1 (Phase moves all of the ice’s noise)'
+		}),
 		P.float('bumps', 'Surface bumps', 0.5, 0, 1, {
 			step: 0.001,
 			section: 'Surface',
@@ -147,12 +156,6 @@ export const iceLayer: LayerDef = {
 			section: 'Surface',
 			showIf: (p) => Number(p.bumps) > 0,
 			hint: 'Width of the surface bumps'
-		}),
-		P.float('light', 'Light from', -45, -180, 180, {
-			unit: '°',
-			step: 0.1,
-			section: 'Surface',
-			hint: 'Where the bubbles’ highlights face, clockwise from the top (match the key light)'
 		}),
 
 		P.float('cracks', 'Cracks across', 5, 0, 64, {
@@ -334,8 +337,6 @@ float icVeil(float d, float vw) {
 }
 
 GenOut gen(vec2 p) {
-  float la = radians(u_light);
-  vec2 L = vec2(sin(la), cos(la));
   // Four fBms (as fbm()): the body's thickness (and the patches it breaks into) and haze at Patches across, the ripples,
   // and the surface bumps (Bump size px across) — and the ripples and bumps again a pixel across and up, for the
   // surface's slope — in one flat loop over all their octaves, so the shader holds one copy of perlinNoise
@@ -346,6 +347,8 @@ GenOut gen(vec2 p) {
   vec2 kb = cellsFor(uRes.x / max(u_bump_size, 1.0), 1.6);
   vec4 nSum = vec4(0.0), nNorm = vec4(0.0);
   vec2 dSum = vec2(0.0), bSum = vec2(0.0);
+  // (Ripples phase moves the ripples' noise on from the layer's Phase.)
+  float ph0 = gPhase;
   for (int e = 0; e < 21 * UNI_1; e++) {
     // j: 0 body, 1 haze, 2 ripples (3 octaves each), 3 bumps (2), 4 / 5 the ripples a pixel across / up (3 each),
     // 6 / 7 the bumps a pixel across / up (2 each).
@@ -355,6 +358,7 @@ GenOut gen(vec2 p) {
     vec2 cells = jn < 2 ? bc : jn == 2 ? rc : kb;
     float f = exp2(float(o));
     vec2 q = p + (j == 4 || j == 6 ? vec2(1.0, 0.0) : j == 5 || j == 7 ? vec2(0.0, 1.0) : vec2(0.0));
+    gPhase = jn == 2 ? ph0 + u_ripple_phase : ph0;
     float v = perlinNoise((q / uRes * cells + (jn == 1 ? 17.31 : 0.0)) * f, uTile ? periodOf(cells) * (1 << o) : NO_PERIOD,
                           uSeed + (jn == 0 ? 11.0 : jn == 1 ? 23.0 : jn == 2 ? 37.0 : 41.0) + float(o) * 31.0);
     vec4 w = vec4(equal(ivec4(j), ivec4(0, 1, 2, 3))) / f;
@@ -363,6 +367,7 @@ GenOut gen(vec2 p) {
     dSum += v * vec2(equal(ivec2(j), ivec2(4, 5))) / f;
     bSum += v * vec2(equal(ivec2(j), ivec2(6, 7))) / f;
   }
+  gPhase = ph0;
   nSum /= nNorm;
   // (The ripples' three octaves weigh 1 + 1/2 + 1/4.)
   vec3 rq = vec3(nSum.z, dSum / 1.75);
@@ -396,11 +401,18 @@ GenOut gen(vec2 p) {
   float sheetCov = clamp((tu - thr) / max(tw, 1e-4) + 0.5, 0.0, 1.0);
   float edgeK = smoothstep(thr, thr + 0.2, tu);
   float T = u_thick * (1.0 - u_thick_var * (1.0 - tn)) * (0.35 + 0.65 * edgeK);
+  // Fill hollows: the ice's top levels the relief below, from the mean of four rings round the pixel (twice Fill width,
+  // it, a half and a quarter of it) up to their highest by Fill — a smooth level, so a part fill sags across a joint instead
+  // of stepping at its walls — and is that much thicker there (fillLevel, GLSL_TRANSPARENCY: with its slope, smooth).
+  float h0 = fetchT(tSurface, ivec2(gl_FragCoord.xy)).r;
+  vec3 lv = u_fill > 0.0 ? fillLevel(gl_FragCoord.xy, 2.0 * u_fill_w, 4, u_fill, 0.5 / max(uDepth, 1e-3)) : vec3(h0, 0.0, 0.0);
+  float lift = max(lv.x - h0, 0.0);
   // How far the surface bends the view of what is below (px): its slope × Refraction (the shift where it slopes at 45°),
   // lower towards a patch's edge as the relief is, and eased off past a slope of about ½ — a steep bump lens a few px
   // across would otherwise shift the view further than it is wide and scramble it into pixel noise. Deep features are
-  // seen this far off, × their depth.
-  vec2 slope = slope0 * (0.5 + 0.5 * edgeK);
+  // seen this far off, × their depth. Where the ice fills a hollow its top is the fill's level, tilting as that does
+  // (px per px) — in full once it is half a px deep: a thin coat follows the relief and barely bends the view.
+  vec2 slope = slope0 * (0.5 + 0.5 * edgeK) + lv.yz * uDepth * smoothstep(0.0, 0.5, lift * uDepth);
   vec2 rShift = -slope * u_refraction * inversesqrt(1.0 + 4.0 * dot(slope, slope));
   float hz = u_haze * smoothstep(0.3, 0.75, body.y) * (0.4 + 0.6 * tn) + 0.5 * exp(-max(tu - thr, 0.0) / 0.04);
 
@@ -556,7 +568,7 @@ GenOut gen(vec2 p) {
 
   // Bubbles: one per cell where Clustering keeps one, and on Stacks (under a large one) up to two smaller ones in a
   // column going down, each clear of the one above and a little deeper.
-  float Bv = 0.0, Bsum = 0.0, Bd = 0.0;
+  float Bv = 0.0, Bsum = 0.0, Bd = 0.0, bubH = 0.0;
   vec2 bshift = vec2(0.0);
   vec2 kc = cellsFor(2.0 * u_patches, 1.0);
   if (u_bubbles > 0.0) {
@@ -584,7 +596,7 @@ GenOut gen(vec2 p) {
         vec2 q = p + rShift * dpt - o;
         float d = length(q);
         if (d < 1.3 * r + 3.0) {
-          // Large bubbles are flat, frosty discs with lumpy outlines; small ones clear beads with a rim and a highlight.
+          // Large bubbles are flat, frosty discs with lumpy outlines; small ones clear beads with a rim (and, near the surface, a small dome the lighting catches).
           float big = smoothstep(2.5, 6.0, r);
           float th = atan(q.y, q.x + 1e-9);
           float rr = r * (1.0 + big * (0.02 * sin(3.0 * th + 6.0 * hs.x) + 0.015 * sin(7.0 * th + 9.0 * hs.y) + 0.012 * sin(11.0 * th + 3.0 * hs.z)));
@@ -595,9 +607,9 @@ GenOut gen(vec2 p) {
           // A grain across a disc, about a pixel and a third.
           float mottle = 0.65 + 0.35 * valueNoise(q / 1.3 + vec2(key) * 17.0, NO_PERIOD, uSeed + 99.0);
           float fill = inside * mix(mix(0.12, 0.5, big), 0.7, small) * mottle;
-          vec2 hl = q - L * 0.4 * r;
-          float spot = exp(-dot(hl, hl) / max(0.04 * r * r, 0.2)) * (1.0 - big) * smoothstep(2.5, 3.5, r);
-          float b = clamp(max(0.95 * rim, fill) + spot, 0.0, 1.0) * mix(1.0, 0.25, dpt);
+          // (A clear bead near the surface raises a small dome there, so the lighting's specular gives it its highlight.)
+          bubH = max(bubH, 0.3 * r * sqrt(max(1.0 - d * d / (rr * rr), 0.0)) * (1.0 - big) * smoothstep(2.5, 3.5, r) * (1.0 - dpt));
+          float b = clamp(max(0.95 * rim, fill), 0.0, 1.0) * mix(1.0, 0.25, dpt);
           Bv = 1.0 - (1.0 - Bv) * (1.0 - b);
           Bsum += b;
           Bd += b * dpt;
@@ -704,18 +716,6 @@ GenOut gen(vec2 p) {
 
   // What is below, seen through: bent by the ripples, offset across cracks, turned over in bubbles; tinted by the
   // thickness, clouded by haze.
-  // Fill hollows: the ice's top levels the relief below, from the mean of four rings round the pixel (twice Fill width,
-  // it, a half and a quarter of it) up to their highest by Fill — a smooth level, so a part fill sags across a joint instead
-  // of stepping at its walls — and is that much thicker there.
-  float h0 = fetchT(tSurface, ivec2(gl_FragCoord.xy)).r, hm = h0, hs = 0.0;
-  for (int e = 0; e < (u_fill > 0.0 ? 24 : 0) * UNI_1; e++) {
-    int ring = e / 6;
-    float a = (float(e) + 0.5 * float(ring)) * TAU / 6.0;
-    float hh = sampleT(tSurface, gl_FragCoord.xy + exp2(float(ring) - 2.0) * u_fill_w * vec2(cos(a), sin(a))).r;
-    hm = max(hm, hh);
-    hs += hh;
-  }
-  float lift = u_fill > 0.0 ? max(mix(hs / 24.0, hm, u_fill) - h0, 0.0) : 0.0;
   vec3 bg = seenThrough(gl_FragCoord.xy, rShift + shift + bshift);
   // The sheet: its colour at its depth (Depth colour); what is below seen through it, tinted by it, and (Subsurface
   // scattering) light scattered inside it, in the colour — growing with the square of the depth, so thin ice stays
@@ -747,7 +747,7 @@ GenOut gen(vec2 p) {
     g.hval = hv;
     // Its own height (Height › Pattern adds it × Amount): the sheet's surface, plus the fill — in the surface's own
     // units, so divided by Amount — over the coverage.
-    g.height = cov * (hS * sheetCov + lift / max(abs(u_h_amount), 1e-3));
+    g.height = cov * (hS * sheetCov + (lift + bubH * sheetCov / max(uDepth, 1e-3)) / max(abs(u_h_amount), 1e-3));
   }
   // Roughness and Specular › Parts: clear ice glossy, frost and haze matte.
   gGenLevel = vec4(mix(0.08, 0.75, max(F, 0.7 * hz)), mix(0.75, 0.3, F), -1.0, -1.0);

@@ -634,7 +634,12 @@ float nz_field(vec2 p, float seed, out float rnd) {
   // The fractal sum in one flat loop with a runtime bound, so each base noise is compiled once (a generic dispatch
   // would inline Worley in every unrolled octave), and Worley takes the layer's jitter, metric and cell profile.
   // Worley's cell random (the per-feature rnd) comes from the first octave.
+  // (NZ_LATTICE_ONLY: an embedding that compiles Worley only in a variant of its own leaves it out here.)
+#ifdef NZ_LATTICE_ONLY
+  bool worley = false;
+#else
   bool worley = u_noise >= 3;
+#endif
   int oct = u_fractal == 0 ? 1 : u_octaves;
   float sum = 0.0, amp = 1.0, norm = 0.0, weight = 1.0, f0 = 1.0, cut = 1.0;
   rnd = 0.0;
@@ -646,6 +651,8 @@ float nz_field(vec2 p, float seed, out float rnd) {
   vec4 sty = vec4(1.0, 1.0, 3.0 * u_hier, 0.0);
   // Value / Perlin on the turned tileable lattice: tiling, on a square grid of cells.
   bool turned = uTile && !worley && period.x == period.y;
+  // (Band-limited, when embedded so: the octave's cells in px.)
+  float cpx = min(uRes.x / cells.x, uRes.y / cells.y);
   for (int o = 0; o < 12 * UNI_1; o++) {
     if (o >= oct) break;
     float s = seed + float(o) * 31.0;
@@ -696,6 +703,10 @@ float nz_field(vec2 p, float seed, out float rnd) {
       }
     }
     vec3 wt = nz_octave(kind, o, u_crease, u_hier, u_ridge, sty, false, n, weight, f0, cut);
+    // Band-limited (noiseFieldGlsl's bandLimit): an octave whose cells shrink under 2.5 px fades to mid-grey by 1 px —
+    // finer, it only aliases into speckle.
+    if (NZ_BANDLIMIT) n = mix(0.5, n, smoothstep(1.0, 2.5, cpx));
+    cpx /= uTile ? float(ilac) : u_lacunarity;
     if (u_fractal == 4) q += (n - 0.5) * 0.6;   // turbulence: each octave pushes the next
     sum += n * amp * wt.x * wt.y;
     norm += amp * wt.x * wt.z;
@@ -716,8 +727,12 @@ float nz_field(vec2 p, float seed, out float rnd) {
 
 const CONTROL_UNIFORMS = new RegExp(`\\bu_(?=(?:${NOISE_CONTROLS.map((d) => d.key).join('|')})\\b)`, 'g');
 
-/** nz_field for controls stored under a key prefix (it needs NZ_SHARED_GLSL before it, and t_calib: noiseCalib). */
-export const noiseFieldGlsl = (prefix: string) => NZ_FIELD_GLSL.replace(CONTROL_UNIFORMS, `u_${prefix}`);
+/**
+ * nz_field for controls stored under a key prefix (it needs NZ_SHARED_GLSL before it, and t_calib: noiseCalib).
+ * `bandLimit` fades out the octaves finer than a pixel or two (a grain that would otherwise alias).
+ */
+export const noiseFieldGlsl = (prefix: string, bandLimit = false) =>
+	NZ_FIELD_GLSL.replace(CONTROL_UNIFORMS, `u_${prefix}`).replace(/\bNZ_BANDLIMIT\b/g, String(bandLimit));
 
 export const noiseLayer: LayerDef = {
 	type: 'noise',
@@ -755,7 +770,7 @@ export const noiseLayer: LayerDef = {
 	defaults: { h_on: true, h_amount: 0.25 },
 	glsl: /* glsl */ `
 ${NZ_SHARED_GLSL}
-${NZ_FIELD_GLSL}
+${NZ_FIELD_GLSL.replace(/\bNZ_BANDLIMIT\b/g, 'false')}
 GenOut gen(vec2 p) {
   if (u_noise == 6) {
     float b = float(u_block);

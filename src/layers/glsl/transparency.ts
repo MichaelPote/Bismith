@@ -22,6 +22,34 @@ float innerGlint(vec3 n, vec2 L, float graze) {
   vec2 nd = n.xy / max(length(n.xy), 1e-4);
   return smoothstep(0.5, 0.9, dot(nd, -L)) * smoothstep(0.08, 0.3, graze) * (1.0 - smoothstep(0.55, 0.8, graze));
 }
+// The level a clear fill settles at over the relief below (Ice's Fill hollows, Snow's floor ice), and its slope: from
+// the relief at px and on rings of 6 (as many as rings) round it (radii rOut, rOut / 2, …, each turned half a step on the last),
+// their mean raised towards their highest by toMax — the highest a mean weighted by e^(h / tau) (tau in the surface's
+// units), so the level stays smooth where a hard maximum would kink — and the same a pixel across and up, in one flat
+// loop. Returns (level, its slope per px) in the surface's units: a slope the view can be bent by without the 2 × 2
+// steps of a screen-space derivative.
+vec3 fillLevel(vec2 px, float rOut, int rings, float toMax, float tau) {
+  int n = 1 + 6 * rings;
+  vec3 m = vec3(-1e9), sw = vec3(0.0), swh = vec3(0.0), sh = vec3(0.0);
+  for (int e = 0; e < 3 * n * UNI_1; e++) {
+    int k = e / n, i = e - k * n;
+    int ring = max(i - 1, 0) / 6;
+    float a = (float(i - 1) + 0.5 * float(ring)) * TAU / 6.0;
+    vec2 o = i == 0 ? vec2(0.0) : rOut * exp2(-float(ring)) * vec2(cos(a), sin(a));
+    float h = sampleT(tSurface, px + o + vec2(k == 1 ? 1.0 : 0.0, k == 2 ? 1.0 : 0.0)).r;
+    vec3 sel = vec3(equal(ivec3(k), ivec3(0, 1, 2)));
+    float mk = dot(m, sel);
+    float mn = max(mk, h);
+    // (A running weighted mean: the sums so far rescaled to the new highest, then this sample's weight.)
+    float sc = exp((mk - mn) / tau), wh = exp((h - mn) / tau);
+    sw = mix(sw, sw * sc + wh, sel);
+    swh = mix(swh, swh * sc + wh * h, sel);
+    m = mix(m, vec3(mn), sel);
+    sh += sel * h;
+  }
+  vec3 lv = mix(sh / float(n), swh / max(sw, vec3(1e-6)), toMax);
+  return vec3(lv.x, lv.yz - lv.x);
+}
 // Lays colour col (linear) over albedo A and emission E with weight m, its share tr as transmitted light: light that
 // passes through the medium isn't shaded by its surface, so it is carried as emission and only the rest stays albedo,
 // lit like a surface.

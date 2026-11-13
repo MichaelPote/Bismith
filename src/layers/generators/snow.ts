@@ -1,4 +1,4 @@
-// Frost (FR8.31): a wintry coat over the layers below, in up to three layers that build on one another.
+// Snow (FR8.31): a wintry coat over the layers below, in up to three layers that build on one another.
 //
 // Rime, the broadest: a noisy white veil over every exposed face — the crevices of the relief below stay bare, by
 // Mask area's crevice measure (surfaceMask.ts) — colour only, no height.
@@ -15,11 +15,14 @@ import type { Texture } from 'three';
 import { P, gradient, halfPx, round1, type ParamValues } from '@/core/params';
 import { LEDGE_GLSL, LEDGE_GRID_GLSL, ledgeCellGlsl, ledgeCells, ledgeGrid, ledgeParams } from '../ledges';
 import type { LayerDef } from '../types';
+import { noiseCalib, noiseControlsAs, noiseFieldGlsl, NZ_SHARED_GLSL } from './noise';
 
 const wall = (p: ParamValues) => p.mode !== 'floor';
 const floorMode = (p: ParamValues) => p.mode === 'floor';
 const snowOn = (p: ParamValues) => Number(p.snow) > 0;
 const icicles = (p: ParamValues) => wall(p) && Number(p.icicles) > 0;
+/** The rime's grain (Noise's controls, under rg_): a 3-octave value fBm of 3 px cells at 512 px — the crystals' flecks. */
+const GRAIN_DEFAULTS: ParamValues = { noise: 'value', scale: 170, octaves: 3, gain: 0.55 };
 
 /**
  * The snow caps pass (Wall): per pixel, how thick the snow on it is (px), from the ledges above and below it. Looking
@@ -93,13 +96,13 @@ void main() {
 }
 `;
 
-export const frostLayer: LayerDef = {
-	type: 'frost',
-	label: 'Frost',
+export const snowLayer: LayerDef = {
+	type: 'snow',
+	label: 'Snow',
 	category: 'pattern',
 	kind: 'generator',
 	description:
-		'Frost over the layers below: Made from a white rime on every exposed face, snow on the ledges (Wall) or the high spots (Floor), and icicles under the overhangs or ice in the hollows. Makes frozen walls and ledges, snowy floors and paving, winter versions of any texture.',
+		'Snow and ice over the layers below: Made from a white rime on every exposed face, snow on the ledges (Wall) or the high spots (Floor), and icicles under the overhangs or ice in the hollows. Makes frozen walls and ledges, snowy floors and paving, winter versions of any texture.',
 	params: [
 		P.enum(
 			'mode',
@@ -115,11 +118,11 @@ export const frostLayer: LayerDef = {
 		P.enum(
 			'output',
 			'Output',
-			'frost',
+			'all',
 			[
 				[
-					'frost',
-					'Frost',
+					'all',
+					'All',
 					'the rime, snow and ice over the layers below (Diffuse takes this colour instead of the gradient ramp)'
 				],
 				['rime', 'Rime', '1 where the rime covers'],
@@ -141,14 +144,6 @@ export const frostLayer: LayerDef = {
 			section: 'Rime',
 			showIf: (p) => Number(p.rime) > 0,
 			hint: 'How many thick and thin patches of rime fit across the width'
-		}),
-		P.float('rime_grain', 'Grain size', 1.5, 0.5, 16, {
-			softMax: 6,
-			unit: 'px',
-			step: 0.05,
-			section: 'Rime',
-			showIf: (p) => Number(p.rime) > 0,
-			hint: 'Size of the rime’s grain of crystals'
 		}),
 		P.float('shelter', 'Shelter', 0.8, 0, 1, {
 			step: 0.001,
@@ -268,17 +263,17 @@ export const frostLayer: LayerDef = {
 			showIf: icicles,
 			hint: 'Width of the widest icicles at their roots'
 		}),
+		P.float('ice_w_var', 'Width variation', 0.45, 0, 1, {
+			step: 0.001,
+			section: 'Icicles',
+			showIf: icicles,
+			hint: 'Mixes thin icicles in with the wide ones (0 = all as wide as Icicle width; shorter ones are still a little thinner)'
+		}),
 		P.float('ice_ripple', 'Icicle ripples', 0.4, 0, 1, {
 			step: 0.001,
 			section: 'Icicles',
 			showIf: icicles,
 			hint: 'Bulges down each icicle, where meltwater froze in rings'
-		}),
-		P.float('glint', 'Glint', 1, 0, 2, {
-			step: 0.001,
-			section: 'Icicles',
-			showIf: icicles,
-			hint: 'A bright line inside each icicle on the side away from the light, where it focuses the light'
 		}),
 
 		P.float('ice', 'Ice', 0.3, 0, 1, {
@@ -306,13 +301,10 @@ export const frostLayer: LayerDef = {
 			section: 'Ice',
 			hint: 'How far the icicles’ round sections and the ice’s surface bend the view of what is behind them'
 		}),
-		P.float('light', 'Light from', -45, -180, 180, {
-			unit: '°',
-			step: 0.1,
-			section: 'Ice',
-			hint: 'Where the icicles’ lit rims and glints face, clockwise from the top (match the key light)'
-		}),
 		// (A higher threshold than Drips': only clear steps carry snow and icicles, not the faint ones on a rough face.)
+		// The grain of the rime's crystals (and faintly the snow's): any of Noise's noises; octaves finer than a pixel or
+		// two fade out instead of aliasing.
+		...noiseControlsAs('rg_', 'Rime grain', (p) => Number(p.rime) > 0 || snowOn(p), GRAIN_DEFAULTS),
 		...ledgeParams({ section: 'Ledges' }, wall).map((d) => (d.key === 'ledge' ? { ...d, default: 0.35 } : d)),
 		P.seed()
 	],
@@ -323,25 +315,30 @@ export const frostLayer: LayerDef = {
 		const res: Record<string, Texture> = {};
 		if (!wall(p)) return res;
 		if (snowOn(p)) {
-			const mat = ctx.material('frost:snow-caps', SNOW_CAPS_GLSL);
-			const target = ctx.scratch('frost-snow');
+			const mat = ctx.material('snow:caps', SNOW_CAPS_GLSL);
+			const target = ctx.scratch('snow-caps');
 			ctx.run(mat, target);
 			res.snow = target.texture;
 		}
 		if (icicles(p)) {
 			const cells = ledgeGrid(ctx.width, ctx.height, Math.max(Number(p.ice_gap), 1));
-			const mat = ctx.material('frost:icicle-cells', ICICLE_CELLS_GLSL, { tLedges: { value: null } });
-			mat.uniforms.tLedges.value = ledgeCells(ctx, 'frost-ledges', cells);
-			const target = ctx.scratch('frost-icicles', cells[0] + 1, cells[1] + 1);
+			const mat = ctx.material('snow:icicle-cells', ICICLE_CELLS_GLSL, { tLedges: { value: null } });
+			mat.uniforms.tLedges.value = ledgeCells(ctx, 'snow-ledges', cells);
+			const target = ctx.scratch('snow-icicles', cells[0] + 1, cells[1] + 1);
 			ctx.run(mat, target);
 			res.ledges = target.texture;
 		}
 		return res;
 	},
-	textures: ['snow', 'ledges'],
+	textures: ['snow', 'ledges', 'calib'],
+	cpuData: (p, ctx) => noiseCalib(p, ctx.tileable, 'rg_'),
 	// A Floor starts with snow on its most exposed parts only; a Wall's caps fill its ledges.
 	linkedDefaults: (p) => ({ snow: floorMode(p) ? 0.45 : 0.7 }),
-	shaderFeatures: (p) => (floorMode(p) ? ['FROST_FLOOR'] : []),
+	// (Worley grains compile in a variant of their own: in every Snow shader they would double its compile time.)
+	shaderFeatures: (p) => [
+		...(floorMode(p) ? ['SNOW_FLOOR'] : []),
+		...(['worley', 'worley2', 'cells'].includes(String(p.rg_noise)) ? ['SNOW_GRAIN_CELLS'] : [])
+	],
 	parts: 'each part gets its own level: rime and snow matte (the snow’s sparkles glossy), ice glossy',
 	defaults: {
 		dif_on: true,
@@ -360,7 +357,8 @@ export const frostLayer: LayerDef = {
 	fresh: ({ width, height }) => {
 		const k = Math.sqrt(width * height) / 512;
 		return {
-			rime_grain: halfPx(1.5 * k, 1),
+			// (The grain's cells 3 px across, whatever the size.)
+			rg_scale: Math.max(4, Math.round((170 * width) / 512)),
 			shelter_r: halfPx(6 * k, 1.5),
 			snow_depth: halfPx((14 * height) / 512, 3),
 			snow_cling: halfPx((3 * height) / 512, 1),
@@ -374,6 +372,9 @@ export const frostLayer: LayerDef = {
 		};
 	},
 	glsl:
+		'#ifndef SNOW_GRAIN_CELLS\n#define NZ_LATTICE_ONLY\n#endif\n' +
+		NZ_SHARED_GLSL +
+		noiseFieldGlsl('rg_', true) +
 		LEDGE_GRID_GLSL +
 		ledgeCellGlsl('t_ledges') +
 		/* glsl */ `
@@ -383,8 +384,6 @@ GenOut gen(vec2 p) {
   vec2 fc = gl_FragCoord.xy;
   ivec2 ic = ivec2(fc);
   float h0 = fr_h(fc);
-  float la = radians(u_light);
-  vec2 L = vec2(sin(la), cos(la));
 
   // Shelter and exposure, as Mask area finds crevices and high spots (surfaceMask.ts): in each of 8 directions the
   // steepest rise out to 3× Shelter radius and the steepest fall within about it; each opposite pair counts twice the
@@ -434,11 +433,11 @@ GenOut gen(vec2 p) {
   }
   vec2 nn = clamp((nSum / nNorm - 0.5) * 2.2 + 0.5, 0.0, 1.0);
   float rn = nn.x, sn = nn.y;
-  // The rime's grain (Grain size) and a finer one; the snow's lumps (half a cap deep, or a few Snow heights).
-  vec2 gc = cellsFor(uRes.x / max(u_rime_grain, 0.5), 1.0);
-  float g1 = valueNoise(p / uRes * gc, periodOf(gc), uSeed + 51.0);
-  float g2 = valueNoise(p / uRes * gc * 2.0, periodOf(gc * 2.0), uSeed + 53.0);
-#ifdef FROST_FLOOR
+  // The rime's grain (Rime grain: Noise's controls, band-limited, so its octaves under a pixel or two fade out instead
+  // of aliasing); the snow's lumps (half a cap deep, or a few Snow heights).
+  float gRnd;
+  float gr = nz_field(p, uSeed + 51.0, gRnd);
+#ifdef SNOW_FLOOR
   float lumpW = max(4.0 * u_snow_height + 2.0, 3.0);
 #else
   float lumpW = max(0.5 * u_snow_depth, 3.0);
@@ -457,16 +456,14 @@ GenOut gen(vec2 p) {
   float expo = clamp(1.0 - u_shelter * smoothstep(0.1, 0.55, crev) + 0.6 * high, 0.0, 1.0);
   float dens = u_rime * expo;
   // (The patches' outline feathered by the grain; inside, a veil the grain thickens and thins.)
-  // Crystals: the grain clustered into flecks over a thinner veil (flat where the grain is under a pixel); a few of them
-  // sparkle.
-  // (Flecks two grains or so across, soft, their sizes mixed by the finer grain.)
-  vec2 gc2 = cellsFor(uRes.x / max(2.0 * u_rime_grain, 1.0), 1.0);
-  float g3 = valueNoise(p / uRes * gc2, periodOf(gc2), uSeed + 49.0);
+  // Crystals: the grain's highs clustered into flecks over a thinner veil; the brightest of them sparkle (antialiased
+  // over the grain's screen-space change).
   float fk = 0.5 - 0.2 * high + 0.15 * (0.5 - rn);
-  float fleck = smoothstep(fk, fk + 0.3, 0.55 * g3 + 0.3 * g1 + 0.15 * g2) * (gc.x > 0.9 * uRes.x ? 0.0 : 1.0);
-  float rv = rn + 0.3 * (g1 - 0.5);
-  float rimeA = u_rime > 0.0 ? smoothstep(-0.2, 0.2, rv - mix(1.25, -0.3, dens)) * step(1e-3, dens) * (0.5 + 0.45 * mix(g1, fleck, 0.7)) : 0.0;
-  vec3 rimeC = u_rime_col * (0.88 + 0.12 * fleck + 0.08 * high + 0.12 * step(0.985, g2 * fleck));
+  float fleck = smoothstep(fk, fk + 0.3, gr);
+  float rv = rn + 0.3 * (gr - 0.5);
+  float rimeA = u_rime > 0.0 ? smoothstep(-0.2, 0.2, rv - mix(1.25, -0.3, dens)) * step(1e-3, dens) * (0.5 + 0.45 * mix(gr, fleck, 0.7)) : 0.0;
+  float spark = clamp((gr - 0.8) / max(fwidth(gr), 0.02) + 0.5, 0.0, 1.0);
+  vec3 rimeC = u_rime_col * (0.88 + 0.12 * fleck + 0.08 * high + 0.12 * spark);
   P = rimeC * rimeA;
   A = rimeA;
   Lr = 0.85 * rimeA;
@@ -474,9 +471,9 @@ GenOut gen(vec2 p) {
 
   float snowA = 0.0, snowT = 0.0, iceA = 0.0, iceH = 0.0;
   // (Icicles: the front one's dome, its height px, core, the round section's slope; and their coverage.)
-  float iCov = 0.0, iDome = 0.0, iBest = 0.0, iCore = 0.0, iH = 0.0, iF = 0.0, iWid = 0.0;
-  vec2 iG = vec2(0.0);
-#ifdef FROST_FLOOR
+  float iCov = 0.0, iDome = 0.0, iBest = 0.0, iCore = 0.0, iH = 0.0, iC = 0.0, iF = 0.0, iWid = 0.0, iVis = 1.0;
+  vec2 iG = vec2(0.0), iSrc = vec2(0.0);
+#ifdef SNOW_FLOOR
   // Snow on the most exposed parts: what stands above the local level, judged on the surface smoothed over its joints
   // (crowns first, joints bridged), in drifts (Drifts across). It thickens in from its edge to Snow height, filling the
   // joints under it up to the smoothed level.
@@ -495,15 +492,10 @@ GenOut gen(vec2 p) {
   // it) raised towards their highest, more so as Ice rises, never above that — and coats the rest thinly. Clear, tinted
   // only by the thin end of Depth colour, milky towards its edges.
   if (u_ice > 0.0) {
-    float hm = -1e9, hs = 0.0;
-    for (int e = 0; e < 12 * UNI_1; e++) {
-      float a = (float(e) + 0.5 * float(e / 6)) * TAU / 6.0;
-      float hh = fr_h(fc + (e < 6 ? 1.0 : 0.5) * u_pool_w * vec2(cos(a), sin(a)));
-      hm = max(hm, hh);
-      hs += hh;
-    }
-    // (The rings' level alone is smooth everywhere; the ice's slope is taken from it.)
-    float level = mix(hs / 12.0, hm, 0.5 + 0.45 * u_ice);
+    // (fillLevel, GLSL_TRANSPARENCY: the rings' level and its slope, both smooth — the ice's top follows the relief where
+    // the glaze only coats it and kinks along every joint, so its slope is taken from the level.)
+    vec3 lv = fillLevel(fc, u_pool_w, 2, 0.5 + 0.45 * u_ice, 0.5 / max(uDepth, 1e-3)) * uDepth;
+    float level = lv.x;
     float lift = max(level - h0, 0.0);
     float low = clamp(0.4 - 0.3 * hRel + 0.5 * smoothstep(0.05, 0.8, lift) + 0.35 * smoothstep(0.05, 0.5, crev), 0.0, 1.0);
     float iv = 0.35 * (1.0 - sn) + 0.65 * low;
@@ -511,10 +503,9 @@ GenOut gen(vec2 p) {
     iceA = clamp(mi / max(fwidth(mi), 1e-3) + 0.5, 0.0, 1.0) * (1.0 - snowA);
     // (A glaze 0.3 px thick at least.)
     float th = max(lift, 0.3);
-    // (Its normal from the rings' level, which is smooth: its top, which follows the relief where the glaze only coats
-    // it, kinks along every joint, and its screen-space slope there scatters the view in 2 × 2 steps. A level glaze
-    // bends the view less than an icicle.)
-    vec3 nIce = slopeNormal(vec2(dFdx(level), dFdy(level)) + 0.04 * vec2(dFdx(g1), dFdy(g1)));
+    // (Its normal from the level's slope — a screen-space slope of its top would scatter the view in 2 × 2 steps along
+    // the joints. A level glaze bends the view less than an icicle.)
+    vec3 nIce = slopeNormal(lv.yz);
     vec3 seen = seenThrough(fc, lensShift(nIce, 0.3 * u_refraction));
     vec3 dcI = srgbToLinear(gradientLookup(u_depth_grad_stops, u_depth_grad_count, clamp(0.1 + 0.2 * th, 0.0, 1.0)));
     float milk = clamp(0.1 * smoothstep(0.3, 0.8, rn) + 0.5 * (1.0 - smoothstep(0.0, 0.1, mi)) - 0.2 * smoothstep(0.5, 2.0, th), 0.0, 1.0);
@@ -581,7 +572,7 @@ GenOut gen(vec2 p) {
       // (b.w: the longest it may hang before the next ledge below; 0: none grows here.)
       float len = min(u_ice_len * (1.0 - u_ice_len_var * (1.0 - h.x)), b.w);
       // (Shorter ones are thinner.)
-      float wid = max(u_ice_w * (0.55 + 0.45 * h.y) * mix(0.6, 1.0, h.x), 2.0);
+      float wid = max(u_ice_w * (1.0 - u_ice_w_var * h.y) * mix(0.6, 1.0, h.x), 2.0);
       // px below its root (user y is down).
       float q = pu.y - src.y;
       // (w: whether it grows one; 0 outside an untiled texture.)
@@ -609,20 +600,34 @@ GenOut gen(vec2 p) {
           // The round section's slope (height px per px; down the screen is −y), steep at the rims.
           iG = vec2(-rel.x, rel.y) / max(dm, 0.25);
           iCore = exp(-rel.x * rel.x / 0.04) * (1.0 - 0.6 * f) + 0.5 * exp(-q / max(0.3 * wid, 1.0)) * (q > 0.0 ? 1.0 : 0.0);
-          // (Rising from nothing above its root, so it merges into the ledge instead of standing on it as a cap.)
-          iH = 0.3 * r * dm * c * smoothstep(-0.2 * wid, 0.4 * wid, q);
+          // Cylindrical: its section a half circle as high as its radius (the slope above is that circle's), rounded over
+          // at the tip. (Rising from nothing above its root, so it merges into the ledge instead of standing on it as a cap.)
+          iH = r * dm * smoothstep(-0.2 * wid, 0.2 * wid, q);
+          iC = c;
           iF = f;
           iWid = wid;
+          iSrc = src;
         }
         iCov = max(iCov, c);
       }
+    }
+    // The front one's height in the relief: its axis a fifth of its root's radius under the overhang's own height at its
+    // root (the highest just above it), so it grows out of the ledge, plus its round section — maxed with the relief, so
+    // its rims sink into a face flush with the ledge, rock jutting out past it below hides it, and a face set back behind
+    // it leaves it standing proud.
+    if (iCov > 0.0) {
+      vec2 rf = vec2(iSrc.x, uRes.y - iSrc.y);
+      float hRoot = max(fr_h(rf + vec2(0.0, 1.0)), fr_h(rf + vec2(0.0, 3.0)));
+      float top = hRoot - 0.1 * iWid + iH;
+      iVis = smoothstep(-0.5, 0.5, top - h0);
+      iH = max(top - h0, 0.0) * iC;
     }
   }
 #endif
 
   // The snow: white, faintly grained, with sparse glossy grains that glint (Sparkle).
   float spk = step(1.0 - 0.06 * u_sparkle, hashI(wrapCell(ivec2(floor(p)), ivec2(uRes + 0.5)), uSeed + 71.0));
-  vec3 snowC = u_snow_col * (0.93 + 0.07 * g1) * (1.0 + 0.15 * spk);
+  vec3 snowC = u_snow_col * (0.93 + 0.07 * gr) * (1.0 + 0.15 * spk);
   P = snowC * snowA + P * (1.0 - snowA);
   A = snowA + A * (1.0 - snowA);
   Lr = mix(0.8, 0.12, spk) * snowA + Lr * (1.0 - snowA);
@@ -630,9 +635,9 @@ GenOut gen(vec2 p) {
   Tr *= 1.0 - snowA;
 
   // An icicle in front: thin, clear ice — what is behind it seen through its round section (and the rime and snow on
-  // it), tinted a little by its own depth, a narrow milky core, rims that catch the light on the lit side and darken on
-  // the other, and a glint where it focuses the light.
-  float onI = clamp(iCov, 0.0, 1.0);
+  // it), tinted a little by its own depth, a narrow milky core and rims that reflect at grazing angles. Its highlights
+  // are the lighting's: its round section is in the height, and it is glossy (Roughness and Specular › Parts).
+  float onI = clamp(iCov, 0.0, 1.0) * iVis;
   vec3 nI = slopeNormal(iG);
   if (onI > 0.0) {
     vec3 behind = seenThrough(fc, lensShift(nI, 0.5 * u_refraction)) * (1.0 - A) + P;
@@ -642,9 +647,7 @@ GenOut gen(vec2 p) {
     float iMilk = clamp(max(0.7 * (1.0 - smoothstep(0.15, 0.6, iF)), 0.55 * iCore) + 0.6 * (1.0 - smoothstep(3.0, 8.0, iWid)), 0.0, 0.9);
     vec3 ci = mix(absorbTint(behind, di, 0.4), u_snow_col * mix(vec3(1.0), di, 0.25), iMilk);
     float gz = grazing(nI);
-    float lit = dot(nI.xy / max(length(nI.xy), 1e-4), L);
-    ci = mix(ci, u_snow_col, rimFresnel(gz, 0.3) * smoothstep(-0.3, 0.7, lit)) * (1.0 - 0.4 * rimFresnel(gz, 1.0) * (1.0 - smoothstep(-0.8, 0.0, lit)));
-    ci += u_glint * innerGlint(nI, L, gz) * u_snow_col;
+    ci = mix(ci, u_snow_col, rimFresnel(gz, 0.3));
     P = ci * onI + P * (1.0 - onI);
     A = onI + A * (1.0 - onI);
     Lr = mix(0.06, 0.5, iCore) * onI + Lr * (1.0 - onI);

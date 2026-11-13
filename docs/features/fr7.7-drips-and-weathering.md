@@ -51,7 +51,7 @@ beneath, the flaking paint they bleed from, brushed rather than ruled metal, and
   - **Relief-aware** (group _Ledges_, `relief`): Drips reads the height the layers beneath have built. _Ledge drips_
     puts sources on **ledges** — where the height drops by at least the _Threshold_ within the _Reach_ below the source
     (short reach = only hard steps; long = soft, gradual edges too; _Softness_ turns the cut-off into a ramp; in the
-    Ledges group they drop the "Ledge" prefix that Frost's Ledges section keeps, `ledgeParams(…, short)`): the lower edges of rivets, lips, pipes, blisters. _Length
+    Ledges group they drop the "Ledge" prefix that Snow's Ledges section keeps, `ledgeParams(…, short)`): the lower edges of rivets, lips, pipes, blisters. _Length
     from height_ lengthens a trail with the drop it falls from (taller rivets, longer tails). Place the layer after
     whatever raises the ledges.
 - **Two-stage staining** (from review feedback): one Drips layer as a wide, soft _water stain_ with Multiply

@@ -29,14 +29,14 @@ const READ_ELSEWHERE = new Set([
 	'hammered',
 	'pipework'
 ]);
-/** Params read only by prepare passes (the edge filters' jump flood, Cavity's mask pass, Frost's snow caps and icicle cells). */
+/** Params read only by prepare passes (the edge filters' jump flood, Cavity's mask pass, Snow's snow caps and icicle cells). */
 const READ_IN_PREPARE = new Set([
-	'frost.ice_cluster',
-	'frost.snow_cling',
-	'frost.snow_drift',
-	'frost.ledge',
-	'frost.ledge_reach',
-	'frost.ledge_soft',
+	'snow.ice_cluster',
+	'snow.snow_cling',
+	'snow.snow_drift',
+	'snow.ledge',
+	'snow.ledge_reach',
+	'snow.ledge_soft',
 	'bevel.threshold',
 	'bevel.smooth',
 	'etch.threshold',
