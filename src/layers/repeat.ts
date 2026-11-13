@@ -19,6 +19,7 @@ import {
 	type PlaceOptions
 } from './outline';
 import type { LayerDef } from './types';
+import { layerParamDefs } from './registry';
 
 const group = 'repeat';
 /** The Repeat card. */
@@ -337,10 +338,20 @@ function upstreamKey(ctx: FilterContext, layer: Layer): string | null {
 	const i = pr.layers.findIndex((l) => l.id === layer.id);
 	if (i < 0) return null;
 	const before = pr.layers.slice(0, i);
-	if (before.some((l) => layerParamDefs(l.type).some((d) => d.type === 'image' && l.params[d.key]))) return null;
+	if (before.some((l) => layerParamDefs(l.type).some((d) => d.image && l.params[d.key]))) return null;
 	const p = layer.params;
 	return hashString(
-		JSON.stringify([before, pr.groups ?? null, pr.base, pr.seed, ctx.width, ctx.height, pr.tileable, p.rep_mask, p.rep_off])
+		JSON.stringify([
+			before,
+			pr.groups ?? null,
+			pr.base,
+			pr.seed,
+			ctx.width,
+			ctx.height,
+			pr.tileable,
+			p.rep_mask,
+			p.rep_off
+		])
 	);
 }
 
@@ -456,6 +467,6 @@ function repeatPrepare(ctx: FilterContext, layer: Layer, hooks: RepeatHooks): Re
 			old.bucket.dispose();
 		}
 		placed.set(layer.id, list);
-	}
+	} else hit.up = up;
 	return { rep_inst: hit.inst, rep_bucket: hit.bucket };
 }

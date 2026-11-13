@@ -1,7 +1,7 @@
 # FR8.33 — One Repeat, on a grid or around a mask
 
 **Status:** built (2026-11-13): every Repeat family on the shared Repeat, the outline side behind `MASK_REPEAT`. Open:
-compile times re-measured on a quiet GPU, the readback timed in the editor.
+compile times re-measured on a quiet GPU.
 
 ## Goal
 
@@ -183,6 +183,11 @@ RepInst repNext(inout RepSrc s);                    // the next candidate (outli
   curved outlines (a circle is one side) and on rounded corners counted as corners.
 - **`without`** hides a family's unused rows (kept at their defaults, not optimised) rather than removing them: the shared
   shader reads `u_rep_follow`.
+- **Readback:** an edit that leaves the layers before alone (this layer's size, colour, height…) reuses the last
+  placement without reading the mask back (`upstreamKey`: the layers before, groups, base, seed, canvas, mask name,
+  Offset; not when a layer before draws an image, which may still be decoding). Measured at 1024² (1 sample, D3D11):
+  around a mask 165–173 ms a render against 166–172 ms on a grid; with the readback forced (Offset changing) about
+  200 ms, so ~30 ms for an edit above the layer (~3 ms at 512²).
 - **Pipeline:** `bindTextures` blanks a type's declared textures before `cpuData` binds its own, so a type with both
   (Path) keeps them.
 - **Compile time** (cold, D3D11, one run with another session's studio on the GPU, so high across the board): the grid
@@ -224,7 +229,7 @@ RepInst repNext(inout RepSrc s);                    // the next candidate (outli
 6. [x] Path onto it.
 7. [x] Tabs & notches onto it (its placements, keys and tests; the old edge finder removed).
 8. [x] Gizmo hidden on an outline; presets updated; registry test; hints.
-9. [ ] Checks (done but the quiet-GPU compile times and the editor's readback timing): unit tests, `vue-tsc`, oxlint, oxfmt; every Repeat type rendered on the Windows backend (`precompile`, then
+9. [ ] Checks (all but compile times on a quiet GPU): unit tests, `vue-tsc`, oxlint, oxfmt; every Repeat type rendered on the Windows backend (`precompile`, then
        `render`, errors empty); compile-time before / after; readback timing.
 10. [x] Look: GPU screenshots of a Path plate with rivets on Each side (N = 1, 2, 3) inside (Offset −6) and outside (+8),
         squares with Follow on / off, Line dashes stitched round a patch by Spacing, tabs clear of the corners, a tiling
