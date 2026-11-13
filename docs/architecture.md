@@ -302,8 +302,8 @@ sources and ledges, and **Blisters** tears ragged holes of peeling paint at the 
 whose regions interlock along arcs. **Cracks** (FR8.17; was Chips & splits, listed with the filters) damages whatever is in its mask (the Shape mask):
 breaks, flake scars struck in from the edges, cracks and faults. (Wood's splits are the **Splits** filter's, FR8.29: it
 pulls the layers below apart along the dark lines of their colour — a ring's latewood — into tapering, bevelled
-splits that push the material aside.) **Rock**
-(FR8.18) builds natural rock faces from blocks in strata on a sheared lattice — each block a mesa with its own height,
+splits that push the material aside.) **Stones**
+(FR8.18, formerly Rock) builds natural rock faces from blocks in strata on a sheared lattice — each block a mesa with its own height,
 tilt and draped scarps, finer facets, joints, folds — with outputs for the relief and for paint (scarps, crevices, rain
 streaks). **Rock** (FR8.32) builds the same kind of face without
 the lattice: irregular blocks of every size from a power diagram (elongated along a cleavage in its own metric, jagged,
