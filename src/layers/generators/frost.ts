@@ -77,7 +77,19 @@ void main() {
   vec4 b = texelFetch(tLedges, lw, 0);
   vec2 icl = cellsFor(4.0, 1.0);
   float cl = mix(1.0, 2.0 * smoothstep(0.4, 0.7, valueNoise(b.xy / uRes * icl, periodOf(icl), uSeed + 69.0)), u_ice_cluster);
-  oColor = vec4(b.xyz, hashI(lw, uSeed + 63.0) < u_icicles * ledgeOk(b.z) * cl ? 1.0 : 0.0);
+  bool grows = hashI(lw, uSeed + 63.0) < u_icicles * ledgeOk(b.z) * cl;
+  // How far it may hang: down to where the surface stands out past the overhang it hangs from (a block that projects
+  // further), so it never runs into one. (A brick below as far out as the one above lets it hang in front.)
+  ivec2 c0 = ivec2(int(b.x), int(uRes.y - b.y));
+  int reach = int(u_ledge_reach + 0.5);
+  float top = fetchT(tSurface, c0).r;
+  int n = int(ceil(u_ice_len + 1.0));
+  float maxLen = u_ice_len + 1.0;
+  bool hit = false;
+  for (int k = reach + 1; k < n; k++) {
+    if (!hit && fetchT(tSurface, c0 - ivec2(0, k)).r - top > max(0.5 * u_ledge, 0.05)) { hit = true; maxLen = float(k) - 2.0; }
+  }
+  oColor = vec4(b.xyz, grows ? max(maxLen, 0.0) : 0.0);
 }
 `;
 
@@ -300,7 +312,8 @@ export const frostLayer: LayerDef = {
 			section: 'Ice',
 			hint: 'Where the icicles’ lit rims and glints face, clockwise from the top (match the key light)'
 		}),
-		...ledgeParams({ section: 'Ledges' }, wall),
+		// (A higher threshold than Drips': only clear steps carry snow and icicles, not the faint ones on a rough face.)
+		...ledgeParams({ section: 'Ledges' }, wall).map((d) => (d.key === 'ledge' ? { ...d, default: 0.35 } : d)),
 		P.seed()
 	],
 	// Wall: the snow on each pixel from the ledges round it, and the ledges' cells (layers/ledges.ts) — each one's
@@ -355,7 +368,9 @@ export const frostLayer: LayerDef = {
 			refraction: round1(Math.max(2, 14 * k)),
 			ice_len: halfPx((50 * height) / 512, 4),
 			ice_w: halfPx((16 * width) / 512, 3),
-			ice_gap: halfPx((12 * width) / 512, 3)
+			ice_gap: halfPx((12 * width) / 512, 3),
+			// (Fewer icicles on a small texture, where they would line every ledge 2 px apart.)
+			icicles: Math.round(300 * Math.min(1, width / 256)) / 1000
 		};
 	},
 	glsl:
@@ -376,7 +391,7 @@ GenOut gen(vec2 p) {
   // lesser plus half the difference. One flat loop over all 48 samples; their mean is the local level.
   float reach = 3.0 * max(u_shelter_r, 0.5);
   float st = 0.1;
-  float up = 0.0, dn = 0.0, hMean = 0.0, hNear = 0.0;
+  float up = 0.0, dn = 0.0, hMean = 0.0, hNear = 0.0, hWide = 0.0;
   vec4 u4 = vec4(0.0), d4 = vec4(0.0), u4b = vec4(0.0), d4b = vec4(0.0);
   for (int j = 0; j < 48 * UNI_1; j++) {
     int dir = j / 6, k = j - dir * 6;
@@ -384,7 +399,8 @@ GenOut gen(vec2 p) {
     float dist = reach * exp2(float(k) - 5.0);
     float hh = fr_h(fc + vec2(cos(a), sin(a)) * dist);
     hMean += hh;
-    hNear += k <= 2 ? hh : 0.0;
+    hNear += k <= 3 ? hh : 0.0;
+    hWide += k <= 4 ? hh : 0.0;
     float dh = (hh - h0) / dist;
     up = k == 0 ? dh : max(up, dh);
     float fd = -dh * clamp(1.25 - dist / max(u_shelter_r, 0.5), 0.0, 1.0);
@@ -398,8 +414,10 @@ GenOut gen(vec2 p) {
   float high = dot(clamp((2.0 * min(d4, d4b) + 0.5 * abs(d4 - d4b)) / st, 0.0, 1.0), vec4(0.25));
   // (px above the local level)
   float hRel = h0 - hMean / 48.0;
-  // (The same of the mean within an eighth of the reach: a narrow joint between raised parts counts as high as they.)
-  float hRelN = hNear / 24.0 - hMean / 48.0;
+  // (The same of the mean within a quarter of the reach: the surface smoothed over its joints, so a narrow joint between
+  // raised parts counts as high as they, and a domed stone's crown highest.)
+  float hSm = hNear / 32.0;
+  float hRelN = hSm - hMean / 48.0;
 
   // Two fBms, 4 octaves each, in one flat loop: the rime's patches and the snow's drifts.
   vec2 rc = cellsFor(u_rime_scale, 1.0);
@@ -426,7 +444,7 @@ GenOut gen(vec2 p) {
   float lumpW = max(0.5 * u_snow_depth, 3.0);
 #endif
   vec2 lc = cellsFor(uRes.x / lumpW, 1.0);
-  float lump = valueNoise(p / uRes * lc, periodOf(lc), uSeed + 57.0);
+  float lump = clamp((perlinNoise(p / uRes * lc, periodOf(lc), uSeed + 57.0) - 0.5) * 1.6 + 0.5, 0.0, 1.0);
 
   // The layers, laid over one another (premultiplied, linear): colour, coverage, Roughness and Specular › Parts levels,
   // and the share of the colour that is transmitted light.
@@ -441,10 +459,14 @@ GenOut gen(vec2 p) {
   // (The patches' outline feathered by the grain; inside, a veil the grain thickens and thins.)
   // Crystals: the grain clustered into flecks over a thinner veil (flat where the grain is under a pixel); a few of them
   // sparkle.
-  float fleck = smoothstep(0.5, 0.78, 0.6 * g1 + 0.4 * g2) * (gc.x > 0.9 * uRes.x ? 0.0 : 1.0);
+  // (Flecks two grains or so across, soft, their sizes mixed by the finer grain.)
+  vec2 gc2 = cellsFor(uRes.x / max(2.0 * u_rime_grain, 1.0), 1.0);
+  float g3 = valueNoise(p / uRes * gc2, periodOf(gc2), uSeed + 49.0);
+  float fk = 0.5 - 0.2 * high + 0.15 * (0.5 - rn);
+  float fleck = smoothstep(fk, fk + 0.3, 0.55 * g3 + 0.3 * g1 + 0.15 * g2) * (gc.x > 0.9 * uRes.x ? 0.0 : 1.0);
   float rv = rn + 0.3 * (g1 - 0.5);
   float rimeA = u_rime > 0.0 ? smoothstep(-0.2, 0.2, rv - mix(1.25, -0.3, dens)) * step(1e-3, dens) * (0.5 + 0.45 * mix(g1, fleck, 0.7)) : 0.0;
-  vec3 rimeC = u_rime_col * (0.88 + 0.12 * fleck + 0.12 * step(0.985, g2 * fleck));
+  vec3 rimeC = u_rime_col * (0.88 + 0.12 * fleck + 0.08 * high + 0.12 * step(0.985, g2 * fleck));
   P = rimeC * rimeA;
   A = rimeA;
   Lr = 0.85 * rimeA;
@@ -452,13 +474,26 @@ GenOut gen(vec2 p) {
 
   float snowA = 0.0, snowT = 0.0, iceA = 0.0, iceH = 0.0;
   // (Icicles: the front one's dome, its height px, core, the round section's slope; and their coverage.)
-  float iCov = 0.0, iDome = 0.0, iBest = 0.0, iCore = 0.0, iH = 0.0;
+  float iCov = 0.0, iDome = 0.0, iBest = 0.0, iCore = 0.0, iH = 0.0, iF = 0.0, iWid = 0.0;
   vec2 iG = vec2(0.0);
 #ifdef FROST_FLOOR
-  // Ice in the hollows: where the relief is a crevice or lies low (and the snow's noise is low), a glaze that fills it
-  // level — its top the mean of two rings round the pixel (Fill width and half of it) raised most of the way to their
-  // highest, never above that — and coats the rest thinly. Clear but frozen in milky layers, bluer where deeper, milkier
-  // towards its edges.
+  // Snow on the most exposed parts: what stands above the local level, judged on the surface smoothed over its joints
+  // (crowns first, joints bridged), in drifts (Drifts across). It thickens in from its edge to Snow height, filling the
+  // joints under it up to the smoothed level.
+  if (u_snow > 0.0) {
+    // (Judged half on a still wider level, so a drift's edge crosses the joints instead of following them.)
+    float fe = smoothstep(-0.5, 0.8, 0.5 * hRelN + 0.5 * (hWide / 40.0 - hMean / 48.0));
+    float m = 0.5 * fe + 0.5 * sn + u_lumps * 0.12 * (lump - 0.5) - mix(0.85, -0.05, u_snow);
+    snowA = clamp(m / max(2.0 * fwidth(m), 1e-3) + 0.5, 0.0, 1.0);
+    // A blanket: its top the smoothed surface (crowns showing through only a little) plus its depth, never thinner than a
+    // quarter of that over a crown.
+    float sd = u_snow_height * smoothstep(0.0, 0.18, m) * (1.0 + u_lumps * (lump - 0.5));
+    snowT = max(hSm + 0.3 * max(h0 - hSm, 0.0) + sd - h0, 0.25 * sd);
+  }
+  // Ice in the hollows, never under the snow: where the relief lies low, deep in a hollow or a crevice (and the drifts'
+  // noise is low), a glaze that fills it level — its top the mean of two rings round the pixel (Fill width and half of
+  // it) raised towards their highest, more so as Ice rises, never above that — and coats the rest thinly. Clear, tinted
+  // only by the thin end of Depth colour, milky towards its edges.
   if (u_ice > 0.0) {
     float hm = -1e9, hs = 0.0;
     for (int e = 0; e < 12 * UNI_1; e++) {
@@ -468,22 +503,24 @@ GenOut gen(vec2 p) {
       hs += hh;
     }
     // (The rings' level alone is smooth everywhere; the ice's slope is taken from it.)
-    float level = mix(hs / 12.0, hm, 0.85);
+    float level = mix(hs / 12.0, hm, 0.5 + 0.45 * u_ice);
     float lift = max(level - h0, 0.0);
-    // (How low and sheltered it lies: joints and dips most, the tops of the relief least.)
-    float low = clamp(0.5 - 0.35 * hRel + 0.6 * smoothstep(0.05, 0.5, crev), 0.0, 1.0);
-    float iv = 0.25 * (1.0 - sn) + 0.75 * low;
-    float mi = iv - mix(0.85, 0.05, u_ice);
-    iceA = clamp(mi / max(fwidth(mi), 1e-3) + 0.5, 0.0, 1.0);
-    // (A glaze 0.3 px thick at least; its top a smooth level, whose slope bends the view below.)
+    float low = clamp(0.4 - 0.3 * hRel + 0.5 * smoothstep(0.05, 0.8, lift) + 0.35 * smoothstep(0.05, 0.5, crev), 0.0, 1.0);
+    float iv = 0.35 * (1.0 - sn) + 0.65 * low;
+    float mi = iv - mix(0.85, 0.0, u_ice);
+    iceA = clamp(mi / max(fwidth(mi), 1e-3) + 0.5, 0.0, 1.0) * (1.0 - snowA);
+    // (A glaze 0.3 px thick at least.)
     float th = max(lift, 0.3);
     // (Its normal from the rings' level, which is smooth: its top, which follows the relief where the glaze only coats
-    // it, kinks along every joint, and its screen-space slope there scatters the view in 2 × 2 steps.)
+    // it, kinks along every joint, and its screen-space slope there scatters the view in 2 × 2 steps. A level glaze
+    // bends the view less than an icicle.)
     vec3 nIce = slopeNormal(vec2(dFdx(level), dFdy(level)) + 0.04 * vec2(dFdx(g1), dFdy(g1)));
-    vec3 seen = seenThrough(fc, lensShift(nIce, u_refraction));
-    vec3 dcI = srgbToLinear(gradientLookup(u_depth_grad_stops, u_depth_grad_count, clamp(0.2 + 0.3 * th, 0.0, 1.0)));
-    float milk = clamp(0.15 * smoothstep(0.3, 0.8, rn) + 0.6 * (1.0 - smoothstep(0.0, 0.1, mi)) - 0.2 * smoothstep(0.5, 2.0, th), 0.0, 1.0);
-    vec3 iceC = mix(absorbTint(seen, dcI, 0.25), u_snow_col * mix(vec3(1.0), dcI, 0.4), 0.6 * milk);
+    vec3 seen = seenThrough(fc, lensShift(nIce, 0.3 * u_refraction));
+    vec3 dcI = srgbToLinear(gradientLookup(u_depth_grad_stops, u_depth_grad_count, clamp(0.1 + 0.2 * th, 0.0, 1.0)));
+    float milk = clamp(0.1 * smoothstep(0.3, 0.8, rn) + 0.5 * (1.0 - smoothstep(0.0, 0.1, mi)) - 0.2 * smoothstep(0.5, 2.0, th), 0.0, 1.0);
+    vec3 iceC = mix(absorbTint(seen, dcI, 0.45), u_snow_col * mix(vec3(1.0), dcI, 0.4), 0.6 * milk);
+    // (A faint sheen: a glaze reflects the sky a little, so it reads as a surface of its own.)
+    iceC = mix(iceC, u_snow_col * mix(vec3(1.0), dcI, 0.5), 0.12);
     iceC = mix(iceC, u_snow_col, rimFresnel(grazing(nIce), 0.8));
     iceH = th * iceA;
     P = iceC * iceA + P * (1.0 - iceA);
@@ -491,14 +528,6 @@ GenOut gen(vec2 p) {
     Lr = mix(0.05, 0.35, milk) * iceA + Lr * (1.0 - iceA);
     Ls = 0.9 * iceA + Ls * (1.0 - iceA);
     Tr = 0.6 * (1.0 - milk) * iceA + Tr * (1.0 - iceA);
-  }
-  // Snow on the most exposed parts: high spots and what stands above the local level, in drifts (Drifts across); it
-  // thickens in from its edge to Snow height.
-  if (u_snow > 0.0) {
-    float fe = clamp(0.25 * high + 0.85 * smoothstep(-0.5, 0.8, max(hRel, hRelN - 0.15)), 0.0, 1.0);
-    float m = 0.5 * fe + 0.5 * sn + u_lumps * 0.12 * (lump - 0.5) - mix(0.85, -0.05, u_snow);
-    snowA = clamp(m / max(2.0 * fwidth(m), 1e-3) + 0.5, 0.0, 1.0) * (1.0 - 0.8 * iceA);
-    snowT = u_snow_height * smoothstep(0.0, 0.18, m) * (1.0 + u_lumps * (lump - 0.5));
   }
 #else
   // Snow caps on the ledges' tops (prepare's pass: the snow's thickness here, px, from the ledges round it), their ends
@@ -508,21 +537,26 @@ GenOut gen(vec2 p) {
     float T0 = fetchT(t_snow, ic).r;
     float Wd = max(0.5 * u_snow_depth * u_snow, 2.0);
     float spc = Wd / 6.0;
-    float de = Wd, prev = T0;
+    // (Tb: the thickness smoothed along the row by the nearest taps — each column finds its cap on its own, and over rough
+    // relief neighbouring columns jump.)
+    float deR = Wd, deL = Wd, prev = T0, Tb = 0.4 * T0;
     bool found = false;
     for (int e = 0; e < 12 * UNI_1; e++) {
       int j = e % 6;
       if (j == 0) { prev = T0; found = false; }
       float side = e < 6 ? 1.0 : -1.0;
       float Tj = sampleT(t_snow, fc + vec2(side * float(j + 1) * spc, 0.0)).r;
+      Tb += j < 2 ? 0.15 * Tj : 0.0;
       if (!found && Tj < 0.15) {
         found = true;
-        de = min(de, (float(j) + clamp((prev - 0.15) / max(prev - Tj, 1e-3), 0.0, 1.0)) * spc);
+        float dj = (float(j) + clamp((prev - 0.15) / max(prev - Tj, 1e-3), 0.0, 1.0)) * spc;
+        if (e < 6) deR = dj; else deL = dj;
       }
       prev = Tj;
     }
-    float ends = sqrt(max(1.0 - pow(1.0 - min(de / Wd, 1.0), 2.0), 0.0));
-    snowT = T0 * ends * (1.0 + u_lumps * 0.9 * (lump - 0.5));
+    // (The ends bite harder near them; a short run — a chip's sliver, a vertical joint — holds none.)
+    float ends = sqrt(smoothstep(0.0, 1.0, min(deL, deR) / Wd)) * smoothstep(0.6 * Wd, 1.4 * Wd, deL + deR);
+    snowT = Tb * ends * (1.0 + u_lumps * 0.9 * (lump - 0.5));
     float m = snowT - 0.3;
     snowA = clamp(m / max(fwidth(snowT), 0.05) + 0.5, 0.0, 1.0);
   }
@@ -544,27 +578,28 @@ GenOut gen(vec2 p) {
       vec4 b = ledgeCell(l, cellsL, lw);
       vec2 src = b.xy;
       vec4 h = vec4(hash3I(lw, uSeed + 61.0), hashI(lw, uSeed + 67.0));
-      float len = u_ice_len * (1.0 - u_ice_len_var * (1.0 - h.x));
+      // (b.w: the longest it may hang before the next ledge below; 0: none grows here.)
+      float len = min(u_ice_len * (1.0 - u_ice_len_var * (1.0 - h.x)), b.w);
       // (Shorter ones are thinner.)
       float wid = max(u_ice_w * (0.55 + 0.45 * h.y) * mix(0.6, 1.0, h.x), 2.0);
       // px below its root (user y is down).
       float q = pu.y - src.y;
       // (w: whether it grows one; 0 outside an untiled texture.)
-      if (b.w > 0.5 && len > 1.0 && q > -0.5 * wid && q < len + wid) {
+      if (b.w > 1.0 && len > 1.0 && q > -0.5 * wid && q < len + wid) {
         float f = clamp(q / len, 0.0, 1.0);
         float dx = pu.x - src.x - (h.w - 0.5) * 0.8 * wid * f * f;
         // Tapering to a drop at its tip, with rings of bulges down it; rounded over at its root.
         float rb = max(0.08 * wid, 0.6);
         float qt = max(len - rb, 0.0);
-        float rT = max(rb, 0.5 * wid * pow(1.0 - qt / len, 0.65));
+        float rT = max(rb, 0.5 * wid * pow(1.0 - qt / len, 0.9));
         // (The rings' spacing its own, and growing out of a smooth root.)
         float ring = (0.6 + 0.8 * fract(h.z * 7.3)) * (0.8 * wid + 3.0);
-        float hw = 0.5 * wid * pow(1.0 - f, 0.65)
+        float hw = 0.5 * wid * pow(1.0 - f, 0.9)
                  * (1.0 + u_ice_ripple * 0.45 * smoothstep(0.0, 0.25, f) * sin(q * TAU / ring + 6.0 * h.w) * (0.7 + 0.3 * sin(q * 1.7 / ring + h.y * 9.0)));
         float r = q < qt ? max(hw, rb) : rT;
-        vec2 rel = vec2(dx, q < 0.0 ? 2.0 * q : max(q - qt, 0.0)) / max(r, 0.5);
-        // (Above its root it fades into the overhang instead of ending in a cap.)
-        float c = clamp(0.5 - (length(rel) - 1.0) * r, 0.0, 1.0) * smoothstep(-0.5 * wid, 0.0, q);
+        vec2 rel = vec2(dx, q < 0.0 ? 4.0 * q : max(q - qt, 0.0)) / max(r, 0.5);
+        // (Above its root it fades into the overhang, sunk under the lip, instead of ending in a cap.)
+        float c = clamp(0.5 - (length(rel) - 1.0) * r, 0.0, 1.0) * smoothstep(-0.2 * wid, 0.15 * wid, q);
         float dm = sqrt(max(1.0 - dot(rel, rel), 0.0));
         // Thinner icicles are lower domes.
         float ws = clamp(r / (0.5 * u_ice_w), 0.25, 1.0);
@@ -575,7 +610,9 @@ GenOut gen(vec2 p) {
           iG = vec2(-rel.x, rel.y) / max(dm, 0.25);
           iCore = exp(-rel.x * rel.x / 0.04) * (1.0 - 0.6 * f) + 0.5 * exp(-q / max(0.3 * wid, 1.0)) * (q > 0.0 ? 1.0 : 0.0);
           // (Rising from nothing above its root, so it merges into the ledge instead of standing on it as a cap.)
-          iH = 0.5 * r * dm * c * smoothstep(-0.2 * wid, 0.4 * wid, q);
+          iH = 0.3 * r * dm * c * smoothstep(-0.2 * wid, 0.4 * wid, q);
+          iF = f;
+          iWid = wid;
         }
         iCov = max(iCov, c);
       }
@@ -598,12 +635,15 @@ GenOut gen(vec2 p) {
   float onI = clamp(iCov, 0.0, 1.0);
   vec3 nI = slopeNormal(iG);
   if (onI > 0.0) {
-    vec3 behind = seenThrough(fc, lensShift(nI, u_refraction)) * (1.0 - A) + P;
+    vec3 behind = seenThrough(fc, lensShift(nI, 0.5 * u_refraction)) * (1.0 - A) + P;
     vec3 di = srgbToLinear(gradientLookup(u_depth_grad_stops, u_depth_grad_count, 0.05 + 0.2 * iDome));
-    vec3 ci = mix(absorbTint(behind, di, 0.8), u_snow_col * mix(vec3(1.0), di, 0.3), clamp(0.55 * iCore, 0.0, 0.8));
+    // (Milky over its upper part, clear only towards the tip, and a thin one milky all along: too fine to show what is
+    // behind it.)
+    float iMilk = clamp(max(0.7 * (1.0 - smoothstep(0.15, 0.6, iF)), 0.55 * iCore) + 0.6 * (1.0 - smoothstep(3.0, 8.0, iWid)), 0.0, 0.9);
+    vec3 ci = mix(absorbTint(behind, di, 0.4), u_snow_col * mix(vec3(1.0), di, 0.25), iMilk);
     float gz = grazing(nI);
     float lit = dot(nI.xy / max(length(nI.xy), 1e-4), L);
-    ci = mix(ci, u_snow_col, rimFresnel(gz, 0.5) * smoothstep(-0.3, 0.7, lit)) * (1.0 - 0.4 * rimFresnel(gz, 1.0) * (1.0 - smoothstep(-0.8, 0.0, lit)));
+    ci = mix(ci, u_snow_col, rimFresnel(gz, 0.3) * smoothstep(-0.3, 0.7, lit)) * (1.0 - 0.4 * rimFresnel(gz, 1.0) * (1.0 - smoothstep(-0.8, 0.0, lit)));
     ci += u_glint * innerGlint(nI, L, gz) * u_snow_col;
     P = ci * onI + P * (1.0 - onI);
     A = onI + A * (1.0 - onI);
@@ -613,7 +653,7 @@ GenOut gen(vec2 p) {
   }
 
   // Height (px over what is below): the snow's thickness, the ice's fill, the icicles' domes; the rime adds none.
-  float hpx = snowT * snowA + iceH * (1.0 - snowA) + iH;
+  float hpx = snowT * snowA + iceH + iH;
   int ok = u_output;
   float val = ok == 1 ? rimeA : ok == 2 ? snowA : ok == 3 ? max(iceA, onI) : A;
   GenOut g = genOutSmooth(val, val, 0.5, 0.0);
