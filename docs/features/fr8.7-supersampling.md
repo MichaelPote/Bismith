@@ -8,9 +8,11 @@ joints and small bolt holes are computed at k× and averaged instead of being de
 
 - **The k× stack stays within 4096 px** (`MAX_STACK_SIZE`, `capSupersample`): a canvas over 1024 px gets 2× at most and
   one over 2048 px (up to the 4096 maximum) none, for the viewport and exports alike (`supersampleFactor`,
-  `exportSupersampleFactor`; the outliner's @Nx shows the factor used). An 8192² stack (2048 at 4×) made a layer's
-  draw run past Windows' GPU timeout on an RTX 5080: the display driver reset, every shader after failed with an empty
-  log and the render came out blank. Larger stacks would need the stack evaluated in tiles.
+  `exportSupersampleFactor`; the outliner's @Nx shows the factor used). On an RTX 5080 (16 GB, D3D11) an 8192² stack
+  (2048 at 4×, 4096 at 2×) took a project 7.7–8 s to render with the GPU otherwise idle — 10× what the 2048² and 4096²
+  stacks predict (0.05 s, 0.2 s), likely its float targets (1 GB each at 8192²) paging out of video memory — and
+  with other GPU jobs running it reset the display driver: every shader after failed with an empty log and the render
+  came out blank. Larger stacks need the stack evaluated in tiles: [FR11](fr11-large-exports.md).
 - `core/supersample.ts` — `scaleProject(p, k)`: width / height × k and every pixel-measured value scaled by k through
   `core/pixelScale.ts` (`scalePixels`): ParamDef `unit: 'px'` params (bevels, joints, radii, widths, white-noise block
   sizes, stamp pixel sizes, path vertex lists in px), heightDepth, AO radius and point lights' px params and falloff

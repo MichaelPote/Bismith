@@ -595,7 +595,8 @@ docs/
 | 8.28  | [Ice (refracting sheet, cracks, bubbles, frost)](features/fr8.28-ice.md)                                         |
 | 8.29  | [Splits (the layers below pulled apart along their weakest lines)](features/fr8.29-splits.md)                    |
 | 8.31  | [Snow (rime, snow on ledges or high spots, icicles or ice in the hollows)](features/fr8.31-snow.md)              |
-| 8.32  | [Rock (irregular fractured blocks, stacked sheets, facets, ledges)](features/fr8.32-rock.md)                    |
+| 8.32  | [Rock (irregular fractured blocks, stacked sheets, facets, ledges)](features/fr8.32-rock.md)                     |
 | 8.33  | [One Repeat, on a grid or around a mask](features/fr8.33-repeat-around-mask.md)                                  |
 | 9     | [Tiling workspace](features/fr9-tiling-workspace.md)                                                             |
 | 10    | [Project variants](features/fr10-variants.md)                                                                    |
+| 11    | [Large exports (rendered in tiles)](features/fr11-large-exports.md)                                              |
