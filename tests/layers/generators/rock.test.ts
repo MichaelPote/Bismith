@@ -28,7 +28,7 @@ describe('rock', () => {
 				const d = rockDerived({ angle, elong: 2.5, scale: 5, detail_scale: 2.6, jag_scale: 0.5 }, canvas(w, h));
 				const W = d.steep ? h : w;
 				const H = d.steep ? w : h;
-				for (let o = 0; o < 4; o++) {
+				for (let o = 0; o < d.cell.length / 4; o++) {
 					const [cw, ch, t] = d.cell.slice(4 * o, 4 * o + 3);
 					const [nx, ny, m] = d.per.slice(4 * o, 4 * o + 3);
 					expect(Number.isInteger(nx) && nx >= 1 && Number.isInteger(ny) && ny >= 1).toBe(true);
@@ -40,6 +40,25 @@ describe('rock', () => {
 				}
 			}
 		}
+	});
+
+	it('scales each flake level by Flake scale, bigger below 1, and leaves out levels under 2 px', () => {
+		const d = rockDerived({ angle: 0, elong: 1, scale: 5, detail_scale: 6, jag_scale: 0.5 }, canvas(512, 512));
+		// Blocks about 102 px, flakes about 17, 2.8 and 0.5 px: two levels are worth evaluating.
+		expect(d.cell[4 + 3] / d.cell[3]).toBeCloseTo(1 / 6, 2);
+		expect(d.nlev).toBe(2);
+		// Below 1 each level is bigger than the last (here up to the whole texture), and every level counts.
+		const up = rockDerived({ angle: 0, elong: 1, scale: 16, detail_scale: 0.5, jag_scale: 0.5 }, canvas(512, 512));
+		expect(up.cell[4 + 3]).toBeGreaterThan(1.9 * up.cell[3]);
+		expect(up.nlev).toBe(5);
+	});
+
+	it('compiles merged masses only with Larger blocks ticked', () => {
+		const def = getLayerDef('rock')!;
+		expect(def.shaderFeatures?.({ size_var: 1, merge_amt: 1 })).toEqual([]);
+		expect(def.shaderFeatures?.({ merge: true, merge_amt: 0.6 })).toEqual(['RV_MERGE']);
+		const merge = def.params.find((p) => p.key === 'merge_amt');
+		expect(merge?.gate).toEqual({ by: 'merge', off: 0 });
 	});
 
 	it('leans the rows by the cleavage angle, steep angles on swapped axes', () => {

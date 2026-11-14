@@ -18,6 +18,11 @@ ANGLE/D3D11 on the RTX 5080) — without a visible window and without exposing a
   opening `/?headless&worker=K`; the page's worker loop (`src/headless.ts`) pulls jobs and posts results.
   WSL → Windows connections are blocked by the firewall, so traffic only flows Windows → WSL. Browsers are
   killed by tag on close / Ctrl-C.
+- **Low priority.** The browsers run at Below Normal priority (`BISMITH_PRIORITY`: `Idle`, `BelowNormal`, `Normal`):
+  at Normal, long renders made the desktop stutter in bursts. Windows takes a process's GPU scheduling priority from
+  its priority class. The launching PowerShell lowers itself first, so Chrome and the children it starts inherit the
+  class; but Chrome raises its GPU process to Above Normal when it starts it (at launch, and again after a driver
+  reset), so every process with the session's tag is set back once the workers are up and then every 15 s.
 - **swiftshader** backend: the previous Playwright path, kept as a portable fallback.
 - `--backend windows|swiftshader` on every harness command (`--workers N` on the batch tools that spread work over
   pages: emulate, matchbench, tiling); `BISMITH_BACKEND` env var.

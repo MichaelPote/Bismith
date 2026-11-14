@@ -30,9 +30,13 @@ import type { LayerCanvas, LayerDef } from '../types';
 import { ORG_GLSL } from './organicShared';
 
 const reliefGrad = () => gradient('#3a3631', '#77706a', '#a8a197', '#cdc7bd');
+// The jaggies' noise shapes the edges, ledges, steps and sheets by Jaggedness, and the cracks' pinching and the
+// fractures' breaks by their own sliders: its scale and octaves matter while any of them is on.
+const jagNoiseUsed = (p: ParamValues) =>
+	Number(p.jag) > 0 || Number(p.crack_var) > 0 || (Number(p.hair) > 0 && Number(p.hair_break) > 0);
 
-/** Most scales the shader evaluates: the blocks and up to three flake levels. */
-const MAX_SCALES = 4;
+/** Most scales the shader evaluates: the blocks and up to five flake levels. */
+const MAX_SCALES = 6;
 
 const f32 = Math.fround;
 const snap = (x: number) => Math.max(1, Math.floor(f32(x + 0.499)));
@@ -55,7 +59,8 @@ export function rockDerived(p: ParamValues, c: LayerCanvas) {
 	const tWant = dy / (Math.abs(dx) < 1e-9 ? 1e-9 : dx);
 	const e = Math.min(Math.max(Number(p.elong) || 1, 0.1), 16);
 	const base0 = c.width / Math.max(Number(p.scale) || 1, 0.25);
-	const lac = Math.min(Math.max(Number(p.detail_scale) || 2.5, 1.5), 6);
+	// Flake scale: how many times smaller each level is than the one before (below 1: bigger).
+	const lac = Math.min(Math.max(Number(p.detail_scale) || 2.6, 0.1), 6);
 	const cell: number[] = [];
 	const per: number[] = [];
 	const jag: number[] = [];
@@ -91,7 +96,12 @@ export function rockDerived(p: ParamValues, c: LayerCanvas) {
 	);
 	const curve = (p.bevel_curve as Curve | undefined) ?? DEFAULT_BEVEL_CURVE;
 	const prof = Array.from({ length: 9 }, (_, i) => profileCurve(pi, i / 8, curve));
-	return { steep: steep ? 1 : 0, cell, per, jag, prof };
+	// Flake levels the shader evaluates: those whose pieces are 2 output px or more (finer ones fade out anyway, and
+	// would only cost a pass of their own each).
+	const px = Math.max(Number(p.px_scale) || 1, 1);
+	let nlev = 0;
+	while (nlev < MAX_SCALES - 1 && cell[(nlev + 1) * 4 + 3] >= 2 * px) nlev++;
+	return { steep: steep ? 1 : 0, cell, per, jag, prof, nlev };
 }
 
 export const rockLayer: LayerDef = {
@@ -151,6 +161,20 @@ export const rockLayer: LayerDef = {
 			section: 'Blocks',
 			hint: 'Spreads the blocks’ sizes: 0 = all about alike, 1 = big blocks among small ones'
 		}),
+		// It picks the shader variant (shaderFeatures), not a branch in it.
+		P.bool('merge', 'Larger blocks', false, {
+			uniform: false,
+			optimize: false,
+			section: 'Blocks',
+			hint: 'Merges neighbouring blocks into big irregular masses, each one surface without joints, among the small blocks. Needs a variant of the shader, compiled the first time'
+		}),
+		P.float('merge_amt', 'Merging', 0.6, 0, 1, {
+			gate: { by: 'merge', off: 0 },
+			step: 0.001,
+			section: 'Blocks',
+			showIf: (p) => p.merge === true,
+			hint: 'How many blocks merge, and how big the masses grow: 0 = none, 1 = three quarters of the blocks, in a few huge masses'
+		}),
 		P.float('elong', 'Elongation', 1, 0.1, 16, {
 			softMin: 0.25,
 			softMax: 8,
@@ -174,8 +198,13 @@ export const rockLayer: LayerDef = {
 			step: 0.001,
 			uniform: false,
 			section: 'Blocks',
-			showIf: (p) => Number(p.jag) > 0,
-			hint: 'The size of the wiggles, in blocks: small = fine teeth, 1 = long curving breaks'
+			showIf: jagNoiseUsed,
+			hint: 'The size of the wiggles, in blocks: small = fine teeth, 1 = long curving breaks (and how far apart the cracks pinch and the fractures break)'
+		}),
+		P.int('jag_oct', 'Jaggedness octaves', 2, 1, 6, {
+			section: 'Blocks',
+			showIf: jagNoiseUsed,
+			hint: 'How many layers of detail the wiggles have, each half the size of the last: 1 = smooth bends, more = ragged, toothed breaks'
 		}),
 		P.float('fuse', 'Fused joints', 0.35, 0, 1, {
 			step: 0.001,
@@ -229,17 +258,22 @@ export const rockLayer: LayerDef = {
 			section: 'Relief',
 			hint: 'Shapes the edges: 0 = flat facets meeting in sharp ridges (split, angular stone), 1 = rounded, worn shoulders'
 		}),
-		P.float('scarp', 'Ledge run', 4, 0.5, 128, {
+		P.float('scarp', 'Ledge run', 10, 0.5, 128, {
 			softMax: 32,
 			unit: 'px',
 			step: 0.05,
 			section: 'Relief',
 			hint: 'How far a taller block’s side runs out over its neighbour per unit of height: small = sheer ledges, large = slopes'
 		}),
-		P.float('steps', 'Ledge steps', 0.35, 0, 1, {
+		P.float('scarp_var', 'Ledge variation', 0, 0, 1, {
 			step: 0.001,
 			section: 'Relief',
-			hint: 'Breaks the ledges into thin stepped layers (flaky edges) instead of one slope'
+			hint: 'Gives each block’s ledges a run of their own, so some are sheer and others long slopes: 0 = all alike, 1 = from a quarter to four times Ledge run'
+		}),
+		P.float('steps', 'Ledge steps', 0.23, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			hint: 'Breaks the ledges into thin stepped layers (flaky edges) instead of one slope (on steep ledges: gentle slopes stay smooth)'
 		}),
 		P.float('step_px', 'Step width', 2.5, 0.5, 32, {
 			softMax: 8,
@@ -267,16 +301,6 @@ export const rockLayer: LayerDef = {
 			section: 'Facets & layers',
 			showIf: (p) => Number(p.facets) > 0,
 			hint: 'How much of a block each facet takes: small = chipped edges and corners, 1 = a few big planes meeting in ridges across the whole face'
-		}),
-		P.int('rims', 'Rim steps', 1, 0, 4, {
-			section: 'Facets & layers',
-			hint: 'Breaks each block’s top face back toward its edges in this many steps (0.6 × Layer thickness each), at wavering distances from them, bevelled like the sheets: big faces broken back at the rim'
-		}),
-		P.float('rim_w', 'Rim width', 0.22, 0.05, 1, {
-			step: 0.001,
-			section: 'Facets & layers',
-			showIf: (p) => Number(p.rims) > 0,
-			hint: 'How far in from a block’s edges its rim steps reach, as a share of the way to its middle (so small blocks keep their tops)'
 		}),
 		P.int('layers', 'Layers', 2, 0, 8, {
 			section: 'Facets & layers',
@@ -322,17 +346,35 @@ export const rockLayer: LayerDef = {
 			showIf: (p) => Number(p.layers) > 0,
 			hint: 'Mixes each piece’s own random into its level: 0 = broad plates whose levels follow a smooth swell, 1 = a jumble of plates at their own levels'
 		}),
-		// ---------------------------------------------------------------- Flakes
-		P.int('detail', 'Flake levels', 0, 0, 3, {
-			section: 'Flakes',
-			hint: 'Finer generations of the same fractured blocks laid over the faces: crumpled, shingled rock (0 = smooth blocks)'
+		// ---------------------------------------------------------------- Rims
+		P.int('rims', 'Rim steps', 1, 0, 4, {
+			section: 'Rims',
+			hint: 'Breaks each block’s top face back toward its edges in this many steps, at wavering distances from them, bevelled like the sheets: big faces broken back at the rim. On fused blocks (Fused joints) only where they stand over a neighbour, as deep as that ledge allows (at their joints the steps grooved every one into a V); none on merged masses'
 		}),
-		P.float('detail_scale', 'Flake scale', 2.6, 1.5, 6, {
+		P.float('rim_t', 'Rim step height', 0.27, 0.02, 2, {
+			softMax: 1,
+			step: 0.001,
+			section: 'Rims',
+			showIf: (p) => Number(p.rims) > 0,
+			hint: 'How far each rim step falls, in relief (Edge drop is about one block edge’s fall)'
+		}),
+		P.float('rim_w', 'Rim width', 0.22, 0.05, 1, {
+			step: 0.001,
+			section: 'Rims',
+			showIf: (p) => Number(p.rims) > 0,
+			hint: 'How far in from a block’s edges its rim steps reach, as a share of the way to its middle (so small blocks keep their tops)'
+		}),
+		// ---------------------------------------------------------------- Flakes
+		P.int('detail', 'Flake levels', 0, 0, 5, {
+			section: 'Flakes',
+			hint: 'Finer generations of the same fractured blocks laid over the faces: crumpled, shingled rock (0 = smooth blocks; levels finer than about 2 px are left out)'
+		}),
+		P.float('detail_scale', 'Flake scale', 2.6, 0.1, 6, {
 			step: 0.01,
 			uniform: false,
 			section: 'Flakes',
 			showIf: (p) => Number(p.detail) > 0,
-			hint: 'How many times smaller each flake level is than the one before'
+			hint: 'How many times smaller each flake level is than the one before (below 1, bigger: 0.1 makes each level ten times the size of the last)'
 		}),
 		P.float('detail_amt', 'Flake relief', 0.25, 0, 2, {
 			step: 0.001,
@@ -351,14 +393,21 @@ export const rockLayer: LayerDef = {
 		P.float('zones', 'Facet breakup', 0.5, 0, 1, {
 			step: 0.001,
 			section: 'Flakes',
-			hint: 'Varies the flakes and grain over the rock: smooth, whole faces beside shattered, crumbly ones'
+			showIf: (p) => Number(p.detail) > 0,
+			hint: 'Varies the flakes over the rock in patches about two blocks across: smooth, whole faces beside shattered, crumbly ones (0 = even everywhere)'
 		}),
 		// ---------------------------------------------------------------- Surface
 		...roughnessParams(0.08, 2),
+		P.float('rough_break', 'Grain breakup', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Relief',
+			showIf: (p) => Number(p.rough) > 0,
+			hint: 'Varies the grain over the rock in patches about two blocks across: smooth faces beside rough, crumbly ones (0 = even everywhere)'
+		}),
 		P.float('pits', 'Pits', 0, 0, 1, {
 			step: 0.001,
 			section: 'Surface',
-			hint: 'Small round pits and vugs over the faces, in three sizes, more of them in the broken patches (Facet breakup; porous, pitted rock; 1 = crowded)'
+			hint: 'Small round pits and vugs over the faces, in three sizes (porous, pitted rock; 1 = crowded)'
 		}),
 		P.float('pit_size', 'Pit size', 3, 0.5, 32, {
 			softMax: 12,
@@ -367,6 +416,12 @@ export const rockLayer: LayerDef = {
 			section: 'Surface',
 			showIf: (p) => Number(p.pits) > 0,
 			hint: 'The radius of the biggest pits (the others are a half and a quarter of it)'
+		}),
+		P.float('pit_break', 'Pit breakup', 0.5, 0, 1, {
+			step: 0.001,
+			section: 'Surface',
+			showIf: (p) => Number(p.pits) > 0,
+			hint: 'Gathers the pits into patches about two blocks across, with fewer between them (0 = even everywhere)'
 		}),
 		// ---------------------------------------------------------------- Cracks
 		P.float('crack', 'Crack width', 2, 0, 32, {
@@ -442,12 +497,15 @@ export const rockLayer: LayerDef = {
 			detail: 0
 		};
 	},
+	// Larger blocks merges blocks into masses: an optional part of the shader (RV_MERGE).
+	shaderFeatures: (p) => (p.merge === true ? ['RV_MERGE'] : []),
 	derivedUniforms: {
 		decl: {
 			steep: 'int',
-			cell: 'vec4[4]',
-			per: 'ivec4[4]',
-			jag: 'vec4[4]',
+			cell: 'vec4[6]',
+			per: 'ivec4[6]',
+			jag: 'vec4[6]',
+			nlev: 'int',
 			prof: 'float[9]'
 		},
 		compute: rockDerived
@@ -644,6 +702,33 @@ float rv_cut(float d, float w, float px) {
   return clamp(1.0 - d / (0.5 * max(w, 2.0 * px) + 0.5 * px), 0.0, 1.0) * min(w / (2.0 * px), 1.0);
 }
 
+// The merged masses' noise: a plain lattice value noise (four hashes, smoothstep weights) — the shared valueNoise,
+// called in the block loop, cost over 2 s of D3D compile (its animation and wrapping code inlined in the hot loop).
+float rv_rnoise(vec2 x, ivec2 per) {
+  ivec2 i = ivec2(floor(x));
+  vec2 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  float sd = uSeed + 811.0;
+  return mix(mix(hashI(imod(i, per), sd), hashI(imod(i + ivec2(1, 0), per), sd), f.x),
+             mix(hashI(imod(i + ivec2(0, 1), per), sd), hashI(imod(i + ivec2(1, 1), per), sd), f.x), f.y);
+}
+
+// Merged masses (Larger blocks): blocks merge by the band (1 … 8) of a broad noise at their site — an eighth
+// of its usual range each — when that band is one of the merged ones, so neighbouring blocks in it become one mass
+// whatever their size; 0 when a block stands on its own. The bands join in a fixed, interleaved order (golden-ratio
+// steps), so the merged share grows by an eighth at a time up to 75 % at Merging 1 (a random pick per band jumped in quarters
+// and often didn't move at all). site: in grid cells (frame, sheared); the noise is taken on the screen, so it tiles
+// whatever the lean.
+float rv_region(vec2 site, vec2 cs, float t, bool steep, vec2 rc) {
+  float fx = site.x * cs.x;
+  vec2 sf = vec2(fx, site.y * cs.y + t * fx);
+  float n = rv_rnoise((steep ? sf.yx : sf) * rc / uRes, periodOf(rc));
+  // (Stretched so the eight bands cover about equal areas: value noise sits mostly near its middle, and equal-width
+  // bands left the outer ones so rare that merging them changed nothing.)
+  float band = floor(min(smoothstep(0.12, 0.88, n), 0.999) * 8.0);
+  return fract(band * 0.618034 + hashI(ivec2(3, 5), uSeed + 813.0)) < 0.75 * u_merge_amt ? band + 1.0 : 0.0;
+}
+
 // A block's edge drop (relief at its border): Edge drop × 0.4–1.6 by its own hash; a fused block's (Fused joints, blocks
 // only) 8 % of it; flakes 0.6 of it, rubble the full drop.
 float rv_drop(ivec2 k, float so, bool first, bool rubble) {
@@ -657,11 +742,13 @@ GenOut gen(vec2 p) {
   vec2 R = steep ? uRes.yx : uRes;
   vec2 q0 = steep ? p.yx : p;
   float px = max(u_px_scale, 1.0);
-  int nS = 1 + clamp(u_detail, 0, 3);
+  int nS = 1 + clamp(min(u_detail, d_nlev), 0, 5);
 
-  // Facet breakup: patches from a broad value noise (about two blocks across) that scales the flakes and grain, 0 … 2.
+  // Broken patches from a broad value noise (about two blocks across), 0 … 2: the flakes follow them by Facet breakup,
+  // the grain by Grain breakup and the pits by Pit breakup (one noise, so the patches coincide: crumbly rock).
   vec2 zc = snapCells(uRes / (2.0 * d_cell[0].w));
-  float zone = mix(1.0, 2.0 * smoothstep(0.2, 0.8, valueNoise(p * zc / uRes, periodOf(zc), uSeed + 401.0)), u_zones);
+  float zn = 2.0 * smoothstep(0.2, 0.8, valueNoise(p * zc / uRes, periodOf(zc), uSeed + 401.0));
+  float zone = mix(1.0, zn, u_zones);
 
   // The sheets (rv_sheets: relief, px to the nearest step, level), set with the blocks.
   vec3 sh = vec3(0.0, 1e4, 0.0);
@@ -685,30 +772,43 @@ GenOut gen(vec2 p) {
     float t = cl.z, Pc = cl.w;
     // A scale's relief: the blocks 1, flakes Flake relief × their size against the blocks' (and the zones).
     // (Domed faces keep them faint: boulders are smooth, not cobbles within cobbles.)
-    float amp = first ? 1.0 : u_detail_amt * pow(Pc / d_cell[0].w, 0.75) * zone * (1.0 - 0.6 * clamp(u_dome, 0.0, 1.0));
+    // (Faded out on pieces under ~5 px, which alias into speckle.)
+    float amp = first ? 1.0 : u_detail_amt * pow(Pc / d_cell[0].w, 0.75) * zone * (1.0 - 0.6 * clamp(u_dome, 0.0, 1.0))
+              * smoothstep(2.0 * px, 5.0 * px, Pc);
     // Shattered blocks: the first flakes of a block picked by Shattered blocks become rubble — angular pieces (planar
     // edges, the full drop, no dome) standing out further and parted by cracks like the blocks'; not under ~10 px.
-    bool shat = o == 1 && fract(rnd * 53.17 + 0.31) < u_rubble * smoothstep(8.0 * px, 12.0 * px, Pc);
+    // (Only flakes smaller than the blocks: rubble pieces bigger than a block would cut across several faces.)
+    bool shat = o == 1 && Pc < d_cell[0].w && fract(rnd * 53.17 + 0.31) < u_rubble * smoothstep(8.0 * px, 12.0 * px, Pc);
     if (shat) amp *= 2.5;
     // Flakes are facets: their edges stay mostly planar whatever the blocks' rounding.
     float eRound = first ? u_edge_round : shat ? 0.0 : 0.3 * u_edge_round;
     // Ledges: a block's run is Ledge run, a flake's Flake ledge run (per unit of its own relief, so smaller flakes have
-    // gentler sides) — never steeper than about 4 px of world height per px (through the Height amount and the project's
-    // depth, the value rising half as fast as the relief): a sheer one-pixel cliff aliases into a dotted lip under a low
-    // light.
-    float capK = abs(u_h_amount) * uDepth * 0.125 * amp;
-    float run = max(first ? u_scarp : u_flake_run, capK);
+    // gentler sides) — never steeper than 16 px of world height per px (hw: world px per unit of relief, through the
+    // Height amount and the project's depth, the value rising half as fast as the relief): a sheer one-pixel cliff
+    // aliases into a dotted lip under a low light (32 px per px began to stair-step under a 12° sun). (A cap of 4 px per
+    // px overrode Ledge run below |Height| × depth / 8, 25 px on deep relief, and switched Ledge steps off with it.)
+    // capK, a quarter of the relief per px, sizes the rim steps' bevels.
+    float hw = abs(u_h_amount) * uDepth * 0.5 * amp;
+    float capK = 0.25 * hw;
+    float capL = hw / 16.0;
+    // (A flake level bigger than the blocks — Flake scale under 1 — runs its ledges out in proportion: a few px of run
+    // on plates many blocks wide drew their creases as long, sharp lines across the faces.)
+    float run = max(first ? u_scarp : u_flake_run * max(Pc / d_cell[0].w, 1.0), capL);
     // Rim steps (the blocks only): how many, each's fall, all of them (a neighbour's face at its border).
     int nRim = first ? clamp(u_rims, 0, 4) : 0;
-    float tauR = 0.6 * u_layer_t;
+    float tauR = u_rim_t;
     float rimAll = tauR * float(nRim);
     bool prof = u_bevel > 0.0 && u_profile != 0;
 
-    // Jagged edges: the pixel moves by a two-octave Perlin offset (frame px), about Jaggedness × a block's size.
+    // Jagged edges: the pixel moves by a Perlin offset of Jaggedness octaves (frame px), about Jaggedness × a block's
+    // size.
     vec2 jx = q0 * jg.xy / R;
-    vec2 jo = fbmPair(jx, jx + 17.3, periodOf(jg.xy), 2, so + 11.0, so + 23.0, 2) - 0.5;
+    vec2 jo = fbmPair(jx, jx + 17.3, periodOf(jg.xy), u_jag_oct, so + 11.0, so + 23.0, 2) - 0.5;
+    // The same noise wavers the ledges, their steps, the rim steps and the sheets: by Jaggedness too (1 at its default
+    // 0.3), so at 0 every edge and step runs straight.
+    float jk = u_jag / 0.3;
     // (The ledges' run wanders along them with the jaggies' noise, ± a third: constant-width skirts read as fillets.)
-    run = max(run * (1.0 + 0.9 * jo.y), capK);
+    run = max(run * max(1.0 + 0.9 * jk * jo.y, 0.25), capL);
     if (first) {
       jo0 = jo;
       // (The sheets' edges wander on the jaggies' noise: one noise call.)
@@ -717,7 +817,7 @@ GenOut gen(vec2 p) {
         int Ls = max(int(u_layer_scale + 0.5), 1);
         float ls = uTile ? float(Ls) : u_layer_scale;
         vec2 csS = cs / ls;
-        sh = rv_sheets(p, vec2(q0.x / csS.x, (q0.y - t * q0.x) / csS.y), csS, t, ivec3(pr.xy * Ls, pr.z * Ls), steep, jo, px);
+        sh = rv_sheets(p, vec2(q0.x / csS.x, (q0.y - t * q0.x) / csS.y), csS, t, ivec3(pr.xy * Ls, pr.z * Ls), steep, jk * jo, px);
       }
     }
     vec2 q = q0 + u_jag * Pc * 0.8 * jo;
@@ -744,30 +844,78 @@ GenOut gen(vec2 p) {
     float T1 = 0.0, o1 = 0.0, dch1 = 1e4, fr1 = 0.0;
     vec2 cham = vec2(0.0), dep1 = vec2(0.0);
     ivec2 kOwn = ig;
+    // The own block fused (its face's slope, for its height at each border point); the rim steps' lowest share in
+    // from an edge (rhoM), and the two nearest edges' shares of the way in (shA, shB), insets (rhoA, rhoB) and depth
+    // shares (wA, wB).
+    bool fzOwn = false;
+    vec2 gOwn = vec2(0.0);
+    float rhoM = 1e4, shA = 1e4, shB = 1e4, rhoA = 1e4, rhoB = 1e4, wA = 1.0, wB = 1.0;
     // The two highest neighbouring mesas: height, key, piece random.
-    float mA = -1e9, mB = -1e9, rA = 0.0;
+    float mA = -1e9, mB = -1e9, rA = 0.0, sA = 1.0 / run, sB = 1.0 / run;
     ivec2 kA = ig, kB = ig;
     // The own block's two nearest borders (px): near both is a junction, where cracks open wider.
-    float bd1 = 1e4, bd2 = 1e4, rhoE = 1e4;
-    for (int e = 0; e < 50 * UNI_1; e++) {
-      bool near = e < 25;
-      int f = near ? e : e - 25;
-      ivec2 c = (near ? ig : c1) + ivec2(f % 5 - 2, f / 5 - 2);
+    float bd1 = 1e4, bd2 = 1e4;
+    // Merged masses (blocks only): the noise's cells (1.2 blocks across at Merging 0, 2.5 at 1, and two across
+    // the texture at least: with one, the noise was a constant and every block merged or none did), its value at the
+    // pixel (a merged mass's gentle slope, the same for every block of it, so the mass is one surface), and the own
+    // block's mass.
+    // (Only in the RV_MERGE variant — Larger blocks — so the usual shader compiles without it: in every
+    // compile it added about 2 s to D3D's cold compile.)
+#ifdef RV_MERGE
+    bool merging = first && u_merge_amt > 0.0;
+    vec2 rc = snapCells(max(uRes / ((1.2 + 1.3 * u_merge_amt) * Pc), vec2(2.0)));
+    float nPix = merging ? rv_rnoise(p * rc / uRes, periodOf(rc)) : 0.0;
+#endif
+    // The three nearest sites (power distance).
+    for (int e = 0; e < 25 * UNI_1; e++) {
+      ivec2 c = ig + ivec2(e % 5 - 2, e / 5 - 2);
       ivec2 k = rv_key(c, pr);
       vec3 h = hash3I(k, so);
-      vec2 dg = vec2(c) + h.xy - g;
-      vec2 r = dg * Pc;
+      vec2 r = (vec2(c) + h.xy - g) * Pc;
       float pw = dot(r, r) - (h.z - 0.5) * wS;
-      if (near) {
-        if (pw < b1) {
-          b3 = b2; r3 = r2; c3 = c2;
-          b2 = b1; r2 = r1; c2 = c1;
-          b1 = pw; r1 = r; c1 = c; k1 = k;
-        }
-        else if (pw < b2) { b3 = b2; r3 = r2; c3 = c2; b2 = pw; r2 = r; c2 = c; }
-        else if (pw < b3) { b3 = pw; r3 = r; c3 = c; }
-      } else {
+      if (pw < b1) {
+        b3 = b2; r3 = r2; c3 = c2;
+        b2 = b1; r2 = r1; c2 = c1;
+        b1 = pw; r1 = r; c1 = c; k1 = k;
+      }
+      else if (pw < b2) { b3 = b2; r3 = r2; c3 = c2; b2 = pw; r2 = r; c2 = c; }
+      else if (pw < b3) { b3 = pw; r3 = r; c3 = c; }
+    }
+    // Each of the 25 cells round the nearest's merged mass (0: none), in a small loop of their own: worked out in the
+    // mesa loop they cost about 2 s of D3D compile.
+    // (Its mass, the mass's height and random, and the slope's offset for its band: the mesa loop only reads them.)
+#ifdef RV_MERGE
+    vec4 rgs[25];
+    float uPix = smoothstep(0.12, 0.88, nPix);
+    for (int e = 0; e < 25 * UNI_1; e++) {
+      ivec2 c = c1 + ivec2(e % 5 - 2, e / 5 - 2);
+      float rgc = merging ? rv_region(vec2(c) + hash3I(rv_key(c, pr), so).xy, cs, t, steep, rc) : 0.0;
+      rgs[e] = vec4(rgc, u_heights * (hashI(ivec2(int(rgc), 7), uSeed + 817.0) - 0.5) + u_tilt * 0.5 * (uPix - 0.125 * (rgc - 0.5)),
+                    hashI(ivec2(int(rgc), 9), uSeed + 819.0), 0.0);
+    }
+    float rgOwn = rgs[12].x;
+#else
+    const float rgOwn = 0.0;
+#endif
+    // Every cell round the nearest as a mesa, the own block first (its face sets the fused blocks' rims at each edge).
+    for (int e0 = 0; e0 < 25 * UNI_1; e0++) {
+      int e = e0 == 0 ? 12 : e0 <= 12 ? e0 - 1 : e0;
+      ivec2 c = c1 + ivec2(e % 5 - 2, e / 5 - 2);
+      ivec2 k = rv_key(c, pr);
+      vec3 h = hash3I(k, so);
+      vec2 r = (vec2(c) + h.xy - g) * Pc;
+      float pw = dot(r, r) - (h.z - 0.5) * wS;
+      {
         bool own = c == c1;
+        // A neighbour in the own block's merged mass is the same surface: no edge, skirt or crease between them.
+#ifdef RV_MERGE
+        vec4 rgv = rgs[e];
+        float rg = rgv.x;
+#else
+        const vec4 rgv = vec4(0.0);
+        const float rg = 0.0;
+#endif
+        if (own || rg == 0.0 || rg != rgOwn) {
         // A fused block (Fused joints) takes its height from its cluster (3 × 3 cells) and hardly tilts: fused
         // neighbours stand level as one big mass among the small pieces (with their own heights, a paving of equal
         // pillows).
@@ -816,12 +964,19 @@ GenOut gen(vec2 p) {
         float Tc = u_heights * (first ? 1.0 : 0.6) * (hb.x - 0.5)
                  + dot(u_tilt * (first ? 1.0 : 1.4) * hb.z * vec2(cos(ta), sin(ta)) + dipV, x) / Pc
                  + (dmv > 0.0 ? 0.5 : 0.4) * abs(dmv);
+        // A merged block: its mass's height and a gentle slope from the noise at the pixel; no curvature or facets of
+        // its own (they would part it from the rest of its mass).
+        if (rg > 0.0) {
+          Tc = rgv.y;
+          dome = vec2(0.0);
+        }
         vec2 chip;
         // (A fused block's facets a third as deep: they cut V's into the fused masses.)
-        vec3 fr = rv_split(k, x - 0.5 * wq, x - wq, Pc, first ? u_splits : 0.0, fz ? 0.3 : 1.0, mt, so, chip);
+        vec3 fr = rv_split(k, x - 0.5 * wq, x - wq, Pc, first ? u_splits : 0.0, rg > 0.0 ? 0.0 : fz ? 0.3 : 1.0, mt, so, chip);
         vec2 dep = chip + dome;
         if (own) {
-          T1 = Tc; o1 = fr.x; dch1 = fr.y; fr1 = fr.z; kOwn = k; dep1 = dep;
+          T1 = Tc; o1 = fr.x; dch1 = fr.y; fr1 = rg > 0.0 ? rgv.z : fr.z; kOwn = k; dep1 = dep; fzOwn = fz;
+          gOwn = (u_tilt * (first ? 1.0 : 1.4) * hb.z * vec2(cos(ta), sin(ta)) + dipV) / Pc;
         } else {
           // Each block's edges all drop by the block's own amount (a fused block's — Fused joints — hardly at all, so
           // clusters of them read as one mass parted by faint creases). So at any point of a block's border no other
@@ -834,21 +989,40 @@ GenOut gen(vec2 p) {
           if (d1 < bd1) { bd2 = bd1; bd1 = d1; } else if (d1 < bd2) bd2 = d1;
           // Rim steps: how far in, as a share of the way to the site, per edge — each edge its own inset (some steps
           // hug their edge, some reach deep), the lowest over the edges: angular, open runs, not a shrunk copy.
+          // On a fused block they fall only toward a lower neighbour — a ledge — and no deeper than about 0.8 of its
+          // height there, so it never sinks below it (toward every edge, they grooved each fused joint into a V). dT:
+          // the own face less this one's, both at their border point nearest the pixel, so the two blocks agree on it
+          // there; wE: the depth's share toward this edge. Each part of a fused block's face takes its steps from its
+          // nearest edge alone (as a share of the way in, not the inset), as deep as that edge's share, blended with
+          // the next edge's where the two are about as near — so they fall only toward a ledge and run out at its
+          // ends. (The lowest inset over all edges let a joint with a deep inset cut into a ledge's band and out again
+          // in ribbons; depth weighed by how near each edge is drew grooves; each edge's steps on their own, the
+          // deepest taken, crossed one another in strips.)
+          float dT = T1 + o1 + dot(gOwn, n1 * dm) - Tc - fr.x;
+          float wE = clamp(dT / (1.25 * max(rimAll, 1e-3)), 0.0, 1.0);
           float me = 0.45 + 5.0 * pow(hashI(pairKey(k1, k, aLo), so + 47.0), 3.0);
-          float ds1 = length(vec2(r1.x / mt.x, r1.y / mt.y));
-          rhoE = min(rhoE, d1 / max(d1 + ds1, 1e-3) * me);
-          vec2 ed = rv_edge(d1, ew, rv_drop(k1, so, first, shat), eRound);
+          float sh = d1 / max(d1 + length(vec2(r1.x / mt.x, r1.y / mt.y)), 1e-3);
+          rhoM = min(rhoM, sh * me);
+          if (sh < shA) { shB = shA; rhoB = rhoA; wB = wA; shA = sh; rhoA = sh * me; wA = wE; }
+          else if (sh < shB) { shB = sh; rhoB = sh * me; wB = wE; }
+          // (A merged mass doesn't fall away at its edges: it meets its neighbours in a ledge or their own falls.)
+          vec2 ed = rv_edge(d1, ew, rgOwn > 0.0 ? 0.0 : rv_drop(k1, so, first, shat), eRound);
           if (ed.x > cham.x) cham = ed;
-          float drop = rv_drop(k, so, first, shat);
+          float drop = rg > 0.0 ? 0.0 : rv_drop(k, so, first, shat);
           // Its skirt over the pixel, falling one unit per run px (in flaky steps by Ledge steps, each block its own
           // phase and step, measured from the border so the skirt starts at the face).
           float sp = u_step_px * (0.75 + 0.5 * hb.z);
+          // Ledge variation: each block's ledges their own run, a quarter to four times at 1 (some sheer, some long
+          // slopes).
+          float runK = first ? max(run * exp2(u_scarp_var * 4.0 * (fract(hb.y * 31.7) - 0.5)), capL) : run;
           // (Wavering along the edge with the jaggies' noise: steps at an even distance from it read as contour lines.)
-          float sx = D / sp + hb.y + 1.5 * jo.x;
-          float sx0 = hb.y + 1.5 * jo.x;
+          float sx = D / sp + hb.y + 1.5 * jk * jo.x;
+          float sx0 = hb.y + 1.5 * jk * jo.x;
           float st0 = floor(sx0) + smoothstep(0.65, 1.0, fract(sx0));
-          // (Steps only where the ledge is steep: on a long, gentle run they drew contour rings.)
-          float Ds = mix(D, sp * (floor(sx) + smoothstep(0.65, 1.0, fract(sx)) - st0), u_steps * smoothstep(16.0, 6.0, run));
+          // (Steps only where the ledge is steep, from 1 to 3 px of world height per px: on a long, gentle run they drew
+          // contour rings. Measured in world height, not in run px: on deep relief every run is long in px, and steps
+          // that faded out past 16 px of run never showed.)
+          float Ds = mix(D, sp * (floor(sx) + smoothstep(0.65, 1.0, fract(sx)) - st0), u_steps * smoothstep(1.0, 3.0, hw / runK));
           // A skirt steepens past about a fifth of a block from its border, so skirts closing in from every side
           // don't swallow a low block into a pinched, concave-sided star.
           Ds += max(D - 0.2 * Pc, 0.0) * max(D - 0.2 * Pc, 0.0) / (0.1 * Pc);
@@ -856,10 +1030,13 @@ GenOut gen(vec2 p) {
           drop = max(drop, rv_edge(fr.y, max(u_edge_w * Pc * 0.4, px), u_edge_drop * 0.5 + fr.x, eRound).x);
           // Its face at the border point (facets, curvature and the edge's full drop below its top: the same as its
           // own face computes there, so the skirt starts where the face ends), less its skirt.
-          // (A fused block has no rim steps: they dipped every fused joint into a V.)
-          float M = Tc + fr.x - dep.x - drop - (fz ? 0.0 : rimAll) - rv_fall(Ds, run);
-          if (M > mA) { mB = mA; kB = kA; mA = M; kA = k; rA = fr.z; }
-          else if (M > mB) { mB = M; kB = k; }
+          // (A fused block's rim steps fall only toward a lower neighbour: by its share toward the own block, as its own
+          // pass works it out at that border point.)
+          float M = Tc + fr.x - dep.x - drop - (rg > 0.0 ? 0.0 : fz ? rimAll * clamp(-dT / (1.25 * max(rimAll, 1e-3)), 0.0, 1.0) : rimAll)
+                  - rv_fall(Ds, runK);
+          if (M > mA) { mB = mA; kB = kA; sB = sA; mA = M; kA = k; sA = 1.0 / runK; rA = rg > 0.0 ? rgv.z : fr.z; }
+          else if (M > mB) { mB = M; kB = k; sB = 1.0 / runK; }
+        }
         }
       }
     }
@@ -867,7 +1044,7 @@ GenOut gen(vec2 p) {
     // there whatever their heights; facets, curvature and chamfers below its top.
     vec2 chc = rv_edge(dch1, max(u_edge_w * Pc * 0.4, px), u_edge_drop * 0.5 + o1, eRound);
     if (chc.x > cham.x) cham = chc;
-    // Rim steps: the block's outer band (Rim width) falls in Rim steps steps of a Layer thickness each toward its edges,
+    // Rim steps: the block's outer band (Rim width) falls in Rim steps steps of Rim step height each toward its edges,
     // each step at its own distance from them, wavering along them with the jaggies' noise (each step its own mix of
     // its two parts) — a big top face broken back at its rim, not bands at an even distance. At the border all of them
     // are down, so a neighbour's face there (rimAll) is its plane less them all: its skirt starts where its face ends.
@@ -875,36 +1052,38 @@ GenOut gen(vec2 p) {
     // small block keeps its top (a fixed width in px sank small blocks whole: round pits). The waver adds a noise about
     // a quarter of a block across to the jaggies' (straight runs of shadow otherwise).
     float rim = 0.0;
-    if (nRim > 0 && !(fract(hashI(kOwn, so + 19.0) * 7.31) < u_fuse)) {
-      float ds = length(vec2(r1.x / mt.x, r1.y / mt.y));
-      float span = max(bd1 + ds, 1e-3);
-      float rho = rhoE;
+    if (nRim > 0 && rgOwn == 0.0) {
+      float span = max(bd1 + length(vec2(r1.x / mt.x, r1.y / mt.y)), 1e-3);
       vec2 wc = snapCells(4.0 * uRes / Pc);
       float wv = valueNoise(p * wc / uRes, periodOf(wc), so + 31.0) - 0.5;
       float wr = min(max(prof ? u_bevel : 4.0 * px, tauR * capK * 3.0), 0.4 * u_rim_w * span / float(nRim)) / span;
+      // (An unfused block: the lowest inset over all edges, at full depth. A fused one: its two nearest edges' steps,
+      // each as deep as its share, halfway between them where the two are equally near — the same from either side.)
+      vec2 rr = fzOwn ? vec2(rhoA, rhoB) : vec2(rhoM);
+      vec2 rv = vec2(0.0);
       for (int i = 0; i < 4 * UNI_1; i++) {
         if (i < nRim) {
           float wa = 2.4 * float(i) + 1.3;
           float fk = u_rim_w * float(nRim - i) / float(nRim)
-                   * (1.0 + 1.0 * ((2.0 * abs(jo.x) - 0.4) * cos(wa) + (2.0 * abs(jo.y) - 0.4) * sin(wa))
+                   * (1.0 + jk * ((2.0 * abs(jo.x) - 0.4) * cos(wa) + (2.0 * abs(jo.y) - 0.4) * sin(wa))
                         + 0.8 * (2.0 * abs(wv) - 0.5) * cos(1.7 * wa));
-          float tr = clamp((rho - fk) / max(wr, 1e-4), 0.0, 1.0);
-          rim += tauR * (1.0 - (prof ? rv_prof(tr) : tr));
+          vec2 tr = clamp((rr - fk) / max(wr, 1e-4), 0.0, 1.0);
+          rv += tauR * (1.0 - (prof ? vec2(rv_prof(tr.x), rv_prof(tr.y)) : tr));
         }
       }
+      rim = fzOwn ? mix(wA * rv.x, wB * rv.y, 0.5 - 0.5 * clamp((shB - shA) / 0.06, 0.0, 1.0)) : rv.x;
     }
     float F1 = T1 + o1 - dep1.x - cham.x - rim;
     // The surface is the highest mesa. The crease: where the top two meet, (difference) / (their slopes) px away.
-    float sK = 1.0 / run;
     float M1, M2, s1, s2;
     ivec2 kT, kS;
     bool ownTop = F1 >= mA;
     // (The own face's slope with its facets and curvature: without them the crease's distance came out too long near
     // a facet, and a crack there shrank to single dark pixels.)
     float sF = cham.y + dep1.y;
-    if (ownTop) { M1 = F1; s1 = sF; M2 = mA; s2 = sK; kT = kOwn; kS = kA; }
-    else if (F1 >= mB) { M1 = mA; s1 = sK; M2 = F1; s2 = sF; kT = kA; kS = kOwn; }
-    else { M1 = mA; s1 = sK; M2 = mB; s2 = sK; kT = kA; kS = kB; }
+    if (ownTop) { M1 = F1; s1 = sF; M2 = mA; s2 = sA; kT = kOwn; kS = kA; }
+    else if (F1 >= mB) { M1 = mA; s1 = sA; M2 = F1; s2 = sF; kT = kA; kS = kOwn; }
+    else { M1 = mA; s1 = sA; M2 = mB; s2 = sB; kT = kA; kS = kB; }
     float dcr = (M1 - M2) / max(s1 + s2, 1e-4);
     H += amp * M1 + (first ? sh.x : 0.0);
 
@@ -950,7 +1129,9 @@ GenOut gen(vec2 p) {
       // in the face rather than trenches.
       float brk = mix(1.0, smoothstep(0.35, 0.65, 0.5 + 1.6 * jo0.y), u_hair_break);
       // (Faded out on flakes under ~12 px, where they would break into dotted speckle.)
-      float hw = max(0.6 * px, 0.3 * u_crack) * brk * smoothstep(6.0 * px, 14.0 * px, Pc);
+      // (None on flakes bigger than the blocks — Flake scale under 1 — whose creases would run as long cracks across
+      // several faces.)
+      float hw = max(0.6 * px, 0.3 * u_crack) * brk * smoothstep(6.0 * px, 14.0 * px, Pc) * step(Pc, d_cell[0].w);
       float cut = hj.x < u_hair ? rv_cut(dcr, hw, px) : 0.0;
       H -= u_crack_depth * 0.15 * cut;
       frac = max(frac, cut);
@@ -961,11 +1142,11 @@ GenOut gen(vec2 p) {
   // Surface grain: Perlin fBm over the faces, its size Grain size px.
   if (u_rough > 0.0) {
     vec2 gc = snapCells(uRes / max(u_rough_scale, 0.5));
-    H += u_rough * 0.3 * zone * (org_noiseFbm(1, false, p * gc / uRes, periodOf(gc), 3, 0.55, uSeed + 503.0) - 0.5);
+    H += u_rough * 0.3 * mix(1.0, zn, u_rough_break) * (org_noiseFbm(1, false, p * gc / uRes, periodOf(gc), 3, 0.55, uSeed + 503.0) - 0.5);
   }
   float v = 0.5 + 0.5 * tanh(H);
   // Pits: Worley cells about 2.4 pit radii across, in three sizes (each half the last); each cell holds a pit with the
-  // Pits chance (more of them in Facet breakup's broken patches), a bowl with a crisp rim, about as deep as it is wide in true px
+  // Pits chance (more of them in the broken patches, by Pit breakup), a bowl with a crisp rim, about as deep as it is wide in true px
   // (through the Height amount and the project's depth). At 1 they crowd into a porous, vuggy surface.
   if (u_pits > 0.0) {
     for (int i = 0; i < 3 * UNI_1; i++) {
@@ -974,7 +1155,7 @@ GenOut gen(vec2 p) {
       vec4 wv = worleyNoise(p * pc / uRes, periodOf(pc), 1.0, 0, uSeed + 601.0 + float(i) * 17.0);
       float rr = rad * (0.35 + 0.65 * wv.z * wv.z);
       float dpx = wv.x * uRes.x / pc.x;
-      float keep = fract(wv.z * 31.7) < u_pits * clamp(0.4 + 0.6 * zone, 0.0, 1.0) ? 1.0 : 0.0;
+      float keep = fract(wv.z * 31.7) < u_pits * clamp(0.4 + 0.6 * mix(1.0, zn, u_pit_break), 0.0, 1.0) ? 1.0 : 0.0;
       float x = clamp(dpx / rr, 0.0, 1.0);
       v -= keep * 0.8 * rr / max(abs(u_h_amount) * uDepth, 0.5) * (1.0 - x * x) * smoothstep(1.0, 0.85, x);
     }

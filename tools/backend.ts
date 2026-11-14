@@ -11,7 +11,7 @@
 // Select with `--backend windows|swiftshader` (tools parse it) or BISMITH_BACKEND; default: windows when a
 // Windows browser is reachable, else swiftshader.
 
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -172,6 +172,38 @@ function windowsTemp(): string {
 	return execFileSync('cmd.exe', ['/c', 'echo %TEMP%'], { cwd: '/mnt/c', encoding: 'utf8' })
 		.replace(/\r|\n/g, '')
 		.trim();
+}
+
+/**
+ * The Windows priority class the harness's browsers run at: Below Normal unless BISMITH_PRIORITY says otherwise (Idle,
+ * BelowNormal, Normal). At Normal, long renders made the user's desktop stutter in bursts. Windows gives a process's GPU
+ * work its scheduling priority from its priority class, and a Below Normal or Idle process's children inherit its class.
+ */
+function windowsPriority(): string {
+	const want = (process.env.BISMITH_PRIORITY ?? 'BelowNormal').replace(/[\s_-]/g, '').toLowerCase();
+	return want === 'idle' || want === 'low' ? 'Idle' : want === 'normal' ? 'Normal' : 'BelowNormal';
+}
+
+/**
+ * Set every browser process launched for this session tag to the harness's priority class (best effort, in the
+ * background). Chrome raises its GPU process to Above Normal when it starts it, at launch and again after a driver
+ * reset, so this runs once the workers are up and then every 15 s.
+ */
+function lowerTagged(tag: string): void {
+	execFile(
+		'powershell.exe',
+		[
+			'-NoProfile',
+			'-NonInteractive',
+			'-Command',
+			`Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${tag}*' } | ` +
+				`ForEach-Object { try { (Get-Process -Id $_.ProcessId -ErrorAction Stop).PriorityClass = '${windowsPriority()}' } catch {} }`
+		],
+		{ cwd: '/mnt/c' },
+		() => {
+			/* best effort */
+		}
+	);
 }
 
 /** Kill every browser process launched for this session tag (matched on its user-data-dir). */
@@ -397,7 +429,12 @@ async function openWindowsSession(
 			`http://localhost:${port}/?${editor ? 'editor' : 'headless'}&worker=${w}`
 		];
 		const list = args.map((a) => `'${a.replace(/'/g, "''")}'`).join(',');
-		powershell(`Start-Process -FilePath '${browser.windows}' -ArgumentList ${list} -WindowStyle Hidden`);
+		// (Launched from a PowerShell already at the harness's priority, so the browser starts at it and its GPU and
+		// renderer processes inherit it; lowerTagged catches any that don't once the workers are up.)
+		powershell(
+			`(Get-Process -Id $PID).PriorityClass = '${windowsPriority()}'; ` +
+				`Start-Process -FilePath '${browser.windows}' -ArgumentList ${list} -WindowStyle Hidden`
+		);
 	};
 	// A browser left over from a crashed or killed run on the same port would swallow the launch (Chrome hands a
 	// second start with the same profile to the running instance, keeping its old flags and possibly a hung GPU).
@@ -405,7 +442,12 @@ async function openWindowsSession(
 	await new Promise((r) => setTimeout(r, 750));
 	if (editor) rmSync(portFile(), { force: true });
 	for (let w = 0; w < workers; w++) launch(w);
-	const cleanup = () => killTagged(tag);
+	const keepLow = setInterval(() => lowerTagged(tag), 15_000);
+	keepLow.unref();
+	const cleanup = () => {
+		clearInterval(keepLow);
+		killTagged(tag);
+	};
 	process.once('SIGINT', () => {
 		cleanup();
 		process.exit(130);
@@ -416,6 +458,7 @@ async function openWindowsSession(
 	});
 	try {
 		await queue.whenReady(workers, 90_000);
+		lowerTagged(tag);
 	} catch (e) {
 		cleanup();
 		await server.close();

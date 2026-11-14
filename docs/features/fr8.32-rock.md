@@ -21,9 +21,20 @@ A pattern-category SDF generator (`genOutOwn`: it paints its own value and hands
 
 ### Blocks
 
-- **Power diagram.** Sites free anywhere in their cells (jitter 1), each with a weight (_Size variation_, up to
-  0.35 cell² — big blocks among small ones). Nearest three sites over the 5 × 5 cells round the pixel's, then every cell of
-  the 5 × 5 round the nearest as a mesa (below): one flat loop of 50 per scale, its bound from `UNI_1`.
+- **Power diagram.** Sites free anywhere in their cells (jitter 1), each with a weight (_Size variation_ up to 1:
+  0.7 cell² at most — big blocks among small ones; larger weights let a big block's neighbours fall outside the search).
+  Nearest three sites over the 5 × 5 cells round the pixel's, then every cell of the 5 × 5 round the nearest as a mesa
+  (below): two flat loops of 25 per scale, their bounds from `UNI_1`.
+- **Merged masses** (_Larger blocks_, with _Merging_ 0–1). For sizes a power diagram can't reach, neighbouring blocks
+  merge: each block reads a broad noise at its site (cells 1.2 blocks across at Merging 0, 2.5 at 1, two across the
+  texture at least) and falls in one of eight bands of it, stretched to about equal areas; bands join in a fixed
+  interleaved order, an eighth at a time up to 75 % at 1. Blocks of a merged band that touch are one mass: one height, a
+  gentle slope from the noise at the pixel (the same for all of them, so the mass is one surface), no curvature, facets,
+  chamfers or rim steps, and no edge, skirt or crease between them (the mesa loop skips them); splits still crack across
+  it. A few huge masses among small blocks at 1. The masses are worked out in a small loop of their own before the
+  mesas, with a plain four-hash lattice noise, and only in the `RV_MERGE` shader variant, which the _Larger blocks_
+  tickbox picks (`shaderFeatures`; _Merging_ is gated by it, so dragging never compiles): in every compile they added
+  about 2 s to D3D's cold compile.
 - **Cleavage frame.** _Elongation_ stretches the blocks along the _Cleavage angle_ (or across it, below 1). The diagram is
   isotropic in the cells' own metric — grid units × the mean cell size — so elongated cells really come out elongated
   (jittered sites in stretched cells alone stay statistically round). A distance `d` along the metric's normal `n` is
@@ -32,8 +43,12 @@ A pattern-category SDF generator (`genOutOwn`: it paints its own value and hands
   whole `m` cells over the tile's width, and cell `(i + nx, j − m)` is cell `(i, j)` (`rv_key`). Every count is worked out
   on the CPU per scale (`rockDerived`: cells, counts, lean, the jaggies' noise cells) — the test checks the keys are
   seamless.
-- **Jaggedness.** The pixel moves by a two-octave Perlin offset of _Jaggedness_ × the cell size before the search,
-  _Jaggedness scale_ blocks across: ragged, wandering breaks.
+- **Jaggedness.** The pixel moves by a Perlin offset of _Jaggedness_ × the cell size before the search, _Jaggedness
+  scale_ blocks across, with _Jaggedness octaves_ octaves (1–6, each half the size of the last): ragged, wandering
+  breaks. The same noise wavers the ledges' run and their steps, the rim steps and the sheets' edges, all by
+  _Jaggedness_ too (× Jaggedness / 0.3, so the default is unchanged): at 0 every edge and step runs straight. Only the
+  cracks' pinching (_Crack variation_) and the fractures' breaks (_Fracture breakup_) keep their own amounts on it, so
+  the scale and octaves stay shown while either is on.
 - **Fused joints.** That share of blocks keep their edges subdued on every side (8 % of the edge drop), take their
   height from their cluster (3 × 3 cells) and hardly tilt, have no rim steps and facets a third as deep; a joint
   between two of them never opens. Fused neighbours stand level as one big mass among the small pieces — not a paving of
@@ -55,8 +70,11 @@ A pattern-category SDF generator (`genOutOwn`: it paints its own value and hands
   across the cleavage (each block rises to one side and breaks off at the other: shingles), and a dome or scoop (_Face
   curvature_, centred 0.3 of a block off the site — a boulder bulges towards its foot, a scoop is deepest under its rim;
   `0.5 − 0.9 (1 − e^(−2.2 r²/P²))`, levelling off far from its middle, or a scoop's far corners stood as flat plateaus).
-  Outside its cell, a skirt that falls one unit per _Ledge run_ px (or in flaky steps, _Ledge steps_ / _Step width_,
-  each block its own step and phase, only where the run is short — on gentle runs they drew contour rings). The surface is the highest mesa: tall blocks overhang their neighbours as ledges,
+  Outside its cell, a skirt that falls one unit per _Ledge run_ px — each block's own with _Ledge variation_ (a quarter
+  to four times at 1: some sheer, some long slopes) — or in flaky steps (_Ledge steps_ / _Step width_, each block its
+  own step and phase, only where the ledge is steep, 1–3 px of world height per px: on gentle slopes they drew contour
+  rings; gated on the run in px they never showed on deep relief, where every run is long in px). The crease takes the
+  slopes of the two mesas that meet there. The surface is the highest mesa: tall blocks overhang their neighbours as ledges,
   equal ones meet in a V. The distance to a neighbour's cell is the farthest of its power bisectors with the pixel's
   three nearest sites (a lower bound that doesn't jump across their edges, as in Rock).
 - **Edges.** Each border falls away into the face as a chamfer of its own width (_Edge width_ × the block, pair-hashed
@@ -74,14 +92,21 @@ A pattern-category SDF generator (`genOutOwn`: it paints its own value and hands
   measure from the border (0 there), or a skirt with Ledge steps started half a step above its face.
 - **Skirt reach.** Past about a fifth of a block from its border a skirt steepens (`+ (D − 0.2 P)² / 0.1 P`): skirts
   closing in on a low block from every side swallowed it into a pinched star of concave arcs.
-- **Steepness cap.** A skirt never rises more than about 4 px of world height per px (`run ≥ |Height| × depth / 8`,
-  through `u_h_amount` and `uDepth`): one-pixel cliffs aliased into dotted lips under a low light. (A smooth maximum at
+- **Steepness cap.** A skirt never rises more than 16 px of world height per px (`run ≥ |Height| × depth / 32`,
+  through `u_h_amount` and `uDepth`): one-pixel cliffs aliased into dotted lips under a low light (32 began to
+  stair-step under a 12° sun). The first cap, 4 px per px, overrode Ledge run below |Height| × depth / 8 — 25 px on a
+  deep project — and switched Ledge steps off with it. (A smooth maximum at
   the crease was tried first: it raised a ridge k / 4 high along every ledge.)
-- **Flakes.** _Flake levels_ repeat the mesas at finer scales (_Flake scale_ apart), added at _Flake relief_ ×
-  (size ratio)^0.75 × the fracture zones, fading as the faces dome. Their own _Flake ledge run_: large gives soft facets
-  meeting in creases, small sharp flaky steps that cast thin shadows (crumpled, shingled rock). Flakes differ more by
-  tilt (1.4 ×) than by height (0.6 ×). _Facet breakup_ (a broad value noise about two blocks across) scales the flakes,
-  grain and pits 0–2 in patches: whole faces beside shattered ones.
+- **Flakes.** _Flake levels_ (up to five) repeat the mesas at other scales, each _Flake scale_ times smaller than the
+  one before — below 1, bigger: at 0.1 each level is ten times the last, broad plates and swells spanning many blocks.
+  They are added at _Flake relief_ × (size ratio)^0.75 × Facet breakup's patches, fading as the faces dome and on pieces
+  under ~5 px; levels under 2 px aren't evaluated at all (`nlev`, worked out on the CPU), so a small Flake scale costs
+  nothing for the levels it pushes below a pixel. Their own _Flake ledge run_: large gives soft facets meeting in
+  creases, small sharp flaky steps that cast thin shadows (crumpled, shingled rock); a level bigger than the blocks runs
+  its ledges out in proportion, and has no hairline fractures or rubble (on plates many blocks wide, those drew long,
+  sharp lines across the faces). Flakes differ more by tilt (1.4 ×) than by height (0.6 ×). _Facet breakup_ scales the flakes 0–2 in patches of a broad value noise about two blocks
+  across: whole faces beside shattered ones. The grain and the pits follow the same patches by their own _Grain
+  breakup_ and _Pit breakup_ (one noise, so crumbly patches are crumbly in every way).
 - **Value.** `0.5 + 0.5 tanh(H)`. Rock wants deep relief: the editor's new layer has Height 40 at 512 px (scaled with
   the texture's mean side, 3–56).
 
@@ -105,12 +130,21 @@ A pattern-category SDF generator (`genOutOwn`: it paints its own value and hands
   a bevel made the surface jump. Sheets fade out under ~20 px. Not cut by level per pixel: slicing each block's depth at
   equal intervals drew contour rings on curved faces and grooves along the breakup cells.
 - **Sheet curvature.** A minor option: each sheet dished into a cup rising to rims at its borders (or domed).
-- **Rim steps.** A block's top face breaks back toward its edges in _Rim steps_ bevelled steps (0.6 × Layer thickness
-  each), within _Rim width_ of the way from the edge to its site — so small blocks keep their tops (a fixed px width
+- **Rim steps.** A block's top face breaks back toward its edges in _Rim steps_ bevelled steps (_Rim step height_
+  each; Layer thickness once, which hid it whenever Layers was 0), within _Rim width_ of the way from the edge to its site — so small blocks keep their tops (a fixed px width
   sank them whole: round pits) — each edge its own inset (some steps hug their edge, some reach deep; the lowest over the
   edges, so the steps run angular and open rather than as a shrunk copy of the outline), wavering along the edge by the
   jaggies' noise and one about a quarter of a block across, folded into kinks. At the border all are down, so a
-  neighbour's face there is its plane less them all: its skirt still starts where its face ends.
+  neighbour's face there is its plane less them all: its skirt still starts where its face ends. On a fused block
+  they fall only toward a lower neighbour — a ledge — no deeper than about 0.8 of its height there (toward every edge
+  they grooved each fused joint into a V): each part of the face takes its steps from its nearest edge alone, as deep
+  as that edge's share (the height difference at the border point nearest the pixel, which both blocks work out
+  alike, so the lower one's skirt still starts where the face ends), blended with the next nearest edge's where the
+  two are about as near, so the steps run out at a ledge's ends. The mesa loop takes the own block first, so its
+  face is known at every edge. (Tried first: the lowest inset over all edges, which let a joint with a deep inset
+  cut into a ledge's band and out again in ribbons; a depth weighed by how near each edge is, which drew grooves; each
+  edge's steps on their own with the deepest taken, which crossed one another in strips.) Merged masses have none.
+  Their own section, _Rims_, with _Rim step height_ (once Layer thickness, hidden whenever Layers was 0).
 - **Bevel.** The Edge card's _Bevel_ and _Profile_ shape every step on the face — the sheets', the rims', and the top of
   every ledge (its first Bevel px in the Profile, the same fall over them). The profile is sampled on the CPU (nine
   values, `d_prof`) and looked up, rather than inlining its branches at each call.
@@ -129,9 +163,10 @@ A pattern-category SDF generator (`genOutOwn`: it paints its own value and hands
 
 ### Surface
 
-- _Surface grain_ / _Grain size_: Perlin fBm (the shared `roughnessParams`).
+- _Surface grain_ / _Grain size_: Perlin fBm (the shared `roughnessParams`), scaled 0–2 by the broken patches with
+  _Grain breakup_.
 - _Pits_ / _Pit size_: Worley cells 2.4 pit radii across in three sizes (each half the last), a pit per cell with the
-  chance (more in Facet breakup's broken patches), a bowl about as deep as wide in true px (through Height and depth). At 1 they
+  chance (more in the broken patches, by _Pit breakup_), a bowl about as deep as wide in true px (through Height and depth). At 1 they
   crowd into a porous surface.
 
 ### Masks (Write to › Source)
@@ -149,8 +184,8 @@ into Shape). No Output dropdown: the relief is the layer's one output.
 
 ### Cost
 
-Cold D3D11 compile ~3.1 s (Stones: 3.2 s); 3.8 ms per layer at 2048² with the defaults (no flake levels; about 11 ms
-with one; Stones 42 ms). One flat loop of 50 cells per scale, the scales in a loop bounded by the uniform Flake levels;
+Cold D3D11 compile ~3.1–4 s (Stones: 3.2–4.7 s, measured the same day; the `RV_MERGE` variant ~5.7 s); 3.8 ms per layer at 2048² with the defaults (no flake levels; about 11 ms
+with one, 20–40 ms with five; Stones 42 ms). One flat loop of 50 cells per scale, the scales in a loop bounded by the uniform Flake levels;
 the sheets a flat loop of 25; no `continue` or `break`. The Edge card's profile is a nine-sample lookup (`d_prof`) and
 each shared helper has one call site in the loop (the own face and the neighbours go through the same code).
 
