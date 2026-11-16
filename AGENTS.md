@@ -7,7 +7,7 @@ compile-time and miscompile tips: `docs/shader-compilation.md`. Below: gotchas t
 ## This repo is public
 
 Keep anything tied to third-party reference textures — recreations, exemplars, reference names, notes — in
-`private/`, which is gitignored and is its own repo. In public files (code, comments, docs, commit messages),
+`private/`, which is gitignored. In committed files (code, comments, docs, commit messages),
 describe a motif generically ("riveted panel", "staggered slots"), never by a reference texture's name or file path.
 
 ## Nothing is released yet
@@ -16,6 +16,14 @@ Saved projects, presets and templates don't have to keep rendering the same. Gen
 much as they need to: improve plain defaults directly, and don't add hidden version params, legacy code paths or
 migrations just to preserve old looks. (Loading old files without errors still matters; matching their old renders
 doesn't.)
+
+## Changelog
+
+`CHANGELOG.md` lists changes per version, newest first. When you finish a set of work and commit it, add a short,
+friendly bullet (one or two lines: what it adds, changes or fixes, for someone using Bismith) under
+`## Upcoming changes` at the top (create that heading if it's missing), and commit it along with the work. Update an
+existing bullet rather than adding a second one for the same feature, and fold fixes to unreleased work into its
+bullet. `npm version patch|minor|major` renames _Upcoming changes_ to _Version x.y.z_ (`tools/changelog-release.mjs`).
 
 ## Gotchas
 

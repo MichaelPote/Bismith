@@ -18,7 +18,7 @@ has a home: top bar, outliner, viewport, properties panel, status bar.
   `StatusBar` (bottom, mono hints).
 - Reusable controls in `src/ui/components/`: `NumberField` (Blender-style scrub field with fill bar, arrows,
   click-to-type), `ColorField`, `SelectField`, `CheckField`, `GradientField`, `PanelCard` (collapsible),
-  `IconButton` (square, Halo when active), `Icon` (inline stroke SVGs from the Cinderforge icon palette).
+  `IconButton` (square, Halo when active), `Icon` (inline stroke SVGs in the Cinderforge icon style).
 - Menus as simple dropdown popovers; keyboard focus visible; real `<button>`/`<input>` everywhere.
 
 ## Checklist

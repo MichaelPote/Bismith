@@ -14,6 +14,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { launchSwiftShader, openWindowsEditor, printPageLog, resolveBackend, type BackendKind } from './backend';
+import { TERMS_KEY, TERMS_VERSION } from '../src/ui/terms';
 /** The editor's autosave (stores/project.ts): what a page opens with. */
 const AUTOSAVE_KEY = 'bismith:project';
 
@@ -65,7 +66,9 @@ const VK: Record<string, number> = {
 	ArrowRight: 39,
 	ArrowDown: 40
 };
-const CLEAR_STORAGE = `localStorage.clear(), indexedDB.databases().then((l) => l.forEach((d) => indexedDB.deleteDatabase(d.name)))`;
+// A fresh profile, except that it has agreed to the terms of use (ui/terms.ts), so the page opens on the editor.
+const CLEAR_STORAGE = `localStorage.clear(), localStorage.setItem(${JSON.stringify(TERMS_KEY)}, ${JSON.stringify(TERMS_VERSION)}),
+	indexedDB.databases().then((l) => l.forEach((d) => indexedDB.deleteDatabase(d.name)))`;
 const DRAG_STEPS = 16;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

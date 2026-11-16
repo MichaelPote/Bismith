@@ -11,7 +11,7 @@ target at k² the pixels. The material state alone is three RGBA32F textures pin
 mask written, the mask slots alive, the normal / height texture, the tracer's accumulation and AO — around ten
 targets of 16 B a texel. At 8192² each is 1 GB.
 
-Measured on the user's RTX 5080 (16 GB, ANGLE D3D11), the lichen preset rendering at 1 sample:
+Measured on an RTX 5080 (16 GB, ANGLE D3D11), the lichen preset rendering at 1 sample:
 
 | stack | how                       | time                   |
 | ----- | ------------------------- | ---------------------- |

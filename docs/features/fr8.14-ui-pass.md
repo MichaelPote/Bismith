@@ -1,13 +1,13 @@
 # FR8.14 — One layer list, inspector fields and Forged keys
 
 **Status:** done — single Layers list with Diffuse / Height columns, materials as collapsible blocks, field
-behaviours, tooltips, Forged keys v2
+behaviours, tooltips, Forged keys
 
 ## Goal
 
 A UI pass after daily use: the split into Materials, Paint and Relief sections didn't match how a texture is built,
 fields lacked the small conveniences of a Blender-style editor (snap, reset, wheel), and the main buttons still used
-the old ember-underline styling instead of Cinderforge's Forged keys v2.
+the old ember-underline styling instead of Cinderforge's Forged keys.
 
 ## Design
 
@@ -54,7 +54,7 @@ the old ember-underline styling instead of Cinderforge's Forged keys v2.
 - **Base row**: the first row of the Layers list (the material under every layer) carries the Diffuse / Height column
   heads; selecting it opens the project panel (selection kind `base`).
 - **No automatic linking**: editing a layer never changes another; new layers get a seed no other layer has.
-- **Forged keys v2** (`.fk` in base.css: lip + face, lit / latched / primary, `.fk-rail`, `.kc` keycap chips): the
+- **Forged keys** (`.fk` in base.css: lip + face, lit / latched / primary, `.fk-rail`, `.kc` keycap chips): the
   workspace switcher (_Create_ / _Match_) and channel tabs are rails of keys without a tray, one lit; viewport overlays are latched toggle keys with a
   pilot lamp; Export and Optimise are primary keys; menu-bar items are plates with an Ember 400 underline when open;
   icon buttons are studs. Channel keys shrink (ellipsis) instead of scrolling.

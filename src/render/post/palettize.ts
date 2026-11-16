@@ -128,7 +128,9 @@ export const palettePost: PostDef = {
 				['cutout', 'Cut out (0 / 1)'],
 				['opaque', 'Opaque']
 			],
-			{ hint: 'Cut out thresholds alpha at 50% (dithered when dithering is on), like Quake { fence textures.' }
+			{
+				hint: 'Cut out thresholds alpha at 50% (dithered when dithering is on), like the see-through fence and grate textures of palette-based games.'
+			}
 		)
 	],
 	run(ctx, input, output) {

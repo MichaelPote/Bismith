@@ -26,7 +26,7 @@ in code.
     as `group`), `light`, `lighting` (the whole rig: sky, ambient and every light) or `post`.
   - `target`: what it applies to. The layer type (`bricks`), the light type
     (`directional`) or the post filter type. Not used for `project` and `lighting`.
-  - `category`: how menus group it (the starters' `Quake-style`, `UI surfaces`, `Nature`, `Basics`; free text
+  - `category`: how menus group it (the starters' `Retro`, `UI surfaces`, `Nature`, `Basics`; free text
     elsewhere).
   - `Project.preview` (FR8.20) is the thumbnail. Every preset carries one.
 - **A card preset is a whole project around the item.** The file holds the item and whatever it was rendered with, so
@@ -86,7 +86,7 @@ in code.
   description (`PresetMenu.vue`; it sat in the title row as an icon stud until FR10). It opens a drop-down of thumbnail
   tiles for that card's `kind` and `target`, grouped by category (`DropMenu`'s tiles, placed `under` the button). The
   user's presets and the built-ins are mixed in the same groups, in name order: the starters' categories first in their
-  usual order (Quake-style, UI surfaces, Nature, Basics), then the rest alphabetically, _Other_ (no category) last.
+  usual order (UI surfaces, Stone, Floors & walls, Nature, …, Basics), then the rest alphabetically, _Other_ (no category) last.
   Presets of other types aren't shown.
 - **The Lighting presets card** (project view) shows the lighting presets as tiles in the card itself, with **Save this
   lighting…** under them.
@@ -173,7 +173,7 @@ is offered the presets of its kind (an RGBA field the RGB ones too), and picking
 
 Starters (v1):
 
-- Quake-style (64×64, tileable, Quake palette): riveted plate, stone bricks, cobblestones, tech panel with light strip,
+- Retro (64×64, tileable, Quake palette): riveted plate, stone bricks, cobblestones, tech panel with light strip,
   tech plates.
 - UI surfaces (non-tiling, ACES): forged button (Cinderforge keycap + ember underlight + glow), sunken well (chamfered
   notch), bevelled panel (alpha cut-out frame, recess, mirrored corner screws), ember gem.
@@ -185,7 +185,7 @@ Starters (v1):
 ### v1
 
 - [x] Preset plumbing; presets are the Starters of the New project wizard (FR8.16)
-- [x] Quake: riveted metal, stone bricks, cobblestones, tech panel with emissive strip
+- [x] Retro: riveted metal, stone bricks, cobblestones, tech panel with emissive strip
 - [x] UI: forged button, sunken well, bevelled panel, ember gem
 - [x] Nature: water caustics — the Liquid material with refracted light, Gerstner waves and an ocean blue-teal ramp
 - [x] Nature: rock face — the Rock face suggestion (FR8.18) at 128 px in a warm sandstone palette

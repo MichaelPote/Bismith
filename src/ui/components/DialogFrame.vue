@@ -1,5 +1,5 @@
 <script setup lang="ts">
-	// Every dialog's frame (Cinderforge "editor dialog"): a dark base holding a raised plate — a 44px head with the title,
+	// Every dialog's frame (Cinderforge dialog): a dark base holding a raised plate — a 44px head with the title,
 	// a muted readout and a close stud, then the body — and, below the plate, a recessed tray for the action keys:
 	// a summary on the left, then game keys (.gk) — the one primary (.gk.primary, underlit) last.
 	// The frame handles the backdrop, Esc and first focus; each dialog keeps its own body and its own state.

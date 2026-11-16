@@ -26,7 +26,7 @@ Where a motif cannot be expressed, a generator is added (FR7.2, FR7.5).
    shader errors, tile-metric breakdown). Iterate until the sheet reads right; the metric is a sanity check, not
    the goal.
 
-## The painted Quake look
+## The painted retro look
 
 - Lighting: one directional key light (azimuth 315°, elevation 28°, intensity 1.8), sky 0.15, **shadows off**,
   specular 0 → a flat surface renders ≈ its albedo, slopes facing the key light brighten and the others darken —
@@ -34,7 +34,7 @@ Where a motif cannot be expressed, a generator is added (FR7.2, FR7.5).
 - Colours come from the reference (`ascii.ts --mean`, `palof.ts`), never from intuition.
 - Relief is subtle (heightDepth 2–2.5); detail lives in height so it is _lit_, not painted on.
 - Speckle stays in hue (white noise through a ramp between two sampled colours), not black/white overlay.
-- Many Quake-style details are painted flat (mouldings, channels, shadow lines): paint them as flat bands / rects and
+- Many retro-game details are painted flat (mouldings, channels, shadow lines): paint them as flat bands / rects and
   add height only where the reference shows a lit edge.
 - Hand-drawn motifs (emblems, logos, numbers) are Stamps / Labels; designed shapes (cut-outs, channels, inlays) are
   Paths; their polygons come straight from the measured runs.

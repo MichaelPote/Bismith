@@ -74,12 +74,11 @@ timber slab_ (Height, Line width 6) and the _Wood_ group (Diffuse) use it at the
 
 ## Open
 
-Five critic rounds after the first (5.5 → 6.3 → 6.7 → 6.6 → 6.9 → 6.9); the hand-over with each open flaw and the fix
-to try is in the private critic folder (`private/critic/splits/GAPS.md`). In short: strain relief now runs in a pre-pass, so hand-overs taper; a square end can
-still appear where a fading line merges into its neighbour (its centre found half a pixel apart from row to row lands on
-a steep excess); a few glyph-like end checks on
-planks; knots get no splits of their own; Edges mode makes dotted ladders; Dent at a fixed small Width is faint on large
-textures. It writes no mask (filters don't): dirt in the splits needs a Mask area over the relief.
+Five critic rounds after the first (5.5 → 6.3 → 6.7 → 6.6 → 6.9 → 6.9). Where it stands: strain relief now runs in a
+pre-pass, so hand-overs taper; a square end can still appear where a fading line merges into its neighbour (its centre
+found half a pixel apart from row to row lands on a steep excess); a few glyph-like end checks on planks; knots get no
+splits of their own; Edges mode makes dotted ladders; Dent at a fixed small Width is faint on large textures. It writes
+no mask (filters don't): dirt in the splits needs a Mask area over the relief.
 
 ## Checklist
 
@@ -89,4 +88,4 @@ textures. It writes no mask (filters don't): dirt in the splits needs a Mask are
 - [x] Cracks lost its Wood material; presets moved to Splits; previews regenerated
 - [x] Tests (registry, axes, fresh sizes, no `continue`), D3D11 compile and cost measured
 - [x] Style (Split open / Dent), Darken, Depth variation, Round knots, Raggedness
-- [x] Five critic rounds (record and hand-over in the private critic folder)
+- [x] Five critic rounds

@@ -234,9 +234,8 @@ wobble's loop (one `org_noiseFbm`; cold D3D11 compile: plain 1.2 s, the variant 
   The fine streaks fade where the grain tilts more than ~1 in 6 off the board, where it stands still, where it is
   squeezed past 2× and inside knot pits.
 
-Open (critic runs 2026-11-11, last 8.0 / 10; `private/critic/wood-carved/GAPS.md`): some lens eyes sit on slopes
-rather than bulges (ring-only phase terms); Ring noise still ruffles at Whorls ≈ 0.7; a few wide latewood lenses read
-plain; 64 px is muddy. Preset: _Carved wavy
+Open (critic runs 2026-11-11, last 8.0 / 10): some lens eyes sit on slopes rather than bulges (ring-only phase terms);
+Ring noise still ruffles at Whorls ≈ 0.7; a few wide latewood lenses read plain; 64 px is muddy. Preset: _Carved wavy
 wood_.
 
 The Shape group's `bevel` / `profile` / `aa` shade plank edges in the `wood` output too (the layer reads them

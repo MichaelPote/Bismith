@@ -270,10 +270,6 @@ terminology pass over the feature docs that describe current behaviour (fr1.3, f
 fr5.4, fr6.3, fr7.2a–d, fr7.4–7.7, fr8.5, fr8.8, fr8.12, fr8.17, fr8.18, fr8.22), `docs/gensheet.md`,
 `docs/generator-critic.md`, `docs/shader-compilation.md`.
 
-**Private repo (local, not part of this repo)**: the hand-authored recreations and starts use the old keys too. A
-one-off conversion script kept in `private/` rewrites them (the mapping the app no longer carries); generated bench
-output is regenerated, not converted.
-
 ### Recipes, templates, presets — behaviour
 
 - **Cut-out**: the opening layer goes to the top of the stack (above the materials it cuts); the recess stays after
@@ -305,8 +301,7 @@ Where the build differs from the design above, or adds to it:
   headless API reads a mask back.
 - **Cost**: cold compiles the same or faster (the named-mask code is gone), per-pixel cost no worse — lower for most
   layers, which no longer read and pass the four masks through every pass.
-- **Private files** were converted once by `private/tools/convert_masks.py` (which the private authoring helper also
-  applies); the app has no migration.
+- **No migration**: files saved with the old mask keys are not converted.
 
 ## As built (phases 4–6)
 

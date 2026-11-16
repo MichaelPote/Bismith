@@ -79,4 +79,4 @@ inner facets there).
 - [x] Layers combined by max, sparse finer layers, lift; valley fill
 - [x] Facet colours: contrast, sheen, gradient, glints, inner-facet stars; ridge / valley shading; anti-aliased facet
       boundaries through `gGenAlt`
-- [x] Presets; critic rounds (`private/critic/crystal/`)
+- [x] Presets; critic rounds

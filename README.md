@@ -1,6 +1,6 @@
 # Bismith
 
-A browser-based **procedural flat-surface texture generator** — Quake-1-style pixel-art walls and floors, and
+A browser-based **procedural flat-surface texture generator** — retro, palette-based pixel-art walls and floors, and
 skeuomorphic UI surfaces (buttons, wells, panels). Layers of procedural operations build Diffuse, Height,
 Roughness and Emissive maps (normals are derived from height); a custom path tracer renders them under
 configurable lights; a post stack adds glow, tonemapping and 8-bit palettisation.
@@ -13,7 +13,7 @@ configurable lights; a post stack adds glow, tonemapping and 8-bit palettisation
 ## Stack
 
 Vue 3 · Pinia · TypeScript · Vite · Three.js (WebGL2, GLSL 3.00 ES) · Vitest · Playwright (harness).
-The UI follows the **Cinderforge** design system (Blender-tempered editor variant).
+The UI follows Bismith's own **Cinderforge** design system, a Blender-tempered editor look.
 
 ## Getting started
 
@@ -106,4 +106,6 @@ Quake and Doom are trademarks of id Software; Bismith is not affiliated with or 
 
 ## License
 
-[MIT](LICENSE)
+[MIT with the Commons Clause](LICENSE): you may use, copy, change and share Bismith, but not sell it or offer it as a
+paid service. Textures and anything else you make with it are yours to use and sell however you like, commercial or
+not, with no attribution needed.

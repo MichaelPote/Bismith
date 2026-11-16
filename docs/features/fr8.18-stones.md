@@ -422,4 +422,4 @@ light cast them best. Colour comes as much from geometry as from paint: dark rec
       corners rounded on both sides of the border
 - [x] Stone face template in the New project wizard (a Suggestion in scheme colours, and a Starter in sandstone), and a
       Rock face recipe (smart material) with macros
-- [x] Hand-authored recreations of the references (kept in `private/`)
+- [x] Hand-authored recreations of the references

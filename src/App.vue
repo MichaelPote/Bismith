@@ -23,6 +23,8 @@
 	import NewProjectWizard from '@/ui/panels/NewProjectWizard.vue';
 	import PresetDialog from '@/ui/panels/PresetDialog.vue';
 	import AboutDialog from '@/ui/panels/AboutDialog.vue';
+	import TermsDialog from '@/ui/panels/TermsDialog.vue';
+	import { agreeToTerms, termsAgreed } from '@/ui/terms';
 	import PublishDialog from '@/ui/panels/PublishDialog.vue';
 	import { GALLERY_ID } from '@/gallery/client';
 	import { offerResume } from '@/ui/resumeRuns';
@@ -188,9 +190,15 @@
 	}
 
 	const presets = usePresetsStore();
-	onMounted(() => {
-		// The built-in presets' manifest at once, so menus and the New Project dialog list them fresh and without a wait.
-		void presets.load();
+	// A browser that hasn't agreed to the terms of use (ui/terms.ts) sees them first; what a visit opens with — a
+	// gallery link's project, the New Project dialog, an offer to resume a run — waits until I Agree.
+	const termsPending = ref(!termsAgreed());
+	function onAgree(): void {
+		agreeToTerms();
+		termsPending.value = false;
+		openStart();
+	}
+	function openStart(): void {
 		// An "Open in Bismith" link from the gallery (?gallery=<id>) opens that project; the parameter is dropped at once,
 		// so a reload doesn't open it again.
 		const url = new URL(location.href);
@@ -202,14 +210,19 @@
 		if (fromGallery && GALLERY_ID.test(fromGallery)) void act.openFromGallery(fromGallery);
 		// A first visit starts blank, in the New Project dialog.
 		else if (store.firstRun) editor.wizard = true;
+		// A long run (Match's optimiser) lost with the page — a discarded background tab, a crash — can carry on.
+		void offerResume();
+	}
+	onMounted(() => {
+		// The built-in presets' manifest at once, so menus and the New Project dialog list them fresh and without a wait.
+		void presets.load();
+		if (!termsPending.value) openStart();
 		window.addEventListener('keydown', onKey);
 		window.addEventListener('beforeunload', onBeforeUnload);
 		window.addEventListener('pointerdown', onPointerDown, true);
 		window.addEventListener('pointerup', onPointerUp, true);
 		window.addEventListener('pointercancel', onPointerUp, true);
 		window.addEventListener('blur', onPointerUp);
-		// A long run (Match's optimiser) lost with the page — a discarded background tab, a crash — can carry on.
-		void offerResume();
 	});
 	onBeforeUnmount(() => {
 		window.removeEventListener('keydown', onKey);
@@ -268,6 +281,7 @@
 		<ExportDialog v-if="editor.exportDialog" />
 		<PublishDialog v-if="editor.publishDialog" />
 		<AboutDialog v-if="editor.about" />
+		<TermsDialog v-if="termsPending" @agree="onAgree" />
 		<BusyModal />
 		<AskModal />
 		<EyedropperChip />

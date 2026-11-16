@@ -2,7 +2,7 @@
 	"name": "bismith",
 	"version": "0.1.0",
 	"private": true,
-	"license": "MIT",
+	"license": "SEE LICENSE IN LICENSE",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
@@ -19,7 +19,8 @@
 		"presets": "tsx tools/presets.ts",
 		"shot": "tsx tools/shot.ts",
 		"deploy": "tsx tools/deploy.ts",
-		"presets:manifest": "tsx tools/presets-manifest.ts"
+		"presets:manifest": "tsx tools/presets-manifest.ts",
+		"version": "node tools/changelog-release.mjs && git add CHANGELOG.md"
 	},
 	"dependencies": {
 		"@fontsource/cormorant-garamond": "^5.3.0",

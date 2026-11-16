@@ -149,11 +149,10 @@ relief itself, so turn the height of the layer that drew the shape off. Sizes fo
 width and Crack bevel ×√k. Each helper sits at one call site (D3D inlines every call): all partitions run in one loop, the cells round
 a border are judged by one function (`ch_cell`), and cracks and faults share one loop and one `ch_crack`.
 
-Built in six rounds against two sculpted-stone references with an adversarial critic (docs/generator-critic.md;
-critiques and the hand-over in the private critic folder). The first try — fBm bites eating the edge, plates as one
-Worley mosaic, cracks along every plate border — read as rotten edges, camouflage and dried mud (4/10); what replaced
-it: chunks as planar faces under a crisp scarp that stay lit below the top, nested feathered spalls at the edges,
-cracks as lines running in from the edges, faults as dropped slabs.
+Built in six rounds against two sculpted-stone references with an adversarial critic (docs/generator-critic.md). The
+first try — fBm bites eating the edge, plates as one Worley mosaic, cracks along every plate border — read as rotten
+edges, camouflage and dried mud (4/10); what replaced it: chunks as planar faces under a crisp scarp that stay lit below
+the top, nested feathered spalls at the edges, cracks as lines running in from the edges, faults as dropped slabs.
 
 ### Follow-up: Cracks
 
@@ -286,7 +285,7 @@ like a clear coat. Projects that set it keep it; files without it now get tinted
 - [x] Wood smart material Chips / Splits
 - [x] Specular tint default 1
 - [x] Smoke (D3D11) and cold compile times
-- [x] Hand-authored recreations of a hand-painted plank floor and a crazed slab (kept in `private/`)
+- [x] Hand-authored recreations of a hand-painted plank floor and a crazed slab
 
 ## Follow-up: Wood moved to Splits
 

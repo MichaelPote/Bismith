@@ -252,7 +252,7 @@ run through count 0).
 
 ### Calibration (critics)
 
-Three critic subagents (brief and marks in `private/critic/tiling/`) each judged a share of the 18 example projects'
+Three critic subagents each judged a share of the 18 example projects'
 3 × 3 tilings — all three the rock, as an anchor — rating how obvious the repeat is (0–10) and marking the jarring
 areas on a one-tile grid in eighths. Their rock ratings agreed (5, 6, 6) and all three marked the dark crevice and the
 bright face also marked by hand, but each added areas of its own (IoU with the hand marks 0.11–0.16): marks are a noisy

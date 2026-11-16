@@ -101,7 +101,7 @@ html.picking [data-pick] * {
 	stroke-width: 1.75;
 }
 
-/* Stud (Forged keys v2): row and panel-header icon buttons — invisible until touched, a flat Hairline plate on hover,
+/* Stud (Forged keys): row and panel-header icon buttons — invisible until touched, a flat Hairline plate on hover,
    latched = Sunken plate with Ember 300 ink. */
 .cf-ico-btn {
 	width: 22px;
@@ -233,7 +233,7 @@ html.picking [data-pick] * {
 	pointer-events: none;
 }
 
-/* Forged keys (Cinderforge buttons v2): two flat layers — a 2px lip and a face above it. States swap the fill,
+/* Forged keys (Cinderforge buttons): two flat layers — a 2px lip and a face above it. States swap the fill,
    outline and lip and drop the face onto the lip; nothing is a gradient and nothing casts a shadow, except the one
    lit key's small glow.
    <button class="fk [lit|latched]"><span class="fk-face">…<span class="kc">1</span></span></button> */
@@ -389,7 +389,7 @@ html.picking [data-pick] * {
 	color: var(--line);
 }
 
-/* Game keys at editor scale (Cinderforge "internal game keys"): a moulded key — a quiet grey face on a 2px lip, with a
+/* Game keys at editor scale (Cinderforge game keys): a moulded key — a quiet grey face on a 2px lip, with a
    tight drop shadow. The keys of a dialog's tray (DialogFrame): its one primary lit from beneath by an ember pool
    (.primary), the rest (Cancel, Reset, Import…) plain; inside the panels themselves keys stay .fk. A pressed key sinks
    onto its lip.

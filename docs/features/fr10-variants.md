@@ -1,7 +1,6 @@
 # FR10 — Project variants
 
-**Status:** done on `feature/variants` — design on the Cinderforge canvas (row _Bismith — project variants_),
-reconciled with the code as it is; checked in a SwiftShader browser, not yet on the Windows GPU backend
+**Status:** done on `feature/variants`; checked in a SwiftShader browser, not yet on the Windows GPU backend
 
 ## Problem
 

@@ -49,7 +49,7 @@ Global lighting as a project setting: sky light, ambient strength, and individua
   held within those tiles, and range 0 ends 2.5 textures out.
 - Outliner "Lights" section: add / remove / enable / duplicate; properties panel per light.
 - Viewport gizmos: drag point lights in x/y; directional azimuth indicator.
-- Lighting presets: "Top-left key (UI)", "Overhead + sky", "Torch-lit (Quake)".
+- Lighting presets: "Top-left key (UI)", "Overhead + sky", "Torch-lit".
 
 ## Checklist
 

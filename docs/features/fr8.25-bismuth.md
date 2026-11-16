@@ -150,4 +150,4 @@ crystals below 192 px, a lower height and gentler mottling on small textures.
 - [x] Thin-film colour on a back-and-forth ramp with the ground kept apart; depth shading (`gGenShade`); colour blended
       between crystals (`gGenAlt`)
 - [x] Stepped-pyramid habit (top face, side ledges)
-- [x] Mask of the crystals' union; presets; fifteen critic rounds (`private/critic/bismuth/`)
+- [x] Mask of the crystals' union; presets; fifteen critic rounds

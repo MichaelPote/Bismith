@@ -67,8 +67,7 @@ darkening, few jets, lower and wider meniscus, very glossy) · Oil spill (pools,
 
 ## Review
 
-Three critic rounds against the user's references (a sheet of blood splatters; pixel-art blood on a wall with a run),
-critiques and references in `private/critic/splats/`:
+Three critic rounds against two references (a sheet of blood splatters; pixel-art blood on a wall with a run):
 
 - r0 6.3 — potato cores, too few and too big droplets, fat straight runs, faint jets.
 - r1 7.4 — Tear and bites, Fine mist, solid jets breaking into drops when thin, thin meandering runs with necks.

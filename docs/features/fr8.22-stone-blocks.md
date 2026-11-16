@@ -102,7 +102,7 @@ Per stone, per block (pieces split from one block share it), or per course.
 
 ## Recreations
 
-Hand-authored in the studio (kept with the references in the private repo). What carried each:
+Hand-authored in the studio. What carried each:
 
 - _Yellow sandstone, broken ashlar:_ course 64, Block length 3.6, Splits 0.4 at two levels, Through stones 0.25,
   Smallest piece 26, scars 110 px at depth 3.2, faint joints (depth 0.15) and open gaps; paint is a few noise layers:

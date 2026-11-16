@@ -1,6 +1,6 @@
 # FR8.32 — Rock
 
-**Status:** generator done; recreations of fifteen rock photos kept in `private/` (see _Recreations_)
+**Status:** generator done; checked against recreations of fifteen rock photos (see _Recreations_)
 
 ## Goal
 
@@ -191,12 +191,10 @@ each shared helper has one call site in the loop (the own face and the neighbour
 
 ## Recreations
 
-Fifteen rock photos were recreated with Rock plus colour layers (noise limited to its masks, Edge wear): kept with the
-references, the authoring script and the critiques in `private/recreations/rock2/` and `private/critic/rock2/` (gitignored;
-see AGENTS.md). Reached well: angular blocks split by straight cracks, big slabs with straight fractures, flaky shingled
-strata, crumpled pale and dark rock, boulders with moss in the crevices. Weaker: scooped sandstone (scoops but not their
-overhanging, lit rims), porous rock (the pits are round bowls, real vugs are irregular and nested), and colour variety
-(left to paint layers).
+Fifteen rock photos were recreated with Rock plus colour layers (noise limited to its masks, Edge wear). Reached well:
+angular blocks split by straight cracks, big slabs with straight fractures, flaky shingled strata, crumpled pale and
+dark rock, boulders with moss in the crevices. Weaker: scooped sandstone (scoops but not their overhanging, lit rims),
+porous rock (the pits are round bowls, real vugs are irregular and nested), and colour variety (left to paint layers).
 
 ## Checklist
 

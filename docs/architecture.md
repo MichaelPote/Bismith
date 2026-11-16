@@ -1,7 +1,7 @@
 # Bismith — Architecture
 
 Bismith is a browser-based procedural **flat-surface texture generator**. It is meant to be equally at home
-making Quake-1-style pixel-art wall/floor textures and skeuomorphic UI surfaces (buttons, wells, panels, bezels).
+making retro, palette-based pixel-art wall/floor textures and skeuomorphic UI surfaces (buttons, wells, panels, bezels).
 
 This document records the guiding ideal and the architecture that implements it. The per-feature plans and
 progress checklists live in [`docs/features/`](features/) — see the [feature index](#feature-index).
@@ -484,7 +484,7 @@ The editor uses the _Blender-tempered_ Cinderforge editor language:
 - Category hues (stroke only): Stone = shapes, Gold = lights/emissive, Teal = filters, Sky = patterns,
   Rose = textures/noise, Violet = post.
 
-- Buttons are _Forged keys v2_ (`.fk`): a flat face on a 2px lip; one **lit** key per rail (workspace, channel view),
+- Buttons are _Forged keys_ (`.fk`): a flat face on a 2px lip; one **lit** key per rail (workspace, channel view),
   **latched** toggles with a pilot lamp, one ember **primary** key (Export / Optimise), studs for row and panel icons.
 - Field names carry tooltips (Tippy.js, theme `cinder`): the hint, what each option does, the key and default.
 

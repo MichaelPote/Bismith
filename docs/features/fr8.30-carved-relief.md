@@ -21,7 +21,7 @@ Strapwork needs a line arrangement built on the CPU (intersections, faces, over/
 analytic per cell, with curved outlines and scalar-field grooves and no CPU geometry. They share one relief toolkit (the
 moulding stack, the groove maker and the field fills), so a fill or profile added once works in all three.
 
-What the references show (described generically; the file mapping is in `private/critic/carved-relief/refs.md`):
+What the references show (described generically):
 
 | #   | Motif                                                                                        | Generator | Needs                                                                    |
 | --- | -------------------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------ |
@@ -321,8 +321,8 @@ with them), and optionally a Wood layer on Multiply for the grain. One preset pe
       at the seam, outer frame per axis (default half the stile, so the default tiles), open panel ends where there is
       no frame, _Shape from step_ (a notched inner moulding inside a square outer one, bosses set in its notches),
       anti-aliased fills. 0.93 s cold compile.
-- [x] **Critic run** against the panelling references: 5.5 → 6.3 → 6.6 over three rounds; hand-over (open flaws:
-      console capitals, default moulding legibility, leaf cleanup, a field-edge moulding) in the private critic folder.
+- [x] **Critic run** against the panelling references: 5.5 → 6.3 → 6.6 over three rounds; open flaws:
+      console capitals, default moulding legibility, leaf cleanup, a field-edge moulding.
 - [ ] Panelling, later: shared toolkit split out once Strapwork needs it; gensheet critic rounds and recreations P1–P8;
       carved ornament stays with Stamp / Glyph / Rosette over the Bosses output.
 - [x] **Strapwork** (`strapwork.ts`; network in `strapNet.ts`, tested in `tests/layers/generators/strapNet.test.ts`):
@@ -344,8 +344,7 @@ with them), and optionally a Wood layer on Multiply for the grain. One preset pe
       parallel, fan (curl and S-bend), leaf, spiral, crescents, petals, following the free edge — grooves as isolines with
       analytic gradients, band-limited, optionally reeded; a second kind of cell (gaps, lenses) with its own motif and
       level; turned cells. 0.35 s cold compile.
-- [x] **Critic run**: three rounds each against the geometric (G1–G9) and organic (O1–O8) references; hand-over in the
-      private critic folder.
+- [x] **Critic run**: three rounds each against the geometric (G1–G9) and organic (O1–O8) references.
 - [x] **Second pass** (two more critic rounds each; Panelling 6.6 → 7.2, Strapwork 6.4 → 7.0, Carving 6.5 → 7.1).
       Panelling: console and carved-block capitals, sunk pilaster panels, U flutes with a minimum spacing, 3 px default
       members with 1 px quirks that keep a bead's width, a face-edge bead, smoother leaves, egg and dart as ovals and

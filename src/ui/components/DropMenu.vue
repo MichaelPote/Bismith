@@ -292,7 +292,7 @@
 		position: relative;
 		display: inline-flex;
 	}
-	/* Menu-bar items are plates, not keys (Forged keys v2): open goes Sunken with a flat Ember 400 underline. */
+	/* Menu-bar items are plates, not keys (Forged keys): open goes Sunken with a flat Ember 400 underline. */
 	.menu-trigger {
 		position: relative;
 		height: 28px;
